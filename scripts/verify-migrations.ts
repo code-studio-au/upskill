@@ -46,8 +46,22 @@ try {
   const missing = expectedTables.filter((table) => !actual.has(table));
   if (missing.length > 0)
     throw new Error(`Missing tables: ${missing.join(", ")}`);
+
+  const expectedIndexes = [
+    "course_status_idx",
+    "course_version_published_lookup_idx",
+  ];
+  const indexResult = await sql<{
+    indexname: string;
+  }>`select indexname from pg_indexes where schemaname = 'public'`.execute(db);
+  const actualIndexes = new Set(indexResult.rows.map((row) => row.indexname));
+  const missingIndexes = expectedIndexes.filter(
+    (index) => !actualIndexes.has(index),
+  );
+  if (missingIndexes.length > 0)
+    throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
   console.log(
-    `Verified ${migrations.length} migrations and ${expectedTables.length} foundational tables`,
+    `Verified ${String(migrations.length)} migrations, ${String(expectedTables.length)} foundational tables and ${String(expectedIndexes.length)} catalog indexes`,
   );
 } finally {
   await db.destroy();

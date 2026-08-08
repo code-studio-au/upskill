@@ -2,13 +2,21 @@ import {
   Badge,
   Button,
   Container,
+  Divider,
   Group,
+  Paper,
   Stack,
   Text,
   Title,
 } from "@mantine/core";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { getCourse } from "#/server/functions/catalog";
+import classes from "./courses.$slug.module.css";
+
+const audCurrencyFormatter = new Intl.NumberFormat("en-AU", {
+  style: "currency",
+  currency: "AUD",
+});
 
 export const Route = createFileRoute("/courses/$slug")({
   ssr: true,
@@ -24,6 +32,9 @@ export const Route = createFileRoute("/courses/$slug")({
           ? `${loaderData.title} — Upskill`
           : "Course — Upskill",
       },
+      ...(loaderData
+        ? [{ name: "description", content: loaderData.summary }]
+        : []),
     ],
   }),
   component: CourseDetail,
@@ -31,21 +42,123 @@ export const Route = createFileRoute("/courses/$slug")({
 
 function CourseDetail() {
   const course = Route.useLoaderData();
+  const standardPrice = audCurrencyFormatter.format(course.priceCents / 100);
+  const currentPrice = audCurrencyFormatter.format(
+    (course.salePriceCents ?? course.priceCents) / 100,
+  );
+
   return (
-    <Container size="sm" py={{ base: 48, sm: 80 }}>
-      <Stack gap="xl">
-        <Group>
-          <Badge>{course.topic}</Badge>
-          <Text c="dimmed">{course.durationMinutes} minutes</Text>
-        </Group>
-        <Title order={1}>{course.title}</Title>
-        <Text size="xl" c="dimmed">
-          {course.summary}
-        </Text>
-        <Button size="lg">
-          Enrol for ${(course.priceCents / 100).toFixed(2)} AUD
-        </Button>
-      </Stack>
+    <Container size="lg" className={classes.page}>
+      <div className={classes.layout}>
+        <Stack gap="xl" className={classes.content}>
+          <Stack gap="md">
+            <Group>
+              <Badge variant="light">{course.topic}</Badge>
+              <Text c="dimmed">{course.durationMinutes} minutes</Text>
+              <Text c="dimmed">{course.modules.length} modules</Text>
+            </Group>
+            <Title order={1} className={classes.title}>
+              {course.title}
+            </Title>
+            <Text size="xl" c="dimmed" className={classes.summary}>
+              {course.summary}
+            </Text>
+          </Stack>
+
+          <section aria-labelledby="course-overview-heading">
+            <Stack gap="sm">
+              <Title order={2} id="course-overview-heading">
+                About this course
+              </Title>
+              <Text className={classes.description}>{course.description}</Text>
+            </Stack>
+          </section>
+
+          <Divider />
+
+          <section aria-labelledby="course-modules-heading">
+            <Stack gap="md">
+              <Title order={2} id="course-modules-heading">
+                What you will complete
+              </Title>
+              <ol className={classes.moduleList}>
+                {course.modules.map((module) => (
+                  <li key={`${module.phase}-${module.title}`}>
+                    <div>
+                      <Text fw={700}>{module.title}</Text>
+                      <Text size="sm" c="dimmed">
+                        {module.phase.replaceAll("-", " ")} ·{" "}
+                        {module.durationMinutes} minutes
+                      </Text>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            </Stack>
+          </section>
+
+          {course.prerequisites.length === 0 ? null : (
+            <section aria-labelledby="course-prerequisites-heading">
+              <Stack gap="sm">
+                <Title order={2} id="course-prerequisites-heading">
+                  Prerequisites
+                </Title>
+                <ul className={classes.plainList}>
+                  {course.prerequisites.map((prerequisite) => (
+                    <li key={prerequisite}>{prerequisite}</li>
+                  ))}
+                </ul>
+              </Stack>
+            </section>
+          )}
+
+          {course.accreditations.length === 0 ? null : (
+            <section aria-labelledby="course-accreditation-heading">
+              <Stack gap="sm">
+                <Title order={2} id="course-accreditation-heading">
+                  Accreditation and CPD
+                </Title>
+                <ul className={classes.plainList}>
+                  {course.accreditations.map((accreditation) => (
+                    <li key={accreditation.name}>
+                      {accreditation.name}
+                      {accreditation.cpdPoints === null
+                        ? ""
+                        : ` — ${String(accreditation.cpdPoints)} CPD ${accreditation.cpdPoints === 1 ? "point" : "points"}`}
+                    </li>
+                  ))}
+                </ul>
+              </Stack>
+            </section>
+          )}
+        </Stack>
+
+        <aside aria-label="Course enrolment" className={classes.enrolment}>
+          <Paper withBorder radius="lg" p="xl">
+            <Stack gap="lg">
+              <div>
+                {course.salePriceCents === null ? null : (
+                  <Text c="dimmed" td="line-through">
+                    {standardPrice}
+                  </Text>
+                )}
+                <Text fw={800} className={classes.price}>
+                  {currentPrice}
+                </Text>
+                <Text size="sm" c="dimmed">
+                  AUD, including applicable GST
+                </Text>
+              </div>
+              <Button size="lg">Enrol in this course</Button>
+              {course.hasCompletionCertificate ? (
+                <Text size="sm" c="dimmed">
+                  Includes a downloadable completion certificate.
+                </Text>
+              ) : null}
+            </Stack>
+          </Paper>
+        </aside>
+      </div>
     </Container>
   );
 }

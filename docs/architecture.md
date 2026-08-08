@@ -77,6 +77,9 @@ builds once and promotes the same content-addressed artifact.
 - WCAG-oriented keyboard, focus, contrast and touch-target behaviour.
 - Typed, size-limited and normalized server boundaries.
 - Fresh-database and upgrade migration verification.
-- Deterministic client bundle budgets.
+- Deterministic bundle budgets enforced after every production build: total
+  client assets, largest JavaScript chunk, root preload gzip cost and maximum
+  incremental route JavaScript/CSS gzip cost. Route budgets force feature code
+  behind route boundaries before the root bundle becomes difficult to split.
 - Chromium, Firefox and WebKit critical-path smoke coverage.
 - Structured request, audit and deployment identity logging.

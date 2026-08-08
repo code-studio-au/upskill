@@ -8,7 +8,7 @@ export const getFeaturedCourses = createServerFn({ method: "GET" }).handler(
   async () => {
     const { findFeaturedCourses } =
       await import("#/server/catalog/catalog.server");
-    return findFeaturedCourses();
+    return await findFeaturedCourses();
   },
 );
 
@@ -16,7 +16,7 @@ export const searchCourses = createServerFn({ method: "GET" })
   .validator(catalogSearchSchema)
   .handler(async ({ data }) => {
     const { findCourses } = await import("#/server/catalog/catalog.server");
-    return findCourses(data);
+    return await findCourses(data);
   });
 
 export const getCourse = createServerFn({ method: "GET" })
@@ -24,5 +24,5 @@ export const getCourse = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const { findCourseBySlug } =
       await import("#/server/catalog/catalog.server");
-    return findCourseBySlug(data.slug);
+    return await findCourseBySlug(data.slug);
   });

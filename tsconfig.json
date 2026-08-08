@@ -24,13 +24,18 @@
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "strict": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
+    "forceConsistentCasingInFileNames": true,
     "noImplicitOverride": true,
+    "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "useUnknownInCatchVariables": true,
     "skipLibCheck": true
   }
 }

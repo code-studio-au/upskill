@@ -15,12 +15,18 @@ Mantine, Better Auth, PostgreSQL and AWS.
 ```sh
 cp .env.example .env.local
 pnpm install
+docker compose up -d
+pnpm run db:migrate
+pnpm run db:seed:catalog
 pnpm dev
 ```
 
-The application does not require a database for the initial public catalog
-fixture. Database commands use `DATABASE_URL` and can target the PostgreSQL
-service in `docker-compose.yml`.
+The local stack follows the Projex pattern: PostgreSQL plus MinIO with durable
+data under the ignored `.local/` directory. MinIO exposes its S3 API on port
+9020 and console on 9021, and initializes private quarantine, learning-content,
+resource and certificate buckets. The public catalog reads immutable published
+course versions from PostgreSQL. `db:seed:catalog` installs deterministic local
+and browser-test data; it is never run by production deployment.
 
 ## Verification
 

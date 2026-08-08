@@ -2,16 +2,17 @@ import "@mantine/core/styles.css";
 import "@mantine/notifications/styles.css";
 import "#/styles/global.css";
 
-import { Button, Container, Group, Text, Title } from "@mantine/core";
+import { Button, Container, Group, Text } from "@mantine/core";
 import {
   HeadContent,
   Link,
-  Outlet,
   Scripts,
   createRootRoute,
 } from "@tanstack/react-router";
 import { AppProviders } from "#/app/AppProviders";
 import classes from "#/app/AppShell.module.css";
+import { NotFoundPage } from "#/app/NotFoundPage";
+import { RootOutlet } from "#/app/RootOutlet";
 
 export const Route = createRootRoute({
   head: () => ({
@@ -73,26 +74,5 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <Scripts />
       </body>
     </html>
-  );
-}
-
-function RootOutlet() {
-  return <Outlet />;
-}
-
-function NotFoundPage() {
-  return (
-    <Container size="sm" py={{ base: 64, sm: 96 }}>
-      <Text c="indigo.7" fw={700}>
-        404
-      </Text>
-      <Title order={1}>That page is not here</Title>
-      <Text c="dimmed" mt="md">
-        The address may have changed, or the content may no longer be available.
-      </Text>
-      <Button component={Link} to="/courses" mt="xl">
-        Browse courses
-      </Button>
-    </Container>
   );
 }

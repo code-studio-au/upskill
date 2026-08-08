@@ -2,8 +2,7 @@
   "sameVersion": [
     ["@mantine/core", "@mantine/hooks", "@mantine/notifications"],
     ["better-auth", "@better-auth/stripe"],
-    ["react", "react-dom"],
-    ["@aws-sdk/client-s3", "@aws-sdk/client-sesv2", "@aws-sdk/client-sqs"]
+    ["react", "react-dom"]
   ],
   "exactDependencies": true,
   "releaseAgeDelay": false

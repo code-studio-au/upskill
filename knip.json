@@ -11,14 +11,7 @@
       ],
       "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
       "ignore": ["src/server/db/migrations/*.ts"],
-      "ignoreDependencies": [
-        "@aws-sdk/client-s3",
-        "@aws-sdk/client-sesv2",
-        "@aws-sdk/client-sqs",
-        "@aws-sdk/cloudfront-signer",
-        "postcss-preset-mantine",
-        "postcss-simple-vars"
-      ]
+      "ignoreDependencies": ["postcss-preset-mantine", "postcss-simple-vars"]
     },
     "deploy/cdk": {
       "entry": ["bin/upskill.ts", "test/**/*.ts"],

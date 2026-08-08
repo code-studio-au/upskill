@@ -3,11 +3,16 @@ import { Link } from "@tanstack/react-router";
 import type { CourseSummary } from "./catalog.schema";
 import classes from "./CourseCard.module.css";
 
+const audCurrencyFormatter = new Intl.NumberFormat("en-AU", {
+  style: "currency",
+  currency: "AUD",
+});
+
 export function CourseCard({ course }: { course: CourseSummary }) {
-  const dollars = new Intl.NumberFormat("en-AU", {
-    style: "currency",
-    currency: "AUD",
-  }).format(course.priceCents / 100);
+  const standardPrice = audCurrencyFormatter.format(course.priceCents / 100);
+  const currentPrice = audCurrencyFormatter.format(
+    (course.salePriceCents ?? course.priceCents) / 100,
+  );
 
   return (
     <Card withBorder padding="lg" radius="lg" className={classes.card}>
@@ -23,7 +28,14 @@ export function CourseCard({ course }: { course: CourseSummary }) {
           {course.summary}
         </Text>
         <Group justify="space-between">
-          <Text fw={700}>{dollars}</Text>
+          <Group gap="xs" className={classes.price}>
+            {course.salePriceCents === null ? null : (
+              <Text size="sm" c="dimmed" td="line-through">
+                {standardPrice}
+              </Text>
+            )}
+            <Text fw={700}>{currentPrice}</Text>
+          </Group>
           <Link
             to="/courses/$slug"
             params={{ slug: course.slug }}
