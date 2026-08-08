@@ -1,0 +1,68 @@
+.page {
+  padding-block: clamp(2.5rem, 7vw, 5rem);
+}
+
+.layout {
+  display: grid;
+  gap: clamp(2rem, 6vw, 5rem);
+}
+
+.content {
+  min-width: 0;
+}
+
+.title {
+  max-width: 18ch;
+  font-size: clamp(2.25rem, 7vw, 4.5rem);
+  line-height: 1;
+}
+
+.summary,
+.description {
+  max-width: 45rem;
+}
+
+.description {
+  white-space: pre-line;
+}
+
+.moduleList,
+.plainList {
+  margin: 0;
+  padding-inline-start: 1.4rem;
+}
+
+.moduleList {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.moduleList li {
+  padding-inline-start: var(--mantine-spacing-xs);
+}
+
+.plainList {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+}
+
+.enrolment {
+  min-width: 0;
+}
+
+.price {
+  font-size: clamp(2rem, 8vw, 3rem);
+  line-height: 1.1;
+}
+
+@media (min-width: 62em) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+    align-items: start;
+  }
+
+  .enrolment {
+    position: sticky;
+    top: 6rem;
+  }
+}

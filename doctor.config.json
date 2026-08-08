@@ -1,0 +1,12 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "ignore": {
+    "files": [
+      ".output/**",
+      "coverage/**",
+      "deploy/cdk/cdk.out/**",
+      "dist/server/**",
+      "src/routeTree.gen.ts"
+    ]
+  }
+}

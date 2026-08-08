@@ -47,11 +47,24 @@ jobs:
   browser-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:18.3-alpine
+        env:
+          POSTGRES_DB: upskill
+          POSTGRES_USER: upskill
+          POSTGRES_PASSWORD: upskill
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U upskill -d upskill"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
       APP_ENV: test
       APP_ORIGIN: http://127.0.0.1:3000
       LEARNING_ORIGIN: http://127.0.0.1:3001
-      DATABASE_URL: postgresql://unused:unused@127.0.0.1:5432/unused
+      DATABASE_URL: postgresql://upskill:upskill@127.0.0.1:5432/upskill
       BETTER_AUTH_SECRET: ci-placeholder-secret-01234567890123456789
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_placeholder
@@ -65,6 +78,8 @@ jobs:
           node-version-file: .node-version
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm run db:migrate
+      - run: pnpm run db:seed:catalog
       - run: pnpm exec playwright install --with-deps chromium firefox webkit
       - run: pnpm run test:e2e
 

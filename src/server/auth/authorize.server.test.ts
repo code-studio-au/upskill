@@ -7,18 +7,20 @@ import {
 
 describe("authorization primitives", () => {
   it("rejects a role below the required rank", () => {
-    expect(() => requireOrganizationRole("learner", "manager")).toThrow(
-      AuthorizationError,
-    );
+    expect(() => {
+      requireOrganizationRole("learner", "manager");
+    }).toThrow(AuthorizationError);
   });
 
   it("accepts a stronger role", () => {
-    expect(() => requireOrganizationRole("owner", "manager")).not.toThrow();
+    expect(() => {
+      requireOrganizationRole("owner", "manager");
+    }).not.toThrow();
   });
 
   it("prevents cross-organization resource access", () => {
-    expect(() => assertResourceOrganization("org-a", "org-b")).toThrow(
-      AuthorizationError,
-    );
+    expect(() => {
+      assertResourceOrganization("org-a", "org-b");
+    }).toThrow(AuthorizationError);
   });
 });

@@ -6,6 +6,13 @@ const failures = [];
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(root, "package.json"), "utf8"),
 );
+const tsconfig = JSON.parse(
+  fs.readFileSync(path.join(root, "tsconfig.json"), "utf8"),
+);
+const eslintConfig = fs.readFileSync(
+  path.join(root, "eslint.config.js"),
+  "utf8",
+);
 const csp = fs.readFileSync(
   path.join(root, "src/server/http/security-headers.ts"),
   "utf8",
@@ -17,6 +24,34 @@ if (
   failures.push("Node runtime pin must be 26.7.0");
 if (packageJson.engines.node !== ">=26 <27")
   failures.push("Node engine must reject non-26 runtimes");
+for (const option of [
+  "strict",
+  "exactOptionalPropertyTypes",
+  "forceConsistentCasingInFileNames",
+  "noFallthroughCasesInSwitch",
+  "noImplicitOverride",
+  "noImplicitReturns",
+  "noUncheckedIndexedAccess",
+  "noUncheckedSideEffectImports",
+  "noUnusedLocals",
+  "noUnusedParameters",
+  "useUnknownInCatchVariables",
+]) {
+  if (tsconfig.compilerOptions[option] !== true)
+    failures.push(`TypeScript compiler option must remain enabled: ${option}`);
+}
+for (const option of ["allowUnreachableCode", "allowUnusedLabels"]) {
+  if (tsconfig.compilerOptions[option] !== false)
+    failures.push(`TypeScript compiler option must remain disabled: ${option}`);
+}
+if (!eslintConfig.includes("tseslint.configs.strictTypeChecked"))
+  failures.push("ESLint must use the strict type-checked TypeScript preset");
+if (packageJson.devDependencies["react-doctor"] !== "0.9.7")
+  failures.push("React Doctor must remain exact-pinned");
+if (!packageJson.scripts.doctor.includes("--blocking error"))
+  failures.push("React Doctor must fail verification on error diagnostics");
+if (!packageJson.scripts["verify:app:static"].includes("pnpm run doctor"))
+  failures.push("React Doctor must remain part of application verification");
 for (const forbidden of [
   "package-lock.json",
   "yarn.lock",

@@ -17,6 +17,10 @@
   flex: 1;
 }
 
+.price {
+  min-width: 0;
+}
+
 .link {
   text-decoration: none;
 }

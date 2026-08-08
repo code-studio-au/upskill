@@ -15,9 +15,9 @@ import { searchCourses } from "#/server/functions/catalog";
 import classes from "./courses.index.module.css";
 
 export const Route = createFileRoute("/courses/")({
-  ssr: true,
   validateSearch: catalogSearchSchema,
   loaderDeps: ({ search }) => search,
+  ssr: true,
   loader: ({ deps }) => searchCourses({ data: deps }),
   component: CourseCatalog,
 });
@@ -48,14 +48,16 @@ function CourseCatalog() {
           <TextInput
             label="Search"
             value={query}
-            onChange={(event) => setQuery(event.currentTarget.value)}
+            onChange={(event) => {
+              setQuery(event.currentTarget.value);
+            }}
           />
           <NativeSelect
             label="Topic"
             value={topic}
-            onChange={(event) =>
-              setTopic(event.currentTarget.value as typeof topic)
-            }
+            onChange={(event) => {
+              setTopic(event.currentTarget.value as typeof topic);
+            }}
             data={[
               { value: "all", label: "All topics" },
               { value: "leadership", label: "Leadership" },
