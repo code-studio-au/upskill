@@ -1,0 +1,34 @@
+.section {
+  padding-block: clamp(2.5rem, 7vw, 5rem);
+}
+
+.filters {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-lg);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-white);
+}
+
+.grid {
+  display: grid;
+  gap: var(--mantine-spacing-lg);
+}
+
+@media (min-width: 48em) {
+  .filters {
+    grid-template-columns: minmax(0, 1fr) 14rem auto;
+    align-items: end;
+  }
+
+  .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 75em) {
+  .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

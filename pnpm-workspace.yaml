@@ -1,0 +1,12 @@
+packages:
+  - deploy/cdk
+
+# Upskill deliberately takes current compatible dependency cohorts without a
+# release-age delay. Integrity, audit and coherent-version gates remain strict.
+# pnpm's blanket trust-downgrade mode is intentionally not enabled because it
+# currently rejects established transitive packages that predate provenance.
+blockExoticSubdeps: true
+allowBuilds:
+  "@parcel/watcher": true
+  esbuild: true
+  lightningcss: true
