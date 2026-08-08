@@ -1,0 +1,48 @@
+.header {
+  position: sticky;
+  z-index: 10;
+  top: 0;
+  border-bottom: 1px solid var(--mantine-color-gray-3);
+  background: color-mix(in srgb, var(--mantine-color-white) 92%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.headerInner {
+  display: flex;
+  min-height: 4rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+}
+
+.brand {
+  color: var(--mantine-color-indigo-8);
+  font-size: var(--mantine-font-size-xl);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-xs);
+}
+
+.main {
+  min-height: calc(100dvh - 8rem);
+}
+
+.footer {
+  border-top: 1px solid var(--mantine-color-gray-3);
+  padding-block: var(--mantine-spacing-lg);
+}
+
+@media (max-width: 36em) {
+  .headerInner {
+    min-height: 3.5rem;
+  }
+
+  .dashboardLink {
+    display: none;
+  }
+}

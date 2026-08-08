@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "entry": [
+        "src/server.ts",
+        "src/start.ts",
+        "src/routes/**/*.{ts,tsx}",
+        "e2e/**/*.ts",
+        "postcss.config.cjs"
+      ],
+      "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
+      "ignore": ["src/server/db/migrations/*.ts"],
+      "ignoreDependencies": [
+        "@aws-sdk/client-s3",
+        "@aws-sdk/client-sesv2",
+        "@aws-sdk/client-sqs",
+        "@aws-sdk/cloudfront-signer",
+        "postcss-preset-mantine",
+        "postcss-simple-vars"
+      ]
+    },
+    "deploy/cdk": {
+      "entry": ["bin/upskill.ts", "test/**/*.ts"],
+      "project": ["bin/**/*.ts", "lib/**/*.ts", "test/**/*.ts"],
+      "ignoreDependencies": ["tsx"]
+    }
+  }
+}
