@@ -6,6 +6,7 @@ import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
+import { logServerEvent } from "#/server/logging/server-logger";
 import { stripeClient } from "#/server/stripe/stripe-client.server";
 
 const ENROLLMENT_DURATION_DAYS = 365;
@@ -146,8 +147,14 @@ export async function createCourseCheckout(
         .execute()
         .catch(() => undefined);
     }
-    console.error("Course Checkout creation failed", {
-      error: error instanceof Error ? error.name : "UnknownError",
+    logServerEvent({
+      level: "error",
+      event: "checkout.creation_failed",
+      error,
+      fields: {
+        actorUserId: user.id,
+        ...(orderId ? { orderId } : {}),
+      },
     });
     return { status: "unavailable" };
   }

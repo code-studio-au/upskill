@@ -8,10 +8,12 @@ import {
   type ScormLaunchResult,
   type ScormProgressInput,
 } from "#/features/scorm/scorm.schema";
+import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
+import { logServerEvent } from "#/server/logging/server-logger";
 import {
   findEffectiveModuleCompletion,
   findLatestEnrollmentProgressOverride,
@@ -46,7 +48,8 @@ export async function createScormLaunch(
   modulePosition: number,
   user: AuthenticatedUser,
 ): Promise<Exclude<ScormLaunchResult, { status: "unauthenticated" }>> {
-  return await getDatabase()
+  let launchedAttemptId: string | undefined;
+  const result = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
       const enrollment = await transaction
@@ -160,19 +163,7 @@ export async function createScormLaunch(
           createdAt: now,
         })
         .execute();
-      await transaction
-        .insertInto("audit_event")
-        .values({
-          id: randomUUID(),
-          actorUserId: user.id,
-          action: "scorm.attempt_launch_issued",
-          subjectType: "scorm_attempt",
-          subjectId: attempt.id,
-          reason: null,
-          metadata: { enrollmentId: enrollment.id, modulePosition },
-          createdAt: now,
-        })
-        .execute();
+      launchedAttemptId = attempt.id;
 
       const launchUrl = new URL(
         "/api/scorm/launch",
@@ -181,6 +172,18 @@ export async function createScormLaunch(
       launchUrl.searchParams.set("token", token);
       return { status: "ready", launchUrl: launchUrl.toString() } as const;
     });
+  if (result.status === "ready" && launchedAttemptId)
+    logServerEvent({
+      level: "info",
+      event: "scorm.attempt_launch_issued",
+      fields: {
+        actorUserId: user.id,
+        entityType: "scorm_attempt",
+        entityId: launchedAttemptId,
+        enrollmentId,
+      },
+    });
+  return result;
 }
 
 export interface ScormLaunchExchange {
@@ -346,19 +349,14 @@ async function completeEnrollmentIfReady(
     .returning("id")
     .executeTakeFirst();
   if (!result) return;
-  await transaction
-    .insertInto("audit_event")
-    .values({
-      id: randomUUID(),
-      actorUserId: null,
-      action: "enrollment.scorm_completed",
-      subjectType: "enrollment",
-      subjectId: attempt.enrollmentId,
-      reason: null,
-      metadata: { courseVersionId: attempt.courseVersionId },
-      createdAt: now,
-    })
-    .execute();
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: null,
+    action: "enrollment.scorm_completed",
+    subjectType: "enrollment",
+    subjectId: attempt.enrollmentId,
+    metadata: { courseVersionId: attempt.courseVersionId },
+    createdAt: now,
+  });
   await transaction
     .insertInto("outbox_event")
     .values({

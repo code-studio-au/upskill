@@ -3,8 +3,10 @@ import "@tanstack/react-start/server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import { sql } from "kysely";
+import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
+import { logServerEvent } from "#/server/logging/server-logger";
 import {
   processScormArchive,
   SCORM_ARCHIVE_LIMITS,
@@ -123,23 +125,18 @@ async function registerScormPackage(
           publishedAt: null,
         })
         .execute();
-      await transaction
-        .insertInto("audit_event")
-        .values({
-          id: `audit_${randomUUID()}`,
-          actorUserId: input.actorUserId,
-          action: "scorm.package_uploaded",
-          subjectType: "scorm_package_version",
-          subjectId: input.packageVersionId,
-          reason: null,
-          metadata: {
-            packageId,
-            version: nextVersion,
-            sourceBytes: input.sourceBytes,
-            sha256: input.sha256,
-          },
-        })
-        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: input.actorUserId,
+        action: "scorm.package_uploaded",
+        subjectType: "scorm_package_version",
+        subjectId: input.packageVersionId,
+        metadata: {
+          packageId,
+          version: nextVersion,
+          sourceBytes: input.sourceBytes,
+          sha256: input.sha256,
+        },
+      });
       await transaction
         .insertInto("outbox_event")
         .values({
@@ -273,10 +270,11 @@ export async function stageScormPackageStream(
     try {
       await deleteObject(env.S3_QUARANTINE_BUCKET, quarantineKey);
     } catch (cleanupError) {
-      console.error("Failed to clean up incomplete SCORM upload", {
-        packageVersionId,
-        error:
-          cleanupError instanceof Error ? cleanupError.name : "UnknownError",
+      logServerEvent({
+        level: "error",
+        event: "scorm.upload_cleanup_failed",
+        error: cleanupError,
+        fields: { packageVersionId },
       });
     }
     throw error;
@@ -287,7 +285,7 @@ async function markRejected(
   packageVersionId: string,
   error: ScormPackageValidationError,
 ): Promise<void> {
-  await getDatabase()
+  const changed = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
       const current = await transaction
@@ -296,7 +294,8 @@ async function markRejected(
         .where("id", "=", packageVersionId)
         .forUpdate()
         .executeTakeFirstOrThrow();
-      if (current.status === "ready" || current.status === "rejected") return;
+      if (current.status === "ready" || current.status === "rejected")
+        return false;
       await transaction
         .updateTable("scorm_package_version")
         .set({
@@ -307,18 +306,13 @@ async function markRejected(
         })
         .where("id", "=", packageVersionId)
         .executeTakeFirstOrThrow();
-      await transaction
-        .insertInto("audit_event")
-        .values({
-          id: `audit_${randomUUID()}`,
-          actorUserId: null,
-          action: "scorm.package_rejected",
-          subjectType: "scorm_package_version",
-          subjectId: packageVersionId,
-          reason: error.message,
-          metadata: { code: error.code },
-        })
-        .execute();
+      return true;
+    });
+  if (changed)
+    logServerEvent({
+      level: "warn",
+      event: "scorm.package_rejected",
+      fields: { packageVersionId, code: error.code },
     });
 }
 
@@ -370,39 +364,37 @@ export async function ingestScormPackageVersion(
         },
       });
     });
-    await database.transaction().execute(async (transaction) => {
-      const current = await transaction
-        .selectFrom("scorm_package_version")
-        .select("status")
-        .where("id", "=", packageVersionId)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      if (current.status === "ready" || current.status === "rejected") return;
-      await transaction
-        .updateTable("scorm_package_version")
-        .set({
-          status: "ready",
-          launchPath: manifest.launchPath,
-          manifest,
-          failureCode: null,
-          processedAt: new Date(),
-          publishedAt: new Date(),
-        })
-        .where("id", "=", packageVersionId)
-        .executeTakeFirstOrThrow();
-      await transaction
-        .insertInto("audit_event")
-        .values({
-          id: `audit_${randomUUID()}`,
-          actorUserId: null,
-          action: "scorm.package_ready",
-          subjectType: "scorm_package_version",
-          subjectId: packageVersionId,
-          reason: null,
-          metadata: manifest,
-        })
-        .execute();
-    });
+    const changed = await database
+      .transaction()
+      .execute(async (transaction) => {
+        const current = await transaction
+          .selectFrom("scorm_package_version")
+          .select("status")
+          .where("id", "=", packageVersionId)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        if (current.status === "ready" || current.status === "rejected")
+          return false;
+        await transaction
+          .updateTable("scorm_package_version")
+          .set({
+            status: "ready",
+            launchPath: manifest.launchPath,
+            manifest,
+            failureCode: null,
+            processedAt: new Date(),
+            publishedAt: new Date(),
+          })
+          .where("id", "=", packageVersionId)
+          .executeTakeFirstOrThrow();
+        return true;
+      });
+    if (changed)
+      logServerEvent({
+        level: "info",
+        event: "scorm.package_ready",
+        fields: { packageVersionId },
+      });
     return { status: "ready", manifest };
   } catch (error) {
     if (error instanceof ScormPackageValidationError) {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
+import { withAuditMaintenance } from "./audit-maintenance";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -36,68 +37,70 @@ const database = new Kysely<Database>({
 });
 
 async function cleanup(): Promise<void> {
-  await database
-    .deleteFrom("outbox_event")
-    .where("aggregateId", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("audit_event")
-    .where((expression) =>
-      expression.or([
-        expression("subjectId", "=", ids.enrollment),
-        expression("metadata", "@>", { enrollmentId: ids.enrollment }),
-      ]),
-    )
-    .execute();
-  const attempts = await database
-    .selectFrom("scorm_attempt")
-    .select("id")
-    .where("enrollmentId", "=", ids.enrollment)
-    .execute();
-  const attemptIds = attempts.map((attempt) => attempt.id);
-  if (attemptIds.length > 0) {
+  await withAuditMaintenance(database, async (database) => {
     await database
-      .deleteFrom("scorm_attempt_session")
-      .where("attemptId", "in", attemptIds)
-      .execute();
-    await database
-      .deleteFrom("scorm_launch_token")
-      .where("attemptId", "in", attemptIds)
+      .deleteFrom("outbox_event")
+      .where("aggregateId", "=", ids.enrollment)
       .execute();
     await database
       .deleteFrom("audit_event")
-      .where("subjectId", "in", attemptIds)
+      .where((expression) =>
+        expression.or([
+          expression("subjectId", "=", ids.enrollment),
+          expression("metadata", "@>", { enrollmentId: ids.enrollment }),
+        ]),
+      )
       .execute();
-  }
-  await database
-    .deleteFrom("scorm_attempt")
-    .where("enrollmentId", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("course_version_module")
-    .where("courseVersionId", "=", ids.courseVersion)
-    .execute();
-  await database
-    .deleteFrom("enrollment")
-    .where("id", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("scorm_package_version")
-    .where("id", "=", ids.packageVersion)
-    .execute();
-  await database
-    .deleteFrom("scorm_package")
-    .where("id", "=", ids.package)
-    .execute();
-  await database
-    .deleteFrom("course_version")
-    .where("id", "=", ids.courseVersion)
-    .execute();
-  await database.deleteFrom("course").where("id", "=", ids.course).execute();
-  await database
-    .deleteFrom("user")
-    .where("id", "in", [ids.user, ids.anotherUser])
-    .execute();
+    const attempts = await database
+      .selectFrom("scorm_attempt")
+      .select("id")
+      .where("enrollmentId", "=", ids.enrollment)
+      .execute();
+    const attemptIds = attempts.map((attempt) => attempt.id);
+    if (attemptIds.length > 0) {
+      await database
+        .deleteFrom("scorm_attempt_session")
+        .where("attemptId", "in", attemptIds)
+        .execute();
+      await database
+        .deleteFrom("scorm_launch_token")
+        .where("attemptId", "in", attemptIds)
+        .execute();
+      await database
+        .deleteFrom("audit_event")
+        .where("subjectId", "in", attemptIds)
+        .execute();
+    }
+    await database
+      .deleteFrom("scorm_attempt")
+      .where("enrollmentId", "=", ids.enrollment)
+      .execute();
+    await database
+      .deleteFrom("course_version_module")
+      .where("courseVersionId", "=", ids.courseVersion)
+      .execute();
+    await database
+      .deleteFrom("enrollment")
+      .where("id", "=", ids.enrollment)
+      .execute();
+    await database
+      .deleteFrom("scorm_package_version")
+      .where("id", "=", ids.packageVersion)
+      .execute();
+    await database
+      .deleteFrom("scorm_package")
+      .where("id", "=", ids.package)
+      .execute();
+    await database
+      .deleteFrom("course_version")
+      .where("id", "=", ids.courseVersion)
+      .execute();
+    await database.deleteFrom("course").where("id", "=", ids.course).execute();
+    await database
+      .deleteFrom("user")
+      .where("id", "in", [ids.user, ids.anotherUser])
+      .execute();
+  });
 }
 
 try {

@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SCORM_MAX_ARCHIVE_BYTES } from "#/features/scorm/scorm-package.schema";
 import { getAdministratorRequest } from "#/server/admin/admin-access.server";
 import { getServerEnv } from "#/server/env.server";
+import { logServerEvent } from "#/server/logging/server-logger";
 import { ScormPackageValidationError } from "#/server/scorm/scorm-package-archive";
 import {
   adminScormRemovalInputSchema,
@@ -117,8 +118,11 @@ export const Route = createFileRoute("/api/admin/scorm-packages")({
               error.code,
               error.code === "archive_too_large" ? 413 : 400,
             );
-          console.error("Administrator SCORM upload failed", {
-            error: error instanceof Error ? error.name : "UnknownError",
+          logServerEvent({
+            level: "error",
+            event: "scorm.admin_upload_failed",
+            error,
+            fields: { actorUserId: administrator.user.id },
           });
           return errorResponse("upload_failed", 500);
         }

@@ -3,6 +3,7 @@ import {
   constructStripeEvent,
   handleStripeEvent,
 } from "#/server/checkout/stripe-webhook.server";
+import { logServerEvent } from "#/server/logging/server-logger";
 
 const MAX_WEBHOOK_BYTES = 1_048_576;
 const responseHeaders = { "Cache-Control": "no-store" };
@@ -53,8 +54,10 @@ export const Route = createFileRoute("/api/stripe/webhook")({
             { headers: responseHeaders },
           );
         } catch (error) {
-          console.error("Stripe webhook processing failed", {
-            error: error instanceof Error ? error.name : "UnknownError",
+          logServerEvent({
+            level: "error",
+            event: "stripe.webhook_processing_failed",
+            error,
           });
           return Response.json(
             { error: "webhook_processing_failed" },

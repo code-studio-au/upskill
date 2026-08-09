@@ -7,6 +7,9 @@ test("public catalogue is responsive, accessible and CSP-hardened", async ({
 }) => {
   const response = await page.goto("/");
   expect(response?.status()).toBe(200);
+  expect(response?.headers()["x-request-id"]).toMatch(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+  );
   const policy = response?.headers()["content-security-policy"] ?? "";
   expect(policy).toContain("script-src-attr 'none'");
   expect(policy).not.toMatch(/script-src [^;]*unsafe-inline/);

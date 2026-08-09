@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { getServerEnv } from "#/server/env.server";
+import { logServerEvent } from "#/server/logging/server-logger";
 import {
   changeQueueMessageVisibility,
   deleteQueueMessage,
@@ -79,13 +80,12 @@ export async function consumeNextScormMessage(): Promise<ScormConsumerOutcome> {
         received.receiptHandle,
         env.SQS_VISIBILITY_TIMEOUT_SECONDS,
       ).catch((error: unknown) => {
-        console.error(
-          JSON.stringify({
-            event: "worker.visibility_heartbeat_failed",
-            messageId: received.messageId,
-            error: errorMessage(error),
-          }),
-        );
+        logServerEvent({
+          level: "error",
+          event: "worker.visibility_heartbeat_failed",
+          error,
+          fields: { messageId: received.messageId },
+        });
       });
     }, heartbeatSeconds * 1_000);
     heartbeat.unref();

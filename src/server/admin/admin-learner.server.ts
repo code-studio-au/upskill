@@ -12,6 +12,7 @@ import type {
   AdminProgressOverrideInput,
 } from "#/features/admin/admin.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
+import { enqueueAuditLogProjection } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import {
   findEffectiveModuleCompletion,
@@ -464,30 +465,22 @@ export async function applyAdminProgressOverride(
           createdAt: now,
         })
         .execute();
-      await transaction
-        .insertInto("audit_event")
-        .values({
-          id: randomUUID(),
+      await enqueueAuditLogProjection(
+        transaction,
+        {
+          eventId: overrideId,
+          event: "learning.progress_overridden",
           actorUserId: administrator.id,
-          action: "learning.progress_overridden",
-          subjectType: input.scope,
-          subjectId:
+          entityType: input.scope,
+          entityId:
             input.scope === "module"
               ? `${enrollment.id}:${String(input.modulePosition)}`
               : enrollment.id,
-          reason: null,
-          metadata: {
-            overrideId,
-            enrollmentId: enrollment.id,
-            learnerUserId: enrollment.userId,
-            courseVersionId: enrollment.courseVersionId,
-            modulePosition: input.modulePosition,
-            previousState,
-            state: input.state,
-          },
-          createdAt: now,
-        })
-        .execute();
+          aggregateId: enrollment.id,
+          outcome: "succeeded",
+        },
+        now,
+      );
 
       let desiredCompletion: "completed" | "incomplete" | null = null;
       if (input.scope === "enrollment") {

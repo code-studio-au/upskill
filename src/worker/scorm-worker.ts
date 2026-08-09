@@ -1,6 +1,7 @@
 import { destroyDatabase } from "#/server/db/database.server";
 import { dispatchNextOutboxEvent } from "#/server/outbox/outbox-dispatcher.server";
 import { destroyQueueClient } from "#/server/queue/sqs.server";
+import { logServerEvent } from "#/server/logging/server-logger";
 import { consumeNextScormMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
 
 const shutdown = new AbortController();
@@ -19,19 +20,39 @@ try {
     const dispatch = await dispatchNextOutboxEvent();
     const consumption = await consumeNextScormMessage();
     if (dispatch.status !== "no-work")
-      console.log(JSON.stringify({ event: "worker.outbox", ...dispatch }));
+      logServerEvent({
+        level: dispatch.status === "retry" ? "warn" : "info",
+        event: "worker.outbox_processed",
+        fields: {
+          status: dispatch.status,
+          eventId: dispatch.eventId,
+          ...(dispatch.status === "dispatched"
+            ? { messageId: dispatch.messageId }
+            : {}),
+        },
+      });
     if (consumption.status !== "no-work")
-      console.log(JSON.stringify({ event: "worker.scorm", ...consumption }));
+      logServerEvent({
+        level: consumption.status === "retry" ? "warn" : "info",
+        event: "worker.scorm_processed",
+        fields: {
+          status: consumption.status,
+          messageId: consumption.messageId,
+          receiveCount: consumption.receiveCount,
+          ...(consumption.status === "processed"
+            ? {
+                eventId: consumption.eventId,
+                packageVersionId: consumption.packageVersionId,
+                outcome: consumption.outcome.status,
+              }
+            : {}),
+        },
+      });
     if (dispatch.status === "no-work" && consumption.status === "no-work")
       await pause(1_000);
   }
 } catch (error) {
-  console.error(
-    JSON.stringify({
-      event: "worker.fatal",
-      error: error instanceof Error ? error.message : "Unknown worker error",
-    }),
-  );
+  logServerEvent({ level: "error", event: "worker.fatal", error });
   process.exitCode = 1;
 } finally {
   destroyQueueClient();

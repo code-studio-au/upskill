@@ -57,6 +57,7 @@ export class ApplicationStack extends Stack {
       generateSecretString: {
         secretStringTemplate: JSON.stringify({
           APP_ENV: props.config.name,
+          UPSKILL_LOG_LEVEL: "info",
           APP_ORIGIN: `https://${props.config.name}.example.invalid`,
           LEARNING_ORIGIN: `https://learn-${props.config.name}.example.invalid`,
           STRIPE_SECRET_KEY: "sk_live_REPLACE_BEFORE_DEPLOY",

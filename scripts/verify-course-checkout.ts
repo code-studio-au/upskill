@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
+import { withAuditMaintenance } from "./audit-maintenance";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { CheckoutSessionSnapshot } from "#/server/checkout/checkout-fulfillment.server";
 import type { Database } from "#/server/db/types";
@@ -30,60 +31,70 @@ const database = new Kysely<Database>({
 });
 
 async function cleanup(): Promise<void> {
-  const enrollments = await database
-    .selectFrom("enrollment")
-    .select("id")
-    .where("userId", "=", ids.user)
-    .execute();
-  const enrollmentIds = enrollments.map((row) => row.id);
-  if (enrollmentIds.length > 0) {
+  await withAuditMaintenance(database, async (database) => {
+    const enrollments = await database
+      .selectFrom("enrollment")
+      .select("id")
+      .where("userId", "=", ids.user)
+      .execute();
+    const enrollmentIds = enrollments.map((row) => row.id);
+    if (enrollmentIds.length > 0) {
+      await database
+        .deleteFrom("outbox_event")
+        .where("aggregateId", "in", enrollmentIds)
+        .execute();
+      await database
+        .deleteFrom("audit_event")
+        .where("subjectId", "in", enrollmentIds)
+        .execute();
+    }
     await database
       .deleteFrom("outbox_event")
-      .where("aggregateId", "in", enrollmentIds)
+      .where("aggregateId", "in", [
+        ids.paidOrder,
+        ids.mismatchOrder,
+        ids.failedOrder,
+      ])
       .execute();
     await database
       .deleteFrom("audit_event")
-      .where("subjectId", "in", enrollmentIds)
+      .where("subjectId", "in", [
+        ids.paidOrder,
+        ids.mismatchOrder,
+        ids.failedOrder,
+      ])
       .execute();
-  }
-  await database
-    .deleteFrom("outbox_event")
-    .where("aggregateId", "in", [
-      ids.paidOrder,
-      ids.mismatchOrder,
-      ids.failedOrder,
-    ])
-    .execute();
-  await database
-    .deleteFrom("audit_event")
-    .where("subjectId", "in", [
-      ids.paidOrder,
-      ids.mismatchOrder,
-      ids.failedOrder,
-    ])
-    .execute();
-  await database
-    .deleteFrom("enrollment")
-    .where("userId", "=", ids.user)
-    .execute();
-  await database
-    .deleteFrom("access_grant")
-    .where("orderId", "in", [ids.paidOrder, ids.mismatchOrder, ids.failedOrder])
-    .execute();
-  await database
-    .deleteFrom("order_item")
-    .where("orderId", "in", [ids.paidOrder, ids.mismatchOrder, ids.failedOrder])
-    .execute();
-  await database
-    .deleteFrom("order")
-    .where("id", "in", [ids.paidOrder, ids.mismatchOrder, ids.failedOrder])
-    .execute();
-  await database
-    .deleteFrom("course_version")
-    .where("id", "=", ids.version)
-    .execute();
-  await database.deleteFrom("course").where("id", "=", ids.course).execute();
-  await database.deleteFrom("user").where("id", "=", ids.user).execute();
+    await database
+      .deleteFrom("enrollment")
+      .where("userId", "=", ids.user)
+      .execute();
+    await database
+      .deleteFrom("access_grant")
+      .where("orderId", "in", [
+        ids.paidOrder,
+        ids.mismatchOrder,
+        ids.failedOrder,
+      ])
+      .execute();
+    await database
+      .deleteFrom("order_item")
+      .where("orderId", "in", [
+        ids.paidOrder,
+        ids.mismatchOrder,
+        ids.failedOrder,
+      ])
+      .execute();
+    await database
+      .deleteFrom("order")
+      .where("id", "in", [ids.paidOrder, ids.mismatchOrder, ids.failedOrder])
+      .execute();
+    await database
+      .deleteFrom("course_version")
+      .where("id", "=", ids.version)
+      .execute();
+    await database.deleteFrom("course").where("id", "=", ids.course).execute();
+    await database.deleteFrom("user").where("id", "=", ids.user).execute();
+  });
 }
 
 function sessionFor(
@@ -257,7 +268,7 @@ try {
     .select(sql<number>`count(*)::integer`.as("count"))
     .where("aggregateId", "=", enrollment.id)
     .executeTakeFirstOrThrow();
-  assert.equal(outboxCount.count, 1);
+  assert.equal(outboxCount.count, 2);
 
   const { findCheckoutStatus } =
     await import("#/server/checkout/checkout-status.server");

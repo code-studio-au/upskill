@@ -109,6 +109,15 @@ redelivered, and poison jobs move to a dead-letter queue after five receives.
 ElasticMQ provides the same queue API, visibility and redrive boundary in local
 Docker development; AWS SQS is the deployed transport.
 
+Business and security audit records commit with their domain changes in an
+append-only PostgreSQL ledger. Each retained record also enqueues a sanitized,
+versioned log projection. The worker emits that projection only after commit,
+using its stable event identifier so duplicate delivery can be collapsed by an
+observability sink. Reconstructable SCORM lifecycle and launch telemetry is
+logged operationally instead of duplicating domain state. Structured JSON from
+the web and worker services flows to journald; a future Datadog Agent collects
+that stream without introducing Datadog calls into request or mutation paths.
+
 ## AWS topology
 
 CDK defines staging and production instances of separated network, data,
@@ -129,5 +138,6 @@ content-addressed artifact.
   incremental route JavaScript/CSS gzip cost. Route budgets force feature code
   behind route boundaries before the root bundle becomes difficult to split.
 - Chromium, Firefox and WebKit critical-path smoke coverage.
-- Database-backed append-only domain audit events. Centralized structured
-  operational, request and deployment identity logging remains planned.
+- Transactional append-only audit records with committed structured-log
+  projections, sanitized operational/error events, request correlation and
+  deployment identity output suitable for journald and future Datadog intake.

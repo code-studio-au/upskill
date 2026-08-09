@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Kysely, PostgresDialect } from "kysely";
 import { Pool } from "pg";
+import { withAuditMaintenance } from "./audit-maintenance";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -40,48 +41,50 @@ const database = new Kysely<Database>({
 });
 
 async function cleanup(): Promise<void> {
-  await database
-    .deleteFrom("outbox_event")
-    .where("aggregateId", "=", ids.unusedPackageVersion)
-    .execute();
-  await database
-    .deleteFrom("audit_event")
-    .where("subjectId", "=", ids.unusedPackageVersion)
-    .execute();
-  await database
-    .deleteFrom("scorm_attempt")
-    .where("id", "=", ids.attempt)
-    .execute();
-  await database
-    .deleteFrom("course_version_module")
-    .where("courseVersionId", "=", ids.version)
-    .execute();
-  await database
-    .deleteFrom("enrollment")
-    .where("id", "=", ids.enrollment)
-    .execute();
-  await database.deleteFrom("order").where("id", "=", ids.order).execute();
-  await database
-    .deleteFrom("scorm_package_version")
-    .where("id", "in", [ids.packageVersion, ids.unusedPackageVersion])
-    .execute();
-  await database
-    .deleteFrom("scorm_package")
-    .where("id", "in", [ids.package, ids.unusedPackage])
-    .execute();
-  await database
-    .deleteFrom("course_version")
-    .where("id", "=", ids.version)
-    .execute();
-  await database.deleteFrom("course").where("id", "=", ids.course).execute();
-  await database
-    .deleteFrom("platform_admin")
-    .where("userId", "=", ids.administrator)
-    .execute();
-  await database
-    .deleteFrom("user")
-    .where("id", "in", [ids.administrator, ids.learner])
-    .execute();
+  await withAuditMaintenance(database, async (database) => {
+    await database
+      .deleteFrom("outbox_event")
+      .where("aggregateId", "=", ids.unusedPackageVersion)
+      .execute();
+    await database
+      .deleteFrom("audit_event")
+      .where("subjectId", "=", ids.unusedPackageVersion)
+      .execute();
+    await database
+      .deleteFrom("scorm_attempt")
+      .where("id", "=", ids.attempt)
+      .execute();
+    await database
+      .deleteFrom("course_version_module")
+      .where("courseVersionId", "=", ids.version)
+      .execute();
+    await database
+      .deleteFrom("enrollment")
+      .where("id", "=", ids.enrollment)
+      .execute();
+    await database.deleteFrom("order").where("id", "=", ids.order).execute();
+    await database
+      .deleteFrom("scorm_package_version")
+      .where("id", "in", [ids.packageVersion, ids.unusedPackageVersion])
+      .execute();
+    await database
+      .deleteFrom("scorm_package")
+      .where("id", "in", [ids.package, ids.unusedPackage])
+      .execute();
+    await database
+      .deleteFrom("course_version")
+      .where("id", "=", ids.version)
+      .execute();
+    await database.deleteFrom("course").where("id", "=", ids.course).execute();
+    await database
+      .deleteFrom("platform_admin")
+      .where("userId", "=", ids.administrator)
+      .execute();
+    await database
+      .deleteFrom("user")
+      .where("id", "in", [ids.administrator, ids.learner])
+      .execute();
+  });
 }
 
 try {
@@ -330,6 +333,7 @@ try {
     .selectFrom("outbox_event")
     .select("topic")
     .where("aggregateId", "=", ids.unusedPackageVersion)
+    .where("topic", "=", "scorm.package_delete_requested")
     .executeTakeFirstOrThrow();
   assert.equal(cleanupRequest.topic, "scorm.package_delete_requested");
 

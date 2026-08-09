@@ -241,10 +241,24 @@ interface OutboxEventTable {
   createdAt: Timestamp;
 }
 
+export type AuditEventAction =
+  | "enrollment.access_code_redeemed"
+  | "enrollment.purchased"
+  | "enrollment.scorm_completed"
+  | "learning.progress_overridden"
+  | "order.checkout_failed"
+  | "order.checkout_paid"
+  | "order.paid_existing_enrollment"
+  | "scorm.attempt_launch_issued"
+  | "scorm.package_ready"
+  | "scorm.package_rejected"
+  | "scorm.package_uploaded"
+  | "scorm.package_version_removed";
+
 interface AuditEventTable {
   id: string;
   actorUserId: string | null;
-  action: string;
+  action: AuditEventAction;
   subjectType: string;
   subjectId: string;
   reason: string | null;

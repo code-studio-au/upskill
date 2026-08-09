@@ -1,6 +1,11 @@
 import "@tanstack/react-start/server-only";
 
+import {
+  AUDIT_LOG_TOPIC,
+  parseAuditLogProjection,
+} from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
+import { logAuditEvent } from "#/server/logging/server-logger";
 import {
   parseScormWorkMessage,
   SCORM_DELETION_TOPIC,
@@ -12,6 +17,7 @@ const OUTBOX_LEASE_MILLISECONDS = 15 * 60 * 1_000;
 
 export type OutboxDispatchOutcome =
   | { status: "no-work" }
+  | { status: "logged"; eventId: string }
   | { status: "dispatched"; eventId: string; messageId: string }
   | { status: "retry"; eventId: string };
 
@@ -21,7 +27,11 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
     const event = await transaction
       .selectFrom("outbox_event")
       .select(["id", "topic", "aggregateId", "payload", "attempts"])
-      .where("topic", "in", [SCORM_INGESTION_TOPIC, SCORM_DELETION_TOPIC])
+      .where("topic", "in", [
+        AUDIT_LOG_TOPIC,
+        SCORM_INGESTION_TOPIC,
+        SCORM_DELETION_TOPIC,
+      ])
       .where("processedAt", "is", null)
       .where("availableAt", "<=", new Date())
       .orderBy("createdAt")
@@ -43,6 +53,32 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
   if (!claimed) return { status: "no-work" };
 
   try {
+    if (claimed.topic === AUDIT_LOG_TOPIC) {
+      const projection = parseAuditLogProjection(claimed.payload);
+      if (projection.aggregateId !== claimed.aggregateId)
+        throw new Error("Outbox aggregate and audit projection do not match");
+      logAuditEvent({
+        event: projection.event,
+        fields: {
+          eventId: projection.eventId,
+          actorUserId: projection.actorUserId,
+          entityType: projection.entityType,
+          entityId: projection.entityId,
+          aggregateId: projection.aggregateId,
+          outcome: projection.outcome,
+          reasonCode: projection.reasonCode,
+          affectedCount: projection.affectedCount,
+        },
+      });
+      await database
+        .updateTable("outbox_event")
+        .set({ processedAt: new Date() })
+        .where("id", "=", claimed.id)
+        .where("processedAt", "is", null)
+        .where("attempts", "=", claimed.claimAttempt)
+        .execute();
+      return { status: "logged", eventId: projection.eventId };
+    }
     const message = parseScormWorkMessage(
       JSON.stringify({
         version: 1,
