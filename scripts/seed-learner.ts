@@ -1,6 +1,7 @@
 import { hashPassword } from "better-auth/crypto";
-import { Kysely, PostgresDialect } from "kysely";
+import { Kysely, PostgresDialect, type Transaction } from "kysely";
 import { Pool } from "pg";
+import { digestAccessCode } from "#/server/access/access-code.server";
 import type { Database } from "#/server/db/types";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -8,6 +9,9 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const password = process.env.SEED_LEARNER_PASSWORD;
 if (!password || password.length < 12)
   throw new Error("SEED_LEARNER_PASSWORD must contain at least 12 characters");
+const accessCodePepper = process.env.ACCESS_CODE_PEPPER;
+if (!accessCodePepper || accessCodePepper.length < 32)
+  throw new Error("ACCESS_CODE_PEPPER must contain at least 32 characters");
 
 const learner = {
   id: "user_local_learner",
@@ -15,6 +19,66 @@ const learner = {
   name: "Alex Learner",
   email: "learner@example.com",
 };
+const redeemer = {
+  id: "user_local_redeemer",
+  accountId: "account_local_redeemer",
+  name: "Riley Redeemer",
+  email: "redeemer@example.com",
+};
+
+async function seedCredentialUser(
+  transaction: Transaction<Database>,
+  profile: typeof learner,
+  passwordHash: string,
+): Promise<string> {
+  await transaction
+    .insertInto("user")
+    .values({
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      emailVerified: true,
+      image: null,
+      stripeCustomerId: null,
+    })
+    .onConflict((conflict) =>
+      conflict.column("email").doUpdateSet({
+        name: profile.name,
+        emailVerified: true,
+        updatedAt: new Date(),
+      }),
+    )
+    .execute();
+
+  const user = await transaction
+    .selectFrom("user")
+    .select("id")
+    .where("email", "=", profile.email)
+    .executeTakeFirstOrThrow();
+  await transaction
+    .insertInto("account")
+    .values({
+      id: profile.accountId,
+      accountId: user.id,
+      providerId: "credential",
+      userId: user.id,
+      accessToken: null,
+      refreshToken: null,
+      idToken: null,
+      accessTokenExpiresAt: null,
+      refreshTokenExpiresAt: null,
+      scope: null,
+      password: passwordHash,
+    })
+    .onConflict((conflict) =>
+      conflict.columns(["providerId", "accountId"]).doUpdateSet({
+        password: passwordHash,
+        updatedAt: new Date(),
+      }),
+    )
+    .execute();
+  return user.id;
+}
 
 const database = new Kysely<Database>({
   dialect: new PostgresDialect({
@@ -25,53 +89,12 @@ const database = new Kysely<Database>({
 try {
   const passwordHash = await hashPassword(password);
   await database.transaction().execute(async (transaction) => {
-    await transaction
-      .insertInto("user")
-      .values({
-        id: learner.id,
-        name: learner.name,
-        email: learner.email,
-        emailVerified: true,
-        image: null,
-        stripeCustomerId: null,
-      })
-      .onConflict((conflict) =>
-        conflict.column("email").doUpdateSet({
-          name: learner.name,
-          emailVerified: true,
-          updatedAt: new Date(),
-        }),
-      )
-      .execute();
-
-    const user = await transaction
-      .selectFrom("user")
-      .select("id")
-      .where("email", "=", learner.email)
-      .executeTakeFirstOrThrow();
-
-    await transaction
-      .insertInto("account")
-      .values({
-        id: learner.accountId,
-        accountId: user.id,
-        providerId: "credential",
-        userId: user.id,
-        accessToken: null,
-        refreshToken: null,
-        idToken: null,
-        accessTokenExpiresAt: null,
-        refreshTokenExpiresAt: null,
-        scope: null,
-        password: passwordHash,
-      })
-      .onConflict((conflict) =>
-        conflict.columns(["providerId", "accountId"]).doUpdateSet({
-          password: passwordHash,
-          updatedAt: new Date(),
-        }),
-      )
-      .execute();
+    const userId = await seedCredentialUser(transaction, learner, passwordHash);
+    const redeemerId = await seedCredentialUser(
+      transaction,
+      redeemer,
+      passwordHash,
+    );
 
     await transaction
       .insertInto("organization")
@@ -89,7 +112,7 @@ try {
       .insertInto("organization_member")
       .values({
         organizationId: "organization_example",
-        userId: user.id,
+        userId,
         role: "learner",
       })
       .onConflict((conflict) =>
@@ -100,12 +123,37 @@ try {
       .execute();
 
     await transaction
+      .insertInto("organization_member")
+      .values({
+        organizationId: "organization_example",
+        userId: redeemerId,
+        role: "learner",
+      })
+      .onConflict((conflict) =>
+        conflict.columns(["organizationId", "userId"]).doUpdateSet({
+          role: "learner",
+        }),
+      )
+      .execute();
+
+    await transaction
+      .deleteFrom("enrollment")
+      .where("userId", "=", redeemerId)
+      .where("courseVersionId", "=", "course_version_psychological_safety_1")
+      .execute();
+
+    await transaction
       .insertInto("access_grant")
       .values({
         id: "access_grant_example_psychological_safety",
         organizationId: "organization_example",
         orderId: null,
         courseVersionId: "course_version_psychological_safety_1",
+        accessCodeDigest: digestAccessCode(
+          "EXAMPLE-LEARN-2026",
+          accessCodePepper,
+        ),
+        enrollmentDurationDays: 365,
         quantity: 100,
         redeemed: 0,
         expiresAt: new Date("2027-12-31T23:59:59.000Z"),
@@ -113,6 +161,12 @@ try {
       .onConflict((conflict) =>
         conflict.column("id").doUpdateSet({
           quantity: 100,
+          redeemed: 0,
+          accessCodeDigest: digestAccessCode(
+            "EXAMPLE-LEARN-2026",
+            accessCodePepper,
+          ),
+          enrollmentDurationDays: 365,
           expiresAt: new Date("2027-12-31T23:59:59.000Z"),
         }),
       )
@@ -131,7 +185,7 @@ try {
       .insertInto("enrollment")
       .values({
         id: "enrollment_local_leading_change",
-        userId: user.id,
+        userId,
         courseVersionId: "course_version_leading_through_change_1",
         accessGrantId: null,
         status: "active",
@@ -154,7 +208,7 @@ try {
       .insertInto("enrollment")
       .values({
         id: "enrollment_local_responsible_ai",
-        userId: user.id,
+        userId,
         courseVersionId: "course_version_responsible_ai_1",
         accessGrantId: null,
         status: "completed",
@@ -175,7 +229,7 @@ try {
   });
 
   console.log(
-    `Seeded verified learner ${learner.email} and learner access data`,
+    `Seeded verified learners ${learner.email} and ${redeemer.email} with learner access data`,
   );
 } finally {
   await database.destroy();

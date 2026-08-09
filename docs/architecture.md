@@ -51,6 +51,9 @@ append-only overrides with actor, reason and timestamp.
 Orders and contracts create access grants. Atomic redemptions create enrolments.
 Verified email domains may restrict discovery and redemption. Stripe confirms
 payment, while Upskill remains authoritative for fulfilment.
+Access codes are normalized and stored only as HMAC digests protected by an
+independent generated secret. Redemption locks the grant row and commits the
+capacity update, enrolment, audit event and outbox event in one transaction.
 
 ## Content and asynchronous work
 

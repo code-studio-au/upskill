@@ -1,0 +1,151 @@
+import "@tanstack/react-start/server-only";
+
+import { randomUUID } from "node:crypto";
+import type { AccessCodeRedemptionResult } from "#/features/access/access-code.schema";
+import type { AuthenticatedUser } from "#/server/auth/session.server";
+import { getDatabase } from "#/server/db/database.server";
+import { getServerEnv } from "#/server/env.server";
+import { digestAccessCode } from "./access-code.server";
+
+function emailDomain(email: string): string | null {
+  const separator = email.lastIndexOf("@");
+  if (separator <= 0 || separator === email.length - 1) return null;
+  return email.slice(separator + 1).toLocaleLowerCase("en-AU");
+}
+
+function addUtcDays(date: Date, days: number): Date {
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1_000);
+}
+
+export async function redeemAccessCode(
+  code: string,
+  user: AuthenticatedUser,
+): Promise<AccessCodeRedemptionResult> {
+  const digest = digestAccessCode(code, getServerEnv().ACCESS_CODE_PEPPER);
+  if (!digest) return { status: "invalid" };
+
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const now = new Date();
+      const grant = await transaction
+        .selectFrom("access_grant")
+        .select([
+          "id",
+          "courseVersionId",
+          "quantity",
+          "redeemed",
+          "expiresAt",
+          "enrollmentDurationDays",
+        ])
+        .where("accessCodeDigest", "=", digest)
+        .forUpdate()
+        .executeTakeFirst();
+
+      if (!grant) return { status: "invalid" };
+
+      const course = await transaction
+        .selectFrom("course_version")
+        .innerJoin("course", "course.id", "course_version.courseId")
+        .select(["course.title", "course.status", "course_version.publishedAt"])
+        .where("course_version.id", "=", grant.courseVersionId)
+        .executeTakeFirst();
+      if (
+        !course ||
+        course.status !== "published" ||
+        course.publishedAt === null
+      ) {
+        return { status: "invalid" };
+      }
+
+      const restrictions = await transaction
+        .selectFrom("access_grant_domain")
+        .select("domain")
+        .where("accessGrantId", "=", grant.id)
+        .execute();
+      if (restrictions.length > 0) {
+        const domain = emailDomain(user.email);
+        if (
+          !user.emailVerified ||
+          !domain ||
+          !restrictions.some((restriction) => restriction.domain === domain)
+        ) {
+          return { status: "invalid" };
+        }
+      }
+
+      const existing = await transaction
+        .selectFrom("enrollment")
+        .select("id")
+        .where("userId", "=", user.id)
+        .where("courseVersionId", "=", grant.courseVersionId)
+        .executeTakeFirst();
+      if (existing) {
+        return { status: "already-enrolled", courseTitle: course.title };
+      }
+      if (
+        grant.redeemed >= grant.quantity ||
+        (grant.expiresAt && grant.expiresAt <= now)
+      ) {
+        return { status: "invalid" };
+      }
+
+      const enrollmentId = randomUUID();
+      await transaction
+        .insertInto("enrollment")
+        .values({
+          id: enrollmentId,
+          userId: user.id,
+          courseVersionId: grant.courseVersionId,
+          accessGrantId: grant.id,
+          status: "active",
+          enrolledAt: now,
+          completedAt: null,
+          expiresAt: addUtcDays(now, grant.enrollmentDurationDays),
+          removedAt: null,
+        })
+        .execute();
+      await transaction
+        .updateTable("access_grant")
+        .set((expression) => ({
+          redeemed: expression("redeemed", "+", 1),
+        }))
+        .where("id", "=", grant.id)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .insertInto("audit_event")
+        .values({
+          id: randomUUID(),
+          actorUserId: user.id,
+          action: "enrollment.access_code_redeemed",
+          subjectType: "enrollment",
+          subjectId: enrollmentId,
+          reason: null,
+          metadata: {
+            accessGrantId: grant.id,
+            courseVersionId: grant.courseVersionId,
+          },
+          createdAt: now,
+        })
+        .execute();
+      await transaction
+        .insertInto("outbox_event")
+        .values({
+          id: randomUUID(),
+          topic: "enrollment.created",
+          aggregateId: enrollmentId,
+          payload: {
+            enrollmentId,
+            userId: user.id,
+            courseVersionId: grant.courseVersionId,
+            source: "access-code",
+          },
+          availableAt: now,
+          processedAt: null,
+          createdAt: now,
+        })
+        .execute();
+
+      return { status: "enrolled", courseTitle: course.title };
+    });
+}

@@ -1,0 +1,20 @@
+.controls {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.codeInput {
+  font-family: var(--mantine-font-family-monospace);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.submit {
+  align-self: end;
+}
+
+@media (min-width: 48em) {
+  .controls {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

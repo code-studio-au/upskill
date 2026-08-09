@@ -19,3 +19,7 @@ webhook are authoritative.
 Every private server function authorizes the active application user and target
 resource. Domain access requires a verified email. Payment redirects never
 fulfil orders without a matching webhook transaction.
+
+Bulk access codes are never stored in plaintext. An independent Secrets Manager
+HMAC key protects normalized code lookups, and grant capacity is serialized with
+a database row lock before enrolment, audit and outbox writes commit together.
