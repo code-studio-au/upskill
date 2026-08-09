@@ -38,8 +38,9 @@
     "db:seed:catalog": "tsx scripts/seed-catalog.ts",
     "db:seed:learner": "tsx scripts/seed-learner.ts",
     "db:verify:migrations": "tsx scripts/verify-migrations.ts",
+    "db:verify:access-codes": "tsx scripts/verify-access-code-redemption.ts",
     "db:generate-types": "kysely-codegen --dialect postgres --out-file src/server/db/generated.d.ts",
-    "verify:db:gate": "pnpm run db:migrate && pnpm run db:verify:migrations",
+    "verify:db:gate": "pnpm run db:migrate && pnpm run db:verify:migrations && pnpm run db:verify:access-codes",
     "verify:cdk": "pnpm --dir deploy/cdk run verify",
     "verify:ci": "pnpm run verify:app && pnpm run verify:cdk && pnpm run verify:db:gate"
   },

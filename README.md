@@ -28,8 +28,9 @@ data under the ignored `.local/` directory. MinIO exposes its S3 API on port
 resource and certificate buckets. The public catalog reads immutable published
 course versions from PostgreSQL. The two `db:seed:*` commands install
 deterministic local and browser-test data; they are never run by production
-deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD` and creates a
-verified `learner@example.com` account.
+deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD` and
+`ACCESS_CODE_PEPPER`; it creates verified `learner@example.com` and
+`redeemer@example.com` accounts plus the local code `EXAMPLE-LEARN-2026`.
 
 ## Verification
 
@@ -44,8 +45,9 @@ See [the architecture specification](docs/architecture.md) and
 
 Before the first AWS release, populate the application configuration secret
 output by the CDK application stack with the real application/learning origins
-and Stripe keys. EC2 combines that secret with the generated RDS secret into a
-private systemd environment file on boot and at every atomic deployment.
+and Stripe keys. EC2 combines that secret with the separately generated
+access-code pepper and RDS secrets into a private systemd environment file on
+boot and at every atomic deployment.
 Set the corresponding GitHub environment's `AWS_DEPLOY_ROLE_ARN` and
 `ARTIFACT_BUCKET` secrets from the deployment-identity and storage stack
 outputs.

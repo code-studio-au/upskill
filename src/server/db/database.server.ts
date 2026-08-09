@@ -18,3 +18,10 @@ export function getDatabase(): Kysely<Database> {
   });
   return database;
 }
+
+export async function destroyDatabase(): Promise<void> {
+  if (!database) return;
+  const current = database;
+  database = undefined;
+  await current.destroy();
+}

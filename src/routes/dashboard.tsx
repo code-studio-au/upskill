@@ -9,6 +9,7 @@ import {
   Title,
 } from "@mantine/core";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { AccessCodeRedemptionForm } from "#/features/access/AccessCodeRedemptionForm";
 import { SignOutButton } from "#/features/auth/SignOutButton";
 import type { LearnerCourse } from "#/features/learner/learner.schema";
 import { getLearnerDashboard } from "#/server/functions/learner";
@@ -65,6 +66,8 @@ function DashboardPage() {
           </div>
           <SignOutButton />
         </div>
+
+        <AccessCodeRedemptionForm />
 
         <CourseSection title="Continue learning" courses={current} />
 

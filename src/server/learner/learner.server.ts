@@ -64,7 +64,7 @@ export async function findLearnerDashboard(
 
   const domain = emailDomain(user.email);
   const availableCourses: Array<AvailableCourse> = [];
-  if (domain) {
+  if (user.emailVerified && domain) {
     const availableRows = await getDatabase()
       .selectFrom("access_grant_domain")
       .innerJoin(
@@ -92,6 +92,7 @@ export async function findLearnerDashboard(
       .where("access_grant_domain.domain", "=", domain)
       .where("course.status", "=", "published")
       .where("course_version.publishedAt", "is not", null)
+      .where("access_grant.accessCodeDigest", "is not", null)
       .where("enrollment.id", "is", null)
       .whereRef("access_grant.redeemed", "<", "access_grant.quantity")
       .where((expression) =>
@@ -116,5 +117,9 @@ export async function findLearnerDashboard(
     }
   }
 
-  return { user, courses, availableCourses };
+  return {
+    user: { id: user.id, name: user.name, email: user.email },
+    courses,
+    availableCourses,
+  };
 }

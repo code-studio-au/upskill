@@ -7,6 +7,7 @@ export interface AuthenticatedUser {
   id: string;
   name: string;
   email: string;
+  emailVerified: boolean;
 }
 
 export async function getRequestUser(): Promise<AuthenticatedUser | null> {
@@ -17,5 +18,6 @@ export async function getRequestUser(): Promise<AuthenticatedUser | null> {
     id: session.user.id,
     name: session.user.name,
     email: session.user.email.toLocaleLowerCase("en-AU"),
+    emailVerified: session.user.emailVerified,
   };
 }

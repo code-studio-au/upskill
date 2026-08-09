@@ -111,6 +111,8 @@ interface AccessGrantTable {
   organizationId: string | null;
   orderId: string | null;
   courseVersionId: string;
+  accessCodeDigest: string | null;
+  enrollmentDurationDays: number;
   quantity: number;
   redeemed: Generated<number>;
   expiresAt: Timestamp | null;

@@ -52,11 +52,14 @@ test("learner dashboard requires a server-validated session", async ({
   ).toBeVisible();
 });
 
-test("verified learner sees enrolments and domain-matched access", async ({
+test("verified learners see entitlements and can redeem access", async ({
   page,
-}) => {
+}, testInfo) => {
+  const exercisesRedemption = testInfo.project.name === "chromium-mobile";
   await page.goto("/login");
-  await page.getByLabel("Email address").fill("learner@example.com");
+  await page
+    .getByLabel("Email address")
+    .fill(exercisesRedemption ? "redeemer@example.com" : "learner@example.com");
   await page
     .locator('input[name="password"]')
     .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
@@ -66,13 +69,43 @@ test("verified learner sees enrolments and domain-matched access", async ({
   await expect(
     page.getByRole("heading", { name: "My learning" }),
   ).toBeVisible();
-  await expect(page.getByText("Leading through change")).toBeVisible();
-  await expect(page.getByText("Responsible AI foundations")).toBeVisible();
+  if (!exercisesRedemption) {
+    await expect(page.getByText("Leading through change")).toBeVisible();
+    await expect(page.getByText("Responsible AI foundations")).toBeVisible();
+  }
+
+  const alreadyEnrolled =
+    exercisesRedemption &&
+    (await page.getByRole("link", { name: "Continue course" }).count()) > 0;
+  if (!alreadyEnrolled) {
+    await expect(
+      page.getByRole("heading", {
+        name: "Available through your organisation",
+      }),
+    ).toBeVisible();
+    await expect(page.getByText("Psychological safety at work")).toBeVisible();
+    await expect(page.getByText("Eligible for example.com")).toBeVisible();
+  }
+
+  if (!exercisesRedemption) return;
+
+  const code = page.getByLabel("Access code");
+  await code.fill("NOT-A-REAL-CODE");
+  await page.getByRole("button", { name: "Apply access code" }).click();
+  await expect(page.getByText("Code not accepted")).toBeVisible();
+
+  await code.fill("EXAMPLE-LEARN-2026");
+  await page.getByRole("button", { name: "Apply access code" }).click();
   await expect(
-    page.getByRole("heading", {
-      name: "Available through your organisation",
-    }),
+    page.getByText(/Access code applied|Already enrolled/),
   ).toBeVisible();
-  await expect(page.getByText("Psychological safety at work")).toBeVisible();
-  await expect(page.getByText("Eligible for example.com")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Continue learning" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Continue course" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Psychological safety at work" }),
+  ).toBeVisible();
 });

@@ -49,6 +49,7 @@ try {
     throw new Error(`Missing tables: ${missing.join(", ")}`);
 
   const expectedIndexes = [
+    "access_grant_code_digest_uq",
     "access_grant_domain_lookup_idx",
     "course_status_idx",
     "course_version_published_lookup_idx",
