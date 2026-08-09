@@ -28,6 +28,7 @@ try {
 
   const expectedTables = [
     "access_grant",
+    "access_grant_domain",
     "audit_event",
     "course",
     "course_version",
@@ -48,8 +49,10 @@ try {
     throw new Error(`Missing tables: ${missing.join(", ")}`);
 
   const expectedIndexes = [
+    "access_grant_domain_lookup_idx",
     "course_status_idx",
     "course_version_published_lookup_idx",
+    "enrollment_user_status_idx",
   ];
   const indexResult = await sql<{
     indexname: string;
@@ -61,7 +64,7 @@ try {
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
   console.log(
-    `Verified ${String(migrations.length)} migrations, ${String(expectedTables.length)} foundational tables and ${String(expectedIndexes.length)} catalog indexes`,
+    `Verified ${String(migrations.length)} migrations, ${String(expectedTables.length)} foundational tables and ${String(expectedIndexes.length)} required indexes`,
   );
 } finally {
   await db.destroy();

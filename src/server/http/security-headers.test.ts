@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   applySecurityHeaders,
   buildContentSecurityPolicy,
@@ -25,5 +25,16 @@ describe("content security policy", () => {
     expect(headers.get("x-content-type-options")).toBe("nosniff");
     expect(headers.get("x-frame-options")).toBe("DENY");
     expect(headers.get("permissions-policy")).toContain("camera=()");
+    expect(headers.has("strict-transport-security")).toBe(false);
+  });
+
+  it("adds HSTS only in HTTPS deployment environments", () => {
+    vi.stubEnv("APP_ENV", "production");
+    const headers = new Headers();
+    applySecurityHeaders(headers, "nonce");
+    expect(headers.get("strict-transport-security")).toContain(
+      "includeSubDomains",
+    );
+    vi.unstubAllEnvs();
   });
 });

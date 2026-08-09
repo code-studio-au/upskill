@@ -18,6 +18,7 @@ pnpm install
 docker compose up -d
 pnpm run db:migrate
 pnpm run db:seed:catalog
+pnpm run db:seed:learner
 pnpm dev
 ```
 
@@ -25,8 +26,10 @@ The local stack follows the Projex pattern: PostgreSQL plus MinIO with durable
 data under the ignored `.local/` directory. MinIO exposes its S3 API on port
 9020 and console on 9021, and initializes private quarantine, learning-content,
 resource and certificate buckets. The public catalog reads immutable published
-course versions from PostgreSQL. `db:seed:catalog` installs deterministic local
-and browser-test data; it is never run by production deployment.
+course versions from PostgreSQL. The two `db:seed:*` commands install
+deterministic local and browser-test data; they are never run by production
+deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD` and creates a
+verified `learner@example.com` account.
 
 ## Verification
 

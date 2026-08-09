@@ -1,25 +1,204 @@
-import { Container, Skeleton, Stack, Text, Title } from "@mantine/core";
-import { createFileRoute } from "@tanstack/react-router";
+import {
+  Badge,
+  Button,
+  Card,
+  Container,
+  Group,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { SignOutButton } from "#/features/auth/SignOutButton";
+import type { LearnerCourse } from "#/features/learner/learner.schema";
+import { getLearnerDashboard } from "#/server/functions/learner";
+import classes from "./dashboard.module.css";
 
 export const Route = createFileRoute("/dashboard")({
   ssr: "data-only",
+  loader: async () => {
+    const dashboard = await getLearnerDashboard();
+    if (!dashboard)
+      throw redirect({
+        to: "/login",
+        search: { redirect: "/dashboard" },
+      });
+    return dashboard;
+  },
   component: DashboardPage,
 });
 
+const dateFormatter = new Intl.DateTimeFormat("en-AU", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+function statusLabel(course: LearnerCourse): string {
+  if (course.state === "completed") return "Completed";
+  if (course.state === "expired") return "Expired";
+  if (course.state === "cancelled") return "Removed";
+  return "In progress";
+}
+
 function DashboardPage() {
+  const dashboard = Route.useLoaderData();
+  const current = dashboard.courses.filter(
+    (course) => course.state === "active",
+  );
+  const history = dashboard.courses.filter(
+    (course) => course.state !== "active",
+  );
+
   return (
-    <Container size="lg" py={{ base: 40, sm: 72 }}>
-      <Stack gap="xl">
-        <div>
-          <Text c="indigo.7" fw={700}>
-            Learner area
-          </Text>
-          <Title order={1}>My learning</Title>
+    <Container size="lg" className={classes.section}>
+      <Stack gap={40}>
+        <div className={classes.heading}>
+          <div>
+            <Text c="indigo.7" fw={700}>
+              Learner area
+            </Text>
+            <Title order={1}>My learning</Title>
+            <Text c="dimmed" mt="xs">
+              Welcome back, {dashboard.user.name}.
+            </Text>
+          </div>
+          <SignOutButton />
         </div>
-        <Skeleton height={160} radius="lg" visible={false}>
-          <Text p="xl">Authentication and enrolment data connect here.</Text>
-        </Skeleton>
+
+        <CourseSection title="Continue learning" courses={current} />
+
+        {dashboard.availableCourses.length > 0 ? (
+          <section aria-labelledby="available-heading">
+            <Stack gap="md">
+              <div>
+                <Title order={2} id="available-heading">
+                  Available through your organisation
+                </Title>
+                <Text c="dimmed">
+                  Eligible for {dashboard.availableCourses[0]?.domain}
+                </Text>
+              </div>
+              <div className={classes.grid}>
+                {dashboard.availableCourses.map((course) => (
+                  <Card
+                    withBorder
+                    radius="lg"
+                    padding="lg"
+                    className={classes.courseCard}
+                    key={course.slug}
+                  >
+                    <Stack gap="md" h="100%">
+                      <Group justify="space-between">
+                        <Badge variant="light" color="teal">
+                          Organisation access
+                        </Badge>
+                        <Text size="sm" c="dimmed">
+                          {course.durationMinutes} min
+                        </Text>
+                      </Group>
+                      <Title order={3}>{course.title}</Title>
+                      <Text c="dimmed" className={classes.courseSummary}>
+                        {course.summary}
+                      </Text>
+                      <Link
+                        to="/courses/$slug"
+                        params={{ slug: course.slug }}
+                        className={classes.courseLink}
+                      >
+                        <Button component="span" variant="light" fullWidth>
+                          View course
+                        </Button>
+                      </Link>
+                    </Stack>
+                  </Card>
+                ))}
+              </div>
+            </Stack>
+          </section>
+        ) : null}
+
+        {history.length > 0 ? (
+          <CourseSection title="Learning history" courses={history} />
+        ) : null}
       </Stack>
     </Container>
+  );
+}
+
+function CourseSection({
+  title,
+  courses,
+}: {
+  title: string;
+  courses: Array<LearnerCourse>;
+}) {
+  const headingId = title.toLocaleLowerCase("en-AU").replaceAll(" ", "-");
+  return (
+    <section aria-labelledby={headingId}>
+      <Stack gap="md">
+        <Title order={2} id={headingId}>
+          {title}
+        </Title>
+        {courses.length > 0 ? (
+          <div className={classes.grid}>
+            {courses.map((course) => (
+              <Card
+                withBorder
+                radius="lg"
+                padding="lg"
+                className={classes.courseCard}
+                key={course.enrollmentId}
+              >
+                <Stack gap="md" h="100%">
+                  <Group justify="space-between">
+                    <Badge variant="light">{statusLabel(course)}</Badge>
+                    <Text size="sm" c="dimmed">
+                      {course.durationMinutes} min
+                    </Text>
+                  </Group>
+                  <Title order={3}>{course.title}</Title>
+                  <Text c="dimmed" className={classes.courseSummary}>
+                    {course.summary}
+                  </Text>
+                  <Text size="sm">
+                    Enrolled {dateFormatter.format(new Date(course.enrolledAt))}
+                  </Text>
+                  {course.expiresAt ? (
+                    <Text size="sm" c="dimmed">
+                      Access until{" "}
+                      {dateFormatter.format(new Date(course.expiresAt))}
+                    </Text>
+                  ) : null}
+                  {course.state === "active" ? (
+                    <Link
+                      to="/courses/$slug"
+                      params={{ slug: course.slug }}
+                      className={classes.courseLink}
+                    >
+                      <Button component="span" fullWidth>
+                        Continue course
+                      </Button>
+                    </Link>
+                  ) : (
+                    <Button disabled>Course unavailable</Button>
+                  )}
+                </Stack>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className={classes.empty}>
+            <Text fw={600}>No courses in progress.</Text>
+            <Text c="dimmed" mt="xs">
+              Browse the catalogue to find your next course.
+            </Text>
+            <Button component={Link} to="/courses" variant="light" mt="md">
+              Browse courses
+            </Button>
+          </div>
+        )}
+      </Stack>
+    </section>
   );
 }

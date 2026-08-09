@@ -1,0 +1,14 @@
+.section {
+  display: grid;
+  min-height: calc(100dvh - 8rem);
+  place-items: center;
+  padding-block: clamp(2.5rem, 8vw, 5rem);
+}
+
+.card {
+  width: min(100%, 30rem);
+}
+
+.intro {
+  text-align: center;
+}
