@@ -24,12 +24,22 @@ dispatcher publishes a versioned SQS envelope, and the consumer acknowledges
 the message only after validation has reached a durable ready or rejected
 state. Visibility heartbeats cover long extraction, while repeated transient or
 malformed messages are redriven to the dead-letter queue.
+Administrator uploads use an authenticated same-origin application route. It
+requires `Content-Length`, rejects encoded bodies, streams no more than 250 MB
+to a unique quarantine object and computes SHA-256 while streaming. Only after
+the object is complete does the database transaction register the version and
+outbox request. Failed registration removes that exact object. Direct browser
+uploads to S3 and broad object-store CORS are deliberately excluded.
 
 ## Consequences
 
 SCORM can locate its same-origin runtime API without receiving the primary
 application's cookies. Arbitrary vendor packages beyond the supported Rise 360
 profile require a new build-versus-buy decision.
+The web process remains in the upload data path, so nginx and the application
+must preserve streaming and coordinated limits. This keeps authorization,
+auditing and cleanup atomic at the application boundary without buffering a
+full archive in memory.
 Course completion is derived transactionally when every mapped module has a
 completed attempt, producing one audit record and one outbox event even when the
 runtime repeats its final commit.

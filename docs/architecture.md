@@ -89,6 +89,12 @@ entry, expanded-size and manifest-profile limits. Extraction rejects traversal,
 links, encryption and duplicate paths before immutable conditional writes to the
 learning-content bucket. Validation rejection codes and processing timestamps
 are retained on the package version for administration and support.
+Administrators upload archives through a same-origin, authenticated route that
+requires a declared length, streams at most 250 MB directly to quarantine and
+calculates the source digest incrementally. The browser never receives object
+store credentials, and the buckets do not need browser CORS access. nginx keeps
+the normal 2 MB request limit and grants the larger unbuffered limit only to the
+exact upload route.
 
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
 fulfilment, SCORM extraction, certificates, email and scheduled rules. The

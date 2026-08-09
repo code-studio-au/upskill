@@ -69,6 +69,105 @@
   gap: var(--mantine-spacing-md);
 }
 
+.uploadGrid,
+.moduleLibrary,
+.versionList {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.uploadGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+
+.moduleLibrary {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.fieldLabel {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+}
+
+.nativeField {
+  width: 100%;
+  min-height: 2.25rem;
+  padding-inline: var(--mantine-spacing-sm);
+  color: var(--mantine-color-text);
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.nativeField:focus-visible {
+  outline: 2px solid var(--mantine-color-indigo-6);
+  outline-offset: 2px;
+}
+
+.versionList {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.versionItem {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  padding-top: var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.versionItem:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.verifyingSpinner {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  margin-right: 0.3rem;
+  vertical-align: -0.05rem;
+  border: 0.12rem solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: verifying-spin 0.8s linear infinite;
+}
+
+.statusBadge {
+  background: transparent !important;
+  border-color: currentcolor !important;
+}
+
+.statusBadge[data-status="quarantined"],
+.statusBadge[data-status="processing"] {
+  color: var(--mantine-color-indigo-9) !important;
+}
+
+.statusBadge[data-status="ready"] {
+  color: var(--mantine-color-teal-9) !important;
+}
+
+.statusBadge[data-status="rejected"] {
+  color: var(--mantine-color-red-9) !important;
+}
+
+@keyframes verifying-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .verifyingSpinner {
+    animation: none;
+  }
+}
+
 .overrideNote {
   padding: var(--mantine-spacing-md);
   border: 1px solid var(--mantine-color-indigo-2);
@@ -107,11 +206,17 @@
 
 @media (max-width: 48em) {
   .learnerGrid,
-  .enrollmentGrid {
+  .enrollmentGrid,
+  .moduleLibrary,
+  .uploadGrid {
     grid-template-columns: 1fr;
   }
 
   .profileHeader {
+    flex-direction: column;
+  }
+
+  .versionItem {
     flex-direction: column;
   }
 }

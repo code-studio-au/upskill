@@ -163,6 +163,9 @@ try {
       launchPath: "index.html",
       sha256: "0".repeat(64),
       manifest: {},
+      sourceBytes: 1234,
+      failureCode: null,
+      processedAt: new Date(),
       publishedAt: new Date(),
     })
     .execute();
@@ -254,8 +257,21 @@ try {
   assert.ok(enrollment.lastActivityAt);
   assert.equal(await findAdminLearnerProfile(administrator.id), null);
 
+  const { findAdminScormPackages } =
+    await import("#/server/admin/admin-scorm.server");
+  const library = await findAdminScormPackages();
+  const packageSummary = library.find((item) => item.id === ids.package);
+  assert.ok(packageSummary);
+  assert.equal(packageSummary.title, "Verified administration module");
+  const packageVersion = packageSummary.versions[0];
+  assert.ok(packageVersion);
+  assert.equal(packageVersion.id, ids.packageVersion);
+  assert.equal(packageVersion.status, "ready");
+  assert.equal(packageVersion.sourceBytes, 1234);
+  assert.equal(packageVersion.courseUsageCount, 1);
+
   console.log(
-    "Verified platform-admin authorization, statistics, learner search and versioned progress profiles",
+    "Verified platform-admin authorization, statistics, learner search, versioned progress profiles and SCORM library visibility",
   );
 } finally {
   await cleanup();

@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { Client } from "pg";
 
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
@@ -99,6 +100,50 @@ test("SCORM launch boundaries reject the wrong origin and missing session", asyn
   expect(mainOriginExchange.status()).toBe(404);
 });
 
+test("SCORM administration uploads enforce origin and authentication", async ({
+  request,
+}, testInfo) => {
+  const archive = "PK\u0003\u0004boundary-test";
+  const uploadUrl = "/api/admin/scorm-packages?title=Boundary%20test";
+  const sharedHeaders = {
+    "content-length": String(Buffer.byteLength(archive)),
+    "content-type": "application/zip",
+  };
+  const crossOrigin = await request.post(uploadUrl, {
+    data: archive,
+    headers: { ...sharedHeaders, origin: "https://attacker.example" },
+  });
+  expect(crossOrigin.status()).toBe(403);
+  await expect(crossOrigin.json()).resolves.toEqual({
+    error: "invalid_origin",
+  });
+
+  const invalidMime = await request.post(uploadUrl, {
+    data: archive,
+    headers: {
+      ...sharedHeaders,
+      "content-type": "application/zip-archive",
+      origin: new URL(testInfo.project.use.baseURL ?? "").origin,
+    },
+  });
+  expect(invalidMime.status()).toBe(415);
+  await expect(invalidMime.json()).resolves.toEqual({
+    error: "invalid_content_type",
+  });
+
+  const unauthenticated = await request.post(uploadUrl, {
+    data: archive,
+    headers: {
+      ...sharedHeaders,
+      origin: new URL(testInfo.project.use.baseURL ?? "").origin,
+    },
+  });
+  expect(unauthenticated.status()).toBe(401);
+  await expect(unauthenticated.json()).resolves.toEqual({
+    error: "unauthenticated",
+  });
+});
+
 test("learner dashboard requires a server-validated session", async ({
   page,
 }) => {
@@ -164,8 +209,67 @@ test("platform administrators can inspect learner progress", async ({
     ),
   ).toBeVisible();
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
-  const accessibility = await new AxeBuilder({ page }).analyze();
-  expect(accessibility.violations).toEqual([]);
+
+  const database = new Client({ connectionString: process.env.DATABASE_URL });
+  const packageId = "e2e_scorm_autorefresh_package";
+  const packageVersionId = "e2e_scorm_autorefresh_version";
+  await database.connect();
+  try {
+    await database.query(`delete from scorm_package_version where id = $1`, [
+      packageVersionId,
+    ]);
+    await database.query(`delete from scorm_package where id = $1`, [
+      packageId,
+    ]);
+    await database.query(
+      `insert into scorm_package (id, title) values ($1, $2)`,
+      [packageId, "Automatic verification status"],
+    );
+    await database.query(
+      `insert into scorm_package_version
+        (id, "packageId", version, status, standard, "contentPrefix", "launchPath", sha256, manifest, "sourceBytes")
+       values ($1, $2, 1, 'processing', 'scorm-1.2', 'verify/e2e/autorefresh', 'pending.html', $3, '{}'::jsonb, 2048)`,
+      [packageVersionId, packageId, "1".repeat(64)],
+    );
+
+    await page.getByRole("link", { name: "Modules" }).click();
+    await expect(
+      page.getByRole("heading", { name: "SCORM modules" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Upload module package" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("SCORM ZIP")).toBeVisible();
+    const moduleCard = page.getByRole("article").filter({
+      has: page.getByRole("heading", {
+        name: "Automatic verification status",
+      }),
+    });
+    await expect(moduleCard.getByText("Verifying")).toBeVisible();
+    await expect(moduleCard.getByTestId("verification-spinner")).toBeVisible();
+
+    await database.query(
+      `update scorm_package_version
+       set status = 'ready', "processedAt" = now(), "publishedAt" = now(), "launchPath" = 'index.html'
+       where id = $1`,
+      [packageVersionId],
+    );
+    await expect(moduleCard.getByText("Ready", { exact: true })).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(moduleCard.getByTestId("verification-spinner")).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const accessibility = await new AxeBuilder({ page }).analyze();
+    expect(accessibility.violations).toEqual([]);
+  } finally {
+    await database.query(`delete from scorm_package_version where id = $1`, [
+      packageVersionId,
+    ]);
+    await database.query(`delete from scorm_package where id = $1`, [
+      packageId,
+    ]);
+    await database.end();
+  }
 });
 
 test("verified learners see entitlements and can redeem access", async ({

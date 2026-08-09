@@ -13,7 +13,8 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "vite dev --port 3000",
+    "dev": "node scripts/start-development.mjs",
+    "dev:web": "vite dev --port 3000",
     "generate:routes": "tsr generate",
     "build": "vite build && vite build --config vite.worker.config.ts",
     "start": "node scripts/start-server.mjs",
