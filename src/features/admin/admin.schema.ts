@@ -109,12 +109,6 @@ interface AdminEnrollmentModule {
   attemptCount: number;
   latestActivityAt: string | null;
   latestActivityAtLabel: string | null;
-  override: {
-    administratorName: string;
-    reason: string | null;
-    createdAt: string;
-    createdAtLabel: string;
-  } | null;
 }
 
 interface AdminProgressOverrideHistoryItem {
@@ -142,12 +136,6 @@ export interface AdminEnrollmentDetail {
     completedAt: string | null;
     completedAtLabel: string | null;
     expiresAt: string | null;
-    completionOverride: {
-      administratorName: string;
-      reason: string | null;
-      createdAt: string;
-      createdAtLabel: string;
-    } | null;
   };
   modules: Array<AdminEnrollmentModule>;
   overrideHistory: Array<AdminProgressOverrideHistoryItem>;

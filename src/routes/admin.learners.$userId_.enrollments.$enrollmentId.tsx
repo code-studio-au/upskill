@@ -114,20 +114,6 @@ function AdminEnrollmentPage() {
                 </Text>
               </div>
             </div>
-            {detail.enrollment.completionOverride ? (
-              <div className={classes.overrideNote}>
-                <Text fw={600}>Latest administrator correction</Text>
-                {detail.enrollment.completionOverride.reason ? (
-                  <Text size="sm">
-                    {detail.enrollment.completionOverride.reason}
-                  </Text>
-                ) : null}
-                <Text size="xs" c="dimmed">
-                  {detail.enrollment.completionOverride.administratorName} ·{" "}
-                  {detail.enrollment.completionOverride.createdAtLabel}
-                </Text>
-              </div>
-            ) : null}
             <ProgressOverrideControls
               enrollmentId={detail.enrollment.id}
               scope="enrollment"
@@ -193,18 +179,6 @@ function AdminEnrollmentPage() {
                         </Text>
                       </div>
                     </div>
-                    {module.override ? (
-                      <div className={classes.overrideNote}>
-                        <Text fw={600}>Latest administrator correction</Text>
-                        {module.override.reason ? (
-                          <Text size="sm">{module.override.reason}</Text>
-                        ) : null}
-                        <Text size="xs" c="dimmed">
-                          {module.override.administratorName} ·{" "}
-                          {module.override.createdAtLabel}
-                        </Text>
-                      </div>
-                    ) : null}
                     <ProgressOverrideControls
                       enrollmentId={detail.enrollment.id}
                       scope="module"

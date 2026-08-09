@@ -345,21 +345,6 @@ export async function findAdminEnrollmentDetail(
         .limit(50)
         .execute(),
     ]);
-  const actorIds = new Set(
-    moduleCompletion.flatMap((module) =>
-      module.override ? [module.override.actorUserId] : [],
-    ),
-  );
-  if (completionOverride) actorIds.add(completionOverride.actorUserId);
-  const actors =
-    actorIds.size === 0
-      ? []
-      : await database
-          .selectFrom("user")
-          .select(["id", "name"])
-          .where("id", "in", [...actorIds])
-          .execute();
-  const actorNames = new Map(actors.map((actor) => [actor.id, actor.name]));
   const attemptByPosition = new Map(
     attemptRows.map((attempt) => [attempt.modulePosition, attempt]),
   );
@@ -387,16 +372,6 @@ export async function findAdminEnrollmentDetail(
         ? adminDateTimeLabel(enrollment.completedAt)
         : null,
       expiresAt: enrollment.expiresAt?.toISOString() ?? null,
-      completionOverride: completionOverride
-        ? {
-            administratorName:
-              actorNames.get(completionOverride.actorUserId) ??
-              "Former administrator",
-            reason: completionOverride.reason,
-            createdAt: completionOverride.createdAt.toISOString(),
-            createdAtLabel: adminDateTimeLabel(completionOverride.createdAt),
-          }
-        : null,
     },
     modules: moduleCompletion.map((module) => {
       const definition = content.modules[module.position];
@@ -412,16 +387,6 @@ export async function findAdminEnrollmentDetail(
         latestActivityAt: attempt?.latestActivityAt?.toISOString() ?? null,
         latestActivityAtLabel: attempt?.latestActivityAt
           ? adminDateTimeLabel(attempt.latestActivityAt)
-          : null,
-        override: module.override
-          ? {
-              administratorName:
-                actorNames.get(module.override.actorUserId) ??
-                "Former administrator",
-              reason: module.override.reason,
-              createdAt: module.override.createdAt.toISOString(),
-              createdAtLabel: adminDateTimeLabel(module.override.createdAt),
-            }
           : null,
       };
     }),

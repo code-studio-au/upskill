@@ -129,4 +129,5 @@ content-addressed artifact.
   incremental route JavaScript/CSS gzip cost. Route budgets force feature code
   behind route boundaries before the root bundle becomes difficult to split.
 - Chromium, Firefox and WebKit critical-path smoke coverage.
-- Structured request, audit and deployment identity logging.
+- Database-backed append-only domain audit events. Centralized structured
+  operational, request and deployment identity logging remains planned.

@@ -296,6 +296,9 @@ test("platform administrators can inspect learner progress", async ({
       "Corrections never alter the learner's original SCORM attempts.",
     ),
   ).toBeVisible();
+  await expect(page.getByText("Latest administrator correction")).toHaveCount(
+    0,
+  );
   await expect(page.getByLabel(/Reason for marking/)).toHaveCount(0);
   await page
     .getByRole("button", { name: /Mark course (completed|incomplete)/ })
