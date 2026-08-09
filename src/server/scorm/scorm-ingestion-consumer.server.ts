@@ -64,8 +64,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown worker error";
 }
 
-export async function consumeNextScormMessage(): Promise<ScormConsumerOutcome> {
-  const received = await receiveQueueMessage();
+export async function consumeNextScormMessage(
+  waitTimeSeconds?: number,
+): Promise<ScormConsumerOutcome> {
+  const received = await receiveQueueMessage(undefined, waitTimeSeconds);
   if (!received) return { status: "no-work" };
   const env = getServerEnv();
   let heartbeat: NodeJS.Timeout | undefined;

@@ -37,7 +37,14 @@ The audit table accepts only known action names, has actor/action/subject time
 indexes, and rejects updates or deletes unless an explicit transaction-local
 maintenance setting is enabled. Verification cleanup uses that setting inside
 its own database transaction; production request and worker code has no such
-path.
+path. The sole non-maintenance update is PostgreSQL's existing actor foreign-key
+transition from a user ID to null during user deletion; the trigger verifies
+that every other field remains unchanged.
+
+The worker drains a bounded batch of available outbox rows before checking SQS.
+When it found outbox work, the SQS receive is non-blocking so a long poll cannot
+cap audit-projection throughput. Empty-outbox iterations retain SQS long polling,
+and the bounded batch preserves queue fairness under sustained audit traffic.
 
 ## Consequences
 

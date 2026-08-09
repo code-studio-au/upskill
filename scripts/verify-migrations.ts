@@ -101,6 +101,7 @@ try {
     );
 
   const auditVerificationId = "verify_audit_append_only";
+  const auditVerificationActorId = "verify_audit_append_only_actor";
   await db.transaction().execute(async (transaction) => {
     await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
       transaction,
@@ -109,10 +110,18 @@ try {
       transaction,
     );
   });
+  await sql`delete from "user" where id = ${auditVerificationActorId}`.execute(
+    db,
+  );
+  await sql`insert into "user" (id, name, email, "emailVerified")
+    values (
+      ${auditVerificationActorId}, 'Audit verifier',
+      'verify-audit-append-only@example.com', true
+    )`.execute(db);
   await sql`insert into audit_event
     (id, "actorUserId", action, "subjectType", "subjectId", reason, metadata)
     values (
-      ${auditVerificationId}, null, 'scorm.package_uploaded',
+      ${auditVerificationId}, ${auditVerificationActorId}, 'scorm.package_uploaded',
       'scorm_package_version', ${auditVerificationId}, null, '{}'::jsonb
     )`.execute(db);
   try {
@@ -120,6 +129,12 @@ try {
       sql`update audit_event set reason = 'changed' where id = ${auditVerificationId}`.execute(
         db,
       ),
+      /audit_event is append-only/u,
+    );
+    await assert.rejects(
+      sql`update audit_event
+        set "actorUserId" = null, reason = 'changed'
+        where id = ${auditVerificationId}`.execute(db),
       /audit_event is append-only/u,
     );
     await assert.rejects(
@@ -137,6 +152,18 @@ try {
         )`.execute(db),
       /audit_event_action_known_ck/u,
     );
+    await sql`delete from "user" where id = ${auditVerificationActorId}`.execute(
+      db,
+    );
+    const preservedAudit = await sql<{
+      actorUserId: string | null;
+      reason: string | null;
+    }>`select "actorUserId", reason from audit_event where id = ${auditVerificationId}`.execute(
+      db,
+    );
+    assert.deepEqual(preservedAudit.rows, [
+      { actorUserId: null, reason: null },
+    ]);
   } finally {
     await db.transaction().execute(async (transaction) => {
       await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
@@ -146,6 +173,9 @@ try {
         transaction,
       );
     });
+    await sql`delete from "user" where id = ${auditVerificationActorId}`.execute(
+      db,
+    );
   }
   console.log(
     `Verified ${String(migrations.length)} migrations, ${String(expectedTables.length)} foundational tables and ${String(expectedIndexes.length)} required indexes`,

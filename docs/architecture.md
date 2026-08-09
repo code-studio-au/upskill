@@ -113,7 +113,9 @@ Business and security audit records commit with their domain changes in an
 append-only PostgreSQL ledger. Each retained record also enqueues a sanitized,
 versioned log projection. The worker emits that projection only after commit,
 using its stable event identifier so duplicate delivery can be collapsed by an
-observability sink. Reconstructable SCORM lifecycle and launch telemetry is
+observability sink. It drains bounded outbox batches and uses a non-blocking SQS
+receive after outbox work, avoiding long-poll throughput caps without starving
+SCORM messages. Reconstructable SCORM lifecycle and launch telemetry is
 logged operationally instead of duplicating domain state. Structured JSON from
 the web and worker services flows to journald; a future Datadog Agent collects
 that stream without introducing Datadog calls into request or mutation paths.

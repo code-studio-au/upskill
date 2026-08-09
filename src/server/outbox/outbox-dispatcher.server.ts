@@ -14,12 +14,23 @@ import {
 import { sendQueueMessage } from "#/server/queue/sqs.server";
 
 const OUTBOX_LEASE_MILLISECONDS = 15 * 60 * 1_000;
+const DEFAULT_OUTBOX_DISPATCH_BATCH_SIZE = 100;
 
 export type OutboxDispatchOutcome =
   | { status: "no-work" }
   | { status: "logged"; eventId: string }
   | { status: "dispatched"; eventId: string; messageId: string }
   | { status: "retry"; eventId: string };
+
+type ProcessedOutboxDispatchOutcome = Exclude<
+  OutboxDispatchOutcome,
+  { status: "no-work" }
+>;
+
+export interface OutboxDispatchBatch {
+  outcomes: ProcessedOutboxDispatchOutcome[];
+  limitReached: boolean;
+}
 
 export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> {
   const database = getDatabase();
@@ -115,4 +126,21 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
       .execute();
     return { status: "retry", eventId: claimed.id };
   }
+}
+
+export async function dispatchAvailableOutboxEvents(
+  limit = DEFAULT_OUTBOX_DISPATCH_BATCH_SIZE,
+): Promise<OutboxDispatchBatch> {
+  if (!Number.isSafeInteger(limit) || limit < 1)
+    throw new RangeError(
+      "Outbox dispatch batch limit must be a positive integer",
+    );
+
+  const outcomes: ProcessedOutboxDispatchOutcome[] = [];
+  for (let index = 0; index < limit; index += 1) {
+    const outcome = await dispatchNextOutboxEvent();
+    if (outcome.status === "no-work") return { outcomes, limitReached: false };
+    outcomes.push(outcome);
+  }
+  return { outcomes, limitReached: true };
 }

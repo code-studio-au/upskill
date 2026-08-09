@@ -1,8 +1,9 @@
 import { destroyDatabase } from "#/server/db/database.server";
-import { dispatchNextOutboxEvent } from "#/server/outbox/outbox-dispatcher.server";
+import { dispatchAvailableOutboxEvents } from "#/server/outbox/outbox-dispatcher.server";
 import { destroyQueueClient } from "#/server/queue/sqs.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { consumeNextScormMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
+import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
 
@@ -17,17 +18,19 @@ function pause(milliseconds: number): Promise<void> {
 
 try {
   while (!shutdown.signal.aborted) {
-    const dispatch = await dispatchNextOutboxEvent();
-    const consumption = await consumeNextScormMessage();
-    if (dispatch.status !== "no-work")
+    const { dispatch, consumption } = await runScormWorkerIteration({
+      dispatchAvailableOutboxEvents,
+      consumeNextScormMessage,
+    });
+    for (const outcome of dispatch.outcomes)
       logServerEvent({
-        level: dispatch.status === "retry" ? "warn" : "info",
+        level: outcome.status === "retry" ? "warn" : "info",
         event: "worker.outbox_processed",
         fields: {
-          status: dispatch.status,
-          eventId: dispatch.eventId,
-          ...(dispatch.status === "dispatched"
-            ? { messageId: dispatch.messageId }
+          status: outcome.status,
+          eventId: outcome.eventId,
+          ...(outcome.status === "dispatched"
+            ? { messageId: outcome.messageId }
             : {}),
         },
       });
@@ -48,7 +51,7 @@ try {
             : {}),
         },
       });
-    if (dispatch.status === "no-work" && consumption.status === "no-work")
+    if (dispatch.outcomes.length === 0 && consumption.status === "no-work")
       await pause(1_000);
   }
 } catch (error) {
