@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   applySecurityHeaders,
   buildContentSecurityPolicy,
+  buildLearningContentSecurityPolicy,
 } from "./security-headers";
 
 describe("content security policy", () => {
@@ -34,6 +35,31 @@ describe("content security policy", () => {
     applySecurityHeaders(headers, "nonce");
     expect(headers.get("strict-transport-security")).toContain(
       "includeSubDomains",
+    );
+    vi.unstubAllEnvs();
+  });
+
+  it("allows only the application origin to frame learning responses", () => {
+    const policy = buildLearningContentSecurityPolicy(
+      "learning-nonce",
+      "https://app.example.test",
+    );
+    expect(policy).toContain("frame-ancestors https://app.example.test");
+    expect(policy).toContain("script-src-attr 'none'");
+    expect(policy).not.toContain("unsafe-inline");
+
+    vi.stubEnv("APP_ORIGIN", "https://app.example.test");
+    vi.stubEnv("LEARNING_ORIGIN", "https://learn.example.test");
+    const headers = new Headers();
+    applySecurityHeaders(
+      headers,
+      "learning-nonce",
+      new Request("https://learn.example.test/api/scorm/attempts/attempt_1"),
+    );
+    expect(headers.has("x-frame-options")).toBe(false);
+    expect(headers.get("referrer-policy")).toBe("no-referrer");
+    expect(headers.get("content-security-policy")).toContain(
+      "frame-ancestors https://app.example.test",
     );
     vi.unstubAllEnvs();
   });

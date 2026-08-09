@@ -82,6 +82,33 @@ interface CourseVersionTable {
   createdAt: Timestamp;
 }
 
+interface ScormPackageTable {
+  id: string;
+  title: string;
+  createdAt: Timestamp;
+}
+
+interface ScormPackageVersionTable {
+  id: string;
+  packageId: string;
+  version: number;
+  status: "quarantined" | "processing" | "ready" | "rejected";
+  standard: "scorm-1.2";
+  contentPrefix: string;
+  launchPath: string;
+  sha256: string;
+  manifest: Json;
+  publishedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface CourseVersionModuleTable {
+  courseVersionId: string;
+  position: number;
+  scormPackageVersionId: string;
+  createdAt: Timestamp;
+}
+
 interface EnrollmentTable {
   id: string;
   userId: string;
@@ -94,6 +121,49 @@ interface EnrollmentTable {
   removedAt: Timestamp | null;
 }
 
+interface ScormAttemptTable {
+  id: string;
+  enrollmentId: string;
+  modulePosition: number;
+  scormPackageVersionId: string;
+  attemptNumber: number;
+  status: "not_started" | "in_progress" | "completed" | "abandoned";
+  lessonStatus:
+    | "not_attempted"
+    | "incomplete"
+    | "completed"
+    | "passed"
+    | "failed"
+    | "browsed";
+  location: string;
+  suspendData: string;
+  scoreRaw: number | null;
+  scoreMin: number | null;
+  scoreMax: number | null;
+  totalTimeSeconds: number;
+  startedAt: Timestamp | null;
+  lastActivityAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface ScormLaunchTokenTable {
+  digest: string;
+  attemptId: string;
+  expiresAt: Timestamp;
+  consumedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface ScormAttemptSessionTable {
+  digest: string;
+  attemptId: string;
+  expiresAt: Timestamp;
+  revokedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
 interface OrderTable {
   id: string;
   purchaserUserId: string | null;
@@ -104,6 +174,16 @@ interface OrderTable {
   totalCents: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+interface OrderItemTable {
+  id: string;
+  orderId: string;
+  courseVersionId: string;
+  quantity: number;
+  unitPriceCents: number;
+  enrollmentDurationDays: number;
+  createdAt: Timestamp;
 }
 
 interface AccessGrantTable {
@@ -154,12 +234,19 @@ export interface Database {
   audit_event: AuditEventTable;
   course: CourseTable;
   course_version: CourseVersionTable;
+  course_version_module: CourseVersionModuleTable;
   enrollment: EnrollmentTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   order: OrderTable;
+  order_item: OrderItemTable;
   outbox_event: OutboxEventTable;
   session: SessionTable;
+  scorm_attempt: ScormAttemptTable;
+  scorm_attempt_session: ScormAttemptSessionTable;
+  scorm_launch_token: ScormLaunchTokenTable;
+  scorm_package: ScormPackageTable;
+  scorm_package_version: ScormPackageVersionTable;
   user: UserTable;
   verification: VerificationTable;
 }

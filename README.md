@@ -53,3 +53,10 @@ Set the corresponding GitHub environment's `AWS_DEPLOY_ROLE_ARN` and
 outputs.
 Production CDK synthesis also requires `-c certificateArn=<regional ACM ARN>`;
 the application stack then terminates HTTPS and permanently redirects HTTP.
+
+Configure Stripe to send `checkout.session.completed`,
+`checkout.session.async_payment_succeeded`,
+`checkout.session.async_payment_failed` and `checkout.session.expired` events
+to `POST /api/stripe/webhook`. For local test-mode forwarding, use the Stripe
+CLI webhook secret as `STRIPE_WEBHOOK_SECRET`; the redirect success page never
+fulfils an order by itself.

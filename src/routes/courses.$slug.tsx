@@ -1,6 +1,5 @@
 import {
   Badge,
-  Button,
   Container,
   Divider,
   Group,
@@ -10,6 +9,7 @@ import {
   Title,
 } from "@mantine/core";
 import { createFileRoute, notFound } from "@tanstack/react-router";
+import { PurchaseCourseButton } from "#/features/checkout/PurchaseCourseButton";
 import { getCourse } from "#/server/functions/catalog";
 import classes from "./courses.$slug.module.css";
 
@@ -149,7 +149,7 @@ function CourseDetail() {
                   AUD, including applicable GST
                 </Text>
               </div>
-              <Button size="lg">Enrol in this course</Button>
+              <PurchaseCourseButton slug={course.slug} />
               {course.hasCompletionCertificate ? (
                 <Text size="sm" c="dimmed">
                   Includes a downloadable completion certificate.

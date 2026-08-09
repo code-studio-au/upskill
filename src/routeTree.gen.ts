@@ -14,9 +14,15 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
+import { Route as CheckoutSuccessRouteImport } from './routes/checkout.success'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
+import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
+import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
+import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
+import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
+import { Route as ApiScormAttemptsAttemptIdRouteImport } from './routes/api.scorm.attempts.$attemptId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -43,6 +49,11 @@ const ApiHealthRoute = ApiHealthRouteImport.update({
   path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CheckoutSuccessRoute = CheckoutSuccessRouteImport.update({
+  id: '/checkout/success',
+  path: '/checkout/success',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CoursesIndexRoute = CoursesIndexRouteImport.update({
   id: '/courses/',
   path: '/courses/',
@@ -53,11 +64,37 @@ const CoursesSlugRoute = CoursesSlugRouteImport.update({
   path: '/courses/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const LearnEnrollmentIdRoute = LearnEnrollmentIdRouteImport.update({
+  id: '/learn/$enrollmentId',
+  path: '/learn/$enrollmentId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiScormLaunchRoute = ApiScormLaunchRouteImport.update({
+  id: '/api/scorm/launch',
+  path: '/api/scorm/launch',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScormLaunchesRoute = ApiScormLaunchesRouteImport.update({
+  id: '/api/scorm/launches',
+  path: '/api/scorm/launches',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
+  id: '/api/stripe/webhook',
+  path: '/api/stripe/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScormAttemptsAttemptIdRoute =
+  ApiScormAttemptsAttemptIdRouteImport.update({
+    id: '/api/scorm/attempts/$attemptId',
+    path: '/api/scorm/attempts/$attemptId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -65,9 +102,15 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/api/health': typeof ApiHealthRoute
+  '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/courses/': typeof CoursesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/scorm/launch': typeof ApiScormLaunchRoute
+  '/api/scorm/launches': typeof ApiScormLaunchesRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -75,9 +118,15 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/api/health': typeof ApiHealthRoute
+  '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/courses': typeof CoursesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/scorm/launch': typeof ApiScormLaunchRoute
+  '/api/scorm/launches': typeof ApiScormLaunchesRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -86,9 +135,15 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/api/health': typeof ApiHealthRoute
+  '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/courses/': typeof CoursesIndexRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/scorm/launch': typeof ApiScormLaunchRoute
+  '/api/scorm/launches': typeof ApiScormLaunchesRoute
+  '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -98,9 +153,15 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/api/health'
+    | '/checkout/success'
     | '/courses/$slug'
+    | '/learn/$enrollmentId'
     | '/courses/'
     | '/api/auth/$'
+    | '/api/scorm/launch'
+    | '/api/scorm/launches'
+    | '/api/stripe/webhook'
+    | '/api/scorm/attempts/$attemptId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -108,9 +169,15 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/api/health'
+    | '/checkout/success'
     | '/courses/$slug'
+    | '/learn/$enrollmentId'
     | '/courses'
     | '/api/auth/$'
+    | '/api/scorm/launch'
+    | '/api/scorm/launches'
+    | '/api/stripe/webhook'
+    | '/api/scorm/attempts/$attemptId'
   id:
     | '__root__'
     | '/'
@@ -118,9 +185,15 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/api/health'
+    | '/checkout/success'
     | '/courses/$slug'
+    | '/learn/$enrollmentId'
     | '/courses/'
     | '/api/auth/$'
+    | '/api/scorm/launch'
+    | '/api/scorm/launches'
+    | '/api/stripe/webhook'
+    | '/api/scorm/attempts/$attemptId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -129,9 +202,15 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   LoginRoute: typeof LoginRoute
   ApiHealthRoute: typeof ApiHealthRoute
+  CheckoutSuccessRoute: typeof CheckoutSuccessRoute
   CoursesSlugRoute: typeof CoursesSlugRoute
+  LearnEnrollmentIdRoute: typeof LearnEnrollmentIdRoute
   CoursesIndexRoute: typeof CoursesIndexRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiScormLaunchRoute: typeof ApiScormLaunchRoute
+  ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
+  ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  ApiScormAttemptsAttemptIdRoute: typeof ApiScormAttemptsAttemptIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -171,6 +250,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/checkout/success': {
+      id: '/checkout/success'
+      path: '/checkout/success'
+      fullPath: '/checkout/success'
+      preLoaderRoute: typeof CheckoutSuccessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/courses/': {
       id: '/courses/'
       path: '/courses'
@@ -185,11 +271,46 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CoursesSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/learn/$enrollmentId': {
+      id: '/learn/$enrollmentId'
+      path: '/learn/$enrollmentId'
+      fullPath: '/learn/$enrollmentId'
+      preLoaderRoute: typeof LearnEnrollmentIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scorm/launch': {
+      id: '/api/scorm/launch'
+      path: '/api/scorm/launch'
+      fullPath: '/api/scorm/launch'
+      preLoaderRoute: typeof ApiScormLaunchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scorm/launches': {
+      id: '/api/scorm/launches'
+      path: '/api/scorm/launches'
+      fullPath: '/api/scorm/launches'
+      preLoaderRoute: typeof ApiScormLaunchesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/stripe/webhook': {
+      id: '/api/stripe/webhook'
+      path: '/api/stripe/webhook'
+      fullPath: '/api/stripe/webhook'
+      preLoaderRoute: typeof ApiStripeWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scorm/attempts/$attemptId': {
+      id: '/api/scorm/attempts/$attemptId'
+      path: '/api/scorm/attempts/$attemptId'
+      fullPath: '/api/scorm/attempts/$attemptId'
+      preLoaderRoute: typeof ApiScormAttemptsAttemptIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -201,9 +322,15 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   LoginRoute: LoginRoute,
   ApiHealthRoute: ApiHealthRoute,
+  CheckoutSuccessRoute: CheckoutSuccessRoute,
   CoursesSlugRoute: CoursesSlugRoute,
+  LearnEnrollmentIdRoute: LearnEnrollmentIdRoute,
   CoursesIndexRoute: CoursesIndexRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiScormLaunchRoute: ApiScormLaunchRoute,
+  ApiScormLaunchesRoute: ApiScormLaunchesRoute,
+  ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  ApiScormAttemptsAttemptIdRoute: ApiScormAttemptsAttemptIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

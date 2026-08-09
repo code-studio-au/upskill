@@ -2,12 +2,11 @@ import "@tanstack/react-start/server-only";
 
 import { stripe as betterAuthStripe } from "@better-auth/stripe";
 import { betterAuth } from "better-auth";
-import Stripe from "stripe";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
+import { stripeClient } from "#/server/stripe/stripe-client.server";
 
 const env = getServerEnv();
-const stripeClient = new Stripe(env.STRIPE_SECRET_KEY);
 
 export const auth = betterAuth({
   appName: "Upskill",

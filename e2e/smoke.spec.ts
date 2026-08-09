@@ -9,6 +9,11 @@ test("public catalogue is responsive, accessible and CSP-hardened", async ({
   const policy = response?.headers()["content-security-policy"] ?? "";
   expect(policy).toContain("script-src-attr 'none'");
   expect(policy).not.toMatch(/script-src [^;]*unsafe-inline/);
+  const nonce = await page
+    .locator('meta[property="csp-nonce"]')
+    .first()
+    .evaluate((element: HTMLMetaElement) => element.nonce);
+  expect(nonce).not.toBe("");
   const stylesheet = await page
     .locator('link[rel="stylesheet"]')
     .first()
@@ -18,6 +23,15 @@ test("public catalogue is responsive, accessible and CSP-hardened", async ({
   expect(clientAssetResponse.status()).toBe(200);
   expect(clientAssetResponse.headers()["content-type"]).toContain("text/css");
   expect(clientAssetResponse.headers()["cache-control"]).toContain("immutable");
+  expect(
+    await page
+      .locator("style")
+      .evaluateAll(
+        (elements, expectedNonce) =>
+          elements.every((element) => element.nonce === expectedNonce),
+        nonce,
+      ),
+  ).toBe(true);
   await expect(
     page.getByRole("heading", { name: "Skills that make work better." }),
   ).toBeVisible();
@@ -40,6 +54,49 @@ test("validated catalogue search remains navigable", async ({ page }) => {
     page.getByRole("heading", { name: "What you will complete" }),
   ).toBeVisible();
   await expect(page.getByText(/1 CPD point/)).toBeVisible();
+  await page.getByRole("button", { name: "Enrol in this course" }).click();
+  await expect(page).toHaveURL(
+    /\/login\?redirect=%2Fcourses%2Fpsychological-safety-at-work$/,
+  );
+  await expect(
+    page.getByRole("heading", { name: "Sign in to Upskill" }),
+  ).toBeVisible();
+});
+
+test("Stripe webhook rejects an invalid signature", async ({ request }) => {
+  const response = await request.post("/api/stripe/webhook", {
+    data: { type: "checkout.session.completed" },
+    headers: { "stripe-signature": "invalid" },
+  });
+  expect(response.status()).toBe(400);
+  await expect(response.json()).resolves.toEqual({ error: "invalid_webhook" });
+});
+
+test("SCORM launch boundaries reject the wrong origin and missing session", async ({
+  request,
+}) => {
+  const crossOrigin = await request.post("/api/scorm/launches", {
+    data: {
+      enrollmentId: "enrollment_local_leading_change",
+      modulePosition: 0,
+    },
+    headers: { origin: "https://attacker.example" },
+  });
+  expect(crossOrigin.status()).toBe(403);
+
+  const unauthenticated = await request.post("/api/scorm/launches", {
+    data: {
+      enrollmentId: "enrollment_local_leading_change",
+      modulePosition: 0,
+    },
+    headers: { origin: "http://127.0.0.1:3000" },
+  });
+  expect(unauthenticated.status()).toBe(401);
+
+  const mainOriginExchange = await request.get(
+    `/api/scorm/launch?token=${"a".repeat(43)}`,
+  );
+  expect(mainOriginExchange.status()).toBe(404);
 });
 
 test("learner dashboard requires a server-validated session", async ({
@@ -50,6 +107,11 @@ test("learner dashboard requires a server-validated session", async ({
   await expect(
     page.getByRole("heading", { name: "Sign in to Upskill" }),
   ).toBeVisible();
+
+  await page.goto("/learn/enrollment_local_leading_change");
+  await expect(page).toHaveURL(
+    /\/login\?redirect=%2Flearn%2Fenrollment_local_leading_change$/,
+  );
 });
 
 test("verified learners see entitlements and can redeem access", async ({
@@ -108,4 +170,14 @@ test("verified learners see entitlements and can redeem access", async ({
   await expect(
     page.getByRole("heading", { name: "Psychological safety at work" }),
   ).toBeVisible();
+
+  await page.getByRole("link", { name: "Continue course" }).first().click();
+  await expect(page).toHaveURL(/\/learn\/[A-Za-z0-9_-]+$/);
+  await expect(
+    page.getByRole("heading", { name: "Course program" }),
+  ).toBeVisible();
+  await expect(page.getByText("Learning modules")).toBeVisible();
+  await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
 });

@@ -1,0 +1,63 @@
+.page {
+  padding-block: clamp(2.5rem, 7vw, 5rem);
+}
+
+.layout {
+  display: grid;
+  gap: var(--mantine-spacing-xl);
+}
+
+.summary {
+  align-self: start;
+}
+
+.moduleList {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.module {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-white);
+}
+
+.moduleNumber {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--mantine-color-indigo-0);
+  color: var(--mantine-color-indigo-8);
+  font-weight: 700;
+}
+
+@media (max-width: 47.99em) {
+  .module {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .duration {
+    grid-column: 2;
+  }
+}
+
+@media (min-width: 60em) {
+  .layout {
+    grid-template-columns: minmax(15rem, 0.7fr) minmax(0, 2fr);
+  }
+
+  .summary {
+    position: sticky;
+    top: var(--mantine-spacing-xl);
+  }
+}

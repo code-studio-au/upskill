@@ -8,6 +8,7 @@ import {
   Link,
   Scripts,
   createRootRoute,
+  useRouter,
 } from "@tanstack/react-router";
 import { AppProviders } from "#/app/AppProviders";
 import classes from "#/app/AppShell.module.css";
@@ -32,9 +33,15 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const nonce = router.options.ssr?.nonce;
+
   return (
     <html lang="en-AU">
       <head>
+        {nonce ? (
+          <meta property="csp-nonce" content={nonce} nonce={nonce} />
+        ) : null}
         <HeadContent />
       </head>
       <body>

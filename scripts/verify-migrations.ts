@@ -32,10 +32,17 @@ try {
     "audit_event",
     "course",
     "course_version",
+    "course_version_module",
     "enrollment",
     "order",
+    "order_item",
     "organization",
     "outbox_event",
+    "scorm_attempt",
+    "scorm_attempt_session",
+    "scorm_launch_token",
+    "scorm_package",
+    "scorm_package_version",
     "user",
   ];
   const result = await sql<{
@@ -54,6 +61,10 @@ try {
     "course_status_idx",
     "course_version_published_lookup_idx",
     "enrollment_user_status_idx",
+    "order_purchaser_status_idx",
+    "scorm_attempt_enrollment_idx",
+    "scorm_attempt_session_attempt_idx",
+    "scorm_launch_token_attempt_idx",
   ];
   const indexResult = await sql<{
     indexname: string;

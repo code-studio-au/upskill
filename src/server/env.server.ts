@@ -7,6 +7,7 @@ const envSchema = z.object({
     .enum(["development", "test", "staging", "production"])
     .default("development"),
   APP_ORIGIN: z.url().default("http://localhost:3000"),
+  LEARNING_ORIGIN: z.url().default("http://localhost:3001"),
   DATABASE_URL: z.string().min(1),
   ACCESS_CODE_PEPPER: z.string().min(32),
   BETTER_AUTH_SECRET: z.string().min(32),

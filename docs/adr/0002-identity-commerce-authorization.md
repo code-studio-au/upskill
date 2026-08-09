@@ -14,6 +14,12 @@ identity/customer integration and authenticated Stripe boundary. It remains a
 supporting adapter: application commerce tables and the direct fulfilment
 webhook are authoritative.
 
+Hosted Stripe Checkout handles single-course payment collection. Upskill
+creates and prices orders from the current immutable course version, then
+fulfils only from signature-verified webhook events after reconciling the
+session, purchaser, version, amount and currency. Success redirects are display
+surfaces, not payment authority.
+
 ## Consequences
 
 Every private server function authorizes the active application user and target
