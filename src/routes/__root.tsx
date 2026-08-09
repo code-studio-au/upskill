@@ -25,6 +25,7 @@ export const Route = createRootRoute({
         content: "Discover practical courses, events and learning programs.",
       },
     ],
+    links: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
   }),
   component: RootOutlet,
   notFoundComponent: NotFoundPage,
@@ -36,7 +37,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
   const nonce = router.options.ssr?.nonce;
 
   return (
-    <html lang="en-AU">
+    <html lang="en-AU" data-mantine-color-scheme="light">
       <head>
         {nonce ? (
           <meta property="csp-nonce" content={nonce} nonce={nonce} />

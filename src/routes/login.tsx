@@ -12,10 +12,18 @@ import {
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useSyncExternalStore, type SyntheticEvent } from "react";
 import { authClient } from "#/features/auth/auth-client";
-import { loginSearchSchema } from "#/features/auth/login.schema";
+import {
+  loginCredentialsSchema,
+  loginSearchSchema,
+} from "#/features/auth/login.schema";
 import classes from "./login.module.css";
 
 const subscribeToHydration = () => () => undefined;
+
+interface LoginFieldErrors {
+  email?: string;
+  password?: string;
+}
 
 export const Route = createFileRoute("/login")({
   validateSearch: loginSearchSchema,
@@ -32,22 +40,32 @@ function LoginPage() {
   );
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
 
   async function submit(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const email = form.get("email");
-    const password = form.get("password");
-
-    if (typeof email !== "string" || typeof password !== "string") {
-      setError("Enter your email address and password.");
+    const validation = loginCredentialsSchema.safeParse({
+      email: form.get("email"),
+      password: form.get("password"),
+    });
+    if (!validation.success) {
+      const nextErrors: LoginFieldErrors = {};
+      for (const issue of validation.error.issues) {
+        if (issue.path[0] === "email" && !nextErrors.email)
+          nextErrors.email = issue.message;
+        if (issue.path[0] === "password" && !nextErrors.password)
+          nextErrors.password = issue.message;
+      }
+      setFieldErrors(nextErrors);
       return;
     }
 
     setPending(true);
     setError(null);
+    setFieldErrors({});
     try {
-      const result = await authClient.signIn.email({ email, password });
+      const result = await authClient.signIn.email(validation.data);
       if (result.error) {
         setError("We could not sign you in with those details.");
         return;
@@ -97,13 +115,25 @@ function LoginPage() {
                 name="email"
                 type="email"
                 autoComplete="email"
-                required
+                withAsterisk
+                error={fieldErrors.email}
+                onChange={() => {
+                  setFieldErrors((current) =>
+                    current.password ? { password: current.password } : {},
+                  );
+                }}
               />
               <PasswordInput
                 label="Password"
                 name="password"
                 autoComplete="current-password"
-                required
+                withAsterisk
+                error={fieldErrors.password}
+                onChange={() => {
+                  setFieldErrors((current) =>
+                    current.email ? { email: current.email } : {},
+                  );
+                }}
               />
               <Button
                 type="submit"

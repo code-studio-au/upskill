@@ -1,16 +1,21 @@
-import { z } from "zod";
+import { z } from "#/validation/zod";
 import type { LearningPhase } from "#/features/learning/learning.schema";
 
 const adminIdentifierSchema = z
   .string()
-  .trim()
-  .min(1)
-  .max(255)
-  .regex(/^[A-Za-z0-9_-]+$/);
+  .check(
+    z.trim(),
+    z.minLength(1),
+    z.maxLength(255),
+    z.regex(/^[A-Za-z0-9_-]+$/),
+  );
 
 export const adminLearnerSearchSchema = z.object({
-  q: z.string().trim().max(100).catch(""),
-  page: z.coerce.number().int().min(1).max(10_000).catch(1),
+  q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
+  page: z.catch(
+    z.coerce.number().check(z.int(), z.minimum(1), z.maximum(10_000)),
+    1,
+  ),
 });
 
 export const adminLearnerParamsSchema = z.object({
@@ -25,19 +30,27 @@ export const adminEnrollmentParamsSchema = z.object({
 const progressOverrideFields = {
   enrollmentId: adminIdentifierSchema,
   state: z.enum(["completed", "incomplete"]),
-  reason: z.string().trim().min(10).max(500),
+  reason: z
+    .string()
+    .check(
+      z.trim(),
+      z.minLength(10, "Enter a valid reason of at least 10 characters."),
+      z.maxLength(500, "The reason must be 500 characters or fewer."),
+    ),
 };
 
 export const adminProgressOverrideInputSchema = z.discriminatedUnion("scope", [
   z.object({
     ...progressOverrideFields,
     scope: z.literal("enrollment"),
-    modulePosition: z.null().optional().default(null),
+    modulePosition: z._default(z.optional(z.null()), null),
   }),
   z.object({
     ...progressOverrideFields,
     scope: z.literal("module"),
-    modulePosition: z.coerce.number().int().min(0).max(10_000),
+    modulePosition: z.coerce
+      .number()
+      .check(z.int(), z.minimum(0), z.maximum(10_000)),
   }),
 ]);
 

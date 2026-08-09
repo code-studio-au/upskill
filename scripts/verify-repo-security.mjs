@@ -18,6 +18,14 @@ const csp = fs.readFileSync(
   path.join(root, "src/server/http/security-headers.ts"),
   "utf8",
 );
+const zodAdapter = fs.readFileSync(
+  path.join(root, "src/validation/zod.ts"),
+  "utf8",
+);
+const serverZodAdapter = fs.readFileSync(
+  path.join(root, "src/validation/zod.server.ts"),
+  "utf8",
+);
 
 if (
   fs.readFileSync(path.join(root, ".node-version"), "utf8").trim() !== "26.7.0"
@@ -101,6 +109,10 @@ if (!csp.includes('"style-src-attr": ["\'unsafe-inline\'"]'))
   failures.push("Mantine style-attribute exception must stay explicit");
 if (!csp.includes("\"style-src-elem\": [\"'self'\", `'nonce-${nonce}'`]"))
   failures.push("Style elements must require the request nonce");
+if (!zodAdapter.includes("z.config({ jitless: true })"))
+  failures.push("The shared Zod adapter must disable eval-based JIT probing");
+if (!serverZodAdapter.includes("z.config({ jitless: true })"))
+  failures.push("The server Zod adapter must disable eval-based JIT probing");
 const applicationStack = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/application-stack.ts"),
   "utf8",
@@ -142,6 +154,13 @@ function sourceFiles(directory) {
 for (const file of sourceFiles(path.join(root, "src"))) {
   const relative = path.relative(root, file);
   const contents = fs.readFileSync(file, "utf8");
+  if (
+    !relative.startsWith("src/validation/zod") &&
+    /from ["']zod(?:\/[^"']*)?["']/.test(contents)
+  )
+    failures.push(
+      `Direct Zod import bypasses the CSP-safe adapter: ${relative}`,
+    );
   if (
     /\bstyle\s*=\s*\{\{/.test(contents) ||
     /\bstyles\s*=\s*\{\{/.test(contents)

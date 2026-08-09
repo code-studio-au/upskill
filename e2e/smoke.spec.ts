@@ -41,12 +41,65 @@ test("public catalogue is responsive, accessible and CSP-hardened", async ({
   expect(accessibility.violations).toEqual([]);
 });
 
+test("server-rendered navigation and actions stay visible before hydration", async ({
+  browser,
+}, testInfo) => {
+  const baseURL = testInfo.project.use.baseURL;
+  if (typeof baseURL !== "string")
+    throw new Error("Playwright baseURL is required");
+
+  const context = await browser.newContext({
+    baseURL,
+    javaScriptEnabled: false,
+    viewport: { width: 393, height: 852 },
+  });
+  const page = await context.newPage();
+
+  await page.goto("/");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-mantine-color-scheme",
+    "light",
+  );
+  await expect(
+    page.getByRole("link", { name: "Courses", exact: true }),
+  ).toBeVisible();
+  const exploreCourses = page.getByRole("link", { name: "Explore courses" });
+  await expect(exploreCourses).toBeVisible();
+  await expect(exploreCourses).not.toHaveCSS(
+    "background-color",
+    "rgba(0, 0, 0, 0)",
+  );
+
+  await page.goto("/login");
+  const signIn = page.getByRole("button", { name: "Sign in" });
+  await expect(signIn).toBeVisible();
+  await expect(signIn).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+
+  const favicon = await page.request.get("/favicon.svg");
+  expect(favicon.status()).toBe(200);
+  expect(favicon.headers()["content-type"]).toContain("image/svg+xml");
+  await context.close();
+});
+
 test("validated catalogue search remains navigable", async ({ page }) => {
   await page.goto("/courses?q=safety&topic=safety&page=1");
   await expect(
     page.getByRole("heading", { name: "Find your next skill" }),
   ).toBeVisible();
   await expect(page.getByText("Psychological safety at work")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Clear search filter: safety" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Clear topic filter: Safety" }),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Clear search filter: safety" })
+    .click();
+  await expect(page).toHaveURL(/\/courses\/?\?q=&topic=safety&page=1$/);
+  await expect(
+    page.getByRole("button", { name: "Clear search filter: safety" }),
+  ).toHaveCount(0);
   await page.getByRole("link", { name: "View course" }).click();
   await expect(
     page.getByRole("heading", { name: "Psychological safety at work" }),
@@ -62,6 +115,9 @@ test("validated catalogue search remains navigable", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Sign in to Upskill" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page.getByText("Enter your email address.")).toBeVisible();
+  await expect(page.getByText("Enter your password.")).toBeVisible();
 });
 
 test("Stripe webhook rejects an invalid signature", async ({ request }) => {
@@ -198,9 +254,24 @@ test("platform administrators can inspect learner progress", async ({
     page.getByRole("heading", { name: "Learners", exact: true }),
   ).toBeVisible();
   expect(new URL(page.url()).pathname).toMatch(/\/admin\/learners\/?$/);
+  await page.evaluate(() => {
+    document.documentElement.dataset.clientNavigation = "preserved";
+  });
   await page.getByLabel("Search learners").fill("learner@example.com");
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("Alex Learner")).toBeVisible();
+  await expect(
+    page.getByRole("button", {
+      name: "Clear search filter: learner@example.com",
+    }),
+  ).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.documentElement.dataset.clientNavigation ?? null,
+      ),
+    )
+    .toBe("preserved");
   await page.getByRole("link", { name: "View learner profile" }).click();
   await expect(
     page.getByRole("heading", { name: "Alex Learner" }),
@@ -221,6 +292,19 @@ test("platform administrators can inspect learner progress", async ({
       "Corrections never alter the learner's original SCORM attempts.",
     ),
   ).toBeVisible();
+  const courseReason = page
+    .getByLabel(/Reason for marking this course/)
+    .first();
+  await page.getByRole("button", { name: "Review correction" }).first().click();
+  await expect(page.getByText("Enter a valid reason")).toBeVisible();
+  await courseReason.fill("Verified support evidence");
+  await page.getByRole("button", { name: "Review correction" }).first().click();
+  const correctionDialog = page.getByRole("dialog", {
+    name: "Confirm progress correction",
+  });
+  await expect(correctionDialog).toBeVisible();
+  await correctionDialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(correctionDialog).toHaveCount(0);
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
 
   const database = new Client({ connectionString: process.env.DATABASE_URL });
@@ -256,6 +340,11 @@ test("platform administrators can inspect learner progress", async ({
       ],
     );
 
+    await page.evaluate(() => {
+      document.addEventListener("securitypolicyviolation", (event) => {
+        document.documentElement.dataset.cspViolation = event.violatedDirective;
+      });
+    });
     await page.getByRole("link", { name: "Modules" }).click();
     await expect(
       page.getByRole("heading", { name: "SCORM modules" }),
@@ -264,6 +353,9 @@ test("platform administrators can inspect learner progress", async ({
       page.getByRole("heading", { name: "Upload module package" }),
     ).toBeVisible();
     await expect(page.getByLabel("SCORM ZIP")).toBeVisible();
+    await page.getByRole("button", { name: "Upload and validate" }).click();
+    await expect(page.getByText("Enter a module name.")).toBeVisible();
+    await expect(page.getByText("Choose a SCORM ZIP to upload.")).toBeVisible();
     const moduleCard = page.getByRole("article").filter({
       has: page.getByRole("heading", {
         name: "Automatic verification status",
@@ -286,19 +378,29 @@ test("platform administrators can inspect learner progress", async ({
     const accessibility = await new AxeBuilder({ page }).analyze();
     expect(accessibility.violations).toEqual([]);
 
-    page.once("dialog", async (dialog) => {
-      expect(dialog.message()).toBe(
-        "Permanently remove version 1 and its stored files?",
-      );
-      await dialog.accept();
+    await page.route("**/api/admin/scorm-packages?*", async (route) => {
+      if (route.request().method() === "DELETE")
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      await route.continue();
     });
     await moduleCard.getByRole("button", { name: "Remove version" }).click();
+    const removalDialog = page.getByRole("dialog", {
+      name: "Remove SCORM version?",
+    });
+    await expect(removalDialog).toBeVisible();
     await expect(
-      page.getByText(
-        "Version 1 was removed. Stored files are being cleared safely.",
+      removalDialog.getByText(
+        "Version 1 and its stored files will be permanently removed.",
       ),
     ).toBeVisible();
+    await removalDialog.getByRole("button", { name: "Remove version" }).click();
+    await expect(moduleCard.getByText("Removing")).toBeVisible();
+    await expect(moduleCard.getByTestId("removal-spinner")).toBeVisible();
     await expect(moduleCard).toHaveCount(0);
+    await expect(page.locator("html")).not.toHaveAttribute(
+      "data-csp-violation",
+      /.+/,
+    );
     const removedVersion = await database.query<{ count: number }>(
       `select count(*)::integer as count from scorm_package_version where id = $1`,
       [packageVersionId],
@@ -362,6 +464,8 @@ test("verified learners see entitlements and can redeem access", async ({
   }
 
   const code = page.getByLabel("Access code");
+  await page.getByRole("button", { name: "Apply access code" }).click();
+  await expect(page.getByText("Enter the complete access code.")).toBeVisible();
   await code.fill("NOT-A-REAL-CODE");
   await page.getByRole("button", { name: "Apply access code" }).click();
   await expect(page.getByText("Code not accepted")).toBeVisible();

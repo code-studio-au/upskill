@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { loginSearchSchema } from "./login.schema";
+import { loginCredentialsSchema, loginSearchSchema } from "./login.schema";
 
 describe("login search", () => {
   it("accepts an internal redirect", () => {
@@ -16,4 +16,23 @@ describe("login search", () => {
       });
     },
   );
+
+  it("validates login fields before authentication", () => {
+    expect(
+      loginCredentialsSchema.parse({
+        email: "  learner@example.com ",
+        password: "password",
+      }),
+    ).toEqual({ email: "learner@example.com", password: "password" });
+    const invalid = loginCredentialsSchema.safeParse({
+      email: "not-an-email",
+      password: "",
+    });
+    expect(invalid.success).toBe(false);
+    if (!invalid.success)
+      expect(invalid.error.issues.map((issue) => issue.message)).toEqual([
+        "Enter a valid email address.",
+        "Enter your password.",
+      ]);
+  });
 });

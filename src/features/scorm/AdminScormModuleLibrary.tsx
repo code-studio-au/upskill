@@ -9,6 +9,7 @@ import {
   Title,
 } from "@mantine/core";
 import { useState } from "react";
+import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import {
   isScormVerificationPending,
   type AdminScormPackageSummary,
@@ -50,6 +51,7 @@ function ScormVersionItem({
 }: ScormVersionItemProps) {
   const status = statusDetails[version.status];
   const verificationPending = isScormVerificationPending(version.status);
+  const statusLabel = removing ? "Removing" : status.label;
   const removable =
     !verificationPending &&
     version.courseUsageCount === 0 &&
@@ -60,20 +62,22 @@ function ScormVersionItem({
         <Group gap="xs">
           <Text fw={700}>Version {version.version}</Text>
           <Badge
-            color={status.color}
+            color={removing ? "indigo" : status.color}
             variant="outline"
             aria-live="polite"
             className={classes.statusBadge}
-            data-status={version.status}
+            data-status={removing ? "removing" : version.status}
           >
-            {verificationPending ? (
+            {verificationPending || removing ? (
               <span
                 className={classes.verifyingSpinner}
                 aria-hidden="true"
-                data-testid="verification-spinner"
+                data-testid={
+                  removing ? "removal-spinner" : "verification-spinner"
+                }
               />
             ) : null}
-            {status.label}
+            {statusLabel}
           </Badge>
         </Group>
         <Text c="dimmed" size="sm" mt={4}>
@@ -89,20 +93,13 @@ function ScormVersionItem({
         ) : null}
       </div>
       <Stack gap="xs" className={classes.versionActions}>
-        {removable ? (
+        {removable && !removing ? (
           <Button
             color="red"
             variant="subtle"
             size="xs"
             loading={removing}
-            onClick={() => {
-              if (
-                window.confirm(
-                  `Permanently remove version ${String(version.version)} and its stored files?`,
-                )
-              )
-                onRemove();
-            }}
+            onClick={onRemove}
           >
             Remove version
           </Button>
@@ -117,15 +114,25 @@ export function AdminScormModuleLibrary({
   onChanged,
 }: AdminScormModuleLibraryProps) {
   const [removingVersionId, setRemovingVersionId] = useState<string>();
-  const [notice, setNotice] = useState<
-    { color: "green" | "red"; message: string } | undefined
-  >();
+  const [refreshing, setRefreshing] = useState(false);
+  const [removalTarget, setRemovalTarget] =
+    useState<AdminScormPackageVersionSummary>();
+  const [removalError, setRemovalError] = useState<string>();
+
+  async function refreshLibrary(): Promise<void> {
+    setRefreshing(true);
+    try {
+      await onChanged();
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   async function removeVersion(
     version: AdminScormPackageVersionSummary,
   ): Promise<void> {
     setRemovingVersionId(version.id);
-    setNotice(undefined);
+    setRemovalError(undefined);
     try {
       const search = new URLSearchParams({ packageVersionId: version.id });
       const response = await fetch(`/api/admin/scorm-packages?${search}`, {
@@ -138,34 +145,25 @@ export function AdminScormModuleLibrary({
         return;
       }
       if (!response.ok) {
-        setNotice({
-          color: "red",
-          message:
-            response.status === 409
-              ? "This version is now in use or is still being verified."
-              : response.status === 404
-                ? "This module version has already been removed."
-                : "The module version could not be removed.",
-        });
+        setRemovalError(
+          response.status === 409
+            ? "This version is now in use or is still being verified."
+            : response.status === 404
+              ? "This module version has already been removed."
+              : "The module version could not be removed.",
+        );
         if (response.status === 404) await onChanged();
         return;
       }
-
-      const successMessage = `Version ${String(version.version)} was removed. Stored files are being cleared safely.`;
-      setNotice({ color: "green", message: successMessage });
       try {
         await onChanged();
       } catch {
-        setNotice({
-          color: "green",
-          message: `${successMessage} Refresh the library if it remains visible.`,
-        });
+        setRemovalError("Refresh the library to finish updating this view.");
       }
     } catch {
-      setNotice({
-        color: "red",
-        message: "The module version could not be removed. Please try again.",
-      });
+      setRemovalError(
+        "The module version could not be removed. Please try again.",
+      );
     } finally {
       setRemovingVersionId(undefined);
     }
@@ -183,13 +181,17 @@ export function AdminScormModuleLibrary({
               {packages.length} module{packages.length === 1 ? "" : "s"}
             </Text>
           </div>
-          <Button variant="light" onClick={() => void onChanged()}>
+          <Button
+            variant="light"
+            loading={refreshing}
+            onClick={() => void refreshLibrary()}
+          >
             Refresh status
           </Button>
         </Group>
-        {notice ? (
-          <Alert color={notice.color} title="Module library status">
-            {notice.message}
+        {removalError ? (
+          <Alert color="red" title="Module library status">
+            {removalError}
           </Alert>
         ) : null}
         {packages.length === 0 ? (
@@ -214,7 +216,9 @@ export function AdminScormModuleLibrary({
                         key={version.id}
                         version={version}
                         removing={removingVersionId === version.id}
-                        onRemove={() => void removeVersion(version)}
+                        onRemove={() => {
+                          setRemovalTarget(version);
+                        }}
                       />
                     ))}
                   </ol>
@@ -223,6 +227,21 @@ export function AdminScormModuleLibrary({
             ))}
           </div>
         )}
+        {removalTarget ? (
+          <ConfirmationDialog
+            title="Remove SCORM version?"
+            description={`Version ${String(removalTarget.version)} and its stored files will be permanently removed. This cannot be undone.`}
+            confirmLabel="Remove version"
+            onCancel={() => {
+              setRemovalTarget(undefined);
+            }}
+            onConfirm={() => {
+              const version = removalTarget;
+              setRemovalTarget(undefined);
+              void removeVersion(version);
+            }}
+          />
+        ) : null}
       </Stack>
     </section>
   );

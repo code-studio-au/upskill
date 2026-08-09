@@ -1,0 +1,15 @@
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: var(--mantine-spacing-md);
+  background: rgb(0 0 0 / 55%);
+}
+
+.dialog {
+  width: min(100%, 30rem);
+  max-height: calc(100dvh - 2 * var(--mantine-spacing-md));
+  overflow-y: auto;
+}

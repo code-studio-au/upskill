@@ -8,9 +8,20 @@ import {
   TextInput,
   Title,
 } from "@mantine/core";
-import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
-import { adminLearnerSearchSchema } from "#/features/admin/admin.schema";
+import {
+  adminLearnerSearchSchema,
+  type AdminLearnerSearch,
+} from "#/features/admin/admin.schema";
+import { RemovableFilterChip } from "#/features/shared/RemovableFilterChip";
 import { getAdminLearners } from "#/server/functions/admin";
 import classes from "./admin.module.css";
 
@@ -32,6 +43,15 @@ export const Route = createFileRoute("/admin/learners/")({
 
 function AdminLearnersPage() {
   const result = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
+  const navigating = useRouterState({
+    select: (state) => state.status === "pending",
+  });
+  const [submittedSearch, setSubmittedSearch] = useState<AdminLearnerSearch>();
+  useEffect(() => {
+    if (submittedSearch) void navigate({ search: submittedSearch });
+  }, [navigate, submittedSearch]);
   if (result.status === "forbidden") return <AdminAccessDenied />;
   const directory = result.data;
 
@@ -48,19 +68,44 @@ function AdminLearnersPage() {
       </div>
 
       <form
-        method="get"
-        action="/admin/learners"
+        key={search.q}
         className={classes.searchForm}
+        action={(form) => {
+          const validated = adminLearnerSearchSchema.parse({
+            q: form.get("q"),
+            page: 1,
+          });
+          setSubmittedSearch(validated);
+        }}
       >
         <TextInput
           name="q"
           label="Search learners"
-          defaultValue={directory.query}
+          defaultValue={search.q}
           placeholder="Name or email address"
           maxLength={100}
         />
-        <Button type="submit">Search</Button>
+        <Button type="submit" loading={navigating}>
+          Search
+        </Button>
       </form>
+
+      {search.q ? (
+        <Stack gap="xs">
+          <Text size="sm" fw={700}>
+            Current filters
+          </Text>
+          <Group gap="xs">
+            <RemovableFilterChip
+              label="Search"
+              value={search.q}
+              onRemove={() => {
+                void navigate({ search: { q: "", page: 1 } });
+              }}
+            />
+          </Group>
+        </Stack>
+      ) : null}
 
       <Text c="dimmed" size="sm">
         {directory.pagination.total} learner

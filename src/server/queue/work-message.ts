@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "#/validation/zod.server";
 
 export const SCORM_INGESTION_TOPIC = "scorm.package_ingest_requested";
 export const SCORM_DELETION_TOPIC = "scorm.package_delete_requested";

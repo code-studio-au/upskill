@@ -1,16 +1,17 @@
 import {
   Alert,
   Button,
+  FileInput,
   Group,
+  NativeSelect,
   Paper,
   Stack,
-  Text,
   TextInput,
   Title,
 } from "@mantine/core";
-import { useRef, useState, type SyntheticEvent } from "react";
+import { useState, type SyntheticEvent } from "react";
 import {
-  SCORM_MAX_ARCHIVE_BYTES,
+  adminScormUploadFormSchema,
   type AdminScormPackageSummary,
 } from "#/features/scorm/scorm-package.schema";
 import classes from "./admin-scorm.module.css";
@@ -18,6 +19,20 @@ import classes from "./admin-scorm.module.css";
 interface AdminScormUploadPanelProps {
   packages: Array<AdminScormPackageSummary>;
   onChanged: () => Promise<void>;
+}
+
+interface UploadErrors {
+  archive?: string;
+  title?: string;
+}
+
+function clearUploadError(
+  errors: UploadErrors,
+  field: keyof UploadErrors,
+): UploadErrors {
+  if (field === "title")
+    return errors.archive ? { archive: errors.archive } : {};
+  return errors.title ? { title: errors.title } : {};
 }
 
 function uploadErrorMessage(status: number, error: string): string {
@@ -34,7 +49,8 @@ export function AdminScormUploadPanel({
 }: AdminScormUploadPanelProps) {
   const [packageId, setPackageId] = useState("");
   const [title, setTitle] = useState("");
-  const archiveInput = useRef<HTMLInputElement>(null);
+  const [archive, setArchive] = useState<File | null>(null);
+  const [errors, setErrors] = useState<UploadErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<
     { color: "green" | "red"; message: string } | undefined
@@ -44,33 +60,30 @@ export function AdminScormUploadPanel({
 
   async function upload(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const archive = archiveInput.current?.files?.[0];
-    if (!archive) {
-      setNotice({ color: "red", message: "Choose a SCORM ZIP to upload." });
+    const validation = adminScormUploadFormSchema.safeParse({ title, archive });
+    if (!validation.success) {
+      const nextErrors: UploadErrors = {};
+      for (const issue of validation.error.issues) {
+        if (issue.path[0] === "title" && !nextErrors.title)
+          nextErrors.title = issue.message;
+        if (issue.path[0] === "archive" && !nextErrors.archive)
+          nextErrors.archive = issue.message;
+      }
+      setErrors(nextErrors);
       return;
     }
-    if (archive.size < 1 || archive.size > SCORM_MAX_ARCHIVE_BYTES) {
-      setNotice({
-        color: "red",
-        message: "The ZIP must contain data and be no larger than 250 MB.",
-      });
-      return;
-    }
-    if (!archive.name.toLowerCase().endsWith(".zip")) {
-      setNotice({ color: "red", message: "Choose a file ending in .zip." });
-      return;
-    }
+    setErrors({});
     setSubmitting(true);
     setNotice(undefined);
     try {
-      const search = new URLSearchParams({ title: title.trim() });
+      const search = new URLSearchParams({ title: validation.data.title });
       if (effectivePackageId) search.set("packageId", effectivePackageId);
       const response = await fetch(
         `/api/admin/scorm-packages?${search.toString()}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/zip" },
-          body: archive,
+          body: validation.data.archive,
         },
       );
       if (!response.ok) {
@@ -91,7 +104,7 @@ export function AdminScormUploadPanel({
       const successMessage =
         "The module was quarantined and queued for validation.";
       setNotice({ color: "green", message: successMessage });
-      if (archiveInput.current) archiveInput.current.value = "";
+      setArchive(null);
       try {
         await onChanged();
       } catch {
@@ -119,57 +132,52 @@ export function AdminScormUploadPanel({
             Upload module package
           </Title>
           <div className={classes.uploadGrid}>
-            <div>
-              <label className={classes.fieldLabel} htmlFor="package-version">
-                Upload as
-              </label>
-              <select
-                className={classes.nativeField}
-                id="package-version"
-                value={effectivePackageId}
-                onChange={(event) => {
-                  const selectedId = event.currentTarget.value;
-                  setPackageId(selectedId);
-                  const selected = packages.find(
-                    (item) => item.id === selectedId,
-                  );
-                  setTitle(selected?.title ?? "");
-                }}
-              >
-                <option value="">New module</option>
-                {packages.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    New version of {item.title}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <NativeSelect
+              label="Upload as"
+              value={effectivePackageId}
+              onChange={(event) => {
+                const selectedId = event.currentTarget.value;
+                setPackageId(selectedId);
+                const selected = packages.find(
+                  (item) => item.id === selectedId,
+                );
+                setTitle(selected?.title ?? "");
+                setErrors((current) => clearUploadError(current, "title"));
+              }}
+              data={[
+                { value: "", label: "New module" },
+                ...packages.map((item) => ({
+                  value: item.id,
+                  label: `New version of ${item.title}`,
+                })),
+              ]}
+            />
             <TextInput
               label="Module name"
               value={title}
               onChange={(event) => {
                 setTitle(event.currentTarget.value);
+                setErrors((current) => clearUploadError(current, "title"));
               }}
               maxLength={200}
-              required
+              withAsterisk
               disabled={Boolean(effectivePackageId)}
+              error={errors.title}
             />
-            <div>
-              <label className={classes.fieldLabel} htmlFor="scorm-archive">
-                SCORM ZIP
-              </label>
-              <input
-                className={classes.nativeField}
-                id="scorm-archive"
-                ref={archiveInput}
-                type="file"
-                accept=".zip,application/zip"
-                required
-              />
-              <Text c="dimmed" size="xs" mt={4}>
-                Maximum 250 MB. Archives are quarantined before extraction.
-              </Text>
-            </div>
+            <FileInput
+              label="SCORM ZIP"
+              description="Maximum 250 MB. Archives are quarantined before extraction."
+              placeholder="Choose a ZIP file"
+              value={archive}
+              onChange={(value) => {
+                setArchive(value);
+                setErrors((current) => clearUploadError(current, "archive"));
+              }}
+              accept=".zip,application/zip"
+              clearable
+              withAsterisk
+              error={errors.archive}
+            />
           </div>
           {notice ? (
             <Alert color={notice.color} title="Upload status">

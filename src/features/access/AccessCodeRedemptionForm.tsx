@@ -9,7 +9,10 @@ import {
 } from "@mantine/core";
 import { useRouter } from "@tanstack/react-router";
 import { useState, useSyncExternalStore, type SyntheticEvent } from "react";
-import type { AccessCodeRedemptionResult } from "./access-code.schema";
+import {
+  accessCodeInputSchema,
+  type AccessCodeRedemptionResult,
+} from "./access-code.schema";
 import { redeemLearnerAccessCode } from "#/server/functions/learner";
 import classes from "./AccessCodeRedemptionForm.module.css";
 
@@ -54,13 +57,20 @@ export function AccessCodeRedemptionForm() {
   const [code, setCode] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
+  const [codeError, setCodeError] = useState<string>();
 
   async function submit(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
+    const validation = accessCodeInputSchema.safeParse({ code });
+    if (!validation.success) {
+      setCodeError(validation.error.issues[0]?.message);
+      return;
+    }
+    setCodeError(undefined);
     setPending(true);
     setMessage(null);
     try {
-      const result = await redeemLearnerAccessCode({ data: { code } });
+      const result = await redeemLearnerAccessCode({ data: validation.data });
       if (result.status === "unauthenticated") {
         window.location.assign("/login?redirect=%2Fdashboard");
         return;
@@ -110,17 +120,19 @@ export function AccessCodeRedemptionForm() {
               value={code}
               onChange={(event) => {
                 setCode(event.currentTarget.value);
+                setCodeError(undefined);
               }}
               autoComplete="off"
               autoCapitalize="characters"
               spellCheck={false}
-              required
+              withAsterisk
+              error={codeError}
               classNames={{ input: classes.codeInput }}
             />
             <Button
               type="submit"
               loading={pending}
-              disabled={!hydrated || code.trim().length === 0}
+              disabled={!hydrated}
               className={classes.submit}
             >
               Apply access code

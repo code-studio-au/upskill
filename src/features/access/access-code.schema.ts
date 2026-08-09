@@ -1,7 +1,13 @@
-import { z } from "zod";
+import { z } from "#/validation/zod";
 
 export const accessCodeInputSchema = z.object({
-  code: z.string().trim().min(8).max(128),
+  code: z
+    .string()
+    .check(
+      z.trim(),
+      z.minLength(8, "Enter the complete access code."),
+      z.maxLength(128, "The access code is too long."),
+    ),
 });
 
 export type AccessCodeRedemptionResult =

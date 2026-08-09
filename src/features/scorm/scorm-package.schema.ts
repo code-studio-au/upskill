@@ -1,4 +1,34 @@
+import { z } from "#/validation/zod";
+
 export const SCORM_MAX_ARCHIVE_BYTES = 250 * 1024 * 1024;
+
+const scormArchiveSchema = z
+  .custom<File>(
+    (value) => typeof File !== "undefined" && value instanceof File,
+    "Choose a SCORM ZIP to upload.",
+  )
+  .check(
+    z.refine((archive) => archive.size > 0, "The ZIP must contain data."),
+    z.refine(
+      (archive) => archive.size <= SCORM_MAX_ARCHIVE_BYTES,
+      "The ZIP must be no larger than 250 MB.",
+    ),
+    z.refine(
+      (archive) => archive.name.toLowerCase().endsWith(".zip"),
+      "Choose a file ending in .zip.",
+    ),
+  );
+
+export const adminScormUploadFormSchema = z.object({
+  title: z
+    .string()
+    .check(
+      z.trim(),
+      z.minLength(1, "Enter a module name."),
+      z.maxLength(200, "The module name must be 200 characters or fewer."),
+    ),
+  archive: scormArchiveSchema,
+});
 
 export type AdminScormRemovalResult =
   | {

@@ -1,15 +1,17 @@
-import { z } from "zod";
+import { z } from "#/validation/zod";
 
 const internalIdSchema = z
   .string()
-  .trim()
-  .min(1)
-  .max(255)
-  .regex(/^[A-Za-z0-9_-]+$/);
+  .check(
+    z.trim(),
+    z.minLength(1),
+    z.maxLength(255),
+    z.regex(/^[A-Za-z0-9_-]+$/),
+  );
 
 export const scormLaunchInputSchema = z.object({
   enrollmentId: internalIdSchema,
-  modulePosition: z.number().int().min(0).max(10_000),
+  modulePosition: z.number().check(z.int(), z.minimum(0), z.maximum(10_000)),
 });
 
 export const scormAttemptParamsSchema = z.object({
@@ -18,10 +20,11 @@ export const scormAttemptParamsSchema = z.object({
 
 export const scormOpaqueTokenSchema = z
   .string()
-  .length(43)
-  .regex(/^[A-Za-z0-9_-]+$/);
+  .check(z.length(43), z.regex(/^[A-Za-z0-9_-]+$/));
 
-const scoreSchema = z.number().min(-100_000).max(100_000).nullable();
+const scoreSchema = z.nullable(
+  z.number().check(z.minimum(-100_000), z.maximum(100_000)),
+);
 
 export const scormProgressInputSchema = z
   .object({
@@ -33,37 +36,41 @@ export const scormProgressInputSchema = z
       "failed",
       "browsed",
     ]),
-    location: z.string().max(1_000),
-    suspendData: z.string().max(65_536),
+    location: z.string().check(z.maxLength(1_000)),
+    suspendData: z.string().check(z.maxLength(65_536)),
     scoreRaw: scoreSchema,
     scoreMin: scoreSchema,
     scoreMax: scoreSchema,
-    totalTimeSeconds: z.number().int().nonnegative().max(31_536_000),
+    totalTimeSeconds: z
+      .number()
+      .check(z.int(), z.nonnegative(), z.maximum(31_536_000)),
   })
-  .superRefine((value, context) => {
-    if (
-      value.scoreMin !== null &&
-      value.scoreMax !== null &&
-      value.scoreMin > value.scoreMax
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["scoreMin"],
-        message: "Minimum score cannot exceed maximum score",
-      });
-    }
-    if (
-      value.scoreRaw !== null &&
-      ((value.scoreMin !== null && value.scoreRaw < value.scoreMin) ||
-        (value.scoreMax !== null && value.scoreRaw > value.scoreMax))
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["scoreRaw"],
-        message: "Raw score must be within the supplied range",
-      });
-    }
-  });
+  .check(
+    z.superRefine((value, context) => {
+      if (
+        value.scoreMin !== null &&
+        value.scoreMax !== null &&
+        value.scoreMin > value.scoreMax
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["scoreMin"],
+          message: "Minimum score cannot exceed maximum score",
+        });
+      }
+      if (
+        value.scoreRaw !== null &&
+        ((value.scoreMin !== null && value.scoreRaw < value.scoreMin) ||
+          (value.scoreMax !== null && value.scoreRaw > value.scoreMax))
+      ) {
+        context.addIssue({
+          code: "custom",
+          path: ["scoreRaw"],
+          message: "Raw score must be within the supplied range",
+        });
+      }
+    }),
+  );
 
 export type ScormProgressInput = z.infer<typeof scormProgressInputSchema>;
 
