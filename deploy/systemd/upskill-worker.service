@@ -1,0 +1,21 @@
+[Unit]
+Description=Upskill asynchronous worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ec2-user
+Group=ec2-user
+WorkingDirectory=/opt/upskill/current
+EnvironmentFile=/opt/upskill/shared/upskill.env
+ExecStart=/usr/bin/node dist/worker/scorm-worker.js
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/upskill/shared
+
+[Install]
+WantedBy=multi-user.target

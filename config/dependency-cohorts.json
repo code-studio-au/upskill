@@ -1,6 +1,7 @@
 {
   "sameVersion": [
-    ["@mantine/core", "@mantine/hooks", "@mantine/notifications"],
+    ["@aws-sdk/client-s3", "@aws-sdk/client-sqs"],
+    ["@mantine/core", "@mantine/hooks"],
     ["better-auth", "@better-auth/stripe"],
     ["react", "react-dom"]
   ],

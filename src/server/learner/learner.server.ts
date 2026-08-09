@@ -117,8 +117,19 @@ export async function findLearnerDashboard(
     }
   }
 
+  const administratorAssignment = await getDatabase()
+    .selectFrom("platform_admin")
+    .select("userId")
+    .where("userId", "=", user.id)
+    .executeTakeFirst();
+
   return {
-    user: { id: user.id, name: user.name, email: user.email },
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      isPlatformAdministrator: Boolean(administratorAssignment),
+    },
     courses,
     availableCourses,
   };

@@ -1,0 +1,162 @@
+import { z } from "zod";
+import type { LearningPhase } from "#/features/learning/learning.schema";
+
+const adminIdentifierSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(255)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
+export const adminLearnerSearchSchema = z.object({
+  q: z.string().trim().max(100).catch(""),
+  page: z.coerce.number().int().min(1).max(10_000).catch(1),
+});
+
+export const adminLearnerParamsSchema = z.object({
+  userId: adminIdentifierSchema,
+});
+
+export const adminEnrollmentParamsSchema = z.object({
+  userId: adminIdentifierSchema,
+  enrollmentId: adminIdentifierSchema,
+});
+
+const progressOverrideFields = {
+  enrollmentId: adminIdentifierSchema,
+  state: z.enum(["completed", "incomplete"]),
+  reason: z.string().trim().min(10).max(500),
+};
+
+export const adminProgressOverrideInputSchema = z.discriminatedUnion("scope", [
+  z.object({
+    ...progressOverrideFields,
+    scope: z.literal("enrollment"),
+    modulePosition: z.null().optional().default(null),
+  }),
+  z.object({
+    ...progressOverrideFields,
+    scope: z.literal("module"),
+    modulePosition: z.coerce.number().int().min(0).max(10_000),
+  }),
+]);
+
+export type AdminLearnerSearch = z.infer<typeof adminLearnerSearchSchema>;
+export type AdminProgressOverrideInput = z.infer<
+  typeof adminProgressOverrideInputSchema
+>;
+
+export interface AdminOverview {
+  administrator: { name: string; email: string };
+  statistics: {
+    learners: number;
+    activeEnrollments: number;
+    completedEnrollments: number;
+    paidOrders: number;
+    paidRevenueCents: number;
+  };
+}
+
+interface AdminLearnerSummary {
+  id: string;
+  name: string;
+  email: string;
+  joinedAt: string;
+  enrollments: number;
+  activeEnrollments: number;
+  completedEnrollments: number;
+}
+
+export interface AdminLearnerDirectory {
+  learners: Array<AdminLearnerSummary>;
+  pagination: { page: number; pages: number; total: number };
+  query: string;
+}
+
+interface AdminLearnerEnrollment {
+  id: string;
+  courseSlug: string;
+  courseTitle: string;
+  courseVersion: number;
+  status: "active" | "completed" | "expired" | "cancelled";
+  enrolledAt: string;
+  completedAt: string | null;
+  expiresAt: string | null;
+  removedAt: string | null;
+  moduleCount: number;
+  completedModuleCount: number;
+  lastActivityAt: string | null;
+}
+
+export interface AdminLearnerProfile {
+  learner: { id: string; name: string; email: string; joinedAt: string };
+  enrollments: Array<AdminLearnerEnrollment>;
+}
+
+interface AdminEnrollmentModule {
+  position: number;
+  title: string;
+  phase: LearningPhase;
+  durationMinutes: number;
+  state: "completed" | "incomplete";
+  source: "scorm" | "administrator" | "none";
+  attemptCount: number;
+  latestActivityAt: string | null;
+  latestActivityAtLabel: string | null;
+  override: {
+    administratorName: string;
+    reason: string;
+    createdAt: string;
+    createdAtLabel: string;
+  } | null;
+}
+
+interface AdminProgressOverrideHistoryItem {
+  id: string;
+  scope: "module" | "enrollment";
+  modulePosition: number | null;
+  state: "completed" | "incomplete";
+  administratorName: string;
+  reason: string;
+  createdAt: string;
+  createdAtLabel: string;
+}
+
+export interface AdminEnrollmentDetail {
+  learner: { id: string; name: string; email: string };
+  enrollment: {
+    id: string;
+    courseTitle: string;
+    courseVersion: number;
+    accessStatus: "active" | "expired" | "cancelled";
+    completionState: "completed" | "incomplete";
+    completionSource: "system" | "administrator";
+    enrolledAt: string;
+    enrolledAtLabel: string;
+    completedAt: string | null;
+    completedAtLabel: string | null;
+    expiresAt: string | null;
+    completionOverride: {
+      administratorName: string;
+      reason: string;
+      createdAt: string;
+      createdAtLabel: string;
+    } | null;
+  };
+  modules: Array<AdminEnrollmentModule>;
+  overrideHistory: Array<AdminProgressOverrideHistoryItem>;
+}
+
+export type AdminResult<T> =
+  | { status: "ready"; data: T }
+  | { status: "unauthenticated" }
+  | { status: "forbidden" };
+
+export type AdminProfileResult =
+  AdminResult<AdminLearnerProfile> | { status: "not-found" };
+
+export type AdminEnrollmentResult =
+  AdminResult<AdminEnrollmentDetail> | { status: "not-found" };
+
+export type AdminProgressOverrideResult =
+  AdminResult<{ outcome: "changed" | "unchanged" }> | { status: "not-found" };

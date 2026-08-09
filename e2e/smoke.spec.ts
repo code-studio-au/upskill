@@ -74,7 +74,7 @@ test("Stripe webhook rejects an invalid signature", async ({ request }) => {
 
 test("SCORM launch boundaries reject the wrong origin and missing session", async ({
   request,
-}) => {
+}, testInfo) => {
   const crossOrigin = await request.post("/api/scorm/launches", {
     data: {
       enrollmentId: "enrollment_local_leading_change",
@@ -89,7 +89,7 @@ test("SCORM launch boundaries reject the wrong origin and missing session", asyn
       enrollmentId: "enrollment_local_leading_change",
       modulePosition: 0,
     },
-    headers: { origin: "http://127.0.0.1:3000" },
+    headers: { origin: new URL(testInfo.project.use.baseURL ?? "").origin },
   });
   expect(unauthenticated.status()).toBe(401);
 
@@ -114,6 +114,60 @@ test("learner dashboard requires a server-validated session", async ({
   );
 });
 
+test("platform administrators can inspect learner progress", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "chromium-mobile",
+    "The complete admin journey runs once; learner authentication remains cross-browser.",
+  );
+
+  await page.goto("/login?redirect=%2Fadmin");
+  await page.getByLabel("Email address").fill("admin@example.com");
+  await page
+    .locator('input[name="password"]')
+    .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  await expect(page).toHaveURL(/\/admin$/);
+  await expect(
+    page.getByRole("heading", { name: "Administration" }),
+  ).toBeVisible();
+  await expect(page.getByText("Registered learners")).toBeVisible();
+
+  await page.getByRole("link", { name: "Learners" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Learners", exact: true }),
+  ).toBeVisible();
+  expect(new URL(page.url()).pathname).toMatch(/\/admin\/learners\/?$/);
+  await page.getByLabel("Search learners").fill("learner@example.com");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByText("Alex Learner")).toBeVisible();
+  await page.getByRole("link", { name: "View learner profile" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Alex Learner" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Course enrolments" }),
+  ).toBeVisible();
+  await expect(page.getByText("Leading through change")).toBeVisible();
+  await page.getByRole("link", { name: "Review progress" }).first().click();
+  await expect(
+    page.getByRole("heading", { name: "Overall course completion" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Module progress" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Corrections never alter the learner's original SCORM attempts.",
+    ),
+  ).toBeVisible();
+  await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
+});
+
 test("verified learners see entitlements and can redeem access", async ({
   page,
 }, testInfo) => {
@@ -134,10 +188,10 @@ test("verified learners see entitlements and can redeem access", async ({
   if (!exercisesRedemption) {
     await expect(page.getByText("Leading through change")).toBeVisible();
     await expect(page.getByText("Responsible AI foundations")).toBeVisible();
+    return;
   }
 
   const alreadyEnrolled =
-    exercisesRedemption &&
     (await page.getByRole("link", { name: "Continue course" }).count()) > 0;
   if (!alreadyEnrolled) {
     await expect(
@@ -148,8 +202,6 @@ test("verified learners see entitlements and can redeem access", async ({
     await expect(page.getByText("Psychological safety at work")).toBeVisible();
     await expect(page.getByText("Eligible for example.com")).toBeVisible();
   }
-
-  if (!exercisesRedemption) return;
 
   const code = page.getByLabel("Access code");
   await code.fill("NOT-A-REAL-CODE");

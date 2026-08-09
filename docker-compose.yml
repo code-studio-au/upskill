@@ -53,3 +53,23 @@ services:
         mc version enable local/upskill-learning-content;
         mc version enable local/upskill-private-resources;
         mc version enable local/upskill-certificates
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:1.7.1
+    container_name: upskill-elasticmq
+    restart: unless-stopped
+    ports:
+      - "${ELASTICMQ_PORT:-9324}:9324"
+    volumes:
+      - ./docker/elasticmq.conf:/opt/elasticmq.conf:ro
+
+  elasticmq-ui:
+    image: softwaremill/elasticmq-ui:1.7.1
+    container_name: upskill-elasticmq-ui
+    restart: unless-stopped
+    depends_on:
+      - elasticmq
+    environment:
+      SQS_ENDPOINT: http://elasticmq:9324
+    ports:
+      - "${ELASTICMQ_UI_PORT:-9325}:3000"

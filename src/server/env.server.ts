@@ -31,6 +31,20 @@ const envSchema = z.object({
     .min(3)
     .default("upskill-private-resources"),
   S3_CERTIFICATES_BUCKET: z.string().min(3).default("upskill-certificates"),
+  SQS_ENDPOINT: z.url().optional(),
+  SQS_QUEUE_URL: z
+    .url()
+    .default("http://127.0.0.1:9324/000000000000/upskill-work"),
+  SQS_DEAD_LETTER_QUEUE_URL: z
+    .url()
+    .default("http://127.0.0.1:9324/000000000000/upskill-work-dlq"),
+  SQS_RECEIVE_WAIT_SECONDS: z.coerce.number().int().min(0).max(20).default(20),
+  SQS_VISIBILITY_TIMEOUT_SECONDS: z.coerce
+    .number()
+    .int()
+    .min(30)
+    .max(43_200)
+    .default(900),
 });
 
 export type ServerEnv = z.infer<typeof envSchema>;
@@ -38,6 +52,19 @@ export type ServerEnv = z.infer<typeof envSchema>;
 let parsed: ServerEnv | undefined;
 
 export function getServerEnv(): ServerEnv {
-  parsed ??= envSchema.parse(process.env);
+  if (parsed) return parsed;
+  const validated = envSchema.parse(process.env);
+  if (validated.APP_ENV === "staging" || validated.APP_ENV === "production") {
+    if (!process.env.SQS_QUEUE_URL)
+      throw new Error("SQS_QUEUE_URL is required outside local environments");
+    if (validated.SQS_ENDPOINT)
+      throw new Error("SQS_ENDPOINT is prohibited outside local environments");
+    parsed = validated;
+  } else {
+    parsed = {
+      ...validated,
+      SQS_ENDPOINT: validated.SQS_ENDPOINT ?? "http://127.0.0.1:9324",
+    };
+  }
   return parsed;
 }

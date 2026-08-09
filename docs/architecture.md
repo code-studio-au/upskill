@@ -35,6 +35,12 @@ The public catalog, learner application and admin application share one Start
 codebase and explicit server authorization boundaries. Better Auth owns identity
 and sessions; application tables own roles, organisations, enrolments and
 entitlements. Route guards improve UX but never replace server-side checks.
+Platform administration is an explicit application-table assignment, separate
+from organisation membership. Aggregate statistics, validated learner search
+and immutable-version enrolment profiles are read boundaries. Manual module and
+course completion corrections use a separate audited command boundary with a
+mandatory reason and append-only history. Impersonation remains a later,
+separately audited session capability and is not implied by either boundary.
 
 The application uses nonce-based script CSP with no script `unsafe-inline`.
 Mantine is styled primarily through CSS Modules. Mantine's CSS-variable style
@@ -46,7 +52,11 @@ generated style elements require the request nonce.
 Stable identities (`course`, `module`, `survey`, `event_template`) are separated
 from immutable published versions. Enrolments snapshot exact versions so later
 publishing cannot rewrite learner history. Administrative completion changes are
-append-only overrides with actor, reason and timestamp.
+append-only overrides with actor, reason and timestamp. Module overrides take
+precedence over SCORM evidence without rewriting attempts; the latest explicit
+course override takes precedence over derived module completion. The enrolment
+completion projection and corresponding outbox event change in the same
+transaction.
 
 Orders and contracts create access grants. Atomic redemptions create enrolments.
 Verified email domains may restrict discovery and redemption. Stripe confirms
@@ -74,18 +84,29 @@ append-only records. Five-minute launch credentials are stored only as SHA-256
 digests and exchanged on the learning origin for HTTP-only, attempt-scoped
 sessions. Progress commits recheck enrolment access and serialize completion so
 replayed final commits cannot duplicate completion events.
+Quarantined SCORM archives are digest-verified and processed under explicit ZIP
+entry, expanded-size and manifest-profile limits. Extraction rejects traversal,
+links, encryption and duplicate paths before immutable conditional writes to the
+learning-content bucket. Validation rejection codes and processing timestamps
+are retained on the package version for administration and support.
 
-A transactional outbox and SQS-backed worker handle Stripe fulfilment, SCORM
-extraction, certificates, email and scheduled rules. Every job is idempotent and
-failed jobs move to a dead-letter queue.
+A transactional outbox dispatcher and SQS-backed worker handle Stripe
+fulfilment, SCORM extraction, certificates, email and scheduled rules. The
+dispatcher publishes versioned envelopes after the domain transaction commits;
+consumers delete messages only after idempotent handlers reach a terminal
+outcome. Long-running work extends its visibility lease, transient failure is
+redelivered, and poison jobs move to a dead-letter queue after five receives.
+ElasticMQ provides the same queue API, visibility and redrive boundary in local
+Docker development; AWS SQS is the deployed transport.
 
 ## AWS topology
 
 CDK defines staging and production instances of separated network, data,
 storage/messaging and application stacks. PostgreSQL and S3 are private and
 encrypted. An ALB fronts EC2 Auto Scaling instances running nginx, the Start web
-process and a worker process. GitHub Actions authenticates to AWS through OIDC,
-builds once and promotes the same content-addressed artifact.
+process and a separately hardened worker process. GitHub Actions authenticates
+to AWS through OIDC, builds both processes once and promotes the same
+content-addressed artifact.
 
 ## Quality attributes
 

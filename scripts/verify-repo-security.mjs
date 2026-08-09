@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
 
 const root = path.resolve(import.meta.dirname, "..");
 const failures = [];
@@ -52,15 +53,28 @@ if (!packageJson.scripts.doctor.includes("--blocking error"))
   failures.push("React Doctor must fail verification on error diagnostics");
 if (!packageJson.scripts["verify:app:static"].includes("pnpm run doctor"))
   failures.push("React Doctor must remain part of application verification");
-for (const forbidden of [
-  "package-lock.json",
-  "yarn.lock",
-  ".env",
-  ".env.local",
-]) {
+if (!packageJson.scripts.build.includes("vite.worker.config.ts"))
+  failures.push("Production builds must include the asynchronous worker");
+for (const forbidden of ["package-lock.json", "yarn.lock"]) {
   if (fs.existsSync(path.join(root, forbidden)))
     failures.push(`Forbidden repository file: ${forbidden}`);
 }
+for (const sensitive of [".env", ".env.local"]) {
+  try {
+    execFileSync("git", ["ls-files", "--error-unmatch", sensitive], {
+      cwd: root,
+      stdio: "ignore",
+    });
+    failures.push(`Sensitive environment file is tracked: ${sensitive}`);
+  } catch {
+    // An ignored local environment file is expected during local verification.
+  }
+}
+const gitignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+if (!gitignore.split(/\r?\n/).includes(".env"))
+  failures.push(".gitignore must ignore .env");
+if (!gitignore.split(/\r?\n/).includes(".env.*"))
+  failures.push(".gitignore must ignore environment variants");
 if (!csp.includes('"script-src-attr": ["\'none\'"]'))
   failures.push("CSP must prohibit script attributes");
 if (/script-src[^\n]*unsafe-inline/.test(csp))
@@ -69,6 +83,20 @@ if (!csp.includes('"style-src-attr": ["\'unsafe-inline\'"]'))
   failures.push("Mantine style-attribute exception must stay explicit");
 if (!csp.includes("\"style-src-elem\": [\"'self'\", `'nonce-${nonce}'`]"))
   failures.push("Style elements must require the request nonce");
+const applicationStack = fs.readFileSync(
+  path.join(root, "deploy/cdk/lib/application-stack.ts"),
+  "utf8",
+);
+if (!applicationStack.includes("SQS_QUEUE_URL: props.workQueue.queueUrl"))
+  failures.push("The deployed worker must receive its CDK-managed queue URL");
+const workerService = fs.readFileSync(
+  path.join(root, "deploy/systemd/upskill-worker.service"),
+  "utf8",
+);
+if (
+  !workerService.includes("ExecStart=/usr/bin/node dist/worker/scorm-worker.js")
+)
+  failures.push("The worker service must execute the bundled release artifact");
 
 function sourceFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

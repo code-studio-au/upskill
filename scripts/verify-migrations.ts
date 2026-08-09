@@ -34,9 +34,11 @@ try {
     "course_version",
     "course_version_module",
     "enrollment",
+    "learning_progress_override",
     "order",
     "order_item",
     "organization",
+    "platform_admin",
     "outbox_event",
     "scorm_attempt",
     "scorm_attempt_session",
@@ -61,6 +63,7 @@ try {
     "course_status_idx",
     "course_version_published_lookup_idx",
     "enrollment_user_status_idx",
+    "learning_progress_override_latest_idx",
     "order_purchaser_status_idx",
     "scorm_attempt_enrollment_idx",
     "scorm_attempt_session_attempt_idx",
@@ -75,6 +78,23 @@ try {
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
+  const ingestionColumns = await sql<{
+    column_name: string;
+  }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'scorm_package_version'`.execute(
+    db,
+  );
+  const actualIngestionColumns = new Set(
+    ingestionColumns.rows.map((row) => row.column_name),
+  );
+  const missingIngestionColumns = [
+    "failureCode",
+    "processedAt",
+    "sourceBytes",
+  ].filter((column) => !actualIngestionColumns.has(column));
+  if (missingIngestionColumns.length > 0)
+    throw new Error(
+      `Missing SCORM ingestion columns: ${missingIngestionColumns.join(", ")}`,
+    );
   console.log(
     `Verified ${String(migrations.length)} migrations, ${String(expectedTables.length)} foundational tables and ${String(expectedIndexes.length)} required indexes`,
   );

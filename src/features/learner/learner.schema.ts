@@ -25,6 +25,7 @@ export interface LearnerDashboard {
     id: string;
     name: string;
     email: string;
+    isPlatformAdministrator: boolean;
   };
   courses: Array<LearnerCourse>;
   availableCourses: Array<AvailableCourse>;

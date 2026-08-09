@@ -1,5 +1,4 @@
 import "@mantine/core/styles.css";
-import "@mantine/notifications/styles.css";
 import "#/styles/global.css";
 
 import { Button, Container, Group, Text } from "@mantine/core";

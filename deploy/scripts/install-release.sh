@@ -19,10 +19,12 @@ ln -sfn "$release_path" /opt/upskill/current
 
 /usr/local/bin/upskill-refresh-env
 install -m 0644 "$release_path/deploy/systemd/upskill-web.service" /etc/systemd/system/upskill-web.service
+install -m 0644 "$release_path/deploy/systemd/upskill-worker.service" /etc/systemd/system/upskill-worker.service
 install -m 0644 "$release_path/deploy/nginx/upskill.conf" /etc/nginx/conf.d/upskill.conf
 nginx -t
 systemctl daemon-reload
-systemctl enable upskill-web nginx
-systemctl restart upskill-web nginx
+systemctl enable upskill-web upskill-worker nginx
+systemctl restart upskill-web upskill-worker nginx
 
 curl --fail --silent --show-error --retry 12 --retry-delay 2 http://127.0.0.1/api/health >/dev/null
+systemctl is-active --quiet upskill-worker
