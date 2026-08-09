@@ -296,13 +296,10 @@ test("platform administrators can inspect learner progress", async ({
       "Corrections never alter the learner's original SCORM attempts.",
     ),
   ).toBeVisible();
-  const courseReason = page
-    .getByLabel(/Reason for marking this course/)
-    .first();
-  await page.getByRole("button", { name: "Review correction" }).first().click();
-  await expect(page.getByText("Enter a valid reason")).toBeVisible();
-  await courseReason.fill("Verified support evidence");
-  await page.getByRole("button", { name: "Review correction" }).first().click();
+  await expect(page.getByLabel(/Reason for marking/)).toHaveCount(0);
+  await page
+    .getByRole("button", { name: /Mark course (completed|incomplete)/ })
+    .click();
   const correctionDialog = page.getByRole("dialog", {
     name: "Confirm progress correction",
   });

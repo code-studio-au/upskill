@@ -38,8 +38,8 @@ entitlements. Route guards improve UX but never replace server-side checks.
 Platform administration is an explicit application-table assignment, separate
 from organisation membership. Aggregate statistics, validated learner search
 and immutable-version enrolment profiles are read boundaries. Manual module and
-course completion corrections use a separate audited command boundary with a
-mandatory reason and append-only history. Impersonation remains a later,
+course completion corrections use a separate audited command boundary with
+append-only actor, timestamp and state history. Impersonation remains a later,
 separately audited session capability and is not implied by either boundary.
 
 The application uses nonce-based script CSP with no script `unsafe-inline`.
@@ -52,7 +52,7 @@ generated style elements require the request nonce.
 Stable identities (`course`, `module`, `survey`, `event_template`) are separated
 from immutable published versions. Enrolments snapshot exact versions so later
 publishing cannot rewrite learner history. Administrative completion changes are
-append-only overrides with actor, reason and timestamp. Module overrides take
+append-only overrides with actor, timestamp and state. Module overrides take
 precedence over SCORM evidence without rewriting attempts; the latest explicit
 course override takes precedence over derived module completion. The enrolment
 completion projection and corresponding outbox event change in the same

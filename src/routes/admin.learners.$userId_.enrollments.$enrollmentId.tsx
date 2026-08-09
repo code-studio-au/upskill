@@ -43,7 +43,7 @@ function AdminEnrollmentPage() {
   if (result.status === "forbidden") return <AdminAccessDenied />;
   const detail = result.data;
   const refresh = async () => {
-    await router.invalidate();
+    await router.invalidate({ sync: true });
   };
 
   return (
@@ -117,9 +117,11 @@ function AdminEnrollmentPage() {
             {detail.enrollment.completionOverride ? (
               <div className={classes.overrideNote}>
                 <Text fw={600}>Latest administrator correction</Text>
-                <Text size="sm">
-                  {detail.enrollment.completionOverride.reason}
-                </Text>
+                {detail.enrollment.completionOverride.reason ? (
+                  <Text size="sm">
+                    {detail.enrollment.completionOverride.reason}
+                  </Text>
+                ) : null}
                 <Text size="xs" c="dimmed">
                   {detail.enrollment.completionOverride.administratorName} ·{" "}
                   {detail.enrollment.completionOverride.createdAtLabel}
@@ -194,7 +196,9 @@ function AdminEnrollmentPage() {
                     {module.override ? (
                       <div className={classes.overrideNote}>
                         <Text fw={600}>Latest administrator correction</Text>
-                        <Text size="sm">{module.override.reason}</Text>
+                        {module.override.reason ? (
+                          <Text size="sm">{module.override.reason}</Text>
+                        ) : null}
                         <Text size="xs" c="dimmed">
                           {module.override.administratorName} ·{" "}
                           {module.override.createdAtLabel}
@@ -241,7 +245,9 @@ function AdminEnrollmentPage() {
                         : "Overall course"}{" "}
                       marked {override.state}
                     </Text>
-                    <Text size="sm">{override.reason}</Text>
+                    {override.reason ? (
+                      <Text size="sm">{override.reason}</Text>
+                    ) : null}
                     <Text size="xs" c="dimmed" mt={4}>
                       {override.administratorName} · {override.createdAtLabel}
                     </Text>

@@ -11,7 +11,7 @@ export interface ProgressOverrideRow {
   modulePosition: number | null;
   state: "completed" | "incomplete";
   actorUserId: string;
-  reason: string;
+  reason: string | null;
   createdAt: Date;
 }
 

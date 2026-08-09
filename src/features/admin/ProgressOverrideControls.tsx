@@ -1,5 +1,5 @@
-import { Button, Stack, Text, Textarea } from "@mantine/core";
-import { useState, type SyntheticEvent } from "react";
+import { Button, Stack, Text } from "@mantine/core";
+import { useState } from "react";
 import {
   adminProgressOverrideInputSchema,
   type AdminProgressOverrideInput,
@@ -28,10 +28,8 @@ export function ProgressOverrideControls({
   currentState,
   onChanged,
 }: ProgressOverrideControlsProps) {
-  const [reason, setReason] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
-  const [reasonError, setReasonError] = useState<string>();
   const [confirmationOpen, setConfirmationOpen] = useState(false);
   const targetState = currentState === "completed" ? "incomplete" : "completed";
   const subject = scope === "module" ? "module" : "course";
@@ -44,20 +42,17 @@ export function ProgressOverrideControls({
             scope,
             modulePosition: requiredModulePosition(modulePosition),
             state: targetState,
-            reason,
           }
         : {
             enrollmentId,
             scope,
             modulePosition: null,
             state: targetState,
-            reason,
           },
     );
   }
 
-  function submit(event: SyntheticEvent<HTMLFormElement>): void {
-    event.preventDefault();
+  function reviewCorrection(): void {
     const validation = adminProgressOverrideInputSchema.safeParse(
       scope === "module"
         ? {
@@ -65,24 +60,19 @@ export function ProgressOverrideControls({
             scope,
             modulePosition,
             state: targetState,
-            reason,
           }
         : {
             enrollmentId,
             scope,
             modulePosition: null,
             state: targetState,
-            reason,
           },
     );
     if (!validation.success) {
-      setReasonError(
-        validation.error.issues.find((issue) => issue.path[0] === "reason")
-          ?.message ?? "Enter a valid reason for this correction.",
-      );
+      setMessage("This learning record cannot be corrected.");
       return;
     }
-    setReasonError(undefined);
+    setMessage(null);
     setConfirmationOpen(true);
   }
 
@@ -107,7 +97,6 @@ export function ProgressOverrideControls({
         setMessage("This learning record is no longer available.");
         return;
       }
-      setReason("");
       setConfirmationOpen(false);
       setMessage(
         result.data.outcome === "changed"
@@ -123,29 +112,16 @@ export function ProgressOverrideControls({
   }
 
   return (
-    <form onSubmit={submit}>
+    <>
       <Stack gap="sm">
-        <Textarea
-          label={`Reason for marking this ${subject} ${targetState}`}
-          description="Required for the permanent audit history (10–500 characters)."
-          value={reason}
-          onChange={(event) => {
-            setReason(event.currentTarget.value);
-            setReasonError(undefined);
-          }}
-          maxLength={500}
-          autosize
-          minRows={2}
-          withAsterisk
-          error={reasonError}
-        />
         <Button
-          type="submit"
+          type="button"
           color={targetState === "incomplete" ? "orange" : "indigo"}
           variant="light"
           disabled={pending}
+          onClick={reviewCorrection}
         >
-          Review correction
+          Mark {subject} {targetState}
         </Button>
         {message ? (
           <Text size="sm" role="status">
@@ -156,7 +132,7 @@ export function ProgressOverrideControls({
       {confirmationOpen ? (
         <ConfirmationDialog
           title="Confirm progress correction"
-          description={`Mark this ${subject} ${targetState}? The reason will be retained permanently in the audit history.`}
+          description={`Mark this ${subject} ${targetState}? The administrator, time and state change will be retained in the audit history.`}
           confirmColor={targetState === "incomplete" ? "orange" : "indigo"}
           confirmLabel={`Mark ${subject} ${targetState}`}
           pending={pending}
@@ -168,6 +144,6 @@ export function ProgressOverrideControls({
           }}
         />
       ) : null}
-    </form>
+    </>
   );
 }

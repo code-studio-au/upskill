@@ -21,6 +21,7 @@ export interface LearnerWorkspaceModule {
   title: string;
   phase: LearningPhase;
   durationMinutes: number;
+  completionState: "completed" | "incomplete";
 }
 
 interface LearnerWorkspace {

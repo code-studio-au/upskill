@@ -191,6 +191,19 @@ function LearnerWorkspacePage() {
                             {module.position + 1}
                           </span>
                           <Text fw={600}>{module.title}</Text>
+                          <Badge
+                            color={
+                              module.completionState === "completed"
+                                ? "green"
+                                : "blue"
+                            }
+                            variant="light"
+                            className={classes.moduleStatus}
+                          >
+                            {module.completionState === "completed"
+                              ? "Completed"
+                              : "In progress"}
+                          </Badge>
                           <Text
                             size="sm"
                             c="dimmed"

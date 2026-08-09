@@ -30,13 +30,6 @@ export const adminEnrollmentParamsSchema = z.object({
 const progressOverrideFields = {
   enrollmentId: adminIdentifierSchema,
   state: z.enum(["completed", "incomplete"]),
-  reason: z
-    .string()
-    .check(
-      z.trim(),
-      z.minLength(10, "Enter a valid reason of at least 10 characters."),
-      z.maxLength(500, "The reason must be 500 characters or fewer."),
-    ),
 };
 
 export const adminProgressOverrideInputSchema = z.discriminatedUnion("scope", [
@@ -118,7 +111,7 @@ interface AdminEnrollmentModule {
   latestActivityAtLabel: string | null;
   override: {
     administratorName: string;
-    reason: string;
+    reason: string | null;
     createdAt: string;
     createdAtLabel: string;
   } | null;
@@ -130,7 +123,7 @@ interface AdminProgressOverrideHistoryItem {
   modulePosition: number | null;
   state: "completed" | "incomplete";
   administratorName: string;
-  reason: string;
+  reason: string | null;
   createdAt: string;
   createdAtLabel: string;
 }
@@ -151,7 +144,7 @@ export interface AdminEnrollmentDetail {
     expiresAt: string | null;
     completionOverride: {
       administratorName: string;
-      reason: string;
+      reason: string | null;
       createdAt: string;
       createdAtLabel: string;
     } | null;

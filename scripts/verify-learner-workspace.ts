@@ -139,6 +139,7 @@ try {
       title: "Verified module",
       phase: "content",
       durationMinutes: 30,
+      completionState: "incomplete",
     },
   ]);
   assert.deepEqual(await findLearnerWorkspace(ids.enrollment, anotherUser), {

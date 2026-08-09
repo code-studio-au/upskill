@@ -21,7 +21,7 @@
 
 .module {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--mantine-spacing-md);
   padding: var(--mantine-spacing-md);
@@ -48,6 +48,11 @@
 
   .duration {
     grid-column: 2;
+  }
+
+  .moduleStatus {
+    grid-column: 2;
+    width: fit-content;
   }
 }
 
