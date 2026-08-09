@@ -1,14 +1,19 @@
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 import path from "node:path";
+
+const requireFromHere = createRequire(import.meta.url);
+const viteEntry = path.join(
+  path.dirname(requireFromHere.resolve("vite/package.json")),
+  "bin",
+  "vite.js",
+);
 
 const definitions = [
   {
     script: "dev:web",
-    command: path.resolve(
-      "node_modules/.bin",
-      process.platform === "win32" ? "vite.cmd" : "vite",
-    ),
-    arguments: ["dev", "--port", "3000"],
+    command: process.execPath,
+    arguments: [viteEntry, "dev", "--port", "3000"],
   },
   {
     script: "worker:scorm",

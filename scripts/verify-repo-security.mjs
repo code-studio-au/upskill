@@ -67,6 +67,12 @@ for (const requiredProcess of ["vite", "src/worker/scorm-worker.ts"]) {
       `Local development launcher must include: ${requiredProcess}`,
     );
 }
+if (
+  !developmentLauncher.includes('requireFromHere.resolve("vite/package.json")')
+)
+  failures.push("Local development must resolve Vite's JavaScript entry point");
+if (developmentLauncher.includes("vite.cmd"))
+  failures.push("Local development must not execute a Windows command shim");
 for (const forbidden of ["package-lock.json", "yarn.lock"]) {
   if (fs.existsSync(path.join(root, forbidden)))
     failures.push(`Forbidden repository file: ${forbidden}`);

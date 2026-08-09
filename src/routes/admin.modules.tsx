@@ -168,12 +168,20 @@ function AdminModulesPage() {
       }
       const accepted = adminScormUploadAcceptedSchema.safeParse(payload);
       if (!accepted.success) throw new Error("Invalid upload response");
+      const successMessage = `Version ${String(accepted.data.version)} was quarantined and queued for validation.`;
       setNotice({
         color: "green",
-        message: `Version ${String(accepted.data.version)} was quarantined and queued for validation.`,
+        message: successMessage,
       });
       if (archiveInput.current) archiveInput.current.value = "";
-      await router.invalidate();
+      try {
+        await router.invalidate();
+      } catch {
+        setNotice({
+          color: "green",
+          message: `${successMessage} Refresh the library status if it does not appear automatically.`,
+        });
+      }
     } catch {
       setNotice({
         color: "red",
