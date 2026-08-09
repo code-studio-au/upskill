@@ -9,6 +9,15 @@ test("public catalogue is responsive, accessible and CSP-hardened", async ({
   const policy = response?.headers()["content-security-policy"] ?? "";
   expect(policy).toContain("script-src-attr 'none'");
   expect(policy).not.toMatch(/script-src [^;]*unsafe-inline/);
+  const stylesheet = await page
+    .locator('link[rel="stylesheet"]')
+    .first()
+    .getAttribute("href");
+  expect(stylesheet).toMatch(/^\/assets\//);
+  const clientAssetResponse = await page.request.get(stylesheet ?? "");
+  expect(clientAssetResponse.status()).toBe(200);
+  expect(clientAssetResponse.headers()["content-type"]).toContain("text/css");
+  expect(clientAssetResponse.headers()["cache-control"]).toContain("immutable");
   await expect(
     page.getByRole("heading", { name: "Skills that make work better." }),
   ).toBeVisible();
@@ -31,4 +40,39 @@ test("validated catalogue search remains navigable", async ({ page }) => {
     page.getByRole("heading", { name: "What you will complete" }),
   ).toBeVisible();
   await expect(page.getByText(/1 CPD point/)).toBeVisible();
+});
+
+test("learner dashboard requires a server-validated session", async ({
+  page,
+}) => {
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login\?redirect=%2Fdashboard$/);
+  await expect(
+    page.getByRole("heading", { name: "Sign in to Upskill" }),
+  ).toBeVisible();
+});
+
+test("verified learner sees enrolments and domain-matched access", async ({
+  page,
+}) => {
+  await page.goto("/login");
+  await page.getByLabel("Email address").fill("learner@example.com");
+  await page
+    .locator('input[name="password"]')
+    .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(
+    page.getByRole("heading", { name: "My learning" }),
+  ).toBeVisible();
+  await expect(page.getByText("Leading through change")).toBeVisible();
+  await expect(page.getByText("Responsible AI foundations")).toBeVisible();
+  await expect(
+    page.getByRole("heading", {
+      name: "Available through your organisation",
+    }),
+  ).toBeVisible();
+  await expect(page.getByText("Psychological safety at work")).toBeVisible();
+  await expect(page.getByText("Eligible for example.com")).toBeVisible();
 });

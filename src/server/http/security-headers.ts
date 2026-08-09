@@ -48,7 +48,10 @@ export function applySecurityHeaders(headers: Headers, nonce: string): void {
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("X-Frame-Options", "DENY");
 
-  if (process.env.NODE_ENV === "production") {
+  if (
+    process.env.APP_ENV === "production" ||
+    process.env.APP_ENV === "staging"
+  ) {
     headers.set(
       "Strict-Transport-Security",
       "max-age=63072000; includeSubDomains; preload",

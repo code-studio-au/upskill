@@ -10,15 +10,15 @@ interface UserTable {
   emailVerified: boolean;
   image: string | null;
   stripeCustomerId: string | null;
-  createdAt: Generated<Timestamp>;
-  updatedAt: Generated<Timestamp>;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 interface SessionTable {
   id: string;
   expiresAt: Timestamp;
   token: string;
-  createdAt: Generated<Timestamp>;
+  createdAt: Timestamp;
   updatedAt: Timestamp;
   ipAddress: string | null;
   userAgent: string | null;
@@ -37,8 +37,8 @@ interface AccountTable {
   refreshTokenExpiresAt: Timestamp | null;
   scope: string | null;
   password: string | null;
-  createdAt: Generated<Timestamp>;
-  updatedAt: Generated<Timestamp>;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 interface VerificationTable {
@@ -46,22 +46,22 @@ interface VerificationTable {
   identifier: string;
   value: string;
   expiresAt: Timestamp;
-  createdAt: Generated<Timestamp>;
-  updatedAt: Generated<Timestamp>;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 interface OrganizationTable {
   id: string;
   name: string;
   slug: string;
-  createdAt: Generated<Timestamp>;
+  createdAt: Timestamp;
 }
 
 interface OrganizationMemberTable {
   organizationId: string;
   userId: string;
   role: "owner" | "admin" | "manager" | "learner";
-  createdAt: Generated<Timestamp>;
+  createdAt: Timestamp;
 }
 
 interface CourseTable {
@@ -69,8 +69,8 @@ interface CourseTable {
   slug: string;
   title: string;
   status: "draft" | "published" | "archived";
-  createdAt: Generated<Timestamp>;
-  updatedAt: Generated<Timestamp>;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 interface CourseVersionTable {
@@ -79,7 +79,7 @@ interface CourseVersionTable {
   version: number;
   content: Json;
   publishedAt: Timestamp | null;
-  createdAt: Generated<Timestamp>;
+  createdAt: Timestamp;
 }
 
 interface EnrollmentTable {
@@ -88,8 +88,10 @@ interface EnrollmentTable {
   courseVersionId: string;
   accessGrantId: string | null;
   status: "active" | "completed" | "expired" | "cancelled";
-  enrolledAt: Generated<Timestamp>;
+  enrolledAt: Timestamp;
   completedAt: Timestamp | null;
+  expiresAt: Timestamp | null;
+  removedAt: Timestamp | null;
 }
 
 interface OrderTable {
@@ -100,8 +102,8 @@ interface OrderTable {
   status: "pending" | "paid" | "failed" | "refunded";
   currency: string;
   totalCents: number;
-  createdAt: Generated<Timestamp>;
-  updatedAt: Generated<Timestamp>;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 interface AccessGrantTable {
@@ -112,7 +114,13 @@ interface AccessGrantTable {
   quantity: number;
   redeemed: Generated<number>;
   expiresAt: Timestamp | null;
-  createdAt: Generated<Timestamp>;
+  createdAt: Timestamp;
+}
+
+interface AccessGrantDomainTable {
+  accessGrantId: string;
+  domain: string;
+  createdAt: Timestamp;
 }
 
 interface OutboxEventTable {
@@ -121,9 +129,9 @@ interface OutboxEventTable {
   aggregateId: string;
   payload: Json;
   attempts: Generated<number>;
-  availableAt: Generated<Timestamp>;
+  availableAt: Timestamp;
   processedAt: Timestamp | null;
-  createdAt: Generated<Timestamp>;
+  createdAt: Timestamp;
 }
 
 interface AuditEventTable {
@@ -134,12 +142,13 @@ interface AuditEventTable {
   subjectId: string;
   reason: string | null;
   metadata: Json;
-  createdAt: Generated<Timestamp>;
+  createdAt: Timestamp;
 }
 
 export interface Database {
   account: AccountTable;
   access_grant: AccessGrantTable;
+  access_grant_domain: AccessGrantDomainTable;
   audit_event: AuditEventTable;
   course: CourseTable;
   course_version: CourseVersionTable;
