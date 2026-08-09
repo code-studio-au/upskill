@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { getServerEnv } from "#/server/env.server";
+import { logServerEvent } from "#/server/logging/server-logger";
 import {
   changeQueueMessageVisibility,
   deleteQueueMessage,
@@ -63,8 +64,10 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown worker error";
 }
 
-export async function consumeNextScormMessage(): Promise<ScormConsumerOutcome> {
-  const received = await receiveQueueMessage();
+export async function consumeNextScormMessage(
+  waitTimeSeconds?: number,
+): Promise<ScormConsumerOutcome> {
+  const received = await receiveQueueMessage(undefined, waitTimeSeconds);
   if (!received) return { status: "no-work" };
   const env = getServerEnv();
   let heartbeat: NodeJS.Timeout | undefined;
@@ -79,13 +82,12 @@ export async function consumeNextScormMessage(): Promise<ScormConsumerOutcome> {
         received.receiptHandle,
         env.SQS_VISIBILITY_TIMEOUT_SECONDS,
       ).catch((error: unknown) => {
-        console.error(
-          JSON.stringify({
-            event: "worker.visibility_heartbeat_failed",
-            messageId: received.messageId,
-            error: errorMessage(error),
-          }),
-        );
+        logServerEvent({
+          level: "error",
+          event: "worker.visibility_heartbeat_failed",
+          error,
+          fields: { messageId: received.messageId },
+        });
       });
     }, heartbeatSeconds * 1_000);
     heartbeat.unref();

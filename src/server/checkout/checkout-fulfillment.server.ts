@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
+import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 
 export interface CheckoutSessionSnapshot {
@@ -111,19 +112,15 @@ export async function fulfillCheckoutSession(
       }
 
       if (existingEnrollment) {
-        await transaction
-          .insertInto("audit_event")
-          .values({
-            id: randomUUID(),
-            actorUserId: purchaserUserId,
-            action: "order.paid_existing_enrollment",
-            subjectType: "order",
-            subjectId: order.id,
-            reason: "Enrollment was created before Checkout completed",
-            metadata: { courseVersionId: item.courseVersionId },
-            createdAt: now,
-          })
-          .execute();
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: purchaserUserId,
+          action: "order.paid_existing_enrollment",
+          subjectType: "order",
+          subjectId: order.id,
+          reasonCode: "existing-enrollment",
+          metadata: { courseVersionId: item.courseVersionId },
+          createdAt: now,
+        });
         await transaction
           .insertInto("outbox_event")
           .values({
@@ -173,34 +170,25 @@ export async function fulfillCheckoutSession(
           removedAt: null,
         })
         .execute();
-      await transaction
-        .insertInto("audit_event")
-        .values([
-          {
-            id: randomUUID(),
-            actorUserId: purchaserUserId,
-            action: "order.checkout_paid",
-            subjectType: "order",
-            subjectId: order.id,
-            reason: null,
-            metadata: { stripeCheckoutSessionId: session.id },
-            createdAt: now,
-          },
-          {
-            id: randomUUID(),
-            actorUserId: purchaserUserId,
-            action: "enrollment.purchased",
-            subjectType: "enrollment",
-            subjectId: enrollmentId,
-            reason: null,
-            metadata: {
-              orderId: order.id,
-              courseVersionId: item.courseVersionId,
-            },
-            createdAt: now,
-          },
-        ])
-        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: purchaserUserId,
+        action: "order.checkout_paid",
+        subjectType: "order",
+        subjectId: order.id,
+        metadata: { stripeCheckoutSessionId: session.id },
+        createdAt: now,
+      });
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: purchaserUserId,
+        action: "enrollment.purchased",
+        subjectType: "enrollment",
+        subjectId: enrollmentId,
+        metadata: {
+          orderId: order.id,
+          courseVersionId: item.courseVersionId,
+        },
+        createdAt: now,
+      });
       await transaction
         .insertInto("outbox_event")
         .values({
@@ -263,18 +251,13 @@ export async function markCheckoutSessionFailed(
         })
         .where("id", "=", order.id)
         .executeTakeFirstOrThrow();
-      await transaction
-        .insertInto("audit_event")
-        .values({
-          id: randomUUID(),
-          actorUserId: order.purchaserUserId,
-          action: "order.checkout_failed",
-          subjectType: "order",
-          subjectId: order.id,
-          reason: null,
-          metadata: { stripeCheckoutSessionId: session.id },
-          createdAt: now,
-        })
-        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: order.purchaserUserId,
+        action: "order.checkout_failed",
+        subjectType: "order",
+        subjectId: order.id,
+        metadata: { stripeCheckoutSessionId: session.id },
+        createdAt: now,
+      });
     });
 }

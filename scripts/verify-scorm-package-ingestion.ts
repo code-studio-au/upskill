@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { sql } from "kysely";
+import { withAuditMaintenance } from "./audit-maintenance";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { dispatchNextOutboxEvent } from "#/server/outbox/outbox-dispatcher.server";
@@ -66,6 +67,16 @@ async function receiveEventually(
   return undefined;
 }
 
+async function dispatchNextScormEvent(): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const dispatch = await dispatchNextOutboxEvent();
+    assert.notEqual(dispatch.status, "retry");
+    assert.notEqual(dispatch.status, "no-work");
+    if (dispatch.status === "dispatched") return;
+  }
+  throw new Error("SCORM outbox event was not dispatched");
+}
+
 async function verifyDeadLetterRedrive(): Promise<void> {
   const marker = `dlq-verification-${randomUUID()}`;
   await sendQueueMessage(marker);
@@ -114,22 +125,24 @@ async function cleanup(): Promise<void> {
   const versionIds = staged.map(({ packageVersionId }) => packageVersionId);
   const packageIds = staged.map(({ packageId }) => packageId);
   if (versionIds.length > 0) {
-    await database
-      .deleteFrom("outbox_event")
-      .where("aggregateId", "in", versionIds)
-      .execute();
-    await database
-      .deleteFrom("audit_event")
-      .where("subjectId", "in", versionIds)
-      .execute();
-    await database
-      .deleteFrom("scorm_package_version")
-      .where("id", "in", versionIds)
-      .execute();
-    await database
-      .deleteFrom("scorm_package")
-      .where("id", "in", packageIds)
-      .execute();
+    await withAuditMaintenance(database, async (database) => {
+      await database
+        .deleteFrom("outbox_event")
+        .where("aggregateId", "in", versionIds)
+        .execute();
+      await database
+        .deleteFrom("audit_event")
+        .where("subjectId", "in", versionIds)
+        .execute();
+      await database
+        .deleteFrom("scorm_package_version")
+        .where("id", "in", versionIds)
+        .execute();
+      await database
+        .deleteFrom("scorm_package")
+        .where("id", "in", packageIds)
+        .execute();
+    });
   }
 }
 
@@ -191,8 +204,7 @@ try {
   }
 
   for (let remaining = staged.length; remaining > 0; remaining -= 1) {
-    const dispatch = await dispatchNextOutboxEvent();
-    assert.equal(dispatch.status, "dispatched");
+    await dispatchNextScormEvent();
   }
   const processed = new Set<string>();
   while (processed.size < staged.length) {
@@ -276,8 +288,7 @@ try {
       },
     },
   );
-  const deletionDispatch = await dispatchNextOutboxEvent();
-  assert.equal(deletionDispatch.status, "dispatched");
+  await dispatchNextScormEvent();
   const deletion = await consumeNextScormMessage();
   assert.equal(deletion.status, "processed");
   assert.equal(deletion.outcome.status, "storage-removed");

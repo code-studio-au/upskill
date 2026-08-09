@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { FileMigrationProvider, Migrator } from "kysely/migration";
 import { promises as fs } from "node:fs";
@@ -60,6 +61,9 @@ try {
   const expectedIndexes = [
     "access_grant_code_digest_uq",
     "access_grant_domain_lookup_idx",
+    "audit_event_action_created_idx",
+    "audit_event_actor_created_idx",
+    "audit_event_subject_created_idx",
     "course_status_idx",
     "course_version_published_lookup_idx",
     "enrollment_user_status_idx",
@@ -95,6 +99,84 @@ try {
     throw new Error(
       `Missing SCORM ingestion columns: ${missingIngestionColumns.join(", ")}`,
     );
+
+  const auditVerificationId = "verify_audit_append_only";
+  const auditVerificationActorId = "verify_audit_append_only_actor";
+  await db.transaction().execute(async (transaction) => {
+    await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
+      transaction,
+    );
+    await sql`delete from audit_event where id = ${auditVerificationId}`.execute(
+      transaction,
+    );
+  });
+  await sql`delete from "user" where id = ${auditVerificationActorId}`.execute(
+    db,
+  );
+  await sql`insert into "user" (id, name, email, "emailVerified")
+    values (
+      ${auditVerificationActorId}, 'Audit verifier',
+      'verify-audit-append-only@example.com', true
+    )`.execute(db);
+  await sql`insert into audit_event
+    (id, "actorUserId", action, "subjectType", "subjectId", reason, metadata)
+    values (
+      ${auditVerificationId}, ${auditVerificationActorId}, 'scorm.package_uploaded',
+      'scorm_package_version', ${auditVerificationId}, null, '{}'::jsonb
+    )`.execute(db);
+  try {
+    await assert.rejects(
+      sql`update audit_event set reason = 'changed' where id = ${auditVerificationId}`.execute(
+        db,
+      ),
+      /audit_event is append-only/u,
+    );
+    await assert.rejects(
+      sql`update audit_event
+        set "actorUserId" = null, reason = 'changed'
+        where id = ${auditVerificationId}`.execute(db),
+      /audit_event is append-only/u,
+    );
+    await assert.rejects(
+      sql`delete from audit_event where id = ${auditVerificationId}`.execute(
+        db,
+      ),
+      /audit_event is append-only/u,
+    );
+    await assert.rejects(
+      sql`insert into audit_event
+        (id, "actorUserId", action, "subjectType", "subjectId", reason, metadata)
+        values (
+          'verify_audit_unknown_action', null, 'unknown.action',
+          'verification', 'verify_audit_unknown_action', null, '{}'::jsonb
+        )`.execute(db),
+      /audit_event_action_known_ck/u,
+    );
+    await sql`delete from "user" where id = ${auditVerificationActorId}`.execute(
+      db,
+    );
+    const preservedAudit = await sql<{
+      actorUserId: string | null;
+      reason: string | null;
+    }>`select "actorUserId", reason from audit_event where id = ${auditVerificationId}`.execute(
+      db,
+    );
+    assert.deepEqual(preservedAudit.rows, [
+      { actorUserId: null, reason: null },
+    ]);
+  } finally {
+    await db.transaction().execute(async (transaction) => {
+      await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
+        transaction,
+      );
+      await sql`delete from audit_event where id = ${auditVerificationId}`.execute(
+        transaction,
+      );
+    });
+    await sql`delete from "user" where id = ${auditVerificationActorId}`.execute(
+      db,
+    );
+  }
   console.log(
     `Verified ${String(migrations.length)} migrations, ${String(expectedTables.length)} foundational tables and ${String(expectedIndexes.length)} required indexes`,
   );

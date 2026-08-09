@@ -30,6 +30,10 @@ exposes its SQS-compatible API on port 9324 and web UI on 9325; its work queue,
 15-minute visibility timeout and five-receive DLQ policy match CDK. `pnpm dev`
 starts both Vite and the local SCORM worker so asynchronous uploads are processed.
 Use `pnpm dev:web` only when deliberately running the worker separately.
+Server and worker events are bounded structured JSON. `UPSKILL_LOG_LEVEL` may
+be `info`, `warn`, `error` or `off` for operational events; committed audit
+projections are always emitted. EC2 sends both service streams to journald so a
+future Datadog Agent can collect them without application-level vendor coupling.
 The public catalog reads immutable published course versions from PostgreSQL.
 The two `db:seed:*` commands install
 deterministic local and browser-test data; they are never run by production

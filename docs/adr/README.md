@@ -8,3 +8,4 @@
 - [ADR 0006: Runtime and dependency cohorts](0006-runtime-and-dependency-cohorts.md)
 - [ADR 0007: AWS deployment and verification](0007-aws-deployment-and-verification.md)
 - [ADR 0008: SQS worker delivery](0008-sqs-worker-delivery.md)
+- [ADR 0009: Structured logging and durable audit projection](0009-structured-logging-and-durable-audit.md)

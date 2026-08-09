@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import path from "node:path";
@@ -22,6 +23,53 @@ const contentTypes = new Map([
   [".webp", "image/webp"],
   [".woff2", "font/woff2"],
 ]);
+
+const logLevelPriority = { info: 10, warn: 20, error: 30 };
+
+function configuredLogLevel() {
+  const configured = process.env.UPSKILL_LOG_LEVEL?.trim().toLowerCase();
+  return configured === "off" || Object.hasOwn(logLevelPriority, configured)
+    ? configured
+    : "info";
+}
+
+function classifyThrownValue(error) {
+  try {
+    if (error instanceof TypeError) return "TypeError";
+    if (error instanceof RangeError) return "RangeError";
+    if (error instanceof SyntaxError) return "SyntaxError";
+    if (error instanceof Error) return "Error";
+  } catch {
+    return "UnknownThrownValue";
+  }
+  if (error === null) return "NullThrownValue";
+  if (error === undefined) return "UndefinedThrownValue";
+  return "NonErrorThrownValue";
+}
+
+function logBootstrapEvent(level, type, fields = {}, error) {
+  const configured = configuredLogLevel();
+  if (
+    configured === "off" ||
+    logLevelPriority[level] < logLevelPriority[configured]
+  )
+    return;
+  const entry = {
+    timestamp: new Date().toISOString(),
+    service: "upskill",
+    environment: process.env.APP_ENV ?? process.env.NODE_ENV ?? "development",
+    level,
+    type,
+    category: "operational",
+    ...fields,
+    ...(error === undefined ? {} : { errorType: classifyThrownValue(error) }),
+  };
+  try {
+    console[level](JSON.stringify(entry));
+  } catch {
+    // Bootstrap logging must not change request handling.
+  }
+}
 
 if (!Number.isInteger(port) || port < 1 || port > 65535)
   throw new Error("PORT must be a valid TCP port");
@@ -75,6 +123,26 @@ async function serveClientAsset(incoming, outgoing) {
 }
 
 const server = http.createServer(async (incoming, outgoing) => {
+  const startedAt = performance.now();
+  const requestId = randomUUID();
+  const method = incoming.method ?? "GET";
+  let requestPath = "/invalid-request-target";
+  try {
+    requestPath = new URL(incoming.url ?? "/", origin).pathname;
+  } catch {
+    // The application will produce the bounded error response below.
+  }
+  outgoing.setHeader("x-request-id", requestId);
+  outgoing.once("finish", () => {
+    if (!requestPath.startsWith("/assets/"))
+      logBootstrapEvent("info", "http.request_completed", {
+        requestId,
+        method,
+        path: requestPath.slice(0, 512),
+        status: outgoing.statusCode,
+        durationMs: Math.round(performance.now() - startedAt),
+      });
+  });
   try {
     if (await serveClientAsset(incoming, outgoing)) return;
 
@@ -87,7 +155,7 @@ const server = http.createServer(async (incoming, outgoing) => {
     const remoteAddress = incoming.socket.remoteAddress;
     if (remoteAddress) headers.set("x-real-ip", remoteAddress);
 
-    const method = incoming.method ?? "GET";
+    headers.set("x-request-id", requestId);
     const requestInit = {
       method,
       headers,
@@ -116,7 +184,12 @@ const server = http.createServer(async (incoming, outgoing) => {
     }
     Readable.fromWeb(response.body).pipe(outgoing);
   } catch (error) {
-    console.error(error);
+    logBootstrapEvent(
+      "error",
+      "http.request_failed",
+      { requestId, method, path: requestPath.slice(0, 512) },
+      error,
+    );
     if (!outgoing.headersSent) {
       outgoing.statusCode = 500;
       outgoing.setHeader("content-type", "application/json");
@@ -126,7 +199,11 @@ const server = http.createServer(async (incoming, outgoing) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
-  console.log(`Upskill listening on http://127.0.0.1:${port}`);
+  logBootstrapEvent("info", "server.started", {
+    status: "ready",
+    port,
+    deploymentId: process.env.DEPLOYMENT_ID?.slice(0, 512),
+  });
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

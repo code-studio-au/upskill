@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
 import type { AccessCodeRedemptionResult } from "#/features/access/access-code.schema";
+import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
@@ -112,22 +113,17 @@ export async function redeemAccessCode(
         }))
         .where("id", "=", grant.id)
         .executeTakeFirstOrThrow();
-      await transaction
-        .insertInto("audit_event")
-        .values({
-          id: randomUUID(),
-          actorUserId: user.id,
-          action: "enrollment.access_code_redeemed",
-          subjectType: "enrollment",
-          subjectId: enrollmentId,
-          reason: null,
-          metadata: {
-            accessGrantId: grant.id,
-            courseVersionId: grant.courseVersionId,
-          },
-          createdAt: now,
-        })
-        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: user.id,
+        action: "enrollment.access_code_redeemed",
+        subjectType: "enrollment",
+        subjectId: enrollmentId,
+        metadata: {
+          accessGrantId: grant.id,
+          courseVersionId: grant.courseVersionId,
+        },
+        createdAt: now,
+      });
       await transaction
         .insertInto("outbox_event")
         .values({

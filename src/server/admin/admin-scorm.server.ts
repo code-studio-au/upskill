@@ -6,6 +6,7 @@ import type {
   AdminScormPackageSummary,
   AdminScormRemovalResult,
 } from "#/features/scorm/scorm-package.schema";
+import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import {
   SCORM_DELETION_TOPIC,
@@ -156,24 +157,18 @@ export async function removeAdminScormPackageVersion(
           .executeTakeFirstOrThrow();
 
       const now = new Date();
-      await transaction
-        .insertInto("audit_event")
-        .values({
-          id: `audit_${randomUUID()}`,
-          actorUserId,
-          action: "scorm.package_version_removed",
-          subjectType: "scorm_package_version",
-          subjectId: packageVersionId,
-          reason: null,
-          metadata: {
-            packageId: version.packageId,
-            packageTitle: version.title,
-            packageRemoved,
-            version: version.version,
-          },
-          createdAt: now,
-        })
-        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId,
+        action: "scorm.package_version_removed",
+        subjectType: "scorm_package_version",
+        subjectId: packageVersionId,
+        metadata: {
+          packageId: version.packageId,
+          packageRemoved,
+          version: version.version,
+        },
+        createdAt: now,
+      });
       await transaction
         .insertInto("outbox_event")
         .values({

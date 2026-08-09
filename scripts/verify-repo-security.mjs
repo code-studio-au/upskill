@@ -127,6 +127,29 @@ if (
   !workerService.includes("ExecStart=/usr/bin/node dist/worker/scorm-worker.js")
 )
   failures.push("The worker service must execute the bundled release artifact");
+const webService = fs.readFileSync(
+  path.join(root, "deploy/systemd/upskill-web.service"),
+  "utf8",
+);
+for (const [name, service] of [
+  ["web", webService],
+  ["worker", workerService],
+]) {
+  if (
+    !service.includes("StandardOutput=journal") ||
+    !service.includes("StandardError=journal") ||
+    !service.includes(`SyslogIdentifier=upskill-${name}`)
+  )
+    failures.push(`${name} service must route structured output to journald`);
+}
+const installRelease = fs.readFileSync(
+  path.join(root, "deploy/scripts/install-release.sh"),
+  "utf8",
+);
+if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
+  failures.push(
+    "Release installation must expose the verified commit identity",
+  );
 const nginx = fs.readFileSync(
   path.join(root, "deploy/nginx/upskill.conf"),
   "utf8",
@@ -175,6 +198,11 @@ for (const file of sourceFiles(path.join(root, "src"))) {
     relative === "src/server.ts";
   if (sensitiveImport && !allowedBoundary)
     failures.push(`Sensitive dependency outside server boundary: ${relative}`);
+  if (
+    contents.includes('.insertInto("audit_event")') &&
+    relative !== "src/server/audit/audit-event.server.ts"
+  )
+    failures.push(`Audit writes bypass the typed boundary: ${relative}`);
 }
 
 for (const route of ["ssr: true", 'ssr: "data-only"', "ssr: false"]) {

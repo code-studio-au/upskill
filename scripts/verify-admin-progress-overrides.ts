@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Kysely, PostgresDialect } from "kysely";
 import { Pool } from "pg";
+import { withAuditMaintenance } from "./audit-maintenance";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -38,51 +39,53 @@ const database = new Kysely<Database>({
 });
 
 async function cleanup(): Promise<void> {
-  await database
-    .deleteFrom("outbox_event")
-    .where("aggregateId", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("audit_event")
-    .where("actorUserId", "=", ids.administrator)
-    .execute();
-  await database
-    .deleteFrom("learning_progress_override")
-    .where("enrollmentId", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("scorm_attempt")
-    .where("enrollmentId", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("course_version_module")
-    .where("courseVersionId", "=", ids.version)
-    .execute();
-  await database
-    .deleteFrom("enrollment")
-    .where("id", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("scorm_package_version")
-    .where("id", "=", ids.packageVersion)
-    .execute();
-  await database
-    .deleteFrom("scorm_package")
-    .where("id", "=", ids.package)
-    .execute();
-  await database
-    .deleteFrom("course_version")
-    .where("id", "=", ids.version)
-    .execute();
-  await database.deleteFrom("course").where("id", "=", ids.course).execute();
-  await database
-    .deleteFrom("platform_admin")
-    .where("userId", "=", ids.administrator)
-    .execute();
-  await database
-    .deleteFrom("user")
-    .where("id", "in", [ids.administrator, ids.learner])
-    .execute();
+  await withAuditMaintenance(database, async (database) => {
+    await database
+      .deleteFrom("outbox_event")
+      .where("aggregateId", "=", ids.enrollment)
+      .execute();
+    await database
+      .deleteFrom("audit_event")
+      .where("actorUserId", "=", ids.administrator)
+      .execute();
+    await database
+      .deleteFrom("learning_progress_override")
+      .where("enrollmentId", "=", ids.enrollment)
+      .execute();
+    await database
+      .deleteFrom("scorm_attempt")
+      .where("enrollmentId", "=", ids.enrollment)
+      .execute();
+    await database
+      .deleteFrom("course_version_module")
+      .where("courseVersionId", "=", ids.version)
+      .execute();
+    await database
+      .deleteFrom("enrollment")
+      .where("id", "=", ids.enrollment)
+      .execute();
+    await database
+      .deleteFrom("scorm_package_version")
+      .where("id", "=", ids.packageVersion)
+      .execute();
+    await database
+      .deleteFrom("scorm_package")
+      .where("id", "=", ids.package)
+      .execute();
+    await database
+      .deleteFrom("course_version")
+      .where("id", "=", ids.version)
+      .execute();
+    await database.deleteFrom("course").where("id", "=", ids.course).execute();
+    await database
+      .deleteFrom("platform_admin")
+      .where("userId", "=", ids.administrator)
+      .execute();
+    await database
+      .deleteFrom("user")
+      .where("id", "in", [ids.administrator, ids.learner])
+      .execute();
+  });
 }
 
 try {
@@ -352,12 +355,11 @@ try {
   assert.ok(overrides.every((override) => override.reason === null));
   const audits = await database
     .selectFrom("audit_event")
-    .select(["action", "actorUserId", "reason"])
+    .select("id")
     .where("actorUserId", "=", ids.administrator)
     .where("action", "=", "learning.progress_overridden")
     .execute();
-  assert.equal(audits.length, 5);
-  assert.ok(audits.every((audit) => audit.reason === null));
+  assert.equal(audits.length, 0);
   const outbox = await database
     .selectFrom("outbox_event")
     .select("topic")
@@ -366,12 +368,18 @@ try {
     .orderBy("id")
     .execute();
   assert.deepEqual(
-    outbox.map((event) => event.topic),
+    outbox
+      .map((event) => event.topic)
+      .filter((topic) => topic !== "audit.log_requested"),
     [
       "enrollment.completed",
       "enrollment.completion_revoked",
       "enrollment.completed",
     ],
+  );
+  assert.equal(
+    outbox.filter((event) => event.topic === "audit.log_requested").length,
+    5,
   );
 
   const corrected = await findAdminEnrollmentDetail(
@@ -405,7 +413,7 @@ try {
   );
 
   console.log(
-    "Verified append-only administrator progress corrections, idempotency, projections, audit history and outbox events",
+    "Verified append-only administrator progress corrections, idempotency, effective-state projections and committed audit-log events",
   );
 } finally {
   await cleanup();

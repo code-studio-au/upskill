@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
+import { withAuditMaintenance } from "./audit-maintenance";
 import { digestAccessCode } from "#/server/access/access-code.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
@@ -49,51 +50,61 @@ const database = new Kysely<Database>({
 });
 
 async function cleanup(): Promise<void> {
-  const enrollmentRows = await database
-    .selectFrom("enrollment")
-    .select("id")
-    .where("userId", "in", [ids.firstUser, ids.secondUser, ids.unverifiedUser])
-    .execute();
-  const enrollmentIds = enrollmentRows.map((row) => row.id);
-  if (enrollmentIds.length > 0) {
+  await withAuditMaintenance(database, async (database) => {
+    const enrollmentRows = await database
+      .selectFrom("enrollment")
+      .select("id")
+      .where("userId", "in", [
+        ids.firstUser,
+        ids.secondUser,
+        ids.unverifiedUser,
+      ])
+      .execute();
+    const enrollmentIds = enrollmentRows.map((row) => row.id);
+    if (enrollmentIds.length > 0) {
+      await database
+        .deleteFrom("outbox_event")
+        .where("aggregateId", "in", enrollmentIds)
+        .execute();
+      await database
+        .deleteFrom("audit_event")
+        .where("subjectId", "in", enrollmentIds)
+        .execute();
+    }
     await database
-      .deleteFrom("outbox_event")
-      .where("aggregateId", "in", enrollmentIds)
+      .deleteFrom("enrollment")
+      .where("userId", "in", [
+        ids.firstUser,
+        ids.secondUser,
+        ids.unverifiedUser,
+      ])
       .execute();
     await database
-      .deleteFrom("audit_event")
-      .where("subjectId", "in", enrollmentIds)
+      .deleteFrom("access_grant_domain")
+      .where("accessGrantId", "in", [
+        ids.capacityGrant,
+        ids.restrictedGrant,
+        ids.expiredGrant,
+      ])
       .execute();
-  }
-  await database
-    .deleteFrom("enrollment")
-    .where("userId", "in", [ids.firstUser, ids.secondUser, ids.unverifiedUser])
-    .execute();
-  await database
-    .deleteFrom("access_grant_domain")
-    .where("accessGrantId", "in", [
-      ids.capacityGrant,
-      ids.restrictedGrant,
-      ids.expiredGrant,
-    ])
-    .execute();
-  await database
-    .deleteFrom("access_grant")
-    .where("id", "in", [
-      ids.capacityGrant,
-      ids.restrictedGrant,
-      ids.expiredGrant,
-    ])
-    .execute();
-  await database
-    .deleteFrom("course_version")
-    .where("id", "=", ids.version)
-    .execute();
-  await database.deleteFrom("course").where("id", "=", ids.course).execute();
-  await database
-    .deleteFrom("user")
-    .where("id", "in", [ids.firstUser, ids.secondUser, ids.unverifiedUser])
-    .execute();
+    await database
+      .deleteFrom("access_grant")
+      .where("id", "in", [
+        ids.capacityGrant,
+        ids.restrictedGrant,
+        ids.expiredGrant,
+      ])
+      .execute();
+    await database
+      .deleteFrom("course_version")
+      .where("id", "=", ids.version)
+      .execute();
+    await database.deleteFrom("course").where("id", "=", ids.course).execute();
+    await database
+      .deleteFrom("user")
+      .where("id", "in", [ids.firstUser, ids.secondUser, ids.unverifiedUser])
+      .execute();
+  });
 }
 
 try {
@@ -233,7 +244,7 @@ try {
       .where("aggregateId", "=", enrollmentId)
       .executeTakeFirstOrThrow()
       .then((row) => row.count),
-    1,
+    2,
   );
   console.log(
     "Verified atomic access-code capacity, domain and expiry enforcement with audit/outbox writes",

@@ -13,10 +13,11 @@ concurrent corrections cannot share an ambiguous position. Without one, course
 completion remains derived from the effective state of every mapped module.
 
 The command locks the enrolment, rejects repeated no-op corrections, writes the
-override and global audit event, and updates the existing enrolment completion
-projection in one transaction. Completion and revocation transitions emit
-transactional outbox events. Access expiry and removal remain independent from
-completion.
+authoritative override and its sanitized audit-log projection, and updates the
+existing enrolment completion projection in one transaction. It does not
+duplicate the correction in the global audit table. Completion and revocation
+transitions emit transactional outbox events. Access expiry and removal remain
+independent from completion.
 
 ## Consequences
 
