@@ -82,6 +82,10 @@ test("server-rendered navigation and actions stay visible before hydration", asy
 });
 
 test("validated catalogue search remains navigable", async ({ page }) => {
+  await page.goto("/courses?q=work&topic=all&page=1");
+  await expect(page.getByText("Psychological safety at work")).toBeVisible();
+  await expect(page.getByText("Responsible AI foundations")).toHaveCount(0);
+
   await page.goto("/courses?q=safety&topic=safety&page=1");
   await expect(
     page.getByRole("heading", { name: "Find your next skill" }),
