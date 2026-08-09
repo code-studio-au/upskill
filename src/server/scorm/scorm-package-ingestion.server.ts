@@ -52,7 +52,8 @@ export type ScormIngestionOutcome =
   | { status: "ready"; manifest: ScormPackageManifest }
   | { status: "rejected"; code: string }
   | { status: "already-ready" }
-  | { status: "already-rejected"; code: string };
+  | { status: "already-rejected"; code: string }
+  | { status: "package-removed" };
 
 function digest(bytes: Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
@@ -330,7 +331,8 @@ export async function ingestScormPackageVersion(
     .selectFrom("scorm_package_version")
     .select(["id", "status", "sha256", "contentPrefix", "failureCode"])
     .where("id", "=", packageVersionId)
-    .executeTakeFirstOrThrow();
+    .executeTakeFirst();
+  if (!version) return { status: "package-removed" };
   if (version.status === "ready") return { status: "already-ready" };
   if (version.status === "rejected")
     return {

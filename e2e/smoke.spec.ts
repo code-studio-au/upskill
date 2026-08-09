@@ -142,6 +142,19 @@ test("SCORM administration uploads enforce origin and authentication", async ({
   await expect(unauthenticated.json()).resolves.toEqual({
     error: "unauthenticated",
   });
+
+  const unauthenticatedRemoval = await request.delete(
+    `${uploadUrl}&packageVersionId=scorm_pkgv_boundary`,
+    {
+      headers: {
+        origin: new URL(testInfo.project.use.baseURL ?? "").origin,
+      },
+    },
+  );
+  expect(unauthenticatedRemoval.status()).toBe(401);
+  await expect(unauthenticatedRemoval.json()).resolves.toEqual({
+    error: "unauthenticated",
+  });
 });
 
 test("learner dashboard requires a server-validated session", async ({
@@ -215,6 +228,12 @@ test("platform administrators can inspect learner progress", async ({
   const packageVersionId = "e2e_scorm_autorefresh_version";
   await database.connect();
   try {
+    await database.query(`delete from outbox_event where "aggregateId" = $1`, [
+      packageVersionId,
+    ]);
+    await database.query(`delete from audit_event where "subjectId" = $1`, [
+      packageVersionId,
+    ]);
     await database.query(`delete from scorm_package_version where id = $1`, [
       packageVersionId,
     ]);
@@ -228,8 +247,13 @@ test("platform administrators can inspect learner progress", async ({
     await database.query(
       `insert into scorm_package_version
         (id, "packageId", version, status, standard, "contentPrefix", "launchPath", sha256, manifest, "sourceBytes")
-       values ($1, $2, 1, 'processing', 'scorm-1.2', 'verify/e2e/autorefresh', 'pending.html', $3, '{}'::jsonb, 2048)`,
-      [packageVersionId, packageId, "1".repeat(64)],
+       values ($1, $2, 1, 'processing', 'scorm-1.2', $3, 'pending.html', $4, '{}'::jsonb, 2048)`,
+      [
+        packageVersionId,
+        packageId,
+        `scorm/${packageVersionId}/${"1".repeat(64)}`,
+        "1".repeat(64),
+      ],
     );
 
     await page.getByRole("link", { name: "Modules" }).click();
@@ -261,7 +285,37 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const accessibility = await new AxeBuilder({ page }).analyze();
     expect(accessibility.violations).toEqual([]);
+
+    page.once("dialog", async (dialog) => {
+      expect(dialog.message()).toBe(
+        "Permanently remove version 1 and its stored files?",
+      );
+      await dialog.accept();
+    });
+    await moduleCard.getByRole("button", { name: "Remove version" }).click();
+    await expect(
+      page.getByText(
+        "Version 1 was removed. Stored files are being cleared safely.",
+      ),
+    ).toBeVisible();
+    await expect(moduleCard).toHaveCount(0);
+    const removedVersion = await database.query<{ count: number }>(
+      `select count(*)::integer as count from scorm_package_version where id = $1`,
+      [packageVersionId],
+    );
+    expect(removedVersion.rows[0]?.count).toBe(0);
+    const removedPackage = await database.query<{ count: number }>(
+      `select count(*)::integer as count from scorm_package where id = $1`,
+      [packageId],
+    );
+    expect(removedPackage.rows[0]?.count).toBe(0);
   } finally {
+    await database.query(`delete from outbox_event where "aggregateId" = $1`, [
+      packageVersionId,
+    ]);
+    await database.query(`delete from audit_event where "subjectId" = $1`, [
+      packageVersionId,
+    ]);
     await database.query(`delete from scorm_package_version where id = $1`, [
       packageVersionId,
     ]);

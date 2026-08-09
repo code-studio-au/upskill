@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  adminScormUploadAcceptedSchema,
-  adminScormUploadQuerySchema,
   SCORM_MAX_ARCHIVE_BYTES,
+  isScormVerificationPending,
 } from "#/features/scorm/scorm-package.schema";
+import {
+  adminScormRemovalInputSchema,
+  adminScormUploadQuerySchema,
+} from "#/server/scorm/scorm-admin-contracts.server";
 
 describe("administrator SCORM package contracts", () => {
   it("normalizes a new package upload", () => {
@@ -21,20 +24,21 @@ describe("administrator SCORM package contracts", () => {
     ).toThrow();
   });
 
-  it("keeps accepted upload responses versioned and bounded", () => {
+  it("keeps upload size and verification states bounded", () => {
     expect(SCORM_MAX_ARCHIVE_BYTES).toBe(262_144_000);
+    expect(isScormVerificationPending("quarantined")).toBe(true);
+    expect(isScormVerificationPending("processing")).toBe(true);
+    expect(isScormVerificationPending("ready")).toBe(false);
+  });
+
+  it("accepts only bounded package-version identifiers for removal", () => {
     expect(
-      adminScormUploadAcceptedSchema.parse({
-        status: "accepted",
-        packageId: "scorm_pkg_1",
+      adminScormRemovalInputSchema.parse({
         packageVersionId: "scorm_pkgv_1",
-        version: 2,
       }),
-    ).toEqual({
-      status: "accepted",
-      packageId: "scorm_pkg_1",
-      packageVersionId: "scorm_pkgv_1",
-      version: 2,
-    });
+    ).toEqual({ packageVersionId: "scorm_pkgv_1" });
+    expect(() =>
+      adminScormRemovalInputSchema.parse({ packageVersionId: "../version" }),
+    ).toThrow();
   });
 });

@@ -95,6 +95,10 @@ calculates the source digest incrementally. The browser never receives object
 store credentials, and the buckets do not need browser CORS access. nginx keeps
 the normal 2 MB request limit and grants the larger unbuffered limit only to the
 exact upload route.
+Terminal package versions can be removed only while no course-version mapping
+or SCORM attempt references them. The database removal and audit event commit
+with an outbox cleanup request; the worker then idempotently clears only that
+version's quarantine and immutable-content prefixes.
 
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
 fulfilment, SCORM extraction, certificates, email and scheduled rules. The
