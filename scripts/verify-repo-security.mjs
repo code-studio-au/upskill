@@ -55,6 +55,18 @@ if (!packageJson.scripts["verify:app:static"].includes("pnpm run doctor"))
   failures.push("React Doctor must remain part of application verification");
 if (!packageJson.scripts.build.includes("vite.worker.config.ts"))
   failures.push("Production builds must include the asynchronous worker");
+if (packageJson.scripts.dev !== "node scripts/start-development.mjs")
+  failures.push("Local development must start the web app and worker together");
+const developmentLauncher = fs.readFileSync(
+  path.join(root, "scripts/start-development.mjs"),
+  "utf8",
+);
+for (const requiredProcess of ["vite", "src/worker/scorm-worker.ts"]) {
+  if (!developmentLauncher.includes(requiredProcess))
+    failures.push(
+      `Local development launcher must include: ${requiredProcess}`,
+    );
+}
 for (const forbidden of ["package-lock.json", "yarn.lock"]) {
   if (fs.existsSync(path.join(root, forbidden)))
     failures.push(`Forbidden repository file: ${forbidden}`);
@@ -97,6 +109,21 @@ if (
   !workerService.includes("ExecStart=/usr/bin/node dist/worker/scorm-worker.js")
 )
   failures.push("The worker service must execute the bundled release artifact");
+const nginx = fs.readFileSync(
+  path.join(root, "deploy/nginx/upskill.conf"),
+  "utf8",
+);
+if (!nginx.includes("client_max_body_size 2m;"))
+  failures.push("The default nginx request-body limit must remain 2 MB");
+const scormUploadLocation = nginx.match(
+  /location = \/api\/admin\/scorm-packages \{(?<body>[\s\S]*?)\n {4}\}/,
+)?.groups?.body;
+if (!scormUploadLocation?.includes("client_max_body_size 250m;"))
+  failures.push(
+    "The exact SCORM upload route must allow archives up to 250 MB",
+  );
+if (!scormUploadLocation?.includes("proxy_request_buffering off;"))
+  failures.push("nginx must stream SCORM uploads instead of buffering them");
 
 function sourceFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

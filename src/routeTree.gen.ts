@@ -14,6 +14,7 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminModulesRouteImport } from './routes/admin.modules'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as CheckoutSuccessRouteImport } from './routes/checkout.success'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
@@ -21,6 +22,7 @@ import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
 import { Route as AdminLearnersIndexRouteImport } from './routes/admin.learners.index'
 import { Route as AdminLearnersUserIdRouteImport } from './routes/admin.learners.$userId'
+import { Route as ApiAdminScormPackagesRouteImport } from './routes/api.admin.scorm-packages'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
@@ -51,6 +53,11 @@ const LoginRoute = LoginRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminModulesRoute = AdminModulesRouteImport.update({
+  id: '/modules',
+  path: '/modules',
   getParentRoute: () => AdminRoute,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -87,6 +94,11 @@ const AdminLearnersUserIdRoute = AdminLearnersUserIdRouteImport.update({
   id: '/learners/$userId',
   path: '/learners/$userId',
   getParentRoute: () => AdminRoute,
+} as any)
+const ApiAdminScormPackagesRoute = ApiAdminScormPackagesRouteImport.update({
+  id: '/api/admin/scorm-packages',
+  path: '/api/admin/scorm-packages',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
@@ -126,6 +138,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/admin/modules': typeof AdminModulesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
@@ -133,6 +146,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
+  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
@@ -145,6 +159,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/admin/modules': typeof AdminModulesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
@@ -152,6 +167,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/courses': typeof CoursesIndexRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
+  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
@@ -166,6 +182,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/admin/modules': typeof AdminModulesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
@@ -173,6 +190,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
+  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
@@ -188,6 +206,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/login'
+    | '/admin/modules'
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
@@ -195,6 +214,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/courses/'
     | '/admin/learners/$userId'
+    | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
@@ -207,6 +227,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/login'
+    | '/admin/modules'
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
@@ -214,6 +235,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/courses'
     | '/admin/learners/$userId'
+    | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
@@ -227,6 +249,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/login'
+    | '/admin/modules'
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
@@ -234,6 +257,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/courses/'
     | '/admin/learners/$userId'
+    | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
@@ -253,6 +277,7 @@ export interface RootRouteChildren {
   CoursesSlugRoute: typeof CoursesSlugRoute
   LearnEnrollmentIdRoute: typeof LearnEnrollmentIdRoute
   CoursesIndexRoute: typeof CoursesIndexRoute
+  ApiAdminScormPackagesRoute: typeof ApiAdminScormPackagesRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
@@ -295,6 +320,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/modules': {
+      id: '/admin/modules'
+      path: '/modules'
+      fullPath: '/admin/modules'
+      preLoaderRoute: typeof AdminModulesRouteImport
       parentRoute: typeof AdminRoute
     }
     '/api/health': {
@@ -346,6 +378,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminLearnersUserIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/admin/scorm-packages': {
+      id: '/api/admin/scorm-packages'
+      path: '/api/admin/scorm-packages'
+      fullPath: '/api/admin/scorm-packages'
+      preLoaderRoute: typeof ApiAdminScormPackagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -392,6 +431,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminModulesRoute: typeof AdminModulesRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
   AdminLearnersIndexRoute: typeof AdminLearnersIndexRoute
@@ -399,6 +439,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminModulesRoute: AdminModulesRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,
   AdminLearnersIndexRoute: AdminLearnersIndexRoute,
@@ -418,6 +459,7 @@ const rootRouteChildren: RootRouteChildren = {
   CoursesSlugRoute: CoursesSlugRoute,
   LearnEnrollmentIdRoute: LearnEnrollmentIdRoute,
   CoursesIndexRoute: CoursesIndexRoute,
+  ApiAdminScormPackagesRoute: ApiAdminScormPackagesRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,

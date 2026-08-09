@@ -27,8 +27,9 @@ with durable database/object data under the ignored `.local/` directory. MinIO
 exposes its S3 API on port 9020 and console on 9021, and initializes private
 quarantine, learning-content, resource and certificate buckets. ElasticMQ
 exposes its SQS-compatible API on port 9324 and web UI on 9325; its work queue,
-15-minute visibility timeout and five-receive DLQ policy match CDK. Run
-`pnpm worker:scorm` in a separate terminal when exercising asynchronous uploads.
+15-minute visibility timeout and five-receive DLQ policy match CDK. `pnpm dev`
+starts both Vite and the local SCORM worker so asynchronous uploads are processed.
+Use `pnpm dev:web` only when deliberately running the worker separately.
 The public catalog reads immutable published course versions from PostgreSQL.
 The two `db:seed:*` commands install
 deterministic local and browser-test data; they are never run by production
@@ -37,6 +38,10 @@ deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD` and
 `redeemer@example.com` accounts, the platform administrator
 `admin@example.com`, and the local code `EXAMPLE-LEARN-2026`. All three local
 accounts use `SEED_LEARNER_PASSWORD`; administration starts at `/admin`.
+Platform administrators manage quarantined SCORM uploads and package versions at
+`/admin/modules`. Browser uploads stream through a bounded same-origin route;
+they do not require direct MinIO/S3 access or a permissive bucket CORS policy.
+The worker moves queued versions to ready or rejected after validation.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:
@@ -46,8 +51,8 @@ pnpm run verify:scorm-ingestion:local -- /path/to/module-1.zip /path/to/module-2
 ```
 
 Stop `pnpm worker:scorm` before running this exclusive local verifier. It checks
-real outbox dispatch, SQS receipt, five-receive DLQ redrive, idempotent duplicate
-delivery, quarantine extraction and the launch object, then removes its exact
+bounded streaming ingestion, real outbox dispatch, SQS receipt, five-receive
+DLQ redrive, idempotent duplicate delivery, quarantine extraction and the launch object, then removes its exact
 database, object-storage and queue fixtures.
 
 ## Verification

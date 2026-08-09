@@ -9,9 +9,10 @@ import {
 } from "@zip.js/zip.js";
 import { XMLParser } from "fast-xml-parser";
 import { SyntaxValidator } from "fast-xml-validator";
+import { SCORM_MAX_ARCHIVE_BYTES } from "#/features/scorm/scorm-package.schema";
 
 export const SCORM_ARCHIVE_LIMITS = {
-  archiveBytes: 250 * 1024 * 1024,
+  archiveBytes: SCORM_MAX_ARCHIVE_BYTES,
   entries: 5_000,
   entryBytes: 64 * 1024 * 1024,
   expandedBytes: 1024 * 1024 * 1024,

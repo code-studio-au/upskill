@@ -99,6 +99,50 @@ test("SCORM launch boundaries reject the wrong origin and missing session", asyn
   expect(mainOriginExchange.status()).toBe(404);
 });
 
+test("SCORM administration uploads enforce origin and authentication", async ({
+  request,
+}, testInfo) => {
+  const archive = "PK\u0003\u0004boundary-test";
+  const uploadUrl = "/api/admin/scorm-packages?title=Boundary%20test";
+  const sharedHeaders = {
+    "content-length": String(Buffer.byteLength(archive)),
+    "content-type": "application/zip",
+  };
+  const crossOrigin = await request.post(uploadUrl, {
+    data: archive,
+    headers: { ...sharedHeaders, origin: "https://attacker.example" },
+  });
+  expect(crossOrigin.status()).toBe(403);
+  await expect(crossOrigin.json()).resolves.toEqual({
+    error: "invalid_origin",
+  });
+
+  const invalidMime = await request.post(uploadUrl, {
+    data: archive,
+    headers: {
+      ...sharedHeaders,
+      "content-type": "application/zip-archive",
+      origin: new URL(testInfo.project.use.baseURL ?? "").origin,
+    },
+  });
+  expect(invalidMime.status()).toBe(415);
+  await expect(invalidMime.json()).resolves.toEqual({
+    error: "invalid_content_type",
+  });
+
+  const unauthenticated = await request.post(uploadUrl, {
+    data: archive,
+    headers: {
+      ...sharedHeaders,
+      origin: new URL(testInfo.project.use.baseURL ?? "").origin,
+    },
+  });
+  expect(unauthenticated.status()).toBe(401);
+  await expect(unauthenticated.json()).resolves.toEqual({
+    error: "unauthenticated",
+  });
+});
+
 test("learner dashboard requires a server-validated session", async ({
   page,
 }) => {
@@ -163,6 +207,13 @@ test("platform administrators can inspect learner progress", async ({
       "Corrections never alter the learner's original SCORM attempts.",
     ),
   ).toBeVisible();
+  await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+
+  await page.getByRole("link", { name: "Modules" }).click();
+  await expect(
+    page.getByRole("heading", { name: "SCORM modules" }),
+  ).toBeVisible();
+  await expect(page.getByText("No modules uploaded")).toBeVisible();
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
   const accessibility = await new AxeBuilder({ page }).analyze();
   expect(accessibility.violations).toEqual([]);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { sql } from "kysely";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
@@ -23,6 +24,7 @@ import { consumeNextScormMessage } from "#/server/scorm/scorm-ingestion-consumer
 import {
   ingestScormPackageVersion,
   stageScormPackageArchive,
+  stageScormPackageStream,
   type StagedScormPackage,
 } from "#/server/scorm/scorm-package-ingestion.server";
 import {
@@ -159,15 +161,28 @@ try {
   if (!administrator)
     throw new Error("Seed admin@example.com before local SCORM verification");
 
-  for (const fixturePath of fixturePaths) {
-    const archive = await readFile(fixturePath);
-    staged.push(
-      await stageScormPackageArchive({
-        actorUserId: administrator.id,
-        archive,
-        title: basename(fixturePath, ".zip"),
-      }),
-    );
+  for (const [index, fixturePath] of fixturePaths.entries()) {
+    const sharedInput = {
+      actorUserId: administrator.id,
+      title: basename(fixturePath, ".zip"),
+    };
+    if (index === 0) {
+      const metadata = await stat(fixturePath);
+      staged.push(
+        await stageScormPackageStream({
+          ...sharedInput,
+          archive: createReadStream(fixturePath),
+          archiveBytes: metadata.size,
+        }),
+      );
+    } else {
+      staged.push(
+        await stageScormPackageArchive({
+          ...sharedInput,
+          archive: await readFile(fixturePath),
+        }),
+      );
+    }
   }
 
   for (let remaining = staged.length; remaining > 0; remaining -= 1) {
@@ -235,7 +250,7 @@ try {
   const finalCounts = await getQueueCounts(env.SQS_QUEUE_URL);
   assert.equal(queueTotal(finalCounts), 0);
   console.log(
-    `Verified ${String(staged.length)} real SCORM 1.2 packages through PostgreSQL outbox, ElasticMQ, quarantine, immutable extraction, idempotent redelivery and DLQ redrive`,
+    `Verified ${String(staged.length)} real SCORM 1.2 packages through bounded streaming upload, PostgreSQL outbox, ElasticMQ, quarantine, immutable extraction, idempotent redelivery and DLQ redrive`,
   );
 } finally {
   await cleanup();
