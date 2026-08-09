@@ -45,10 +45,10 @@ function statusLabel(course: LearnerCourse): string {
 function DashboardPage() {
   const dashboard = Route.useLoaderData();
   const current = dashboard.courses.filter(
-    (course) => course.state === "active",
+    (course) => course.state === "active" || course.state === "completed",
   );
   const history = dashboard.courses.filter(
-    (course) => course.state !== "active",
+    (course) => course.state === "expired" || course.state === "cancelled",
   );
 
   return (
@@ -173,18 +173,30 @@ function CourseSection({
                       {dateFormatter.format(new Date(course.expiresAt))}
                     </Text>
                   ) : null}
-                  {course.state === "active" ? (
+                  {course.state === "active" || course.state === "completed" ? (
+                    <Link
+                      to="/learn/$enrollmentId"
+                      params={{ enrollmentId: course.enrollmentId }}
+                      className={classes.courseLink}
+                    >
+                      <Button component="span" fullWidth>
+                        {course.state === "completed"
+                          ? "Review course"
+                          : "Continue course"}
+                      </Button>
+                    </Link>
+                  ) : (
                     <Link
                       to="/courses/$slug"
                       params={{ slug: course.slug }}
                       className={classes.courseLink}
                     >
-                      <Button component="span" fullWidth>
-                        Continue course
+                      <Button component="span" variant="light" fullWidth>
+                        {course.state === "expired"
+                          ? "Renew access"
+                          : "View course"}
                       </Button>
                     </Link>
-                  ) : (
-                    <Button disabled>Course unavailable</Button>
                   )}
                 </Stack>
               </Card>

@@ -1,6 +1,6 @@
 import { createTheme, MantineProvider } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
-import { useRouter } from "@tanstack/react-router";
+import { useHydrated, useRouter } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
 const theme = createTheme({
@@ -28,9 +28,12 @@ const theme = createTheme({
 export function AppProviders({ children }: { children: ReactNode }) {
   const router = useRouter();
   const nonce = router.options.ssr?.nonce;
+  const hydrated = useHydrated();
+  const styleNonce =
+    typeof document === "undefined" || hydrated ? (nonce ?? "") : "";
 
   return (
-    <MantineProvider theme={theme} getStyleNonce={() => nonce ?? ""}>
+    <MantineProvider theme={theme} getStyleNonce={() => styleNonce}>
       <Notifications />
       {children}
     </MantineProvider>

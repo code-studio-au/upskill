@@ -3,11 +3,11 @@ import { routeTree } from "./routeTree.gen";
 
 function clientNonce(): string | undefined {
   if (typeof document === "undefined") return undefined;
-  return (
-    document
-      .querySelector('meta[property="csp-nonce"]')
-      ?.getAttribute("content") ?? undefined
+  const nonceMeta = document.querySelector<HTMLMetaElement>(
+    'meta[property="csp-nonce"]',
   );
+
+  return nonceMeta?.nonce || nonceMeta?.content || undefined;
 }
 
 export function getRouter() {

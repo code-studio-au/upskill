@@ -51,9 +51,17 @@ append-only overrides with actor, reason and timestamp.
 Orders and contracts create access grants. Atomic redemptions create enrolments.
 Verified email domains may restrict discovery and redemption. Stripe confirms
 payment, while Upskill remains authoritative for fulfilment.
+Single-course Checkout snapshots the published course version and price in an
+order item before redirecting to Stripe. A raw-body, signature-verified webhook
+reconciles the session to that snapshot and serializes replay-safe fulfilment on
+the order row; the browser success redirect only reads the resulting status.
 Access codes are normalized and stored only as HMAC digests protected by an
 independent generated secret. Redemption locks the grant row and commits the
 capacity update, enrolment, audit event and outbox event in one transaction.
+Learner workspace reads are scoped by both the opaque enrolment identifier and
+the authenticated user. They resolve the exact enrolled course version and
+reject expired or removed access before any learning content is exposed;
+completed enrolments remain reviewable while their access window is valid.
 
 ## Content and asynchronous work
 
@@ -61,6 +69,11 @@ S3 buckets separate quarantine uploads, immutable learning content, private
 resources/certificates and deployment artifacts. SCORM runs on a dedicated
 learning origin so package scripts do not receive the main application's auth
 cookies. CloudFront signed cookies authorize package file trees.
+Package versions, course-version mappings and learner attempts are immutable or
+append-only records. Five-minute launch credentials are stored only as SHA-256
+digests and exchanged on the learning origin for HTTP-only, attempt-scoped
+sessions. Progress commits recheck enrolment access and serialize completion so
+replayed final commits cannot duplicate completion events.
 
 A transactional outbox and SQS-backed worker handle Stripe fulfilment, SCORM
 extraction, certificates, email and scheduled rules. Every job is idempotent and

@@ -12,7 +12,7 @@ const fetch = createStartHandler(async (context) => {
   const result = await defaultStreamHandler(context);
   const response = result instanceof Response ? result : result.response;
   const headers = new Headers(response.headers);
-  applySecurityHeaders(headers, nonce);
+  applySecurityHeaders(headers, nonce, context.request);
 
   const securedResponse = new Response(response.body, {
     headers,

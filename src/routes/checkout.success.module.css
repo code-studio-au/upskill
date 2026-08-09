@@ -1,0 +1,7 @@
+.page {
+  padding-block: clamp(3rem, 10vw, 7rem);
+}
+
+.link {
+  text-decoration: none;
+}

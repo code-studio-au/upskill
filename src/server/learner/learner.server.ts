@@ -46,7 +46,7 @@ export async function findLearnerDashboard(
     const content = courseContentSchema.parse(row.content);
     const state = row.removedAt
       ? "cancelled"
-      : row.expiresAt && row.expiresAt <= now && row.status === "active"
+      : row.expiresAt && row.expiresAt <= now
         ? "expired"
         : row.status;
     return {

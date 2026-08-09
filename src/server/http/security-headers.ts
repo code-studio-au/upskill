@@ -32,21 +32,67 @@ export function buildContentSecurityPolicy(
     .join("; ");
 }
 
-export function applySecurityHeaders(headers: Headers, nonce: string): void {
+export function buildLearningContentSecurityPolicy(
+  nonce: string,
+  applicationOrigin: string,
+): string {
+  const directives = {
+    "base-uri": ["'none'"],
+    "connect-src": ["'self'"],
+    "default-src": ["'self'"],
+    "font-src": ["'self'", "data:"],
+    "form-action": ["'none'"],
+    "frame-ancestors": [applicationOrigin],
+    "frame-src": ["'self'"],
+    "img-src": ["'self'", "data:", "blob:"],
+    "media-src": ["'self'", "blob:"],
+    "object-src": ["'none'"],
+    "script-src": ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'"],
+    "script-src-attr": ["'none'"],
+    "style-src": ["'self'", `'nonce-${nonce}'`],
+    "style-src-attr": ["'none'"],
+    "worker-src": ["'self'", "blob:"],
+  } as const;
+  return Object.entries(directives)
+    .map(([directive, values]) => `${directive} ${values.join(" ")}`)
+    .join("; ");
+}
+
+export function applySecurityHeaders(
+  headers: Headers,
+  nonce: string,
+  request?: Request,
+): void {
   const learningOrigin = process.env.LEARNING_ORIGIN ?? "http://localhost:3001";
+  const applicationOrigin = process.env.APP_ORIGIN ?? "http://localhost:3000";
+  const normalizedLearningOrigin = new URL(learningOrigin).origin;
+  const normalizedApplicationOrigin = new URL(applicationOrigin).origin;
+  const requestUrl = request ? new URL(request.url) : null;
+  const isLearningResponse =
+    requestUrl?.origin === normalizedLearningOrigin &&
+    requestUrl.pathname.startsWith("/api/scorm/");
   headers.set(
     "Content-Security-Policy",
-    buildContentSecurityPolicy(nonce, learningOrigin),
+    isLearningResponse
+      ? buildLearningContentSecurityPolicy(nonce, normalizedApplicationOrigin)
+      : buildContentSecurityPolicy(nonce, normalizedLearningOrigin),
   );
-  headers.set("Cross-Origin-Opener-Policy", "same-origin");
+  if (isLearningResponse) headers.delete("Cross-Origin-Opener-Policy");
+  else headers.set("Cross-Origin-Opener-Policy", "same-origin");
   headers.set("Cross-Origin-Resource-Policy", "same-origin");
   headers.set(
     "Permissions-Policy",
-    "camera=(), geolocation=(), microphone=(), payment=(self)",
+    isLearningResponse
+      ? "camera=(), geolocation=(), microphone=(), payment=()"
+      : "camera=(), geolocation=(), microphone=(), payment=(self)",
   );
-  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  headers.set(
+    "Referrer-Policy",
+    isLearningResponse ? "no-referrer" : "strict-origin-when-cross-origin",
+  );
   headers.set("X-Content-Type-Options", "nosniff");
-  headers.set("X-Frame-Options", "DENY");
+  if (isLearningResponse) headers.delete("X-Frame-Options");
+  else headers.set("X-Frame-Options", "DENY");
 
   if (
     process.env.APP_ENV === "production" ||
