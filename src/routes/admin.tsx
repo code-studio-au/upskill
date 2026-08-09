@@ -1,19 +1,20 @@
-import { Container, Text, Title } from "@mantine/core";
-import { createFileRoute } from "@tanstack/react-router";
+import { Container, Stack } from "@mantine/core";
+import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { AdminNavigation } from "#/features/admin/AdminNavigation";
+import classes from "./admin.module.css";
 
 export const Route = createFileRoute("/admin")({
   ssr: false,
-  component: AdminPage,
+  component: AdminLayout,
 });
 
-function AdminPage() {
+function AdminLayout() {
   return (
-    <Container size="lg" py={72}>
-      <Title order={1}>Administration</Title>
-      <Text mt="md">
-        Client-rendered administration shell. Server functions enforce every
-        authorization decision.
-      </Text>
+    <Container size="xl" className={classes.page}>
+      <Stack gap="xl">
+        <AdminNavigation />
+        <Outlet />
+      </Stack>
     </Container>
   );
 }

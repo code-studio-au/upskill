@@ -30,4 +30,11 @@ test("storage blocks public access and provides a dead-letter queue", () => {
     }),
   });
   template.resourceCountIs("AWS::SQS::Queue", 2);
+  template.hasResourceProperties("AWS::SQS::Queue", {
+    VisibilityTimeout: 900,
+    RedrivePolicy: {
+      deadLetterTargetArn: Match.anyValue(),
+      maxReceiveCount: 5,
+    },
+  });
 });

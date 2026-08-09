@@ -62,6 +62,13 @@ export class ApplicationStack extends Stack {
           STRIPE_SECRET_KEY: "sk_live_REPLACE_BEFORE_DEPLOY",
           STRIPE_WEBHOOK_SECRET: "whsec_REPLACE_BEFORE_DEPLOY",
           AWS_REGION: this.region,
+          S3_QUARANTINE_BUCKET: props.quarantineBucket.bucketName,
+          S3_LEARNING_CONTENT_BUCKET: props.learningBucket.bucketName,
+          S3_PRIVATE_RESOURCES_BUCKET: props.privateBucket.bucketName,
+          S3_CERTIFICATES_BUCKET: props.privateBucket.bucketName,
+          SQS_QUEUE_URL: props.workQueue.queueUrl,
+          SQS_RECEIVE_WAIT_SECONDS: "20",
+          SQS_VISIBILITY_TIMEOUT_SECONDS: "900",
           NODE_ENV: "production",
         }),
         generateStringKey: "BETTER_AUTH_SECRET",
@@ -83,6 +90,7 @@ export class ApplicationStack extends Stack {
     props.privateBucket.grantReadWrite(role);
     props.quarantineBucket.grantReadWrite(role);
     props.workQueue.grantConsumeMessages(role);
+    props.workQueue.grantSendMessages(role);
     configurationSecret.grantRead(role);
     accessCodeSecret.grantRead(role);
     role.addToPolicy(

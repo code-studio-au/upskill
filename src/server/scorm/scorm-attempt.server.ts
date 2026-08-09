@@ -12,6 +12,10 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
+import {
+  findEffectiveModuleCompletion,
+  findLatestEnrollmentProgressOverride,
+} from "#/server/learning/progress-overrides.server";
 
 const LAUNCH_TOKEN_LIFETIME_MS = 5 * 60 * 1_000;
 const ATTEMPT_SESSION_LIFETIME_MS = 8 * 60 * 60 * 1_000;
@@ -316,32 +320,23 @@ async function completeEnrollmentIfReady(
   attempt: { enrollmentId: string; courseVersionId: string },
   now: Date,
 ): Promise<void> {
-  const totals = await transaction
-    .selectFrom("course_version_module")
-    .select(sql<number>`count(*)::integer`.as("count"))
-    .where("courseVersionId", "=", attempt.courseVersionId)
-    .executeTakeFirstOrThrow();
-  if (totals.count === 0) return;
-  const completed = await transaction
-    .selectFrom("course_version_module")
-    .select(sql<number>`count(*)::integer`.as("count"))
-    .where("courseVersionId", "=", attempt.courseVersionId)
-    .where((expression) =>
-      expression.exists(
-        expression
-          .selectFrom("scorm_attempt")
-          .select("scorm_attempt.id")
-          .whereRef(
-            "scorm_attempt.modulePosition",
-            "=",
-            "course_version_module.position",
-          )
-          .where("scorm_attempt.enrollmentId", "=", attempt.enrollmentId)
-          .where("scorm_attempt.status", "=", "completed"),
-      ),
+  if (
+    await findLatestEnrollmentProgressOverride(
+      transaction,
+      attempt.enrollmentId,
     )
-    .executeTakeFirstOrThrow();
-  if (completed.count !== totals.count) return;
+  )
+    return;
+  const modules = await findEffectiveModuleCompletion(
+    transaction,
+    attempt.enrollmentId,
+    attempt.courseVersionId,
+  );
+  if (
+    modules.length === 0 ||
+    modules.some((module) => module.state !== "completed")
+  )
+    return;
 
   const result = await transaction
     .updateTable("enrollment")

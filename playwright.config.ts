@@ -1,12 +1,17 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const browserPort = process.env.PLAYWRIGHT_PORT ?? "3000";
+if (!/^\d{2,5}$/.test(browserPort))
+  throw new Error("PLAYWRIGHT_PORT must be a valid local port");
+const browserOrigin = `http://127.0.0.1:${browserPort}`;
+
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   use: {
-    baseURL: "http://127.0.0.1:3000",
+    baseURL: browserOrigin,
     trace: "retain-on-failure",
   },
   projects: [
@@ -15,8 +20,8 @@ export default defineConfig({
     { name: "webkit", use: { ...devices["Desktop Safari"] } },
   ],
   webServer: {
-    command: "pnpm run build && pnpm run start",
-    url: "http://127.0.0.1:3000/api/health",
+    command: `pnpm run build && PORT=${browserPort} APP_ORIGIN=${browserOrigin} pnpm run start`,
+    url: `${browserOrigin}/api/health`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

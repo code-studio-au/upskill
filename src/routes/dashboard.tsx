@@ -64,7 +64,14 @@ function DashboardPage() {
               Welcome back, {dashboard.user.name}.
             </Text>
           </div>
-          <SignOutButton />
+          <Group gap="sm">
+            {dashboard.user.isPlatformAdministrator ? (
+              <Button component={Link} to="/admin" variant="light">
+                Administration
+              </Button>
+            ) : null}
+            <SignOutButton />
+          </Group>
         </div>
 
         <AccessCodeRedemptionForm />

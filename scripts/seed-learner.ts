@@ -25,6 +25,12 @@ const redeemer = {
   name: "Riley Redeemer",
   email: "redeemer@example.com",
 };
+const administrator = {
+  id: "user_local_admin",
+  accountId: "account_local_admin",
+  name: "Avery Administrator",
+  email: "admin@example.com",
+};
 
 async function seedCredentialUser(
   transaction: Transaction<Database>,
@@ -95,6 +101,20 @@ try {
       redeemer,
       passwordHash,
     );
+    const administratorId = await seedCredentialUser(
+      transaction,
+      administrator,
+      passwordHash,
+    );
+
+    await transaction
+      .insertInto("platform_admin")
+      .values({
+        userId: administratorId,
+        grantedByUserId: null,
+      })
+      .onConflict((conflict) => conflict.column("userId").doNothing())
+      .execute();
 
     await transaction
       .insertInto("organization")
@@ -229,7 +249,7 @@ try {
   });
 
   console.log(
-    `Seeded verified learners ${learner.email} and ${redeemer.email} with learner access data`,
+    `Seeded verified learners ${learner.email} and ${redeemer.email}, plus administrator ${administrator.email}`,
   );
 } finally {
   await database.destroy();

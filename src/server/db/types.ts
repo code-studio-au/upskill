@@ -64,6 +64,12 @@ interface OrganizationMemberTable {
   createdAt: Timestamp;
 }
 
+interface PlatformAdminTable {
+  userId: string;
+  grantedByUserId: string | null;
+  createdAt: Timestamp;
+}
+
 interface CourseTable {
   id: string;
   slug: string;
@@ -98,6 +104,13 @@ interface ScormPackageVersionTable {
   launchPath: string;
   sha256: string;
   manifest: Json;
+  sourceBytes: Generated<number | null>;
+  failureCode: Generated<string | null>;
+  processedAt: ColumnType<
+    Date | null,
+    Date | string | null | undefined,
+    Date | string | null
+  >;
   publishedAt: Timestamp | null;
   createdAt: Timestamp;
 }
@@ -161,6 +174,18 @@ interface ScormAttemptSessionTable {
   attemptId: string;
   expiresAt: Timestamp;
   revokedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface LearningProgressOverrideTable {
+  id: string;
+  sequence: Generated<number>;
+  enrollmentId: string;
+  scope: "module" | "enrollment";
+  modulePosition: number | null;
+  state: "completed" | "incomplete";
+  actorUserId: string;
+  reason: string;
   createdAt: Timestamp;
 }
 
@@ -236,8 +261,10 @@ export interface Database {
   course_version: CourseVersionTable;
   course_version_module: CourseVersionModuleTable;
   enrollment: EnrollmentTable;
+  learning_progress_override: LearningProgressOverrideTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
+  platform_admin: PlatformAdminTable;
   order: OrderTable;
   order_item: OrderItemTable;
   outbox_event: OutboxEventTable;

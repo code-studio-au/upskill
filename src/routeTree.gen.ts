@@ -13,16 +13,20 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as CheckoutSuccessRouteImport } from './routes/checkout.success'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
+import { Route as AdminLearnersIndexRouteImport } from './routes/admin.learners.index'
+import { Route as AdminLearnersUserIdRouteImport } from './routes/admin.learners.$userId'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 import { Route as ApiScormAttemptsAttemptIdRouteImport } from './routes/api.scorm.attempts.$attemptId'
+import { Route as AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport } from './routes/admin.learners.$userId_.enrollments.$enrollmentId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -43,6 +47,11 @@ const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdminRoute,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
   id: '/api/health',
@@ -68,6 +77,16 @@ const LearnEnrollmentIdRoute = LearnEnrollmentIdRouteImport.update({
   id: '/learn/$enrollmentId',
   path: '/learn/$enrollmentId',
   getParentRoute: () => rootRouteImport,
+} as any)
+const AdminLearnersIndexRoute = AdminLearnersIndexRouteImport.update({
+  id: '/learners/',
+  path: '/learners/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminLearnersUserIdRoute = AdminLearnersUserIdRouteImport.update({
+  id: '/learners/$userId',
+  path: '/learners/$userId',
+  getParentRoute: () => AdminRoute,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
@@ -95,55 +114,72 @@ const ApiScormAttemptsAttemptIdRoute =
     path: '/api/scorm/attempts/$attemptId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AdminLearnersUserIdEnrollmentsEnrollmentIdRoute =
+  AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport.update({
+    id: '/learners/$userId_/enrollments/$enrollmentId',
+    path: '/learners/$userId/enrollments/$enrollmentId',
+    getParentRoute: () => AdminRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
+  '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
+  '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/admin/learners/': typeof AdminLearnersIndexRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
+  '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
+  '/admin': typeof AdminIndexRoute
   '/courses': typeof CoursesIndexRoute
+  '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/admin/learners': typeof AdminLearnersIndexRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
+  '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/admin': typeof AdminRoute
+  '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
+  '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
+  '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/admin/learners/': typeof AdminLearnersIndexRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
+  '/admin/learners/$userId_/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -156,28 +192,35 @@ export interface FileRouteTypes {
     | '/checkout/success'
     | '/courses/$slug'
     | '/learn/$enrollmentId'
+    | '/admin/'
     | '/courses/'
+    | '/admin/learners/$userId'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/admin/learners/'
     | '/api/scorm/attempts/$attemptId'
+    | '/admin/learners/$userId/enrollments/$enrollmentId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
-    | '/admin'
     | '/dashboard'
     | '/login'
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
     | '/learn/$enrollmentId'
+    | '/admin'
     | '/courses'
+    | '/admin/learners/$userId'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/admin/learners'
     | '/api/scorm/attempts/$attemptId'
+    | '/admin/learners/$userId/enrollments/$enrollmentId'
   id:
     | '__root__'
     | '/'
@@ -188,17 +231,21 @@ export interface FileRouteTypes {
     | '/checkout/success'
     | '/courses/$slug'
     | '/learn/$enrollmentId'
+    | '/admin/'
     | '/courses/'
+    | '/admin/learners/$userId'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/admin/learners/'
     | '/api/scorm/attempts/$attemptId'
+    | '/admin/learners/$userId_/enrollments/$enrollmentId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  AdminRoute: typeof AdminRoute
+  AdminRoute: typeof AdminRouteWithChildren
   DashboardRoute: typeof DashboardRoute
   LoginRoute: typeof LoginRoute
   ApiHealthRoute: typeof ApiHealthRoute
@@ -243,6 +290,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/api/health': {
       id: '/api/health'
       path: '/api/health'
@@ -277,6 +331,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/learn/$enrollmentId'
       preLoaderRoute: typeof LearnEnrollmentIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/admin/learners/': {
+      id: '/admin/learners/'
+      path: '/learners'
+      fullPath: '/admin/learners/'
+      preLoaderRoute: typeof AdminLearnersIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/learners/$userId': {
+      id: '/admin/learners/$userId'
+      path: '/learners/$userId'
+      fullPath: '/admin/learners/$userId'
+      preLoaderRoute: typeof AdminLearnersUserIdRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -313,12 +381,36 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiScormAttemptsAttemptIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/learners/$userId_/enrollments/$enrollmentId': {
+      id: '/admin/learners/$userId_/enrollments/$enrollmentId'
+      path: '/learners/$userId/enrollments/$enrollmentId'
+      fullPath: '/admin/learners/$userId/enrollments/$enrollmentId'
+      preLoaderRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
   }
 }
 
+interface AdminRouteChildren {
+  AdminIndexRoute: typeof AdminIndexRoute
+  AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
+  AdminLearnersIndexRoute: typeof AdminLearnersIndexRoute
+  AdminLearnersUserIdEnrollmentsEnrollmentIdRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
+}
+
+const AdminRouteChildren: AdminRouteChildren = {
+  AdminIndexRoute: AdminIndexRoute,
+  AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,
+  AdminLearnersIndexRoute: AdminLearnersIndexRoute,
+  AdminLearnersUserIdEnrollmentsEnrollmentIdRoute:
+    AdminLearnersUserIdEnrollmentsEnrollmentIdRoute,
+}
+
+const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  AdminRoute: AdminRoute,
+  AdminRoute: AdminRouteWithChildren,
   DashboardRoute: DashboardRoute,
   LoginRoute: LoginRoute,
   ApiHealthRoute: ApiHealthRoute,

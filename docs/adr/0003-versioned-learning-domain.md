@@ -11,7 +11,9 @@ creates new affected course versions for future enrolments.
 ## Consequences
 
 Historical progress remains reproducible. Corrections and manual completion are
-new audited records rather than destructive updates.
+new audited records rather than destructive updates. Module corrections overlay
+SCORM evidence, while overall-course corrections explicitly override derived
+completion; both retain the immutable enrolled course version.
 
 The learner workspace always resolves content through the enrolment's exact
 course-version foreign key. Completion and access are separate concerns: a

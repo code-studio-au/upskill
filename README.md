@@ -22,15 +22,33 @@ pnpm run db:seed:learner
 pnpm dev
 ```
 
-The local stack follows the Projex pattern: PostgreSQL plus MinIO with durable
-data under the ignored `.local/` directory. MinIO exposes its S3 API on port
-9020 and console on 9021, and initializes private quarantine, learning-content,
-resource and certificate buckets. The public catalog reads immutable published
-course versions from PostgreSQL. The two `db:seed:*` commands install
+The local stack follows the Projex pattern: PostgreSQL, MinIO and ElasticMQ,
+with durable database/object data under the ignored `.local/` directory. MinIO
+exposes its S3 API on port 9020 and console on 9021, and initializes private
+quarantine, learning-content, resource and certificate buckets. ElasticMQ
+exposes its SQS-compatible API on port 9324 and web UI on 9325; its work queue,
+15-minute visibility timeout and five-receive DLQ policy match CDK. Run
+`pnpm worker:scorm` in a separate terminal when exercising asynchronous uploads.
+The public catalog reads immutable published course versions from PostgreSQL.
+The two `db:seed:*` commands install
 deterministic local and browser-test data; they are never run by production
 deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD` and
 `ACCESS_CODE_PEPPER`; it creates verified `learner@example.com` and
-`redeemer@example.com` accounts plus the local code `EXAMPLE-LEARN-2026`.
+`redeemer@example.com` accounts, the platform administrator
+`admin@example.com`, and the local code `EXAMPLE-LEARN-2026`. All three local
+accounts use `SEED_LEARNER_PASSWORD`; administration starts at `/admin`.
+
+Real, legally shareable SCORM packages can be exercised without committing
+their contents:
+
+```sh
+pnpm run verify:scorm-ingestion:local -- /path/to/module-1.zip /path/to/module-2.zip
+```
+
+Stop `pnpm worker:scorm` before running this exclusive local verifier. It checks
+real outbox dispatch, SQS receipt, five-receive DLQ redrive, idempotent duplicate
+delivery, quarantine extraction and the launch object, then removes its exact
+database, object-storage and queue fixtures.
 
 ## Verification
 

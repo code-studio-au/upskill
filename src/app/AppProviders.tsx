@@ -1,5 +1,4 @@
 import { createTheme, MantineProvider } from "@mantine/core";
-import { Notifications } from "@mantine/notifications";
 import { useHydrated, useRouter } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 
@@ -34,7 +33,6 @@ export function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <MantineProvider theme={theme} getStyleNonce={() => styleNonce}>
-      <Notifications />
       {children}
     </MantineProvider>
   );

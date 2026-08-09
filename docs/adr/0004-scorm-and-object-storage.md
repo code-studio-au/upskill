@@ -13,6 +13,18 @@ for a revocable, HTTP-only attempt session; it never receives the Better Auth
 session. SCORM progress writes are bounded, validated and scoped to that one
 attempt.
 
+The supported ingestion profile is a root-manifest, single-SCO Rise 360 SCORM
+1.2 export. ZIP processing rejects traversal, absolute or duplicate paths,
+links, encryption and bounded-resource violations before writing learning
+content. Limits are 250 MB compressed, 1 GB expanded, 5,000 entries and 64 MB
+per entry. Immutable object keys include the package-version identifier and
+source SHA-256 digest; conditional writes make worker retries idempotent.
+The database transaction also writes an ingestion request to the outbox. Its
+dispatcher publishes a versioned SQS envelope, and the consumer acknowledges
+the message only after validation has reached a durable ready or rejected
+state. Visibility heartbeats cover long extraction, while repeated transient or
+malformed messages are redriven to the dead-letter queue.
+
 ## Consequences
 
 SCORM can locate its same-origin runtime API without receiving the primary

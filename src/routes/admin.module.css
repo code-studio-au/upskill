@@ -1,0 +1,135 @@
+.page {
+  padding-block: clamp(2rem, 6vw, 4.5rem);
+}
+
+.heading {
+  max-width: 48rem;
+}
+
+.statsGrid,
+.learnerGrid,
+.enrollmentGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.statsGrid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.learnerGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.enrollmentGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stat,
+.learnerCard,
+.enrollmentCard {
+  height: 100%;
+}
+
+.statValue {
+  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.searchForm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--mantine-spacing-sm);
+  align-items: end;
+}
+
+.learnerHeader,
+.profileHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-md);
+}
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--mantine-spacing-sm);
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--mantine-spacing-md);
+}
+
+.moduleDetailList {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.overrideNote {
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-indigo-2);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-indigo-0);
+}
+
+.auditList {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.metric {
+  padding: var(--mantine-spacing-sm);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.buttonLink {
+  text-decoration: none;
+}
+
+.profileLink {
+  margin-top: auto;
+  text-decoration: none;
+}
+
+@media (max-width: 62em) {
+  .statsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 48em) {
+  .learnerGrid,
+  .enrollmentGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .profileHeader {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 36em) {
+  .statsGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .searchForm {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+}
