@@ -1,6 +1,29 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 import { Client } from "pg";
+import { withPgAuditMaintenance } from "../scripts/audit-maintenance";
+
+async function cleanupScormPackageFixture(
+  database: Client,
+  packageId: string,
+  packageVersionId: string,
+): Promise<void> {
+  await withPgAuditMaintenance(database, async (transaction) => {
+    await transaction.query(
+      `delete from outbox_event where "aggregateId" = $1`,
+      [packageVersionId],
+    );
+    await transaction.query(`delete from audit_event where "subjectId" = $1`, [
+      packageVersionId,
+    ]);
+    await transaction.query(`delete from scorm_package_version where id = $1`, [
+      packageVersionId,
+    ]);
+    await transaction.query(`delete from scorm_package where id = $1`, [
+      packageId,
+    ]);
+  });
+}
 
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
@@ -319,18 +342,7 @@ test("platform administrators can inspect learner progress", async ({
   const packageVersionId = "e2e_scorm_autorefresh_version";
   await database.connect();
   try {
-    await database.query(`delete from outbox_event where "aggregateId" = $1`, [
-      packageVersionId,
-    ]);
-    await database.query(`delete from audit_event where "subjectId" = $1`, [
-      packageVersionId,
-    ]);
-    await database.query(`delete from scorm_package_version where id = $1`, [
-      packageVersionId,
-    ]);
-    await database.query(`delete from scorm_package where id = $1`, [
-      packageId,
-    ]);
+    await cleanupScormPackageFixture(database, packageId, packageVersionId);
     await database.query(
       `insert into scorm_package (id, title) values ($1, $2)`,
       [packageId, "Automatic verification status"],
@@ -419,18 +431,7 @@ test("platform administrators can inspect learner progress", async ({
     );
     expect(removedPackage.rows[0]?.count).toBe(0);
   } finally {
-    await database.query(`delete from outbox_event where "aggregateId" = $1`, [
-      packageVersionId,
-    ]);
-    await database.query(`delete from audit_event where "subjectId" = $1`, [
-      packageVersionId,
-    ]);
-    await database.query(`delete from scorm_package_version where id = $1`, [
-      packageVersionId,
-    ]);
-    await database.query(`delete from scorm_package where id = $1`, [
-      packageId,
-    ]);
+    await cleanupScormPackageFixture(database, packageId, packageVersionId);
     await database.end();
   }
 });
