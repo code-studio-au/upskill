@@ -38,7 +38,9 @@ async function serveClientAsset(incoming, outgoing) {
   } catch {
     return false;
   }
-  if (!pathname.startsWith("/assets/")) return false;
+  const isFingerprintedAsset = pathname.startsWith("/assets/");
+  const isPublicAsset = pathname === "/favicon.svg";
+  if (!isFingerprintedAsset && !isPublicAsset) return false;
 
   const target = path.resolve(clientDirectory, `.${pathname}`);
   if (!target.startsWith(`${clientDirectory}${path.sep}`)) return false;
@@ -52,7 +54,12 @@ async function serveClientAsset(incoming, outgoing) {
   if (!details.isFile()) return false;
 
   outgoing.statusCode = 200;
-  outgoing.setHeader("cache-control", "public, max-age=31536000, immutable");
+  outgoing.setHeader(
+    "cache-control",
+    isFingerprintedAsset
+      ? "public, max-age=31536000, immutable"
+      : "public, max-age=3600",
+  );
   outgoing.setHeader("content-length", details.size);
   outgoing.setHeader(
     "content-type",

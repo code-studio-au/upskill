@@ -2,6 +2,8 @@ import {
   Alert,
   Button,
   Container,
+  Group,
+  Loader,
   Paper,
   Stack,
   Text,
@@ -12,7 +14,9 @@ import {
   Link,
   notFound,
   redirect,
+  useRouter,
 } from "@tanstack/react-router";
+import { useEffect, useState } from "react";
 import { checkoutSessionSearchSchema } from "#/features/checkout/checkout.schema";
 import { getCourseCheckoutStatus } from "#/server/functions/checkout";
 import classes from "./checkout.success.module.css";
@@ -42,9 +46,35 @@ export const Route = createFileRoute("/checkout/success")({
 
 function CheckoutSuccessPage() {
   const checkout = Route.useLoaderData();
-  const search = Route.useSearch();
+  const router = useRouter();
+  const [refreshing, setRefreshing] = useState(false);
   const isPaid = checkout.status === "paid";
   const isPending = checkout.status === "pending";
+
+  async function refreshStatus(): Promise<void> {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await router.invalidate();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!isPending) return;
+    let polling = false;
+    const timer = window.setInterval(() => {
+      if (polling) return;
+      polling = true;
+      void router.invalidate().finally(() => {
+        polling = false;
+      });
+    }, 2_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [isPending, router]);
 
   return (
     <Container size="sm" className={classes.page}>
@@ -69,8 +99,14 @@ function CheckoutSuccessPage() {
             </Alert>
           ) : isPending ? (
             <Alert color="blue" title="Awaiting confirmation" role="status">
-              Stripe has returned you to Upskill, but the signed payment
-              confirmation has not arrived yet. You can safely check again.
+              <Group gap="sm" wrap="nowrap">
+                <Loader size="sm" aria-hidden="true" />
+                <Text>
+                  Stripe has returned you to Upskill, but the signed payment
+                  confirmation has not arrived yet. This page updates
+                  automatically.
+                </Text>
+              </Group>
             </Alert>
           ) : (
             <Alert color="red" title="No enrolment created" role="status">
@@ -84,16 +120,16 @@ function CheckoutSuccessPage() {
               Go to my learning
             </Button>
           ) : isPending ? (
-            <Link
-              to="/checkout/success"
-              search={{ session_id: search.session_id }}
-              reloadDocument
-              className={classes.link}
+            <Button
+              size="lg"
+              fullWidth
+              loading={refreshing}
+              onClick={() => {
+                void refreshStatus();
+              }}
             >
-              <Button component="span" size="lg" fullWidth>
-                Check payment status
-              </Button>
-            </Link>
+              Check payment status
+            </Button>
           ) : (
             <Link
               to="/courses/$slug"

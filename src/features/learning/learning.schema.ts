@@ -1,11 +1,13 @@
-import { z } from "zod";
+import { z } from "#/validation/zod";
 
 const enrollmentIdSchema = z
   .string()
-  .trim()
-  .min(1)
-  .max(255)
-  .regex(/^[A-Za-z0-9_-]+$/);
+  .check(
+    z.trim(),
+    z.minLength(1),
+    z.maxLength(255),
+    z.regex(/^[A-Za-z0-9_-]+$/),
+  );
 
 export const learnerWorkspaceInputSchema = z.object({
   enrollmentId: enrollmentIdSchema,
@@ -19,6 +21,7 @@ export interface LearnerWorkspaceModule {
   title: string;
   phase: LearningPhase;
   durationMinutes: number;
+  completionState: "completed" | "incomplete";
 }
 
 interface LearnerWorkspace {

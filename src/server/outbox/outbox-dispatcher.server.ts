@@ -2,9 +2,9 @@ import "@tanstack/react-start/server-only";
 
 import { getDatabase } from "#/server/db/database.server";
 import {
+  parseScormWorkMessage,
+  SCORM_DELETION_TOPIC,
   SCORM_INGESTION_TOPIC,
-  scormIngestionPayloadSchema,
-  type ScormIngestionWorkMessage,
 } from "#/server/queue/work-message";
 import { sendQueueMessage } from "#/server/queue/sqs.server";
 
@@ -21,7 +21,7 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
     const event = await transaction
       .selectFrom("outbox_event")
       .select(["id", "topic", "aggregateId", "payload", "attempts"])
-      .where("topic", "=", SCORM_INGESTION_TOPIC)
+      .where("topic", "in", [SCORM_INGESTION_TOPIC, SCORM_DELETION_TOPIC])
       .where("processedAt", "is", null)
       .where("availableAt", "<=", new Date())
       .orderBy("createdAt")
@@ -43,18 +43,19 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
   if (!claimed) return { status: "no-work" };
 
   try {
-    const payload = scormIngestionPayloadSchema.parse(claimed.payload);
-    if (payload.packageVersionId !== claimed.aggregateId)
+    const message = parseScormWorkMessage(
+      JSON.stringify({
+        version: 1,
+        eventId: claimed.id,
+        topic: claimed.topic,
+        aggregateId: claimed.aggregateId,
+        payload: claimed.payload,
+      }),
+    );
+    if (message.payload.packageVersionId !== claimed.aggregateId)
       throw new Error(
         "Outbox aggregate and SCORM package version do not match",
       );
-    const message: ScormIngestionWorkMessage = {
-      version: 1,
-      eventId: claimed.id,
-      topic: SCORM_INGESTION_TOPIC,
-      aggregateId: claimed.aggregateId,
-      payload,
-    };
     const messageId = await sendQueueMessage(JSON.stringify(message));
     await database
       .updateTable("outbox_event")

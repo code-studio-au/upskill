@@ -87,7 +87,7 @@ export async function findCourses(
         search.topic === "all" || course.content.topic === search.topic;
       const textMatches =
         query.length === 0 ||
-        `${course.content.title} ${course.content.summary} ${course.content.description}`
+        `${course.content.title} ${course.content.summary}`
           .toLocaleLowerCase("en-AU")
           .includes(query);
       return topicMatches && textMatches;

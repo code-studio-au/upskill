@@ -17,6 +17,7 @@ import {
   sendQueueMessage,
 } from "#/server/queue/sqs.server";
 import {
+  SCORM_DELETION_TOPIC,
   SCORM_INGESTION_TOPIC,
   type ScormIngestionWorkMessage,
 } from "#/server/queue/work-message";
@@ -42,6 +43,10 @@ if (fixturePaths.length === 0)
 const database = getDatabase();
 const env = getServerEnv();
 const staged: StagedScormPackage[] = [];
+const storedByVersion = new Map<
+  string,
+  { contentPrefix: string; launchPath: string }
+>();
 let ownsLocalQueues = false;
 
 function queueTotal(
@@ -134,7 +139,7 @@ try {
   const existingPending = await database
     .selectFrom("outbox_event")
     .select(sql<number>`count(*)::integer`.as("count"))
-    .where("topic", "=", SCORM_INGESTION_TOPIC)
+    .where("topic", "in", [SCORM_INGESTION_TOPIC, SCORM_DELETION_TOPIC])
     .where("processedAt", "is", null)
     .executeTakeFirstOrThrow();
   if (existingPending.count !== 0)
@@ -215,6 +220,10 @@ try {
     assert.equal(version.failureCode, null);
     assert.ok(version.processedAt);
     assert.equal(version.launchPath, "scormdriver/indexAPI.html");
+    storedByVersion.set(item.packageVersionId, {
+      contentPrefix: version.contentPrefix,
+      launchPath: version.launchPath,
+    });
     const launch = await getObjectBytes(
       env.S3_LEARNING_CONTENT_BUCKET,
       `${version.contentPrefix}/${version.launchPath}`,
@@ -247,10 +256,50 @@ try {
   assert.equal(duplicate.status, "processed");
   assert.equal(duplicate.outcome.status, "already-ready");
 
+  const removed = staged.at(-1);
+  assert.ok(removed);
+  const removedStorage = storedByVersion.get(removed.packageVersionId);
+  assert.ok(removedStorage);
+  const { removeAdminScormPackageVersion } =
+    await import("#/server/admin/admin-scorm.server");
+  assert.deepEqual(
+    await removeAdminScormPackageVersion(
+      removed.packageVersionId,
+      administrator.id,
+    ),
+    {
+      status: "removed",
+      data: {
+        packageId: removed.packageId,
+        packageRemoved: true,
+        version: removed.version,
+      },
+    },
+  );
+  const deletionDispatch = await dispatchNextOutboxEvent();
+  assert.equal(deletionDispatch.status, "dispatched");
+  const deletion = await consumeNextScormMessage();
+  assert.equal(deletion.status, "processed");
+  assert.equal(deletion.outcome.status, "storage-removed");
+  await assert.rejects(() =>
+    getObjectBytes(
+      env.S3_LEARNING_CONTENT_BUCKET,
+      `${removedStorage.contentPrefix}/${removedStorage.launchPath}`,
+      5 * 1024 * 1024,
+    ),
+  );
+  await assert.rejects(() =>
+    getObjectBytes(
+      env.S3_QUARANTINE_BUCKET,
+      removed.quarantineKey,
+      5 * 1024 * 1024,
+    ),
+  );
+
   const finalCounts = await getQueueCounts(env.SQS_QUEUE_URL);
   assert.equal(queueTotal(finalCounts), 0);
   console.log(
-    `Verified ${String(staged.length)} real SCORM 1.2 packages through bounded streaming upload, PostgreSQL outbox, ElasticMQ, quarantine, immutable extraction, idempotent redelivery and DLQ redrive`,
+    `Verified ${String(staged.length)} real SCORM 1.2 packages through bounded streaming upload, PostgreSQL outbox, ElasticMQ, quarantine, immutable extraction, idempotent redelivery, guarded removal, storage cleanup and DLQ redrive`,
   );
 } finally {
   await cleanup();

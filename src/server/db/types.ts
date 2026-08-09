@@ -185,7 +185,7 @@ interface LearningProgressOverrideTable {
   modulePosition: number | null;
   state: "completed" | "incomplete";
   actorUserId: string;
-  reason: string;
+  reason: string | null;
   createdAt: Timestamp;
 }
 

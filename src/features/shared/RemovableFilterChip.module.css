@@ -1,0 +1,15 @@
+.chip {
+  max-width: min(100%, 28rem);
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remove {
+  margin-left: var(--mantine-spacing-xs);
+  font-size: 1rem;
+  line-height: 1;
+}

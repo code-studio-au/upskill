@@ -42,6 +42,9 @@ Platform administrators manage quarantined SCORM uploads and package versions at
 `/admin/modules`. Browser uploads stream through a bounded same-origin route;
 they do not require direct MinIO/S3 access or a permissive bucket CORS policy.
 The worker moves queued versions to ready or rejected after validation.
+Administrators can remove terminal versions only when no course version or
+learner attempt references them. Removal is audited, and an outbox job clears
+the exact quarantine and learning-content prefixes with retry and DLQ support.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:
@@ -52,8 +55,9 @@ pnpm run verify:scorm-ingestion:local -- /path/to/module-1.zip /path/to/module-2
 
 Stop `pnpm worker:scorm` before running this exclusive local verifier. It checks
 bounded streaming ingestion, real outbox dispatch, SQS receipt, five-receive
-DLQ redrive, idempotent duplicate delivery, quarantine extraction and the launch object, then removes its exact
-database, object-storage and queue fixtures.
+DLQ redrive, idempotent duplicate delivery, quarantine extraction, guarded
+removal and object cleanup, then removes its exact database, object-storage and
+queue fixtures.
 
 ## Verification
 

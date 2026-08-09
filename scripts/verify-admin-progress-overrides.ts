@@ -24,6 +24,12 @@ const administrator: AuthenticatedUser = {
   email: "admin-progress@example.com",
   emailVerified: true,
 };
+const learner: AuthenticatedUser = {
+  id: ids.learner,
+  name: "Progress Override Learner",
+  email: "progress-override-learner@example.com",
+  emailVerified: true,
+};
 
 const database = new Kysely<Database>({
   dialect: new PostgresDialect({
@@ -93,9 +99,9 @@ try {
         stripeCustomerId: null,
       },
       {
-        id: ids.learner,
-        name: "Progress Override Learner",
-        email: "progress-override-learner@example.com",
+        id: learner.id,
+        name: learner.name,
+        email: learner.email,
         emailVerified: true,
         image: null,
         stripeCustomerId: null,
@@ -228,8 +234,11 @@ try {
     ])
     .execute();
 
-  const { applyAdminProgressOverride, findAdminEnrollmentDetail } =
-    await import("#/server/admin/admin-learner.server");
+  const {
+    applyAdminProgressOverride,
+    findAdminEnrollmentDetail,
+    findAdminLearnerProfile,
+  } = await import("#/server/admin/admin-learner.server");
   const initial = await findAdminEnrollmentDetail(ids.learner, ids.enrollment);
   assert.ok(initial);
   assert.equal(initial.enrollment.completionState, "incomplete");
@@ -252,7 +261,6 @@ try {
         scope: "module",
         modulePosition: 0,
         state: "incomplete",
-        reason: "Completion evidence was attached to the wrong learner.",
       },
       administrator,
     ),
@@ -265,7 +273,6 @@ try {
         scope: "module",
         modulePosition: 0,
         state: "incomplete",
-        reason: "This duplicate correction must not append another record.",
       },
       administrator,
     ),
@@ -278,7 +285,6 @@ try {
         scope: "module",
         modulePosition: 0,
         state: "completed",
-        reason: "The learner supplied verified completion evidence.",
       },
       administrator,
     ),
@@ -291,7 +297,6 @@ try {
         scope: "module",
         modulePosition: 1,
         state: "completed",
-        reason: "The facilitator confirmed this module was completed offline.",
       },
       administrator,
     ),
@@ -312,7 +317,6 @@ try {
         scope: "enrollment",
         modulePosition: null,
         state: "incomplete",
-        reason: "The final assessment requires a supervised resubmission.",
       },
       administrator,
     ),
@@ -325,7 +329,6 @@ try {
         scope: "enrollment",
         modulePosition: null,
         state: "completed",
-        reason: "The supervised resubmission was reviewed and accepted.",
       },
       administrator,
     ),
@@ -346,7 +349,7 @@ try {
     .orderBy("sequence")
     .execute();
   assert.equal(overrides.length, 5);
-  assert.ok(overrides.every((override) => override.reason.length >= 10));
+  assert.ok(overrides.every((override) => override.reason === null));
   const audits = await database
     .selectFrom("audit_event")
     .select(["action", "actorUserId", "reason"])
@@ -354,7 +357,7 @@ try {
     .where("action", "=", "learning.progress_overridden")
     .execute();
   assert.equal(audits.length, 5);
-  assert.ok(audits.every((audit) => audit.reason));
+  assert.ok(audits.every((audit) => audit.reason === null));
   const outbox = await database
     .selectFrom("outbox_event")
     .select("topic")
@@ -380,6 +383,26 @@ try {
   assert.equal(corrected.enrollment.completionSource, "administrator");
   assert.equal(corrected.modules[0]?.source, "administrator");
   assert.equal(corrected.overrideHistory.length, 5);
+  const correctedProfile = await findAdminLearnerProfile(ids.learner);
+  assert.ok(correctedProfile);
+  const correctedEnrollment = correctedProfile.enrollments[0];
+  assert.ok(correctedEnrollment);
+  assert.equal(correctedEnrollment.moduleCount, 2);
+  assert.equal(correctedEnrollment.completedModuleCount, 2);
+  const { findLearnerWorkspace } =
+    await import("#/server/learning/learner-workspace.server");
+  const learnerWorkspace = await findLearnerWorkspace(ids.enrollment, learner);
+  assert.equal(learnerWorkspace.status, "available");
+  assert.deepEqual(
+    learnerWorkspace.workspace.modules.map((module) => ({
+      position: module.position,
+      completionState: module.completionState,
+    })),
+    [
+      { position: 0, completionState: "completed" },
+      { position: 1, completionState: "completed" },
+    ],
+  );
 
   console.log(
     "Verified append-only administrator progress corrections, idempotency, projections, audit history and outbox events",

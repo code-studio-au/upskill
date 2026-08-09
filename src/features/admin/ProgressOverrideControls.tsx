@@ -1,5 +1,10 @@
-import { Button, Stack, Text, Textarea } from "@mantine/core";
-import { useState, type SyntheticEvent } from "react";
+import { Button, Stack, Text } from "@mantine/core";
+import { useState } from "react";
+import {
+  adminProgressOverrideInputSchema,
+  type AdminProgressOverrideInput,
+} from "#/features/admin/admin.schema";
+import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { overrideAdminProgress } from "#/server/functions/admin";
 
 interface ProgressOverrideControlsProps {
@@ -23,34 +28,60 @@ export function ProgressOverrideControls({
   currentState,
   onChanged,
 }: ProgressOverrideControlsProps) {
-  const [reason, setReason] = useState("");
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [confirmationOpen, setConfirmationOpen] = useState(false);
   const targetState = currentState === "completed" ? "incomplete" : "completed";
   const subject = scope === "module" ? "module" : "course";
 
-  async function submit(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
+  function input(): AdminProgressOverrideInput {
+    return adminProgressOverrideInputSchema.parse(
+      scope === "module"
+        ? {
+            enrollmentId,
+            scope,
+            modulePosition: requiredModulePosition(modulePosition),
+            state: targetState,
+          }
+        : {
+            enrollmentId,
+            scope,
+            modulePosition: null,
+            state: targetState,
+          },
+    );
+  }
+
+  function reviewCorrection(): void {
+    const validation = adminProgressOverrideInputSchema.safeParse(
+      scope === "module"
+        ? {
+            enrollmentId,
+            scope,
+            modulePosition,
+            state: targetState,
+          }
+        : {
+            enrollmentId,
+            scope,
+            modulePosition: null,
+            state: targetState,
+          },
+    );
+    if (!validation.success) {
+      setMessage("This learning record cannot be corrected.");
+      return;
+    }
+    setMessage(null);
+    setConfirmationOpen(true);
+  }
+
+  async function applyOverride(): Promise<void> {
     setPending(true);
     setMessage(null);
     try {
       const result = await overrideAdminProgress({
-        data:
-          scope === "module"
-            ? {
-                enrollmentId,
-                scope,
-                modulePosition: requiredModulePosition(modulePosition),
-                state: targetState,
-                reason,
-              }
-            : {
-                enrollmentId,
-                scope,
-                modulePosition: null,
-                state: targetState,
-                reason,
-              },
+        data: input(),
       });
       if (result.status === "unauthenticated") {
         window.location.assign(
@@ -66,7 +97,7 @@ export function ProgressOverrideControls({
         setMessage("This learning record is no longer available.");
         return;
       }
-      setReason("");
+      setConfirmationOpen(false);
       setMessage(
         result.data.outcome === "changed"
           ? `The ${subject} is now ${targetState}.`
@@ -81,27 +112,14 @@ export function ProgressOverrideControls({
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)}>
+    <>
       <Stack gap="sm">
-        <Textarea
-          label={`Reason for marking this ${subject} ${targetState}`}
-          description="Required for the permanent audit history (10–500 characters)."
-          value={reason}
-          onChange={(event) => {
-            setReason(event.currentTarget.value);
-          }}
-          minLength={10}
-          maxLength={500}
-          autosize
-          minRows={2}
-          required
-        />
         <Button
-          type="submit"
+          type="button"
           color={targetState === "incomplete" ? "orange" : "indigo"}
           variant="light"
-          loading={pending}
-          disabled={reason.trim().length < 10}
+          disabled={pending}
+          onClick={reviewCorrection}
         >
           Mark {subject} {targetState}
         </Button>
@@ -111,6 +129,21 @@ export function ProgressOverrideControls({
           </Text>
         ) : null}
       </Stack>
-    </form>
+      {confirmationOpen ? (
+        <ConfirmationDialog
+          title="Confirm progress correction"
+          description={`Mark this ${subject} ${targetState}? The administrator, time and state change will be retained in the audit history.`}
+          confirmColor={targetState === "incomplete" ? "orange" : "indigo"}
+          confirmLabel={`Mark ${subject} ${targetState}`}
+          pending={pending}
+          onCancel={() => {
+            setConfirmationOpen(false);
+          }}
+          onConfirm={() => {
+            void applyOverride();
+          }}
+        />
+      ) : null}
+    </>
   );
 }

@@ -29,8 +29,8 @@ fulfil orders without a matching webhook transaction.
 Platform administrators are assigned in a dedicated application table and are
 not inferred from Better Auth sessions or organisation roles. Administration
 read functions authorize the assignment before running global statistics,
-learner search or profile queries. Impersonation and manual progress changes
-will use separate, reason-required audited commands.
+learner search or profile queries. Impersonation and manual progress changes use
+separate audited commands with actor, timestamp and state-transition metadata.
 
 Bulk access codes are never stored in plaintext. An independent Secrets Manager
 HMAC key protects normalized code lookups, and grant capacity is serialized with

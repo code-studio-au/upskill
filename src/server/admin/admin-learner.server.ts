@@ -180,22 +180,10 @@ export async function findAdminLearnerProfile(
       "enrollment.courseVersionId",
     )
     .innerJoin("course", "course.id", "course_version.courseId")
-    .leftJoin(
-      "course_version_module",
-      "course_version_module.courseVersionId",
-      "course_version.id",
-    )
-    .leftJoin("scorm_attempt", (join) =>
-      join
-        .onRef("scorm_attempt.enrollmentId", "=", "enrollment.id")
-        .onRef(
-          "scorm_attempt.modulePosition",
-          "=",
-          "course_version_module.position",
-        ),
-    )
+    .leftJoin("scorm_attempt", "scorm_attempt.enrollmentId", "enrollment.id")
     .select([
       "enrollment.id",
+      "enrollment.courseVersionId",
       "enrollment.status",
       "enrollment.enrolledAt",
       "enrollment.completedAt",
@@ -204,12 +192,6 @@ export async function findAdminLearnerProfile(
       "course.slug as courseSlug",
       "course.title as courseTitle",
       "course_version.version as courseVersion",
-      sql<number>`count(distinct "course_version_module".position)::integer`.as(
-        "moduleCount",
-      ),
-      sql<number>`count(distinct "scorm_attempt"."modulePosition") filter (
-        where "scorm_attempt".status = 'completed'
-      )::integer`.as("completedModuleCount"),
       sql<Date | null>`max("scorm_attempt"."lastActivityAt")`.as(
         "lastActivityAt",
       ),
@@ -217,6 +199,7 @@ export async function findAdminLearnerProfile(
     .where("enrollment.userId", "=", userId)
     .groupBy([
       "enrollment.id",
+      "enrollment.courseVersionId",
       "enrollment.status",
       "enrollment.enrolledAt",
       "enrollment.completedAt",
@@ -228,6 +211,21 @@ export async function findAdminLearnerProfile(
     ])
     .orderBy("enrollment.enrolledAt", "desc")
     .execute();
+  const moduleCompletionByEnrollment = new Map(
+    await Promise.all(
+      rows.map(
+        async (row) =>
+          [
+            row.id,
+            await findEffectiveModuleCompletion(
+              database,
+              row.id,
+              row.courseVersionId,
+            ),
+          ] as const,
+      ),
+    ),
+  );
 
   return {
     learner: {
@@ -236,24 +234,29 @@ export async function findAdminLearnerProfile(
       email: learner.email,
       joinedAt: learner.createdAt.toISOString(),
     },
-    enrollments: rows.map((row) => ({
-      id: row.id,
-      courseSlug: row.courseSlug,
-      courseTitle: row.courseTitle,
-      courseVersion: row.courseVersion,
-      status: row.removedAt
-        ? "cancelled"
-        : row.expiresAt && row.expiresAt <= new Date()
-          ? "expired"
-          : row.status,
-      enrolledAt: row.enrolledAt.toISOString(),
-      completedAt: row.completedAt?.toISOString() ?? null,
-      expiresAt: row.expiresAt?.toISOString() ?? null,
-      removedAt: row.removedAt?.toISOString() ?? null,
-      moduleCount: row.moduleCount,
-      completedModuleCount: row.completedModuleCount,
-      lastActivityAt: row.lastActivityAt?.toISOString() ?? null,
-    })),
+    enrollments: rows.map((row) => {
+      const moduleCompletion = moduleCompletionByEnrollment.get(row.id) ?? [];
+      return {
+        id: row.id,
+        courseSlug: row.courseSlug,
+        courseTitle: row.courseTitle,
+        courseVersion: row.courseVersion,
+        status: row.removedAt
+          ? "cancelled"
+          : row.expiresAt && row.expiresAt <= new Date()
+            ? "expired"
+            : row.status,
+        enrolledAt: row.enrolledAt.toISOString(),
+        completedAt: row.completedAt?.toISOString() ?? null,
+        expiresAt: row.expiresAt?.toISOString() ?? null,
+        removedAt: row.removedAt?.toISOString() ?? null,
+        moduleCount: moduleCompletion.length,
+        completedModuleCount: moduleCompletion.filter(
+          (module) => module.state === "completed",
+        ).length,
+        lastActivityAt: row.lastActivityAt?.toISOString() ?? null,
+      };
+    }),
   };
 }
 
@@ -342,21 +345,6 @@ export async function findAdminEnrollmentDetail(
         .limit(50)
         .execute(),
     ]);
-  const actorIds = new Set(
-    moduleCompletion.flatMap((module) =>
-      module.override ? [module.override.actorUserId] : [],
-    ),
-  );
-  if (completionOverride) actorIds.add(completionOverride.actorUserId);
-  const actors =
-    actorIds.size === 0
-      ? []
-      : await database
-          .selectFrom("user")
-          .select(["id", "name"])
-          .where("id", "in", [...actorIds])
-          .execute();
-  const actorNames = new Map(actors.map((actor) => [actor.id, actor.name]));
   const attemptByPosition = new Map(
     attemptRows.map((attempt) => [attempt.modulePosition, attempt]),
   );
@@ -384,16 +372,6 @@ export async function findAdminEnrollmentDetail(
         ? adminDateTimeLabel(enrollment.completedAt)
         : null,
       expiresAt: enrollment.expiresAt?.toISOString() ?? null,
-      completionOverride: completionOverride
-        ? {
-            administratorName:
-              actorNames.get(completionOverride.actorUserId) ??
-              "Former administrator",
-            reason: completionOverride.reason,
-            createdAt: completionOverride.createdAt.toISOString(),
-            createdAtLabel: adminDateTimeLabel(completionOverride.createdAt),
-          }
-        : null,
     },
     modules: moduleCompletion.map((module) => {
       const definition = content.modules[module.position];
@@ -409,16 +387,6 @@ export async function findAdminEnrollmentDetail(
         latestActivityAt: attempt?.latestActivityAt?.toISOString() ?? null,
         latestActivityAtLabel: attempt?.latestActivityAt
           ? adminDateTimeLabel(attempt.latestActivityAt)
-          : null,
-        override: module.override
-          ? {
-              administratorName:
-                actorNames.get(module.override.actorUserId) ??
-                "Former administrator",
-              reason: module.override.reason,
-              createdAt: module.override.createdAt.toISOString(),
-              createdAtLabel: adminDateTimeLabel(module.override.createdAt),
-            }
           : null,
       };
     }),
@@ -492,7 +460,7 @@ export async function applyAdminProgressOverride(
           modulePosition: input.modulePosition,
           state: input.state,
           actorUserId: administrator.id,
-          reason: input.reason,
+          reason: null,
           createdAt: now,
         })
         .execute();
@@ -507,7 +475,7 @@ export async function applyAdminProgressOverride(
             input.scope === "module"
               ? `${enrollment.id}:${String(input.modulePosition)}`
               : enrollment.id,
-          reason: input.reason,
+          reason: null,
           metadata: {
             overrideId,
             enrollmentId: enrollment.id,

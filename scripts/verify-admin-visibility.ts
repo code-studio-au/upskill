@@ -16,6 +16,8 @@ const ids = {
   order: "verify_admin_visibility_order",
   package: "verify_admin_visibility_package",
   packageVersion: "verify_admin_visibility_package_version",
+  unusedPackage: "verify_admin_visibility_unused_package",
+  unusedPackageVersion: "verify_admin_visibility_unused_package_version",
   attempt: "verify_admin_visibility_attempt",
 };
 const administrator: AuthenticatedUser = {
@@ -39,6 +41,14 @@ const database = new Kysely<Database>({
 
 async function cleanup(): Promise<void> {
   await database
+    .deleteFrom("outbox_event")
+    .where("aggregateId", "=", ids.unusedPackageVersion)
+    .execute();
+  await database
+    .deleteFrom("audit_event")
+    .where("subjectId", "=", ids.unusedPackageVersion)
+    .execute();
+  await database
     .deleteFrom("scorm_attempt")
     .where("id", "=", ids.attempt)
     .execute();
@@ -53,11 +63,11 @@ async function cleanup(): Promise<void> {
   await database.deleteFrom("order").where("id", "=", ids.order).execute();
   await database
     .deleteFrom("scorm_package_version")
-    .where("id", "=", ids.packageVersion)
+    .where("id", "in", [ids.packageVersion, ids.unusedPackageVersion])
     .execute();
   await database
     .deleteFrom("scorm_package")
-    .where("id", "=", ids.package)
+    .where("id", "in", [ids.package, ids.unusedPackage])
     .execute();
   await database
     .deleteFrom("course_version")
@@ -170,6 +180,28 @@ try {
     })
     .execute();
   await database
+    .insertInto("scorm_package")
+    .values({ id: ids.unusedPackage, title: "Unused administration module" })
+    .execute();
+  await database
+    .insertInto("scorm_package_version")
+    .values({
+      id: ids.unusedPackageVersion,
+      packageId: ids.unusedPackage,
+      version: 1,
+      status: "ready",
+      standard: "scorm-1.2",
+      contentPrefix: `scorm/${ids.unusedPackageVersion}/${"1".repeat(64)}`,
+      launchPath: "index.html",
+      sha256: "1".repeat(64),
+      manifest: {},
+      sourceBytes: 456,
+      failureCode: null,
+      processedAt: new Date(),
+      publishedAt: new Date(),
+    })
+    .execute();
+  await database
     .insertInto("course_version_module")
     .values({
       courseVersionId: ids.version,
@@ -257,7 +289,7 @@ try {
   assert.ok(enrollment.lastActivityAt);
   assert.equal(await findAdminLearnerProfile(administrator.id), null);
 
-  const { findAdminScormPackages } =
+  const { findAdminScormPackages, removeAdminScormPackageVersion } =
     await import("#/server/admin/admin-scorm.server");
   const library = await findAdminScormPackages();
   const packageSummary = library.find((item) => item.id === ids.package);
@@ -269,9 +301,40 @@ try {
   assert.equal(packageVersion.status, "ready");
   assert.equal(packageVersion.sourceBytes, 1234);
   assert.equal(packageVersion.courseUsageCount, 1);
+  assert.equal(packageVersion.attemptCount, 1);
+  assert.deepEqual(
+    await removeAdminScormPackageVersion(ids.packageVersion, administrator.id),
+    {
+      status: "in-use",
+      data: { courseUsageCount: 1, attemptCount: 1 },
+    },
+  );
+  assert.deepEqual(
+    await removeAdminScormPackageVersion(
+      ids.unusedPackageVersion,
+      administrator.id,
+    ),
+    {
+      status: "removed",
+      data: { packageId: ids.unusedPackage, packageRemoved: true, version: 1 },
+    },
+  );
+  const removalAudit = await database
+    .selectFrom("audit_event")
+    .select(["action", "actorUserId"])
+    .where("subjectId", "=", ids.unusedPackageVersion)
+    .executeTakeFirstOrThrow();
+  assert.equal(removalAudit.action, "scorm.package_version_removed");
+  assert.equal(removalAudit.actorUserId, administrator.id);
+  const cleanupRequest = await database
+    .selectFrom("outbox_event")
+    .select("topic")
+    .where("aggregateId", "=", ids.unusedPackageVersion)
+    .executeTakeFirstOrThrow();
+  assert.equal(cleanupRequest.topic, "scorm.package_delete_requested");
 
   console.log(
-    "Verified platform-admin authorization, statistics, learner search, versioned progress profiles and SCORM library visibility",
+    "Verified platform-admin authorization, statistics, learner search, versioned progress profiles and guarded SCORM removal",
   );
 } finally {
   await cleanup();

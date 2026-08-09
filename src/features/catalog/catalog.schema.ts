@@ -1,18 +1,25 @@
-import { z } from "zod";
+import { z } from "#/validation/zod";
 
 const courseTopicSchema = z.enum(["leadership", "safety", "technology"]);
+const boundedText = (maximum: number) =>
+  z.string().check(z.trim(), z.minLength(1), z.maxLength(maximum));
+const moneySchema = z
+  .number()
+  .check(z.int(), z.nonnegative(), z.maximum(100_000_000));
 
 export const catalogSearchSchema = z.object({
-  q: z.string().trim().max(100).catch(""),
-  topic: z.union([z.literal("all"), courseTopicSchema]).catch("all"),
-  page: z.coerce.number().int().min(1).max(100).catch(1),
+  q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
+  topic: z.catch(z.union([z.literal("all"), courseTopicSchema]), "all"),
+  page: z.catch(
+    z.coerce.number().check(z.int(), z.minimum(1), z.maximum(100)),
+    1,
+  ),
 });
 
 export const courseSlugSchema = z.object({
   slug: z
     .string()
-    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-    .max(100),
+    .check(z.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/), z.maxLength(100)),
 });
 
 export type CatalogSearch = z.infer<typeof catalogSearchSchema>;
@@ -20,52 +27,60 @@ type CourseTopic = z.infer<typeof courseTopicSchema>;
 
 export const courseContentSchema = z
   .object({
-    title: z.string().trim().min(1).max(160),
-    summary: z.string().trim().min(1).max(320),
-    description: z.string().trim().min(1).max(10_000),
+    title: boundedText(160),
+    summary: boundedText(320),
+    description: boundedText(10_000),
     topic: courseTopicSchema,
-    durationMinutes: z.number().int().positive().max(100_000),
-    priceCents: z.number().int().nonnegative().max(100_000_000),
-    salePriceCents: z.number().int().nonnegative().max(100_000_000).nullable(),
+    durationMinutes: z
+      .number()
+      .check(z.int(), z.positive(), z.maximum(100_000)),
+    priceCents: moneySchema,
+    salePriceCents: z.nullable(moneySchema),
     currency: z.literal("AUD"),
     featured: z.boolean(),
     listInStore: z.boolean(),
     hasCompletionCertificate: z.boolean(),
-    prerequisites: z.array(z.string().trim().min(1).max(240)).max(20),
+    prerequisites: z.array(boundedText(240)).check(z.maxLength(20)),
     accreditations: z
       .array(
         z.object({
-          name: z.string().trim().min(1).max(160),
-          cpdPoints: z.number().nonnegative().max(10_000).nullable(),
+          name: boundedText(160),
+          cpdPoints: z.nullable(
+            z.number().check(z.nonnegative(), z.maximum(10_000)),
+          ),
         }),
       )
-      .max(20),
+      .check(z.maxLength(20)),
     modules: z
       .array(
         z.object({
-          title: z.string().trim().min(1).max(160),
+          title: boundedText(160),
           phase: z.enum([
             "pre-learning",
             "content",
             "post-learning",
             "followup",
           ]),
-          durationMinutes: z.number().int().positive().max(10_000),
+          durationMinutes: z
+            .number()
+            .check(z.int(), z.positive(), z.maximum(10_000)),
         }),
       )
-      .max(200),
+      .check(z.maxLength(200)),
   })
-  .superRefine((content, context) => {
-    if (
-      content.salePriceCents !== null &&
-      content.salePriceCents >= content.priceCents
-    )
-      context.addIssue({
-        code: "custom",
-        path: ["salePriceCents"],
-        message: "Sale price must be lower than the standard price",
-      });
-  });
+  .check(
+    z.superRefine((content, context) => {
+      if (
+        content.salePriceCents !== null &&
+        content.salePriceCents >= content.priceCents
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["salePriceCents"],
+          message: "Sale price must be lower than the standard price",
+        });
+    }),
+  );
 
 export type CourseContent = z.infer<typeof courseContentSchema>;
 

@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { z } from "zod";
+import { z } from "#/validation/zod.server";
 
 const envSchema = z.object({
   APP_ENV: z

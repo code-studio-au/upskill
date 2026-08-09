@@ -4,12 +4,14 @@ import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import type { LearnerWorkspaceResult } from "#/features/learning/learning.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
+import { findEffectiveModuleCompletion } from "#/server/learning/progress-overrides.server";
 
 export async function findLearnerWorkspace(
   enrollmentId: string,
   user: AuthenticatedUser,
 ): Promise<Exclude<LearnerWorkspaceResult, { status: "unauthenticated" }>> {
-  const row = await getDatabase()
+  const database = getDatabase();
+  const row = await database
     .selectFrom("enrollment")
     .innerJoin(
       "course_version",
@@ -19,6 +21,7 @@ export async function findLearnerWorkspace(
     .innerJoin("course", "course.id", "course_version.courseId")
     .select([
       "enrollment.id as enrollmentId",
+      "enrollment.courseVersionId",
       "enrollment.status",
       "enrollment.enrolledAt",
       "enrollment.expiresAt",
@@ -40,6 +43,14 @@ export async function findLearnerWorkspace(
   }
 
   const content = courseContentSchema.parse(row.content);
+  const moduleCompletion = await findEffectiveModuleCompletion(
+    database,
+    row.enrollmentId,
+    row.courseVersionId,
+  );
+  const completionByPosition = new Map(
+    moduleCompletion.map((module) => [module.position, module.state]),
+  );
   return {
     status: "available",
     workspace: {
@@ -55,6 +66,10 @@ export async function findLearnerWorkspace(
         title: module.title,
         phase: module.phase,
         durationMinutes: module.durationMinutes,
+        completionState:
+          completionByPosition.get(position) === "completed"
+            ? "completed"
+            : "incomplete",
       })),
     },
   };

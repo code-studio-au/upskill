@@ -1,11 +1,12 @@
 import { createFileRoute } from "@tanstack/react-router";
-import {
-  adminScormUploadQuerySchema,
-  SCORM_MAX_ARCHIVE_BYTES,
-} from "#/features/scorm/scorm-package.schema";
+import { SCORM_MAX_ARCHIVE_BYTES } from "#/features/scorm/scorm-package.schema";
 import { getAdministratorRequest } from "#/server/admin/admin-access.server";
 import { getServerEnv } from "#/server/env.server";
 import { ScormPackageValidationError } from "#/server/scorm/scorm-package-archive";
+import {
+  adminScormRemovalInputSchema,
+  adminScormUploadQuerySchema,
+} from "#/server/scorm/scorm-admin-contracts.server";
 import {
   ScormPackageNotFoundError,
   stageScormPackageStream,
@@ -20,6 +21,39 @@ function errorResponse(error: string, status: number): Response {
 export const Route = createFileRoute("/api/admin/scorm-packages")({
   server: {
     handlers: {
+      DELETE: async ({ request }) => {
+        if (
+          request.headers.get("origin") !==
+          new URL(getServerEnv().APP_ORIGIN).origin
+        )
+          return errorResponse("invalid_origin", 403);
+        const url = new URL(request.url);
+        const input = adminScormRemovalInputSchema.safeParse({
+          packageVersionId: url.searchParams.get("packageVersionId"),
+        });
+        if (!input.success) return errorResponse("invalid_removal", 400);
+        const administrator = await getAdministratorRequest();
+        if (administrator.status === "unauthenticated")
+          return errorResponse("unauthenticated", 401);
+        if (administrator.status === "forbidden")
+          return errorResponse("forbidden", 403);
+        const { removeAdminScormPackageVersion } =
+          await import("#/server/admin/admin-scorm.server");
+        const removal = await removeAdminScormPackageVersion(
+          input.data.packageVersionId,
+          administrator.user.id,
+        );
+        if (removal.status === "not-found")
+          return errorResponse("package_version_not_found", 404);
+        if (
+          removal.status === "in-use" ||
+          removal.status === "verification-pending"
+        )
+          return errorResponse("package_version_in_use", 409);
+        if (removal.status !== "removed")
+          return errorResponse("removal_failed", 500);
+        return new Response(null, { status: 204, headers: responseHeaders });
+      },
       POST: async ({ request }) => {
         if (
           request.headers.get("origin") !==

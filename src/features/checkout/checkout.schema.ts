@@ -1,14 +1,16 @@
-import { z } from "zod";
+import { z } from "#/validation/zod";
 import { courseSlugSchema } from "#/features/catalog/catalog.schema";
 
 export const checkoutCourseInputSchema = courseSlugSchema;
 
 const checkoutSessionIdSchema = z
   .string()
-  .trim()
-  .min(8)
-  .max(255)
-  .regex(/^cs_[A-Za-z0-9_]+$/);
+  .check(
+    z.trim(),
+    z.minLength(8),
+    z.maxLength(255),
+    z.regex(/^cs_[A-Za-z0-9_]+$/),
+  );
 
 export const checkoutSessionSearchSchema = z.object({
   session_id: checkoutSessionIdSchema,

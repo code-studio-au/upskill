@@ -38,8 +38,8 @@ entitlements. Route guards improve UX but never replace server-side checks.
 Platform administration is an explicit application-table assignment, separate
 from organisation membership. Aggregate statistics, validated learner search
 and immutable-version enrolment profiles are read boundaries. Manual module and
-course completion corrections use a separate audited command boundary with a
-mandatory reason and append-only history. Impersonation remains a later,
+course completion corrections use a separate audited command boundary with
+append-only actor, timestamp and state history. Impersonation remains a later,
 separately audited session capability and is not implied by either boundary.
 
 The application uses nonce-based script CSP with no script `unsafe-inline`.
@@ -52,7 +52,7 @@ generated style elements require the request nonce.
 Stable identities (`course`, `module`, `survey`, `event_template`) are separated
 from immutable published versions. Enrolments snapshot exact versions so later
 publishing cannot rewrite learner history. Administrative completion changes are
-append-only overrides with actor, reason and timestamp. Module overrides take
+append-only overrides with actor, timestamp and state. Module overrides take
 precedence over SCORM evidence without rewriting attempts; the latest explicit
 course override takes precedence over derived module completion. The enrolment
 completion projection and corresponding outbox event change in the same
@@ -95,6 +95,10 @@ calculates the source digest incrementally. The browser never receives object
 store credentials, and the buckets do not need browser CORS access. nginx keeps
 the normal 2 MB request limit and grants the larger unbuffered limit only to the
 exact upload route.
+Terminal package versions can be removed only while no course-version mapping
+or SCORM attempt references them. The database removal and audit event commit
+with an outbox cleanup request; the worker then idempotently clears only that
+version's quarantine and immutable-content prefixes.
 
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
 fulfilment, SCORM extraction, certificates, email and scheduled rules. The
@@ -125,4 +129,5 @@ content-addressed artifact.
   incremental route JavaScript/CSS gzip cost. Route budgets force feature code
   behind route boundaries before the root bundle becomes difficult to split.
 - Chromium, Firefox and WebKit critical-path smoke coverage.
-- Structured request, audit and deployment identity logging.
+- Database-backed append-only domain audit events. Centralized structured
+  operational, request and deployment identity logging remains planned.

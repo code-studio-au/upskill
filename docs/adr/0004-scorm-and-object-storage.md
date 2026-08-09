@@ -30,6 +30,12 @@ to a unique quarantine object and computes SHA-256 while streaming. Only after
 the object is complete does the database transaction register the version and
 outbox request. Failed registration removes that exact object. Direct browser
 uploads to S3 and broad object-store CORS are deliberately excluded.
+Removal is version-scoped and allowed only after validation is terminal and
+when neither course-version mappings nor SCORM attempts reference the version.
+The same transaction removes the database row and records both the administrator
+audit event and an outbox cleanup request. The worker idempotently deletes only
+the package-version quarantine and learning-content prefixes, so transient S3
+failures use the same visibility, retry and dead-letter behavior as ingestion.
 
 ## Consequences
 
@@ -40,6 +46,9 @@ The web process remains in the upload data path, so nginx and the application
 must preserve streaming and coordinated limits. This keeps authorization,
 auditing and cleanup atomic at the application boundary without buffering a
 full archive in memory.
+Unused versions can be reclaimed without weakening immutable course or learner
+history. Object cleanup is eventually consistent with the committed database
+removal and may remain queued briefly after the administrator confirms it.
 Course completion is derived transactionally when every mapped module has a
 completed attempt, producing one audit record and one outbox event even when the
 runtime repeats its final commit.

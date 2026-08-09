@@ -18,30 +18,27 @@ describe("admin learner inputs", () => {
     ).toThrow();
   });
 
-  it("normalizes audited course progress corrections", () => {
+  it("normalizes audited course progress corrections without a reason", () => {
     expect(
       adminProgressOverrideInputSchema.parse({
         enrollmentId: "enrollment_123",
         scope: "enrollment",
         state: "completed",
-        reason: "  Verified external completion evidence.  ",
       }),
     ).toEqual({
       enrollmentId: "enrollment_123",
       scope: "enrollment",
       modulePosition: null,
       state: "completed",
-      reason: "Verified external completion evidence.",
     });
   });
 
-  it("requires a mapped module position and meaningful reason", () => {
+  it("requires a mapped module position", () => {
     expect(
       adminProgressOverrideInputSchema.safeParse({
         enrollmentId: "enrollment_123",
         scope: "module",
         state: "incomplete",
-        reason: "too short",
       }).success,
     ).toBe(false);
   });
