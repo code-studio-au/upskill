@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { Client } from "pg";
 
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
@@ -209,14 +210,66 @@ test("platform administrators can inspect learner progress", async ({
   ).toBeVisible();
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
 
-  await page.getByRole("link", { name: "Modules" }).click();
-  await expect(
-    page.getByRole("heading", { name: "SCORM modules" }),
-  ).toBeVisible();
-  await expect(page.getByText("No modules uploaded")).toBeVisible();
-  await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
-  const accessibility = await new AxeBuilder({ page }).analyze();
-  expect(accessibility.violations).toEqual([]);
+  const database = new Client({ connectionString: process.env.DATABASE_URL });
+  const packageId = "e2e_scorm_autorefresh_package";
+  const packageVersionId = "e2e_scorm_autorefresh_version";
+  await database.connect();
+  try {
+    await database.query(`delete from scorm_package_version where id = $1`, [
+      packageVersionId,
+    ]);
+    await database.query(`delete from scorm_package where id = $1`, [
+      packageId,
+    ]);
+    await database.query(
+      `insert into scorm_package (id, title) values ($1, $2)`,
+      [packageId, "Automatic verification status"],
+    );
+    await database.query(
+      `insert into scorm_package_version
+        (id, "packageId", version, status, standard, "contentPrefix", "launchPath", sha256, manifest, "sourceBytes")
+       values ($1, $2, 1, 'processing', 'scorm-1.2', 'verify/e2e/autorefresh', 'pending.html', $3, '{}'::jsonb, 2048)`,
+      [packageVersionId, packageId, "1".repeat(64)],
+    );
+
+    await page.getByRole("link", { name: "Modules" }).click();
+    await expect(
+      page.getByRole("heading", { name: "SCORM modules" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Upload module package" }),
+    ).toBeVisible();
+    await expect(page.getByLabel("SCORM ZIP")).toBeVisible();
+    const moduleCard = page.getByRole("article").filter({
+      has: page.getByRole("heading", {
+        name: "Automatic verification status",
+      }),
+    });
+    await expect(moduleCard.getByText("Verifying")).toBeVisible();
+    await expect(moduleCard.getByTestId("verification-spinner")).toBeVisible();
+
+    await database.query(
+      `update scorm_package_version
+       set status = 'ready', "processedAt" = now(), "publishedAt" = now(), "launchPath" = 'index.html'
+       where id = $1`,
+      [packageVersionId],
+    );
+    await expect(moduleCard.getByText("Ready", { exact: true })).toBeVisible({
+      timeout: 5_000,
+    });
+    await expect(moduleCard.getByTestId("verification-spinner")).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const accessibility = await new AxeBuilder({ page }).analyze();
+    expect(accessibility.violations).toEqual([]);
+  } finally {
+    await database.query(`delete from scorm_package_version where id = $1`, [
+      packageVersionId,
+    ]);
+    await database.query(`delete from scorm_package where id = $1`, [
+      packageId,
+    ]);
+    await database.end();
+  }
 });
 
 test("verified learners see entitlements and can redeem access", async ({

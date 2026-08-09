@@ -10,7 +10,7 @@ import {
   Title,
 } from "@mantine/core";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
-import { useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useRef, useState, type SyntheticEvent } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import {
   adminScormUploadAcceptedSchema,
@@ -39,9 +39,9 @@ const statusDetails: Record<
   AdminScormPackageVersionSummary["status"],
   { color: string; label: string }
 > = {
-  quarantined: { color: "yellow", label: "Queued" },
-  processing: { color: "blue", label: "Processing" },
-  ready: { color: "green", label: "Ready" },
+  quarantined: { color: "indigo", label: "Verifying" },
+  processing: { color: "indigo", label: "Verifying" },
+  ready: { color: "teal", label: "Ready" },
   rejected: { color: "red", label: "Rejected" },
 };
 
@@ -68,6 +68,12 @@ function uploadErrorMessage(status: number, error: string): string {
   return "The module could not be uploaded. Nothing was added to the library.";
 }
 
+function isVerificationPending(
+  status: AdminScormPackageVersionSummary["status"],
+): boolean {
+  return status === "quarantined" || status === "processing";
+}
+
 export const Route = createFileRoute("/admin/modules")({
   ssr: false,
   loader: async () => {
@@ -92,8 +98,27 @@ function AdminModulesPage() {
   const [notice, setNotice] = useState<
     { color: "green" | "red"; message: string } | undefined
   >();
+  const packages = result.status === "ready" ? result.data : [];
+  const hasPendingVerification = packages.some((item) =>
+    item.versions.some((version) => isVerificationPending(version.status)),
+  );
+
+  useEffect(() => {
+    if (!hasPendingVerification) return;
+    let refreshing = false;
+    const timer = window.setInterval(() => {
+      if (refreshing) return;
+      refreshing = true;
+      void router.invalidate().finally(() => {
+        refreshing = false;
+      });
+    }, 1_000);
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [hasPendingVerification, router]);
+
   if (result.status === "forbidden") return <AdminAccessDenied />;
-  const packages = result.data;
 
   async function upload(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -271,7 +296,13 @@ function AdminModulesPage() {
           ) : (
             <div className={classes.moduleLibrary}>
               {packages.map((item) => (
-                <Paper withBorder radius="lg" p="lg" key={item.id}>
+                <Paper
+                  component="article"
+                  withBorder
+                  radius="lg"
+                  p="lg"
+                  key={item.id}
+                >
                   <Stack gap="md">
                     <div>
                       <Title order={3}>{item.title}</Title>
@@ -282,12 +313,28 @@ function AdminModulesPage() {
                     <ol className={classes.versionList}>
                       {item.versions.map((version) => {
                         const status = statusDetails[version.status];
+                        const verificationPending = isVerificationPending(
+                          version.status,
+                        );
                         return (
                           <li key={version.id} className={classes.versionItem}>
                             <div>
                               <Group gap="xs">
                                 <Text fw={700}>Version {version.version}</Text>
-                                <Badge color={status.color} variant="light">
+                                <Badge
+                                  color={status.color}
+                                  variant="outline"
+                                  aria-live="polite"
+                                  className={classes.statusBadge}
+                                  data-status={version.status}
+                                >
+                                  {verificationPending ? (
+                                    <span
+                                      className={classes.verifyingSpinner}
+                                      aria-hidden="true"
+                                      data-testid="verification-spinner"
+                                    />
+                                  ) : null}
                                   {status.label}
                                 </Badge>
                               </Group>
