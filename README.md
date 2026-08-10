@@ -28,8 +28,10 @@ exposes its S3 API on port 9020 and console on 9021, and initializes private
 quarantine, learning-content, resource and certificate buckets. ElasticMQ
 exposes its SQS-compatible API on port 9324 and web UI on 9325; its work queue,
 15-minute visibility timeout and five-receive DLQ policy match CDK. `pnpm dev`
-starts both Vite and the local SCORM worker so asynchronous uploads are processed.
-Use `pnpm dev:web` only when deliberately running the worker separately.
+starts Vite for the application on port 3000, the isolated learning origin on
+port 3001 and the local SCORM worker, so asynchronous uploads are processed and
+modules run inside the learner workspace. Use `pnpm dev:web` only when
+deliberately running the learning origin and worker separately.
 Server and worker events are bounded structured JSON. `UPSKILL_LOG_LEVEL` may
 be `info`, `warn`, `error` or `off` for operational events; committed audit
 projections are always emitted. EC2 sends both service streams to journald so a

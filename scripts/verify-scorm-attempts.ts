@@ -208,6 +208,7 @@ try {
     authorizeScormAttemptSession,
     createScormLaunch,
     exchangeScormLaunchToken,
+    findAuthorizedScormPlayer,
     recordScormProgress,
   } = await import("#/server/scorm/scorm-attempt.server");
   assert.deepEqual(await createScormLaunch(ids.enrollment, 0, anotherUser), {
@@ -236,6 +237,26 @@ try {
   assert.equal(
     await authorizeScormAttemptSession(exchange.attemptId, "x".repeat(43)),
     false,
+  );
+  assert.deepEqual(
+    await findAuthorizedScormPlayer(exchange.attemptId, exchange.sessionToken),
+    {
+      contentPrefix: "verified/package/v1",
+      launchPath: "index.html",
+      state: {
+        attemptId: exchange.attemptId,
+        entry: "ab-initio",
+        learnerId: user.id,
+        learnerName: user.name,
+        lessonStatus: "incomplete",
+        location: "",
+        scoreMax: null,
+        scoreMin: null,
+        scoreRaw: null,
+        suspendData: "",
+        totalTimeSeconds: 0,
+      },
+    },
   );
 
   const progress = {
@@ -283,6 +304,11 @@ try {
     location: "slide-4",
     totalTimeSeconds: 300,
   });
+  assert.equal(
+    (await findAuthorizedScormPlayer(exchange.attemptId, exchange.sessionToken))
+      ?.state.entry,
+    "resume",
+  );
   const enrollment = await database
     .selectFrom("enrollment")
     .select(["status", "completedAt"])
@@ -308,7 +334,7 @@ try {
   });
 
   console.log(
-    "Verified SCORM ownership, one-time launch exchange, attempt sessions, progress persistence and replay-safe course completion",
+    "Verified SCORM ownership, one-time launch exchange, authorized player state, progress persistence and replay-safe course completion",
   );
 } finally {
   await cleanup();

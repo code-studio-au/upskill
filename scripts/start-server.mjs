@@ -8,7 +8,13 @@ import { fileURLToPath } from "node:url";
 import application from "../dist/server/server.js";
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
-const origin = process.env.APP_ORIGIN ?? `http://127.0.0.1:${port}`;
+const applicationOrigin = new URL(
+  process.env.APP_ORIGIN ?? `http://127.0.0.1:${port}`,
+).origin;
+const learningOrigin = new URL(
+  process.env.LEARNING_ORIGIN ?? "http://127.0.0.1:3001",
+).origin;
+const allowedOrigins = [applicationOrigin, learningOrigin];
 const clientDirectory = path.resolve(
   fileURLToPath(new URL("../dist/client/", import.meta.url)),
 );
@@ -74,6 +80,20 @@ function logBootstrapEvent(level, type, fields = {}, error) {
 if (!Number.isInteger(port) || port < 1 || port > 65535)
   throw new Error("PORT must be a valid TCP port");
 
+function requestOrigin(incoming) {
+  const host = incoming.headers.host?.trim().toLowerCase();
+  if (!host) return applicationOrigin;
+  return (
+    allowedOrigins.find((configuredOrigin) => {
+      try {
+        return new URL(configuredOrigin).host.toLowerCase() === host;
+      } catch {
+        return false;
+      }
+    }) ?? applicationOrigin
+  );
+}
+
 async function serveClientAsset(incoming, outgoing) {
   const method = incoming.method ?? "GET";
   if (method !== "GET" && method !== "HEAD") return false;
@@ -81,7 +101,7 @@ async function serveClientAsset(incoming, outgoing) {
   let pathname;
   try {
     pathname = decodeURIComponent(
-      new URL(incoming.url ?? "/", origin).pathname,
+      new URL(incoming.url ?? "/", requestOrigin(incoming)).pathname,
     );
   } catch {
     return false;
@@ -128,7 +148,8 @@ const server = http.createServer(async (incoming, outgoing) => {
   const method = incoming.method ?? "GET";
   let requestPath = "/invalid-request-target";
   try {
-    requestPath = new URL(incoming.url ?? "/", origin).pathname;
+    requestPath = new URL(incoming.url ?? "/", requestOrigin(incoming))
+      .pathname;
   } catch {
     // The application will produce the bounded error response below.
   }
@@ -167,7 +188,7 @@ const server = http.createServer(async (incoming, outgoing) => {
     }
 
     const request = new Request(
-      new URL(incoming.url ?? "/", origin),
+      new URL(incoming.url ?? "/", requestOrigin(incoming)),
       requestInit,
     );
     const response = await application.fetch(request);

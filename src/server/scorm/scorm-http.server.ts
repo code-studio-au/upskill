@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { getServerEnv } from "#/server/env.server";
+import { applySecurityHeaders } from "#/server/http/security-headers";
 
 const DEVELOPMENT_COOKIE = "upskill_scorm_session";
 const SECURE_COOKIE = "__Host-upskill_scorm_session";
@@ -42,4 +43,13 @@ export function scormSessionCookie(token: string): string {
     "SameSite=Strict",
     ...(secure ? ["Secure"] : []),
   ].join("; ");
+}
+
+export function scormResponseHeaders(
+  request: Request,
+  initial?: HeadersInit,
+): Headers {
+  const headers = new Headers(initial);
+  applySecurityHeaders(headers, "scorm-learning-origin", request);
+  return headers;
 }

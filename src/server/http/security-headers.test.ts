@@ -39,14 +39,19 @@ describe("content security policy", () => {
     vi.unstubAllEnvs();
   });
 
-  it("allows only the application origin to frame learning responses", () => {
+  it("isolates the explicit SCORM compatibility policy to the learning origin", () => {
     const policy = buildLearningContentSecurityPolicy(
-      "learning-nonce",
       "https://app.example.test",
     );
-    expect(policy).toContain("frame-ancestors https://app.example.test");
-    expect(policy).toContain("script-src-attr 'none'");
-    expect(policy).not.toContain("unsafe-inline");
+    expect(policy).toContain("frame-ancestors 'self' https://app.example.test");
+    expect(policy).toContain("script-src-attr 'unsafe-inline'");
+    expect(policy).toContain("'unsafe-eval'");
+    expect(
+      buildContentSecurityPolicy(
+        "application-nonce",
+        "https://learn.example.test",
+      ),
+    ).not.toContain("unsafe-eval");
 
     vi.stubEnv("APP_ORIGIN", "https://app.example.test");
     vi.stubEnv("LEARNING_ORIGIN", "https://learn.example.test");
@@ -59,7 +64,7 @@ describe("content security policy", () => {
     expect(headers.has("x-frame-options")).toBe(false);
     expect(headers.get("referrer-policy")).toBe("no-referrer");
     expect(headers.get("content-security-policy")).toContain(
-      "frame-ancestors https://app.example.test",
+      "frame-ancestors 'self' https://app.example.test",
     );
     vi.unstubAllEnvs();
   });

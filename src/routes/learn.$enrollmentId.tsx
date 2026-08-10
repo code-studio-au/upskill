@@ -225,8 +225,8 @@ function ItemAction({
   enrollmentId: string;
 }) {
   const router = useRouter();
-  const [launching, setLaunching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [launchStatus, setLaunchStatus] = useState<0 | 1 | 2>(0);
+  const [launchUrl, setLaunchUrl] = useState<string | null>(null);
 
   if (item.kind === "resource" && item.resourceVersionId)
     return (
@@ -267,12 +267,9 @@ function ItemAction({
       <div className={classes.itemAction}>
         <Button
           size="xs"
-          loading={launching}
+          loading={launchStatus === 1}
           onClick={() => {
-            const learningWindow = window.open("", "_blank");
-            if (learningWindow) learningWindow.opener = null;
-            setLaunching(true);
-            setError(null);
+            setLaunchStatus(1);
             void fetch("/api/scorm/launches", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -283,29 +280,26 @@ function ItemAction({
             })
               .then(async (response) => {
                 const result = (await response.json()) as {
-                  status?: string;
                   launchUrl?: string;
                 };
-                if (!response.ok || !result.launchUrl)
-                  throw new Error("launch_failed");
-                if (learningWindow) learningWindow.location = result.launchUrl;
-                else window.open(result.launchUrl, "_blank", "noopener");
+                if (!response.ok || !result.launchUrl) throw Error();
+                setLaunchUrl(result.launchUrl);
+                setLaunchStatus(0);
               })
               .catch(() => {
-                learningWindow?.close();
-                setError("Could not launch");
-              })
-              .finally(() => {
-                setLaunching(false);
+                setLaunchStatus(2);
               });
           }}
         >
-          Launch
+          {launchStatus === 2 ? "Retry" : "Launch"}
         </Button>
-        {error ? (
-          <Text c="red" size="xs">
-            {error}
-          </Text>
+        {launchUrl ? (
+          <iframe
+            className={classes.playerFrame}
+            src={launchUrl}
+            title={item.title}
+            sandbox="allow-same-origin allow-scripts"
+          />
         ) : null}
       </div>
     );

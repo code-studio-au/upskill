@@ -149,6 +149,12 @@ function contentTypeFor(path: string): string {
       ".jpg": "image/jpeg",
       ".js": "text/javascript; charset=utf-8",
       ".json": "application/json; charset=utf-8",
+      ".m4a": "audio/mp4",
+      ".mp3": "audio/mpeg",
+      ".mp4": "video/mp4",
+      ".oga": "audio/ogg",
+      ".ogg": "audio/ogg",
+      ".ogv": "video/ogg",
       ".pdf": "application/pdf",
       ".png": "image/png",
       ".svg": "image/svg+xml",
@@ -157,6 +163,8 @@ function contentTypeFor(path: string): string {
       ".woff": "font/woff",
       ".woff2": "font/woff2",
       ".xml": "application/xml; charset=utf-8",
+      ".vtt": "text/vtt; charset=utf-8",
+      ".webm": "video/webm",
       ".zip": "application/zip",
     }[extension] ?? "application/octet-stream"
   );
