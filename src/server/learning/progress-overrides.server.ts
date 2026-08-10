@@ -22,7 +22,7 @@ export interface EffectiveModuleCompletion {
   override: ProgressOverrideRow | null;
 }
 
-export async function findLatestEnrollmentProgressOverride(
+async function findLatestEnrollmentProgressOverride(
   database: DatabaseExecutor,
   enrollmentId: string,
 ): Promise<ProgressOverrideRow | null> {
@@ -43,6 +43,23 @@ export async function findLatestEnrollmentProgressOverride(
       .limit(1)
       .executeTakeFirst()) ?? null
   );
+}
+
+export async function findEffectiveEnrollmentProgressOverride(
+  database: DatabaseExecutor,
+  enrollmentId: string,
+  completedAt: Date | null,
+): Promise<ProgressOverrideRow | null> {
+  const override = await findLatestEnrollmentProgressOverride(
+    database,
+    enrollmentId,
+  );
+  if (
+    override &&
+    (!completedAt || override.createdAt.getTime() >= completedAt.getTime())
+  )
+    return override;
+  return null;
 }
 
 export async function findEffectiveModuleCompletion(

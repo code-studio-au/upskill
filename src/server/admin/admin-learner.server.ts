@@ -17,8 +17,8 @@ import { enqueueAuditLogProjection } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import { isLearningComplete } from "#/server/learning/learning-completion.server";
 import {
+  findEffectiveEnrollmentProgressOverride,
   findEffectiveModuleCompletion,
-  findLatestEnrollmentProgressOverride,
 } from "#/server/learning/progress-overrides.server";
 
 const PAGE_SIZE = 20;
@@ -327,7 +327,11 @@ export async function findAdminEnrollmentDetail(
       enrollment.id,
       enrollment.courseVersionId,
     ),
-    findLatestEnrollmentProgressOverride(database, enrollment.id),
+    findEffectiveEnrollmentProgressOverride(
+      database,
+      enrollment.id,
+      enrollment.completedAt,
+    ),
     database
       .selectFrom("scorm_attempt")
       .select([
@@ -495,6 +499,7 @@ export async function applyAdminProgressOverride(
           "enrollment.userId",
           "enrollment.courseVersionId",
           "enrollment.status",
+          "enrollment.completedAt",
           "enrollment.removedAt",
         ])
         .where("enrollment.id", "=", input.enrollmentId)
@@ -516,9 +521,10 @@ export async function applyAdminProgressOverride(
         if (!module) return "not-found";
         previousState = module.state;
       } else {
-        const latest = await findLatestEnrollmentProgressOverride(
+        const latest = await findEffectiveEnrollmentProgressOverride(
           transaction,
           enrollment.id,
+          enrollment.completedAt,
         );
         previousState =
           latest?.state ??
@@ -562,9 +568,10 @@ export async function applyAdminProgressOverride(
       if (input.scope === "enrollment") {
         desiredCompletion = input.state;
       } else if (
-        !(await findLatestEnrollmentProgressOverride(
+        !(await findEffectiveEnrollmentProgressOverride(
           transaction,
           enrollment.id,
+          enrollment.completedAt,
         ))
       ) {
         desiredCompletion = (await isLearningComplete(
