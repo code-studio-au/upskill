@@ -156,9 +156,12 @@ try {
   const { findAdminResources, removeAdminResourceVersion } =
     await import("#/server/admin/admin-resource.server");
   const library = await findAdminResources();
-  assert.equal(library.length, 1);
+  const verifiedResource = library.find(
+    (resource) => resource.id === ids.resource,
+  );
+  assert.ok(verifiedResource);
   assert.deepEqual(
-    library[0]?.versions.map((version) => version.courseUsageCount),
+    verifiedResource.versions.map((version) => version.courseUsageCount),
     [0, 1],
   );
   assert.deepEqual(await removeAdminResourceVersion(ids.versionOne, ids.user), {

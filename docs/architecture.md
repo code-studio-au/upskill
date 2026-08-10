@@ -134,6 +134,15 @@ in a shared library. A version can be removed only when no draft or published
 course item references it; removal commits its durable audit event and exact-key
 cleanup request atomically, then the content worker deletes the private object.
 
+Completion certificates are immutable snapshots of an exact learner, course
+version and completion timestamp. Eligible completion transactions atomically
+create one pending snapshot and generation outbox event. The content worker
+renders the PDF into the private certificate bucket, marks it ready and records
+durable issuance evidence. Learner downloads are same-origin, authenticated and
+non-cacheable; ownership and the current matching completion timestamp are
+rechecked on every request, so an administrator completion revocation removes
+download eligibility while preserving historical evidence.
+
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
 fulfilment, SCORM extraction, certificates, email and scheduled rules. The
 dispatcher publishes versioned envelopes after the domain transaction commits;

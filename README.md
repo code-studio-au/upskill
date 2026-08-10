@@ -69,6 +69,12 @@ Private PDF resources are managed at `/admin/resources`. Uploads create stable
 resources or immutable new versions; unreferenced versions can be removed, with
 durable audit and retryable exact-object cleanup through the content worker.
 Referenced PDF versions link back to each exact course version that uses them.
+Courses configured with a completion certificate issue an immutable PDF
+snapshot when an enrolment completes. The local content worker generates the
+document in the private certificate bucket; the learner dashboard automatically
+changes from a preparing state to an authenticated download action. Revoking a
+completion removes access to that certificate, while a later recompletion
+issues a new snapshot.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:

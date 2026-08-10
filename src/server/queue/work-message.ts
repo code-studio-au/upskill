@@ -3,6 +3,7 @@ import { z } from "#/validation/zod.server";
 export const SCORM_INGESTION_TOPIC = "scorm.package_ingest_requested";
 export const SCORM_DELETION_TOPIC = "scorm.package_delete_requested";
 export const RESOURCE_DELETION_TOPIC = "resource.version_delete_requested";
+export const CERTIFICATE_GENERATION_TOPIC = "certificate.generate_requested";
 
 const packageVersionIdSchema = z
   .string()
@@ -95,12 +96,35 @@ const resourceDeletionWorkMessageSchema = z.object({
   payload: resourceDeletionPayloadSchema,
 });
 
+const certificateGenerationPayloadSchema = z
+  .object({
+    certificateId: packageVersionIdSchema,
+    objectKey: objectPathSchema,
+  })
+  .superRefine((payload, context) => {
+    if (payload.objectKey !== `certificates/${payload.certificateId}.pdf`)
+      context.addIssue({
+        code: "custom",
+        path: ["objectKey"],
+        message: "Object key must match the completion certificate",
+      });
+  });
+
+const certificateGenerationWorkMessageSchema = z.object({
+  version: z.literal(1),
+  eventId: z.string().min(1).max(200),
+  topic: z.literal(CERTIFICATE_GENERATION_TOPIC),
+  aggregateId: z.string().min(1).max(200),
+  payload: certificateGenerationPayloadSchema,
+});
+
 const scormWorkMessageSchema = z.discriminatedUnion("topic", [
   scormIngestionWorkMessageSchema,
   scormDeletionWorkMessageSchema,
 ]);
 
 const contentWorkMessageSchema = z.discriminatedUnion("topic", [
+  certificateGenerationWorkMessageSchema,
   scormIngestionWorkMessageSchema,
   scormDeletionWorkMessageSchema,
   resourceDeletionWorkMessageSchema,

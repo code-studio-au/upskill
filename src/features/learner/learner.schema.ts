@@ -10,6 +10,10 @@ export interface LearnerCourse {
   enrolledAt: string;
   completedAt: string | null;
   expiresAt: string | null;
+  certificate: {
+    id: string;
+    status: "pending" | "ready";
+  } | null;
 }
 
 export interface AvailableCourse {

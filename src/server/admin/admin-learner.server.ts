@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import { requestCompletionCertificate } from "#/server/certificate/completion-certificate.server";
 import type {
   AdminEnrollmentDetail,
   AdminLearnerDirectory,
@@ -579,7 +580,7 @@ export async function applyAdminProgressOverride(
         const currentlyCompleted = enrollment.status === "completed";
         const shouldComplete = desiredCompletion === "completed";
         if (currentlyCompleted !== shouldComplete) {
-          await transaction
+          const updatedEnrollment = await transaction
             .updateTable("enrollment")
             .set({
               status:
@@ -593,6 +594,7 @@ export async function applyAdminProgressOverride(
               completedAt: shouldComplete ? now : null,
             })
             .where("id", "=", enrollment.id)
+            .returning("status")
             .executeTakeFirstOrThrow();
           await transaction
             .insertInto("outbox_event")
@@ -614,6 +616,15 @@ export async function applyAdminProgressOverride(
               createdAt: now,
             })
             .execute();
+          if (shouldComplete && updatedEnrollment.status === "completed")
+            await requestCompletionCertificate(
+              transaction,
+              {
+                enrollmentId: enrollment.id,
+                courseVersionId: enrollment.courseVersionId,
+              },
+              now,
+            );
         }
       }
       return "changed";

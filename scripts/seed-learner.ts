@@ -2,6 +2,7 @@ import { hashPassword } from "better-auth/crypto";
 import { Kysely, PostgresDialect, type Transaction } from "kysely";
 import { Pool } from "pg";
 import { digestAccessCode } from "#/server/access/access-code.server";
+import { requestCompletionCertificate } from "#/server/certificate/completion-certificate.server";
 import type { Database } from "#/server/db/types";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -236,7 +237,7 @@ try {
       )
       .execute();
 
-    await transaction
+    const completedEnrollment = await transaction
       .insertInto("enrollment")
       .values({
         id: "enrollment_local_responsible_ai",
@@ -257,7 +258,16 @@ try {
           removedAt: null,
         }),
       )
-      .execute();
+      .returning("id")
+      .executeTakeFirstOrThrow();
+    await requestCompletionCertificate(
+      transaction,
+      {
+        enrollmentId: completedEnrollment.id,
+        courseVersionId: "course_version_responsible_ai_1",
+      },
+      new Date("2026-06-10T00:00:00.000Z"),
+    );
   });
 
   console.log(
