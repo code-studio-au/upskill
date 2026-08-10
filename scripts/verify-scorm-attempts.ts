@@ -76,6 +76,10 @@ async function cleanup(): Promise<void> {
       .where("enrollmentId", "=", ids.enrollment)
       .execute();
     await database
+      .deleteFrom("learning_progress_override")
+      .where("enrollmentId", "=", ids.enrollment)
+      .execute();
+    await database
       .deleteFrom("course_version_module")
       .where("courseVersionId", "=", ids.courseVersion)
       .execute();
@@ -324,6 +328,96 @@ try {
     .executeTakeFirstOrThrow();
   assert.equal(completionEvents.count, 1);
 
+  const reviewLaunch = await createScormLaunch(ids.enrollment, 0, user);
+  assert.equal(reviewLaunch.status, "ready");
+  const reviewToken = new URL(reviewLaunch.launchUrl).searchParams.get("token");
+  assert.ok(reviewToken);
+  const reviewExchange = await exchangeScormLaunchToken(reviewToken);
+  assert.ok(reviewExchange);
+  assert.equal(reviewExchange.attemptId, exchange.attemptId);
+  assert.deepEqual(
+    (
+      await findAuthorizedScormPlayer(
+        reviewExchange.attemptId,
+        reviewExchange.sessionToken,
+      )
+    )?.state,
+    {
+      attemptId: exchange.attemptId,
+      entry: "resume",
+      learnerId: user.id,
+      learnerName: user.name,
+      lessonStatus: "passed",
+      location: "slide-4",
+      scoreMax: 100,
+      scoreMin: 0,
+      scoreRaw: 75,
+      suspendData: "verified-state",
+      totalTimeSeconds: 300,
+    },
+  );
+  const attemptCount = await database
+    .selectFrom("scorm_attempt")
+    .select(sql<number>`count(*)::integer`.as("count"))
+    .where("enrollmentId", "=", ids.enrollment)
+    .where("modulePosition", "=", 0)
+    .executeTakeFirstOrThrow();
+  assert.equal(attemptCount.count, 1);
+
+  const { applyAdminProgressOverride } =
+    await import("#/server/admin/admin-learner.server");
+  const { findEffectiveModuleCompletion } =
+    await import("#/server/learning/progress-overrides.server");
+  assert.equal(
+    await applyAdminProgressOverride(
+      {
+        enrollmentId: ids.enrollment,
+        scope: "module",
+        modulePosition: 0,
+        state: "incomplete",
+      },
+      anotherUser,
+    ),
+    "changed",
+  );
+  const corrected = await findEffectiveModuleCompletion(
+    database,
+    ids.enrollment,
+    ids.courseVersion,
+  );
+  assert.equal(corrected[0]?.state, "incomplete");
+  assert.equal(corrected[0].source, "administrator");
+  assert.ok(corrected[0].override);
+  assert.equal(
+    await recordScormProgress(
+      reviewExchange.attemptId,
+      reviewExchange.sessionToken,
+      {
+        ...progress,
+        lessonStatus: "passed",
+        totalTimeSeconds: 300,
+      },
+    ),
+    "completed",
+  );
+  const reassessed = await findEffectiveModuleCompletion(
+    database,
+    ids.enrollment,
+    ids.courseVersion,
+  );
+  assert.equal(reassessed[0]?.state, "completed");
+  assert.equal(reassessed[0].source, "scorm");
+  assert.equal(
+    (
+      await database
+        .selectFrom("enrollment")
+        .select("status")
+        .where("id", "=", ids.enrollment)
+        .executeTakeFirstOrThrow()
+    ).status,
+    "completed",
+  );
+
   await database
     .updateTable("enrollment")
     .set({ removedAt: new Date() })
@@ -334,7 +428,7 @@ try {
   });
 
   console.log(
-    "Verified SCORM ownership, one-time launch exchange, authorized player state, progress persistence and replay-safe course completion",
+    "Verified SCORM ownership, one-time launch exchange, authorized player state, progress persistence, completed-attempt review, post-correction reassessment and replay-safe course completion",
   );
 } finally {
   await cleanup();

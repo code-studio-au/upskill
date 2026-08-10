@@ -80,7 +80,7 @@ export const SCORM_12_RUNTIME = `(() => {
     };
   }
 
-  function persist(useBeacon) {
+  function persist(useBeacon, finish) {
     if (!initialized) return;
     const body = JSON.stringify(progressPayload());
     if (useBeacon && navigator.sendBeacon) {
@@ -96,6 +96,7 @@ export const SCORM_12_RUNTIME = `(() => {
       body
     }).then((response) => {
       if (!response.ok) throw new Error("SCORM progress was not accepted");
+      if (finish) window.location.replace(base + "?view=progress-saved");
     })).catch(() => {
       lastError = "101";
     });
@@ -111,7 +112,7 @@ export const SCORM_12_RUNTIME = `(() => {
     LMSFinish(argument) {
       if (argument !== "") return fail("201");
       if (!initialized) return fail("301");
-      persist(true);
+      persist(false, true);
       initialized = false;
       finished = true;
       return succeed();
@@ -135,7 +136,7 @@ export const SCORM_12_RUNTIME = `(() => {
     LMSCommit(argument) {
       if (argument !== "") return fail("201");
       if (!initialized) return fail("301");
-      persist(false);
+      persist(false, false);
       return succeed();
     },
     LMSGetLastError() {
@@ -181,5 +182,5 @@ export const SCORM_12_RUNTIME = `(() => {
       status.setAttribute("role", "alert");
     });
 
-  window.addEventListener("pagehide", () => persist(true));
+  window.addEventListener("pagehide", () => persist(true, false));
 })();`;

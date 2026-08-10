@@ -14,6 +14,7 @@ import {
   scormResponseHeaders,
 } from "#/server/scorm/scorm-http.server";
 import {
+  buildScormProgressSavedShell,
   buildScormPlayerShell,
   SCORM_RUNTIME_STYLES,
 } from "#/server/scorm/scorm-player-shell";
@@ -71,6 +72,13 @@ export const Route = createFileRoute("/api/scorm/attempts/$attemptId")({
             { ...player.state, launchPath: player.launchPath },
             { headers: responseHeaders },
           );
+        if (requestUrl.searchParams.get("view") === "progress-saved")
+          return new Response(buildScormProgressSavedShell(), {
+            headers: {
+              ...Object.fromEntries(responseHeaders),
+              "Content-Type": "text/html; charset=utf-8",
+            },
+          });
         return new Response(buildScormPlayerShell(player), {
           headers: {
             ...Object.fromEntries(responseHeaders),

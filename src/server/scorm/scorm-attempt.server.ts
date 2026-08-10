@@ -64,7 +64,7 @@ export async function createScormLaunch(
         ])
         .where("enrollment.id", "=", enrollmentId)
         .where("enrollment.userId", "=", user.id)
-        .forUpdate()
+        .forUpdate("enrollment")
         .executeTakeFirst();
       if (!enrollment) return { status: "not-found" } as const;
       if (!accessAvailable(enrollment))
@@ -93,6 +93,15 @@ export async function createScormLaunch(
         return { status: "unavailable" } as const;
 
       let attempt = await transaction
+        .selectFrom("scorm_attempt")
+        .select(["id", "status"])
+        .where("enrollmentId", "=", enrollment.id)
+        .where("modulePosition", "=", modulePosition)
+        .where("status", "=", "completed")
+        .orderBy("attemptNumber", "desc")
+        .limit(1)
+        .executeTakeFirst();
+      attempt ??= await transaction
         .selectFrom("scorm_attempt")
         .select(["id", "status"])
         .where("enrollmentId", "=", enrollment.id)
@@ -211,7 +220,7 @@ export async function exchangeScormLaunchToken(
           "enrollment.removedAt",
         ])
         .where("scorm_launch_token.digest", "=", digestScormToken(token))
-        .forUpdate()
+        .forUpdate("scorm_launch_token")
         .executeTakeFirst();
       if (
         !launch ||
@@ -432,12 +441,13 @@ export async function recordScormProgress(
         .forUpdate()
         .executeTakeFirst();
       if (!session || !sessionIsAvailable(session)) return "unauthorized";
-      if (session.attemptStatus === "completed") return "completed";
-
-      const now = new Date();
       const completed =
         progress.lessonStatus === "completed" ||
         progress.lessonStatus === "passed";
+      if (session.attemptStatus === "completed" && !completed)
+        return "completed";
+
+      const now = new Date();
       await transaction
         .updateTable("scorm_attempt")
         .set({
@@ -450,7 +460,9 @@ export async function recordScormProgress(
           scoreMax: progress.scoreMax,
           totalTimeSeconds: progress.totalTimeSeconds,
           lastActivityAt: now,
-          completedAt: completed ? now : null,
+          completedAt: completed
+            ? sql<Date>`coalesce("completedAt", ${now})`
+            : null,
           updatedAt: now,
         })
         .where("id", "=", attemptId)

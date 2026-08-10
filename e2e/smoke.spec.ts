@@ -496,12 +496,14 @@ test("learners run SCORM inside the course workspace", async ({
       `${learningOrigin}/api/scorm/attempts/*/content/index.html`,
       async (route) => {
         await route.fulfill({
-          body: `<!doctype html><html><body><h1>Embedded SCO loaded</h1><script>
+          body: `<!doctype html><html><body><h1>Embedded SCO loaded</h1><button id="complete" type="button">Complete module</button><script>
             const api = window.parent.API;
             api.LMSInitialize("");
-            api.LMSSetValue("cmi.core.lesson_status", "completed");
-            api.LMSSetValue("cmi.core.lesson_location", "finished");
-            api.LMSCommit("");
+            document.getElementById("complete").addEventListener("click", () => {
+              api.LMSSetValue("cmi.core.lesson_status", "completed");
+              api.LMSSetValue("cmi.core.lesson_location", "finished");
+              api.LMSFinish("");
+            });
           </script></body></html>`,
           contentType: "text/html",
           headers: {
@@ -519,12 +521,31 @@ test("learners run SCORM inside the course workspace", async ({
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);
     await page.goto(`/learn/${ids.enrollment}`);
-    await page.getByRole("button", { name: "Launch" }).click();
+    const moduleCard = page.getByRole("listitem").filter({
+      has: page.getByText("E2E embedded module", { exact: true }),
+    });
+    await moduleCard.getByRole("button", { name: "Launch" }).click();
     const shell = page.frameLocator('iframe[title="E2E embedded module"]');
     const sco = shell.frameLocator("#scorm-content");
     await expect(
       sco.getByRole("heading", { name: "Embedded SCO loaded" }),
     ).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => Boolean(document.fullscreenElement)))
+      .toBe(true);
+    await page.getByRole("button", { name: "Click here to exit" }).click();
+    await expect
+      .poll(() => page.evaluate(() => Boolean(document.fullscreenElement)))
+      .toBe(false);
+    await expect(moduleCard.locator("iframe")).toHaveCount(0);
+    await moduleCard.getByRole("button", { name: "Launch" }).click();
+    await expect(
+      page
+        .frameLocator('iframe[title="E2E embedded module"]')
+        .frameLocator("#scorm-content")
+        .getByRole("heading", { name: "Embedded SCO loaded" }),
+    ).toBeVisible();
+    await sco.getByRole("button", { name: "Complete module" }).click();
     await expect(page).toHaveURL(`/learn/${ids.enrollment}`);
     await expect
       .poll(async () => {
@@ -535,6 +556,27 @@ test("learners run SCORM inside the course workspace", async ({
         return attempt.rows[0]?.status;
       })
       .toBe("completed");
+    await expect(shell.getByText("Module progress saved.")).toBeVisible();
+    await expect(
+      moduleCard.getByText("Completed", { exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    await moduleCard.getByRole("button", { name: "Launch" }).click();
+    await expect(
+      page
+        .frameLocator('iframe[title="E2E embedded module"]')
+        .frameLocator("#scorm-content")
+        .getByRole("heading", { name: "Embedded SCO loaded" }),
+    ).toBeVisible();
+    await expect
+      .poll(async () => {
+        const attempts = await database.query<{ count: number }>(
+          `select count(*)::integer as count from scorm_attempt where "enrollmentId" = $1 and "modulePosition" = 0`,
+          [ids.enrollment],
+        );
+        return attempts.rows[0]?.count;
+      })
+      .toBe(1);
   } finally {
     await cleanupLearnerScormPlayerFixture(database, ids);
     await database.end();
@@ -611,6 +653,21 @@ test("learner dashboard requires a server-validated session", async ({
   await expect(page).toHaveURL(
     /\/login\?redirect=%2Flearn%2Fenrollment_local_leading_change$/,
   );
+});
+
+test("learners can end their authenticated session", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel("Email address").fill("admin@example.com");
+  await page
+    .locator('input[name="password"]')
+    .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login\?redirect=%2Fdashboard$/);
 });
 
 test("platform administrators can inspect learner progress", async ({

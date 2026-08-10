@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import type { Database } from "#/server/db/types";
 
@@ -58,10 +58,13 @@ export async function findEffectiveModuleCompletion(
       .executeTakeFirstOrThrow(),
     database
       .selectFrom("scorm_attempt")
-      .select("modulePosition")
-      .distinct()
+      .select([
+        "modulePosition",
+        sql<Date | null>`max("lastActivityAt")`.as("lastActivityAt"),
+      ])
       .where("enrollmentId", "=", enrollmentId)
       .where("status", "=", "completed")
+      .groupBy("modulePosition")
       .execute(),
     database
       .selectFrom("learning_progress_override")
@@ -78,8 +81,11 @@ export async function findEffectiveModuleCompletion(
       .orderBy("sequence", "desc")
       .execute(),
   ]);
-  const completedPositions = new Set(
-    completedAttempts.map((attempt) => attempt.modulePosition),
+  const completedActivity = new Map(
+    completedAttempts.map((attempt) => [
+      attempt.modulePosition,
+      attempt.lastActivityAt,
+    ]),
   );
   const latestOverrides = new Map<number, ProgressOverrideRow>();
   for (const override of overrides) {
@@ -94,7 +100,11 @@ export async function findEffectiveModuleCompletion(
 
   return content.modules.map((_, position) => {
     const override = latestOverrides.get(position) ?? null;
-    if (override) {
+    const latestCompletion = completedActivity.get(position) ?? null;
+    if (
+      override &&
+      (!latestCompletion || override.createdAt > latestCompletion)
+    ) {
       return {
         position,
         state: override.state,
@@ -102,7 +112,7 @@ export async function findEffectiveModuleCompletion(
         override,
       };
     }
-    const completed = completedPositions.has(position);
+    const completed = latestCompletion !== null;
     return {
       position,
       state: completed ? "completed" : "incomplete",

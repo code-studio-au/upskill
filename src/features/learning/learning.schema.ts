@@ -60,8 +60,8 @@ interface LearnerWorkspace {
   courseTitle: string;
   courseSummary: string;
   completionStatus: "incomplete" | "completed";
-  enrolledAt: string;
-  expiresAt: string | null;
+  enrolledOn: string;
+  expiresOn: string | null;
   modules: Array<LearnerWorkspaceModule>;
   sections: Array<LearnerWorkspaceSection>;
 }
