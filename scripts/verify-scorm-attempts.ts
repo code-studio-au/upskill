@@ -418,6 +418,51 @@ try {
     "completed",
   );
 
+  assert.equal(
+    await applyAdminProgressOverride(
+      {
+        enrollmentId: ids.enrollment,
+        scope: "enrollment",
+        modulePosition: null,
+        state: "incomplete",
+      },
+      anotherUser,
+    ),
+    "changed",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("enrollment")
+        .select("status")
+        .where("id", "=", ids.enrollment)
+        .executeTakeFirstOrThrow()
+    ).status,
+    "active",
+  );
+  assert.equal(
+    await recordScormProgress(
+      reviewExchange.attemptId,
+      reviewExchange.sessionToken,
+      {
+        ...progress,
+        lessonStatus: "passed",
+        totalTimeSeconds: 300,
+      },
+    ),
+    "completed",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("enrollment")
+        .select("status")
+        .where("id", "=", ids.enrollment)
+        .executeTakeFirstOrThrow()
+    ).status,
+    "completed",
+  );
+
   await database
     .updateTable("enrollment")
     .set({ removedAt: new Date() })
@@ -428,7 +473,7 @@ try {
   });
 
   console.log(
-    "Verified SCORM ownership, one-time launch exchange, authorized player state, progress persistence, completed-attempt review, post-correction reassessment and replay-safe course completion",
+    "Verified SCORM ownership, one-time launch exchange, authorized player state, progress persistence, completed-attempt review, module and course post-correction reassessment, and replay-safe course completion",
   );
 } finally {
   await cleanup();

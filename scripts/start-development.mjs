@@ -24,6 +24,7 @@ const definitions = [
     script: "worker:scorm",
     command: process.execPath,
     arguments: [
+      "--watch",
       "--env-file-if-exists=.env.local",
       "--import",
       "tsx",
