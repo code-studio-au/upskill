@@ -2,12 +2,12 @@ import {
   Button,
   Container,
   Group,
-  NativeSelect,
   Stack,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import {
   createFileRoute,
   useNavigate,
@@ -70,7 +70,7 @@ function CourseCatalog() {
             defaultValue={search.q}
             maxLength={100}
           />
-          <NativeSelect
+          <MantineNativeSelect
             name="topic"
             label="Topic"
             defaultValue={search.topic}

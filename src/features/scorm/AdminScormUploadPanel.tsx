@@ -2,12 +2,12 @@ import {
   Alert,
   Button,
   Group,
-  NativeSelect,
   Paper,
   Stack,
   TextInput,
   Title,
 } from "@mantine/core";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { useState, type SyntheticEvent } from "react";
 import {
   adminScormUploadFormSchema,
@@ -132,7 +132,7 @@ export function AdminScormUploadPanel({
             Upload module package
           </Title>
           <div className={classes.uploadGrid}>
-            <NativeSelect
+            <MantineNativeSelect
               label="Upload as"
               value={effectivePackageId}
               onChange={(event) => {

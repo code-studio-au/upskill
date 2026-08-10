@@ -332,6 +332,7 @@ export type AuditEventAction =
   | "order.checkout_paid"
   | "order.paid_existing_enrollment"
   | "resource.uploaded"
+  | "resource.version_removed"
   | "scorm.attempt_launch_issued"
   | "scorm.package_ready"
   | "scorm.package_rejected"

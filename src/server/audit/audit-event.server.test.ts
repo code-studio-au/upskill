@@ -20,6 +20,7 @@ describe("audit event boundary", () => {
       "order.checkout_paid",
       "order.paid_existing_enrollment",
       "resource.uploaded",
+      "resource.version_removed",
       "scorm.package_uploaded",
       "scorm.package_version_removed",
       "survey.created",

@@ -100,6 +100,48 @@ async function cleanupSurveyAuthoringFixture(
   });
 }
 
+async function cleanupResourceFixture(
+  database: Client,
+  title: string,
+  knownVersionIds: Array<string>,
+): Promise<void> {
+  const resources = await database.query<{ id: string }>(
+    `select id from learning_resource where title = $1`,
+    [title],
+  );
+  const resourceIds = resources.rows.map((resource) => resource.id);
+  const versions = await database.query<{ id: string }>(
+    `select id from learning_resource_version where "resourceId" = any($1::text[])`,
+    [resourceIds],
+  );
+  const versionIds = [
+    ...new Set([
+      ...knownVersionIds,
+      ...versions.rows.map((version) => version.id),
+    ]),
+  ];
+  await withPgAuditMaintenance(database, async (transaction) => {
+    if (versionIds.length > 0) {
+      await transaction.query(
+        `delete from outbox_event where "aggregateId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from audit_event where "subjectId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from learning_resource_version where id = any($1::text[])`,
+        [versionIds],
+      );
+    }
+    await transaction.query(
+      `delete from learning_resource where id = any($1::text[])`,
+      [resourceIds],
+    );
+  });
+}
+
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
 }) => {
@@ -359,10 +401,16 @@ test("platform administrators can inspect learner progress", async ({
   });
   const authoringSlug = "e2e-editable-course-draft";
   const surveyTitles = ["E2E survey draft", "E2E edited survey"];
+  const resourceTitle = "E2E resource library PDF";
+  const resourceId = "e2e_resource_library";
+  const resourceVersionId = "e2e_resource_library_version";
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
+    await cleanupResourceFixture(authoringDatabase, resourceTitle, [
+      resourceVersionId,
+    ]);
     await page
       .getByRole("main")
       .getByRole("link", { name: "Courses", exact: true })
@@ -410,9 +458,53 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByText("Published versions are immutable"),
     ).toBeVisible();
+
+    await authoringDatabase.query(
+      `insert into learning_resource (id, title) values ($1, $2)`,
+      [resourceId, resourceTitle],
+    );
+    await authoringDatabase.query(
+      `insert into learning_resource_version
+        (id, "resourceId", version, "displayName", description, "objectKey", sha256, "sourceBytes", "mediaType")
+       values ($1, $2, 1, 'e2e-resource.pdf', 'E2E resource description', $3, $4, 128, 'application/pdf')`,
+      [
+        resourceVersionId,
+        resourceId,
+        `resources/${resourceVersionId}/${"4".repeat(64)}.pdf`,
+        "4".repeat(64),
+      ],
+    );
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Resources", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "PDF resources" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Upload resource" }).click();
+    await expect(page.getByText("Enter a resource title.")).toBeVisible();
+    await page.getByLabel("Resource title").fill("Missing document");
+    await page.getByRole("button", { name: "Upload resource" }).click();
+    await expect(page.getByText("Choose a PDF document.")).toBeVisible();
+    const resourceCard = page.getByRole("article").filter({
+      has: page.getByRole("heading", { name: resourceTitle }),
+    });
+    await expect(resourceCard.getByText("e2e-resource.pdf")).toBeVisible();
+    await resourceCard.getByRole("button", { name: "Remove version" }).click();
+    const resourceRemoval = page.getByRole("dialog", {
+      name: "Remove resource version?",
+    });
+    await expect(resourceRemoval).toBeVisible();
+    await resourceRemoval
+      .getByRole("button", { name: "Remove version" })
+      .click();
+    await expect(resourceCard).toHaveCount(0);
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
+    await cleanupResourceFixture(authoringDatabase, resourceTitle, [
+      resourceVersionId,
+    ]);
     await authoringDatabase.end();
   }
 

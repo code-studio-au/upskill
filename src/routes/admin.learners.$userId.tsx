@@ -1,13 +1,5 @@
-import {
-  Badge,
-  Button,
-  Group,
-  Paper,
-  Progress,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { MantineProgress } from "#/features/shared/MantineProgress";
 import {
   createFileRoute,
   Link,
@@ -113,7 +105,7 @@ function AdminLearnerProfilePage() {
                             {enrollment.moduleCount}
                           </Text>
                         </Group>
-                        <Progress
+                        <MantineProgress
                           value={progress}
                           aria-label={`${String(progress)}% complete`}
                         />

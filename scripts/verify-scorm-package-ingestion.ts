@@ -213,7 +213,7 @@ try {
     assert.notEqual(consumption.status, "retry");
     if (consumption.status !== "processed") continue;
     assert.equal(consumption.outcome.status, "ready");
-    processed.add(consumption.packageVersionId);
+    processed.add(consumption.aggregateId);
   }
 
   for (const item of staged) {

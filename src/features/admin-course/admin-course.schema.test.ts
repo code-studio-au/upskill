@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
+import { adminCourseDraftSchema } from "./admin-course.schema";
 import {
-  adminCourseDraftSchema,
+  adminResourceUploadFormSchema,
   adminResourceUploadQuerySchema,
-} from "./admin-course.schema";
+} from "#/features/resource/resource.schema";
 
 const validDraft = {
   courseId: "course_1",
@@ -90,5 +91,16 @@ describe("admin course authoring inputs", () => {
         displayName: "",
       }),
     ).toThrow();
+  });
+
+  it("returns an actionable message when no PDF is selected", () => {
+    const result = adminResourceUploadFormSchema.safeParse({
+      title: "Learner guide",
+      description: "",
+      document: null,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success)
+      expect(result.error.issues[0]?.message).toBe("Choose a PDF document.");
   });
 });

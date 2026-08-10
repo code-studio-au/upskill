@@ -8,15 +8,19 @@ import {
   receiveQueueMessage,
 } from "#/server/queue/sqs.server";
 import {
-  parseScormWorkMessage,
+  parseContentWorkMessage,
+  RESOURCE_DELETION_TOPIC,
   SCORM_DELETION_TOPIC,
-  type ScormWorkMessage,
+  type ContentWorkMessage,
 } from "#/server/queue/work-message";
 import {
   ingestScormPackageVersion,
   type ScormIngestionOutcome,
 } from "#/server/scorm/scorm-package-ingestion.server";
-import { deleteObjectPrefix } from "#/server/storage/object-storage.server";
+import {
+  deleteObject,
+  deleteObjectPrefix,
+} from "#/server/storage/object-storage.server";
 
 type ScormWorkOutcome = ScormIngestionOutcome | { status: "storage-removed" };
 
@@ -26,7 +30,7 @@ export type ScormConsumerOutcome =
       status: "processed";
       eventId: string;
       messageId: string;
-      packageVersionId: string;
+      aggregateId: string;
       receiveCount: number;
       outcome: ScormWorkOutcome;
     }
@@ -37,9 +41,20 @@ export type ScormConsumerOutcome =
       error: string;
     };
 
-async function handleScormWorkMessage(
-  message: ScormWorkMessage,
+export async function handleContentWorkMessage(
+  message: ContentWorkMessage,
 ): Promise<ScormWorkOutcome> {
+  if (message.topic === RESOURCE_DELETION_TOPIC) {
+    if (message.aggregateId !== message.payload.resourceVersionId)
+      throw new Error(
+        "Work message aggregate and resource version do not match",
+      );
+    await deleteObject(
+      getServerEnv().S3_PRIVATE_RESOURCES_BUCKET,
+      message.payload.objectKey,
+    );
+    return { status: "storage-removed" };
+  }
   if (message.aggregateId !== message.payload.packageVersionId)
     throw new Error("Work message aggregate and package version do not match");
   if (message.topic === SCORM_DELETION_TOPIC) {
@@ -72,7 +87,7 @@ export async function consumeNextScormMessage(
   const env = getServerEnv();
   let heartbeat: NodeJS.Timeout | undefined;
   try {
-    const message = parseScormWorkMessage(received.body);
+    const message = parseContentWorkMessage(received.body);
     const heartbeatSeconds = Math.max(
       10,
       Math.floor(env.SQS_VISIBILITY_TIMEOUT_SECONDS / 3),
@@ -91,13 +106,13 @@ export async function consumeNextScormMessage(
       });
     }, heartbeatSeconds * 1_000);
     heartbeat.unref();
-    const outcome = await handleScormWorkMessage(message);
+    const outcome = await handleContentWorkMessage(message);
     await deleteQueueMessage(received.receiptHandle);
     return {
       status: "processed",
       eventId: message.eventId,
       messageId: received.messageId,
-      packageVersionId: message.payload.packageVersionId,
+      aggregateId: message.aggregateId,
       receiveCount: received.receiveCount,
       outcome,
     };

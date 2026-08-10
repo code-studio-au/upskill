@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
 import {
   adminResourceUploadQuerySchema,
+  adminResourceRemovalInputSchema,
   PDF_RESOURCE_MAX_BYTES,
-} from "#/features/admin-course/admin-course.schema";
+} from "#/features/resource/resource.schema";
 import { getAdministratorRequest } from "#/server/admin/admin-access.server";
 import {
   PdfResourceValidationError,
@@ -20,6 +21,34 @@ function errorResponse(error: string, status: number): Response {
 export const Route = createFileRoute("/api/admin/resources")({
   server: {
     handlers: {
+      DELETE: async ({ request }) => {
+        if (
+          request.headers.get("origin") !==
+          new URL(getServerEnv().APP_ORIGIN).origin
+        )
+          return errorResponse("invalid_origin", 403);
+        const url = new URL(request.url);
+        const input = adminResourceRemovalInputSchema.safeParse({
+          resourceVersionId: url.searchParams.get("resourceVersionId"),
+        });
+        if (!input.success) return errorResponse("invalid_removal", 400);
+        const administrator = await getAdministratorRequest();
+        if (administrator.status === "unauthenticated")
+          return errorResponse("unauthenticated", 401);
+        if (administrator.status === "forbidden")
+          return errorResponse("forbidden", 403);
+        const { removeAdminResourceVersion } =
+          await import("#/server/admin/admin-resource.server");
+        const removal = await removeAdminResourceVersion(
+          input.data.resourceVersionId,
+          administrator.user.id,
+        );
+        if (removal.status === "not-found")
+          return errorResponse("resource_version_not_found", 404);
+        if (removal.status === "in-use")
+          return errorResponse("resource_version_in_use", 409);
+        return new Response(null, { status: 204, headers: responseHeaders });
+      },
       POST: async ({ request }) => {
         if (
           request.headers.get("origin") !==

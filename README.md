@@ -58,6 +58,9 @@ commerce history. The learner workspace shows derived item and section progress.
 Survey authoring is available at `/admin/surveys`; published question sets are
 immutable, and entitled learners submit exact-version responses that contribute
 to section and course completion.
+Private PDF resources are managed at `/admin/resources`. Uploads create stable
+resources or immutable new versions; unreferenced versions can be removed, with
+durable audit and retryable exact-object cleanup through the content worker.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:

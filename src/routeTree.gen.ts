@@ -15,6 +15,7 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminModulesRouteImport } from './routes/admin.modules'
+import { Route as AdminResourcesRouteImport } from './routes/admin.resources'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as CheckoutSuccessRouteImport } from './routes/checkout.success'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
@@ -65,6 +66,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const AdminModulesRoute = AdminModulesRouteImport.update({
   id: '/modules',
   path: '/modules',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminResourcesRoute = AdminResourcesRouteImport.update({
+  id: '/resources',
+  path: '/resources',
   getParentRoute: () => AdminRoute,
 } as any)
 const ApiHealthRoute = ApiHealthRouteImport.update({
@@ -183,6 +189,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
@@ -211,6 +218,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
@@ -241,6 +249,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
@@ -272,6 +281,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/admin/modules'
+    | '/admin/resources'
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
@@ -300,6 +310,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/admin/modules'
+    | '/admin/resources'
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
@@ -329,6 +340,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/admin/modules'
+    | '/admin/resources'
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
@@ -416,6 +428,13 @@ declare module '@tanstack/react-router' {
       path: '/modules'
       fullPath: '/admin/modules'
       preLoaderRoute: typeof AdminModulesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/resources': {
+      id: '/admin/resources'
+      path: '/resources'
+      fullPath: '/admin/resources'
+      preLoaderRoute: typeof AdminResourcesRouteImport
       parentRoute: typeof AdminRoute
     }
     '/api/health': {
@@ -570,6 +589,7 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteChildren {
   AdminModulesRoute: typeof AdminModulesRoute
+  AdminResourcesRoute: typeof AdminResourcesRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
   AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
@@ -582,6 +602,7 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminModulesRoute: AdminModulesRoute,
+  AdminResourcesRoute: AdminResourcesRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
   AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,

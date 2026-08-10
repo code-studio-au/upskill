@@ -3,13 +3,13 @@ import {
   Button,
   Container,
   Group,
-  NativeSelect,
   Paper,
   Stack,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import {
   createFileRoute,
   Link,
@@ -143,7 +143,7 @@ function LearnerSurveyPage() {
                     {question.required ? " *" : ""}
                   </Text>
                   {question.kind === "single_choice" ? (
-                    <NativeSelect
+                    <MantineNativeSelect
                       aria-label={question.prompt}
                       value={
                         typeof answers[question.id] === "string"

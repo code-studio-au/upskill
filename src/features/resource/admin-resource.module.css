@@ -1,0 +1,46 @@
+.uploadGrid,
+.library {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.uploadGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.library {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.versionList {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.versionItem {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  padding-top: var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.versionItem:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+@media (max-width: 48em) {
+  .uploadGrid,
+  .library {
+    grid-template-columns: 1fr;
+  }
+
+  .versionItem {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

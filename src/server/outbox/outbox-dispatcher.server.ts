@@ -7,7 +7,8 @@ import {
 import { getDatabase } from "#/server/db/database.server";
 import { logAuditEvent } from "#/server/logging/server-logger";
 import {
-  parseScormWorkMessage,
+  parseContentWorkMessage,
+  RESOURCE_DELETION_TOPIC,
   SCORM_DELETION_TOPIC,
   SCORM_INGESTION_TOPIC,
 } from "#/server/queue/work-message";
@@ -40,6 +41,7 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
       .select(["id", "topic", "aggregateId", "payload", "attempts"])
       .where("topic", "in", [
         AUDIT_LOG_TOPIC,
+        RESOURCE_DELETION_TOPIC,
         SCORM_INGESTION_TOPIC,
         SCORM_DELETION_TOPIC,
       ])
@@ -90,7 +92,7 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
         .execute();
       return { status: "logged", eventId: projection.eventId };
     }
-    const message = parseScormWorkMessage(
+    const message = parseContentWorkMessage(
       JSON.stringify({
         version: 1,
         eventId: claimed.id,
@@ -99,10 +101,12 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
         payload: claimed.payload,
       }),
     );
-    if (message.payload.packageVersionId !== claimed.aggregateId)
-      throw new Error(
-        "Outbox aggregate and SCORM package version do not match",
-      );
+    const subjectId =
+      message.topic === RESOURCE_DELETION_TOPIC
+        ? message.payload.resourceVersionId
+        : message.payload.packageVersionId;
+    if (subjectId !== claimed.aggregateId)
+      throw new Error("Outbox aggregate and work subject do not match");
     const messageId = await sendQueueMessage(JSON.stringify(message));
     await database
       .updateTable("outbox_event")

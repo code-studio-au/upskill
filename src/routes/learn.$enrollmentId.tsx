@@ -3,11 +3,11 @@ import {
   Button,
   Container,
   Paper,
-  Progress,
   Stack,
   Text,
   Title,
 } from "@mantine/core";
+import { MantineProgress } from "#/features/shared/MantineProgress";
 import {
   createFileRoute,
   Link,
@@ -168,7 +168,7 @@ function LearnerWorkspacePage() {
                           : `${String(section.completedItems)} of ${String(section.totalItems)}`}
                       </Badge>
                     </div>
-                    <Progress
+                    <MantineProgress
                       value={progress}
                       color={
                         section.completionState === "completed"

@@ -4,23 +4,25 @@ import {
   Button,
   Card,
   Group,
-  NativeSelect,
   Paper,
   Stack,
   Text,
   TextInput,
   Title,
 } from "@mantine/core";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
   adminCourseDraftSchema,
-  adminResourceUploadFormSchema,
   type AdminCourseDetail,
   type AdminCourseDraft,
   type AdminCourseItem,
-  type AdminCourseResourceOption,
 } from "./admin-course.schema";
+import {
+  adminResourceUploadFormSchema,
+  type AdminCourseResourceOption,
+} from "#/features/resource/resource.schema";
 import {
   archiveAdminCourse,
   createAdminCourseVersion,
@@ -347,7 +349,7 @@ export function AdminCourseEditor({
             required
           />
           <div className={classes.threeColumns}>
-            <NativeSelect
+            <MantineNativeSelect
               label="Topic"
               value={draft.topic}
               disabled={!editable}
@@ -695,7 +697,7 @@ export function AdminCourseEditor({
           title="Add course item"
         >
           <Stack gap="md">
-            <NativeSelect
+            <MantineNativeSelect
               label="Item type"
               value={itemKind}
               data={[
@@ -708,7 +710,7 @@ export function AdminCourseEditor({
                 setItemReference(null);
               }}
             />
-            <NativeSelect
+            <MantineNativeSelect
               label="Content"
               data={[
                 {

@@ -120,7 +120,10 @@ validates declared size, media type and PDF signature; it never receives S3
 credentials. Learner downloads recheck the authenticated enrolment and exact
 course-version item before returning private, non-cacheable bytes. A successful
 resource read records item completion and therefore participates in derived
-section progress.
+section progress. Administrators manage stable resources and immutable versions
+in a shared library. A version can be removed only when no draft or published
+course item references it; removal commits its durable audit event and exact-key
+cleanup request atomically, then the content worker deletes the private object.
 
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
 fulfilment, SCORM extraction, certificates, email and scheduled rules. The

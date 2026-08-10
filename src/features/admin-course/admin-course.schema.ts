@@ -1,4 +1,5 @@
 import { z } from "#/validation/zod";
+import type { AdminCourseResourceOption } from "#/features/resource/resource.schema";
 
 const identifierSchema = z
   .string()
@@ -18,8 +19,6 @@ const moneySchema = z
 const durationSchema = z
   .number()
   .check(z.int(), z.positive(), z.maximum(100_000));
-
-export const PDF_RESOURCE_MAX_BYTES = 25 * 1024 * 1024;
 
 export const adminCourseParamsSchema = z.object({
   courseId: identifierSchema,
@@ -133,36 +132,9 @@ export const adminCourseDraftSchema = z
     }),
   );
 
-export const adminResourceUploadQuerySchema = z.object({
-  title: boundedText(200),
-  description: optionalText(2_000),
-  displayName: boundedText(255),
-  resourceId: z.optional(identifierSchema),
-});
-
-export const adminResourceUploadFormSchema = z.object({
-  title: boundedText(200),
-  description: optionalText(2_000),
-  document: z.instanceof(File).check(
-    z.refine(
-      (file) =>
-        file.type === "application/pdf" ||
-        file.name.toLocaleLowerCase("en-AU").endsWith(".pdf"),
-      { message: "Choose a PDF document." },
-    ),
-    z.refine((file) => file.size > 0, { message: "Choose a PDF document." }),
-    z.refine((file) => file.size <= PDF_RESOURCE_MAX_BYTES, {
-      message: "The PDF must be 25 MB or smaller.",
-    }),
-  ),
-});
-
 export type AdminCourseCreateInput = z.infer<typeof adminCourseCreateSchema>;
 export type AdminCourseDraft = z.infer<typeof adminCourseDraftSchema>;
 export type AdminCourseItem = z.infer<typeof adminCourseItemSchema>;
-export type AdminResourceUploadQuery = z.infer<
-  typeof adminResourceUploadQuerySchema
->;
 
 export interface AdminCourseSummary {
   id: string;
@@ -181,16 +153,6 @@ interface AdminCourseModuleOption {
   packageId: string;
   title: string;
   version: number;
-}
-
-export interface AdminCourseResourceOption {
-  id: string;
-  resourceId: string;
-  title: string;
-  displayName: string;
-  description: string;
-  version: number;
-  sourceBytes: number;
 }
 
 interface AdminCourseSurveyOption {
