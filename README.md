@@ -56,7 +56,10 @@ course versions that reference it.
 Course authoring is available at `/admin/courses`. Drafts contain reorderable
 sections with exact SCORM, published-survey and private PDF resource versions.
 Each course page also shows its newest learner enrolments across exact versions,
-with effective access state and direct progress-review links.
+with effective access state and direct progress-review links. Administrators can
+grant an existing learner access to a selected published version or soft-remove
+access without deleting progress. Re-adding removed or expired access restores
+the retained exact-version history.
 Published versions are immutable, so structural changes require an explicit new
 version and never rewrite existing enrolments. Courses can be archived; an
 archived course can be permanently deleted only when it has no enrolment or

@@ -732,10 +732,20 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Learner roster" }),
     ).toBeVisible();
+    await expect(page.getByLabel("Learner email")).toBeVisible();
+    await expect(
+      page.getByRole("combobox", { name: /^Published version/u }),
+    ).toHaveValue("course_version_leading_through_change_1");
+    await expect(
+      page.getByRole("button", { name: "Add learner" }),
+    ).toBeVisible();
     await expect(page.getByText("learner@example.com")).toBeVisible();
     await expect(page.getByText(/Version 1 · Enrolled/)).toBeVisible();
     await expect(
       page.getByRole("link", { name: "Review learner progress" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Remove access" }),
     ).toBeVisible();
     await page.goto("/admin/courses");
     await page.getByRole("button", { name: "Create course" }).click();

@@ -30,6 +30,12 @@ caps moved by 3 KB and 1 KB respectively. Root preload, largest-asset and
 per-route incremental limits remain unchanged; dependency changes and features
 must continue to satisfy those structural boundaries.
 
+The roster's later administrator enrolment controls remain behind a dedicated
+lazy component boundary. They reduced the parent course route while adding a
+2.37 KB gzip conditional chunk; the complete all-route build grew by 5,609
+bytes of JavaScript and 706 bytes of CSS. Total caps therefore ratchet by 6 KB
+and 1 KB. Root preload, largest-asset and per-route caps remain unchanged.
+
 ## Consequences
 
 Validation, dirty/touched state and loading behavior now have one consistent

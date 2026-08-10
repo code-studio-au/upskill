@@ -29,6 +29,26 @@ export const adminCourseVersionParamsSchema = z.object({
   versionId: identifierSchema,
 });
 
+export const adminCourseEnrollmentCreateSchema = z.object({
+  courseId: identifierSchema,
+  courseVersionId: identifierSchema,
+  learnerEmail: z.pipe(
+    z
+      .string()
+      .check(
+        z.trim(),
+        z.minLength(1, "Enter the learner's email address."),
+        z.maxLength(320),
+      ),
+    z.email("Enter a valid learner email address."),
+  ),
+});
+
+export const adminCourseEnrollmentRemoveSchema = z.object({
+  courseId: identifierSchema,
+  enrollmentId: identifierSchema,
+});
+
 export const adminCourseCreateSchema = z.object({
   title: boundedText(160),
   slug: z
@@ -134,6 +154,12 @@ export const adminCourseDraftSchema = z
 
 export type AdminCourseCreateInput = z.infer<typeof adminCourseCreateSchema>;
 export type AdminCourseDraft = z.infer<typeof adminCourseDraftSchema>;
+export type AdminCourseEnrollmentCreateInput = z.infer<
+  typeof adminCourseEnrollmentCreateSchema
+>;
+export type AdminCourseEnrollmentRemoveInput = z.infer<
+  typeof adminCourseEnrollmentRemoveSchema
+>;
 export type AdminCourseItem = z.infer<typeof adminCourseItemSchema>;
 
 export interface AdminCourseSummary {
@@ -225,3 +251,14 @@ export type AdminCourseMutationResult =
     }>
   | { status: "not-found" }
   | { status: "conflict"; reason: string };
+
+export type AdminCourseEnrollmentMutationResult =
+  | AdminCourseResult<{
+      outcome: "enrolled" | "restored" | "removed" | "unchanged";
+      enrollmentId: string;
+    }>
+  | {
+      status: "not-found";
+      entity: "course-version" | "learner" | "enrollment";
+    }
+  | { status: "conflict"; reason: "already-enrolled" };

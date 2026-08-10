@@ -44,6 +44,10 @@ separately audited session capability and is not implied by either boundary.
 Course administration exposes a bounded, newest-first learner roster across all
 immutable versions, with effective active, completed, expired and removed state
 and links back to the existing enrolment-scoped progress boundary.
+Administrators can grant an existing learner access to an exact published
+version and soft-remove that access. Re-adding a removed or expired exact-version
+enrolment restores its retained progress and completion history rather than
+creating a competing learner record. Each transition is serialized and audited.
 
 The application uses nonce-based script CSP with no script `unsafe-inline`.
 Mantine is styled primarily through CSS Modules. Mantine's CSS-variable style

@@ -1,10 +1,26 @@
 import { Badge } from "#/features/shared/Badge";
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  Loader,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "@mantine/core";
 import { useForm, useStore } from "@tanstack/react-form";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { Link, useRouter } from "@tanstack/react-router";
-import { useMemo, useRef, useState, type SetStateAction } from "react";
+import {
+  lazy,
+  Suspense,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+} from "react";
 import {
   adminCourseDraftSchema,
   type AdminCourseDetail,
@@ -27,8 +43,12 @@ import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { firstFormError } from "#/features/shared/form-errors";
-import { AdminCourseRoster } from "./AdminCourseRoster";
 import classes from "./AdminCourseEditor.module.css";
+
+const AdminCourseRoster = lazy(async () => {
+  const module = await import("./AdminCourseRoster");
+  return { default: module.AdminCourseRoster };
+});
 
 type Confirmation =
   | { action: "archive" }
@@ -712,7 +732,18 @@ export function AdminCourseEditor({
         ))}
       </Stack>
 
-      <AdminCourseRoster roster={detail.roster} />
+      <Suspense
+        fallback={
+          <Paper withBorder radius="lg" p="lg">
+            <Group gap="sm">
+              <Loader size="sm" />
+              <Text>Loading learner roster...</Text>
+            </Group>
+          </Paper>
+        }
+      >
+        <AdminCourseRoster detail={detail} onChanged={onChanged} />
+      </Suspense>
 
       <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
         <Stack gap="md">

@@ -351,6 +351,8 @@ export type AuditEventAction =
   | "course.published"
   | "course.version_created"
   | "enrollment.access_code_redeemed"
+  | "enrollment.administrator_added"
+  | "enrollment.administrator_removed"
   | "enrollment.learning_completed"
   | "enrollment.purchased"
   | "enrollment.scorm_completed"
