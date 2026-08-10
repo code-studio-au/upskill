@@ -23,6 +23,9 @@ export const durableAuditActions = [
   "resource.uploaded",
   "scorm.package_uploaded",
   "scorm.package_version_removed",
+  "survey.created",
+  "survey.published",
+  "survey.version_created",
 ] as const satisfies ReadonlyArray<AuditEventAction>;
 
 export type DurableAuditAction = (typeof durableAuditActions)[number];

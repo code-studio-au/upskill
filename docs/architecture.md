@@ -82,6 +82,11 @@ enrolment, order-item or access-grant references. Learner item evidence is
 stored, while section completion is derived from required items so it cannot
 drift from module, survey or resource progress.
 
+Published survey versions contain validated written, single-choice and
+multiple-choice questions. Learner responses are entitlement-scoped to an
+exact course-version item, validated against its published survey version and
+stored as immutable evidence without answer content entering centralized logs.
+
 ## Content and asynchronous work
 
 S3 buckets separate quarantine uploads, immutable learning content, private

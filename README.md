@@ -55,6 +55,9 @@ Published versions are immutable, so structural changes require an explicit new
 version and never rewrite existing enrolments. Courses can be archived; an
 archived course can be permanently deleted only when it has no enrolment or
 commerce history. The learner workspace shows derived item and section progress.
+Survey authoring is available at `/admin/surveys`; published question sets are
+immutable, and entitled learners submit exact-version responses that contribute
+to section and course completion.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:

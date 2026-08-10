@@ -1,6 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
 import { accessCodeInputSchema } from "#/features/access/access-code.schema";
 import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema";
+import {
+  learnerSurveyParamsSchema,
+  learnerSurveySubmissionSchema,
+  type LearnerSurveyResult,
+  type LearnerSurveySubmissionResult,
+} from "#/features/survey/survey.schema";
 
 export const getLearnerDashboard = createServerFn({ method: "GET" }).handler(
   async () => {
@@ -36,4 +42,33 @@ export const getLearnerWorkspace = createServerFn({ method: "GET" })
     const { findLearnerWorkspace } =
       await import("#/server/learning/learner-workspace.server");
     return await findLearnerWorkspace(data.enrollmentId, user);
+  });
+
+export const getLearnerSurvey = createServerFn({ method: "GET" })
+  .validator(learnerSurveyParamsSchema)
+  .handler(async ({ data }): Promise<LearnerSurveyResult> => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" };
+    const { findLearnerSurvey } =
+      await import("#/server/learning/learner-survey.server");
+    const survey = await findLearnerSurvey(
+      data.enrollmentId,
+      data.courseVersionItemId,
+      user,
+    );
+    if (!survey) return { status: "not-found" };
+    if (survey === "unavailable") return { status: "unavailable" };
+    return { status: "ready", data: survey };
+  });
+
+export const submitLearnerSurveyResponse = createServerFn({ method: "POST" })
+  .validator(learnerSurveySubmissionSchema)
+  .handler(async ({ data }): Promise<LearnerSurveySubmissionResult> => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" };
+    const { submitLearnerSurvey } =
+      await import("#/server/learning/learner-survey.server");
+    return await submitLearnerSurvey(data, user);
   });

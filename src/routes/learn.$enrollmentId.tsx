@@ -252,6 +252,23 @@ function ItemAction({
       </Button>
     );
 
+  if (item.kind === "survey")
+    return (
+      <Link
+        to="/learn/$enrollmentId/surveys/$courseVersionItemId"
+        params={{
+          enrollmentId,
+          courseVersionItemId: item.id,
+        }}
+      >
+        <Button component="span" variant="light" size="xs">
+          {item.completionState === "completed"
+            ? "View receipt"
+            : "Complete survey"}
+        </Button>
+      </Link>
+    );
+
   if (item.kind === "scorm" && item.modulePosition !== null)
     return (
       <div className={classes.itemAction}>

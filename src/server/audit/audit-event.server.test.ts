@@ -22,6 +22,9 @@ describe("audit event boundary", () => {
       "resource.uploaded",
       "scorm.package_uploaded",
       "scorm.package_version_removed",
+      "survey.created",
+      "survey.published",
+      "survey.version_created",
     ]);
   });
 

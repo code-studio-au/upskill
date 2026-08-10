@@ -3,7 +3,6 @@ import {
   Button,
   Container,
   Paper,
-  PasswordInput,
   Stack,
   Text,
   TextInput,
@@ -123,7 +122,8 @@ function LoginPage() {
                   );
                 }}
               />
-              <PasswordInput
+              <TextInput
+                type="password"
                 label="Password"
                 name="password"
                 autoComplete="current-password"

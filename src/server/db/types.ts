@@ -128,6 +128,15 @@ interface SurveyVersionTable {
   createdAt: Timestamp;
 }
 
+interface SurveyResponseTable {
+  id: string;
+  enrollmentId: string;
+  courseVersionItemId: string;
+  surveyVersionId: string;
+  answers: Json;
+  submittedAt: Timestamp;
+}
+
 interface LearningResourceTable {
   id: string;
   title: string;
@@ -327,7 +336,10 @@ export type AuditEventAction =
   | "scorm.package_ready"
   | "scorm.package_rejected"
   | "scorm.package_uploaded"
-  | "scorm.package_version_removed";
+  | "scorm.package_version_removed"
+  | "survey.created"
+  | "survey.published"
+  | "survey.version_created";
 
 interface AuditEventTable {
   id: string;
@@ -368,6 +380,7 @@ export interface Database {
   scorm_package: ScormPackageTable;
   scorm_package_version: ScormPackageVersionTable;
   survey: SurveyTable;
+  survey_response: SurveyResponseTable;
   survey_version: SurveyVersionTable;
   user: UserTable;
   verification: VerificationTable;

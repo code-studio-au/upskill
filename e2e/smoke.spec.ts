@@ -71,6 +71,35 @@ async function cleanupCourseAuthoringFixture(
   });
 }
 
+async function cleanupSurveyAuthoringFixture(
+  database: Client,
+  titles: Array<string>,
+): Promise<void> {
+  const surveys = await database.query<{ id: string }>(
+    `select id from survey where title = any($1::text[])`,
+    [titles],
+  );
+  const surveyIds = surveys.rows.map((survey) => survey.id);
+  if (surveyIds.length === 0) return;
+  await withPgAuditMaintenance(database, async (transaction) => {
+    await transaction.query(
+      `delete from outbox_event where "aggregateId" = any($1::text[])`,
+      [surveyIds],
+    );
+    await transaction.query(
+      `delete from audit_event where "subjectId" = any($1::text[])`,
+      [surveyIds],
+    );
+    await transaction.query(
+      `delete from survey_version where "surveyId" = any($1::text[])`,
+      [surveyIds],
+    );
+    await transaction.query(`delete from survey where id = any($1::text[])`, [
+      surveyIds,
+    ]);
+  });
+}
+
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
 }) => {
@@ -329,9 +358,11 @@ test("platform administrators can inspect learner progress", async ({
     connectionString: process.env.DATABASE_URL,
   });
   const authoringSlug = "e2e-editable-course-draft";
+  const surveyTitles = ["E2E survey draft", "E2E edited survey"];
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
     await page
       .getByRole("main")
       .getByRole("link", { name: "Courses", exact: true })
@@ -357,8 +388,31 @@ test("platform administrators can inspect learner progress", async ({
     );
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
+
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Surveys", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Surveys", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Create survey" }).click();
+    await page.getByLabel("Survey title").fill(surveyTitles[0] ?? "");
+    await page.getByRole("button", { name: "Create draft" }).click();
+    await page.getByLabel("Title").fill(surveyTitles[1] ?? "");
+    await page.getByRole("button", { name: "Add single choice" }).click();
+    await page.getByLabel("Question 1").fill("Was this survey useful?");
+    await page.getByLabel("Option 1").fill("Yes");
+    await page.getByLabel("Option 2").fill("No");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    await page.getByRole("button", { name: "Publish version" }).click();
+    await expect(
+      page.getByText("Published versions are immutable"),
+    ).toBeVisible();
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
     await authoringDatabase.end();
   }
 

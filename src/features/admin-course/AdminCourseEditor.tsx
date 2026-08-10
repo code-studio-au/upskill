@@ -3,7 +3,6 @@ import {
   Badge,
   Button,
   Card,
-  Checkbox,
   Group,
   NativeSelect,
   Paper,
@@ -32,6 +31,7 @@ import {
 import { AppDialog } from "#/features/shared/AppDialog";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
+import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import classes from "./AdminCourseEditor.module.css";
 
 type Confirmation =
@@ -398,36 +398,33 @@ export function AdminCourseEditor({
             />
           </div>
           <Group>
-            <Checkbox
+            <MantineCheckbox
               label="List in public catalogue"
               checked={draft.listInStore}
               disabled={!editable}
-              onChange={(event) => {
-                const checked = event.currentTarget.checked;
+              onChange={(checked) => {
                 setDraft((current) => ({
                   ...current,
                   listInStore: checked,
                 }));
               }}
             />
-            <Checkbox
+            <MantineCheckbox
               label="Featured"
               checked={draft.featured}
               disabled={!editable}
-              onChange={(event) => {
-                const checked = event.currentTarget.checked;
+              onChange={(checked) => {
                 setDraft((current) => ({
                   ...current,
                   featured: checked,
                 }));
               }}
             />
-            <Checkbox
+            <MantineCheckbox
               label="Completion certificate"
               checked={draft.hasCompletionCertificate}
               disabled={!editable}
-              onChange={(event) => {
-                const checked = event.currentTarget.checked;
+              onChange={(checked) => {
                 setDraft((current) => ({
                   ...current,
                   hasCompletionCertificate: checked,
@@ -742,11 +739,11 @@ export function AdminCourseEditor({
                 }}
               />
             ) : null}
-            <Checkbox
+            <MantineCheckbox
               label="Required for section completion"
               checked={itemRequired}
-              onChange={(event) => {
-                setItemRequired(event.currentTarget.checked);
+              onChange={(checked) => {
+                setItemRequired(checked);
               }}
             />
             <Group justify="flex-end">
