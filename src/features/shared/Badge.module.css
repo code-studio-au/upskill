@@ -1,0 +1,50 @@
+.badge {
+  align-items: center;
+  background: var(--mantine-color-indigo-0);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: var(--mantine-color-indigo-8);
+  display: inline-flex;
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+  gap: 0.35rem;
+  line-height: 1;
+  padding: 0.35rem 0.625rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge[data-color="gray"] {
+  background: var(--mantine-color-gray-1);
+  color: var(--mantine-color-gray-7);
+}
+
+.badge[data-color="green"],
+.badge[data-color="teal"] {
+  background: var(--mantine-color-green-0);
+  color: var(--mantine-color-green-8);
+}
+
+.badge[data-color="blue"] {
+  background: var(--mantine-color-blue-0);
+  color: var(--mantine-color-blue-8);
+}
+
+.badge[data-color="orange"] {
+  background: var(--mantine-color-orange-0);
+  color: var(--mantine-color-orange-8);
+}
+
+.badge[data-color="red"] {
+  background: var(--mantine-color-red-0);
+  color: var(--mantine-color-red-8);
+}
+
+.badge[data-variant="outline"] {
+  background: transparent;
+  border-color: currentColor;
+}
+
+.badge[data-width="fit-content"] {
+  width: fit-content;
+}

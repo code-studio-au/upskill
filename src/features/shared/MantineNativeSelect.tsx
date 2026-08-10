@@ -1,4 +1,4 @@
-import { useId, type ChangeEventHandler } from "react";
+import { useId, type ChangeEventHandler, type FocusEventHandler } from "react";
 import classes from "./MantineNativeSelect.module.css";
 
 interface SelectOption {
@@ -12,9 +12,10 @@ interface MantineNativeSelectProps {
   data: Array<SelectOption>;
   defaultValue?: string;
   disabled?: boolean;
-  error?: string;
+  error?: string | undefined;
   label?: string;
   name?: string;
+  onBlur?: FocusEventHandler<HTMLSelectElement>;
   onChange?: ChangeEventHandler<HTMLSelectElement>;
   required?: boolean;
   value?: string;

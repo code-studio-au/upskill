@@ -1,4 +1,5 @@
-import { Badge, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { Badge } from "#/features/shared/Badge";
+import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import {
   createFileRoute,
   Link,

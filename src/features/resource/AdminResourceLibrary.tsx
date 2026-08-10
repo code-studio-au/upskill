@@ -1,18 +1,12 @@
-import {
-  Alert,
-  Badge,
-  Button,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge } from "#/features/shared/Badge";
+import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { useForm } from "@tanstack/react-form";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
-import { useState, type SyntheticEvent } from "react";
+import { useState } from "react";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { firstFormError } from "#/features/shared/form-errors";
 import {
   adminResourceUploadFormSchema,
   type AdminResourceSummary,
@@ -25,91 +19,65 @@ interface AdminResourceLibraryProps {
   onChanged: () => Promise<void>;
 }
 
-interface UploadErrors {
-  description?: string;
-  document?: string;
-  title?: string;
-}
-
-function clearError(errors: UploadErrors, field: keyof UploadErrors) {
-  return Object.fromEntries(
-    Object.entries(errors).filter(([key]) => key !== field),
-  ) as UploadErrors;
-}
-
 function fileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function ResourceUpload({ resources, onChanged }: AdminResourceLibraryProps) {
   const [resourceId, setResourceId] = useState("");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [document, setDocument] = useState<File | null>(null);
-  const [errors, setErrors] = useState<UploadErrors>({});
-  const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string>();
   const selected = resources.find((resource) => resource.id === resourceId);
-
-  async function upload(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const parsed = adminResourceUploadFormSchema.safeParse({
-      title,
-      description,
-      document,
-    });
-    if (!parsed.success) {
-      const next: UploadErrors = {};
-      for (const issue of parsed.error.issues) {
-        const field = issue.path[0];
-        if (
-          (field === "title" ||
-            field === "description" ||
-            field === "document") &&
-          !next[field]
-        )
-          next[field] = issue.message;
-      }
-      setErrors(next);
-      return;
-    }
-    setSubmitting(true);
-    setErrors({});
-    setNotice(undefined);
-    try {
-      const query = new URLSearchParams({
-        title: parsed.data.title,
-        description: parsed.data.description,
-        displayName: parsed.data.document.name,
-      });
-      if (selected) query.set("resourceId", selected.id);
-      const response = await fetch(`/api/admin/resources?${query}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/pdf" },
-        body: parsed.data.document,
-      });
-      if (!response.ok) throw new Error("upload_failed");
-      setDocument(null);
-      setDescription("");
-      const success = selected
-        ? "New resource version uploaded."
-        : "Resource uploaded.";
-      setNotice(success);
+  const uploadForm = useForm({
+    defaultValues: {
+      title: "",
+      description: "",
+      document: null as File | null,
+    },
+    validators: { onSubmit: adminResourceUploadFormSchema },
+    onSubmit: async ({ value }) => {
+      const parsed = adminResourceUploadFormSchema.safeParse(value);
+      if (!parsed.success) return;
+      setNotice(undefined);
       try {
-        await onChanged();
+        const query = new URLSearchParams({
+          title: parsed.data.title,
+          description: parsed.data.description,
+          displayName: parsed.data.document.name,
+        });
+        if (selected) query.set("resourceId", selected.id);
+        const response = await fetch(`/api/admin/resources?${query}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          body: parsed.data.document,
+        });
+        if (!response.ok) throw new Error("upload_failed");
+        uploadForm.setFieldValue("document", null);
+        uploadForm.setFieldValue("description", "");
+        const success = selected
+          ? "New resource version uploaded."
+          : "Resource uploaded.";
+        setNotice(success);
+        try {
+          await onChanged();
+        } catch {
+          setNotice(`${success} Refresh the library to update this view.`);
+        }
       } catch {
-        setNotice(`${success} Refresh the library to update this view.`);
+        setNotice("The PDF could not be uploaded. Try again.");
       }
-    } catch {
-      setNotice("The PDF could not be uploaded. Try again.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
+    },
+  });
 
   return (
     <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-      <form noValidate onSubmit={(event) => void upload(event)}>
+      <form
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void uploadForm.handleSubmit();
+        }}
+      >
         <Stack gap="md">
           <Title order={2} size="h3">
             Upload PDF resource
@@ -123,8 +91,7 @@ function ResourceUpload({ resources, onChanged }: AdminResourceLibraryProps) {
                   (resource) => resource.id === event.currentTarget.value,
                 );
                 setResourceId(next?.id ?? "");
-                setTitle(next?.title ?? "");
-                setErrors((current) => clearError(current, "title"));
+                uploadForm.setFieldValue("title", next?.title ?? "");
               }}
               data={[
                 { value: "", label: "New resource" },
@@ -134,43 +101,58 @@ function ResourceUpload({ resources, onChanged }: AdminResourceLibraryProps) {
                 })),
               ]}
             />
-            <MantineTextInput
-              label="Resource title"
-              value={title}
-              disabled={Boolean(selected)}
-              required
-              maxLength={200}
-              error={errors.title}
-              onChange={(event) => {
-                setTitle(event.currentTarget.value);
-                setErrors((current) => clearError(current, "title"));
-              }}
-            />
-            <MantineTextInput
-              label="Version description"
-              description="Optional notes about this document version."
-              value={description}
-              maxLength={2_000}
-              error={errors.description}
-              onChange={(event) => {
-                setDescription(event.currentTarget.value);
-                setErrors((current) => clearError(current, "description"));
-              }}
-            />
-            <MantineFilePicker
-              label="PDF document"
-              placeholder="Choose a PDF"
-              description="Maximum 25 MB. Documents remain private."
-              accept=".pdf,application/pdf"
-              required
-              value={document}
-              error={errors.document}
-              disabled={submitting}
-              onChange={(file) => {
-                setDocument(file);
-                setErrors((current) => clearError(current, "document"));
-              }}
-            />
+            <uploadForm.Field name="title">
+              {(field) => (
+                <MantineTextInput
+                  label="Resource title"
+                  name={field.name}
+                  value={field.state.value}
+                  disabled={Boolean(selected)}
+                  required
+                  maxLength={200}
+                  error={firstFormError(field.state.meta.errors)}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                />
+              )}
+            </uploadForm.Field>
+            <uploadForm.Field name="description">
+              {(field) => (
+                <MantineTextInput
+                  label="Version description"
+                  name={field.name}
+                  description="Optional notes about this document version."
+                  value={field.state.value}
+                  maxLength={2_000}
+                  error={firstFormError(field.state.meta.errors)}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                />
+              )}
+            </uploadForm.Field>
+            <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
+              {(isSubmitting) => (
+                <uploadForm.Field name="document">
+                  {(field) => (
+                    <MantineFilePicker
+                      label="PDF document"
+                      placeholder="Choose a PDF"
+                      description="Maximum 25 MB. Documents remain private."
+                      accept=".pdf,application/pdf"
+                      required
+                      value={field.state.value}
+                      error={firstFormError(field.state.meta.errors)}
+                      disabled={isSubmitting}
+                      onChange={field.handleChange}
+                    />
+                  )}
+                </uploadForm.Field>
+              )}
+            </uploadForm.Subscribe>
           </div>
           {notice ? (
             <Alert color={notice.includes("could not") ? "red" : "green"}>
@@ -178,9 +160,17 @@ function ResourceUpload({ resources, onChanged }: AdminResourceLibraryProps) {
             </Alert>
           ) : null}
           <Group justify="flex-end">
-            <Button type="submit" loading={submitting}>
-              Upload resource
-            </Button>
+            <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
+              {(isSubmitting) => (
+                <Button
+                  type="submit"
+                  loading={isSubmitting}
+                  disabled={isSubmitting}
+                >
+                  Upload resource
+                </Button>
+              )}
+            </uploadForm.Subscribe>
           </Group>
         </Stack>
       </form>

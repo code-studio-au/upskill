@@ -1,4 +1,4 @@
-import { useId, type ChangeEventHandler } from "react";
+import { useId, type ChangeEventHandler, type FocusEventHandler } from "react";
 import classes from "./MantineTextInput.module.css";
 
 interface MantineTextInputProps {
@@ -19,6 +19,7 @@ interface MantineTextInputProps {
   maxLength?: number;
   min?: number;
   name?: string;
+  onBlur?: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   onChange?: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   placeholder?: string;
   required?: boolean;

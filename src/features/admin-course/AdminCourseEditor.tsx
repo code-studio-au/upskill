@@ -1,18 +1,10 @@
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge } from "#/features/shared/Badge";
+import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { useForm, useStore } from "@tanstack/react-form";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { Link, useRouter } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState, type SetStateAction } from "react";
 import {
   adminCourseDraftSchema,
   type AdminCourseDetail,
@@ -34,6 +26,7 @@ import { AppDialog } from "#/features/shared/AppDialog";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
+import { firstFormError } from "#/features/shared/form-errors";
 import classes from "./AdminCourseEditor.module.css";
 
 type Confirmation =
@@ -65,7 +58,6 @@ export function AdminCourseEditor({
   onChanged: () => Promise<void>;
 }) {
   const router = useRouter();
-  const [draft, setDraft] = useState<AdminCourseDraft>(() => detail.draft);
   const [resources, setResources] = useState(() => detail.library.resources);
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -79,11 +71,112 @@ export function AdminCourseEditor({
   const [resourceSectionId, setResourceSectionId] = useState<string | null>(
     null,
   );
-  const [resourceFile, setResourceFile] = useState<File | null>(null);
-  const [resourceTitle, setResourceTitle] = useState("");
-  const [resourceDescription, setResourceDescription] = useState("");
-  const [resourceFileError, setResourceFileError] = useState<string>();
-  const [resourceTitleError, setResourceTitleError] = useState<string>();
+  const submitIntent = useRef<"save" | "publish">("save");
+  const courseForm = useForm({
+    defaultValues: { draft: detail.draft },
+    validators: {
+      onSubmit: ({ value }) => {
+        const parsed = adminCourseDraftSchema.safeParse(value.draft);
+        return parsed.success
+          ? undefined
+          : (parsed.error.issues[0]?.message ?? "Review the course fields.");
+      },
+    },
+    onSubmit: async ({ value }) => {
+      const parsed = adminCourseDraftSchema.safeParse(value.draft);
+      if (!parsed.success) {
+        setError(
+          parsed.error.issues[0]?.message ?? "Review the course fields.",
+        );
+        return;
+      }
+      setError(null);
+      setMessage(null);
+      const saved = await saveAdminCourse({ data: parsed.data });
+      if (saved.status !== "ready") {
+        setError("The course draft could not be saved. Refresh and try again.");
+        return;
+      }
+      if (submitIntent.current === "save") {
+        setMessage("Draft saved.");
+        return;
+      }
+      const published = await publishAdminCourse({
+        data: {
+          courseId: detail.course.id,
+          versionId: detail.version.id,
+        },
+      });
+      if (published.status !== "ready") {
+        setError("Add at least one section and item before publishing.");
+        return;
+      }
+      await onChanged();
+      setMessage(`Version ${String(detail.version.version)} published.`);
+    },
+  });
+  const draft = useStore(courseForm.store, (state) => state.values.draft);
+  const resourceForm = useForm({
+    defaultValues: {
+      title: "",
+      description: "",
+      document: null as File | null,
+    },
+    validators: { onSubmit: adminResourceUploadFormSchema },
+    onSubmit: async ({ value }) => {
+      const parsed = adminResourceUploadFormSchema.safeParse(value);
+      const sectionId = resourceSectionId;
+      if (!parsed.success || !sectionId) return;
+      setError(null);
+      try {
+        const query = new URLSearchParams({
+          title: parsed.data.title,
+          description: parsed.data.description,
+          displayName: parsed.data.document.name,
+        });
+        const response = await fetch(`/api/admin/resources?${query}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/pdf" },
+          body: parsed.data.document,
+        });
+        if (!response.ok) throw new Error("upload_failed");
+        const result = (await response.json()) as {
+          resource?: AdminCourseResourceOption;
+        };
+        const resource = result.resource;
+        if (!resource) throw new Error("upload_failed");
+        setResources((current) => [...current, resource]);
+        updateSection(sectionId, (section) => ({
+          ...section,
+          items: [
+            ...section.items,
+            {
+              id: `item_${crypto.randomUUID()}`,
+              kind: "resource",
+              title: resource.title,
+              required: true,
+              durationMinutes: null,
+              resourceVersionId: resource.id,
+            },
+          ],
+        }));
+        setResourceSectionId(null);
+        setMessage(
+          "PDF uploaded and added to the section. Save the draft to apply it.",
+        );
+      } catch {
+        setError("The PDF could not be uploaded. Try again.");
+      }
+    },
+  });
+
+  function setDraft(update: SetStateAction<AdminCourseDraft>): void {
+    const current = courseForm.state.values.draft;
+    courseForm.setFieldValue(
+      "draft",
+      typeof update === "function" ? update(current) : update,
+    );
+  }
 
   const referenceOptions = useMemo(() => {
     if (itemKind === "scorm")
@@ -114,28 +207,6 @@ export function AdminCourseEditor({
         section.id === sectionId ? update(section) : section,
       ),
     }));
-  }
-
-  async function persistDraft(): Promise<boolean> {
-    const parsed = adminCourseDraftSchema.safeParse(draft);
-    if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message ?? "Review the course fields.");
-      return false;
-    }
-    setPending("save");
-    setError(null);
-    setMessage(null);
-    try {
-      const saved = await saveAdminCourse({ data: parsed.data });
-      if (saved.status !== "ready") {
-        setError("The course draft could not be saved. Refresh and try again.");
-        return false;
-      }
-      setMessage("Draft saved.");
-      return true;
-    } finally {
-      setPending(null);
-    }
   }
 
   async function runConfirmedAction(): Promise<void> {
@@ -208,46 +279,33 @@ export function AdminCourseEditor({
         </div>
         <Group>
           {editable ? (
-            <>
-              <Button
-                variant="default"
-                loading={pending === "save"}
-                onClick={() => void persistDraft()}
-              >
-                Save draft
-              </Button>
-              <Button
-                loading={pending === "publish"}
-                onClick={() => {
-                  setPending("publish");
-                  void persistDraft()
-                    .then(async (saved) => {
-                      if (!saved) return;
-                      const result = await publishAdminCourse({
-                        data: {
-                          courseId: detail.course.id,
-                          versionId: detail.version.id,
-                        },
-                      });
-                      if (result.status !== "ready") {
-                        setError(
-                          "Add at least one section and item before publishing.",
-                        );
-                        return;
-                      }
-                      await onChanged();
-                      setMessage(
-                        `Version ${String(detail.version.version)} published.`,
-                      );
-                    })
-                    .finally(() => {
-                      setPending(null);
-                    });
-                }}
-              >
-                Publish version
-              </Button>
-            </>
+            <courseForm.Subscribe selector={(state) => state.isSubmitting}>
+              {(isSubmitting) => (
+                <>
+                  <Button
+                    variant="default"
+                    loading={isSubmitting && submitIntent.current === "save"}
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      submitIntent.current = "save";
+                      void courseForm.handleSubmit();
+                    }}
+                  >
+                    Save draft
+                  </Button>
+                  <Button
+                    loading={isSubmitting && submitIntent.current === "publish"}
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      submitIntent.current = "publish";
+                      void courseForm.handleSubmit();
+                    }}
+                  >
+                    Publish version
+                  </Button>
+                </>
+              )}
+            </courseForm.Subscribe>
           ) : detail.course.status !== "archived" ? (
             <Button
               loading={pending === "new-version"}
@@ -286,6 +344,14 @@ export function AdminCourseEditor({
       ) : null}
       {message ? <Alert color="green">{message}</Alert> : null}
       {error ? <Alert color="red">{error}</Alert> : null}
+      <courseForm.Subscribe selector={(state) => state.errors}>
+        {(errors) => {
+          const validationError = firstFormError(errors);
+          return validationError ? (
+            <Alert color="red">{validationError}</Alert>
+          ) : null;
+        }}
+      </courseForm.Subscribe>
 
       <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
         <Stack gap="md">
@@ -474,7 +540,7 @@ export function AdminCourseEditor({
           </Alert>
         ) : null}
         {draft.sections.map((section, sectionIndex) => (
-          <Card key={section.id} withBorder radius="lg" padding="lg">
+          <Paper key={section.id} withBorder radius="lg" p="lg">
             <Stack gap="md">
               <Group justify="space-between" align="start" wrap="wrap">
                 <div className={classes.sectionFields}>
@@ -632,11 +698,7 @@ export function AdminCourseEditor({
                       variant="default"
                       onClick={() => {
                         setResourceSectionId(section.id);
-                        setResourceFile(null);
-                        setResourceFileError(undefined);
-                        setResourceTitle("");
-                        setResourceTitleError(undefined);
-                        setResourceDescription("");
+                        resourceForm.reset();
                       }}
                     >
                       Upload PDF
@@ -645,7 +707,7 @@ export function AdminCourseEditor({
                 ) : null}
               </Stack>
             </Stack>
-          </Card>
+          </Paper>
         ))}
       </Stack>
 
@@ -806,130 +868,89 @@ export function AdminCourseEditor({
       ) : null}
 
       {resourceSectionId !== null ? (
-        <AppDialog
-          onClose={() => {
-            if (pending !== "resource") setResourceSectionId(null);
-          }}
-          closeDisabled={pending === "resource"}
-          title="Upload PDF resource"
-        >
-          <Stack gap="md">
-            <MantineTextInput
-              label="Resource title"
-              value={resourceTitle}
-              onChange={(event) => {
-                setResourceTitle(event.currentTarget.value);
-                setResourceTitleError(undefined);
+        <resourceForm.Subscribe selector={(state) => state.isSubmitting}>
+          {(isSubmitting) => (
+            <AppDialog
+              onClose={() => {
+                if (!isSubmitting) setResourceSectionId(null);
               }}
-              error={resourceTitleError}
-              required
-            />
-            <MantineTextInput
-              component="textarea"
-              label="Description"
-              value={resourceDescription}
-              onChange={(event) => {
-                setResourceDescription(event.currentTarget.value);
-              }}
-              classNames={{ input: classes.textArea }}
-            />
-            <MantineFilePicker
-              label="PDF document"
-              accept="application/pdf,.pdf"
-              value={resourceFile}
-              onChange={(file) => {
-                setResourceFile(file);
-                setResourceFileError(undefined);
-              }}
-              placeholder="Choose a PDF"
-              required
-              error={resourceFileError}
-            />
-            <Group justify="flex-end">
-              <Button
-                variant="default"
-                disabled={pending === "resource"}
-                onClick={() => {
-                  setResourceSectionId(null);
+              closeDisabled={isSubmitting}
+              title="Upload PDF resource"
+            >
+              <form
+                noValidate
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void resourceForm.handleSubmit();
                 }}
               >
-                Cancel
-              </Button>
-              <Button
-                loading={pending === "resource"}
-                onClick={() => {
-                  const parsed = adminResourceUploadFormSchema.safeParse({
-                    title: resourceTitle,
-                    description: resourceDescription,
-                    document: resourceFile,
-                  });
-                  if (!parsed.success) {
-                    const firstIssue = parsed.error.issues[0];
-                    const validationMessage =
-                      firstIssue?.message ?? "Choose a PDF.";
-                    if (firstIssue?.path[0] === "document") {
-                      setResourceFileError(validationMessage);
-                    } else if (firstIssue?.path[0] === "title") {
-                      setResourceTitleError(validationMessage);
-                    } else {
-                      setError(validationMessage);
-                    }
-                    return;
-                  }
-                  const sectionId = resourceSectionId;
-                  if (!sectionId) return;
-                  setPending("resource");
-                  setError(null);
-                  const query = new URLSearchParams({
-                    title: parsed.data.title,
-                    description: parsed.data.description,
-                    displayName: parsed.data.document.name,
-                  });
-                  void fetch(`/api/admin/resources?${query}`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/pdf" },
-                    body: parsed.data.document,
-                  })
-                    .then(async (response) => {
-                      if (!response.ok) throw new Error("upload_failed");
-                      const result = (await response.json()) as {
-                        resource?: AdminCourseResourceOption;
-                      };
-                      const resource = result.resource;
-                      if (!resource) throw new Error("upload_failed");
-                      setResources((current) => [...current, resource]);
-                      updateSection(sectionId, (section) => ({
-                        ...section,
-                        items: [
-                          ...section.items,
-                          {
-                            id: `item_${crypto.randomUUID()}`,
-                            kind: "resource",
-                            title: resource.title,
-                            required: true,
-                            durationMinutes: null,
-                            resourceVersionId: resource.id,
-                          },
-                        ],
-                      }));
-                      setResourceSectionId(null);
-                      setMessage(
-                        "PDF uploaded and added to the section. Save the draft to apply it.",
-                      );
-                    })
-                    .catch(() => {
-                      setError("The PDF could not be uploaded. Try again.");
-                    })
-                    .finally(() => {
-                      setPending(null);
-                    });
-                }}
-              >
-                Upload and add
-              </Button>
-            </Group>
-          </Stack>
-        </AppDialog>
+                <Stack gap="md">
+                  <resourceForm.Field name="title">
+                    {(field) => (
+                      <MantineTextInput
+                        label="Resource title"
+                        name={field.name}
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          field.handleChange(event.currentTarget.value);
+                        }}
+                        error={firstFormError(field.state.meta.errors)}
+                        required
+                      />
+                    )}
+                  </resourceForm.Field>
+                  <resourceForm.Field name="description">
+                    {(field) => (
+                      <MantineTextInput
+                        component="textarea"
+                        label="Description"
+                        name={field.name}
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          field.handleChange(event.currentTarget.value);
+                        }}
+                        error={firstFormError(field.state.meta.errors)}
+                        classNames={{ input: classes.textArea }}
+                      />
+                    )}
+                  </resourceForm.Field>
+                  <resourceForm.Field name="document">
+                    {(field) => (
+                      <MantineFilePicker
+                        label="PDF document"
+                        accept="application/pdf,.pdf"
+                        value={field.state.value}
+                        onChange={field.handleChange}
+                        placeholder="Choose a PDF"
+                        required
+                        error={firstFormError(field.state.meta.errors)}
+                        disabled={isSubmitting}
+                      />
+                    )}
+                  </resourceForm.Field>
+                  <Group justify="flex-end">
+                    <Button
+                      type="button"
+                      variant="default"
+                      disabled={isSubmitting}
+                      onClick={() => {
+                        setResourceSectionId(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button type="submit" loading={isSubmitting}>
+                      Upload and add
+                    </Button>
+                  </Group>
+                </Stack>
+              </form>
+            </AppDialog>
+          )}
+        </resourceForm.Subscribe>
       ) : null}
 
       {confirmation ? (

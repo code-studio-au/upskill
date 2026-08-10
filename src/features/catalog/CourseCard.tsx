@@ -1,4 +1,5 @@
-import { Badge, Button, Card, Group, Stack, Text, Title } from "@mantine/core";
+import { Badge } from "#/features/shared/Badge";
+import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { Link } from "@tanstack/react-router";
 import type { CourseSummary } from "./catalog.schema";
 import classes from "./CourseCard.module.css";
@@ -15,7 +16,7 @@ export function CourseCard({ course }: { course: CourseSummary }) {
   );
 
   return (
-    <Card withBorder padding="lg" radius="lg" className={classes.card}>
+    <Paper withBorder p="lg" radius="lg" className={classes.card}>
       <Stack gap="md" h="100%">
         <Group justify="space-between" align="flex-start">
           <Badge variant="light">{course.topic}</Badge>
@@ -45,6 +46,6 @@ export function CourseCard({ course }: { course: CourseSummary }) {
           </Link>
         </Group>
       </Stack>
-    </Card>
+    </Paper>
   );
 }
