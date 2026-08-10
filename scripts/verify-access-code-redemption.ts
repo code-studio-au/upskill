@@ -2,15 +2,11 @@ import assert from "node:assert/strict";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import { withAuditMaintenance } from "./audit-maintenance";
-import { digestAccessCode } from "#/server/access/access-code.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
-const pepper = process.env.ACCESS_CODE_PEPPER;
-if (!pepper || pepper.length < 32)
-  throw new Error("ACCESS_CODE_PEPPER must contain at least 32 characters");
 
 const ids = {
   course: "verify_access_code_course",
@@ -149,7 +145,7 @@ try {
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCodeDigest: digestAccessCode("VERIFY-CAPACITY-2026", pepper),
+        accessCode: "VERIFY-CAPACITY-2026",
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
@@ -160,7 +156,7 @@ try {
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCodeDigest: digestAccessCode("VERIFY-DOMAIN-2026", pepper),
+        accessCode: "VERIFY-DOMAIN-2026",
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
@@ -171,7 +167,7 @@ try {
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCodeDigest: digestAccessCode("VERIFY-EXPIRED-2026", pepper),
+        accessCode: "VERIFY-EXPIRED-2026",
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
@@ -190,8 +186,8 @@ try {
   const { redeemAccessCode } =
     await import("#/server/access/redeem-access-code.server");
   const concurrentResults = await Promise.all([
-    redeemAccessCode("VERIFY-CAPACITY-2026", users.first),
-    redeemAccessCode("VERIFY-CAPACITY-2026", users.second),
+    redeemAccessCode("verify capacity 2026", users.first),
+    redeemAccessCode("VERIFYCAPACITY2026", users.second),
   ]);
   assert.deepEqual(concurrentResults.map((result) => result.status).sort(), [
     "enrolled",
@@ -200,7 +196,7 @@ try {
   const winner =
     concurrentResults[0].status === "enrolled" ? users.first : users.second;
   assert.equal(
-    (await redeemAccessCode("VERIFY-CAPACITY-2026", winner)).status,
+    (await redeemAccessCode("verify-capacity-2026", winner)).status,
     "already-enrolled",
   );
   assert.equal(

@@ -149,7 +149,7 @@ export async function fulfillCheckoutSession(
           organizationId: null,
           orderId: order.id,
           courseVersionId: item.courseVersionId,
-          accessCodeDigest: null,
+          accessCode: null,
           enrollmentDurationDays: item.enrollmentDurationDays,
           quantity: 1,
           redeemed: 1,

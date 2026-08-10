@@ -1,12 +1,12 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
+import { sql } from "kysely";
 import type { AccessCodeRedemptionResult } from "#/features/access/access-code.schema";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
-import { getServerEnv } from "#/server/env.server";
-import { digestAccessCode } from "./access-code.server";
+import { normalizeAccessCode } from "./access-code.server";
 
 function emailDomain(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -22,8 +22,8 @@ export async function redeemAccessCode(
   code: string,
   user: AuthenticatedUser,
 ): Promise<AccessCodeRedemptionResult> {
-  const digest = digestAccessCode(code, getServerEnv().ACCESS_CODE_PEPPER);
-  if (!digest) return { status: "invalid" };
+  const normalizedCode = normalizeAccessCode(code);
+  if (!normalizedCode) return { status: "invalid" };
 
   return await getDatabase()
     .transaction()
@@ -37,9 +37,14 @@ export async function redeemAccessCode(
           "quantity",
           "redeemed",
           "expiresAt",
+          "revokedAt",
           "enrollmentDurationDays",
         ])
-        .where("accessCodeDigest", "=", digest)
+        .where(
+          sql<string>`upper(replace("accessCode", '-', ''))`,
+          "=",
+          normalizedCode,
+        )
         .forUpdate()
         .executeTakeFirst();
 
@@ -85,6 +90,7 @@ export async function redeemAccessCode(
         return { status: "already-enrolled", courseTitle: course.title };
       }
       if (
+        grant.revokedAt ||
         grant.redeemed >= grant.quantity ||
         (grant.expiresAt && grant.expiresAt <= now)
       ) {

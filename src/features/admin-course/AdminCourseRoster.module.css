@@ -12,6 +12,7 @@
 }
 
 .heading,
+.formHeading,
 .learnerName,
 .description,
 .email,
@@ -23,6 +24,23 @@
 .heading {
   font-size: var(--mantine-h2-font-size);
   line-height: var(--mantine-h2-line-height);
+}
+
+.formHeading {
+  font-size: var(--mantine-h3-font-size);
+  line-height: var(--mantine-h3-line-height);
+}
+
+.enrollmentForm {
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-lg);
+  padding: var(--mantine-spacing-lg);
+}
+
+.formFields {
+  display: grid;
+  gap: var(--mantine-spacing-md);
 }
 
 .learnerName {
@@ -108,6 +126,17 @@
   text-decoration: none;
 }
 
+.cardActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-sm);
+}
+
+.cardActions .actionLink {
+  flex: 1 1 14rem;
+}
+
 .actionLink:focus-visible {
   outline: 2px solid var(--mantine-color-indigo-6);
   outline-offset: 2px;
@@ -123,6 +152,17 @@
   .count,
   .state {
     width: fit-content;
+  }
+
+  .cardActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (min-width: 42em) {
+  .formFields {
+    grid-template-columns: minmax(0, 2fr) minmax(10rem, 1fr);
   }
 }
 

@@ -32,6 +32,29 @@ starts Vite for the application on port 3000, the isolated learning origin on
 port 3001 and the local SCORM worker, so asynchronous uploads are processed and
 modules run inside the learner workspace. Use `pnpm dev:web` only when
 deliberately running the learning origin and worker separately.
+
+To exercise the production asset and HTTP-compression path locally, run:
+
+```sh
+pnpm run preview:https
+```
+
+This builds the application, generates an ignored local CA and signed localhost
+certificate under `.local/tls`, then serves the application at
+`https://localhost:3443` and learning content at `https://localhost:3444`.
+Trust `.local/tls/upskill-local-ca.crt` once in the development machine's
+browser or operating-system keychain to remove certificate warnings. Static
+compressible assets prefer Brotli with gzip fallback; real-time streamed SSR
+uses gzip. Run `pnpm worker:scorm` separately when the secure preview also needs
+asynchronous content processing. `pnpm dev` remains the faster HTTP/HMR loop.
+
+Production runtime artifacts intentionally exclude source maps. `pnpm dev`
+still provides source-level TypeScript and React debugging. When Datadog error
+tracking is enabled, CI must generate private source maps, upload them against
+the exact deployment/release identifier and remove them before packaging
+`dist`; otherwise production stack traces cannot resolve to exact source files
+and line numbers.
+
 Server and worker events are bounded structured JSON. `UPSKILL_LOG_LEVEL` may
 be `info`, `warn`, `error` or `off` for operational events; committed audit
 projections are always emitted. EC2 sends both service streams to journald so a
@@ -39,8 +62,8 @@ future Datadog Agent can collect them without application-level vendor coupling.
 The public catalog reads immutable published course versions from PostgreSQL.
 The two `db:seed:*` commands install
 deterministic local and browser-test data; they are never run by production
-deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD` and
-`ACCESS_CODE_PEPPER`; it creates verified `learner@example.com` and
+deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD`; it creates
+verified `learner@example.com` and
 `redeemer@example.com` accounts, the platform administrator
 `admin@example.com`, and the local code `EXAMPLE-LEARN-2026`. All three local
 accounts use `SEED_LEARNER_PASSWORD`; administration starts at `/admin`.
@@ -56,7 +79,19 @@ course versions that reference it.
 Course authoring is available at `/admin/courses`. Drafts contain reorderable
 sections with exact SCORM, published-survey and private PDF resource versions.
 Each course page also shows its newest learner enrolments across exact versions,
-with effective access state and direct progress-review links.
+with effective access state and direct progress-review links. Administrators can
+grant an existing learner access to a selected published version or soft-remove
+access without deleting progress. Re-adding removed or expired access restores
+the retained exact-version history.
+Organisation access is managed at `/admin/access`. Administrators issue
+capacity-limited codes for an exact published version with an enrolment duration,
+optional expiry and optional verified-email domains. Administrators choose a
+memorable code, can retrieve it later, and can increase or otherwise adjust its
+capacity without replacing it; capacity cannot be reduced below places already
+redeemed. The canonical code is stored as plaintext by design, while a keyed
+digest provides normalized unique lookup. Code retrieval and capacity changes
+are audited. Revocation blocks discovery and future redemption while retaining
+existing learner enrolments and audit history.
 Published versions are immutable, so structural changes require an explicit new
 version and never rewrite existing enrolments. Courses can be archived; an
 archived course can be permanently deleted only when it has no enrolment or

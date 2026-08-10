@@ -412,8 +412,72 @@ try {
     ],
   );
 
+  assert.equal(
+    await applyAdminProgressOverride(
+      {
+        enrollmentId: ids.enrollment,
+        scope: "enrollment",
+        modulePosition: null,
+        state: "incomplete",
+      },
+      administrator,
+    ),
+    "changed",
+  );
+  const incompleteOverride = await database
+    .selectFrom("learning_progress_override")
+    .select("createdAt")
+    .where("enrollmentId", "=", ids.enrollment)
+    .where("scope", "=", "enrollment")
+    .orderBy("sequence", "desc")
+    .executeTakeFirstOrThrow();
+  const recompletedAt = new Date(incompleteOverride.createdAt.getTime() + 1);
+  const { completeEnrollmentIfReady } =
+    await import("#/server/learning/learning-completion.server");
+  assert.equal(
+    await database.transaction().execute(
+      async (transaction) =>
+        await completeEnrollmentIfReady(
+          transaction,
+          {
+            enrollmentId: ids.enrollment,
+            courseVersionId: ids.version,
+            source: "scorm",
+          },
+          recompletedAt,
+        ),
+    ),
+    true,
+  );
+  const systemRecompleted = await findAdminEnrollmentDetail(
+    ids.learner,
+    ids.enrollment,
+  );
+  assert.ok(systemRecompleted);
+  assert.equal(systemRecompleted.enrollment.completionState, "completed");
+  assert.equal(systemRecompleted.enrollment.completionSource, "system");
+  assert.equal(
+    await applyAdminProgressOverride(
+      {
+        enrollmentId: ids.enrollment,
+        scope: "enrollment",
+        modulePosition: null,
+        state: "incomplete",
+      },
+      administrator,
+    ),
+    "changed",
+  );
+  const correctedAgain = await findAdminEnrollmentDetail(
+    ids.learner,
+    ids.enrollment,
+  );
+  assert.ok(correctedAgain);
+  assert.equal(correctedAgain.enrollment.completionState, "incomplete");
+  assert.equal(correctedAgain.enrollment.completionSource, "administrator");
+
   console.log(
-    "Verified append-only administrator progress corrections, idempotency, effective-state projections and committed audit-log events",
+    "Verified append-only administrator progress corrections, system recompletion reconciliation, idempotency, effective-state projections and committed audit-log events",
   );
 } finally {
   await cleanup();

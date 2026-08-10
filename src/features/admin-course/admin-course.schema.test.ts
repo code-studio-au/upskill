@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { adminCourseDraftSchema } from "./admin-course.schema";
+import {
+  adminCourseDraftSchema,
+  adminCourseEnrollmentCreateSchema,
+  adminCourseEnrollmentRemoveSchema,
+} from "./admin-course.schema";
 import {
   adminResourceUploadFormSchema,
   adminResourceUploadQuerySchema,
@@ -102,5 +106,32 @@ describe("admin course authoring inputs", () => {
     expect(result.success).toBe(false);
     if (!result.success)
       expect(result.error.issues[0]?.message).toBe("Choose a PDF document.");
+  });
+
+  it("validates bounded administrator enrolment commands", () => {
+    expect(
+      adminCourseEnrollmentCreateSchema.parse({
+        courseId: "course_1",
+        courseVersionId: "version_1",
+        learnerEmail: "learner@example.com",
+      }),
+    ).toEqual({
+      courseId: "course_1",
+      courseVersionId: "version_1",
+      learnerEmail: "learner@example.com",
+    });
+    expect(
+      adminCourseEnrollmentRemoveSchema.parse({
+        courseId: "course_1",
+        enrollmentId: "enrollment_1",
+      }),
+    ).toEqual({ courseId: "course_1", enrollmentId: "enrollment_1" });
+    expect(() =>
+      adminCourseEnrollmentCreateSchema.parse({
+        courseId: "course_1",
+        courseVersionId: "version_1",
+        learnerEmail: "not-an-email",
+      }),
+    ).toThrow("Enter a valid learner email address.");
   });
 });

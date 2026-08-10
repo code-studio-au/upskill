@@ -1,6 +1,11 @@
 import type { ColumnType, Generated } from "kysely";
 
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
+type OptionalTimestamp = ColumnType<
+  Date | null,
+  Date | string | null | undefined,
+  Date | string | null
+>;
 type Json = ColumnType<unknown, unknown, unknown>;
 
 interface UserTable {
@@ -318,11 +323,15 @@ interface AccessGrantTable {
   organizationId: string | null;
   orderId: string | null;
   courseVersionId: string;
-  accessCodeDigest: string | null;
+  accessCode: Generated<string | null>;
+  label: Generated<string | null>;
+  createdByUserId: Generated<string | null>;
   enrollmentDurationDays: number;
   quantity: number;
   redeemed: Generated<number>;
   expiresAt: Timestamp | null;
+  revokedAt: OptionalTimestamp;
+  revokedByUserId: Generated<string | null>;
   createdAt: Timestamp;
 }
 
@@ -344,6 +353,10 @@ interface OutboxEventTable {
 }
 
 export type AuditEventAction =
+  | "access_grant.administrator_capacity_updated"
+  | "access_grant.administrator_code_revealed"
+  | "access_grant.administrator_created"
+  | "access_grant.administrator_revoked"
   | "certificate.issued"
   | "course.archived"
   | "course.created"
@@ -351,6 +364,8 @@ export type AuditEventAction =
   | "course.published"
   | "course.version_created"
   | "enrollment.access_code_redeemed"
+  | "enrollment.administrator_added"
+  | "enrollment.administrator_removed"
   | "enrollment.learning_completed"
   | "enrollment.purchased"
   | "enrollment.scorm_completed"

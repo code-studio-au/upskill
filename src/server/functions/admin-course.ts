@@ -2,9 +2,12 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   adminCourseCreateSchema,
   adminCourseDraftSchema,
+  adminCourseEnrollmentCreateSchema,
+  adminCourseEnrollmentRemoveSchema,
   adminCourseParamsSchema,
   adminCourseVersionParamsSchema,
   type AdminCourseDetailResult,
+  type AdminCourseEnrollmentMutationResult,
   type AdminCourseMutationResult,
   type AdminCourseResult,
   type AdminCourseSummary,
@@ -163,5 +166,46 @@ export const deleteAdminCourse = createServerFn({ method: "POST" })
     return {
       status: "ready",
       data: { outcome: "deleted", courseId: data.courseId },
+    };
+  });
+
+export const addAdminCourseEnrollment = createServerFn({ method: "POST" })
+  .validator(adminCourseEnrollmentCreateSchema)
+  .handler(async ({ data }): Promise<AdminCourseEnrollmentMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { addAdminCourseEnrollment: addEnrollment } =
+      await import("#/server/admin/admin-enrollment.server");
+    const outcome = await addEnrollment(data, request.user);
+    if (outcome.status === "not-found") return outcome;
+    if (outcome.status === "conflict") return outcome;
+    return {
+      status: "ready",
+      data: {
+        outcome: outcome.status,
+        enrollmentId: outcome.enrollmentId,
+      },
+    };
+  });
+
+export const removeAdminCourseEnrollment = createServerFn({ method: "POST" })
+  .validator(adminCourseEnrollmentRemoveSchema)
+  .handler(async ({ data }): Promise<AdminCourseEnrollmentMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { removeAdminCourseEnrollment: removeEnrollment } =
+      await import("#/server/admin/admin-enrollment.server");
+    const outcome = await removeEnrollment(data, request.user);
+    if (outcome.status === "not-found") return outcome;
+    return {
+      status: "ready",
+      data: {
+        outcome: outcome.status,
+        enrollmentId: outcome.enrollmentId,
+      },
     };
   });
