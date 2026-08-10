@@ -81,6 +81,36 @@ export async function getObjectBytes(
   return bytes;
 }
 
+export interface StoredObjectStream {
+  body: ReadableStream<Uint8Array>;
+  cacheControl: string | undefined;
+  contentLength: number | undefined;
+  contentRange: string | undefined;
+  contentType: string | undefined;
+  etag: string | undefined;
+}
+
+export async function getObjectStream(
+  bucket: string,
+  key: string,
+  range?: string,
+): Promise<StoredObjectStream> {
+  const response = await getObjectStorageClient().send(
+    new GetObjectCommand({ Bucket: bucket, Key: key, Range: range }),
+  );
+  if (!response.Body) throw new Error("Stored object has no body");
+  const body =
+    response.Body.transformToWebStream() as ReadableStream<Uint8Array>;
+  return {
+    body,
+    cacheControl: response.CacheControl,
+    contentLength: response.ContentLength,
+    contentRange: response.ContentRange,
+    contentType: response.ContentType,
+    etag: response.ETag,
+  };
+}
+
 export async function deleteObject(bucket: string, key: string): Promise<void> {
   await getObjectStorageClient().send(
     new DeleteObjectCommand({ Bucket: bucket, Key: key }),

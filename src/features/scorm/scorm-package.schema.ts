@@ -1,4 +1,5 @@
 import { z } from "#/validation/zod";
+import type { CourseVersionUsage } from "#/features/admin-course/course-version-usage";
 
 export const SCORM_MAX_ARCHIVE_BYTES = 250 * 1024 * 1024;
 
@@ -51,6 +52,7 @@ export interface AdminScormPackageVersionSummary {
   sourceBytes: number | null;
   failureCode: string | null;
   courseUsageCount: number;
+  courseUsages: Array<CourseVersionUsage>;
   attemptCount: number;
 }
 

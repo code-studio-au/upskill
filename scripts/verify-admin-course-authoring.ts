@@ -333,9 +333,63 @@ try {
     2,
   );
 
+  const [{ findAdminScormPackages }, { findAdminResources }, surveyAdmin] =
+    await Promise.all([
+      import("#/server/admin/admin-scorm.server"),
+      import("#/server/admin/admin-resource.server"),
+      import("#/server/admin/admin-survey.server"),
+    ]);
+  const moduleLibrary = await findAdminScormPackages();
+  const verifiedModule = moduleLibrary.find(
+    (candidate) => candidate.id === ids.module,
+  );
+  assert.ok(verifiedModule);
+  assert.deepEqual(
+    verifiedModule.versions
+      .find((version) => version.id === ids.moduleVersionTwo)
+      ?.courseUsages.map((usage) => ({
+        courseVersionId: usage.courseVersionId,
+        version: usage.version,
+        versionState: usage.versionState,
+      })),
+    [
+      {
+        courseVersionId: versioned.versionId,
+        version: 2,
+        versionState: "draft",
+      },
+      {
+        courseVersionId: created.versionId,
+        version: 1,
+        versionState: "published",
+      },
+    ],
+  );
+  const resourceLibrary = await findAdminResources();
+  assert.deepEqual(
+    resourceLibrary
+      .find((resource) => resource.id === ids.resource)
+      ?.versions[0]?.courseUsages.map((usage) => usage.courseVersionId),
+    [versioned.versionId, created.versionId],
+  );
+  const surveyLibrary = await surveyAdmin.findAdminSurveys();
+  assert.deepEqual(
+    surveyLibrary
+      .find((survey) => survey.id === ids.survey)
+      ?.versions[0]?.courseUsages.map((usage) => usage.courseVersionId),
+    [versioned.versionId, created.versionId],
+  );
+
   assert.equal(
     await authoring.archiveAdminCourse(created.courseId, administrator),
     "archived",
+  );
+  assert.deepEqual(
+    (await findAdminScormPackages())
+      .find((candidate) => candidate.id === ids.module)
+      ?.versions.find((version) => version.id === ids.moduleVersionOne)
+      ?.courseUsages.map((usage) => usage.courseStatus),
+    ["archived"],
   );
   await database
     .insertInto("enrollment")
@@ -366,7 +420,7 @@ try {
   assert.equal(await authoring.findAdminCourse(created.courseId), null);
 
   console.log(
-    "Verified course archive/delete safety, immutable version creation, section ordering and exact module, survey and PDF references",
+    "Verified course archive/delete safety, immutable version creation, section ordering and linked exact-version module, survey and PDF usage",
   );
 } finally {
   await cleanup();

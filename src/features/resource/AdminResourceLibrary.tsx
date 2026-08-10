@@ -4,6 +4,7 @@ import { useForm } from "@tanstack/react-form";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { useState } from "react";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
+import { CourseVersionUsageList } from "#/features/admin-course/CourseVersionUsageList";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
@@ -269,10 +270,9 @@ export function AdminResourceLibrary(props: AdminResourceLibraryProps) {
                                 {version.description}
                               </Text>
                             ) : null}
-                            <Text c="dimmed" size="sm" mt={4}>
-                              Used by {version.courseUsageCount} course version
-                              {version.courseUsageCount === 1 ? "" : "s"}
-                            </Text>
+                            <CourseVersionUsageList
+                              usages={version.courseUsages}
+                            />
                           </div>
                           {version.courseUsageCount === 0 ? (
                             <Button

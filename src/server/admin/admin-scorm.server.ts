@@ -8,6 +8,7 @@ import type {
 } from "#/features/scorm/scorm-package.schema";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
+import { findContentCourseVersionUsage } from "#/server/admin/content-usage.server";
 import {
   SCORM_DELETION_TOPIC,
   SCORM_INGESTION_TOPIC,
@@ -17,7 +18,7 @@ export async function findAdminScormPackages(): Promise<
   Array<AdminScormPackageSummary>
 > {
   const database = getDatabase();
-  const [versions, usages, attempts] = await Promise.all([
+  const [versions, courseUsage, attempts] = await Promise.all([
     database
       .selectFrom("scorm_package_version")
       .innerJoin(
@@ -38,14 +39,7 @@ export async function findAdminScormPackages(): Promise<
       .orderBy("scorm_package.id")
       .orderBy("scorm_package_version.version", "desc")
       .execute(),
-    database
-      .selectFrom("course_version_module")
-      .select([
-        "scormPackageVersionId",
-        sql<number>`count(*)::integer`.as("count"),
-      ])
-      .groupBy("scormPackageVersionId")
-      .execute(),
+    findContentCourseVersionUsage(),
     database
       .selectFrom("scorm_attempt")
       .select([
@@ -55,9 +49,6 @@ export async function findAdminScormPackages(): Promise<
       .groupBy("scormPackageVersionId")
       .execute(),
   ]);
-  const usageByVersion = new Map(
-    usages.map((usage) => [usage.scormPackageVersionId, usage.count]),
-  );
   const attemptsByVersion = new Map(
     attempts.map((attempt) => [attempt.scormPackageVersionId, attempt.count]),
   );
@@ -72,13 +63,15 @@ export async function findAdminScormPackages(): Promise<
       };
       packageById.set(version.packageId, packageSummary);
     }
+    const courseUsages = courseUsage.modules.get(version.id) ?? [];
     packageSummary.versions.push({
       id: version.id,
       version: version.version,
       status: version.status,
       sourceBytes: version.sourceBytes,
       failureCode: version.failureCode,
-      courseUsageCount: usageByVersion.get(version.id) ?? 0,
+      courseUsageCount: courseUsages.length,
+      courseUsages,
       attemptCount: attemptsByVersion.get(version.id) ?? 0,
     });
   }

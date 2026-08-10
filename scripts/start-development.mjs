@@ -16,6 +16,11 @@ const definitions = [
     arguments: [viteEntry, "dev", "--port", "3000"],
   },
   {
+    script: "dev:learning",
+    command: process.execPath,
+    arguments: [viteEntry, "dev", "--port", "3001"],
+  },
+  {
     script: "worker:scorm",
     command: process.execPath,
     arguments: [

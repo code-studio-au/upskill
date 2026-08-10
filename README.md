@@ -28,8 +28,10 @@ exposes its S3 API on port 9020 and console on 9021, and initializes private
 quarantine, learning-content, resource and certificate buckets. ElasticMQ
 exposes its SQS-compatible API on port 9324 and web UI on 9325; its work queue,
 15-minute visibility timeout and five-receive DLQ policy match CDK. `pnpm dev`
-starts both Vite and the local SCORM worker so asynchronous uploads are processed.
-Use `pnpm dev:web` only when deliberately running the worker separately.
+starts Vite for the application on port 3000, the isolated learning origin on
+port 3001 and the local SCORM worker, so asynchronous uploads are processed and
+modules run inside the learner workspace. Use `pnpm dev:web` only when
+deliberately running the learning origin and worker separately.
 Server and worker events are bounded structured JSON. `UPSKILL_LOG_LEVEL` may
 be `info`, `warn`, `error` or `off` for operational events; committed audit
 projections are always emitted. EC2 sends both service streams to journald so a
@@ -49,6 +51,8 @@ The worker moves queued versions to ready or rejected after validation.
 Administrators can remove terminal versions only when no course version or
 learner attempt references them. Removal is audited, and an outbox job clears
 the exact quarantine and learning-content prefixes with retry and DLQ support.
+Each module version lists and links the exact draft, published or archived
+course versions that reference it.
 Course authoring is available at `/admin/courses`. Drafts contain reorderable
 sections with exact SCORM, published-survey and private PDF resource versions.
 Published versions are immutable, so structural changes require an explicit new
@@ -57,10 +61,12 @@ archived course can be permanently deleted only when it has no enrolment or
 commerce history. The learner workspace shows derived item and section progress.
 Survey authoring is available at `/admin/surveys`; published question sets are
 immutable, and entitled learners submit exact-version responses that contribute
-to section and course completion.
+to section and course completion. The survey library identifies every course
+version using each immutable survey version.
 Private PDF resources are managed at `/admin/resources`. Uploads create stable
 resources or immutable new versions; unreferenced versions can be removed, with
 durable audit and retryable exact-object cleanup through the content worker.
+Referenced PDF versions link back to each exact course version that uses them.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:

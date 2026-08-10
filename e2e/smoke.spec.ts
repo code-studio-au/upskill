@@ -25,6 +25,83 @@ async function cleanupScormPackageFixture(
   });
 }
 
+async function cleanupLearnerScormPlayerFixture(
+  database: Client,
+  ids: {
+    course: string;
+    courseVersion: string;
+    enrollment: string;
+    package: string;
+    packageVersion: string;
+  },
+): Promise<void> {
+  const attempts = await database.query<{ id: string }>(
+    `select id from scorm_attempt where "enrollmentId" = $1`,
+    [ids.enrollment],
+  );
+  const attemptIds = attempts.rows.map((attempt) => attempt.id);
+  await withPgAuditMaintenance(database, async (transaction) => {
+    if (attemptIds.length > 0) {
+      await transaction.query(
+        `delete from outbox_event where "aggregateId" = any($1::text[])`,
+        [attemptIds],
+      );
+      await transaction.query(
+        `delete from audit_event where "subjectId" = any($1::text[])`,
+        [attemptIds],
+      );
+      await transaction.query(
+        `delete from scorm_attempt_session where "attemptId" = any($1::text[])`,
+        [attemptIds],
+      );
+      await transaction.query(
+        `delete from scorm_launch_token where "attemptId" = any($1::text[])`,
+        [attemptIds],
+      );
+    }
+    await transaction.query(
+      `delete from outbox_event where "aggregateId" = $1`,
+      [ids.enrollment],
+    );
+    await transaction.query(
+      `delete from audit_event where "subjectId" = any($1::text[]) or metadata @> $2::jsonb`,
+      [
+        [ids.enrollment, ids.course, ids.courseVersion],
+        JSON.stringify({ enrollmentId: ids.enrollment }),
+      ],
+    );
+    await transaction.query(
+      `delete from scorm_attempt where "enrollmentId" = $1`,
+      [ids.enrollment],
+    );
+    await transaction.query(`delete from enrollment where id = $1`, [
+      ids.enrollment,
+    ]);
+    await transaction.query(
+      `delete from course_version_item where "courseVersionId" = $1`,
+      [ids.courseVersion],
+    );
+    await transaction.query(
+      `delete from course_version_section where "courseVersionId" = $1`,
+      [ids.courseVersion],
+    );
+    await transaction.query(
+      `delete from course_version_module where "courseVersionId" = $1`,
+      [ids.courseVersion],
+    );
+    await transaction.query(`delete from scorm_package_version where id = $1`, [
+      ids.packageVersion,
+    ]);
+    await transaction.query(`delete from scorm_package where id = $1`, [
+      ids.package,
+    ]);
+    await transaction.query(`delete from course_version where id = $1`, [
+      ids.courseVersion,
+    ]);
+    await transaction.query(`delete from course where id = $1`, [ids.course]);
+  });
+}
+
 async function cleanupCourseAuthoringFixture(
   database: Client,
   slug: string,
@@ -247,7 +324,7 @@ test("validated catalogue search remains navigable", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Clear search filter: safety" }),
   ).toHaveCount(0);
-  await page.getByRole("link", { name: "View course" }).click();
+  await page.locator('a[href="/courses/psychological-safety-at-work"]').click();
   await expect(
     page.getByRole("heading", { name: "Psychological safety at work" }),
   ).toBeVisible();
@@ -301,6 +378,209 @@ test("SCORM launch boundaries reject the wrong origin and missing session", asyn
     `/api/scorm/launch?token=${"a".repeat(43)}`,
   );
   expect(mainOriginExchange.status()).toBe(404);
+
+  const learningOrigin = process.env.PLAYWRIGHT_LEARNING_PORT
+    ? `http://127.0.0.1:${process.env.PLAYWRIGHT_LEARNING_PORT}`
+    : (process.env.LEARNING_ORIGIN ?? "http://127.0.0.1:3001");
+  const missingAttemptSession = await request.get(
+    `${learningOrigin}/api/scorm/attempts/missing_attempt?runtime=script`,
+  );
+  expect(missingAttemptSession.status()).toBe(401);
+  expect(missingAttemptSession.headers()["content-security-policy"]).toContain(
+    "'unsafe-eval'",
+  );
+  expect(missingAttemptSession.headers()["content-security-policy"]).toContain(
+    `frame-ancestors 'self' ${new URL(testInfo.project.use.baseURL ?? "").origin}`,
+  );
+});
+
+test("learners run SCORM inside the course workspace", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "chromium-mobile",
+    "The complete SCORM player journey runs once; boundaries remain cross-browser.",
+  );
+  const database = new Client({ connectionString: process.env.DATABASE_URL });
+  const ids = {
+    course: "e2e_scorm_player_course",
+    courseVersion: "e2e_scorm_player_course_version",
+    enrollment: "e2e_scorm_player_enrollment",
+    package: "e2e_scorm_player_package",
+    packageVersion: "e2e_scorm_player_package_version",
+  };
+  const sectionId = "e2e_scorm_player_section";
+  const itemId = "e2e_scorm_player_item";
+  await database.connect();
+  try {
+    await cleanupLearnerScormPlayerFixture(database, ids);
+    const learner = await database.query<{ id: string }>(
+      `select id from "user" where email = 'admin@example.com'`,
+    );
+    const learnerId = learner.rows[0]?.id;
+    expect(learnerId).toBeTruthy();
+    await database.query(
+      `insert into course (id, slug, title, status) values ($1, $2, $3, 'published')`,
+      [ids.course, "e2e-scorm-player", "E2E SCORM player course"],
+    );
+    await database.query(
+      `insert into course_version (id, "courseId", version, content, "publishedAt") values ($1, $2, 1, $3::jsonb, now())`,
+      [
+        ids.courseVersion,
+        ids.course,
+        JSON.stringify({
+          title: "E2E SCORM player course",
+          summary: "Verifies embedded learner playback.",
+          description: "Browser fixture",
+          topic: "technology",
+          durationMinutes: 5,
+          priceCents: 0,
+          salePriceCents: null,
+          currency: "AUD",
+          featured: false,
+          listInStore: false,
+          hasCompletionCertificate: false,
+          prerequisites: [],
+          accreditations: [],
+          modules: [
+            {
+              title: "E2E embedded module",
+              phase: "content",
+              durationMinutes: 5,
+            },
+          ],
+        }),
+      ],
+    );
+    await database.query(
+      `insert into scorm_package (id, title) values ($1, $2)`,
+      [ids.package, "E2E embedded package"],
+    );
+    await database.query(
+      `insert into scorm_package_version
+        (id, "packageId", version, status, standard, "contentPrefix", "launchPath", sha256, manifest, "sourceBytes", "publishedAt")
+       values ($1, $2, 1, 'ready', 'scorm-1.2', 'e2e/scorm/player', 'index.html', $3, '{}'::jsonb, 1024, now())`,
+      [ids.packageVersion, ids.package, "9".repeat(64)],
+    );
+    await database.query(
+      `insert into course_version_module ("courseVersionId", position, "scormPackageVersionId") values ($1, 0, $2)`,
+      [ids.courseVersion, ids.packageVersion],
+    );
+    await database.query(
+      `insert into course_version_section (id, "courseVersionId", position, title, description) values ($1, $2, 0, $3, $4)`,
+      [sectionId, ids.courseVersion, "Learning", "Complete the module."],
+    );
+    await database.query(
+      `insert into course_version_item
+        (id, "courseVersionId", "sectionId", position, kind, title, required, "durationMinutes", "modulePosition", "scormPackageVersionId")
+       values ($1, $2, $3, 0, 'scorm', $4, true, 5, 0, $5)`,
+      [
+        itemId,
+        ids.courseVersion,
+        sectionId,
+        "E2E embedded module",
+        ids.packageVersion,
+      ],
+    );
+    await database.query(
+      `insert into enrollment
+        (id, "userId", "courseVersionId", status, "enrolledAt")
+       values ($1, $2, $3, 'active', now())`,
+      [ids.enrollment, learnerId, ids.courseVersion],
+    );
+
+    const learningOrigin = process.env.PLAYWRIGHT_LEARNING_PORT
+      ? `http://127.0.0.1:${process.env.PLAYWRIGHT_LEARNING_PORT}`
+      : (process.env.LEARNING_ORIGIN ?? "http://127.0.0.1:3001");
+    await page.route(
+      `${learningOrigin}/api/scorm/attempts/*/content/index.html`,
+      async (route) => {
+        await route.fulfill({
+          body: `<!doctype html><html><body><h1>Embedded SCO loaded</h1><button id="complete" type="button">Complete module</button><script>
+            const api = window.parent.API;
+            api.LMSInitialize("");
+            document.getElementById("complete").addEventListener("click", () => {
+              api.LMSSetValue("cmi.core.lesson_status", "completed");
+              api.LMSSetValue("cmi.core.lesson_location", "finished");
+              api.LMSFinish("");
+            });
+          </script></body></html>`,
+          contentType: "text/html",
+          headers: {
+            "content-security-policy": `default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; frame-ancestors 'self' ${new URL(testInfo.project.use.baseURL ?? "").origin}`,
+          },
+          status: 200,
+        });
+      },
+    );
+    await page.goto("/login");
+    await page.getByLabel("Email address").fill("admin@example.com");
+    await page
+      .locator('input[name="password"]')
+      .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
+    await page.getByRole("button", { name: "Sign in" }).click();
+    await expect(page).toHaveURL(/\/dashboard$/);
+    await page.goto(`/learn/${ids.enrollment}`);
+    const moduleCard = page.getByRole("listitem").filter({
+      has: page.getByText("E2E embedded module", { exact: true }),
+    });
+    await moduleCard.getByRole("button", { name: "Launch" }).click();
+    const shell = page.frameLocator('iframe[title="E2E embedded module"]');
+    const sco = shell.frameLocator("#scorm-content");
+    await expect(
+      sco.getByRole("heading", { name: "Embedded SCO loaded" }),
+    ).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => Boolean(document.fullscreenElement)))
+      .toBe(true);
+    await page.getByRole("button", { name: "Click here to exit" }).click();
+    await expect
+      .poll(() => page.evaluate(() => Boolean(document.fullscreenElement)))
+      .toBe(false);
+    await expect(moduleCard.locator("iframe")).toHaveCount(0);
+    await moduleCard.getByRole("button", { name: "Launch" }).click();
+    await expect(
+      page
+        .frameLocator('iframe[title="E2E embedded module"]')
+        .frameLocator("#scorm-content")
+        .getByRole("heading", { name: "Embedded SCO loaded" }),
+    ).toBeVisible();
+    await sco.getByRole("button", { name: "Complete module" }).click();
+    await expect(page).toHaveURL(`/learn/${ids.enrollment}`);
+    await expect
+      .poll(async () => {
+        const attempt = await database.query<{ status: string }>(
+          `select status from scorm_attempt where "enrollmentId" = $1 order by "attemptNumber" desc limit 1`,
+          [ids.enrollment],
+        );
+        return attempt.rows[0]?.status;
+      })
+      .toBe("completed");
+    await expect(shell.getByText("Module progress saved.")).toBeVisible();
+    await expect(
+      moduleCard.getByText("Completed", { exact: true }),
+    ).toBeVisible();
+    await page.reload();
+    await moduleCard.getByRole("button", { name: "Launch" }).click();
+    await expect(
+      page
+        .frameLocator('iframe[title="E2E embedded module"]')
+        .frameLocator("#scorm-content")
+        .getByRole("heading", { name: "Embedded SCO loaded" }),
+    ).toBeVisible();
+    await expect
+      .poll(async () => {
+        const attempts = await database.query<{ count: number }>(
+          `select count(*)::integer as count from scorm_attempt where "enrollmentId" = $1 and "modulePosition" = 0`,
+          [ids.enrollment],
+        );
+        return attempts.rows[0]?.count;
+      })
+      .toBe(1);
+  } finally {
+    await cleanupLearnerScormPlayerFixture(database, ids);
+    await database.end();
+  }
 });
 
 test("SCORM administration uploads enforce origin and authentication", async ({
@@ -373,6 +653,21 @@ test("learner dashboard requires a server-validated session", async ({
   await expect(page).toHaveURL(
     /\/login\?redirect=%2Flearn%2Fenrollment_local_leading_change$/,
   );
+});
+
+test("learners can end their authenticated session", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel("Email address").fill("admin@example.com");
+  await page
+    .locator('input[name="password"]')
+    .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login\?redirect=%2Fdashboard$/);
 });
 
 test("platform administrators can inspect learner progress", async ({

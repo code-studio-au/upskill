@@ -42,6 +42,12 @@ failures use the same visibility, retry and dead-letter behavior as ingestion.
 SCORM can locate its same-origin runtime API without receiving the primary
 application's cookies. Arbitrary vendor packages beyond the supported Rise 360
 profile require a new build-versus-buy decision.
+Rise exports require inline scripts, inline styles and dynamic evaluation. Those
+capabilities are prohibited on the application origin and permitted only by the
+SCORM response policy on the dedicated learning origin. The application embeds
+that origin in a sandboxed iframe, the learning origin accepts framing only from
+the configured application origin, and every shell, state and package request
+requires the attempt-scoped HTTP-only session.
 The web process remains in the upload data path, so nginx and the application
 must preserve streaming and coordinated limits. This keeps authorization,
 auditing and cleanup atomic at the application boundary without buffering a

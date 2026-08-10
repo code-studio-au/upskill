@@ -21,6 +21,7 @@ import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineProgress } from "#/features/shared/MantineProgress";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { firstFormError } from "#/features/shared/form-errors";
 import {
   learnerSurveyParamsSchema,
   type LearnerSurveyProgress,
@@ -255,11 +256,7 @@ function LearnerSurveyPage() {
                                 ? field.state.value
                                 : ""
                             }
-                            error={
-                              typeof field.state.meta.errors[0] === "string"
-                                ? field.state.meta.errors[0]
-                                : undefined
-                            }
+                            error={firstFormError(field.state.meta.errors)}
                             onBlur={field.handleBlur}
                             data={[
                               { value: "", label: "Choose an answer" },
@@ -285,8 +282,20 @@ function LearnerSurveyPage() {
                           const selected = Array.isArray(field.state.value)
                             ? field.state.value
                             : [];
+                          const validationError = firstFormError(
+                            field.state.meta.errors,
+                          );
+                          const errorId = `${item.id}-answer-error`;
                           return (
-                            <Stack gap="xs">
+                            <Stack
+                              gap="xs"
+                              role="group"
+                              aria-label={item.prompt}
+                              aria-invalid={validationError ? true : undefined}
+                              aria-describedby={
+                                validationError ? errorId : undefined
+                              }
+                            >
                               {item.options.map((option) => (
                                 <MantineCheckbox
                                   key={option.id}
@@ -306,6 +315,16 @@ function LearnerSurveyPage() {
                                   }}
                                 />
                               ))}
+                              {validationError ? (
+                                <Text
+                                  c="red.7"
+                                  id={errorId}
+                                  role="alert"
+                                  size="sm"
+                                >
+                                  {validationError}
+                                </Text>
+                              ) : null}
                             </Stack>
                           );
                         }}
@@ -322,11 +341,7 @@ function LearnerSurveyPage() {
                                 ? field.state.value
                                 : ""
                             }
-                            error={
-                              typeof field.state.meta.errors[0] === "string"
-                                ? field.state.meta.errors[0]
-                                : undefined
-                            }
+                            error={firstFormError(field.state.meta.errors)}
                             onBlur={field.handleBlur}
                             onChange={(event) => {
                               const value = event.currentTarget.value;

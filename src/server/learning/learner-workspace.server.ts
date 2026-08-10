@@ -6,6 +6,11 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { findEffectiveModuleCompletion } from "#/server/learning/progress-overrides.server";
 
+const dateFormatter = new Intl.DateTimeFormat("en-AU", {
+  dateStyle: "medium",
+  timeZone: "Australia/Sydney",
+});
+
 const legacySectionDetails = {
   "pre-learning": {
     title: "Before you begin",
@@ -200,8 +205,8 @@ export async function findLearnerWorkspace(
       courseTitle: content.title,
       courseSummary: content.summary,
       completionStatus: row.status === "completed" ? "completed" : "incomplete",
-      enrolledAt: row.enrolledAt.toISOString(),
-      expiresAt: row.expiresAt?.toISOString() ?? null,
+      enrolledOn: dateFormatter.format(row.enrolledAt),
+      expiresOn: row.expiresAt ? dateFormatter.format(row.expiresAt) : null,
       modules: content.modules.map((module, position) => ({
         position,
         title: module.title,

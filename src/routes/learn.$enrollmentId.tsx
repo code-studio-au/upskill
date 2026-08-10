@@ -16,12 +16,6 @@ import {
 import { getLearnerWorkspace } from "#/server/functions/learner";
 import classes from "./learn.$enrollmentId.module.css";
 
-const dateFormatter = new Intl.DateTimeFormat("en-AU", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
-
 export const Route = createFileRoute("/learn/$enrollmentId")({
   ssr: "data-only",
   loader: async ({ params }) => {
@@ -97,18 +91,14 @@ function LearnerWorkspacePage() {
                 <Text size="sm" c="dimmed">
                   Enrolled
                 </Text>
-                <Text fw={600}>
-                  {dateFormatter.format(new Date(workspace.enrolledAt))}
-                </Text>
+                <Text fw={600}>{workspace.enrolledOn}</Text>
               </div>
-              {workspace.expiresAt ? (
+              {workspace.expiresOn ? (
                 <div>
                   <Text size="sm" c="dimmed">
                     Access until
                   </Text>
-                  <Text fw={600}>
-                    {dateFormatter.format(new Date(workspace.expiresAt))}
-                  </Text>
+                  <Text fw={600}>{workspace.expiresOn}</Text>
                 </div>
               ) : null}
               <Button component={Link} to="/dashboard" variant="light">
@@ -173,9 +163,6 @@ function LearnerWorkspacePage() {
                     <ol className={classes.moduleList}>
                       {section.items.map((item) => (
                         <li className={classes.module} key={item.id}>
-                          <span className={classes.moduleNumber}>
-                            {item.position + 1}
-                          </span>
                           <div>
                             <Text fw={600}>{item.title}</Text>
                             <Text size="xs" c="dimmed" tt="capitalize">
@@ -225,8 +212,11 @@ function ItemAction({
   enrollmentId: string;
 }) {
   const router = useRouter();
-  const [launching, setLaunching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [launchStatus, setLaunchStatus] = useState<0 | 1 | 2>(0);
+  const [launchUrl, setLaunchUrl] = useState<string | null>(null);
+  const refreshSoon = () => {
+    window.setTimeout(() => void router.invalidate(), 750);
+  };
 
   if (item.kind === "resource" && item.resourceVersionId)
     return (
@@ -237,9 +227,7 @@ function ItemAction({
         rel="noreferrer"
         variant="light"
         size="xs"
-        onClick={() => {
-          window.setTimeout(() => void router.invalidate(), 750);
-        }}
+        onClick={refreshSoon}
       >
         Open PDF
       </Button>
@@ -267,45 +255,57 @@ function ItemAction({
       <div className={classes.itemAction}>
         <Button
           size="xs"
-          loading={launching}
-          onClick={() => {
-            const learningWindow = window.open("", "_blank");
-            if (learningWindow) learningWindow.opener = null;
-            setLaunching(true);
-            setError(null);
-            void fetch("/api/scorm/launches", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                enrollmentId,
-                modulePosition: item.modulePosition,
-              }),
-            })
+          loading={launchStatus === 1}
+          onClick={(event) => {
+            if (launchUrl) return void document.exitFullscreen();
+            const player = event.currentTarget.parentElement;
+            if (!player) return;
+            player.onfullscreenchange = () => {
+              if (!document.fullscreenElement) {
+                setLaunchUrl(null);
+                refreshSoon();
+              }
+            };
+            setLaunchStatus(1);
+            void player
+              .requestFullscreen()
+              .then(() =>
+                fetch("/api/scorm/launches", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    enrollmentId,
+                    modulePosition: item.modulePosition,
+                  }),
+                }),
+              )
               .then(async (response) => {
                 const result = (await response.json()) as {
-                  status?: string;
                   launchUrl?: string;
                 };
-                if (!response.ok || !result.launchUrl)
-                  throw new Error("launch_failed");
-                if (learningWindow) learningWindow.location = result.launchUrl;
-                else window.open(result.launchUrl, "_blank", "noopener");
+                if (!response.ok || !result.launchUrl) throw Error();
+                setLaunchUrl(result.launchUrl);
+                setLaunchStatus(0);
               })
               .catch(() => {
-                learningWindow?.close();
-                setError("Could not launch");
-              })
-              .finally(() => {
-                setLaunching(false);
+                setLaunchStatus(2);
               });
           }}
         >
-          Launch
+          {launchUrl
+            ? "Click here to exit"
+            : launchStatus === 2
+              ? "Retry"
+              : "Launch"}
         </Button>
-        {error ? (
-          <Text c="red" size="xs">
-            {error}
-          </Text>
+        {launchUrl ? (
+          <iframe
+            className={classes.playerFrame}
+            src={launchUrl}
+            title={item.title}
+            sandbox="allow-same-origin allow-scripts"
+            onLoad={() => void router.invalidate()}
+          />
         ) : null}
       </div>
     );

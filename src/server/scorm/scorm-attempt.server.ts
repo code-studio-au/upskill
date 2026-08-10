@@ -64,7 +64,7 @@ export async function createScormLaunch(
         ])
         .where("enrollment.id", "=", enrollmentId)
         .where("enrollment.userId", "=", user.id)
-        .forUpdate()
+        .forUpdate("enrollment")
         .executeTakeFirst();
       if (!enrollment) return { status: "not-found" } as const;
       if (!accessAvailable(enrollment))
@@ -93,6 +93,15 @@ export async function createScormLaunch(
         return { status: "unavailable" } as const;
 
       let attempt = await transaction
+        .selectFrom("scorm_attempt")
+        .select(["id", "status"])
+        .where("enrollmentId", "=", enrollment.id)
+        .where("modulePosition", "=", modulePosition)
+        .where("status", "=", "completed")
+        .orderBy("attemptNumber", "desc")
+        .limit(1)
+        .executeTakeFirst();
+      attempt ??= await transaction
         .selectFrom("scorm_attempt")
         .select(["id", "status"])
         .where("enrollmentId", "=", enrollment.id)
@@ -211,7 +220,7 @@ export async function exchangeScormLaunchToken(
           "enrollment.removedAt",
         ])
         .where("scorm_launch_token.digest", "=", digestScormToken(token))
-        .forUpdate()
+        .forUpdate("scorm_launch_token")
         .executeTakeFirst();
       if (
         !launch ||
@@ -288,6 +297,89 @@ function sessionIsAvailable(session: {
   );
 }
 
+export interface AuthorizedScormPlayer {
+  contentPrefix: string;
+  launchPath: string;
+  state: {
+    attemptId: string;
+    entry: "ab-initio" | "resume";
+    learnerId: string;
+    learnerName: string;
+    lessonStatus: ScormProgressInput["lessonStatus"];
+    location: string;
+    scoreMax: number | null;
+    scoreMin: number | null;
+    scoreRaw: number | null;
+    suspendData: string;
+    totalTimeSeconds: number;
+  };
+}
+
+export async function findAuthorizedScormPlayer(
+  attemptId: string,
+  sessionToken: string,
+): Promise<AuthorizedScormPlayer | null> {
+  const row = await getDatabase()
+    .selectFrom("scorm_attempt_session")
+    .innerJoin(
+      "scorm_attempt",
+      "scorm_attempt.id",
+      "scorm_attempt_session.attemptId",
+    )
+    .innerJoin("enrollment", "enrollment.id", "scorm_attempt.enrollmentId")
+    .innerJoin("user", "user.id", "enrollment.userId")
+    .innerJoin(
+      "scorm_package_version",
+      "scorm_package_version.id",
+      "scorm_attempt.scormPackageVersionId",
+    )
+    .select([
+      "scorm_attempt_session.expiresAt",
+      "scorm_attempt_session.revokedAt",
+      "enrollment.status as enrollmentStatus",
+      "enrollment.expiresAt as enrollmentExpiresAt",
+      "enrollment.removedAt",
+      "scorm_attempt.id as attemptId",
+      "scorm_attempt.lessonStatus",
+      "scorm_attempt.location",
+      "scorm_attempt.suspendData",
+      "scorm_attempt.scoreRaw",
+      "scorm_attempt.scoreMin",
+      "scorm_attempt.scoreMax",
+      "scorm_attempt.totalTimeSeconds",
+      "user.id as learnerId",
+      "user.name as learnerName",
+      "scorm_package_version.status as packageStatus",
+      "scorm_package_version.contentPrefix",
+      "scorm_package_version.launchPath",
+    ])
+    .where("scorm_attempt_session.digest", "=", digestScormToken(sessionToken))
+    .where("scorm_attempt_session.attemptId", "=", attemptId)
+    .executeTakeFirst();
+  if (!row || !sessionIsAvailable(row) || row.packageStatus !== "ready")
+    return null;
+  return {
+    contentPrefix: row.contentPrefix,
+    launchPath: row.launchPath,
+    state: {
+      attemptId: row.attemptId,
+      entry:
+        row.location || row.suspendData || row.totalTimeSeconds > 0
+          ? "resume"
+          : "ab-initio",
+      learnerId: row.learnerId,
+      learnerName: row.learnerName,
+      lessonStatus: row.lessonStatus,
+      location: row.location,
+      scoreMax: row.scoreMax,
+      scoreMin: row.scoreMin,
+      scoreRaw: row.scoreRaw,
+      suspendData: row.suspendData,
+      totalTimeSeconds: row.totalTimeSeconds,
+    },
+  };
+}
+
 export async function authorizeScormAttemptSession(
   attemptId: string,
   sessionToken: string,
@@ -349,12 +441,13 @@ export async function recordScormProgress(
         .forUpdate()
         .executeTakeFirst();
       if (!session || !sessionIsAvailable(session)) return "unauthorized";
-      if (session.attemptStatus === "completed") return "completed";
-
-      const now = new Date();
       const completed =
         progress.lessonStatus === "completed" ||
         progress.lessonStatus === "passed";
+      if (session.attemptStatus === "completed" && !completed)
+        return "completed";
+
+      const now = new Date();
       await transaction
         .updateTable("scorm_attempt")
         .set({
@@ -367,7 +460,9 @@ export async function recordScormProgress(
           scoreMax: progress.scoreMax,
           totalTimeSeconds: progress.totalTimeSeconds,
           lastActivityAt: now,
-          completedAt: completed ? now : null,
+          completedAt: completed
+            ? sql<Date>`coalesce("completedAt", ${now})`
+            : null,
           updatedAt: now,
         })
         .where("id", "=", attemptId)

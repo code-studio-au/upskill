@@ -16,6 +16,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { logServerEvent } from "#/server/logging/server-logger";
+import { findContentCourseVersionUsage } from "#/server/admin/content-usage.server";
 
 function blankSurvey(title: string): SurveyVersionContent {
   return {
@@ -34,7 +35,7 @@ function blankSurvey(title: string): SurveyVersionContent {
 
 export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
   const database = getDatabase();
-  const [surveys, versions] = await Promise.all([
+  const [surveys, versions, courseUsage] = await Promise.all([
     database
       .selectFrom("survey")
       .select(["id", "title"])
@@ -42,9 +43,10 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
       .execute(),
     database
       .selectFrom("survey_version")
-      .select(["surveyId", "version", "publishedAt"])
+      .select(["id", "surveyId", "version", "publishedAt"])
       .orderBy("version", "desc")
       .execute(),
+    findContentCourseVersionUsage(),
   ]);
   return surveys.map((survey) => {
     const surveyVersions = versions.filter(
@@ -60,6 +62,12 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
       publishedVersions: surveyVersions.filter(
         (version) => version.publishedAt !== null,
       ).length,
+      versions: surveyVersions.map((version) => ({
+        id: version.id,
+        version: version.version,
+        publishedAt: version.publishedAt?.toISOString() ?? null,
+        courseUsages: courseUsage.surveys.get(version.id) ?? [],
+      })),
     };
   });
 }

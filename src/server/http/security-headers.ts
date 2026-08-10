@@ -33,7 +33,6 @@ export function buildContentSecurityPolicy(
 }
 
 export function buildLearningContentSecurityPolicy(
-  nonce: string,
   applicationOrigin: string,
 ): string {
   const directives = {
@@ -42,15 +41,15 @@ export function buildLearningContentSecurityPolicy(
     "default-src": ["'self'"],
     "font-src": ["'self'", "data:"],
     "form-action": ["'none'"],
-    "frame-ancestors": [applicationOrigin],
+    "frame-ancestors": ["'self'", applicationOrigin],
     "frame-src": ["'self'"],
     "img-src": ["'self'", "data:", "blob:"],
     "media-src": ["'self'", "blob:"],
     "object-src": ["'none'"],
-    "script-src": ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'"],
-    "script-src-attr": ["'none'"],
-    "style-src": ["'self'", `'nonce-${nonce}'`],
-    "style-src-attr": ["'none'"],
+    "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+    "script-src-attr": ["'unsafe-inline'"],
+    "style-src": ["'self'", "'unsafe-inline'"],
+    "style-src-attr": ["'unsafe-inline'"],
     "worker-src": ["'self'", "blob:"],
   } as const;
   return Object.entries(directives)
@@ -74,7 +73,7 @@ export function applySecurityHeaders(
   headers.set(
     "Content-Security-Policy",
     isLearningResponse
-      ? buildLearningContentSecurityPolicy(nonce, normalizedApplicationOrigin)
+      ? buildLearningContentSecurityPolicy(normalizedApplicationOrigin)
       : buildContentSecurityPolicy(nonce, normalizedLearningOrigin),
   );
   if (isLearningResponse) headers.delete("Cross-Origin-Opener-Policy");

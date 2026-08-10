@@ -18,6 +18,14 @@ const csp = fs.readFileSync(
   path.join(root, "src/server/http/security-headers.ts"),
   "utf8",
 );
+const applicationCsp = csp.slice(
+  csp.indexOf("const DIRECTIVES"),
+  csp.indexOf("export function buildLearningContentSecurityPolicy"),
+);
+const learningCsp = csp.slice(
+  csp.indexOf("export function buildLearningContentSecurityPolicy"),
+  csp.indexOf("export function applySecurityHeaders"),
+);
 const zodAdapter = fs.readFileSync(
   path.join(root, "src/validation/zod.ts"),
   "utf8",
@@ -101,14 +109,32 @@ if (!gitignore.split(/\r?\n/).includes(".env"))
   failures.push(".gitignore must ignore .env");
 if (!gitignore.split(/\r?\n/).includes(".env.*"))
   failures.push(".gitignore must ignore environment variants");
-if (!csp.includes('"script-src-attr": ["\'none\'"]'))
-  failures.push("CSP must prohibit script attributes");
-if (/script-src[^\n]*unsafe-inline/.test(csp))
-  failures.push("CSP script-src must not allow unsafe-inline");
-if (!csp.includes('"style-src-attr": ["\'unsafe-inline\'"]'))
+if (!applicationCsp.includes('"script-src-attr": ["\'none\'"]'))
+  failures.push("Application CSP must prohibit script attributes");
+if (
+  !applicationCsp.includes(
+    "\"script-src\": [\"'self'\", `'nonce-${nonce}'`, \"'strict-dynamic'\"]",
+  )
+)
+  failures.push("Application CSP script-src must remain nonce-only");
+if (!applicationCsp.includes('"style-src-attr": ["\'unsafe-inline\'"]'))
   failures.push("Mantine style-attribute exception must stay explicit");
-if (!csp.includes("\"style-src-elem\": [\"'self'\", `'nonce-${nonce}'`]"))
+if (
+  !applicationCsp.includes(
+    "\"style-src-elem\": [\"'self'\", `'nonce-${nonce}'`]",
+  )
+)
   failures.push("Style elements must require the request nonce");
+for (const learningException of [
+  '"script-src": ["\'self\'", "\'unsafe-inline\'", "\'unsafe-eval\'"]',
+  '"script-src-attr": ["\'unsafe-inline\'"]',
+  '"style-src-attr": ["\'unsafe-inline\'"]',
+]) {
+  if (!learningCsp.includes(learningException))
+    failures.push(
+      `Learning-origin SCORM compatibility policy is missing: ${learningException}`,
+    );
+}
 if (!zodAdapter.includes("z.config({ jitless: true })"))
   failures.push("The shared Zod adapter must disable eval-based JIT probing");
 if (!serverZodAdapter.includes("z.config({ jitless: true })"))

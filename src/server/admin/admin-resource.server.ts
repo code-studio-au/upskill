@@ -17,6 +17,7 @@ import type {
   AdminResourceUploadQuery,
 } from "#/features/resource/resource.schema";
 import { RESOURCE_DELETION_TOPIC } from "#/server/queue/work-message";
+import { findContentCourseVersionUsage } from "#/server/admin/content-usage.server";
 
 const PDF_SIGNATURE = new TextEncoder().encode("%PDF-");
 
@@ -38,7 +39,7 @@ export async function findAdminResources(): Promise<
   Array<AdminResourceSummary>
 > {
   const database = getDatabase();
-  const [versions, usages] = await Promise.all([
+  const [versions, courseUsage] = await Promise.all([
     database
       .selectFrom("learning_resource_version")
       .innerJoin(
@@ -59,16 +60,8 @@ export async function findAdminResources(): Promise<
       .orderBy("learning_resource.id")
       .orderBy("learning_resource_version.version", "desc")
       .execute(),
-    database
-      .selectFrom("course_version_item")
-      .select(["resourceVersionId", sql<number>`count(*)::integer`.as("count")])
-      .where("resourceVersionId", "is not", null)
-      .groupBy("resourceVersionId")
-      .execute(),
+    findContentCourseVersionUsage(),
   ]);
-  const usageByVersion = new Map(
-    usages.map((usage) => [usage.resourceVersionId, usage.count]),
-  );
   const resourceById = new Map<string, AdminResourceSummary>();
   for (const version of versions) {
     let resource = resourceById.get(version.resourceId);
@@ -76,13 +69,15 @@ export async function findAdminResources(): Promise<
       resource = { id: version.resourceId, title: version.title, versions: [] };
       resourceById.set(version.resourceId, resource);
     }
+    const courseUsages = courseUsage.resources.get(version.id) ?? [];
     resource.versions.push({
       id: version.id,
       version: version.version,
       displayName: version.displayName,
       description: version.description,
       sourceBytes: version.sourceBytes,
-      courseUsageCount: usageByVersion.get(version.id) ?? 0,
+      courseUsageCount: courseUsages.length,
+      courseUsages,
     });
   }
   return [...resourceById.values()];

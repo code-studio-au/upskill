@@ -10,9 +10,10 @@ export function SignOutButton() {
     try {
       const response = await fetch("/api/auth/sign-out", {
         method: "POST",
-        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
       });
-      if (response.ok) window.location.assign("/");
+      if (response.ok) location.href = "/";
     } finally {
       setPending(false);
     }

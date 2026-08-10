@@ -80,7 +80,9 @@ reordering or removing content. Archiving removes a course from discovery while
 retaining history. Permanent deletion requires an archived course with no
 enrolment, order-item or access-grant references. Learner item evidence is
 stored, while section completion is derived from required items so it cannot
-drift from module, survey or resource progress.
+drift from module, survey or resource progress. Content libraries expose the
+exact linked course version and its draft, published and archived state so
+administrators can understand reference and removal boundaries.
 
 Published survey versions contain validated written, single-choice and
 multiple-choice questions. Learner responses are entitlement-scoped to an
@@ -92,7 +94,11 @@ stored as immutable evidence without answer content entering centralized logs.
 S3 buckets separate quarantine uploads, immutable learning content, private
 resources/certificates and deployment artifacts. SCORM runs on a dedicated
 learning origin so package scripts do not receive the main application's auth
-cookies. CloudFront signed cookies authorize package file trees.
+cookies or weaken the primary application's CSP. The application embeds the
+attempt player in a sandboxed iframe. Rise's required inline-script, inline-style
+and evaluation compatibility policy exists only on attempt-scoped responses
+from that learning origin. An authorized streaming proxy rechecks the attempt
+session before exposing each immutable package file.
 Package versions, course-version mappings and learner attempts are immutable or
 append-only records. Five-minute launch credentials are stored only as SHA-256
 digests and exchanged on the learning origin for HTTP-only, attempt-scoped
