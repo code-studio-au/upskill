@@ -66,6 +66,7 @@
     "@mantine/core": "9.5.1",
     "@mantine/hooks": "9.5.1",
     "@tabler/icons-react": "3.46.0",
+    "@tanstack/react-form": "1.20.0",
     "@tanstack/react-router": "1.170.23",
     "@tanstack/react-start": "1.168.40",
     "@zip.js/zip.js": "2.8.36",

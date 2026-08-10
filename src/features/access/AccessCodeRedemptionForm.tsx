@@ -1,12 +1,14 @@
 import { Alert, Button, Paper, Stack, Text, Title } from "@mantine/core";
+import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { useState, useSyncExternalStore, type SyntheticEvent } from "react";
+import { useState, useSyncExternalStore } from "react";
 import {
   accessCodeInputSchema,
   type AccessCodeRedemptionResult,
 } from "./access-code.schema";
 import { redeemLearnerAccessCode } from "#/server/functions/learner";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { firstFormError } from "#/features/shared/form-errors";
 import classes from "./AccessCodeRedemptionForm.module.css";
 
 const subscribeToHydration = () => () => undefined;
@@ -47,42 +49,34 @@ export function AccessCodeRedemptionForm() {
     () => true,
     () => false,
   );
-  const [code, setCode] = useState("");
-  const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<Message | null>(null);
-  const [codeError, setCodeError] = useState<string>();
-
-  async function submit(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    const validation = accessCodeInputSchema.safeParse({ code });
-    if (!validation.success) {
-      setCodeError(validation.error.issues[0]?.message);
-      return;
-    }
-    setCodeError(undefined);
-    setPending(true);
-    setMessage(null);
-    try {
-      const result = await redeemLearnerAccessCode({ data: validation.data });
-      if (result.status === "unauthenticated") {
-        window.location.assign("/login?redirect=%2Fdashboard");
-        return;
+  const codeForm = useForm({
+    defaultValues: { code: "" },
+    validators: { onSubmit: accessCodeInputSchema },
+    onSubmit: async ({ value }) => {
+      const validation = accessCodeInputSchema.safeParse(value);
+      if (!validation.success) return;
+      setMessage(null);
+      try {
+        const result = await redeemLearnerAccessCode({ data: validation.data });
+        if (result.status === "unauthenticated") {
+          window.location.assign("/login?redirect=%2Fdashboard");
+          return;
+        }
+        setMessage(resultMessage(result));
+        if (result.status === "enrolled") {
+          codeForm.reset();
+          await router.invalidate();
+        }
+      } catch {
+        setMessage({
+          color: "red",
+          title: "Code not applied",
+          body: "Access-code redemption is temporarily unavailable. Please try again.",
+        });
       }
-      setMessage(resultMessage(result));
-      if (result.status === "enrolled") {
-        setCode("");
-        await router.invalidate();
-      }
-    } catch {
-      setMessage({
-        color: "red",
-        title: "Code not applied",
-        body: "Access-code redemption is temporarily unavailable. Please try again.",
-      });
-    } finally {
-      setPending(false);
-    }
-  }
+    },
+  });
 
   return (
     <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
@@ -103,33 +97,47 @@ export function AccessCodeRedemptionForm() {
           method="post"
           action="/dashboard"
           onSubmit={(event) => {
-            void submit(event);
+            event.preventDefault();
+            event.stopPropagation();
+            void codeForm.handleSubmit();
           }}
         >
           <div className={classes.controls}>
-            <MantineTextInput
-              label="Access code"
-              name="code"
-              value={code}
-              onChange={(event) => {
-                setCode(event.currentTarget.value);
-                setCodeError(undefined);
-              }}
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              withAsterisk
-              error={codeError}
-              classNames={{ input: classes.codeInput }}
-            />
-            <Button
-              type="submit"
-              loading={pending}
-              disabled={!hydrated}
-              className={classes.submit}
+            <codeForm.Field name="code">
+              {(field) => (
+                <MantineTextInput
+                  label="Access code"
+                  name={field.name}
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  withAsterisk
+                  error={firstFormError(field.state.meta.errors)}
+                  classNames={{ input: classes.codeInput }}
+                />
+              )}
+            </codeForm.Field>
+            <codeForm.Subscribe
+              selector={(state) =>
+                [state.canSubmit, state.isSubmitting] as const
+              }
             >
-              Apply access code
-            </Button>
+              {([canSubmit, isSubmitting]) => (
+                <Button
+                  type="submit"
+                  loading={isSubmitting}
+                  disabled={!hydrated || !canSubmit}
+                  className={classes.submit}
+                >
+                  Apply access code
+                </Button>
+              )}
+            </codeForm.Subscribe>
           </div>
         </form>
       </Stack>

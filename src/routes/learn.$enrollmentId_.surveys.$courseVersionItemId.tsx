@@ -8,13 +8,14 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { useForm } from "@tanstack/react-form";
 import {
   createFileRoute,
   Link,
   notFound,
   redirect,
 } from "@tanstack/react-router";
-import { useState, type SyntheticEvent } from "react";
+import { useState } from "react";
 import classes from "./learner-survey.module.css";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
@@ -23,7 +24,6 @@ import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import {
   learnerSurveyParamsSchema,
   type LearnerSurveyProgress,
-  type SurveyAnswerValue,
 } from "#/features/survey/survey.schema";
 import {
   advanceLearnerSurveyStep,
@@ -79,8 +79,65 @@ function LearnerSurveyPage() {
   const [progress, setProgress] = useState<LearnerSurveyProgress>(
     survey.progress,
   );
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string>();
+  const answerForm = useForm({
+    defaultValues: {
+      answer: steps[initialIndex]?.item.id
+        ? survey.progress.answers[steps[initialIndex].item.id]
+        : undefined,
+    },
+    validators: {
+      onSubmit: ({ value }) => {
+        const currentItem = steps[displayIndex]?.item;
+        if (!currentItem || currentItem.kind === "instruction")
+          return undefined;
+        if (!currentItem.required) return undefined;
+        if (typeof value.answer === "string" && value.answer.trim())
+          return undefined;
+        if (Array.isArray(value.answer) && value.answer.length > 0)
+          return undefined;
+        return {
+          fields: { answer: "Answer this question before continuing." },
+        };
+      },
+    },
+    onSubmit: async ({ value }) => {
+      const currentStep = steps[displayIndex];
+      if (!currentStep) return;
+      setError(undefined);
+      const currentItem = currentStep.item;
+      const answer =
+        currentItem.kind === "instruction" ? undefined : value.answer;
+      const result = await advanceLearnerSurveyStep({
+        data: {
+          enrollmentId: survey.enrollmentId,
+          courseVersionItemId: survey.courseVersionItemId,
+          itemId: currentItem.id,
+          ...(typeof answer === "undefined" ? {} : { answer }),
+        },
+      });
+      if (result.status === "invalid") {
+        setError(result.message);
+        return;
+      }
+      if (result.status !== "advanced" && result.status !== "submitted") {
+        setError(
+          "Progress could not be saved. Return to the course and try again.",
+        );
+        return;
+      }
+      setProgress(result.progress);
+      setAnswers(result.progress.answers);
+      if (result.status === "advanced") {
+        const nextIndex = Math.min(displayIndex + 1, steps.length - 1);
+        const nextItem = steps[nextIndex]?.item;
+        answerForm.reset({
+          answer: nextItem ? result.progress.answers[nextItem.id] : undefined,
+        });
+        setDisplayIndex(nextIndex);
+      }
+    },
+  });
 
   if (survey.submittedAt || progress.completedAt)
     return (
@@ -117,42 +174,6 @@ function LearnerSurveyPage() {
     (candidate) => candidate.id === section.id,
   );
 
-  async function advance(
-    event: SyntheticEvent<HTMLFormElement>,
-  ): Promise<void> {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(undefined);
-    try {
-      const answer = item.kind === "instruction" ? undefined : answers[item.id];
-      const result = await advanceLearnerSurveyStep({
-        data: {
-          enrollmentId: survey.enrollmentId,
-          courseVersionItemId: survey.courseVersionItemId,
-          itemId: item.id,
-          ...(typeof answer === "undefined" ? {} : { answer }),
-        },
-      });
-      if (result.status === "invalid") {
-        setError(result.message);
-        return;
-      }
-      if (result.status !== "advanced" && result.status !== "submitted") {
-        setError(
-          "Progress could not be saved. Return to the course and try again.",
-        );
-        return;
-      }
-      setProgress(result.progress);
-      setAnswers(result.progress.answers);
-      if (result.status === "advanced")
-        setDisplayIndex((current) => Math.min(current + 1, steps.length - 1));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const answer: SurveyAnswerValue | undefined = answers[item.id];
   return (
     <Container size="sm" py="xl">
       <Stack gap="xl">
@@ -199,7 +220,14 @@ function LearnerSurveyPage() {
           </Stack>
         </Paper>
 
-        <form onSubmit={(event) => void advance(event)}>
+        <form
+          noValidate
+          onSubmit={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void answerForm.handleSubmit();
+          }}
+        >
           <Stack gap="lg">
             <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
               <Stack gap="md">
@@ -218,91 +246,145 @@ function LearnerSurveyPage() {
                       {item.required ? " *" : ""}
                     </Title>
                     {item.kind === "single_choice" ? (
-                      <MantineNativeSelect
-                        aria-label={item.prompt}
-                        value={typeof answer === "string" ? answer : ""}
-                        data={[
-                          { value: "", label: "Choose an answer" },
-                          ...item.options.map((option) => ({
-                            value: option.id,
-                            label: option.label,
-                          })),
-                        ]}
-                        onChange={(event) => {
-                          const value = event.currentTarget.value;
-                          setAnswers((current) => ({
-                            ...current,
-                            [item.id]: value,
-                          }));
-                        }}
-                      />
+                      <answerForm.Field name="answer">
+                        {(field) => (
+                          <MantineNativeSelect
+                            aria-label={item.prompt}
+                            value={
+                              typeof field.state.value === "string"
+                                ? field.state.value
+                                : ""
+                            }
+                            error={
+                              typeof field.state.meta.errors[0] === "string"
+                                ? field.state.meta.errors[0]
+                                : undefined
+                            }
+                            onBlur={field.handleBlur}
+                            data={[
+                              { value: "", label: "Choose an answer" },
+                              ...item.options.map((option) => ({
+                                value: option.id,
+                                label: option.label,
+                              })),
+                            ]}
+                            onChange={(event) => {
+                              const value = event.currentTarget.value;
+                              field.handleChange(value);
+                              setAnswers((current) => ({
+                                ...current,
+                                [item.id]: value,
+                              }));
+                            }}
+                          />
+                        )}
+                      </answerForm.Field>
                     ) : item.kind === "multiple_choice" ? (
-                      <Stack gap="xs">
-                        {item.options.map((option) => {
-                          const selected = Array.isArray(answer) ? answer : [];
+                      <answerForm.Field name="answer">
+                        {(field) => {
+                          const selected = Array.isArray(field.state.value)
+                            ? field.state.value
+                            : [];
                           return (
-                            <MantineCheckbox
-                              key={option.id}
-                              label={option.label}
-                              checked={selected.includes(option.id)}
-                              onChange={(checked) => {
-                                setAnswers((current) => ({
-                                  ...current,
-                                  [item.id]: checked
-                                    ? [...selected, option.id]
-                                    : selected.filter((id) => id !== option.id),
-                                }));
-                              }}
-                            />
+                            <Stack gap="xs">
+                              {item.options.map((option) => (
+                                <MantineCheckbox
+                                  key={option.id}
+                                  label={option.label}
+                                  checked={selected.includes(option.id)}
+                                  onChange={(checked) => {
+                                    const value = checked
+                                      ? [...selected, option.id]
+                                      : selected.filter(
+                                          (id) => id !== option.id,
+                                        );
+                                    field.handleChange(value);
+                                    setAnswers((current) => ({
+                                      ...current,
+                                      [item.id]: value,
+                                    }));
+                                  }}
+                                />
+                              ))}
+                            </Stack>
                           );
-                        })}
-                      </Stack>
-                    ) : (
-                      <MantineTextInput
-                        component="textarea"
-                        aria-label={item.prompt}
-                        maxLength={item.maximumLength}
-                        value={typeof answer === "string" ? answer : ""}
-                        onChange={(event) => {
-                          const value = event.currentTarget.value;
-                          setAnswers((current) => ({
-                            ...current,
-                            [item.id]: value,
-                          }));
                         }}
-                      />
+                      </answerForm.Field>
+                    ) : (
+                      <answerForm.Field name="answer">
+                        {(field) => (
+                          <MantineTextInput
+                            component="textarea"
+                            aria-label={item.prompt}
+                            maxLength={item.maximumLength}
+                            value={
+                              typeof field.state.value === "string"
+                                ? field.state.value
+                                : ""
+                            }
+                            error={
+                              typeof field.state.meta.errors[0] === "string"
+                                ? field.state.meta.errors[0]
+                                : undefined
+                            }
+                            onBlur={field.handleBlur}
+                            onChange={(event) => {
+                              const value = event.currentTarget.value;
+                              field.handleChange(value);
+                              setAnswers((current) => ({
+                                ...current,
+                                [item.id]: value,
+                              }));
+                            }}
+                          />
+                        )}
+                      </answerForm.Field>
                     )}
                   </>
                 )}
               </Stack>
             </Paper>
             {error ? <Alert color="red">{error}</Alert> : null}
-            <Group justify="space-between" wrap="wrap">
-              {displayIndex > 0 ? (
-                <Button
-                  variant="default"
-                  disabled={submitting}
-                  onClick={() => {
-                    setError(undefined);
-                    setDisplayIndex((current) => current - 1);
-                  }}
-                >
-                  Previous
-                </Button>
-              ) : (
-                <Link
-                  to="/learn/$enrollmentId"
-                  params={{ enrollmentId: survey.enrollmentId }}
-                >
-                  <Button component="span" variant="default">
-                    Return to course
+            <answerForm.Subscribe selector={(state) => state.isSubmitting}>
+              {(isSubmitting) => (
+                <Group justify="space-between" wrap="wrap">
+                  {displayIndex > 0 ? (
+                    <Button
+                      type="button"
+                      variant="default"
+                      disabled={isSubmitting}
+                      onClick={() => {
+                        setError(undefined);
+                        const previousIndex = displayIndex - 1;
+                        const previousItem = steps[previousIndex]?.item;
+                        answerForm.reset({
+                          answer: previousItem
+                            ? answers[previousItem.id]
+                            : undefined,
+                        });
+                        setDisplayIndex(previousIndex);
+                      }}
+                    >
+                      Previous
+                    </Button>
+                  ) : (
+                    <Link
+                      to="/learn/$enrollmentId"
+                      params={{ enrollmentId: survey.enrollmentId }}
+                    >
+                      <Button component="span" variant="default">
+                        Return to course
+                      </Button>
+                    </Link>
+                  )}
+                  <Button type="submit" loading={isSubmitting}>
+                    {displayIndex === steps.length - 1
+                      ? "Complete survey"
+                      : "Next"}
                   </Button>
-                </Link>
+                </Group>
               )}
-              <Button type="submit" loading={submitting}>
-                {displayIndex === steps.length - 1 ? "Complete survey" : "Next"}
-              </Button>
-            </Group>
+            </answerForm.Subscribe>
           </Stack>
         </form>
       </Stack>

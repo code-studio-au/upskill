@@ -1,13 +1,5 @@
-import {
-  Alert,
-  Badge,
-  Button,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge } from "#/features/shared/Badge";
+import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { useState } from "react";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import {

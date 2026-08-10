@@ -1,13 +1,6 @@
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge } from "#/features/shared/Badge";
+import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { useForm } from "@tanstack/react-form";
 import {
   createFileRoute,
   Link,
@@ -19,6 +12,7 @@ import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { adminCourseCreateSchema } from "#/features/admin-course/admin-course.schema";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { firstFormError } from "#/features/shared/form-errors";
 import {
   createAdminCourse,
   getAdminCourses,
@@ -43,10 +37,29 @@ function AdminCoursesPage() {
   const result = Route.useLoaderData();
   const router = useRouter();
   const [opened, setOpened] = useState(false);
-  const [title, setTitle] = useState("");
-  const [slug, setSlug] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  const courseForm = useForm({
+    defaultValues: { title: "", slug: "" },
+    validators: { onSubmit: adminCourseCreateSchema },
+    onSubmit: async ({ value }) => {
+      const parsed = adminCourseCreateSchema.safeParse(value);
+      if (!parsed.success) return;
+      setError(null);
+      const created = await createAdminCourse({ data: parsed.data });
+      if (created.status !== "ready") {
+        setError(
+          created.status === "conflict"
+            ? "That URL slug is already in use."
+            : "The course could not be created.",
+        );
+        return;
+      }
+      await router.navigate({
+        to: "/admin/courses/$courseId",
+        params: { courseId: created.data.courseId },
+      });
+    },
+  });
 
   if (result.status === "forbidden") return <AdminAccessDenied />;
 
@@ -66,6 +79,8 @@ function AdminCoursesPage() {
         </div>
         <Button
           onClick={() => {
+            courseForm.reset();
+            setError(null);
             setOpened(true);
           }}
         >
@@ -78,7 +93,7 @@ function AdminCoursesPage() {
       ) : (
         <div className={classes.courseGrid}>
           {courses.map((course) => (
-            <Card key={course.id} withBorder radius="lg" padding="lg">
+            <Paper key={course.id} withBorder radius="lg" p="lg">
               <Stack gap="md">
                 <Group justify="space-between" align="start">
                   <div>
@@ -115,94 +130,96 @@ function AdminCoursesPage() {
                   </Button>
                 </Link>
               </Stack>
-            </Card>
+            </Paper>
           ))}
         </div>
       )}
 
       {opened ? (
-        <AppDialog
-          onClose={() => {
-            if (!creating) setOpened(false);
-          }}
-          closeDisabled={creating}
-          title="Create course"
-        >
-          <Stack gap="md">
-            <MantineTextInput
-              label="Course title"
-              value={title}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setTitle(value);
-                setSlug(
-                  value
-                    .toLocaleLowerCase("en-AU")
-                    .replace(/[^a-z0-9]+/g, "-")
-                    .replace(/^-|-$/g, ""),
-                );
+        <courseForm.Subscribe selector={(state) => state.isSubmitting}>
+          {(isSubmitting) => (
+            <AppDialog
+              onClose={() => {
+                if (!isSubmitting) setOpened(false);
               }}
-              required
-            />
-            <MantineTextInput
-              label="URL slug"
-              value={slug}
-              onChange={(event) => {
-                setSlug(event.currentTarget.value);
-              }}
-              required
-            />
-            {error ? <Alert color="red">{error}</Alert> : null}
-            <Group justify="flex-end">
-              <Button
-                variant="default"
-                onClick={() => {
-                  setOpened(false);
-                }}
-                disabled={creating}
-              >
-                Cancel
-              </Button>
-              <Button
-                loading={creating}
-                onClick={() => {
-                  const parsed = adminCourseCreateSchema.safeParse({
-                    title,
-                    slug,
-                  });
-                  if (!parsed.success) {
-                    setError(
-                      "Enter a title and a lowercase hyphenated URL slug.",
-                    );
-                    return;
-                  }
-                  setCreating(true);
-                  setError(null);
-                  void createAdminCourse({ data: parsed.data })
-                    .then(async (created) => {
-                      if (created.status !== "ready") {
-                        setError(
-                          created.status === "conflict"
-                            ? "That URL slug is already in use."
-                            : "The course could not be created.",
-                        );
-                        return;
-                      }
-                      await router.navigate({
-                        to: "/admin/courses/$courseId",
-                        params: { courseId: created.data.courseId },
-                      });
-                    })
-                    .finally(() => {
-                      setCreating(false);
-                    });
+              closeDisabled={isSubmitting}
+              title="Create course"
+            >
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void courseForm.handleSubmit();
                 }}
               >
-                Create draft
-              </Button>
-            </Group>
-          </Stack>
-        </AppDialog>
+                <Stack gap="md">
+                  <courseForm.Field name="title">
+                    {(field) => (
+                      <MantineTextInput
+                        label="Course title"
+                        name={field.name}
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          const value = event.currentTarget.value;
+                          field.handleChange(value);
+                          courseForm.setFieldValue(
+                            "slug",
+                            value
+                              .toLocaleLowerCase("en-AU")
+                              .replace(/[^a-z0-9]+/g, "-")
+                              .replace(/^-|-$/g, ""),
+                          );
+                        }}
+                        error={firstFormError(field.state.meta.errors)}
+                        required
+                      />
+                    )}
+                  </courseForm.Field>
+                  <courseForm.Field name="slug">
+                    {(field) => (
+                      <MantineTextInput
+                        label="URL slug"
+                        name={field.name}
+                        value={field.state.value}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          field.handleChange(event.currentTarget.value);
+                        }}
+                        error={firstFormError(field.state.meta.errors)}
+                        required
+                      />
+                    )}
+                  </courseForm.Field>
+                  {error ? <Alert color="red">{error}</Alert> : null}
+                  <Group justify="flex-end">
+                    <Button
+                      type="button"
+                      variant="default"
+                      onClick={() => {
+                        setOpened(false);
+                      }}
+                      disabled={isSubmitting}
+                    >
+                      Cancel
+                    </Button>
+                    <courseForm.Subscribe selector={(state) => state.canSubmit}>
+                      {(canSubmit) => (
+                        <Button
+                          type="submit"
+                          loading={isSubmitting}
+                          disabled={!canSubmit}
+                        >
+                          Create draft
+                        </Button>
+                      )}
+                    </courseForm.Subscribe>
+                  </Group>
+                </Stack>
+              </form>
+            </AppDialog>
+          )}
+        </courseForm.Subscribe>
       ) : null}
     </Stack>
   );

@@ -1,4 +1,5 @@
-import { Badge, Button, Card, Group, Stack } from "@mantine/core";
+import { Badge } from "#/features/shared/Badge";
+import { Button, Group, Paper, Stack } from "@mantine/core";
 import type { SurveyItem, SurveyQuestion } from "./survey.schema";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
@@ -22,7 +23,7 @@ export function SurveyQuestionEditor({
 }) {
   if (item.kind === "instruction")
     return (
-      <Card withBorder radius="lg" padding="lg" data-survey-item>
+      <Paper withBorder radius="lg" p="lg" data-survey-item>
         <Stack gap="md">
           <ItemActions
             badge="Text / instruction"
@@ -56,12 +57,12 @@ export function SurveyQuestionEditor({
             required
           />
         </Stack>
-      </Card>
+      </Paper>
     );
 
   const question: SurveyQuestion = item;
   return (
-    <Card withBorder radius="lg" padding="lg" data-survey-item>
+    <Paper withBorder radius="lg" p="lg" data-survey-item>
       <Stack gap="md">
         <ItemActions
           badge={
@@ -178,7 +179,7 @@ export function SurveyQuestionEditor({
           </Stack>
         )}
       </Stack>
-    </Card>
+    </Paper>
   );
 }
 

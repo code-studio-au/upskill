@@ -1,5 +1,5 @@
+import { Badge } from "#/features/shared/Badge";
 import {
-  Badge,
   Container,
   Divider,
   Group,

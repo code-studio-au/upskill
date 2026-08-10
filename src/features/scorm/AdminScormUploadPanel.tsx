@@ -1,31 +1,19 @@
 import { Alert, Button, Group, Paper, Stack, Title } from "@mantine/core";
+import { useForm } from "@tanstack/react-form";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
-import { useState, type SyntheticEvent } from "react";
+import { useState } from "react";
 import {
   adminScormUploadFormSchema,
   type AdminScormPackageSummary,
 } from "#/features/scorm/scorm-package.schema";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { firstFormError } from "#/features/shared/form-errors";
 import classes from "./admin-scorm.module.css";
 
 interface AdminScormUploadPanelProps {
   packages: Array<AdminScormPackageSummary>;
   onChanged: () => Promise<void>;
-}
-
-interface UploadErrors {
-  archive?: string;
-  title?: string;
-}
-
-function clearUploadError(
-  errors: UploadErrors,
-  field: keyof UploadErrors,
-): UploadErrors {
-  if (field === "title")
-    return errors.archive ? { archive: errors.archive } : {};
-  return errors.title ? { title: errors.title } : {};
 }
 
 function uploadErrorMessage(status: number, error: string): string {
@@ -41,85 +29,76 @@ export function AdminScormUploadPanel({
   onChanged,
 }: AdminScormUploadPanelProps) {
   const [packageId, setPackageId] = useState("");
-  const [title, setTitle] = useState("");
-  const [archive, setArchive] = useState<File | null>(null);
-  const [errors, setErrors] = useState<UploadErrors>({});
-  const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<
     { color: "green" | "red"; message: string } | undefined
   >();
   const selectedPackage = packages.find((item) => item.id === packageId);
   const effectivePackageId = selectedPackage?.id ?? "";
-
-  async function upload(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    const validation = adminScormUploadFormSchema.safeParse({ title, archive });
-    if (!validation.success) {
-      const nextErrors: UploadErrors = {};
-      for (const issue of validation.error.issues) {
-        if (issue.path[0] === "title" && !nextErrors.title)
-          nextErrors.title = issue.message;
-        if (issue.path[0] === "archive" && !nextErrors.archive)
-          nextErrors.archive = issue.message;
-      }
-      setErrors(nextErrors);
-      return;
-    }
-    setErrors({});
-    setSubmitting(true);
-    setNotice(undefined);
-    try {
-      const search = new URLSearchParams({ title: validation.data.title });
-      if (effectivePackageId) search.set("packageId", effectivePackageId);
-      const response = await fetch(
-        `/api/admin/scorm-packages?${search.toString()}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/zip" },
-          body: validation.data.archive,
-        },
-      );
-      if (!response.ok) {
-        const payload: unknown = await response.json();
-        const error =
-          typeof payload === "object" &&
-          payload !== null &&
-          "error" in payload &&
-          typeof payload.error === "string"
-            ? payload.error
-            : "upload_failed";
-        setNotice({
-          color: "red",
-          message: uploadErrorMessage(response.status, error),
-        });
-        return;
-      }
-      const successMessage =
-        "The module was quarantined and queued for validation.";
-      setNotice({ color: "green", message: successMessage });
-      setArchive(null);
+  const uploadForm = useForm({
+    defaultValues: { title: "", archive: null as File | null },
+    validators: { onSubmit: adminScormUploadFormSchema },
+    onSubmit: async ({ value }) => {
+      const validation = adminScormUploadFormSchema.safeParse(value);
+      if (!validation.success) return;
+      setNotice(undefined);
       try {
-        await onChanged();
+        const search = new URLSearchParams({ title: validation.data.title });
+        if (effectivePackageId) search.set("packageId", effectivePackageId);
+        const response = await fetch(
+          `/api/admin/scorm-packages?${search.toString()}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/zip" },
+            body: validation.data.archive,
+          },
+        );
+        if (!response.ok) {
+          const payload: unknown = await response.json();
+          const error =
+            typeof payload === "object" &&
+            payload !== null &&
+            "error" in payload &&
+            typeof payload.error === "string"
+              ? payload.error
+              : "upload_failed";
+          setNotice({
+            color: "red",
+            message: uploadErrorMessage(response.status, error),
+          });
+          return;
+        }
+        const successMessage =
+          "The module was quarantined and queued for validation.";
+        setNotice({ color: "green", message: successMessage });
+        uploadForm.setFieldValue("archive", null);
+        try {
+          await onChanged();
+        } catch {
+          setNotice({
+            color: "green",
+            message: `${successMessage} Refresh the library status if it does not appear automatically.`,
+          });
+        }
       } catch {
         setNotice({
-          color: "green",
-          message: `${successMessage} Refresh the library status if it does not appear automatically.`,
+          color: "red",
+          message:
+            "The upload connection failed. Nothing was added to the library.",
         });
       }
-    } catch {
-      setNotice({
-        color: "red",
-        message:
-          "The upload connection failed. Nothing was added to the library.",
-      });
-    } finally {
-      setSubmitting(false);
-    }
-  }
+    },
+  });
 
   return (
     <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-      <form onSubmit={(event) => void upload(event)}>
+      <form
+        noValidate
+        onSubmit={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void uploadForm.handleSubmit();
+        }}
+      >
         <Stack gap="md">
           <Title order={2} size="h3">
             Upload module package
@@ -134,8 +113,7 @@ export function AdminScormUploadPanel({
                 const selected = packages.find(
                   (item) => item.id === selectedId,
                 );
-                setTitle(selected?.title ?? "");
-                setErrors((current) => clearUploadError(current, "title"));
+                uploadForm.setFieldValue("title", selected?.title ?? "");
               }}
               data={[
                 { value: "", label: "New module" },
@@ -145,31 +123,37 @@ export function AdminScormUploadPanel({
                 })),
               ]}
             />
-            <MantineTextInput
-              label="Module name"
-              value={title}
-              onChange={(event) => {
-                setTitle(event.currentTarget.value);
-                setErrors((current) => clearUploadError(current, "title"));
-              }}
-              maxLength={200}
-              withAsterisk
-              disabled={Boolean(effectivePackageId)}
-              error={errors.title}
-            />
-            <MantineFilePicker
-              label="SCORM ZIP"
-              description="Maximum 250 MB. Archives are quarantined before extraction."
-              placeholder="Choose a ZIP file"
-              value={archive}
-              onChange={(value) => {
-                setArchive(value);
-                setErrors((current) => clearUploadError(current, "archive"));
-              }}
-              accept=".zip,application/zip"
-              required
-              error={errors.archive}
-            />
+            <uploadForm.Field name="title">
+              {(field) => (
+                <MantineTextInput
+                  label="Module name"
+                  name={field.name}
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                  maxLength={200}
+                  withAsterisk
+                  disabled={Boolean(effectivePackageId)}
+                  error={firstFormError(field.state.meta.errors)}
+                />
+              )}
+            </uploadForm.Field>
+            <uploadForm.Field name="archive">
+              {(field) => (
+                <MantineFilePicker
+                  label="SCORM ZIP"
+                  description="Maximum 250 MB. Archives are quarantined before extraction."
+                  placeholder="Choose a ZIP file"
+                  value={field.state.value}
+                  onChange={field.handleChange}
+                  accept=".zip,application/zip"
+                  required
+                  error={firstFormError(field.state.meta.errors)}
+                />
+              )}
+            </uploadForm.Field>
           </div>
           {notice ? (
             <Alert color={notice.color} title="Upload status">
@@ -177,9 +161,17 @@ export function AdminScormUploadPanel({
             </Alert>
           ) : null}
           <Group justify="flex-end">
-            <Button type="submit" loading={submitting}>
-              Upload and validate
-            </Button>
+            <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
+              {(isSubmitting) => (
+                <Button
+                  type="submit"
+                  loading={isSubmitting}
+                  disabled={isSubmitting}
+                >
+                  Upload and validate
+                </Button>
+              )}
+            </uploadForm.Subscribe>
           </Group>
         </Stack>
       </form>

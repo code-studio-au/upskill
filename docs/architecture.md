@@ -164,6 +164,9 @@ content-addressed artifact.
   client assets, largest JavaScript chunk, root preload gzip cost and maximum
   incremental route JavaScript/CSS gzip cost. Route budgets force feature code
   behind route boundaries before the root bundle becomes difficult to split.
+- TanStack Form and Zod own interactive mutation form state and validation;
+  router-backed catalogue filters remain native GET forms. Server and upload
+  boundaries parse every payload independently of browser validation.
 - Chromium, Firefox and WebKit critical-path smoke coverage.
 - Transactional append-only audit records with committed structured-log
   projections, sanitized operational/error events, request correlation and

@@ -1,6 +1,6 @@
 import { Button } from "@mantine/core";
+
 import { useState } from "react";
-import { authClient } from "./auth-client";
 
 export function SignOutButton() {
   const [pending, setPending] = useState(false);
@@ -8,8 +8,11 @@ export function SignOutButton() {
   async function signOut(): Promise<void> {
     setPending(true);
     try {
-      const result = await authClient.signOut();
-      if (!result.error) window.location.assign("/");
+      const response = await fetch("/api/auth/sign-out", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      if (response.ok) window.location.assign("/");
     } finally {
       setPending(false);
     }

@@ -1,0 +1,33 @@
+# ADR 0013: TanStack Form and client budget
+
+Status: Accepted
+
+## Decision
+
+Interactive mutation workflows use TanStack Form for authoritative values,
+field metadata, validation and submission state. Zod remains the contract
+source through Standard Schema validation, and each submission is parsed again
+before crossing a server or upload boundary so normalized values are explicit.
+Course and learner catalogue filters remain router-backed native GET forms;
+they do not need mutation state or client-side form orchestration.
+
+TanStack Form is pinned to `1.20.0`, the newest compatible release before its
+core acquired an unconditional browser devtools event dependency. A newer
+release can be adopted when tree-shaking or the application baseline permits it
+without changing the existing bundle budgets.
+
+The login and sign-out controls call BetterAuth's same-origin JSON endpoints
+directly. BetterAuth continues to own credential verification, session cookies,
+origin checks and server authorization, while the unused generic browser client
+is excluded from the catalogue bundle. Small status badges use a CSP-safe CSS
+module and card layouts reuse Mantine `Paper`; these substitutions preserve the
+existing total and route bundle limits after adding TanStack Form.
+
+## Consequences
+
+Validation, dirty/touched state and loading behavior now have one consistent
+form lifecycle across authentication, access-code redemption, admin creation,
+SCORM/PDF upload, course and survey designers, and learner survey responses.
+Server boundaries still validate independently. Search URLs remain shareable
+and progressively navigable. The production bundle gate remains unchanged, so
+future TanStack Form upgrades must prove their client cost before promotion.

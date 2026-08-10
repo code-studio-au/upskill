@@ -1,13 +1,6 @@
-import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Group,
-  Stack,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge } from "#/features/shared/Badge";
+import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { useForm } from "@tanstack/react-form";
 import {
   createFileRoute,
   Link,
@@ -18,6 +11,7 @@ import { useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { firstFormError } from "#/features/shared/form-errors";
 import { adminSurveyCreateSchema } from "#/features/survey/survey.schema";
 import {
   createAdminSurvey,
@@ -42,9 +36,25 @@ function AdminSurveysPage() {
   const result = Route.useLoaderData();
   const router = useRouter();
   const [opened, setOpened] = useState(false);
-  const [title, setTitle] = useState("");
-  const [error, setError] = useState<string>();
-  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const surveyForm = useForm({
+    defaultValues: { title: "" },
+    validators: { onSubmit: adminSurveyCreateSchema },
+    onSubmit: async ({ value }) => {
+      const parsed = adminSurveyCreateSchema.safeParse(value);
+      if (!parsed.success) return;
+      setError(null);
+      const created = await createAdminSurvey({ data: parsed.data });
+      if (created.status !== "ready") {
+        setError("The survey could not be created.");
+        return;
+      }
+      await router.navigate({
+        to: "/admin/surveys/$surveyId",
+        params: { surveyId: created.data.surveyId },
+      });
+    },
+  });
   if (result.status === "forbidden") return <AdminAccessDenied />;
 
   return (
@@ -61,6 +71,8 @@ function AdminSurveysPage() {
         </div>
         <Button
           onClick={() => {
+            surveyForm.reset();
+            setError(null);
             setOpened(true);
           }}
         >
@@ -73,7 +85,7 @@ function AdminSurveysPage() {
       ) : (
         <Stack gap="md">
           {result.data.map((survey) => (
-            <Card key={survey.id} withBorder radius="lg" padding="lg">
+            <Paper key={survey.id} withBorder radius="lg" p="lg">
               <Group justify="space-between" align="center" wrap="wrap">
                 <div>
                   <Group gap="sm">
@@ -98,70 +110,73 @@ function AdminSurveysPage() {
                   </Button>
                 </Link>
               </Group>
-            </Card>
+            </Paper>
           ))}
         </Stack>
       )}
 
       {opened ? (
-        <AppDialog
-          title="Create survey"
-          closeDisabled={creating}
-          onClose={() => {
-            setOpened(false);
-          }}
-        >
-          <MantineTextInput
-            label="Survey title"
-            value={title}
-            error={error}
-            onChange={(event) => {
-              setTitle(event.currentTarget.value);
-              setError(undefined);
-            }}
-            required
-          />
-          <Group justify="flex-end">
-            <Button
-              variant="default"
-              disabled={creating}
-              onClick={() => {
-                setOpened(false);
+        <surveyForm.Subscribe selector={(state) => state.isSubmitting}>
+          {(isSubmitting) => (
+            <AppDialog
+              title="Create survey"
+              closeDisabled={isSubmitting}
+              onClose={() => {
+                if (!isSubmitting) setOpened(false);
               }}
             >
-              Cancel
-            </Button>
-            <Button
-              loading={creating}
-              onClick={() => {
-                const parsed = adminSurveyCreateSchema.safeParse({ title });
-                if (!parsed.success) {
-                  setError(
-                    parsed.error.issues[0]?.message ?? "Enter a survey title.",
-                  );
-                  return;
-                }
-                setCreating(true);
-                void createAdminSurvey({ data: parsed.data })
-                  .then(async (created) => {
-                    if (created.status !== "ready") {
-                      setError("The survey could not be created.");
-                      return;
-                    }
-                    await router.navigate({
-                      to: "/admin/surveys/$surveyId",
-                      params: { surveyId: created.data.surveyId },
-                    });
-                  })
-                  .finally(() => {
-                    setCreating(false);
-                  });
-              }}
-            >
-              Create draft
-            </Button>
-          </Group>
-        </AppDialog>
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  void surveyForm.handleSubmit();
+                }}
+              >
+                <Stack gap="md">
+                  <surveyForm.Field name="title">
+                    {(field) => (
+                      <MantineTextInput
+                        label="Survey title"
+                        name={field.name}
+                        value={field.state.value}
+                        error={firstFormError(field.state.meta.errors)}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          field.handleChange(event.currentTarget.value);
+                        }}
+                        required
+                      />
+                    )}
+                  </surveyForm.Field>
+                  {error ? <Alert color="red">{error}</Alert> : null}
+                  <Group justify="flex-end">
+                    <Button
+                      type="button"
+                      variant="default"
+                      disabled={isSubmitting}
+                      onClick={() => {
+                        setOpened(false);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <surveyForm.Subscribe selector={(state) => state.canSubmit}>
+                      {(canSubmit) => (
+                        <Button
+                          type="submit"
+                          loading={isSubmitting}
+                          disabled={!canSubmit}
+                        >
+                          Create draft
+                        </Button>
+                      )}
+                    </surveyForm.Subscribe>
+                  </Group>
+                </Stack>
+              </form>
+            </AppDialog>
+          )}
+        </surveyForm.Subscribe>
       ) : null}
     </Stack>
   );

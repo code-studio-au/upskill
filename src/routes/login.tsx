@@ -7,10 +7,11 @@ import {
   Text,
   Title,
 } from "@mantine/core";
+import { useForm } from "@tanstack/react-form";
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useSyncExternalStore, type SyntheticEvent } from "react";
-import { authClient } from "#/features/auth/auth-client";
+import { useState, useSyncExternalStore } from "react";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { firstFormError } from "#/features/shared/form-errors";
 import {
   loginCredentialsSchema,
   loginSearchSchema,
@@ -18,11 +19,6 @@ import {
 import classes from "./login.module.css";
 
 const subscribeToHydration = () => () => undefined;
-
-interface LoginFieldErrors {
-  email?: string;
-  password?: string;
-}
 
 export const Route = createFileRoute("/login")({
   validateSearch: loginSearchSchema,
@@ -37,45 +33,31 @@ function LoginPage() {
     () => true,
     () => false,
   );
-  const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<LoginFieldErrors>({});
-
-  async function submit(event: SyntheticEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const validation = loginCredentialsSchema.safeParse({
-      email: form.get("email"),
-      password: form.get("password"),
-    });
-    if (!validation.success) {
-      const nextErrors: LoginFieldErrors = {};
-      for (const issue of validation.error.issues) {
-        if (issue.path[0] === "email" && !nextErrors.email)
-          nextErrors.email = issue.message;
-        if (issue.path[0] === "password" && !nextErrors.password)
-          nextErrors.password = issue.message;
+  const loginForm = useForm({
+    defaultValues: { email: "", password: "" },
+    validators: { onSubmit: loginCredentialsSchema },
+    onSubmit: async ({ value }) => {
+      const validation = loginCredentialsSchema.safeParse(value);
+      if (!validation.success) return;
+      setError(null);
+      try {
+        const response = await fetch("/api/auth/sign-in/email", {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(validation.data),
+        });
+        if (!response.ok) {
+          setError("We could not sign you in with those details.");
+          return;
+        }
+        window.location.assign(redirect);
+      } catch {
+        setError("Sign-in is temporarily unavailable. Please try again.");
       }
-      setFieldErrors(nextErrors);
-      return;
-    }
-
-    setPending(true);
-    setError(null);
-    setFieldErrors({});
-    try {
-      const result = await authClient.signIn.email(validation.data);
-      if (result.error) {
-        setError("We could not sign you in with those details.");
-        return;
-      }
-      window.location.assign(redirect);
-    } catch {
-      setError("Sign-in is temporarily unavailable. Please try again.");
-    } finally {
-      setPending(false);
-    }
-  }
+    },
+  });
 
   return (
     <Container size="sm" className={classes.section}>
@@ -105,44 +87,62 @@ function LoginPage() {
             method="post"
             action="/login"
             onSubmit={(event) => {
-              void submit(event);
+              event.preventDefault();
+              event.stopPropagation();
+              void loginForm.handleSubmit();
             }}
           >
             <Stack gap="md">
-              <MantineTextInput
-                label="Email address"
-                name="email"
-                type="email"
-                autoComplete="email"
-                withAsterisk
-                error={fieldErrors.email}
-                onChange={() => {
-                  setFieldErrors((current) =>
-                    current.password ? { password: current.password } : {},
-                  );
-                }}
-              />
-              <MantineTextInput
-                type="password"
-                label="Password"
-                name="password"
-                autoComplete="current-password"
-                withAsterisk
-                error={fieldErrors.password}
-                onChange={() => {
-                  setFieldErrors((current) =>
-                    current.email ? { email: current.email } : {},
-                  );
-                }}
-              />
-              <Button
-                type="submit"
-                loading={pending}
-                disabled={!hydrated}
-                fullWidth
+              <loginForm.Field name="email">
+                {(field) => (
+                  <MantineTextInput
+                    label="Email address"
+                    name={field.name}
+                    type="email"
+                    autoComplete="email"
+                    withAsterisk
+                    value={field.state.value}
+                    error={firstFormError(field.state.meta.errors)}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => {
+                      field.handleChange(event.currentTarget.value);
+                    }}
+                  />
+                )}
+              </loginForm.Field>
+              <loginForm.Field name="password">
+                {(field) => (
+                  <MantineTextInput
+                    type="password"
+                    label="Password"
+                    name={field.name}
+                    autoComplete="current-password"
+                    withAsterisk
+                    value={field.state.value}
+                    error={firstFormError(field.state.meta.errors)}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => {
+                      field.handleChange(event.currentTarget.value);
+                    }}
+                  />
+                )}
+              </loginForm.Field>
+              <loginForm.Subscribe
+                selector={(state) =>
+                  [state.canSubmit, state.isSubmitting] as const
+                }
               >
-                Sign in
-              </Button>
+                {([canSubmit, isSubmitting]) => (
+                  <Button
+                    type="submit"
+                    loading={isSubmitting}
+                    disabled={!hydrated || !canSubmit}
+                    fullWidth
+                  >
+                    Sign in
+                  </Button>
+                )}
+              </loginForm.Subscribe>
             </Stack>
           </form>
         </Stack>

@@ -1,9 +1,9 @@
+import { Badge } from "#/features/shared/Badge";
 import {
-  Badge,
   Button,
-  Card,
   Container,
   Group,
+  Paper,
   Stack,
   Text,
   Title,
@@ -91,10 +91,10 @@ function DashboardPage() {
               </div>
               <div className={classes.grid}>
                 {dashboard.availableCourses.map((course) => (
-                  <Card
+                  <Paper
                     withBorder
                     radius="lg"
-                    padding="lg"
+                    p="lg"
                     className={classes.courseCard}
                     key={course.slug}
                   >
@@ -121,7 +121,7 @@ function DashboardPage() {
                         </Button>
                       </Link>
                     </Stack>
-                  </Card>
+                  </Paper>
                 ))}
               </div>
             </Stack>
@@ -153,10 +153,10 @@ function CourseSection({
         {courses.length > 0 ? (
           <div className={classes.grid}>
             {courses.map((course) => (
-              <Card
+              <Paper
                 withBorder
                 radius="lg"
-                padding="lg"
+                p="lg"
                 className={classes.courseCard}
                 key={course.enrollmentId}
               >
@@ -206,7 +206,7 @@ function CourseSection({
                     </Link>
                   )}
                 </Stack>
-              </Card>
+              </Paper>
             ))}
           </div>
         ) : (
