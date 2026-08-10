@@ -967,15 +967,13 @@ test("platform administrators can inspect learner progress", async ({
     ).toBeVisible();
     const storedGrant = await authoringDatabase.query<{
       accessCode: string | null;
-      accessCodeDigest: string;
       quantity: number;
       revokedAt: Date | null;
     }>(
-      `select "accessCode", "accessCodeDigest", quantity, "revokedAt" from access_grant where label = $1`,
+      `select "accessCode", quantity, "revokedAt" from access_grant where label = $1`,
       [accessGrantLabel],
     );
     expect(storedGrant.rows[0]?.accessCode).toBe(accessCode);
-    expect(storedGrant.rows[0]?.accessCodeDigest).toMatch(/^[0-9a-f]{64}$/u);
     expect(storedGrant.rows[0]?.quantity).toBe(3);
     expect(storedGrant.rows[0]?.revokedAt).toBeNull();
     await page.getByRole("button", { name: "Hide code" }).click();

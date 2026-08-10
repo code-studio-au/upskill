@@ -147,6 +147,21 @@ if (!applicationStack.includes("SQS_QUEUE_URL: props.workQueue.queueUrl"))
   failures.push("The deployed worker must receive its CDK-managed queue URL");
 if (!applicationStack.includes('UPSKILL_TRUST_PROXY: "true"'))
   failures.push("The loopback-only nginx deployment must preserve client IPs");
+for (const relative of [
+  ".env.example",
+  ".github/workflows/ci.yml",
+  "deploy/cdk/lib/application-stack.ts",
+  "src/server/env.server.ts",
+]) {
+  if (
+    fs
+      .readFileSync(path.join(root, relative), "utf8")
+      .includes("ACCESS_CODE_PEPPER")
+  )
+    failures.push(
+      `Access-code lookup must not require an HMAC secret: ${relative}`,
+    );
+}
 const workerService = fs.readFileSync(
   path.join(root, "deploy/systemd/upskill-worker.service"),
   "utf8",

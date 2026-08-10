@@ -11,13 +11,12 @@ import type {
 } from "#/features/admin-access/admin-access.schema";
 import { normalizeAdminAccessDomains } from "#/features/admin-access/admin-access.schema";
 import {
-  digestAccessCode,
   formatAccessCode,
+  normalizeAccessCode,
 } from "#/server/access/access-code.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
-import { getServerEnv } from "#/server/env.server";
 
 const DIRECTORY_LIMIT = 100;
 const REDEMPTIONS_PER_GRANT = 20;
@@ -86,14 +85,11 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
         "access_grant.expiresAt",
         "access_grant.revokedAt",
         "access_grant.createdAt",
-        sql<boolean>`"access_grant"."accessCode" is not null`.as(
-          "codeRetrievable",
-        ),
         "organization.name as organizationName",
         "course.title as courseTitle",
         "course_version.version as courseVersion",
       ])
-      .where("access_grant.accessCodeDigest", "is not", null)
+      .where("access_grant.accessCode", "is not", null)
       .orderBy("access_grant.createdAt", "desc")
       .limit(DIRECTORY_LIMIT)
       .execute(),
@@ -169,7 +165,6 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
         ? adminDateFormatter.format(grant.expiresAt)
         : null,
       revokedAt: grant.revokedAt?.toISOString() ?? null,
-      codeRetrievable: grant.codeRetrievable,
       createdAt: grant.createdAt.toISOString(),
       createdAtLabel: adminDateFormatter.format(grant.createdAt),
       redemptions: redemptions.get(grant.id) ?? [],
@@ -201,11 +196,9 @@ export async function createAdminAccessGrant(
   const accessCode = formatAccessCode(input.accessCode);
   if (!accessCode)
     throw new Error("Validated administrator access code became invalid");
-  const accessCodeDigest = digestAccessCode(
-    accessCode,
-    getServerEnv().ACCESS_CODE_PEPPER,
-  );
-  if (!accessCodeDigest) throw new Error("Formatted access code was invalid");
+  const normalizedAccessCode = normalizeAccessCode(accessCode);
+  if (!normalizedAccessCode)
+    throw new Error("Formatted access code was invalid");
 
   return await getDatabase()
     .transaction()
@@ -225,12 +218,16 @@ export async function createAdminAccessGrant(
       if (!target) return { status: "not-found", entity: "course-version" };
 
       await sql`select pg_advisory_xact_lock(
-        hashtextextended(${`access-code:${accessCodeDigest}`}, 0)
+        hashtextextended(${`access-code:${normalizedAccessCode}`}, 0)
       )`.execute(transaction);
       const duplicateCode = await transaction
         .selectFrom("access_grant")
         .select("id")
-        .where("accessCodeDigest", "=", accessCodeDigest)
+        .where(
+          sql<string>`upper(replace("accessCode", '-', ''))`,
+          "=",
+          normalizedAccessCode,
+        )
         .executeTakeFirst();
       if (duplicateCode)
         return { status: "conflict", reason: "code_already_in_use" };
@@ -269,7 +266,6 @@ export async function createAdminAccessGrant(
           orderId: null,
           courseVersionId: target.id,
           accessCode,
-          accessCodeDigest,
           label: input.label.trim(),
           createdByUserId: administrator.id,
           enrollmentDurationDays: input.enrollmentDurationDays,
@@ -313,8 +309,7 @@ export async function createAdminAccessGrant(
 
 type RevealOutcome =
   | { status: "ready"; accessGrantId: string; accessCode: string }
-  | { status: "not-found"; entity: "access-grant" }
-  | { status: "unavailable"; reason: "legacy_code_not_retrievable" };
+  | { status: "not-found"; entity: "access-grant" };
 
 export async function revealAdminAccessGrantCode(
   input: AdminAccessGrantRevealInput,
@@ -327,14 +322,10 @@ export async function revealAdminAccessGrantCode(
         .selectFrom("access_grant")
         .select(["id", "accessCode", "courseVersionId", "organizationId"])
         .where("id", "=", input.accessGrantId)
-        .where("accessCodeDigest", "is not", null)
+        .where("accessCode", "is not", null)
         .executeTakeFirst();
       if (!grant) return { status: "not-found", entity: "access-grant" };
-      if (!grant.accessCode)
-        return {
-          status: "unavailable",
-          reason: "legacy_code_not_retrievable",
-        };
+      if (!grant.accessCode) throw new Error("Selected access code was null");
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "access_grant.administrator_code_revealed",
@@ -375,7 +366,7 @@ export async function updateAdminAccessGrantCapacity(
           "redeemed",
         ])
         .where("id", "=", input.accessGrantId)
-        .where("accessCodeDigest", "is not", null)
+        .where("accessCode", "is not", null)
         .forUpdate()
         .executeTakeFirst();
       if (!grant) return { status: "not-found", entity: "access-grant" };
@@ -420,7 +411,7 @@ export async function revokeAdminAccessGrant(
         .selectFrom("access_grant")
         .select(["id", "courseVersionId", "organizationId", "revokedAt"])
         .where("id", "=", input.accessGrantId)
-        .where("accessCodeDigest", "is not", null)
+        .where("accessCode", "is not", null)
         .forUpdate()
         .executeTakeFirst();
       if (!grant) return { status: "not-found", entity: "access-grant" };

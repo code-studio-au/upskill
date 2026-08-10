@@ -33,9 +33,8 @@ learner search or profile queries. Impersonation and manual progress changes use
 separate audited commands with actor, timestamp and state-transition metadata.
 
 Bulk access codes are stored as canonical plaintext values so authorized
-administrators can retrieve them for customers. An independent Secrets Manager
-HMAC key provides normalized unique lookup without making plaintext matching
-part of redemption. Grant capacity is serialized with a database row lock before
-enrolment, audit and outbox writes commit together. Retrieval and capacity
-changes are authorized and audited, and codes are excluded from log and audit
-metadata.
+administrators can retrieve them for customers. A normalized PostgreSQL unique
+index provides direct equality lookup without a separate application secret.
+Grant capacity is serialized with a database row lock before enrolment, audit
+and outbox writes commit together. Retrieval and capacity changes are authorized
+and audited, and codes are excluded from log and audit metadata.

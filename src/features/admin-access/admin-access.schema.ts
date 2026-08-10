@@ -133,7 +133,6 @@ export interface AdminAccessGrantDirectory {
     expiresAt: string | null;
     expiresAtLabel: string | null;
     revokedAt: string | null;
-    codeRetrievable: boolean;
     createdAt: string;
     createdAtLabel: string;
     redemptions: Array<{
@@ -172,5 +171,4 @@ export type AdminAccessGrantRevealResult =
       accessGrantId: string;
       accessCode: string;
     }>
-  | { status: "not-found"; entity: "access-grant" }
-  | { status: "unavailable"; reason: "legacy_code_not_retrievable" };
+  | { status: "not-found"; entity: "access-grant" };

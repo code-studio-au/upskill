@@ -66,7 +66,6 @@ jobs:
       LEARNING_ORIGIN: https://127.0.0.1:3001
       PLAYWRIGHT_HTTPS: "true"
       DATABASE_URL: postgresql://upskill:upskill@127.0.0.1:5432/upskill
-      ACCESS_CODE_PEPPER: ci-access-code-pepper-01234567890123456789
       BETTER_AUTH_SECRET: ci-placeholder-secret-01234567890123456789
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_placeholder
@@ -106,7 +105,6 @@ jobs:
     env:
       APP_ENV: test
       DATABASE_URL: postgresql://upskill:upskill@127.0.0.1:5432/upskill
-      ACCESS_CODE_PEPPER: ci-database-pepper-01234567890123456789
       BETTER_AUTH_SECRET: ci-database-secret-01234567890123456789
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_placeholder

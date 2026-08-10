@@ -323,7 +323,6 @@ interface AccessGrantTable {
   organizationId: string | null;
   orderId: string | null;
   courseVersionId: string;
-  accessCodeDigest: string | null;
   accessCode: Generated<string | null>;
   label: Generated<string | null>;
   createdByUserId: Generated<string | null>;

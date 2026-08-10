@@ -69,7 +69,7 @@ try {
     throw new Error(`Missing tables: ${missing.join(", ")}`);
 
   const expectedIndexes = [
-    "access_grant_code_digest_uq",
+    "access_grant_access_code_normalized_uq",
     "access_grant_domain_lookup_idx",
     "access_grant_admin_lookup_idx",
     "audit_event_action_created_idx",
@@ -90,14 +90,28 @@ try {
     "survey_progress_enrollment_idx",
   ];
   const indexResult = await sql<{
+    indexdef: string;
     indexname: string;
-  }>`select indexname from pg_indexes where schemaname = 'public'`.execute(db);
+  }>`select indexname, indexdef from pg_indexes where schemaname = 'public'`.execute(
+    db,
+  );
   const actualIndexes = new Set(indexResult.rows.map((row) => row.indexname));
   const missingIndexes = expectedIndexes.filter(
     (index) => !actualIndexes.has(index),
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
+  const accessCodeIndex = indexResult.rows.find(
+    (index) => index.indexname === "access_grant_access_code_normalized_uq",
+  );
+  if (
+    !accessCodeIndex?.indexdef.includes(
+      "upper(replace(\"accessCode\", '-'::text, ''::text))",
+    )
+  )
+    throw new Error(
+      "Access-code unique index must normalize case and presentation separators",
+    );
   const ingestionColumns = await sql<{
     column_name: string;
   }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'scorm_package_version'`.execute(
@@ -130,6 +144,8 @@ try {
     throw new Error(
       `Missing access-grant columns: ${missingAccessGrantColumns.join(", ")}`,
     );
+  if (actualAccessGrantColumns.has("accessCodeDigest"))
+    throw new Error("Legacy access-code HMAC digest column must be removed");
 
   const auditVerificationId = "verify_audit_append_only";
   const auditVerificationActorId = "verify_audit_append_only_actor";

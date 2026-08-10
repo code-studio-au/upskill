@@ -62,8 +62,8 @@ future Datadog Agent can collect them without application-level vendor coupling.
 The public catalog reads immutable published course versions from PostgreSQL.
 The two `db:seed:*` commands install
 deterministic local and browser-test data; they are never run by production
-deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD` and
-`ACCESS_CODE_PEPPER`; it creates verified `learner@example.com` and
+deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD`; it creates
+verified `learner@example.com` and
 `redeemer@example.com` accounts, the platform administrator
 `admin@example.com`, and the local code `EXAMPLE-LEARN-2026`. All three local
 accounts use `SEED_LEARNER_PASSWORD`; administration starts at `/admin`.

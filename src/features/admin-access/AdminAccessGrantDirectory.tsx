@@ -154,12 +154,6 @@ function GrantCard({
       const response = await revealAdminAccessGrantCode({
         data: { accessGrantId: grant.id },
       });
-      if (response.status === "unavailable") {
-        setRevealError(
-          "This legacy code was created before retrievable storage was enabled.",
-        );
-        return;
-      }
       if (response.status !== "ready") {
         setRevealError("The access code could not be retrieved.");
         return;
@@ -264,12 +258,12 @@ function GrantCard({
               variant="light"
               size="xs"
               loading={revealPending}
-              disabled={!grant.codeRetrievable || Boolean(accessCode)}
+              disabled={Boolean(accessCode)}
               onClick={() => {
                 void revealCode();
               }}
             >
-              {grant.codeRetrievable ? "Show code" : "Code unavailable"}
+              Show code
             </Button>
             {!grant.revokedAt ? (
               <Button

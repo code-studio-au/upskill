@@ -1,7 +1,6 @@
 import { hashPassword } from "better-auth/crypto";
 import { Kysely, PostgresDialect, type Transaction } from "kysely";
 import { Pool } from "pg";
-import { digestAccessCode } from "#/server/access/access-code.server";
 import { requestCompletionCertificate } from "#/server/certificate/completion-certificate.server";
 import type { Database } from "#/server/db/types";
 
@@ -10,9 +9,6 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const password = process.env.SEED_LEARNER_PASSWORD;
 if (!password || password.length < 12)
   throw new Error("SEED_LEARNER_PASSWORD must contain at least 12 characters");
-const accessCodePepper = process.env.ACCESS_CODE_PEPPER;
-if (!accessCodePepper || accessCodePepper.length < 32)
-  throw new Error("ACCESS_CODE_PEPPER must contain at least 32 characters");
 
 const learner = {
   id: "user_local_learner",
@@ -183,10 +179,6 @@ try {
         orderId: null,
         courseVersionId: "course_version_psychological_safety_1",
         accessCode: "EXAMPLE-LEARN-2026",
-        accessCodeDigest: digestAccessCode(
-          "EXAMPLE-LEARN-2026",
-          accessCodePepper,
-        ),
         enrollmentDurationDays: 365,
         quantity: 100,
         redeemed: 0,
@@ -197,10 +189,6 @@ try {
           quantity: 100,
           redeemed: 0,
           accessCode: "EXAMPLE-LEARN-2026",
-          accessCodeDigest: digestAccessCode(
-            "EXAMPLE-LEARN-2026",
-            accessCodePepper,
-          ),
           enrollmentDurationDays: 365,
           expiresAt: new Date("2027-12-31T23:59:59.000Z"),
         }),

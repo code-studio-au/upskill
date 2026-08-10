@@ -77,11 +77,12 @@ order item before redirecting to Stripe. A raw-body, signature-verified webhook
 reconciles the session to that snapshot and serializes replay-safe fulfilment on
 the order row; the browser success redirect only reads the resulting status.
 Administrator-issued access codes are canonical human-readable values stored as
-plaintext so authorized staff can retrieve them for customers. A keyed HMAC
-digest remains the normalized unique lookup key; neither the code nor digest is
-written to logs or audit metadata. Retrieval is an explicit authorized command
-with durable audit evidence. Redemption locks the grant row and commits the
-capacity update, enrolment, audit event and outbox event in one transaction.
+plaintext so authorized staff can retrieve them for customers. PostgreSQL uses
+a unique normalized-code index for ordinary equality lookup; no separate HMAC
+key or access-code secret is required. Codes are never written to logs or audit
+metadata. Retrieval is an explicit authorized command with durable audit
+evidence. Redemption locks the grant row and commits the capacity update,
+enrolment, audit event and outbox event in one transaction.
 Grants bind an organisation, capacity, learner access duration, optional expiry
 and optional normalized email domains. Administrators may change total capacity
 without changing the code, but cannot reduce it below the number already

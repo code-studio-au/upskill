@@ -2,15 +2,11 @@ import assert from "node:assert/strict";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import { withAuditMaintenance } from "./audit-maintenance";
-import { digestAccessCode } from "#/server/access/access-code.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
-const pepper = process.env.ACCESS_CODE_PEPPER;
-if (!pepper || pepper.length < 32)
-  throw new Error("ACCESS_CODE_PEPPER must contain at least 32 characters");
 
 const ids = {
   administrator: "verify_admin_access_administrator",
@@ -198,11 +194,26 @@ try {
   );
   assert.equal(created.status, "created");
   assert.equal(created.accessCode, "VERIFY-ORGANISATION-2027");
+  assert.deepEqual(
+    await createAdminAccessGrant(
+      {
+        label: "Duplicate normalized code",
+        organizationName,
+        accessCode: "verifyorganisation2027",
+        courseVersionId: ids.version,
+        quantity: 1,
+        enrollmentDurationDays: 60,
+        expiresOn: "",
+        domains: "",
+      },
+      administrator,
+    ),
+    { status: "conflict", reason: "code_already_in_use" },
+  );
   const stored = await database
     .selectFrom("access_grant")
     .select([
       "accessCode",
-      "accessCodeDigest",
       "quantity",
       "redeemed",
       "revokedAt",
@@ -210,10 +221,6 @@ try {
     ])
     .where("id", "=", created.accessGrantId)
     .executeTakeFirstOrThrow();
-  assert.equal(
-    stored.accessCodeDigest,
-    digestAccessCode(created.accessCode, pepper),
-  );
   assert.equal(stored.accessCode, created.accessCode);
   assert.equal(stored.quantity, 2);
   assert.equal(stored.redeemed, 0);
@@ -235,11 +242,6 @@ try {
     directory.grants.find((grant) => grant.id === created.accessGrantId)
       ?.domains,
     [],
-  );
-  assert.equal(
-    directory.grants.find((grant) => grant.id === created.accessGrantId)
-      ?.codeRetrievable,
-    true,
   );
   assert.deepEqual(
     await revealAdminAccessGrantCode(
@@ -270,7 +272,10 @@ try {
 
   const { redeemAccessCode } =
     await import("#/server/access/redeem-access-code.server");
-  const redeemed = await redeemAccessCode(created.accessCode, firstLearner);
+  const redeemed = await redeemAccessCode(
+    "verify organisation 2027",
+    firstLearner,
+  );
   assert.equal(redeemed.status, "enrolled");
   assert.equal(
     (await redeemAccessCode(created.accessCode, secondLearner)).status,

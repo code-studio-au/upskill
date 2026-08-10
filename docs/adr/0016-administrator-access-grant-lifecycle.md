@@ -16,8 +16,9 @@ and archived courses are not valid targets.
 Administrators choose a memorable code containing letters, numbers and readable
 separators. Upskill stores its uppercase, hyphen-separated canonical form as
 plaintext so an authorized administrator can retrieve it when a customer loses
-the original. An HMAC-SHA-256 digest using the independently managed access-code
-pepper remains the normalized unique lookup key. Codes are deliberately
+the original. A PostgreSQL functional unique index removes presentation
+separators for direct, case-insensitive equality lookup. No HMAC digest or
+independently managed access-code secret is retained. Codes are deliberately
 recoverable from database state and are therefore credentials with operational,
 not high-security, secrecy; they are never included in logs or audit metadata.
 
@@ -51,3 +52,7 @@ same grant record, so revocation cannot leave catalogue visibility active.
 Customer-purchased bulk packages can later create the same domain object while
 keeping Stripe order ownership and fulfilment separate from administrative
 issuance.
+
+The migration cannot recover codes from any legacy digest-only grants. Such
+grants remain historical purchase records but must be reissued before they can
+be redeemed as administrator-managed codes.
