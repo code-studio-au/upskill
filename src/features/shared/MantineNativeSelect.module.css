@@ -1,0 +1,43 @@
+.root {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.label {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.select {
+  width: 100%;
+  min-height: 2.25rem;
+  padding-inline: 0.75rem;
+  color: var(--mantine-color-text);
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.select:focus-visible {
+  border-color: var(--mantine-primary-color-filled);
+  outline: 2px solid var(--mantine-primary-color-light);
+  outline-offset: 1px;
+}
+
+.select:disabled {
+  color: var(--mantine-color-dimmed);
+  background: var(--mantine-color-gray-1);
+  cursor: not-allowed;
+}
+
+.select[aria-invalid="true"] {
+  border-color: var(--mantine-color-red-7);
+}
+
+.error {
+  color: var(--mantine-color-red-7);
+  font-size: var(--mantine-font-size-xs);
+}

@@ -156,10 +156,22 @@ try {
       )
       .execute();
 
+    const redeemerEnrollmentIds = transaction
+      .selectFrom("enrollment")
+      .select("id")
+      .where("userId", "=", redeemerId)
+      .where("courseVersionId", "=", "course_version_psychological_safety_1");
+    await transaction
+      .deleteFrom("survey_progress")
+      .where("enrollmentId", "in", redeemerEnrollmentIds)
+      .execute();
+    await transaction
+      .deleteFrom("survey_response")
+      .where("enrollmentId", "in", redeemerEnrollmentIds)
+      .execute();
     await transaction
       .deleteFrom("enrollment")
-      .where("userId", "=", redeemerId)
-      .where("courseVersionId", "=", "course_version_psychological_safety_1")
+      .where("id", "in", redeemerEnrollmentIds)
       .execute();
 
     await transaction

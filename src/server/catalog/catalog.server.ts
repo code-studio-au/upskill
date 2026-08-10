@@ -37,6 +37,36 @@ function toDetail(course: PublishedCourse): CourseDetail {
     prerequisites: course.content.prerequisites,
     accreditations: course.content.accreditations,
     modules: course.content.modules,
+    sections:
+      course.content.sections ??
+      ["pre-learning", "content", "post-learning", "followup"].flatMap(
+        (phase) => {
+          const items = course.content.modules.filter(
+            (module) => module.phase === phase,
+          );
+          return items.length === 0
+            ? []
+            : [
+                {
+                  title:
+                    phase === "pre-learning"
+                      ? "Pre-learning"
+                      : phase === "post-learning"
+                        ? "Post-learning"
+                        : phase === "followup"
+                          ? "Follow-up"
+                          : "Course content",
+                  description: "",
+                  items: items.map((module) => ({
+                    title: module.title,
+                    kind: "scorm" as const,
+                    required: true,
+                    durationMinutes: module.durationMinutes,
+                  })),
+                },
+              ];
+        },
+      ),
     publishedVersion: course.version,
   };
 }

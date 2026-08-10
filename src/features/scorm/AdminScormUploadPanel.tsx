@@ -1,19 +1,12 @@
-import {
-  Alert,
-  Button,
-  FileInput,
-  Group,
-  NativeSelect,
-  Paper,
-  Stack,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Alert, Button, Group, Paper, Stack, Title } from "@mantine/core";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { useState, type SyntheticEvent } from "react";
 import {
   adminScormUploadFormSchema,
   type AdminScormPackageSummary,
 } from "#/features/scorm/scorm-package.schema";
+import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import classes from "./admin-scorm.module.css";
 
 interface AdminScormUploadPanelProps {
@@ -132,7 +125,7 @@ export function AdminScormUploadPanel({
             Upload module package
           </Title>
           <div className={classes.uploadGrid}>
-            <NativeSelect
+            <MantineNativeSelect
               label="Upload as"
               value={effectivePackageId}
               onChange={(event) => {
@@ -152,7 +145,7 @@ export function AdminScormUploadPanel({
                 })),
               ]}
             />
-            <TextInput
+            <MantineTextInput
               label="Module name"
               value={title}
               onChange={(event) => {
@@ -164,7 +157,7 @@ export function AdminScormUploadPanel({
               disabled={Boolean(effectivePackageId)}
               error={errors.title}
             />
-            <FileInput
+            <MantineFilePicker
               label="SCORM ZIP"
               description="Maximum 250 MB. Archives are quarantined before extraction."
               placeholder="Choose a ZIP file"
@@ -174,8 +167,7 @@ export function AdminScormUploadPanel({
                 setErrors((current) => clearUploadError(current, "archive"));
               }}
               accept=".zip,application/zip"
-              clearable
-              withAsterisk
+              required
               error={errors.archive}
             />
           </div>

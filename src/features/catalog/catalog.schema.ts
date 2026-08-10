@@ -7,6 +7,23 @@ const moneySchema = z
   .number()
   .check(z.int(), z.nonnegative(), z.maximum(100_000_000));
 
+const courseSectionSummarySchema = z.object({
+  title: boundedText(160),
+  description: z.string().check(z.trim(), z.maxLength(2_000)),
+  items: z
+    .array(
+      z.object({
+        title: boundedText(200),
+        kind: z.enum(["scorm", "survey", "resource"]),
+        required: z.boolean(),
+        durationMinutes: z.nullable(
+          z.number().check(z.int(), z.positive(), z.maximum(10_000)),
+        ),
+      }),
+    )
+    .check(z.maxLength(200)),
+});
+
 export const catalogSearchSchema = z.object({
   q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
   topic: z.catch(z.union([z.literal("all"), courseTopicSchema]), "all"),
@@ -67,6 +84,9 @@ export const courseContentSchema = z
         }),
       )
       .check(z.maxLength(200)),
+    sections: z.optional(
+      z.array(courseSectionSummarySchema).check(z.maxLength(100)),
+    ),
   })
   .check(
     z.superRefine((content, context) => {
@@ -102,5 +122,6 @@ export interface CourseDetail extends CourseSummary {
   prerequisites: Array<string>;
   accreditations: CourseContent["accreditations"];
   modules: CourseContent["modules"];
+  sections: NonNullable<CourseContent["sections"]>;
   publishedVersion: number;
 }

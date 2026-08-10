@@ -55,7 +55,11 @@ function CourseDetail() {
             <Group>
               <Badge variant="light">{course.topic}</Badge>
               <Text c="dimmed">{course.durationMinutes} minutes</Text>
-              <Text c="dimmed">{course.modules.length} modules</Text>
+              <Text c="dimmed">
+                {course.sections.length > 0
+                  ? `${String(course.sections.reduce((total, section) => total + section.items.length, 0))} learning items`
+                  : `${String(course.modules.length)} modules`}
+              </Text>
             </Group>
             <Title order={1} className={classes.title}>
               {course.title}
@@ -81,19 +85,52 @@ function CourseDetail() {
               <Title order={2} id="course-modules-heading">
                 What you will complete
               </Title>
-              <ol className={classes.moduleList}>
-                {course.modules.map((module) => (
-                  <li key={`${module.phase}-${module.title}`}>
-                    <div>
-                      <Text fw={700}>{module.title}</Text>
-                      <Text size="sm" c="dimmed">
-                        {module.phase.replaceAll("-", " ")} ·{" "}
-                        {module.durationMinutes} minutes
-                      </Text>
+              {course.sections.length > 0 ? (
+                <Stack gap="lg">
+                  {course.sections.map((section) => (
+                    <div key={section.title}>
+                      <Title order={3}>{section.title}</Title>
+                      {section.description ? (
+                        <Text c="dimmed" size="sm" mt={4}>
+                          {section.description}
+                        </Text>
+                      ) : null}
+                      <ol className={classes.moduleList}>
+                        {section.items.map((item) => (
+                          <li key={`${item.kind}-${item.title}`}>
+                            <Group justify="space-between" align="start">
+                              <div>
+                                <Text fw={700}>{item.title}</Text>
+                                <Text size="sm" c="dimmed">
+                                  {item.required ? "Required" : "Optional"}
+                                  {item.durationMinutes
+                                    ? ` · ${String(item.durationMinutes)} minutes`
+                                    : ""}
+                                </Text>
+                              </div>
+                              <Badge variant="light">{item.kind}</Badge>
+                            </Group>
+                          </li>
+                        ))}
+                      </ol>
                     </div>
-                  </li>
-                ))}
-              </ol>
+                  ))}
+                </Stack>
+              ) : (
+                <ol className={classes.moduleList}>
+                  {course.modules.map((module) => (
+                    <li key={`${module.phase}-${module.title}`}>
+                      <div>
+                        <Text fw={700}>{module.title}</Text>
+                        <Text size="sm" c="dimmed">
+                          {module.phase.replaceAll("-", " ")} ·{" "}
+                          {module.durationMinutes} minutes
+                        </Text>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+              )}
             </Stack>
           </section>
 

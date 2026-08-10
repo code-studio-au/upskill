@@ -30,6 +30,19 @@
   background: var(--mantine-color-white);
 }
 
+.sectionHeading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+}
+
+.itemAction {
+  display: grid;
+  justify-items: end;
+  gap: 0.25rem;
+}
+
 .moduleNumber {
   display: grid;
   width: 2rem;
@@ -46,13 +59,18 @@
     grid-template-columns: auto minmax(0, 1fr);
   }
 
-  .duration {
-    grid-column: 2;
-  }
-
   .moduleStatus {
     grid-column: 2;
     width: fit-content;
+  }
+
+  .module > :last-child {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .sectionHeading {
+    flex-direction: column;
   }
 }
 

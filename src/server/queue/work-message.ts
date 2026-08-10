@@ -2,6 +2,7 @@ import { z } from "#/validation/zod.server";
 
 export const SCORM_INGESTION_TOPIC = "scorm.package_ingest_requested";
 export const SCORM_DELETION_TOPIC = "scorm.package_delete_requested";
+export const RESOURCE_DELETION_TOPIC = "resource.version_delete_requested";
 
 const packageVersionIdSchema = z
   .string()
@@ -69,9 +70,40 @@ const scormDeletionWorkMessageSchema = z.object({
   payload: scormDeletionPayloadSchema,
 });
 
+const resourceDeletionPayloadSchema = z
+  .object({
+    resourceVersionId: packageVersionIdSchema,
+    objectKey: objectPathSchema,
+  })
+  .superRefine((payload, context) => {
+    const objectPattern = new RegExp(
+      `^resources/${payload.resourceVersionId}/[a-f0-9]{64}\\.pdf$`,
+    );
+    if (!objectPattern.test(payload.objectKey))
+      context.addIssue({
+        code: "custom",
+        path: ["objectKey"],
+        message: "Object key must match the immutable resource version",
+      });
+  });
+
+const resourceDeletionWorkMessageSchema = z.object({
+  version: z.literal(1),
+  eventId: z.string().min(1).max(200),
+  topic: z.literal(RESOURCE_DELETION_TOPIC),
+  aggregateId: z.string().min(1).max(200),
+  payload: resourceDeletionPayloadSchema,
+});
+
 const scormWorkMessageSchema = z.discriminatedUnion("topic", [
   scormIngestionWorkMessageSchema,
   scormDeletionWorkMessageSchema,
+]);
+
+const contentWorkMessageSchema = z.discriminatedUnion("topic", [
+  scormIngestionWorkMessageSchema,
+  scormDeletionWorkMessageSchema,
+  resourceDeletionWorkMessageSchema,
 ]);
 
 export type ScormIngestionWorkMessage = z.infer<
@@ -79,6 +111,7 @@ export type ScormIngestionWorkMessage = z.infer<
 >;
 
 export type ScormWorkMessage = z.infer<typeof scormWorkMessageSchema>;
+export type ContentWorkMessage = z.infer<typeof contentWorkMessageSchema>;
 
 export function parseScormIngestionWorkMessage(
   body: string,
@@ -88,4 +121,8 @@ export function parseScormIngestionWorkMessage(
 
 export function parseScormWorkMessage(body: string): ScormWorkMessage {
   return scormWorkMessageSchema.parse(JSON.parse(body));
+}
+
+export function parseContentWorkMessage(body: string): ContentWorkMessage {
+  return contentWorkMessageSchema.parse(JSON.parse(body));
 }

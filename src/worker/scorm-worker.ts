@@ -37,7 +37,7 @@ try {
     if (consumption.status !== "no-work")
       logServerEvent({
         level: consumption.status === "retry" ? "warn" : "info",
-        event: "worker.scorm_processed",
+        event: "worker.content_processed",
         fields: {
           status: consumption.status,
           messageId: consumption.messageId,
@@ -45,7 +45,7 @@ try {
           ...(consumption.status === "processed"
             ? {
                 eventId: consumption.eventId,
-                packageVersionId: consumption.packageVersionId,
+                aggregateId: consumption.aggregateId,
                 outcome: consumption.outcome.status,
               }
             : {}),

@@ -14,6 +14,7 @@ import type {
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { enqueueAuditLogProjection } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
+import { isLearningComplete } from "#/server/learning/learning-completion.server";
 import {
   findEffectiveModuleCompletion,
   findLatestEnrollmentProgressOverride,
@@ -311,45 +312,86 @@ export async function findAdminEnrollmentDetail(
     .executeTakeFirst();
   if (!enrollment) return null;
 
-  const [moduleCompletion, completionOverride, attemptRows, historyRows] =
-    await Promise.all([
-      findEffectiveModuleCompletion(
-        database,
-        enrollment.id,
-        enrollment.courseVersionId,
-      ),
-      findLatestEnrollmentProgressOverride(database, enrollment.id),
-      database
-        .selectFrom("scorm_attempt")
-        .select([
-          "modulePosition",
-          sql<number>`count(*)::integer`.as("attemptCount"),
-          sql<Date | null>`max("lastActivityAt")`.as("latestActivityAt"),
-        ])
-        .where("enrollmentId", "=", enrollment.id)
-        .groupBy("modulePosition")
-        .execute(),
-      database
-        .selectFrom("learning_progress_override")
-        .innerJoin("user", "user.id", "learning_progress_override.actorUserId")
-        .select([
-          "learning_progress_override.id",
-          "learning_progress_override.scope",
-          "learning_progress_override.modulePosition",
-          "learning_progress_override.state",
-          "learning_progress_override.reason",
-          "learning_progress_override.createdAt",
-          "user.name as administratorName",
-        ])
-        .where("learning_progress_override.enrollmentId", "=", enrollment.id)
-        .orderBy("learning_progress_override.sequence", "desc")
-        .limit(50)
-        .execute(),
-    ]);
+  const [
+    moduleCompletion,
+    completionOverride,
+    attemptRows,
+    historyRows,
+    sectionRows,
+    itemRows,
+    itemProgress,
+  ] = await Promise.all([
+    findEffectiveModuleCompletion(
+      database,
+      enrollment.id,
+      enrollment.courseVersionId,
+    ),
+    findLatestEnrollmentProgressOverride(database, enrollment.id),
+    database
+      .selectFrom("scorm_attempt")
+      .select([
+        "modulePosition",
+        sql<number>`count(*)::integer`.as("attemptCount"),
+        sql<Date | null>`max("lastActivityAt")`.as("latestActivityAt"),
+      ])
+      .where("enrollmentId", "=", enrollment.id)
+      .groupBy("modulePosition")
+      .execute(),
+    database
+      .selectFrom("learning_progress_override")
+      .innerJoin("user", "user.id", "learning_progress_override.actorUserId")
+      .select([
+        "learning_progress_override.id",
+        "learning_progress_override.scope",
+        "learning_progress_override.modulePosition",
+        "learning_progress_override.state",
+        "learning_progress_override.reason",
+        "learning_progress_override.createdAt",
+        "user.name as administratorName",
+      ])
+      .where("learning_progress_override.enrollmentId", "=", enrollment.id)
+      .orderBy("learning_progress_override.sequence", "desc")
+      .limit(50)
+      .execute(),
+    database
+      .selectFrom("course_version_section")
+      .select(["id", "title", "description", "position"])
+      .where("courseVersionId", "=", enrollment.courseVersionId)
+      .orderBy("position")
+      .execute(),
+    database
+      .selectFrom("course_version_item")
+      .select([
+        "id",
+        "sectionId",
+        "kind",
+        "title",
+        "required",
+        "modulePosition",
+        "position",
+      ])
+      .where("courseVersionId", "=", enrollment.courseVersionId)
+      .orderBy("position")
+      .execute(),
+    database
+      .selectFrom("learning_item_progress")
+      .select("courseVersionItemId")
+      .where("enrollmentId", "=", enrollment.id)
+      .where("state", "=", "completed")
+      .execute(),
+  ]);
   const attemptByPosition = new Map(
     attemptRows.map((attempt) => [attempt.modulePosition, attempt]),
   );
   const content = courseContentSchema.parse(enrollment.content);
+  const completedModulePositions = new Set(
+    moduleCompletion
+      .filter((module) => module.state === "completed")
+      .map((module) => module.position),
+  );
+  const completedItemIds = new Set(
+    itemProgress.map((item) => item.courseVersionItemId),
+  );
 
   return {
     learner: {
@@ -389,6 +431,39 @@ export async function findAdminEnrollmentDetail(
         latestActivityAtLabel: attempt?.latestActivityAt
           ? adminDateTimeLabel(attempt.latestActivityAt)
           : null,
+      };
+    }),
+    sections: sectionRows.map((section) => {
+      const items = itemRows
+        .filter((item) => item.sectionId === section.id)
+        .map((item) => ({
+          id: item.id,
+          kind: item.kind,
+          title: item.title,
+          required: item.required,
+          state:
+            (item.kind === "scorm" &&
+              item.modulePosition !== null &&
+              completedModulePositions.has(item.modulePosition)) ||
+            completedItemIds.has(item.id)
+              ? ("completed" as const)
+              : ("incomplete" as const),
+        }));
+      const requiredItems = items.filter((item) => item.required);
+      const targets = requiredItems.length > 0 ? requiredItems : items;
+      return {
+        id: section.id,
+        title: section.title,
+        description: section.description,
+        state:
+          targets.length > 0 &&
+          targets.every((item) => item.state === "completed")
+            ? ("completed" as const)
+            : ("incomplete" as const),
+        completedItems: items.filter((item) => item.state === "completed")
+          .length,
+        totalItems: items.length,
+        items,
       };
     }),
     overrideHistory: historyRows.map((override) => ({
@@ -491,16 +566,13 @@ export async function applyAdminProgressOverride(
           enrollment.id,
         ))
       ) {
-        const modules = await findEffectiveModuleCompletion(
+        desiredCompletion = (await isLearningComplete(
           transaction,
           enrollment.id,
           enrollment.courseVersionId,
-        );
-        desiredCompletion =
-          modules.length > 0 &&
-          modules.every((module) => module.state === "completed")
-            ? "completed"
-            : "incomplete";
+        ))
+          ? "completed"
+          : "incomplete";
       }
 
       if (desiredCompletion) {

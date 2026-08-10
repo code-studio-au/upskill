@@ -88,6 +88,86 @@ interface CourseVersionTable {
   createdAt: Timestamp;
 }
 
+interface CourseVersionSectionTable {
+  id: string;
+  courseVersionId: string;
+  position: number;
+  title: string;
+  description: string;
+  createdAt: Timestamp;
+}
+
+interface CourseVersionItemTable {
+  id: string;
+  courseVersionId: string;
+  sectionId: string;
+  position: number;
+  kind: "scorm" | "survey" | "resource";
+  title: string;
+  required: boolean;
+  durationMinutes: number | null;
+  modulePosition: number | null;
+  scormPackageVersionId: string | null;
+  surveyVersionId: string | null;
+  resourceVersionId: string | null;
+  createdAt: Timestamp;
+}
+
+interface SurveyTable {
+  id: string;
+  title: string;
+  createdAt: Timestamp;
+}
+
+interface SurveyVersionTable {
+  id: string;
+  surveyId: string;
+  version: number;
+  content: Json;
+  publishedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface SurveyResponseTable {
+  id: string;
+  enrollmentId: string;
+  courseVersionItemId: string;
+  surveyVersionId: string;
+  answers: Json;
+  submittedAt: Timestamp;
+}
+
+interface SurveyProgressTable {
+  enrollmentId: string;
+  courseVersionItemId: string;
+  surveyVersionId: string;
+  answers: Json;
+  visitedItemIds: Json;
+  currentItemId: string | null;
+  startedAt: Timestamp;
+  updatedAt: Timestamp;
+  completedAt: Timestamp | null;
+}
+
+interface LearningResourceTable {
+  id: string;
+  title: string;
+  createdAt: Timestamp;
+}
+
+interface LearningResourceVersionTable {
+  id: string;
+  resourceId: string;
+  version: number;
+  displayName: string;
+  description: string;
+  objectKey: string;
+  sha256: string;
+  sourceBytes: number;
+  mediaType: "application/pdf";
+  createdAt: Timestamp;
+}
+
 interface ScormPackageTable {
   id: string;
   title: string;
@@ -189,6 +269,14 @@ interface LearningProgressOverrideTable {
   createdAt: Timestamp;
 }
 
+interface LearningItemProgressTable {
+  enrollmentId: string;
+  courseVersionItemId: string;
+  state: "completed";
+  completedAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 interface OrderTable {
   id: string;
   purchaserUserId: string | null;
@@ -242,18 +330,29 @@ interface OutboxEventTable {
 }
 
 export type AuditEventAction =
+  | "course.archived"
+  | "course.created"
+  | "course.deleted"
+  | "course.published"
+  | "course.version_created"
   | "enrollment.access_code_redeemed"
+  | "enrollment.learning_completed"
   | "enrollment.purchased"
   | "enrollment.scorm_completed"
   | "learning.progress_overridden"
   | "order.checkout_failed"
   | "order.checkout_paid"
   | "order.paid_existing_enrollment"
+  | "resource.uploaded"
+  | "resource.version_removed"
   | "scorm.attempt_launch_issued"
   | "scorm.package_ready"
   | "scorm.package_rejected"
   | "scorm.package_uploaded"
-  | "scorm.package_version_removed";
+  | "scorm.package_version_removed"
+  | "survey.created"
+  | "survey.published"
+  | "survey.version_created";
 
 interface AuditEventTable {
   id: string;
@@ -273,9 +372,14 @@ export interface Database {
   audit_event: AuditEventTable;
   course: CourseTable;
   course_version: CourseVersionTable;
+  course_version_item: CourseVersionItemTable;
   course_version_module: CourseVersionModuleTable;
+  course_version_section: CourseVersionSectionTable;
   enrollment: EnrollmentTable;
+  learning_item_progress: LearningItemProgressTable;
   learning_progress_override: LearningProgressOverrideTable;
+  learning_resource: LearningResourceTable;
+  learning_resource_version: LearningResourceVersionTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   platform_admin: PlatformAdminTable;
@@ -288,6 +392,10 @@ export interface Database {
   scorm_launch_token: ScormLaunchTokenTable;
   scorm_package: ScormPackageTable;
   scorm_package_version: ScormPackageVersionTable;
+  survey: SurveyTable;
+  survey_progress: SurveyProgressTable;
+  survey_response: SurveyResponseTable;
+  survey_version: SurveyVersionTable;
   user: UserTable;
   verification: VerificationTable;
 }

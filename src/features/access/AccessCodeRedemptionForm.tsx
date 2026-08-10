@@ -1,12 +1,4 @@
-import {
-  Alert,
-  Button,
-  Paper,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Alert, Button, Paper, Stack, Text, Title } from "@mantine/core";
 import { useRouter } from "@tanstack/react-router";
 import { useState, useSyncExternalStore, type SyntheticEvent } from "react";
 import {
@@ -14,6 +6,7 @@ import {
   type AccessCodeRedemptionResult,
 } from "./access-code.schema";
 import { redeemLearnerAccessCode } from "#/server/functions/learner";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import classes from "./AccessCodeRedemptionForm.module.css";
 
 const subscribeToHydration = () => () => undefined;
@@ -114,7 +107,7 @@ export function AccessCodeRedemptionForm() {
           }}
         >
           <div className={classes.controls}>
-            <TextInput
+            <MantineTextInput
               label="Access code"
               name="code"
               value={code}

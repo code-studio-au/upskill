@@ -73,6 +73,20 @@ the authenticated user. They resolve the exact enrolled course version and
 reject expired or removed access before any learning content is exposed;
 completed enrolments remain reviewable while their access window is valid.
 
+Course versions contain ordered sections and ordered items. Every item points
+to one exact SCORM, survey or PDF resource version. Published versions are
+immutable; an author must explicitly create a new draft version before
+reordering or removing content. Archiving removes a course from discovery while
+retaining history. Permanent deletion requires an archived course with no
+enrolment, order-item or access-grant references. Learner item evidence is
+stored, while section completion is derived from required items so it cannot
+drift from module, survey or resource progress.
+
+Published survey versions contain validated written, single-choice and
+multiple-choice questions. Learner responses are entitlement-scoped to an
+exact course-version item, validated against its published survey version and
+stored as immutable evidence without answer content entering centralized logs.
+
 ## Content and asynchronous work
 
 S3 buckets separate quarantine uploads, immutable learning content, private
@@ -99,6 +113,17 @@ Terminal package versions can be removed only while no course-version mapping
 or SCORM attempt references them. The database removal and audit event commit
 with an outbox cleanup request; the worker then idempotently clears only that
 version's quarantine and immutable-content prefixes.
+
+PDF resources use immutable digest-addressed keys in the private resource
+bucket. The browser uploads through a same-origin administrator boundary that
+validates declared size, media type and PDF signature; it never receives S3
+credentials. Learner downloads recheck the authenticated enrolment and exact
+course-version item before returning private, non-cacheable bytes. A successful
+resource read records item completion and therefore participates in derived
+section progress. Administrators manage stable resources and immutable versions
+in a shared library. A version can be removed only when no draft or published
+course item references it; removal commits its durable audit event and exact-key
+cleanup request atomically, then the content worker deletes the private object.
 
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
 fulfilment, SCORM extraction, certificates, email and scheduled rules. The

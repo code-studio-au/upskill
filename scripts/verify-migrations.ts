@@ -33,9 +33,14 @@ try {
     "audit_event",
     "course",
     "course_version",
+    "course_version_item",
     "course_version_module",
+    "course_version_section",
     "enrollment",
+    "learning_item_progress",
     "learning_progress_override",
+    "learning_resource",
+    "learning_resource_version",
     "order",
     "order_item",
     "organization",
@@ -46,6 +51,10 @@ try {
     "scorm_launch_token",
     "scorm_package",
     "scorm_package_version",
+    "survey",
+    "survey_progress",
+    "survey_response",
+    "survey_version",
     "user",
   ];
   const result = await sql<{
@@ -66,12 +75,16 @@ try {
     "audit_event_subject_created_idx",
     "course_status_idx",
     "course_version_published_lookup_idx",
+    "course_version_item_module_position_uq",
     "enrollment_user_status_idx",
     "learning_progress_override_latest_idx",
+    "learning_item_progress_enrollment_idx",
     "order_purchaser_status_idx",
     "scorm_attempt_enrollment_idx",
     "scorm_attempt_session_attempt_idx",
     "scorm_launch_token_attempt_idx",
+    "survey_response_enrollment_idx",
+    "survey_progress_enrollment_idx",
   ];
   const indexResult = await sql<{
     indexname: string;

@@ -165,6 +165,17 @@ if (!scormUploadLocation?.includes("client_max_body_size 250m;"))
   );
 if (!scormUploadLocation?.includes("proxy_request_buffering off;"))
   failures.push("nginx must stream SCORM uploads instead of buffering them");
+const resourceUploadLocation = nginx.match(
+  /location = \/api\/admin\/resources \{(?<body>[\s\S]*?)\n {4}\}/,
+)?.groups?.body;
+if (!resourceUploadLocation?.includes("client_max_body_size 25m;"))
+  failures.push(
+    "The exact PDF resource upload route must allow documents up to 25 MB",
+  );
+if (!resourceUploadLocation?.includes("proxy_request_buffering off;"))
+  failures.push(
+    "nginx must stream PDF resource uploads instead of buffering them",
+  );
 
 function sourceFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

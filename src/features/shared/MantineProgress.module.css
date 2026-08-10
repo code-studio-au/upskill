@@ -1,0 +1,32 @@
+.progress {
+  display: block;
+  width: 100%;
+  height: 0.5rem;
+  overflow: hidden;
+  appearance: none;
+  background: var(--mantine-color-gray-2);
+  border: 0;
+  border-radius: var(--mantine-radius-xl);
+}
+
+.progress::-webkit-progress-bar {
+  background: var(--mantine-color-gray-2);
+}
+
+.progress::-webkit-progress-value {
+  background: var(--mantine-color-indigo-6);
+  border-radius: var(--mantine-radius-xl);
+}
+
+.progress::-moz-progress-bar {
+  background: var(--mantine-color-indigo-6);
+  border-radius: var(--mantine-radius-xl);
+}
+
+.progress[data-color="green"]::-webkit-progress-value {
+  background: var(--mantine-color-green-6);
+}
+
+.progress[data-color="green"]::-moz-progress-bar {
+  background: var(--mantine-color-green-6);
+}

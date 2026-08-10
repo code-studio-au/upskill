@@ -25,6 +25,123 @@ async function cleanupScormPackageFixture(
   });
 }
 
+async function cleanupCourseAuthoringFixture(
+  database: Client,
+  slug: string,
+): Promise<void> {
+  const course = await database.query<{ id: string }>(
+    `select id from course where slug = $1`,
+    [slug],
+  );
+  const courseId = course.rows[0]?.id;
+  if (!courseId) return;
+  const versions = await database.query<{ id: string }>(
+    `select id from course_version where "courseId" = $1`,
+    [courseId],
+  );
+  const versionIds = versions.rows.map((version) => version.id);
+  await withPgAuditMaintenance(database, async (transaction) => {
+    await transaction.query(
+      `delete from outbox_event where "aggregateId" = any($1::text[])`,
+      [[courseId, ...versionIds]],
+    );
+    await transaction.query(
+      `delete from audit_event where "subjectId" = any($1::text[])`,
+      [[courseId, ...versionIds]],
+    );
+    if (versionIds.length > 0) {
+      await transaction.query(
+        `delete from course_version_module where "courseVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from course_version_item where "courseVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from course_version_section where "courseVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from course_version where id = any($1::text[])`,
+        [versionIds],
+      );
+    }
+    await transaction.query(`delete from course where id = $1`, [courseId]);
+  });
+}
+
+async function cleanupSurveyAuthoringFixture(
+  database: Client,
+  titles: Array<string>,
+): Promise<void> {
+  const surveys = await database.query<{ id: string }>(
+    `select id from survey where title = any($1::text[])`,
+    [titles],
+  );
+  const surveyIds = surveys.rows.map((survey) => survey.id);
+  if (surveyIds.length === 0) return;
+  await withPgAuditMaintenance(database, async (transaction) => {
+    await transaction.query(
+      `delete from outbox_event where "aggregateId" = any($1::text[])`,
+      [surveyIds],
+    );
+    await transaction.query(
+      `delete from audit_event where "subjectId" = any($1::text[])`,
+      [surveyIds],
+    );
+    await transaction.query(
+      `delete from survey_version where "surveyId" = any($1::text[])`,
+      [surveyIds],
+    );
+    await transaction.query(`delete from survey where id = any($1::text[])`, [
+      surveyIds,
+    ]);
+  });
+}
+
+async function cleanupResourceFixture(
+  database: Client,
+  title: string,
+  knownVersionIds: Array<string>,
+): Promise<void> {
+  const resources = await database.query<{ id: string }>(
+    `select id from learning_resource where title = $1`,
+    [title],
+  );
+  const resourceIds = resources.rows.map((resource) => resource.id);
+  const versions = await database.query<{ id: string }>(
+    `select id from learning_resource_version where "resourceId" = any($1::text[])`,
+    [resourceIds],
+  );
+  const versionIds = [
+    ...new Set([
+      ...knownVersionIds,
+      ...versions.rows.map((version) => version.id),
+    ]),
+  ];
+  await withPgAuditMaintenance(database, async (transaction) => {
+    if (versionIds.length > 0) {
+      await transaction.query(
+        `delete from outbox_event where "aggregateId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from audit_event where "subjectId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from learning_resource_version where id = any($1::text[])`,
+        [versionIds],
+      );
+    }
+    await transaction.query(
+      `delete from learning_resource where id = any($1::text[])`,
+      [resourceIds],
+    );
+  });
+}
+
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
 }) => {
@@ -278,6 +395,147 @@ test("platform administrators can inspect learner progress", async ({
     page.getByRole("heading", { name: "Administration" }),
   ).toBeVisible();
   await expect(page.getByText("Registered learners")).toBeVisible();
+
+  const authoringDatabase = new Client({
+    connectionString: process.env.DATABASE_URL,
+  });
+  const authoringSlug = "e2e-editable-course-draft";
+  const surveyTitles = ["E2E survey draft", "E2E edited survey"];
+  const resourceTitle = "E2E resource library PDF";
+  const resourceId = "e2e_resource_library";
+  const resourceVersionId = "e2e_resource_library_version";
+  await authoringDatabase.connect();
+  try {
+    await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
+    await cleanupResourceFixture(authoringDatabase, resourceTitle, [
+      resourceVersionId,
+    ]);
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Courses", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Courses", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Create course" }).click();
+    await page.getByLabel("Course title").fill("E2E editable course draft");
+    await expect(page.getByLabel("URL slug")).toHaveValue(authoringSlug);
+    await page.getByRole("button", { name: "Create draft" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(
+      "E2E editable course draft",
+    );
+    await page.getByLabel("Title").fill("E2E edited course draft");
+    await expect(page.getByLabel("Title")).toHaveValue(
+      "E2E edited course draft",
+    );
+    await page.getByRole("button", { name: "Add section" }).click();
+    await page.getByLabel("Section 1 title").fill("E2E edited section title");
+    await expect(page.getByLabel("Section 1 title")).toHaveValue(
+      "E2E edited section title",
+    );
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Surveys", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Surveys", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Create survey" }).click();
+    await page.getByLabel("Survey title").fill(surveyTitles[0] ?? "");
+    await page.getByRole("button", { name: "Create draft" }).click();
+    await page.getByLabel("Title").fill(surveyTitles[1] ?? "");
+    await page.getByRole("button", { name: "Add single choice" }).click();
+    await page.getByLabel("Question 1").fill("Was this survey useful?");
+    await page.getByLabel("Option 1").fill("Yes");
+    await page.getByLabel("Option 2").fill("No");
+    await page.getByRole("button", { name: "Add instruction block" }).click();
+    await page.getByLabel("Block title").fill("Before you answer");
+    await page
+      .getByLabel("Instructions")
+      .fill("Read this information, then select Next.");
+    const surveySections = page.locator("[data-survey-section]");
+    const firstSectionItems = surveySections
+      .first()
+      .locator("[data-survey-item]");
+    await firstSectionItems.nth(1).getByRole("button", { name: "Up" }).click();
+    await expect(
+      firstSectionItems.first().getByLabel("Block title"),
+    ).toHaveValue("Before you answer");
+    await page.getByRole("button", { name: "Add section" }).click();
+    await page.getByLabel("Section 2 title").fill("Follow-up");
+    await surveySections
+      .nth(1)
+      .getByRole("button", { name: "Add written response" })
+      .click();
+    await surveySections
+      .nth(1)
+      .getByLabel("Question 1")
+      .fill("What could be improved?");
+    await surveySections
+      .nth(1)
+      .getByRole("button", { name: "Up" })
+      .first()
+      .click();
+    await expect(page.getByLabel("Section 1 title")).toHaveValue("Follow-up");
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+    await page.getByRole("button", { name: "Publish version" }).click();
+    await expect(
+      page.getByText("Published versions are immutable"),
+    ).toBeVisible();
+
+    await authoringDatabase.query(
+      `insert into learning_resource (id, title) values ($1, $2)`,
+      [resourceId, resourceTitle],
+    );
+    await authoringDatabase.query(
+      `insert into learning_resource_version
+        (id, "resourceId", version, "displayName", description, "objectKey", sha256, "sourceBytes", "mediaType")
+       values ($1, $2, 1, 'e2e-resource.pdf', 'E2E resource description', $3, $4, 128, 'application/pdf')`,
+      [
+        resourceVersionId,
+        resourceId,
+        `resources/${resourceVersionId}/${"4".repeat(64)}.pdf`,
+        "4".repeat(64),
+      ],
+    );
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Resources", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "PDF resources" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Upload resource" }).click();
+    await expect(page.getByText("Enter a resource title.")).toBeVisible();
+    await page.getByLabel("Resource title").fill("Missing document");
+    await page.getByRole("button", { name: "Upload resource" }).click();
+    await expect(page.getByText("Choose a PDF document.")).toBeVisible();
+    const resourceCard = page.getByRole("article").filter({
+      has: page.getByRole("heading", { name: resourceTitle }),
+    });
+    await expect(resourceCard.getByText("e2e-resource.pdf")).toBeVisible();
+    await resourceCard.getByRole("button", { name: "Remove version" }).click();
+    const resourceRemoval = page.getByRole("dialog", {
+      name: "Remove resource version?",
+    });
+    await expect(resourceRemoval).toBeVisible();
+    await resourceRemoval
+      .getByRole("button", { name: "Remove version" })
+      .click();
+    await expect(resourceCard).toHaveCount(0);
+  } finally {
+    await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
+    await cleanupResourceFixture(authoringDatabase, resourceTitle, [
+      resourceVersionId,
+    ]);
+    await authoringDatabase.end();
+  }
 
   await page.getByRole("link", { name: "Learners" }).click();
   await expect(

@@ -1,0 +1,25 @@
+.label {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+  color: var(--mantine-color-text);
+  cursor: pointer;
+}
+
+.disabled {
+  color: var(--mantine-color-dimmed);
+  cursor: not-allowed;
+}
+
+.input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--mantine-primary-color-filled);
+  cursor: inherit;
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
+}

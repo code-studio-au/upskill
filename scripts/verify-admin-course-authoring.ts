@@ -1,0 +1,376 @@
+import assert from "node:assert/strict";
+import { Kysely, PostgresDialect, sql } from "kysely";
+import { Pool } from "pg";
+import type { AdminCourseDraft } from "#/features/admin-course/admin-course.schema";
+import type { AuthenticatedUser } from "#/server/auth/session.server";
+import type { Database } from "#/server/db/types";
+
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) throw new Error("DATABASE_URL is required");
+
+const ids = {
+  user: "verify_authoring_admin",
+  module: "verify_authoring_module",
+  moduleVersionOne: "verify_authoring_module_version_one",
+  moduleVersionTwo: "verify_authoring_module_version_two",
+  resource: "verify_authoring_resource",
+  resourceVersion: "verify_authoring_resource_version",
+  survey: "verify_authoring_survey",
+  surveyVersion: "verify_authoring_survey_version",
+  enrollment: "verify_authoring_enrollment",
+};
+const slug = "verify-versioned-course-authoring";
+const administrator: AuthenticatedUser = {
+  id: ids.user,
+  name: "Authoring Verifier",
+  email: "authoring-verifier@example.com",
+  emailVerified: true,
+};
+const database = new Kysely<Database>({
+  dialect: new PostgresDialect({
+    pool: new Pool({ connectionString: databaseUrl }),
+  }),
+});
+
+async function cleanup(): Promise<void> {
+  await database
+    .deleteFrom("enrollment")
+    .where("id", "=", ids.enrollment)
+    .execute();
+  const courses = await database
+    .selectFrom("course")
+    .select("id")
+    .where("slug", "=", slug)
+    .execute();
+  for (const { id } of courses) {
+    const versions = await database
+      .selectFrom("course_version")
+      .select("id")
+      .where("courseId", "=", id)
+      .execute();
+    const versionIds = versions.map((version) => version.id);
+    if (versionIds.length > 0) {
+      await database
+        .deleteFrom("course_version_module")
+        .where("courseVersionId", "in", versionIds)
+        .execute();
+      await database
+        .deleteFrom("course_version_item")
+        .where("courseVersionId", "in", versionIds)
+        .execute();
+      await database
+        .deleteFrom("course_version_section")
+        .where("courseVersionId", "in", versionIds)
+        .execute();
+      await database
+        .deleteFrom("course_version")
+        .where("id", "in", versionIds)
+        .execute();
+    }
+    await database.deleteFrom("course").where("id", "=", id).execute();
+  }
+  await database
+    .deleteFrom("learning_resource_version")
+    .where("id", "=", ids.resourceVersion)
+    .execute();
+  await database
+    .deleteFrom("learning_resource")
+    .where("id", "=", ids.resource)
+    .execute();
+  await database
+    .deleteFrom("survey_version")
+    .where("id", "=", ids.surveyVersion)
+    .execute();
+  await database.deleteFrom("survey").where("id", "=", ids.survey).execute();
+  await database
+    .deleteFrom("scorm_package_version")
+    .where("id", "in", [ids.moduleVersionOne, ids.moduleVersionTwo])
+    .execute();
+  await database
+    .deleteFrom("scorm_package")
+    .where("id", "=", ids.module)
+    .execute();
+  await database
+    .deleteFrom("outbox_event")
+    .where(sql<boolean>`payload ->> 'actorUserId' = ${ids.user}`)
+    .execute();
+  await database.transaction().execute(async (transaction) => {
+    await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
+      transaction,
+    );
+    await sql`delete from audit_event
+      where "actorUserId" = ${ids.user}`.execute(transaction);
+  });
+  await database
+    .deleteFrom("platform_admin")
+    .where("userId", "=", ids.user)
+    .execute();
+  await database.deleteFrom("user").where("id", "=", ids.user).execute();
+}
+
+try {
+  await cleanup();
+  await database
+    .insertInto("user")
+    .values({
+      id: administrator.id,
+      name: administrator.name,
+      email: administrator.email,
+      emailVerified: true,
+      image: null,
+      stripeCustomerId: null,
+    })
+    .execute();
+  await database
+    .insertInto("platform_admin")
+    .values({ userId: ids.user, grantedByUserId: ids.user })
+    .execute();
+  await database
+    .insertInto("scorm_package")
+    .values({ id: ids.module, title: "Verified module" })
+    .execute();
+  await database
+    .insertInto("scorm_package_version")
+    .values([
+      {
+        id: ids.moduleVersionOne,
+        packageId: ids.module,
+        version: 1,
+        status: "ready",
+        standard: "scorm-1.2",
+        contentPrefix: "verify/authoring/module-one",
+        launchPath: "index.html",
+        sha256: "1".repeat(64),
+        manifest: {},
+        sourceBytes: 1,
+        failureCode: null,
+        processedAt: new Date(),
+        publishedAt: new Date(),
+      },
+      {
+        id: ids.moduleVersionTwo,
+        packageId: ids.module,
+        version: 2,
+        status: "ready",
+        standard: "scorm-1.2",
+        contentPrefix: "verify/authoring/module-two",
+        launchPath: "index.html",
+        sha256: "2".repeat(64),
+        manifest: {},
+        sourceBytes: 1,
+        failureCode: null,
+        processedAt: new Date(),
+        publishedAt: new Date(),
+      },
+    ])
+    .execute();
+  await database
+    .insertInto("learning_resource")
+    .values({ id: ids.resource, title: "Verified PDF" })
+    .execute();
+  await database
+    .insertInto("learning_resource_version")
+    .values({
+      id: ids.resourceVersion,
+      resourceId: ids.resource,
+      version: 1,
+      displayName: "verified.pdf",
+      description: "Verified immutable resource",
+      objectKey: `resources/${ids.resourceVersion}/${"3".repeat(64)}.pdf`,
+      sha256: "3".repeat(64),
+      sourceBytes: 5,
+      mediaType: "application/pdf",
+    })
+    .execute();
+  await database
+    .insertInto("survey")
+    .values({ id: ids.survey, title: "Verified survey" })
+    .execute();
+  await database
+    .insertInto("survey_version")
+    .values({
+      id: ids.surveyVersion,
+      surveyId: ids.survey,
+      version: 1,
+      content: { sections: [] },
+      publishedAt: new Date(),
+    })
+    .execute();
+
+  const authoring = await import("#/server/admin/admin-course.server");
+  const created = await authoring.createAdminCourse(
+    { title: "Versioned authoring verification", slug },
+    administrator,
+  );
+  assert.equal(created.status, "created");
+  const first = await authoring.findAdminCourse(created.courseId);
+  assert.ok(first);
+  const firstDraft: AdminCourseDraft = {
+    ...first.draft,
+    summary: "A complete versioned authoring verification course.",
+    description: "Verifies sections, exact references and immutable versions.",
+    sections: [
+      {
+        id: "section_verify_one",
+        title: "Preparation",
+        description: "Prepare for the course.",
+        items: [
+          {
+            id: "item_verify_module_one",
+            kind: "scorm",
+            title: "Verified module one",
+            required: true,
+            durationMinutes: 10,
+            scormPackageVersionId: ids.moduleVersionOne,
+          },
+          {
+            id: "item_verify_resource",
+            kind: "resource",
+            title: "Verified PDF",
+            required: false,
+            durationMinutes: null,
+            resourceVersionId: ids.resourceVersion,
+          },
+        ],
+      },
+      {
+        id: "section_verify_two",
+        title: "Learning",
+        description: "Complete the learning.",
+        items: [
+          {
+            id: "item_verify_survey",
+            kind: "survey",
+            title: "Verified survey",
+            required: true,
+            durationMinutes: 5,
+            surveyVersionId: ids.surveyVersion,
+          },
+          {
+            id: "item_verify_module_two",
+            kind: "scorm",
+            title: "Verified module two",
+            required: true,
+            durationMinutes: 20,
+            scormPackageVersionId: ids.moduleVersionTwo,
+          },
+        ],
+      },
+    ],
+  };
+  assert.equal(
+    await authoring.saveAdminCourseDraft(firstDraft, administrator),
+    "saved",
+  );
+  assert.equal(
+    await authoring.publishAdminCourseVersion(
+      created.courseId,
+      created.versionId,
+      administrator,
+    ),
+    "published",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("course_version_module")
+      .select(["position", "scormPackageVersionId"])
+      .where("courseVersionId", "=", created.versionId)
+      .orderBy("position")
+      .execute(),
+    [
+      { position: 0, scormPackageVersionId: ids.moduleVersionOne },
+      { position: 1, scormPackageVersionId: ids.moduleVersionTwo },
+    ],
+  );
+
+  const versioned = await authoring.createAdminCourseVersion(
+    created.courseId,
+    administrator,
+  );
+  assert.equal(versioned.status, "created");
+  const second = await authoring.findAdminCourse(created.courseId);
+  assert.ok(second);
+  const [preparationSection, learningSection] = second.draft.sections;
+  assert.ok(preparationSection);
+  assert.ok(learningSection);
+  const [, resourceItem] = preparationSection.items;
+  const [surveyItem, moduleTwoItem] = learningSection.items;
+  assert.ok(resourceItem);
+  assert.ok(surveyItem);
+  assert.ok(moduleTwoItem);
+  const secondDraft: AdminCourseDraft = {
+    ...second.draft,
+    sections: [
+      {
+        ...learningSection,
+        items: [moduleTwoItem, surveyItem],
+      },
+      {
+        ...preparationSection,
+        items: [resourceItem],
+      },
+    ],
+  };
+  assert.equal(
+    await authoring.saveAdminCourseDraft(secondDraft, administrator),
+    "saved",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("course_version_module")
+      .select(["position", "scormPackageVersionId"])
+      .where("courseVersionId", "=", versioned.versionId)
+      .execute(),
+    [{ position: 0, scormPackageVersionId: ids.moduleVersionTwo }],
+  );
+  assert.equal(
+    await database
+      .selectFrom("course_version_module")
+      .select("scormPackageVersionId")
+      .where("courseVersionId", "=", created.versionId)
+      .execute()
+      .then((rows) => rows.length),
+    2,
+  );
+
+  assert.equal(
+    await authoring.archiveAdminCourse(created.courseId, administrator),
+    "archived",
+  );
+  await database
+    .insertInto("enrollment")
+    .values({
+      id: ids.enrollment,
+      userId: ids.user,
+      courseVersionId: created.versionId,
+      accessGrantId: null,
+      status: "active",
+      enrolledAt: new Date(),
+      completedAt: null,
+      expiresAt: null,
+      removedAt: null,
+    })
+    .execute();
+  assert.equal(
+    await authoring.deleteArchivedAdminCourse(created.courseId, administrator),
+    "conflict",
+  );
+  await database
+    .deleteFrom("enrollment")
+    .where("id", "=", ids.enrollment)
+    .execute();
+  assert.equal(
+    await authoring.deleteArchivedAdminCourse(created.courseId, administrator),
+    "deleted",
+  );
+  assert.equal(await authoring.findAdminCourse(created.courseId), null);
+
+  console.log(
+    "Verified course archive/delete safety, immutable version creation, section ordering and exact module, survey and PDF references",
+  );
+} finally {
+  await cleanup();
+  await database.destroy();
+  const { destroyDatabase } = await import("#/server/db/database.server");
+  await destroyDatabase();
+}

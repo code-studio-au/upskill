@@ -1,23 +1,18 @@
 import "@tanstack/react-start/server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { sql, type Transaction } from "kysely";
+import { sql } from "kysely";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import {
   scormProgressInputSchema,
   type ScormLaunchResult,
   type ScormProgressInput,
 } from "#/features/scorm/scorm.schema";
-import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
-import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
-import {
-  findEffectiveModuleCompletion,
-  findLatestEnrollmentProgressOverride,
-} from "#/server/learning/progress-overrides.server";
+import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
 
 const LAUNCH_TOKEN_LIFETIME_MS = 5 * 60 * 1_000;
 const ATTEMPT_SESSION_LIFETIME_MS = 8 * 60 * 60 * 1_000;
@@ -318,63 +313,6 @@ export async function authorizeScormAttemptSession(
   return Boolean(session && sessionIsAvailable(session));
 }
 
-async function completeEnrollmentIfReady(
-  transaction: Transaction<Database>,
-  attempt: { enrollmentId: string; courseVersionId: string },
-  now: Date,
-): Promise<void> {
-  if (
-    await findLatestEnrollmentProgressOverride(
-      transaction,
-      attempt.enrollmentId,
-    )
-  )
-    return;
-  const modules = await findEffectiveModuleCompletion(
-    transaction,
-    attempt.enrollmentId,
-    attempt.courseVersionId,
-  );
-  if (
-    modules.length === 0 ||
-    modules.some((module) => module.state !== "completed")
-  )
-    return;
-
-  const result = await transaction
-    .updateTable("enrollment")
-    .set({ status: "completed", completedAt: now })
-    .where("id", "=", attempt.enrollmentId)
-    .where("status", "!=", "completed")
-    .returning("id")
-    .executeTakeFirst();
-  if (!result) return;
-  await recordDurableAuditEvent(transaction, {
-    actorUserId: null,
-    action: "enrollment.scorm_completed",
-    subjectType: "enrollment",
-    subjectId: attempt.enrollmentId,
-    metadata: { courseVersionId: attempt.courseVersionId },
-    createdAt: now,
-  });
-  await transaction
-    .insertInto("outbox_event")
-    .values({
-      id: randomUUID(),
-      topic: "enrollment.completed",
-      aggregateId: attempt.enrollmentId,
-      payload: {
-        enrollmentId: attempt.enrollmentId,
-        courseVersionId: attempt.courseVersionId,
-        source: "scorm",
-      },
-      availableAt: now,
-      processedAt: null,
-      createdAt: now,
-    })
-    .execute();
-}
-
 export async function recordScormProgress(
   attemptId: string,
   sessionToken: string,
@@ -440,6 +378,7 @@ export async function recordScormProgress(
           {
             enrollmentId: session.enrollmentId,
             courseVersionId: session.courseVersionId,
+            source: "scorm",
           },
           now,
         );

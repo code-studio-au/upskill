@@ -1,13 +1,5 @@
-import {
-  Button,
-  Container,
-  Group,
-  NativeSelect,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Button, Container, Group, Stack, Text, Title } from "@mantine/core";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import {
   createFileRoute,
   useNavigate,
@@ -20,6 +12,7 @@ import {
   type CatalogSearch,
 } from "#/features/catalog/catalog.schema";
 import { RemovableFilterChip } from "#/features/shared/RemovableFilterChip";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { searchCourses } from "#/server/functions/catalog";
 import classes from "./courses.index.module.css";
 
@@ -64,13 +57,13 @@ function CourseCatalog() {
             setSubmittedFilters(filters);
           }}
         >
-          <TextInput
+          <MantineTextInput
             name="q"
             label="Search"
             defaultValue={search.q}
             maxLength={100}
           />
-          <NativeSelect
+          <MantineNativeSelect
             name="topic"
             label="Topic"
             defaultValue={search.topic}

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  parseContentWorkMessage,
   parseScormWorkMessage,
+  RESOURCE_DELETION_TOPIC,
   SCORM_DELETION_TOPIC,
   parseScormIngestionWorkMessage,
   SCORM_INGESTION_TOPIC,
@@ -89,6 +91,34 @@ describe("SCORM ingestion work messages", () => {
             quarantinePrefix: "scorm/",
             contentPrefix: "scorm/",
           },
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it("accepts only the exact immutable PDF object for resource cleanup", () => {
+    const resourceVersionId = "resource_version_1";
+    const objectKey = `resources/${resourceVersionId}/${"a".repeat(64)}.pdf`;
+    expect(
+      parseContentWorkMessage(
+        JSON.stringify({
+          version: 1,
+          eventId: "outbox_resource_delete_1",
+          topic: RESOURCE_DELETION_TOPIC,
+          aggregateId: resourceVersionId,
+          payload: { resourceVersionId, objectKey },
+        }),
+      ),
+    ).toMatchObject({ topic: RESOURCE_DELETION_TOPIC, payload: { objectKey } });
+
+    expect(() =>
+      parseContentWorkMessage(
+        JSON.stringify({
+          version: 1,
+          eventId: "outbox_resource_delete_2",
+          topic: RESOURCE_DELETION_TOPIC,
+          aggregateId: resourceVersionId,
+          payload: { resourceVersionId, objectKey: "resources/other/file.pdf" },
         }),
       ),
     ).toThrow();

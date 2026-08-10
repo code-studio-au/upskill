@@ -17,6 +17,15 @@ export function AdminNavigation() {
         <Button component={Link} to="/admin/modules" variant="subtle">
           Modules
         </Button>
+        <Button component={Link} to="/admin/courses" variant="subtle">
+          Courses
+        </Button>
+        <Button component={Link} to="/admin/surveys" variant="subtle">
+          Surveys
+        </Button>
+        <Button component={Link} to="/admin/resources" variant="subtle">
+          Resources
+        </Button>
         <Button component={Link} to="/dashboard" variant="light">
           Learner view
         </Button>

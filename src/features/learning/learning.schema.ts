@@ -13,15 +13,45 @@ export const learnerWorkspaceInputSchema = z.object({
   enrollmentId: enrollmentIdSchema,
 });
 
+export const learnerResourceInputSchema = z.object({
+  enrollmentId: enrollmentIdSchema,
+  resourceVersionId: enrollmentIdSchema,
+});
+
 export type LearningPhase =
   "pre-learning" | "content" | "post-learning" | "followup";
 
-export interface LearnerWorkspaceModule {
+interface LearnerWorkspaceModule {
   position: number;
   title: string;
   phase: LearningPhase;
   durationMinutes: number;
   completionState: "completed" | "incomplete";
+}
+
+export interface LearnerWorkspaceItem {
+  id: string;
+  position: number;
+  kind: "scorm" | "survey" | "resource";
+  title: string;
+  required: boolean;
+  durationMinutes: number | null;
+  completionState: "completed" | "incomplete";
+  modulePosition: number | null;
+  resourceVersionId: string | null;
+}
+
+interface LearnerWorkspaceSection {
+  id: string;
+  position: number;
+  title: string;
+  description: string;
+  completedItems: number;
+  totalItems: number;
+  completedRequiredItems: number;
+  requiredItems: number;
+  completionState: "completed" | "incomplete";
+  items: Array<LearnerWorkspaceItem>;
 }
 
 interface LearnerWorkspace {
@@ -33,6 +63,7 @@ interface LearnerWorkspace {
   enrolledAt: string;
   expiresAt: string | null;
   modules: Array<LearnerWorkspaceModule>;
+  sections: Array<LearnerWorkspaceSection>;
 }
 
 export type LearnerWorkspaceResult =
