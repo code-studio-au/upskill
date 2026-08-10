@@ -1,0 +1,26 @@
+.list {
+  display: grid;
+  gap: 0.4rem;
+  list-style: none;
+  margin: 0.35rem 0 0;
+  padding: 0;
+}
+
+.item {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+  margin: 0;
+}
+
+.link {
+  color: var(--mantine-color-indigo-8);
+  font-weight: 600;
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.15em;
+}
+
+.link:hover,
+.link:focus-visible {
+  text-decoration-thickness: 0.14em;
+}

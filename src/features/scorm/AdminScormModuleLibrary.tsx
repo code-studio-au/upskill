@@ -8,6 +8,7 @@ import {
   type AdminScormPackageVersionSummary,
 } from "#/features/scorm/scorm-package.schema";
 import classes from "./admin-scorm.module.css";
+import { CourseVersionUsageList } from "#/features/admin-course/CourseVersionUsageList";
 
 interface AdminScormModuleLibraryProps {
   packages: Array<AdminScormPackageSummary>;
@@ -73,11 +74,11 @@ function ScormVersionItem({
           </Badge>
         </Group>
         <Text c="dimmed" size="sm" mt={4}>
-          {fileSize(version.sourceBytes)} · Used by {version.courseUsageCount}{" "}
-          course version{version.courseUsageCount === 1 ? "" : "s"} ·{" "}
-          {version.attemptCount} learner attempt
+          {fileSize(version.sourceBytes)} · {version.attemptCount} learner
+          attempt
           {version.attemptCount === 1 ? "" : "s"}
         </Text>
+        <CourseVersionUsageList usages={version.courseUsages} />
         {version.failureCode ? (
           <Text c="red.7" size="sm" mt={4}>
             Validation code: {version.failureCode}

@@ -12,6 +12,7 @@ import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
+import { CourseVersionUsageList } from "#/features/admin-course/CourseVersionUsageList";
 import { adminSurveyCreateSchema } from "#/features/survey/survey.schema";
 import {
   createAdminSurvey,
@@ -100,6 +101,13 @@ function AdminSurveysPage() {
                     {survey.publishedVersions} published versions · Latest v
                     {survey.latestVersion}
                   </Text>
+                  {survey.versions.map((version) => (
+                    <CourseVersionUsageList
+                      key={version.id}
+                      contentVersion={version.version}
+                      usages={version.courseUsages}
+                    />
+                  ))}
                 </div>
                 <Link
                   to="/admin/surveys/$surveyId"

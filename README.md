@@ -49,6 +49,8 @@ The worker moves queued versions to ready or rejected after validation.
 Administrators can remove terminal versions only when no course version or
 learner attempt references them. Removal is audited, and an outbox job clears
 the exact quarantine and learning-content prefixes with retry and DLQ support.
+Each module version lists and links the exact draft, published or archived
+course versions that reference it.
 Course authoring is available at `/admin/courses`. Drafts contain reorderable
 sections with exact SCORM, published-survey and private PDF resource versions.
 Published versions are immutable, so structural changes require an explicit new
@@ -57,10 +59,12 @@ archived course can be permanently deleted only when it has no enrolment or
 commerce history. The learner workspace shows derived item and section progress.
 Survey authoring is available at `/admin/surveys`; published question sets are
 immutable, and entitled learners submit exact-version responses that contribute
-to section and course completion.
+to section and course completion. The survey library identifies every course
+version using each immutable survey version.
 Private PDF resources are managed at `/admin/resources`. Uploads create stable
 resources or immutable new versions; unreferenced versions can be removed, with
 durable audit and retryable exact-object cleanup through the content worker.
+Referenced PDF versions link back to each exact course version that uses them.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:

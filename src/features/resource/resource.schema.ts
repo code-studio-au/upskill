@@ -1,4 +1,5 @@
 import { z } from "#/validation/zod";
+import type { CourseVersionUsage } from "#/features/admin-course/course-version-usage";
 
 const identifierSchema = z
   .string()
@@ -70,6 +71,7 @@ export interface AdminResourceVersionSummary extends Omit<
   "resourceId" | "title"
 > {
   courseUsageCount: number;
+  courseUsages: Array<CourseVersionUsage>;
 }
 
 export interface AdminResourceSummary {

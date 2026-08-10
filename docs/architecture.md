@@ -80,7 +80,9 @@ reordering or removing content. Archiving removes a course from discovery while
 retaining history. Permanent deletion requires an archived course with no
 enrolment, order-item or access-grant references. Learner item evidence is
 stored, while section completion is derived from required items so it cannot
-drift from module, survey or resource progress.
+drift from module, survey or resource progress. Content libraries expose the
+exact linked course version and its draft, published and archived state so
+administrators can understand reference and removal boundaries.
 
 Published survey versions contain validated written, single-choice and
 multiple-choice questions. Learner responses are entitlement-scoped to an
