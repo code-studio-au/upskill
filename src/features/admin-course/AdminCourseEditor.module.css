@@ -1,0 +1,46 @@
+.twoColumns,
+.threeColumns {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.sectionFields {
+  display: grid;
+  flex: 1;
+  gap: var(--mantine-spacing-sm);
+  min-width: min(100%, 20rem);
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+}
+
+.textArea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.textAreaTall {
+  min-height: 8rem;
+  resize: vertical;
+}
+
+@media (max-width: 40em) {
+  .item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
+@media (min-width: 48em) {
+  .twoColumns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .threeColumns {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}

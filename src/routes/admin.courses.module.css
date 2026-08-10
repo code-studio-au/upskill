@@ -1,0 +1,10 @@
+.courseGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+@media (min-width: 62em) {
+  .courseGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

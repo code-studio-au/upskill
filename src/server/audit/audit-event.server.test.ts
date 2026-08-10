@@ -7,12 +7,19 @@ import {
 describe("audit event boundary", () => {
   it("keeps the durable action cohort intentionally small", () => {
     expect(durableAuditActions).toEqual([
+      "course.archived",
+      "course.created",
+      "course.deleted",
+      "course.published",
+      "course.version_created",
       "enrollment.access_code_redeemed",
+      "enrollment.learning_completed",
       "enrollment.purchased",
       "enrollment.scorm_completed",
       "order.checkout_failed",
       "order.checkout_paid",
       "order.paid_existing_enrollment",
+      "resource.uploaded",
       "scorm.package_uploaded",
       "scorm.package_version_removed",
     ]);

@@ -49,6 +49,12 @@ The worker moves queued versions to ready or rejected after validation.
 Administrators can remove terminal versions only when no course version or
 learner attempt references them. Removal is audited, and an outbox job clears
 the exact quarantine and learning-content prefixes with retry and DLQ support.
+Course authoring is available at `/admin/courses`. Drafts contain reorderable
+sections with exact SCORM, published-survey and private PDF resource versions.
+Published versions are immutable, so structural changes require an explicit new
+version and never rewrite existing enrolments. Courses can be archived; an
+archived course can be permanently deleted only when it has no enrolment or
+commerce history. The learner workspace shows derived item and section progress.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:

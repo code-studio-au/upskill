@@ -20,13 +20,17 @@ import { Route as CheckoutSuccessRouteImport } from './routes/checkout.success'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
+import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
+import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
 import { Route as AdminLearnersIndexRouteImport } from './routes/admin.learners.index'
 import { Route as AdminLearnersUserIdRouteImport } from './routes/admin.learners.$userId'
+import { Route as ApiAdminResourcesRouteImport } from './routes/api.admin.resources'
 import { Route as ApiAdminScormPackagesRouteImport } from './routes/api.admin.scorm-packages'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
+import { Route as ApiLearningResourcesResourceVersionIdRouteImport } from './routes/api.learning.resources.$resourceVersionId'
 import { Route as ApiScormAttemptsAttemptIdRouteImport } from './routes/api.scorm.attempts.$attemptId'
 import { Route as AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport } from './routes/admin.learners.$userId_.enrollments.$enrollmentId'
 
@@ -85,6 +89,16 @@ const LearnEnrollmentIdRoute = LearnEnrollmentIdRouteImport.update({
   path: '/learn/$enrollmentId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminCoursesIndexRoute = AdminCoursesIndexRouteImport.update({
+  id: '/courses/',
+  path: '/courses/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminCoursesCourseIdRoute = AdminCoursesCourseIdRouteImport.update({
+  id: '/courses/$courseId',
+  path: '/courses/$courseId',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminLearnersIndexRoute = AdminLearnersIndexRouteImport.update({
   id: '/learners/',
   path: '/learners/',
@@ -94,6 +108,11 @@ const AdminLearnersUserIdRoute = AdminLearnersUserIdRouteImport.update({
   id: '/learners/$userId',
   path: '/learners/$userId',
   getParentRoute: () => AdminRoute,
+} as any)
+const ApiAdminResourcesRoute = ApiAdminResourcesRouteImport.update({
+  id: '/api/admin/resources',
+  path: '/api/admin/resources',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAdminScormPackagesRoute = ApiAdminScormPackagesRouteImport.update({
   id: '/api/admin/scorm-packages',
@@ -120,6 +139,12 @@ const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
   path: '/api/stripe/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLearningResourcesResourceVersionIdRoute =
+  ApiLearningResourcesResourceVersionIdRouteImport.update({
+    id: '/api/learning/resources/$resourceVersionId',
+    path: '/api/learning/resources/$resourceVersionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiScormAttemptsAttemptIdRoute =
   ApiScormAttemptsAttemptIdRouteImport.update({
     id: '/api/scorm/attempts/$attemptId',
@@ -145,13 +170,17 @@ export interface FileRoutesByFullPath {
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
+  '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
+  '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/admin/courses/': typeof AdminCoursesIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
+  '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
@@ -166,13 +195,17 @@ export interface FileRoutesByTo {
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/admin': typeof AdminIndexRoute
   '/courses': typeof CoursesIndexRoute
+  '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
+  '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/admin/courses': typeof AdminCoursesIndexRoute
   '/admin/learners': typeof AdminLearnersIndexRoute
+  '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
@@ -189,13 +222,17 @@ export interface FileRoutesById {
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
+  '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
+  '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/admin/courses/': typeof AdminCoursesIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
+  '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRoute
   '/admin/learners/$userId_/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
@@ -213,13 +250,17 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId'
     | '/admin/'
     | '/courses/'
+    | '/admin/courses/$courseId'
     | '/admin/learners/$userId'
+    | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/admin/courses/'
     | '/admin/learners/'
+    | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
   fileRoutesByTo: FileRoutesByTo
@@ -234,13 +275,17 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId'
     | '/admin'
     | '/courses'
+    | '/admin/courses/$courseId'
     | '/admin/learners/$userId'
+    | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/admin/courses'
     | '/admin/learners'
+    | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
   id:
@@ -256,13 +301,17 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId'
     | '/admin/'
     | '/courses/'
+    | '/admin/courses/$courseId'
     | '/admin/learners/$userId'
+    | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/admin/courses/'
     | '/admin/learners/'
+    | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
     | '/admin/learners/$userId_/enrollments/$enrollmentId'
   fileRoutesById: FileRoutesById
@@ -277,11 +326,13 @@ export interface RootRouteChildren {
   CoursesSlugRoute: typeof CoursesSlugRoute
   LearnEnrollmentIdRoute: typeof LearnEnrollmentIdRoute
   CoursesIndexRoute: typeof CoursesIndexRoute
+  ApiAdminResourcesRoute: typeof ApiAdminResourcesRoute
   ApiAdminScormPackagesRoute: typeof ApiAdminScormPackagesRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  ApiLearningResourcesResourceVersionIdRoute: typeof ApiLearningResourcesResourceVersionIdRoute
   ApiScormAttemptsAttemptIdRoute: typeof ApiScormAttemptsAttemptIdRoute
 }
 
@@ -364,6 +415,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LearnEnrollmentIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/courses/': {
+      id: '/admin/courses/'
+      path: '/courses'
+      fullPath: '/admin/courses/'
+      preLoaderRoute: typeof AdminCoursesIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/courses/$courseId': {
+      id: '/admin/courses/$courseId'
+      path: '/courses/$courseId'
+      fullPath: '/admin/courses/$courseId'
+      preLoaderRoute: typeof AdminCoursesCourseIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/learners/': {
       id: '/admin/learners/'
       path: '/learners'
@@ -377,6 +442,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/learners/$userId'
       preLoaderRoute: typeof AdminLearnersUserIdRouteImport
       parentRoute: typeof AdminRoute
+    }
+    '/api/admin/resources': {
+      id: '/api/admin/resources'
+      path: '/api/admin/resources'
+      fullPath: '/api/admin/resources'
+      preLoaderRoute: typeof ApiAdminResourcesRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/admin/scorm-packages': {
       id: '/api/admin/scorm-packages'
@@ -413,6 +485,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStripeWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/learning/resources/$resourceVersionId': {
+      id: '/api/learning/resources/$resourceVersionId'
+      path: '/api/learning/resources/$resourceVersionId'
+      fullPath: '/api/learning/resources/$resourceVersionId'
+      preLoaderRoute: typeof ApiLearningResourcesResourceVersionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/scorm/attempts/$attemptId': {
       id: '/api/scorm/attempts/$attemptId'
       path: '/api/scorm/attempts/$attemptId'
@@ -433,7 +512,9 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminModulesRoute: typeof AdminModulesRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
   AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
+  AdminCoursesIndexRoute: typeof AdminCoursesIndexRoute
   AdminLearnersIndexRoute: typeof AdminLearnersIndexRoute
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
@@ -441,7 +522,9 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminModulesRoute: AdminModulesRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
   AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,
+  AdminCoursesIndexRoute: AdminCoursesIndexRoute,
   AdminLearnersIndexRoute: AdminLearnersIndexRoute,
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute:
     AdminLearnersUserIdEnrollmentsEnrollmentIdRoute,
@@ -459,11 +542,14 @@ const rootRouteChildren: RootRouteChildren = {
   CoursesSlugRoute: CoursesSlugRoute,
   LearnEnrollmentIdRoute: LearnEnrollmentIdRoute,
   CoursesIndexRoute: CoursesIndexRoute,
+  ApiAdminResourcesRoute: ApiAdminResourcesRoute,
   ApiAdminScormPackagesRoute: ApiAdminScormPackagesRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  ApiLearningResourcesResourceVersionIdRoute:
+    ApiLearningResourcesResourceVersionIdRoute,
   ApiScormAttemptsAttemptIdRoute: ApiScormAttemptsAttemptIdRoute,
 }
 export const routeTree = rootRouteImport

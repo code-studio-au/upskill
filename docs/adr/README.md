@@ -9,3 +9,4 @@
 - [ADR 0007: AWS deployment and verification](0007-aws-deployment-and-verification.md)
 - [ADR 0008: SQS worker delivery](0008-sqs-worker-delivery.md)
 - [ADR 0009: Structured logging and durable audit projection](0009-structured-logging-and-durable-audit.md)
+- [ADR 0010: Versioned course authoring and section progress](0010-versioned-course-authoring-and-section-progress.md)

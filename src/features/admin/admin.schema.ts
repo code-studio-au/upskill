@@ -111,6 +111,24 @@ interface AdminEnrollmentModule {
   latestActivityAtLabel: string | null;
 }
 
+interface AdminEnrollmentSectionItem {
+  id: string;
+  kind: "scorm" | "survey" | "resource";
+  title: string;
+  required: boolean;
+  state: "completed" | "incomplete";
+}
+
+interface AdminEnrollmentSection {
+  id: string;
+  title: string;
+  description: string;
+  state: "completed" | "incomplete";
+  completedItems: number;
+  totalItems: number;
+  items: Array<AdminEnrollmentSectionItem>;
+}
+
 interface AdminProgressOverrideHistoryItem {
   id: string;
   scope: "module" | "enrollment";
@@ -138,6 +156,7 @@ export interface AdminEnrollmentDetail {
     expiresAt: string | null;
   };
   modules: Array<AdminEnrollmentModule>;
+  sections: Array<AdminEnrollmentSection>;
   overrideHistory: Array<AdminProgressOverrideHistoryItem>;
 }
 

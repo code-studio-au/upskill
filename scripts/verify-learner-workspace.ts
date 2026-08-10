@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Kysely, PostgresDialect } from "kysely";
+import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
@@ -13,6 +13,10 @@ const ids = {
   course: "verify_workspace_course",
   version: "verify_workspace_version",
   enrollment: "verify_workspace_enrollment",
+  section: "verify_workspace_section",
+  item: "verify_workspace_item",
+  resource: "verify_workspace_resource",
+  resourceVersion: "verify_workspace_resource_version",
 };
 const user: AuthenticatedUser = {
   id: ids.user,
@@ -35,14 +39,45 @@ const database = new Kysely<Database>({
 
 async function cleanup(): Promise<void> {
   await database
+    .deleteFrom("outbox_event")
+    .where("aggregateId", "=", ids.enrollment)
+    .execute();
+  await database.transaction().execute(async (transaction) => {
+    await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
+      transaction,
+    );
+    await sql`delete from audit_event
+      where "subjectId" = ${ids.enrollment}`.execute(transaction);
+  });
+  await database
+    .deleteFrom("learning_item_progress")
+    .where("enrollmentId", "=", ids.enrollment)
+    .execute();
+  await database
     .deleteFrom("enrollment")
     .where("id", "=", ids.enrollment)
+    .execute();
+  await database
+    .deleteFrom("course_version_item")
+    .where("id", "=", ids.item)
+    .execute();
+  await database
+    .deleteFrom("course_version_section")
+    .where("id", "=", ids.section)
     .execute();
   await database
     .deleteFrom("course_version")
     .where("id", "=", ids.version)
     .execute();
   await database.deleteFrom("course").where("id", "=", ids.course).execute();
+  await database
+    .deleteFrom("learning_resource_version")
+    .where("id", "=", ids.resourceVersion)
+    .execute();
+  await database
+    .deleteFrom("learning_resource")
+    .where("id", "=", ids.resource)
+    .execute();
   await database
     .deleteFrom("user")
     .where("id", "in", [ids.user, ids.anotherUser])
@@ -71,6 +106,24 @@ try {
         stripeCustomerId: null,
       },
     ])
+    .execute();
+  await database
+    .insertInto("learning_resource")
+    .values({ id: ids.resource, title: "Verified guide" })
+    .execute();
+  await database
+    .insertInto("learning_resource_version")
+    .values({
+      id: ids.resourceVersion,
+      resourceId: ids.resource,
+      version: 1,
+      displayName: "verified-guide.pdf",
+      description: "Workspace progress fixture",
+      objectKey: `resources/${ids.resourceVersion}/${"4".repeat(64)}.pdf`,
+      sha256: "4".repeat(64),
+      sourceBytes: 5,
+      mediaType: "application/pdf",
+    })
     .execute();
   await database
     .insertInto("course")
@@ -113,6 +166,33 @@ try {
     })
     .execute();
   await database
+    .insertInto("course_version_section")
+    .values({
+      id: ids.section,
+      courseVersionId: ids.version,
+      position: 0,
+      title: "Verified section",
+      description: "Derived section completion",
+    })
+    .execute();
+  await database
+    .insertInto("course_version_item")
+    .values({
+      id: ids.item,
+      courseVersionId: ids.version,
+      sectionId: ids.section,
+      position: 0,
+      kind: "resource",
+      title: "Verified guide",
+      required: true,
+      durationMinutes: null,
+      modulePosition: null,
+      scormPackageVersionId: null,
+      surveyVersionId: null,
+      resourceVersionId: ids.resourceVersion,
+    })
+    .execute();
+  await database
     .insertInto("enrollment")
     .values({
       id: ids.enrollment,
@@ -142,18 +222,51 @@ try {
       completionState: "incomplete",
     },
   ]);
+  assert.equal(available.workspace.sections.length, 1);
+  assert.equal(available.workspace.sections[0]?.completionState, "incomplete");
+  assert.equal(available.workspace.sections[0].completedRequiredItems, 0);
   assert.deepEqual(await findLearnerWorkspace(ids.enrollment, anotherUser), {
     status: "not-found",
   });
 
   await database
-    .updateTable("enrollment")
-    .set({ status: "completed", completedAt: new Date() })
-    .where("id", "=", ids.enrollment)
-    .executeTakeFirstOrThrow();
-  const completed = await findLearnerWorkspace(ids.enrollment, user);
-  assert.equal(completed.status, "available");
-  assert.equal(completed.workspace.completionStatus, "completed");
+    .insertInto("learning_item_progress")
+    .values({
+      enrollmentId: ids.enrollment,
+      courseVersionItemId: ids.item,
+      state: "completed",
+      completedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .execute();
+  const { completeEnrollmentIfReady } =
+    await import("#/server/learning/learning-completion.server");
+  assert.equal(
+    await database.transaction().execute(
+      async (transaction) =>
+        await completeEnrollmentIfReady(
+          transaction,
+          {
+            enrollmentId: ids.enrollment,
+            courseVersionId: ids.version,
+            source: "resource",
+          },
+          new Date(),
+        ),
+    ),
+    true,
+  );
+  const sectionCompleted = await findLearnerWorkspace(ids.enrollment, user);
+  assert.equal(sectionCompleted.status, "available");
+  assert.equal(
+    sectionCompleted.workspace.sections[0]?.completionState,
+    "completed",
+  );
+  assert.equal(
+    sectionCompleted.workspace.sections[0].completedRequiredItems,
+    1,
+  );
+  assert.equal(sectionCompleted.workspace.completionStatus, "completed");
 
   await database
     .updateTable("enrollment")
@@ -176,7 +289,7 @@ try {
   });
 
   console.log(
-    "Verified learner workspace ownership, immutable version mapping, completion access, expiry and removal boundaries",
+    "Verified learner workspace ownership, immutable version mapping, derived section completion, expiry and removal boundaries",
   );
 } finally {
   await cleanup();

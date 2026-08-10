@@ -88,6 +88,65 @@ interface CourseVersionTable {
   createdAt: Timestamp;
 }
 
+interface CourseVersionSectionTable {
+  id: string;
+  courseVersionId: string;
+  position: number;
+  title: string;
+  description: string;
+  createdAt: Timestamp;
+}
+
+interface CourseVersionItemTable {
+  id: string;
+  courseVersionId: string;
+  sectionId: string;
+  position: number;
+  kind: "scorm" | "survey" | "resource";
+  title: string;
+  required: boolean;
+  durationMinutes: number | null;
+  modulePosition: number | null;
+  scormPackageVersionId: string | null;
+  surveyVersionId: string | null;
+  resourceVersionId: string | null;
+  createdAt: Timestamp;
+}
+
+interface SurveyTable {
+  id: string;
+  title: string;
+  createdAt: Timestamp;
+}
+
+interface SurveyVersionTable {
+  id: string;
+  surveyId: string;
+  version: number;
+  content: Json;
+  publishedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface LearningResourceTable {
+  id: string;
+  title: string;
+  createdAt: Timestamp;
+}
+
+interface LearningResourceVersionTable {
+  id: string;
+  resourceId: string;
+  version: number;
+  displayName: string;
+  description: string;
+  objectKey: string;
+  sha256: string;
+  sourceBytes: number;
+  mediaType: "application/pdf";
+  createdAt: Timestamp;
+}
+
 interface ScormPackageTable {
   id: string;
   title: string;
@@ -189,6 +248,14 @@ interface LearningProgressOverrideTable {
   createdAt: Timestamp;
 }
 
+interface LearningItemProgressTable {
+  enrollmentId: string;
+  courseVersionItemId: string;
+  state: "completed";
+  completedAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 interface OrderTable {
   id: string;
   purchaserUserId: string | null;
@@ -242,13 +309,20 @@ interface OutboxEventTable {
 }
 
 export type AuditEventAction =
+  | "course.archived"
+  | "course.created"
+  | "course.deleted"
+  | "course.published"
+  | "course.version_created"
   | "enrollment.access_code_redeemed"
+  | "enrollment.learning_completed"
   | "enrollment.purchased"
   | "enrollment.scorm_completed"
   | "learning.progress_overridden"
   | "order.checkout_failed"
   | "order.checkout_paid"
   | "order.paid_existing_enrollment"
+  | "resource.uploaded"
   | "scorm.attempt_launch_issued"
   | "scorm.package_ready"
   | "scorm.package_rejected"
@@ -273,9 +347,14 @@ export interface Database {
   audit_event: AuditEventTable;
   course: CourseTable;
   course_version: CourseVersionTable;
+  course_version_item: CourseVersionItemTable;
   course_version_module: CourseVersionModuleTable;
+  course_version_section: CourseVersionSectionTable;
   enrollment: EnrollmentTable;
+  learning_item_progress: LearningItemProgressTable;
   learning_progress_override: LearningProgressOverrideTable;
+  learning_resource: LearningResourceTable;
+  learning_resource_version: LearningResourceVersionTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   platform_admin: PlatformAdminTable;
@@ -288,6 +367,8 @@ export interface Database {
   scorm_launch_token: ScormLaunchTokenTable;
   scorm_package: ScormPackageTable;
   scorm_package_version: ScormPackageVersionTable;
+  survey: SurveyTable;
+  survey_version: SurveyVersionTable;
   user: UserTable;
   verification: VerificationTable;
 }

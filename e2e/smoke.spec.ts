@@ -25,6 +25,52 @@ async function cleanupScormPackageFixture(
   });
 }
 
+async function cleanupCourseAuthoringFixture(
+  database: Client,
+  slug: string,
+): Promise<void> {
+  const course = await database.query<{ id: string }>(
+    `select id from course where slug = $1`,
+    [slug],
+  );
+  const courseId = course.rows[0]?.id;
+  if (!courseId) return;
+  const versions = await database.query<{ id: string }>(
+    `select id from course_version where "courseId" = $1`,
+    [courseId],
+  );
+  const versionIds = versions.rows.map((version) => version.id);
+  await withPgAuditMaintenance(database, async (transaction) => {
+    await transaction.query(
+      `delete from outbox_event where "aggregateId" = any($1::text[])`,
+      [[courseId, ...versionIds]],
+    );
+    await transaction.query(
+      `delete from audit_event where "subjectId" = any($1::text[])`,
+      [[courseId, ...versionIds]],
+    );
+    if (versionIds.length > 0) {
+      await transaction.query(
+        `delete from course_version_module where "courseVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from course_version_item where "courseVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from course_version_section where "courseVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from course_version where id = any($1::text[])`,
+        [versionIds],
+      );
+    }
+    await transaction.query(`delete from course where id = $1`, [courseId]);
+  });
+}
+
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
 }) => {
@@ -278,6 +324,43 @@ test("platform administrators can inspect learner progress", async ({
     page.getByRole("heading", { name: "Administration" }),
   ).toBeVisible();
   await expect(page.getByText("Registered learners")).toBeVisible();
+
+  const authoringDatabase = new Client({
+    connectionString: process.env.DATABASE_URL,
+  });
+  const authoringSlug = "e2e-editable-course-draft";
+  await authoringDatabase.connect();
+  try {
+    await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Courses", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Courses", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Create course" }).click();
+    await page.getByLabel("Course title").fill("E2E editable course draft");
+    await expect(page.getByLabel("URL slug")).toHaveValue(authoringSlug);
+    await page.getByRole("button", { name: "Create draft" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toContainText(
+      "E2E editable course draft",
+    );
+    await page.getByLabel("Title").fill("E2E edited course draft");
+    await expect(page.getByLabel("Title")).toHaveValue(
+      "E2E edited course draft",
+    );
+    await page.getByRole("button", { name: "Add section" }).click();
+    await page.getByLabel("Section 1 title").fill("E2E edited section title");
+    await expect(page.getByLabel("Section 1 title")).toHaveValue(
+      "E2E edited section title",
+    );
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await expect(page.getByText("Draft saved.")).toBeVisible();
+  } finally {
+    await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await authoringDatabase.end();
+  }
 
   await page.getByRole("link", { name: "Learners" }).click();
   await expect(

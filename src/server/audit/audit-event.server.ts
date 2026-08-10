@@ -8,12 +8,19 @@ import { z } from "#/validation/zod.server";
 export const AUDIT_LOG_TOPIC = "audit.log_requested";
 
 export const durableAuditActions = [
+  "course.archived",
+  "course.created",
+  "course.deleted",
+  "course.published",
+  "course.version_created",
   "enrollment.access_code_redeemed",
+  "enrollment.learning_completed",
   "enrollment.purchased",
   "enrollment.scorm_completed",
   "order.checkout_failed",
   "order.checkout_paid",
   "order.paid_existing_enrollment",
+  "resource.uploaded",
   "scorm.package_uploaded",
   "scorm.package_version_removed",
 ] as const satisfies ReadonlyArray<AuditEventAction>;

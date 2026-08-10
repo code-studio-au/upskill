@@ -9,7 +9,7 @@
 }
 
 .dialog {
-  width: min(100%, 30rem);
+  width: min(100%, 32rem);
   max-height: calc(100dvh - 2 * var(--mantine-spacing-md));
   overflow-y: auto;
 }

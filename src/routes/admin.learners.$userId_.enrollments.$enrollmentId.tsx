@@ -125,6 +125,75 @@ function AdminEnrollmentPage() {
         </Paper>
       </section>
 
+      {detail.sections.length > 0 ? (
+        <section aria-labelledby="section-progress-heading">
+          <Stack gap="md">
+            <div>
+              <Title order={2} id="section-progress-heading">
+                Section progress
+              </Title>
+              <Text c="dimmed" mt={4}>
+                Completion is derived from the required items in this exact
+                published course version.
+              </Text>
+            </div>
+            <div className={classes.moduleDetailList}>
+              {detail.sections.map((section) => (
+                <Paper
+                  withBorder
+                  radius="lg"
+                  p={{ base: "lg", sm: "xl" }}
+                  key={section.id}
+                >
+                  <Stack gap="md">
+                    <Group justify="space-between" align="flex-start">
+                      <div>
+                        <Title order={3}>{section.title}</Title>
+                        {section.description ? (
+                          <Text c="dimmed" size="sm">
+                            {section.description}
+                          </Text>
+                        ) : null}
+                      </div>
+                      <Badge color={stateColour(section.state)} variant="light">
+                        {section.state}
+                      </Badge>
+                    </Group>
+                    <Text size="sm" c="dimmed">
+                      {section.completedItems} of {section.totalItems} items
+                      completed
+                    </Text>
+                    <Stack gap="xs">
+                      {section.items.map((item) => (
+                        <Group
+                          key={item.id}
+                          justify="space-between"
+                          wrap="wrap"
+                        >
+                          <div>
+                            <Text fw={600}>{item.title}</Text>
+                            <Text size="xs" c="dimmed" tt="capitalize">
+                              {item.kind} ·{" "}
+                              {item.required ? "Required" : "Optional"}
+                            </Text>
+                          </div>
+                          <Badge
+                            color={stateColour(item.state)}
+                            variant="light"
+                          >
+                            {item.state}
+                          </Badge>
+                        </Group>
+                      ))}
+                    </Stack>
+                  </Stack>
+                </Paper>
+              ))}
+            </div>
+          </Stack>
+        </section>
+      ) : null}
+
       <section aria-labelledby="module-progress-heading">
         <Stack gap="md">
           <div>
