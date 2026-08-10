@@ -33,6 +33,12 @@ identifiers. A future Datadog Agent will collect the journal stream. Application
 mutations do not call Datadog directly, and Datadog is not the audit system of
 record.
 
+Runtime releases exclude source maps. Future Datadog error symbolication must
+generate and upload private client, server and worker maps under the exact
+deployment/release identifier before those maps are removed and the runtime
+artifact is packaged. Without that separate upload, production stack traces
+cannot identify the original TypeScript file and line number.
+
 The audit table accepts only known action names, has actor/action/subject time
 indexes, and rejects updates or deletes unless an explicit transaction-local
 maintenance setting is enabled. Verification cleanup uses that setting inside

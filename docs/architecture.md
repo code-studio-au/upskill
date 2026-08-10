@@ -48,6 +48,10 @@ Administrators can grant an existing learner access to an exact published
 version and soft-remove that access. Re-adding a removed or expired exact-version
 enrolment restores its retained progress and completion history rather than
 creating a competing learner record. Each transition is serialized and audited.
+Administrators can also issue capacity-limited organisation access codes for an
+exact published version and revoke further use without changing enrolments that
+already exist. The administration route is kept behind its own client route
+boundary.
 
 The application uses nonce-based script CSP with no script `unsafe-inline`.
 Mantine is styled primarily through CSS Modules. Mantine's CSS-variable style
@@ -72,9 +76,18 @@ Single-course Checkout snapshots the published course version and price in an
 order item before redirecting to Stripe. A raw-body, signature-verified webhook
 reconciles the session to that snapshot and serializes replay-safe fulfilment on
 the order row; the browser success redirect only reads the resulting status.
-Access codes are normalized and stored only as HMAC digests protected by an
-independent generated secret. Redemption locks the grant row and commits the
+Administrator-issued access codes are canonical human-readable values stored as
+plaintext so authorized staff can retrieve them for customers. A keyed HMAC
+digest remains the normalized unique lookup key; neither the code nor digest is
+written to logs or audit metadata. Retrieval is an explicit authorized command
+with durable audit evidence. Redemption locks the grant row and commits the
 capacity update, enrolment, audit event and outbox event in one transaction.
+Grants bind an organisation, capacity, learner access duration, optional expiry
+and optional normalized email domains. Administrators may change total capacity
+without changing the code, but cannot reduce it below the number already
+redeemed. Timestamped revocation removes the grant from domain discovery and
+causes later redemption to fail while preserving the grant and its existing
+enrolments as historical evidence.
 Learner workspace reads are scoped by both the opaque enrolment identifier and
 the authenticated user. They resolve the exact enrolled course version and
 reject expired or removed access before any learning content is exposed;
@@ -176,6 +189,24 @@ process and a separately hardened worker process. GitHub Actions authenticates
 to AWS through OIDC, builds both processes once and promotes the same
 content-addressed artifact.
 
+Builds contain integrity-verified Brotli and gzip sidecars for compressible
+client assets. The secure local production preview serves Brotli over TLS with
+gzip and identity fallback; streamed SSR remains dynamically gzip-compressed.
+Deployment Nginx enables its standard gzip module. Production Brotli delivery
+will use only a separately verified module or edge/CDN capability rather than
+compiling third-party code during instance boot.
+
+Runtime artifacts contain no source maps. Local Vite development retains
+source-level debugging. Future Datadog error symbolication must generate and
+upload private client, server and worker maps keyed to the exact deployment
+identity, then remove them before the immutable release archive is created.
+Without that upload, production errors identify generated bundles rather than
+the original TypeScript file and line.
+
+The Node listener is loopback-only. Deployments explicitly enable its trusted
+proxy mode so Nginx's overwritten `X-Real-IP` reaches BetterAuth rate limiting;
+direct local launches replace any client-supplied value with the socket address.
+
 ## Quality attributes
 
 - Mobile-first layouts with CSS media/container queries.
@@ -183,9 +214,10 @@ content-addressed artifact.
 - Typed, size-limited and normalized server boundaries.
 - Fresh-database and upgrade migration verification.
 - Deterministic bundle budgets enforced after every production build: total
-  client assets, largest JavaScript chunk, root preload gzip cost and maximum
-  incremental route JavaScript/CSS gzip cost. Route budgets force feature code
-  behind route boundaries before the root bundle becomes difficult to split.
+  client assets, total Brotli wire size, largest JavaScript chunk, root preload
+  gzip cost and maximum incremental route JavaScript/CSS gzip cost. Route
+  budgets force feature code behind route boundaries before the root bundle
+  becomes difficult to split.
 - TanStack Form and Zod own interactive mutation form state and validation;
   router-backed catalogue filters remain native GET forms. Server and upload
   boundaries parse every payload independently of browser validation.

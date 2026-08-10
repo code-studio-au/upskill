@@ -1,0 +1,132 @@
+.formGrid,
+.grantGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.issuedCode {
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-sm);
+  display: block;
+  font-family: var(--mantine-font-family-monospace);
+  font-size: clamp(0.85rem, 3vw, 1.1rem);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  overflow-wrap: anywhere;
+  padding: var(--mantine-spacing-sm);
+  user-select: all;
+}
+
+.revealedCode {
+  background: var(--mantine-color-gray-0);
+  border-radius: var(--mantine-radius-md);
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-sm);
+}
+
+.codeActions,
+.cardActions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+}
+
+.cardHeader,
+.cardFooter,
+.redemptions li {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--mantine-spacing-md);
+  justify-content: space-between;
+}
+
+.identity,
+.email {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.reviewLink {
+  text-decoration: none;
+}
+
+.metrics {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin: 0;
+}
+
+.metrics div {
+  background: var(--mantine-color-gray-0);
+  border-radius: var(--mantine-radius-md);
+  padding: var(--mantine-spacing-sm);
+}
+
+.metrics dt {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+}
+
+.metrics dd {
+  font-weight: 700;
+  margin: 0;
+}
+
+.summary {
+  color: var(--mantine-color-indigo-7);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.redemptions {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  list-style: none;
+  margin: var(--mantine-spacing-sm) 0 0;
+  padding: 0;
+}
+
+.redemptions li {
+  align-items: center;
+  border-top: 1px solid var(--mantine-color-gray-2);
+  padding-top: var(--mantine-spacing-sm);
+}
+
+.cardFooter {
+  align-items: center;
+  border-top: 1px solid var(--mantine-color-gray-2);
+  padding-top: var(--mantine-spacing-sm);
+}
+
+.cardActions {
+  justify-content: flex-end;
+}
+
+@media (min-width: 48em) {
+  .formGrid,
+  .grantGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 36em) {
+  .cardHeader,
+  .cardFooter,
+  .redemptions li {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cardActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .metrics {
+    grid-template-columns: 1fr;
+  }
+}

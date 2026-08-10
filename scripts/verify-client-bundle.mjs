@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { gzipSync } from "node:zlib";
+import { brotliDecompressSync, gzipSync, gunzipSync } from "node:zlib";
 
 const root = path.resolve(import.meta.dirname, "..");
+const distributionDirectory = path.join(root, "dist");
 const publicDirectory = path.join(root, "dist/client");
 const budgets = JSON.parse(
   fs.readFileSync(path.join(root, "config/bundle-budgets.json"), "utf8"),
@@ -18,11 +19,22 @@ function files(directory) {
 
 if (!fs.existsSync(publicDirectory))
   throw new Error("Build output dist/client is missing");
+const deployedSourceMaps = files(distributionDirectory).filter((file) =>
+  /\.map(?:\.br|\.gz)?$/.test(file),
+);
+if (deployedSourceMaps.length > 0)
+  throw new Error(
+    `Runtime artifact contains source maps:\n${deployedSourceMaps.join("\n")}`,
+  );
 const assets = files(publicDirectory);
 const js = assets.filter((file) => /\.(?:js|mjs)$/.test(file));
 const css = assets.filter((file) => file.endsWith(".css"));
 const size = (file) => fs.statSync(file).size;
 const gzipSize = (file) => gzipSync(fs.readFileSync(file)).byteLength;
+const sidecarWireSize = (file, suffix) => {
+  const sidecar = `${file}${suffix}`;
+  return fs.existsSync(sidecar) ? size(sidecar) : size(file);
+};
 const assetPath = (asset) =>
   path.join(publicDirectory, asset.replace(/^\//, ""));
 const sumUniqueAssets = (assetUrls, measure) =>
@@ -34,6 +46,14 @@ const sumUniqueAssets = (assetUrls, measure) =>
   }, 0);
 const jsBytes = js.reduce((total, file) => total + size(file), 0);
 const cssBytes = css.reduce((total, file) => total + size(file), 0);
+const jsBrotliBytes = js.reduce(
+  (total, file) => total + sidecarWireSize(file, ".br"),
+  0,
+);
+const cssBrotliBytes = css.reduce(
+  (total, file) => total + sidecarWireSize(file, ".br"),
+  0,
+);
 const largestJs = Math.max(0, ...js.map(size));
 
 const manifestFiles = files(path.join(root, "dist/server/assets")).filter(
@@ -58,6 +78,26 @@ let largestRouteJavaScript = { route: "", bytes: 0 };
 let largestRouteCss = { route: "", bytes: 0 };
 const failures = [];
 
+for (const asset of [...js, ...css]) {
+  const source = fs.readFileSync(asset);
+  const brotliPath = `${asset}.br`;
+  const gzipPath = `${asset}.gz`;
+  if (size(asset) >= 1024 && !fs.existsSync(brotliPath))
+    failures.push(`Compressible asset has no Brotli sidecar: ${asset}`);
+  if (size(asset) >= 1024 && !fs.existsSync(gzipPath))
+    failures.push(`Compressible asset has no gzip sidecar: ${asset}`);
+  if (
+    fs.existsSync(brotliPath) &&
+    !brotliDecompressSync(fs.readFileSync(brotliPath)).equals(source)
+  )
+    failures.push(`Brotli sidecar does not match source: ${asset}`);
+  if (
+    fs.existsSync(gzipPath) &&
+    !gunzipSync(fs.readFileSync(gzipPath)).equals(source)
+  )
+    failures.push(`gzip sidecar does not match source: ${asset}`);
+}
+
 for (const [route, entry] of Object.entries(routes)) {
   if (route === "__root__") continue;
   const isUserInterfaceRoute =
@@ -80,6 +120,14 @@ if (jsBytes > budgets.clientJavaScriptBytes)
   failures.push(`Client JS ${jsBytes} > ${budgets.clientJavaScriptBytes}`);
 if (cssBytes > budgets.clientCssBytes)
   failures.push(`Client CSS ${cssBytes} > ${budgets.clientCssBytes}`);
+if (jsBrotliBytes > budgets.clientJavaScriptBrotliBytes)
+  failures.push(
+    `Client Brotli JS ${jsBrotliBytes} > ${budgets.clientJavaScriptBrotliBytes}`,
+  );
+if (cssBrotliBytes > budgets.clientCssBrotliBytes)
+  failures.push(
+    `Client Brotli CSS ${cssBrotliBytes} > ${budgets.clientCssBrotliBytes}`,
+  );
 if (largestJs > budgets.largestJavaScriptAssetBytes)
   failures.push(
     `Largest JS asset ${largestJs} > ${budgets.largestJavaScriptAssetBytes}`,
@@ -104,6 +152,7 @@ if (failures.length > 0) throw new Error(failures.join("\n"));
 console.log(
   [
     `Bundle verified: total JS ${jsBytes} bytes, total CSS ${cssBytes} bytes, largest JS ${largestJs} bytes`,
+    `Brotli wire JS ${jsBrotliBytes} bytes, Brotli wire CSS ${cssBrotliBytes} bytes`,
     `root gzip JS ${rootPreloadJavaScriptGzipBytes} bytes, root gzip CSS ${rootCssGzipBytes} bytes`,
     `largest route gzip JS ${largestRouteJavaScript.bytes} bytes (${largestRouteJavaScript.route}), CSS ${largestRouteCss.bytes} bytes (${largestRouteCss.route})`,
   ].join("; "),

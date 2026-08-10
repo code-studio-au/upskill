@@ -14,6 +14,7 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
+import { Route as AdminAccessRouteImport } from './routes/admin.access'
 import { Route as AdminModulesRouteImport } from './routes/admin.modules'
 import { Route as AdminResourcesRouteImport } from './routes/admin.resources'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
@@ -63,6 +64,11 @@ const LoginRoute = LoginRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAccessRoute = AdminAccessRouteImport.update({
+  id: '/access',
+  path: '/access',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminModulesRoute = AdminModulesRouteImport.update({
@@ -202,6 +208,7 @@ export interface FileRoutesByFullPath {
   '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
@@ -233,6 +240,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
@@ -266,6 +274,7 @@ export interface FileRoutesById {
   '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
@@ -300,6 +309,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/login'
+    | '/admin/access'
     | '/admin/modules'
     | '/admin/resources'
     | '/api/health'
@@ -331,6 +341,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/login'
+    | '/admin/access'
     | '/admin/modules'
     | '/admin/resources'
     | '/api/health'
@@ -363,6 +374,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/dashboard'
     | '/login'
+    | '/admin/access'
     | '/admin/modules'
     | '/admin/resources'
     | '/api/health'
@@ -448,6 +460,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/access': {
+      id: '/admin/access'
+      path: '/access'
+      fullPath: '/admin/access'
+      preLoaderRoute: typeof AdminAccessRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/modules': {
@@ -629,6 +648,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AdminRouteChildren {
+  AdminAccessRoute: typeof AdminAccessRoute
   AdminModulesRoute: typeof AdminModulesRoute
   AdminResourcesRoute: typeof AdminResourcesRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -642,6 +662,7 @@ interface AdminRouteChildren {
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
+  AdminAccessRoute: AdminAccessRoute,
   AdminModulesRoute: AdminModulesRoute,
   AdminResourcesRoute: AdminResourcesRoute,
   AdminIndexRoute: AdminIndexRoute,

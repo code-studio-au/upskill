@@ -145,6 +145,8 @@ const applicationStack = fs.readFileSync(
 );
 if (!applicationStack.includes("SQS_QUEUE_URL: props.workQueue.queueUrl"))
   failures.push("The deployed worker must receive its CDK-managed queue URL");
+if (!applicationStack.includes('UPSKILL_TRUST_PROXY: "true"'))
+  failures.push("The loopback-only nginx deployment must preserve client IPs");
 const workerService = fs.readFileSync(
   path.join(root, "deploy/systemd/upskill-worker.service"),
   "utf8",
@@ -180,6 +182,15 @@ const nginx = fs.readFileSync(
   path.join(root, "deploy/nginx/upskill.conf"),
   "utf8",
 );
+for (const directive of [
+  "gzip on;",
+  "gzip_vary on;",
+  "gzip_proxied any;",
+  "gzip_comp_level 6;",
+  "gzip_min_length 1024;",
+])
+  if (!nginx.includes(directive))
+    failures.push(`nginx compression policy is missing: ${directive}`);
 if (!nginx.includes("client_max_body_size 2m;"))
   failures.push("The default nginx request-body limit must remain 2 MB");
 const scormUploadLocation = nginx.match(
@@ -202,6 +213,39 @@ if (!resourceUploadLocation?.includes("proxy_request_buffering off;"))
   failures.push(
     "nginx must stream PDF resource uploads instead of buffering them",
   );
+
+if (!packageJson.scripts?.build?.includes("precompress-client-assets.mjs"))
+  failures.push("Production builds must create verified compression sidecars");
+const viteConfig = fs.readFileSync(path.join(root, "vite.config.ts"), "utf8");
+if (!viteConfig.includes("sourcemap: false"))
+  failures.push("Production runtime builds must exclude source maps");
+const workerViteConfig = fs.readFileSync(
+  path.join(root, "vite.worker.config.ts"),
+  "utf8",
+);
+if (!workerViteConfig.includes("sourcemap: false"))
+  failures.push("Production worker builds must exclude source maps");
+const clientPrecompression = fs.readFileSync(
+  path.join(root, "scripts/precompress-client-assets.mjs"),
+  "utf8",
+);
+if (clientPrecompression.includes('".map"'))
+  failures.push("Source maps must not be precompressed into runtime artifacts");
+const startServer = fs.readFileSync(
+  path.join(root, "scripts/start-server.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  "UPSKILL_TLS_CERT_FILE",
+  "UPSKILL_TRUST_PROXY",
+  '!trustProxy || !headers.has("x-real-ip")',
+  'encoding === "br"',
+  'encoding === "gzip"',
+  "constants.Z_SYNC_FLUSH",
+  'appendVary(outgoing.getHeader("vary"), "Accept-Encoding")',
+])
+  if (!startServer.includes(invariant))
+    failures.push(`Local HTTPS compression boundary is missing: ${invariant}`);
 
 function sourceFiles(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {

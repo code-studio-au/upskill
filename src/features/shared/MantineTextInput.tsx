@@ -25,7 +25,7 @@ interface MantineTextInputProps {
   required?: boolean;
   spellCheck?: boolean;
   step?: string;
-  type?: "email" | "number" | "password" | "text";
+  type?: "date" | "email" | "number" | "password" | "text";
   value?: string;
   withAsterisk?: boolean;
 }

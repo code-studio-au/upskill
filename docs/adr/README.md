@@ -15,3 +15,5 @@
 - [ADR 0013: TanStack Form and client budget](0013-tanstack-form-and-client-budget.md)
 - [ADR 0014: Completion certificate issuance](0014-completion-certificate-issuance.md)
 - [ADR 0015: Administrator-managed course enrolment lifecycle](0015-administrator-enrollment-lifecycle.md)
+- [ADR 0016: Administrator-managed access-grant lifecycle](0016-administrator-access-grant-lifecycle.md)
+- [ADR 0017: Local TLS and HTTP compression](0017-local-tls-and-http-compression.md)

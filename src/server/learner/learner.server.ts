@@ -108,6 +108,7 @@ export async function findLearnerDashboard(
       .where("course.status", "=", "published")
       .where("course_version.publishedAt", "is not", null)
       .where("access_grant.accessCodeDigest", "is not", null)
+      .where("access_grant.revokedAt", "is", null)
       .where("enrollment.id", "is", null)
       .whereRef("access_grant.redeemed", "<", "access_grant.quantity")
       .where((expression) =>

@@ -71,6 +71,7 @@ try {
   const expectedIndexes = [
     "access_grant_code_digest_uq",
     "access_grant_domain_lookup_idx",
+    "access_grant_admin_lookup_idx",
     "audit_event_action_created_idx",
     "audit_event_actor_created_idx",
     "audit_event_subject_created_idx",
@@ -113,6 +114,21 @@ try {
   if (missingIngestionColumns.length > 0)
     throw new Error(
       `Missing SCORM ingestion columns: ${missingIngestionColumns.join(", ")}`,
+    );
+  const accessGrantColumns = await sql<{
+    column_name: string;
+  }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'access_grant'`.execute(
+    db,
+  );
+  const actualAccessGrantColumns = new Set(
+    accessGrantColumns.rows.map((row) => row.column_name),
+  );
+  const missingAccessGrantColumns = ["accessCode"].filter(
+    (column) => !actualAccessGrantColumns.has(column),
+  );
+  if (missingAccessGrantColumns.length > 0)
+    throw new Error(
+      `Missing access-grant columns: ${missingAccessGrantColumns.join(", ")}`,
     );
 
   const auditVerificationId = "verify_audit_append_only";

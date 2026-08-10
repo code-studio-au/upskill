@@ -10,6 +10,8 @@ export default defineConfig({
     },
   },
   build: {
-    sourcemap: true,
+    // Runtime artifacts stay non-symbolic. A future Datadog CI step must
+    // generate and upload private maps before packaging the release.
+    sourcemap: false,
   },
 });

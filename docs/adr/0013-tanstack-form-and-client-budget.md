@@ -36,11 +36,19 @@ lazy component boundary. They reduced the parent course route while adding a
 bytes of JavaScript and 706 bytes of CSS. Total caps therefore ratchet by 6 KB
 and 1 KB. Root preload, largest-asset and per-route caps remain unchanged.
 
+Administrator access-grant management is isolated in the `/admin/access` route,
+whose measured incremental JavaScript is 4.91 KB gzip. Its TanStack Form,
+responsive lifecycle cards, audited code retrieval and capacity controls
+increased the complete all-route output by 16,793 bytes of JavaScript and 2,161
+bytes of CSS. Total caps therefore ratchet by 17 KB and 2 KB. Root preload,
+largest-asset and per-route caps remain unchanged.
+
 ## Consequences
 
 Validation, dirty/touched state and loading behavior now have one consistent
 form lifecycle across authentication, access-code redemption, admin creation,
 SCORM/PDF upload, course and survey designers, and learner survey responses.
 Server boundaries still validate independently. Search URLs remain shareable
-and progressively navigable. The production bundle gate remains unchanged, so
-future TanStack Form upgrades must prove their client cost before promotion.
+and progressively navigable. The production bundle gate retains its raw and
+gzip architectural limits and also enforces Brotli wire totals, so future
+TanStack Form upgrades must prove their client cost before promotion.

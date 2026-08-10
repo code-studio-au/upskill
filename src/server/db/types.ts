@@ -1,6 +1,11 @@
 import type { ColumnType, Generated } from "kysely";
 
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
+type OptionalTimestamp = ColumnType<
+  Date | null,
+  Date | string | null | undefined,
+  Date | string | null
+>;
 type Json = ColumnType<unknown, unknown, unknown>;
 
 interface UserTable {
@@ -319,10 +324,15 @@ interface AccessGrantTable {
   orderId: string | null;
   courseVersionId: string;
   accessCodeDigest: string | null;
+  accessCode: Generated<string | null>;
+  label: Generated<string | null>;
+  createdByUserId: Generated<string | null>;
   enrollmentDurationDays: number;
   quantity: number;
   redeemed: Generated<number>;
   expiresAt: Timestamp | null;
+  revokedAt: OptionalTimestamp;
+  revokedByUserId: Generated<string | null>;
   createdAt: Timestamp;
 }
 
@@ -344,6 +354,10 @@ interface OutboxEventTable {
 }
 
 export type AuditEventAction =
+  | "access_grant.administrator_capacity_updated"
+  | "access_grant.administrator_code_revealed"
+  | "access_grant.administrator_created"
+  | "access_grant.administrator_revoked"
   | "certificate.issued"
   | "course.archived"
   | "course.created"

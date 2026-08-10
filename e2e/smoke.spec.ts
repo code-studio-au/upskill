@@ -219,6 +219,71 @@ async function cleanupResourceFixture(
   });
 }
 
+async function cleanupAccessGrantFixture(
+  database: Client,
+  label: string,
+  organizationName: string,
+): Promise<void> {
+  const grants = await database.query<{
+    id: string;
+    organizationId: string | null;
+  }>(`select id, "organizationId" from access_grant where label = $1`, [label]);
+  const grantIds = grants.rows.map((grant) => grant.id);
+  const organizationIds = grants.rows.flatMap((grant) =>
+    grant.organizationId ? [grant.organizationId] : [],
+  );
+  if (grantIds.length > 0) {
+    await withPgAuditMaintenance(database, async (transaction) => {
+      await transaction.query(
+        `delete from outbox_event where "aggregateId" = any($1::text[])`,
+        [grantIds],
+      );
+      await transaction.query(
+        `delete from audit_event where "subjectId" = any($1::text[])`,
+        [grantIds],
+      );
+      await transaction.query(
+        `delete from access_grant_domain where "accessGrantId" = any($1::text[])`,
+        [grantIds],
+      );
+      await transaction.query(
+        `delete from access_grant where id = any($1::text[])`,
+        [grantIds],
+      );
+    });
+  }
+  if (organizationIds.length > 0)
+    await database.query(
+      `delete from organization
+       where id = any($1::text[])
+         and name = $2
+         and not exists (
+           select 1 from access_grant where "organizationId" = organization.id
+         )`,
+      [organizationIds, organizationName],
+    );
+}
+
+test("secure local origin negotiates compression", async ({ page }) => {
+  test.skip(
+    process.env.PLAYWRIGHT_HTTPS !== "true",
+    "Compression negotiation is exercised by the HTTPS browser gate.",
+  );
+  const assetResponsePromise = page.waitForResponse((response) => {
+    const pathname = new URL(response.url()).pathname;
+    return pathname.startsWith("/assets/") && pathname.endsWith(".js");
+  });
+  const documentResponse = await page.goto("/");
+  expect(documentResponse).not.toBeNull();
+  expect(await documentResponse?.headerValue("content-encoding")).toBe("gzip");
+  expect(await documentResponse?.headerValue("vary")).toContain(
+    "Accept-Encoding",
+  );
+  const assetResponse = await assetResponsePromise;
+  expect(await assetResponse.headerValue("content-encoding")).toBe("br");
+  expect(await assetResponse.headerValue("vary")).toContain("Accept-Encoding");
+});
+
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
 }) => {
@@ -387,8 +452,10 @@ test("SCORM launch boundaries reject the wrong origin and missing session", asyn
   );
   expect(mainOriginExchange.status()).toBe(404);
 
+  const learningProtocol =
+    process.env.PLAYWRIGHT_HTTPS === "true" ? "https" : "http";
   const learningOrigin = process.env.PLAYWRIGHT_LEARNING_PORT
-    ? `http://127.0.0.1:${process.env.PLAYWRIGHT_LEARNING_PORT}`
+    ? `${learningProtocol}://127.0.0.1:${process.env.PLAYWRIGHT_LEARNING_PORT}`
     : (process.env.LEARNING_ORIGIN ?? "http://127.0.0.1:3001");
   const missingAttemptSession = await request.get(
     `${learningOrigin}/api/scorm/attempts/missing_attempt?runtime=script`,
@@ -497,8 +564,10 @@ test("learners run SCORM inside the course workspace", async ({
       [ids.enrollment, learnerId, ids.courseVersion],
     );
 
+    const learningProtocol =
+      process.env.PLAYWRIGHT_HTTPS === "true" ? "https" : "http";
     const learningOrigin = process.env.PLAYWRIGHT_LEARNING_PORT
-      ? `http://127.0.0.1:${process.env.PLAYWRIGHT_LEARNING_PORT}`
+      ? `${learningProtocol}://127.0.0.1:${process.env.PLAYWRIGHT_LEARNING_PORT}`
       : (process.env.LEARNING_ORIGIN ?? "http://127.0.0.1:3001");
     await page.route(
       `${learningOrigin}/api/scorm/attempts/*/content/index.html`,
@@ -707,6 +776,9 @@ test("platform administrators can inspect learner progress", async ({
   const resourceTitle = "E2E resource library PDF";
   const resourceId = "e2e_resource_library";
   const resourceVersionId = "e2e_resource_library_version";
+  const accessGrantLabel = "E2E organisation access";
+  const accessOrganizationName = "E2E Access Organisation";
+  const accessCode = "E2E-ACCESS-2027";
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
@@ -714,6 +786,11 @@ test("platform administrators can inspect learner progress", async ({
     await cleanupResourceFixture(authoringDatabase, resourceTitle, [
       resourceVersionId,
     ]);
+    await cleanupAccessGrantFixture(
+      authoringDatabase,
+      accessGrantLabel,
+      accessOrganizationName,
+    );
     await page
       .getByRole("main")
       .getByRole("link", { name: "Courses", exact: true })
@@ -858,12 +935,93 @@ test("platform administrators can inspect learner progress", async ({
       .getByRole("button", { name: "Remove version" })
       .click();
     await expect(resourceCard).toHaveCount(0);
+
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Access", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Access grants", exact: true }),
+    ).toBeVisible();
+    await page.getByLabel("Grant label").fill(accessGrantLabel);
+    await page.getByLabel("Organisation").fill(accessOrganizationName);
+    await page.getByLabel("Access code").fill("E2E Access 2027");
+    await page.getByLabel("Available enrolments").fill("3");
+    await page.getByLabel("Learner access duration (days)").fill("90");
+    await page
+      .getByLabel("Permitted email domains (optional)")
+      .fill("E2E.EXAMPLE.COM, e2e.example.com");
+    await page.getByRole("button", { name: "Create access grant" }).click();
+    await expect(
+      page.getByText(
+        "Access grant created. Administrators can retrieve this code again later.",
+      ),
+    ).toBeVisible();
+    await expect(page.locator("code")).toHaveText(accessCode);
+    const grantCard = page.getByRole("article").filter({
+      has: page.getByRole("heading", { name: accessGrantLabel }),
+    });
+    await expect(grantCard.getByText("0 of 3")).toBeVisible();
+    await expect(
+      grantCard.getByText("Restricted to e2e.example.com"),
+    ).toBeVisible();
+    const storedGrant = await authoringDatabase.query<{
+      accessCode: string | null;
+      accessCodeDigest: string;
+      quantity: number;
+      revokedAt: Date | null;
+    }>(
+      `select "accessCode", "accessCodeDigest", quantity, "revokedAt" from access_grant where label = $1`,
+      [accessGrantLabel],
+    );
+    expect(storedGrant.rows[0]?.accessCode).toBe(accessCode);
+    expect(storedGrant.rows[0]?.accessCodeDigest).toMatch(/^[0-9a-f]{64}$/u);
+    expect(storedGrant.rows[0]?.quantity).toBe(3);
+    expect(storedGrant.rows[0]?.revokedAt).toBeNull();
+    await page.getByRole("button", { name: "Hide code" }).click();
+    await grantCard.getByRole("button", { name: "Show code" }).click();
+    await expect(grantCard.locator("code")).toHaveText(accessCode);
+    await grantCard.getByRole("button", { name: "Manage capacity" }).click();
+    const capacityDialog = page.getByRole("dialog", {
+      name: "Manage access capacity",
+    });
+    await capacityDialog.getByLabel("Total available enrolments").fill("5");
+    await capacityDialog.getByRole("button", { name: "Save capacity" }).click();
+    await expect(grantCard.getByText("0 of 5")).toBeVisible();
+    const expandedGrant = await authoringDatabase.query<{
+      accessCode: string | null;
+      quantity: number;
+    }>(`select "accessCode", quantity from access_grant where label = $1`, [
+      accessGrantLabel,
+    ]);
+    expect(expandedGrant.rows[0]).toEqual({ accessCode, quantity: 5 });
+    await grantCard.getByRole("button", { name: "Revoke code" }).click();
+    const revocationDialog = page.getByRole("dialog", {
+      name: "Revoke access code?",
+    });
+    await expect(revocationDialog).toBeVisible();
+    await revocationDialog.getByRole("button", { name: "Revoke code" }).click();
+    await expect(grantCard.getByText("revoked", { exact: true })).toBeVisible();
+    const revokedGrant = await authoringDatabase.query<{
+      revokedAt: Date | null;
+    }>(`select "revokedAt" from access_grant where label = $1`, [
+      accessGrantLabel,
+    ]);
+    expect(revokedGrant.rows[0]?.revokedAt).not.toBeNull();
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const accessAccessibility = await new AxeBuilder({ page }).analyze();
+    expect(accessAccessibility.violations).toEqual([]);
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
     await cleanupResourceFixture(authoringDatabase, resourceTitle, [
       resourceVersionId,
     ]);
+    await cleanupAccessGrantFixture(
+      authoringDatabase,
+      accessGrantLabel,
+      accessOrganizationName,
+    );
     await authoringDatabase.end();
   }
 

@@ -182,6 +182,7 @@ try {
         organizationId: "organization_example",
         orderId: null,
         courseVersionId: "course_version_psychological_safety_1",
+        accessCode: "EXAMPLE-LEARN-2026",
         accessCodeDigest: digestAccessCode(
           "EXAMPLE-LEARN-2026",
           accessCodePepper,
@@ -195,6 +196,7 @@ try {
         conflict.column("id").doUpdateSet({
           quantity: 100,
           redeemed: 0,
+          accessCode: "EXAMPLE-LEARN-2026",
           accessCodeDigest: digestAccessCode(
             "EXAMPLE-LEARN-2026",
             accessCodePepper,

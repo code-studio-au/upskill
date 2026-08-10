@@ -2,8 +2,17 @@ import "@tanstack/react-start/server-only";
 
 import { createHmac } from "node:crypto";
 
-const CODE_PATTERN = /^[A-Z0-9]{12,64}$/;
+const CODE_PATTERN = /^[A-Z0-9]{8,64}$/;
 const HMAC_CONTEXT = "upskill/access-code/v1\0";
+
+export function formatAccessCode(value: string): string | null {
+  const formatted = value
+    .trim()
+    .toLocaleUpperCase("en-AU")
+    .replaceAll(/[^A-Z0-9]+/gu, "-")
+    .replaceAll(/^-|-$/gu, "");
+  return normalizeAccessCode(formatted) ? formatted : null;
+}
 
 export function normalizeAccessCode(value: string): string | null {
   const normalized = value

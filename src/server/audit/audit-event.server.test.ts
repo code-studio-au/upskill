@@ -7,6 +7,10 @@ import {
 describe("audit event boundary", () => {
   it("keeps the durable action cohort intentionally small", () => {
     expect(durableAuditActions).toEqual([
+      "access_grant.administrator_capacity_updated",
+      "access_grant.administrator_code_revealed",
+      "access_grant.administrator_created",
+      "access_grant.administrator_revoked",
       "certificate.issued",
       "course.archived",
       "course.created",

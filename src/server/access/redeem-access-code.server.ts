@@ -37,6 +37,7 @@ export async function redeemAccessCode(
           "quantity",
           "redeemed",
           "expiresAt",
+          "revokedAt",
           "enrollmentDurationDays",
         ])
         .where("accessCodeDigest", "=", digest)
@@ -85,6 +86,7 @@ export async function redeemAccessCode(
         return { status: "already-enrolled", courseTitle: course.title };
       }
       if (
+        grant.revokedAt ||
         grant.redeemed >= grant.quantity ||
         (grant.expiresAt && grant.expiresAt <= now)
       ) {
