@@ -33,6 +33,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
+import { Route as ApiLearningCertificatesCertificateIdRouteImport } from './routes/api.learning.certificates.$certificateId'
 import { Route as ApiLearningResourcesResourceVersionIdRouteImport } from './routes/api.learning.resources.$resourceVersionId'
 import { Route as ApiScormAttemptsAttemptIdRouteImport } from './routes/api.scorm.attempts.$attemptId'
 import { Route as LearnEnrollmentIdSurveysCourseVersionItemIdRouteImport } from './routes/learn.$enrollmentId_.surveys.$courseVersionItemId'
@@ -159,6 +160,12 @@ const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
   path: '/api/stripe/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLearningCertificatesCertificateIdRoute =
+  ApiLearningCertificatesCertificateIdRouteImport.update({
+    id: '/api/learning/certificates/$certificateId',
+    path: '/api/learning/certificates/$certificateId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiLearningResourcesResourceVersionIdRoute =
   ApiLearningResourcesResourceVersionIdRouteImport.update({
     id: '/api/learning/resources/$resourceVersionId',
@@ -215,6 +222,7 @@ export interface FileRoutesByFullPath {
   '/admin/courses/': typeof AdminCoursesIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
+  '/api/learning/certificates/$certificateId': typeof ApiLearningCertificatesCertificateIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
@@ -245,6 +253,7 @@ export interface FileRoutesByTo {
   '/admin/courses': typeof AdminCoursesIndexRoute
   '/admin/learners': typeof AdminLearnersIndexRoute
   '/admin/surveys': typeof AdminSurveysIndexRoute
+  '/api/learning/certificates/$certificateId': typeof ApiLearningCertificatesCertificateIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
@@ -277,6 +286,7 @@ export interface FileRoutesById {
   '/admin/courses/': typeof AdminCoursesIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
+  '/api/learning/certificates/$certificateId': typeof ApiLearningCertificatesCertificateIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
   '/learn/$enrollmentId_/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
@@ -310,6 +320,7 @@ export interface FileRouteTypes {
     | '/admin/courses/'
     | '/admin/learners/'
     | '/admin/surveys/'
+    | '/api/learning/certificates/$certificateId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
@@ -340,6 +351,7 @@ export interface FileRouteTypes {
     | '/admin/courses'
     | '/admin/learners'
     | '/admin/surveys'
+    | '/api/learning/certificates/$certificateId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
@@ -371,6 +383,7 @@ export interface FileRouteTypes {
     | '/admin/courses/'
     | '/admin/learners/'
     | '/admin/surveys/'
+    | '/api/learning/certificates/$certificateId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
     | '/learn/$enrollmentId_/surveys/$courseVersionItemId'
@@ -394,6 +407,7 @@ export interface RootRouteChildren {
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  ApiLearningCertificatesCertificateIdRoute: typeof ApiLearningCertificatesCertificateIdRoute
   ApiLearningResourcesResourceVersionIdRoute: typeof ApiLearningResourcesResourceVersionIdRoute
   ApiScormAttemptsAttemptIdRoute: typeof ApiScormAttemptsAttemptIdRouteWithChildren
   LearnEnrollmentIdSurveysCourseVersionItemIdRoute: typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
@@ -569,6 +583,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStripeWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/learning/certificates/$certificateId': {
+      id: '/api/learning/certificates/$certificateId'
+      path: '/api/learning/certificates/$certificateId'
+      fullPath: '/api/learning/certificates/$certificateId'
+      preLoaderRoute: typeof ApiLearningCertificatesCertificateIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/learning/resources/$resourceVersionId': {
       id: '/api/learning/resources/$resourceVersionId'
       path: '/api/learning/resources/$resourceVersionId'
@@ -667,6 +688,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  ApiLearningCertificatesCertificateIdRoute:
+    ApiLearningCertificatesCertificateIdRoute,
   ApiLearningResourcesResourceVersionIdRoute:
     ApiLearningResourcesResourceVersionIdRoute,
   ApiScormAttemptsAttemptIdRoute: ApiScormAttemptsAttemptIdRouteWithChildren,

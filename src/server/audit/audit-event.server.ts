@@ -8,6 +8,7 @@ import { z } from "#/validation/zod.server";
 export const AUDIT_LOG_TOPIC = "audit.log_requested";
 
 export const durableAuditActions = [
+  "certificate.issued",
   "course.archived",
   "course.created",
   "course.deleted",

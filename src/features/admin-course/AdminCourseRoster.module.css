@@ -1,0 +1,133 @@
+.root {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.header,
+.cardHeader {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--mantine-spacing-md);
+  justify-content: space-between;
+}
+
+.heading,
+.learnerName,
+.description,
+.email,
+.details,
+.empty {
+  margin: 0;
+}
+
+.heading {
+  font-size: var(--mantine-h2-font-size);
+  line-height: var(--mantine-h2-line-height);
+}
+
+.learnerName {
+  font-size: var(--mantine-h3-font-size);
+  line-height: var(--mantine-h3-line-height);
+}
+
+.description,
+.email,
+.details {
+  color: var(--mantine-color-dimmed);
+}
+
+.description {
+  margin-top: var(--mantine-spacing-xs);
+}
+
+.rosterGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.rosterCard,
+.empty {
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-lg);
+  padding: var(--mantine-spacing-lg);
+}
+
+.rosterCard {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.identity {
+  min-width: 0;
+}
+
+.email {
+  font-size: var(--mantine-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.details {
+  font-size: var(--mantine-font-size-sm);
+}
+
+.count,
+.state {
+  background: var(--mantine-color-blue-0);
+  border-radius: 999px;
+  color: var(--mantine-color-blue-8);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+  padding: 0.35rem 0.625rem;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.state[data-state="completed"] {
+  background: var(--mantine-color-green-0);
+  color: var(--mantine-color-green-8);
+}
+
+.state[data-state="expired"] {
+  background: var(--mantine-color-orange-0);
+  color: var(--mantine-color-orange-8);
+}
+
+.state[data-state="removed"] {
+  background: var(--mantine-color-gray-1);
+  color: var(--mantine-color-gray-7);
+}
+
+.actionLink {
+  background: var(--mantine-color-indigo-light);
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-indigo-light-color);
+  font-weight: 600;
+  min-height: 2.25rem;
+  padding: 0.5rem 0.75rem;
+  text-align: center;
+  text-decoration: none;
+}
+
+.actionLink:focus-visible {
+  outline: 2px solid var(--mantine-color-indigo-6);
+  outline-offset: 2px;
+}
+
+@media (max-width: 32em) {
+  .header,
+  .cardHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .count,
+  .state {
+    width: fit-content;
+  }
+}
+
+@media (min-width: 56em) {
+  .rosterGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

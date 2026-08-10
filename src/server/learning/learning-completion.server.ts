@@ -3,11 +3,9 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import type { Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
+import { requestCompletionCertificate } from "#/server/certificate/completion-certificate.server";
 import type { Database } from "#/server/db/types";
-import {
-  findLatestEnrollmentProgressOverride,
-  findEffectiveModuleCompletion,
-} from "#/server/learning/progress-overrides.server";
+import { findEffectiveModuleCompletion } from "#/server/learning/progress-overrides.server";
 
 export type LearningCompletionSource = "scorm" | "resource" | "survey";
 
@@ -76,10 +74,6 @@ export async function completeEnrollmentIfReady(
   now: Date,
 ): Promise<boolean> {
   if (
-    (await findLatestEnrollmentProgressOverride(
-      transaction,
-      input.enrollmentId,
-    )) ||
     !(await isLearningComplete(
       transaction,
       input.enrollmentId,
@@ -123,5 +117,6 @@ export async function completeEnrollmentIfReady(
       createdAt: now,
     })
     .execute();
+  await requestCompletionCertificate(transaction, input, now);
   return true;
 }

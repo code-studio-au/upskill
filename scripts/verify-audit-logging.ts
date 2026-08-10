@@ -8,6 +8,7 @@ const database = getDatabase();
 const eventId = "verify_audit_projection_event";
 const rollbackEventId = "verify_audit_projection_rollback";
 const subjectId = "verify_audit_projection_subject";
+const verifierCreatedAt = new Date("1970-01-01T00:00:00.000Z");
 
 async function cleanup(): Promise<void> {
   await withAuditMaintenance(database, async (transaction) => {
@@ -33,6 +34,7 @@ try {
         subjectType: "scorm_package_version",
         subjectId,
         metadata: { sha256: "private-rollback-value" },
+        createdAt: verifierCreatedAt,
       });
       throw new Error("force rollback");
     }),
@@ -55,6 +57,7 @@ try {
       subjectType: "scorm_package_version",
       subjectId,
       metadata: { sha256: "private-committed-value" },
+      createdAt: verifierCreatedAt,
     });
   });
 

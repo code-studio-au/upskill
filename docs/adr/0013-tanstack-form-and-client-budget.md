@@ -23,6 +23,13 @@ is excluded from the catalogue bundle. Small status badges use a CSP-safe CSS
 module and card layouts reuse Mantine `Paper`; these substitutions preserve the
 existing total and route bundle limits after adding TanStack Form.
 
+Total client budgets are ratcheted only for measured product growth that cannot
+be reduced by route splitting. The admin course learner roster increased the
+all-route build by 2,067 bytes of JavaScript and 435 bytes of CSS, so the total
+caps moved by 3 KB and 1 KB respectively. Root preload, largest-asset and
+per-route incremental limits remain unchanged; dependency changes and features
+must continue to satisfy those structural boundaries.
+
 ## Consequences
 
 Validation, dirty/touched state and loading behavior now have one consistent

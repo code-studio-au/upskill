@@ -214,6 +214,20 @@ interface EnrollmentTable {
   removedAt: Timestamp | null;
 }
 
+interface CompletionCertificateTable {
+  id: string;
+  enrollmentId: string;
+  courseVersionId: string;
+  learnerName: string;
+  courseTitle: string;
+  completedAt: Timestamp;
+  objectKey: string;
+  status: "pending" | "ready";
+  issuedAt: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 interface ScormAttemptTable {
   id: string;
   enrollmentId: string;
@@ -330,6 +344,7 @@ interface OutboxEventTable {
 }
 
 export type AuditEventAction =
+  | "certificate.issued"
   | "course.archived"
   | "course.created"
   | "course.deleted"
@@ -370,6 +385,7 @@ export interface Database {
   access_grant: AccessGrantTable;
   access_grant_domain: AccessGrantDomainTable;
   audit_event: AuditEventTable;
+  completion_certificate: CompletionCertificateTable;
   course: CourseTable;
   course_version: CourseVersionTable;
   course_version_item: CourseVersionItemTable;

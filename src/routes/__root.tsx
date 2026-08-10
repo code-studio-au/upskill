@@ -52,14 +52,19 @@ function RootDocument({ children }: { children: React.ReactNode }) {
                 Upskill
               </Link>
               <nav className={classes.nav} aria-label="Primary navigation">
-                <Button component={Link} to="/courses" variant="subtle">
+                <Button
+                  component={Link}
+                  to="/courses"
+                  variant="subtle"
+                  className={classes.navLink}
+                >
                   Courses
                 </Button>
                 <Button
                   component={Link}
                   to="/dashboard"
                   variant="subtle"
-                  className={classes.dashboardLink}
+                  className={classes.navLink}
                 >
                   My learning
                 </Button>

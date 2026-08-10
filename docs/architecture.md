@@ -41,6 +41,9 @@ and immutable-version enrolment profiles are read boundaries. Manual module and
 course completion corrections use a separate audited command boundary with
 append-only actor, timestamp and state history. Impersonation remains a later,
 separately audited session capability and is not implied by either boundary.
+Course administration exposes a bounded, newest-first learner roster across all
+immutable versions, with effective active, completed, expired and removed state
+and links back to the existing enrolment-scoped progress boundary.
 
 The application uses nonce-based script CSP with no script `unsafe-inline`.
 Mantine is styled primarily through CSS Modules. Mantine's CSS-variable style
@@ -130,6 +133,15 @@ section progress. Administrators manage stable resources and immutable versions
 in a shared library. A version can be removed only when no draft or published
 course item references it; removal commits its durable audit event and exact-key
 cleanup request atomically, then the content worker deletes the private object.
+
+Completion certificates are immutable snapshots of an exact learner, course
+version and completion timestamp. Eligible completion transactions atomically
+create one pending snapshot and generation outbox event. The content worker
+renders the PDF into the private certificate bucket, marks it ready and records
+durable issuance evidence. Learner downloads are same-origin, authenticated and
+non-cacheable; ownership and the current matching completion timestamp are
+rechecked on every request, so an administrator completion revocation removes
+download eligibility while preserving historical evidence.
 
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
 fulfilment, SCORM extraction, certificates, email and scheduled rules. The

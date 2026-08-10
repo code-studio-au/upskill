@@ -55,6 +55,8 @@ Each module version lists and links the exact draft, published or archived
 course versions that reference it.
 Course authoring is available at `/admin/courses`. Drafts contain reorderable
 sections with exact SCORM, published-survey and private PDF resource versions.
+Each course page also shows its newest learner enrolments across exact versions,
+with effective access state and direct progress-review links.
 Published versions are immutable, so structural changes require an explicit new
 version and never rewrite existing enrolments. Courses can be archived; an
 archived course can be permanently deleted only when it has no enrolment or
@@ -67,6 +69,12 @@ Private PDF resources are managed at `/admin/resources`. Uploads create stable
 resources or immutable new versions; unreferenced versions can be removed, with
 durable audit and retryable exact-object cleanup through the content worker.
 Referenced PDF versions link back to each exact course version that uses them.
+Courses configured with a completion certificate issue an immutable PDF
+snapshot when an enrolment completes. The local content worker generates the
+document in the private certificate bucket; the learner dashboard automatically
+changes from a preparing state to an authenticated download action. Revoking a
+completion removes access to that certificate, while a later recompletion
+issues a new snapshot.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:

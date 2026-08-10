@@ -11,6 +11,7 @@ import {
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { AccessCodeRedemptionForm } from "#/features/access/AccessCodeRedemptionForm";
 import { SignOutButton } from "#/features/auth/SignOutButton";
+import { LearnerCertificateAction } from "#/features/learner/LearnerCertificateAction";
 import type { LearnerCourse } from "#/features/learner/learner.schema";
 import { getLearnerDashboard } from "#/server/functions/learner";
 import classes from "./dashboard.module.css";
@@ -181,17 +182,24 @@ function CourseSection({
                     </Text>
                   ) : null}
                   {course.state === "active" || course.state === "completed" ? (
-                    <Link
-                      to="/learn/$enrollmentId"
-                      params={{ enrollmentId: course.enrollmentId }}
-                      className={classes.courseLink}
-                    >
-                      <Button component="span" fullWidth>
-                        {course.state === "completed"
-                          ? "Review course"
-                          : "Continue course"}
-                      </Button>
-                    </Link>
+                    <Stack gap="xs">
+                      <Link
+                        to="/learn/$enrollmentId"
+                        params={{ enrollmentId: course.enrollmentId }}
+                        className={classes.courseLink}
+                      >
+                        <Button component="span" fullWidth>
+                          {course.state === "completed"
+                            ? "Review course"
+                            : "Continue course"}
+                        </Button>
+                      </Link>
+                      {course.certificate ? (
+                        <LearnerCertificateAction
+                          certificate={course.certificate}
+                        />
+                      ) : null}
+                    </Stack>
                   ) : (
                     <Link
                       to="/courses/$slug"

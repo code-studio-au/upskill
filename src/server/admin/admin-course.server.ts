@@ -20,6 +20,14 @@ import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { logServerEvent } from "#/server/logging/server-logger";
 
+const ADMIN_COURSE_ROSTER_LIMIT = 100;
+const adminCourseRosterDateFormatter = new Intl.DateTimeFormat("en-AU", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "Australia/Sydney",
+});
+
 function blankCourseContent(title: string): CourseContent {
   return {
     title,
@@ -284,59 +292,87 @@ export async function findAdminCourse(
     versions.find((candidate) => candidate.publishedAt === null) ?? versions[0];
   if (!version) throw new Error("Course has no version");
   const content = courseContentSchema.parse(version.content);
-  const [draft, counts, modules, resources, surveys] = await Promise.all([
-    loadDraftStructure(database, course.id, version.id, course.slug, content),
-    referenceCounts(database, course.id),
-    database
-      .selectFrom("scorm_package_version")
-      .innerJoin(
-        "scorm_package",
-        "scorm_package.id",
-        "scorm_package_version.packageId",
-      )
-      .select([
-        "scorm_package_version.id",
-        "scorm_package.id as packageId",
-        "scorm_package.title",
-        "scorm_package_version.version",
-      ])
-      .where("scorm_package_version.status", "=", "ready")
-      .orderBy("scorm_package.title")
-      .orderBy("scorm_package_version.version", "desc")
-      .execute(),
-    database
-      .selectFrom("learning_resource_version")
-      .innerJoin(
-        "learning_resource",
-        "learning_resource.id",
-        "learning_resource_version.resourceId",
-      )
-      .select([
-        "learning_resource_version.id",
-        "learning_resource.id as resourceId",
-        "learning_resource.title",
-        "learning_resource_version.displayName",
-        "learning_resource_version.description",
-        "learning_resource_version.version",
-        "learning_resource_version.sourceBytes",
-      ])
-      .orderBy("learning_resource.title")
-      .orderBy("learning_resource_version.version", "desc")
-      .execute(),
-    database
-      .selectFrom("survey_version")
-      .innerJoin("survey", "survey.id", "survey_version.surveyId")
-      .select([
-        "survey_version.id",
-        "survey.id as surveyId",
-        "survey.title",
-        "survey_version.version",
-      ])
-      .where("survey_version.publishedAt", "is not", null)
-      .orderBy("survey.title")
-      .orderBy("survey_version.version", "desc")
-      .execute(),
-  ]);
+  const [draft, counts, rosterRows, modules, resources, surveys] =
+    await Promise.all([
+      loadDraftStructure(database, course.id, version.id, course.slug, content),
+      referenceCounts(database, course.id),
+      database
+        .selectFrom("enrollment")
+        .innerJoin(
+          "course_version",
+          "course_version.id",
+          "enrollment.courseVersionId",
+        )
+        .innerJoin("user", "user.id", "enrollment.userId")
+        .select([
+          "enrollment.id as enrollmentId",
+          "enrollment.status",
+          "enrollment.enrolledAt",
+          "enrollment.completedAt",
+          "enrollment.expiresAt",
+          "enrollment.removedAt",
+          "course_version.version as courseVersion",
+          "user.id as learnerId",
+          "user.name as learnerName",
+          "user.email as learnerEmail",
+        ])
+        .where("course_version.courseId", "=", course.id)
+        .orderBy("enrollment.enrolledAt", "desc")
+        .orderBy("enrollment.id")
+        .limit(ADMIN_COURSE_ROSTER_LIMIT)
+        .execute(),
+      database
+        .selectFrom("scorm_package_version")
+        .innerJoin(
+          "scorm_package",
+          "scorm_package.id",
+          "scorm_package_version.packageId",
+        )
+        .select([
+          "scorm_package_version.id",
+          "scorm_package.id as packageId",
+          "scorm_package.title",
+          "scorm_package_version.version",
+        ])
+        .where("scorm_package_version.status", "=", "ready")
+        .orderBy("scorm_package.title")
+        .orderBy("scorm_package_version.version", "desc")
+        .execute(),
+      database
+        .selectFrom("learning_resource_version")
+        .innerJoin(
+          "learning_resource",
+          "learning_resource.id",
+          "learning_resource_version.resourceId",
+        )
+        .select([
+          "learning_resource_version.id",
+          "learning_resource.id as resourceId",
+          "learning_resource.title",
+          "learning_resource_version.displayName",
+          "learning_resource_version.description",
+          "learning_resource_version.version",
+          "learning_resource_version.sourceBytes",
+        ])
+        .orderBy("learning_resource.title")
+        .orderBy("learning_resource_version.version", "desc")
+        .execute(),
+      database
+        .selectFrom("survey_version")
+        .innerJoin("survey", "survey.id", "survey_version.surveyId")
+        .select([
+          "survey_version.id",
+          "survey.id as surveyId",
+          "survey.title",
+          "survey_version.version",
+        ])
+        .where("survey_version.publishedAt", "is not", null)
+        .orderBy("survey.title")
+        .orderBy("survey_version.version", "desc")
+        .execute(),
+    ]);
+
+  const now = new Date();
 
   return {
     course: {
@@ -359,6 +395,45 @@ export async function findAdminCourse(
       version: candidate.version,
       publishedAt: candidate.publishedAt?.toISOString() ?? null,
     })),
+    roster: {
+      total: counts.enrollments,
+      limit: ADMIN_COURSE_ROSTER_LIMIT,
+      enrollments: rosterRows.map((enrollment) => {
+        const state =
+          enrollment.removedAt || enrollment.status === "cancelled"
+            ? "removed"
+            : enrollment.status === "expired" ||
+                (enrollment.expiresAt !== null && enrollment.expiresAt <= now)
+              ? "expired"
+              : enrollment.status === "completed"
+                ? "completed"
+                : "active";
+        const statusDate =
+          state === "removed"
+            ? enrollment.removedAt
+            : state === "completed"
+              ? enrollment.completedAt
+              : enrollment.expiresAt;
+        return {
+          enrollmentId: enrollment.enrollmentId,
+          learnerId: enrollment.learnerId,
+          learnerName: enrollment.learnerName,
+          learnerEmail: enrollment.learnerEmail,
+          courseVersion: enrollment.courseVersion,
+          state,
+          enrolledAt: enrollment.enrolledAt.toISOString(),
+          enrolledAtLabel: adminCourseRosterDateFormatter.format(
+            enrollment.enrolledAt,
+          ),
+          completedAt: enrollment.completedAt?.toISOString() ?? null,
+          expiresAt: enrollment.expiresAt?.toISOString() ?? null,
+          removedAt: enrollment.removedAt?.toISOString() ?? null,
+          statusDateLabel: statusDate
+            ? `${state === "active" ? "Expires" : state === "expired" ? "Expired" : state === "completed" ? "Completed" : "Removed"} ${adminCourseRosterDateFormatter.format(statusDate)}`
+            : null,
+        };
+      }),
+    },
     draft,
     library: { modules, resources, surveys },
   };

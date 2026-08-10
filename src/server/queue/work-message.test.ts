@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CERTIFICATE_GENERATION_TOPIC,
   parseContentWorkMessage,
   parseScormWorkMessage,
   RESOURCE_DELETION_TOPIC,
@@ -119,6 +120,42 @@ describe("SCORM ingestion work messages", () => {
           topic: RESOURCE_DELETION_TOPIC,
           aggregateId: resourceVersionId,
           payload: { resourceVersionId, objectKey: "resources/other/file.pdf" },
+        }),
+      ),
+    ).toThrow();
+  });
+
+  it("accepts only the certificate's exact private PDF object", () => {
+    const certificateId = "certificate_1";
+    expect(
+      parseContentWorkMessage(
+        JSON.stringify({
+          version: 1,
+          eventId: "outbox_certificate_1",
+          topic: CERTIFICATE_GENERATION_TOPIC,
+          aggregateId: certificateId,
+          payload: {
+            certificateId,
+            objectKey: `certificates/${certificateId}.pdf`,
+          },
+        }),
+      ),
+    ).toMatchObject({
+      topic: CERTIFICATE_GENERATION_TOPIC,
+      payload: { certificateId },
+    });
+
+    expect(() =>
+      parseContentWorkMessage(
+        JSON.stringify({
+          version: 1,
+          eventId: "outbox_certificate_2",
+          topic: CERTIFICATE_GENERATION_TOPIC,
+          aggregateId: certificateId,
+          payload: {
+            certificateId,
+            objectKey: "certificates/other.pdf",
+          },
         }),
       ),
     ).toThrow();

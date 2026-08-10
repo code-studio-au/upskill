@@ -7,6 +7,7 @@ import {
 describe("audit event boundary", () => {
   it("keeps the durable action cohort intentionally small", () => {
     expect(durableAuditActions).toEqual([
+      "certificate.issued",
       "course.archived",
       "course.created",
       "course.deleted",

@@ -13,3 +13,4 @@
 - [ADR 0011: Versioned surveys and response evidence](0011-versioned-surveys-and-response-evidence.md)
 - [ADR 0012: Versioned PDF resource library](0012-versioned-pdf-resource-library.md)
 - [ADR 0013: TanStack Form and client budget](0013-tanstack-form-and-client-budget.md)
+- [ADR 0014: Completion certificate issuance](0014-completion-certificate-issuance.md)
