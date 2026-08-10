@@ -6,13 +6,13 @@ import {
   Paper,
   Stack,
   Text,
-  TextInput,
   Title,
 } from "@mantine/core";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { useState, type SyntheticEvent } from "react";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import {
   adminResourceUploadFormSchema,
   type AdminResourceSummary,
@@ -134,7 +134,7 @@ function ResourceUpload({ resources, onChanged }: AdminResourceLibraryProps) {
                 })),
               ]}
             />
-            <TextInput
+            <MantineTextInput
               label="Resource title"
               value={title}
               disabled={Boolean(selected)}
@@ -146,7 +146,7 @@ function ResourceUpload({ resources, onChanged }: AdminResourceLibraryProps) {
                 setErrors((current) => clearError(current, "title"));
               }}
             />
-            <TextInput
+            <MantineTextInput
               label="Version description"
               description="Optional notes about this document version."
               value={description}

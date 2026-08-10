@@ -137,6 +137,18 @@ interface SurveyResponseTable {
   submittedAt: Timestamp;
 }
 
+interface SurveyProgressTable {
+  enrollmentId: string;
+  courseVersionItemId: string;
+  surveyVersionId: string;
+  answers: Json;
+  visitedItemIds: Json;
+  currentItemId: string | null;
+  startedAt: Timestamp;
+  updatedAt: Timestamp;
+  completedAt: Timestamp | null;
+}
+
 interface LearningResourceTable {
   id: string;
   title: string;
@@ -381,6 +393,7 @@ export interface Database {
   scorm_package: ScormPackageTable;
   scorm_package_version: ScormPackageVersionTable;
   survey: SurveyTable;
+  survey_progress: SurveyProgressTable;
   survey_response: SurveyResponseTable;
   survey_version: SurveyVersionTable;
   user: UserTable;

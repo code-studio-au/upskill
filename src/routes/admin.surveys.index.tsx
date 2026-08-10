@@ -6,7 +6,6 @@ import {
   Group,
   Stack,
   Text,
-  TextInput,
   Title,
 } from "@mantine/core";
 import {
@@ -18,6 +17,7 @@ import {
 import { useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { AppDialog } from "#/features/shared/AppDialog";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { adminSurveyCreateSchema } from "#/features/survey/survey.schema";
 import {
   createAdminSurvey,
@@ -111,7 +111,7 @@ function AdminSurveysPage() {
             setOpened(false);
           }}
         >
-          <TextInput
+          <MantineTextInput
             label="Survey title"
             value={title}
             error={error}

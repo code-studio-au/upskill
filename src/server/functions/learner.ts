@@ -3,9 +3,9 @@ import { accessCodeInputSchema } from "#/features/access/access-code.schema";
 import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema";
 import {
   learnerSurveyParamsSchema,
-  learnerSurveySubmissionSchema,
+  learnerSurveyStepSchema,
   type LearnerSurveyResult,
-  type LearnerSurveySubmissionResult,
+  type LearnerSurveyStepResult,
 } from "#/features/survey/survey.schema";
 
 export const getLearnerDashboard = createServerFn({ method: "GET" }).handler(
@@ -62,13 +62,13 @@ export const getLearnerSurvey = createServerFn({ method: "GET" })
     return { status: "ready", data: survey };
   });
 
-export const submitLearnerSurveyResponse = createServerFn({ method: "POST" })
-  .validator(learnerSurveySubmissionSchema)
-  .handler(async ({ data }): Promise<LearnerSurveySubmissionResult> => {
+export const advanceLearnerSurveyStep = createServerFn({ method: "POST" })
+  .validator(learnerSurveyStepSchema)
+  .handler(async ({ data }): Promise<LearnerSurveyStepResult> => {
     const { getRequestUser } = await import("#/server/auth/session.server");
     const user = await getRequestUser();
     if (!user) return { status: "unauthenticated" };
-    const { submitLearnerSurvey } =
+    const { advanceLearnerSurvey } =
       await import("#/server/learning/learner-survey.server");
-    return await submitLearnerSurvey(data, user);
+    return await advanceLearnerSurvey(data, user);
   });

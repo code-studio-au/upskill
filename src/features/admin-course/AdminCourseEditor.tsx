@@ -7,10 +7,10 @@ import {
   Paper,
   Stack,
   Text,
-  TextInput,
   Title,
 } from "@mantine/core";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import {
@@ -291,7 +291,7 @@ export function AdminCourseEditor({
         <Stack gap="md">
           <Title order={2}>Course details</Title>
           <div className={classes.twoColumns}>
-            <TextInput
+            <MantineTextInput
               label="Title"
               value={draft.title}
               disabled={!editable}
@@ -304,7 +304,7 @@ export function AdminCourseEditor({
               }}
               required
             />
-            <TextInput
+            <MantineTextInput
               label="URL slug"
               value={draft.slug}
               disabled={!editable}
@@ -318,7 +318,7 @@ export function AdminCourseEditor({
               required
             />
           </div>
-          <TextInput
+          <MantineTextInput
             component="textarea"
             label="Summary"
             value={draft.summary}
@@ -333,7 +333,7 @@ export function AdminCourseEditor({
             }}
             required
           />
-          <TextInput
+          <MantineTextInput
             component="textarea"
             label="Description"
             value={draft.description}
@@ -367,7 +367,7 @@ export function AdminCourseEditor({
                 }));
               }}
             />
-            <TextInput
+            <MantineTextInput
               label="Duration (minutes)"
               type="number"
               inputMode="numeric"
@@ -382,7 +382,7 @@ export function AdminCourseEditor({
                 }));
               }}
             />
-            <TextInput
+            <MantineTextInput
               label="Price (AUD)"
               type="number"
               inputMode="decimal"
@@ -478,7 +478,7 @@ export function AdminCourseEditor({
             <Stack gap="md">
               <Group justify="space-between" align="start" wrap="wrap">
                 <div className={classes.sectionFields}>
-                  <TextInput
+                  <MantineTextInput
                     label={`Section ${String(sectionIndex + 1)} title`}
                     value={section.title}
                     disabled={!editable}
@@ -490,7 +490,7 @@ export function AdminCourseEditor({
                       }));
                     }}
                   />
-                  <TextInput
+                  <MantineTextInput
                     component="textarea"
                     label="Description"
                     value={section.description}
@@ -729,7 +729,7 @@ export function AdminCourseEditor({
               disabled={referenceOptions.length === 0}
             />
             {itemKind !== "resource" ? (
-              <TextInput
+              <MantineTextInput
                 label="Estimated duration (minutes)"
                 type="number"
                 inputMode="numeric"
@@ -814,7 +814,7 @@ export function AdminCourseEditor({
           title="Upload PDF resource"
         >
           <Stack gap="md">
-            <TextInput
+            <MantineTextInput
               label="Resource title"
               value={resourceTitle}
               onChange={(event) => {
@@ -824,7 +824,7 @@ export function AdminCourseEditor({
               error={resourceTitleError}
               required
             />
-            <TextInput
+            <MantineTextInput
               component="textarea"
               label="Description"
               value={resourceDescription}

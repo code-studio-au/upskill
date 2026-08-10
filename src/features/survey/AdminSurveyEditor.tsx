@@ -5,49 +5,22 @@ import {
   Group,
   Paper,
   Stack,
-  Text,
-  TextInput,
   Title,
 } from "@mantine/core";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { SurveyQuestionEditor } from "./SurveyQuestionEditor";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { SurveySectionsEditor } from "./SurveySectionsEditor";
 import {
   adminSurveyDraftSchema,
   type AdminSurveyDetail,
   type AdminSurveyDraft,
-  type SurveyQuestion,
 } from "./survey.schema";
 import {
   createAdminSurveyVersion,
   publishAdminSurvey,
   saveAdminSurvey,
 } from "#/server/functions/admin-survey";
-
-function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
-  const target = index + direction;
-  if (target < 0 || target >= values.length) return values;
-  const next = [...values];
-  [next[index], next[target]] = [next[target] as T, next[index] as T];
-  return next;
-}
-
-function newQuestion(kind: SurveyQuestion["kind"]): SurveyQuestion {
-  const base = {
-    id: `question_${crypto.randomUUID()}`,
-    prompt: "New question",
-    required: true,
-  };
-  if (kind === "text") return { ...base, kind, maximumLength: 2_000 };
-  return {
-    ...base,
-    kind,
-    options: [
-      { id: `option_${crypto.randomUUID()}`, label: "Option 1" },
-      { id: `option_${crypto.randomUUID()}`, label: "Option 2" },
-    ],
-  };
-}
 
 export function AdminSurveyEditor({
   detail,
@@ -61,15 +34,6 @@ export function AdminSurveyEditor({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const editable = detail.version.editable;
-
-  function updateQuestion(question: SurveyQuestion): void {
-    setDraft((current) => ({
-      ...current,
-      questions: current.questions.map((candidate) =>
-        candidate.id === question.id ? question : candidate,
-      ),
-    }));
-  }
 
   async function persist(): Promise<boolean> {
     const parsed = adminSurveyDraftSchema.safeParse(draft);
@@ -133,7 +97,7 @@ export function AdminSurveyEditor({
                       });
                       if (result.status !== "ready") {
                         setError(
-                          "Add at least one valid question before publishing.",
+                          "Add at least one valid survey item before publishing.",
                         );
                         return;
                       }
@@ -176,8 +140,8 @@ export function AdminSurveyEditor({
 
       {!editable ? (
         <Alert color="indigo" title="Published versions are immutable">
-          Create a new version to change questions. Existing course versions
-          remain pinned to this survey version.
+          Create a new version to change sections or items. Existing course
+          versions remain pinned to this survey version.
         </Alert>
       ) : null}
       {message ? <Alert color="green">{message}</Alert> : null}
@@ -186,7 +150,7 @@ export function AdminSurveyEditor({
       <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
         <Stack gap="md">
           <Title order={2}>Survey details</Title>
-          <TextInput
+          <MantineTextInput
             label="Title"
             value={draft.title}
             disabled={!editable}
@@ -196,7 +160,7 @@ export function AdminSurveyEditor({
             }}
             required
           />
-          <TextInput
+          <MantineTextInput
             component="textarea"
             label="Introduction"
             value={draft.description}
@@ -209,82 +173,13 @@ export function AdminSurveyEditor({
         </Stack>
       </Paper>
 
-      <Stack gap="md">
-        <div>
-          <Title order={2}>Questions</Title>
-          <Text c="dimmed">Responses complete the exact survey item.</Text>
-        </div>
-        {draft.questions.length === 0 ? (
-          <Alert title="No questions">Add a question before publishing.</Alert>
-        ) : null}
-        {draft.questions.map((question, index) => (
-          <SurveyQuestionEditor
-            key={question.id}
-            question={question}
-            index={index}
-            total={draft.questions.length}
-            disabled={!editable}
-            onChange={updateQuestion}
-            onMove={(direction) => {
-              setDraft((current) => ({
-                ...current,
-                questions: move(current.questions, index, direction),
-              }));
-            }}
-            onRemove={() => {
-              setDraft((current) => ({
-                ...current,
-                questions: current.questions.filter(
-                  (candidate) => candidate.id !== question.id,
-                ),
-              }));
-            }}
-          />
-        ))}
-        {editable ? (
-          <Group>
-            <Button
-              variant="light"
-              onClick={() => {
-                setDraft((current) => ({
-                  ...current,
-                  questions: [
-                    ...current.questions,
-                    newQuestion("single_choice"),
-                  ],
-                }));
-              }}
-            >
-              Add single choice
-            </Button>
-            <Button
-              variant="light"
-              onClick={() => {
-                setDraft((current) => ({
-                  ...current,
-                  questions: [
-                    ...current.questions,
-                    newQuestion("multiple_choice"),
-                  ],
-                }));
-              }}
-            >
-              Add multiple choice
-            </Button>
-            <Button
-              variant="light"
-              onClick={() => {
-                setDraft((current) => ({
-                  ...current,
-                  questions: [...current.questions, newQuestion("text")],
-                }));
-              }}
-            >
-              Add written response
-            </Button>
-          </Group>
-        ) : null}
-      </Stack>
+      <SurveySectionsEditor
+        editable={editable}
+        sections={draft.sections}
+        onChange={(sections) => {
+          setDraft((current) => ({ ...current, sections }));
+        }}
+      />
     </Stack>
   );
 }

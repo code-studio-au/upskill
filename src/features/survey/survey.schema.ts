@@ -42,53 +42,126 @@ const surveyQuestionSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-const surveyVersionContentShape = {
+const surveyInstructionSchema = z.object({
+  id: identifierSchema,
+  kind: z.literal("instruction"),
+  title: boundedText(240),
+  body: boundedText(10_000),
+});
+
+const surveyItemSchema = z.union([
+  surveyQuestionSchema,
+  surveyInstructionSchema,
+]);
+
+const surveySectionSchema = z.object({
+  id: identifierSchema,
+  title: boundedText(160),
+  description: optionalText(2_000),
+  items: z.array(surveyItemSchema).check(z.maxLength(100)),
+});
+
+const legacySurveyVersionContentSchema = z.object({
   title: boundedText(160),
   description: optionalText(2_000),
   questions: z.array(surveyQuestionSchema).check(z.maxLength(100)),
-};
+});
 
 export const surveyVersionContentSchema = z
-  .object(surveyVersionContentShape)
+  .object({
+    title: boundedText(160),
+    description: optionalText(2_000),
+    sections: z.array(surveySectionSchema).check(z.maxLength(50)),
+  })
   .check(
     z.superRefine((content, context) => {
-      const identifiers = new Set<string>();
-      for (const [questionIndex, question] of content.questions.entries()) {
-        if (identifiers.has(question.id))
+      const sectionIdentifiers = new Set<string>();
+      const itemIdentifiers = new Set<string>();
+      let itemCount = 0;
+      for (const [sectionIndex, section] of content.sections.entries()) {
+        if (sectionIdentifiers.has(section.id))
           context.addIssue({
             code: "custom",
-            path: ["questions", questionIndex, "id"],
-            message: "Question identifiers must be unique",
+            path: ["sections", sectionIndex, "id"],
+            message: "Section identifiers must be unique",
           });
-        identifiers.add(question.id);
-        if (question.kind === "text") continue;
-        const labels = new Set<string>();
-        for (const [optionIndex, option] of question.options.entries()) {
-          if (identifiers.has(option.id))
+        sectionIdentifiers.add(section.id);
+        itemCount += section.items.length;
+        for (const [itemIndex, item] of section.items.entries()) {
+          if (itemIdentifiers.has(item.id))
             context.addIssue({
               code: "custom",
-              path: ["questions", questionIndex, "options", optionIndex, "id"],
-              message: "Option identifiers must be unique",
+              path: ["sections", sectionIndex, "items", itemIndex, "id"],
+              message: "Item identifiers must be unique",
             });
-          identifiers.add(option.id);
-          const normalized = option.label.toLocaleLowerCase("en-AU");
-          if (labels.has(normalized))
-            context.addIssue({
-              code: "custom",
-              path: [
-                "questions",
-                questionIndex,
-                "options",
-                optionIndex,
-                "label",
-              ],
-              message: "Option labels must be unique within a question",
-            });
-          labels.add(normalized);
+          itemIdentifiers.add(item.id);
+          if (item.kind === "instruction" || item.kind === "text") continue;
+          const optionIdentifiers = new Set<string>();
+          const labels = new Set<string>();
+          for (const [optionIndex, option] of item.options.entries()) {
+            if (optionIdentifiers.has(option.id))
+              context.addIssue({
+                code: "custom",
+                path: [
+                  "sections",
+                  sectionIndex,
+                  "items",
+                  itemIndex,
+                  "options",
+                  optionIndex,
+                  "id",
+                ],
+                message: "Option identifiers must be unique",
+              });
+            optionIdentifiers.add(option.id);
+            const normalized = option.label.toLocaleLowerCase("en-AU");
+            if (labels.has(normalized))
+              context.addIssue({
+                code: "custom",
+                path: [
+                  "sections",
+                  sectionIndex,
+                  "items",
+                  itemIndex,
+                  "options",
+                  optionIndex,
+                  "label",
+                ],
+                message: "Option labels must be unique within a question",
+              });
+            labels.add(normalized);
+          }
         }
       }
+      if (itemCount > 200)
+        context.addIssue({
+          code: "custom",
+          path: ["sections"],
+          message: "A survey may contain at most 200 items",
+        });
     }),
   );
+
+export function parseSurveyVersionContent(
+  value: unknown,
+): SurveyVersionContent {
+  const current = surveyVersionContentSchema.safeParse(value);
+  if (current.success) return current.data;
+  const legacy = legacySurveyVersionContentSchema.safeParse(value);
+  if (!legacy.success) return surveyVersionContentSchema.parse(value);
+  return surveyVersionContentSchema.parse({
+    title: legacy.data.title,
+    description: legacy.data.description,
+    sections: [
+      {
+        id: "section_legacy_questions",
+        title: "Survey",
+        description: "",
+        items: legacy.data.questions,
+      },
+    ],
+  });
+}
 
 export const adminSurveyCreateSchema = z.object({
   title: boundedText(160),
@@ -103,7 +176,9 @@ export const adminSurveyVersionParamsSchema = z.object({
 
 export const adminSurveyDraftSchema = z
   .object({
-    ...surveyVersionContentShape,
+    title: boundedText(160),
+    description: optionalText(2_000),
+    sections: z.array(surveySectionSchema).check(z.maxLength(50)),
     surveyId: identifierSchema,
     versionId: identifierSchema,
   })
@@ -113,9 +188,9 @@ export const adminSurveyDraftSchema = z
         surveyVersionContentSchema.safeParse({
           title: draft.title,
           description: draft.description,
-          questions: draft.questions,
+          sections: draft.sections,
         }).success,
-      { message: "Review the survey questions and options" },
+      { message: "Review the survey sections and items" },
     ),
   );
 
@@ -126,40 +201,24 @@ const learnerSurveyParamsShape = {
 
 export const learnerSurveyParamsSchema = z.object(learnerSurveyParamsShape);
 
-const surveyAnswerSchema = z.object({
-  questionId: identifierSchema,
-  value: z.union([
-    z.string().check(z.maxLength(2_000)),
-    z.array(identifierSchema).check(z.maxLength(20)),
-  ]),
+export const surveyAnswerValueSchema = z.union([
+  z.string().check(z.maxLength(2_000)),
+  z.array(identifierSchema).check(z.maxLength(20)),
+]);
+
+export const learnerSurveyStepSchema = z.object({
+  ...learnerSurveyParamsShape,
+  itemId: identifierSchema,
+  answer: z.optional(surveyAnswerValueSchema),
 });
 
-export const learnerSurveySubmissionSchema = z
-  .object({
-    ...learnerSurveyParamsShape,
-    answers: z.array(surveyAnswerSchema).check(z.maxLength(100)),
-  })
-  .check(
-    z.superRefine((submission, context) => {
-      const seen = new Set<string>();
-      for (const [index, answer] of submission.answers.entries()) {
-        if (seen.has(answer.questionId))
-          context.addIssue({
-            code: "custom",
-            path: ["answers", index, "questionId"],
-            message: "Each question may be answered once",
-          });
-        seen.add(answer.questionId);
-      }
-    }),
-  );
-
 export type SurveyQuestion = z.infer<typeof surveyQuestionSchema>;
+export type SurveyItem = z.infer<typeof surveyItemSchema>;
+export type SurveySection = z.infer<typeof surveySectionSchema>;
 export type SurveyVersionContent = z.infer<typeof surveyVersionContentSchema>;
 export type AdminSurveyDraft = z.infer<typeof adminSurveyDraftSchema>;
-export type LearnerSurveySubmission = z.infer<
-  typeof learnerSurveySubmissionSchema
->;
+export type SurveyAnswerValue = z.infer<typeof surveyAnswerValueSchema>;
+export type LearnerSurveyStep = z.infer<typeof learnerSurveyStepSchema>;
 
 export interface AdminSurveySummary {
   id: string;
@@ -202,6 +261,25 @@ export type AdminSurveyMutationResult =
   | { status: "not-found" }
   | { status: "conflict"; reason: string };
 
+interface SurveySectionProgress {
+  id: string;
+  completedItems: number;
+  totalItems: number;
+  percent: number;
+  completed: boolean;
+}
+
+export interface LearnerSurveyProgress {
+  answers: Record<string, SurveyAnswerValue>;
+  visitedItemIds: Array<string>;
+  currentItemId: string | null;
+  completedAt: string | null;
+  completedItems: number;
+  totalItems: number;
+  percent: number;
+  sections: Array<SurveySectionProgress>;
+}
+
 export interface LearnerSurvey {
   enrollmentId: string;
   courseVersionItemId: string;
@@ -209,6 +287,7 @@ export interface LearnerSurvey {
   sectionTitle: string;
   surveyVersionId: string;
   content: SurveyVersionContent;
+  progress: LearnerSurveyProgress;
   submittedAt: string | null;
 }
 
@@ -218,8 +297,12 @@ export type LearnerSurveyResult =
   | { status: "unavailable" }
   | { status: "unauthenticated" };
 
-export type LearnerSurveySubmissionResult =
-  | { status: "submitted"; completedCourse: boolean }
+export type LearnerSurveyStepResult =
+  | {
+      status: "advanced" | "submitted";
+      progress: LearnerSurveyProgress;
+      completedCourse: boolean;
+    }
   | { status: "invalid"; message: string }
   | { status: "not-found" }
   | { status: "unavailable" }

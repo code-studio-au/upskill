@@ -5,12 +5,12 @@ import {
   Paper,
   Stack,
   Text,
-  TextInput,
   Title,
 } from "@mantine/core";
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useSyncExternalStore, type SyntheticEvent } from "react";
 import { authClient } from "#/features/auth/auth-client";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import {
   loginCredentialsSchema,
   loginSearchSchema,
@@ -109,7 +109,7 @@ function LoginPage() {
             }}
           >
             <Stack gap="md">
-              <TextInput
+              <MantineTextInput
                 label="Email address"
                 name="email"
                 type="email"
@@ -122,7 +122,7 @@ function LoginPage() {
                   );
                 }}
               />
-              <TextInput
+              <MantineTextInput
                 type="password"
                 label="Password"
                 name="password"

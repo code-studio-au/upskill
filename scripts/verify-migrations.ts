@@ -52,6 +52,7 @@ try {
     "scorm_package",
     "scorm_package_version",
     "survey",
+    "survey_progress",
     "survey_response",
     "survey_version",
     "user",
@@ -83,6 +84,7 @@ try {
     "scorm_attempt_session_attempt_idx",
     "scorm_launch_token_attempt_idx",
     "survey_response_enrollment_idx",
+    "survey_progress_enrollment_idx",
   ];
   const indexResult = await sql<{
     indexname: string;

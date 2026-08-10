@@ -452,6 +452,35 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByLabel("Question 1").fill("Was this survey useful?");
     await page.getByLabel("Option 1").fill("Yes");
     await page.getByLabel("Option 2").fill("No");
+    await page.getByRole("button", { name: "Add instruction block" }).click();
+    await page.getByLabel("Block title").fill("Before you answer");
+    await page
+      .getByLabel("Instructions")
+      .fill("Read this information, then select Next.");
+    const surveySections = page.locator("[data-survey-section]");
+    const firstSectionItems = surveySections
+      .first()
+      .locator("[data-survey-item]");
+    await firstSectionItems.nth(1).getByRole("button", { name: "Up" }).click();
+    await expect(
+      firstSectionItems.first().getByLabel("Block title"),
+    ).toHaveValue("Before you answer");
+    await page.getByRole("button", { name: "Add section" }).click();
+    await page.getByLabel("Section 2 title").fill("Follow-up");
+    await surveySections
+      .nth(1)
+      .getByRole("button", { name: "Add written response" })
+      .click();
+    await surveySections
+      .nth(1)
+      .getByLabel("Question 1")
+      .fill("What could be improved?");
+    await surveySections
+      .nth(1)
+      .getByRole("button", { name: "Up" })
+      .first()
+      .click();
+    await expect(page.getByLabel("Section 1 title")).toHaveValue("Follow-up");
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
     await page.getByRole("button", { name: "Publish version" }).click();

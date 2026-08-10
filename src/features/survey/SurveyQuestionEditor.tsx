@@ -1,69 +1,83 @@
-import { Badge, Button, Card, Group, Stack, TextInput } from "@mantine/core";
-import type { SurveyQuestion } from "./survey.schema";
+import { Badge, Button, Card, Group, Stack } from "@mantine/core";
+import type { SurveyItem, SurveyQuestion } from "./survey.schema";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 
 export function SurveyQuestionEditor({
   disabled,
   index,
+  item,
   onChange,
   onMove,
   onRemove,
-  question,
   total,
 }: {
   disabled: boolean;
   index: number;
-  onChange: (question: SurveyQuestion) => void;
+  item: SurveyItem;
+  onChange: (item: SurveyItem) => void;
   onMove: (direction: -1 | 1) => void;
   onRemove: () => void;
-  question: SurveyQuestion;
   total: number;
 }) {
+  if (item.kind === "instruction")
+    return (
+      <Card withBorder radius="lg" padding="lg" data-survey-item>
+        <Stack gap="md">
+          <ItemActions
+            badge="Text / instruction"
+            disabled={disabled}
+            index={index}
+            total={total}
+            onMove={onMove}
+            onRemove={onRemove}
+          />
+          <MantineTextInput
+            label="Block title"
+            value={item.title}
+            disabled={disabled}
+            onChange={(event) => {
+              const title = event.currentTarget.value;
+              onChange({ ...item, title });
+            }}
+            required
+          />
+          <MantineTextInput
+            component="textarea"
+            label="Instructions"
+            description="The learner records this block as viewed by selecting Next."
+            value={item.body}
+            disabled={disabled}
+            maxLength={10_000}
+            onChange={(event) => {
+              const body = event.currentTarget.value;
+              onChange({ ...item, body });
+            }}
+            required
+          />
+        </Stack>
+      </Card>
+    );
+
+  const question: SurveyQuestion = item;
   return (
-    <Card withBorder radius="lg" padding="lg">
+    <Card withBorder radius="lg" padding="lg" data-survey-item>
       <Stack gap="md">
-        <Group justify="space-between" align="start" wrap="wrap">
-          <Badge variant="light">
-            {question.kind === "single_choice"
+        <ItemActions
+          badge={
+            question.kind === "single_choice"
               ? "Single choice"
               : question.kind === "multiple_choice"
                 ? "Multiple choice"
-                : "Written response"}
-          </Badge>
-          {!disabled ? (
-            <Group gap="xs">
-              <Button
-                size="compact-xs"
-                variant="default"
-                disabled={index === 0}
-                onClick={() => {
-                  onMove(-1);
-                }}
-              >
-                Up
-              </Button>
-              <Button
-                size="compact-xs"
-                variant="default"
-                disabled={index === total - 1}
-                onClick={() => {
-                  onMove(1);
-                }}
-              >
-                Down
-              </Button>
-              <Button
-                size="compact-xs"
-                color="red"
-                variant="subtle"
-                onClick={onRemove}
-              >
-                Remove
-              </Button>
-            </Group>
-          ) : null}
-        </Group>
-        <TextInput
+                : "Written response"
+          }
+          disabled={disabled}
+          index={index}
+          total={total}
+          onMove={onMove}
+          onRemove={onRemove}
+        />
+        <MantineTextInput
           component="textarea"
           label={`Question ${String(index + 1)}`}
           value={question.prompt}
@@ -83,7 +97,7 @@ export function SurveyQuestionEditor({
           }}
         />
         {question.kind === "text" ? (
-          <TextInput
+          <MantineTextInput
             type="number"
             label="Maximum response length"
             min={1}
@@ -104,7 +118,7 @@ export function SurveyQuestionEditor({
           <Stack gap="xs">
             {question.options.map((option, optionIndex) => (
               <Group key={option.id} align="end" wrap="nowrap">
-                <TextInput
+                <MantineTextInput
                   label={`Option ${String(optionIndex + 1)}`}
                   value={option.label}
                   disabled={disabled}
@@ -165,5 +179,59 @@ export function SurveyQuestionEditor({
         )}
       </Stack>
     </Card>
+  );
+}
+
+function ItemActions({
+  badge,
+  disabled,
+  index,
+  onMove,
+  onRemove,
+  total,
+}: {
+  badge: string;
+  disabled: boolean;
+  index: number;
+  onMove: (direction: -1 | 1) => void;
+  onRemove: () => void;
+  total: number;
+}) {
+  return (
+    <Group justify="space-between" align="start" wrap="wrap">
+      <Badge variant="light">{badge}</Badge>
+      {!disabled ? (
+        <Group gap="xs">
+          <Button
+            size="compact-xs"
+            variant="default"
+            disabled={index === 0}
+            onClick={() => {
+              onMove(-1);
+            }}
+          >
+            Up
+          </Button>
+          <Button
+            size="compact-xs"
+            variant="default"
+            disabled={index === total - 1}
+            onClick={() => {
+              onMove(1);
+            }}
+          >
+            Down
+          </Button>
+          <Button
+            size="compact-xs"
+            color="red"
+            variant="subtle"
+            onClick={onRemove}
+          >
+            Remove
+          </Button>
+        </Group>
+      ) : null}
+    </Group>
   );
 }

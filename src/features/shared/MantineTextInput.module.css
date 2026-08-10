@@ -1,0 +1,59 @@
+.root {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.root[data-grow] {
+  flex: 1;
+}
+
+.label {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.description {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+}
+
+.input {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0.4375rem 0.75rem;
+  color: var(--mantine-color-text);
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.55;
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.input:focus-visible {
+  border-color: var(--mantine-primary-color-filled);
+  outline: 2px solid var(--mantine-primary-color-light);
+  outline-offset: 1px;
+}
+
+.input:disabled {
+  color: var(--mantine-color-dimmed);
+  background: var(--mantine-color-gray-1);
+  cursor: not-allowed;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--mantine-color-red-7);
+}
+
+.error {
+  color: var(--mantine-color-red-7);
+  font-size: var(--mantine-font-size-xs);
+}

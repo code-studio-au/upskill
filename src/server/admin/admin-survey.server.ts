@@ -9,6 +9,7 @@ import type {
 } from "#/features/survey/survey.schema";
 import {
   adminSurveyDraftSchema,
+  parseSurveyVersionContent,
   surveyVersionContentSchema,
 } from "#/features/survey/survey.schema";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
@@ -17,7 +18,18 @@ import { getDatabase } from "#/server/db/database.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 
 function blankSurvey(title: string): SurveyVersionContent {
-  return { title, description: "", questions: [] };
+  return {
+    title,
+    description: "",
+    sections: [
+      {
+        id: `section_${randomUUID()}`,
+        title: "Section 1",
+        description: "",
+        items: [],
+      },
+    ],
+  };
 }
 
 export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
@@ -71,7 +83,7 @@ export async function findAdminSurvey(
   const version =
     versions.find((candidate) => candidate.publishedAt === null) ?? versions[0];
   if (!version) throw new Error("Survey has no version");
-  const content = surveyVersionContentSchema.parse(version.content);
+  const content = parseSurveyVersionContent(version.content);
   return {
     survey,
     version: {
@@ -204,7 +216,7 @@ export async function createAdminSurveyVersion(
         id: versionId,
         surveyId,
         version: latest.version + 1,
-        content: surveyVersionContentSchema.parse(latest.content),
+        content: parseSurveyVersionContent(latest.content),
         publishedAt: null,
         createdAt: now,
       })
@@ -237,8 +249,12 @@ export async function publishAdminSurveyVersion(
       .executeTakeFirst();
     if (!version) return "not-found" as const;
     if (version.publishedAt) return "invalid" as const;
-    const content = surveyVersionContentSchema.parse(version.content);
-    if (content.questions.length === 0) return "invalid" as const;
+    const content = parseSurveyVersionContent(version.content);
+    if (
+      content.sections.length === 0 ||
+      content.sections.some((section) => section.items.length === 0)
+    )
+      return "invalid" as const;
     const now = new Date();
     await transaction
       .updateTable("survey_version")

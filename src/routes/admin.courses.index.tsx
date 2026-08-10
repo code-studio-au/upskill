@@ -6,7 +6,6 @@ import {
   Group,
   Stack,
   Text,
-  TextInput,
   Title,
 } from "@mantine/core";
 import {
@@ -19,6 +18,7 @@ import { useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { adminCourseCreateSchema } from "#/features/admin-course/admin-course.schema";
 import { AppDialog } from "#/features/shared/AppDialog";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import {
   createAdminCourse,
   getAdminCourses,
@@ -129,7 +129,7 @@ function AdminCoursesPage() {
           title="Create course"
         >
           <Stack gap="md">
-            <TextInput
+            <MantineTextInput
               label="Course title"
               value={title}
               onChange={(event) => {
@@ -144,7 +144,7 @@ function AdminCoursesPage() {
               }}
               required
             />
-            <TextInput
+            <MantineTextInput
               label="URL slug"
               value={slug}
               onChange={(event) => {

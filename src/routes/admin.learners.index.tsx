@@ -1,13 +1,4 @@
-import {
-  Badge,
-  Button,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Badge, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import {
   createFileRoute,
   Link,
@@ -22,6 +13,7 @@ import {
   type AdminLearnerSearch,
 } from "#/features/admin/admin.schema";
 import { RemovableFilterChip } from "#/features/shared/RemovableFilterChip";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { getAdminLearners } from "#/server/functions/admin";
 import classes from "./admin.module.css";
 
@@ -78,7 +70,7 @@ function AdminLearnersPage() {
           setSubmittedSearch(validated);
         }}
       >
-        <TextInput
+        <MantineTextInput
           name="q"
           label="Search learners"
           defaultValue={search.q}

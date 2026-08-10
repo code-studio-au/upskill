@@ -37,6 +37,10 @@ async function cleanup(): Promise<void> {
     .executeTakeFirst();
   const targetSurveyId = surveyId ?? existingSurvey?.id;
   await database
+    .deleteFrom("survey_progress")
+    .where("enrollmentId", "=", ids.enrollment)
+    .execute();
+  await database
     .deleteFrom("survey_response")
     .where("enrollmentId", "=", ids.enrollment)
     .execute();
@@ -114,23 +118,43 @@ try {
     versionId: created.versionId,
     title: "Verified learner survey",
     description: "A version-pinned verification survey.",
-    questions: [
+    sections: [
       {
-        id: "question_required",
-        kind: "single_choice",
-        prompt: "Choose one",
-        required: true,
-        options: [
-          { id: "answer_one", label: "One" },
-          { id: "answer_two", label: "Two" },
+        id: "survey_section_intro",
+        title: "Introduction",
+        description: "Read this first.",
+        items: [
+          {
+            id: "instruction_privacy",
+            kind: "instruction",
+            title: "Privacy",
+            body: "Do not include personal information.",
+          },
         ],
       },
       {
-        id: "question_optional",
-        kind: "text",
-        prompt: "Optional feedback",
-        required: false,
-        maximumLength: 200,
+        id: "survey_section_questions",
+        title: "Questions",
+        description: "Share your feedback.",
+        items: [
+          {
+            id: "question_required",
+            kind: "single_choice",
+            prompt: "Choose one",
+            required: true,
+            options: [
+              { id: "answer_one", label: "One" },
+              { id: "answer_two", label: "Two" },
+            ],
+          },
+          {
+            id: "question_optional",
+            kind: "text",
+            prompt: "Optional feedback",
+            required: false,
+            maximumLength: 200,
+          },
+        ],
       },
     ],
   };
@@ -145,7 +169,8 @@ try {
   const detail = await findAdminSurvey(surveyId);
   assert.ok(detail);
   assert.equal(detail.version.version, 2);
-  assert.equal(detail.draft.questions.length, 2);
+  assert.equal(detail.draft.sections.length, 2);
+  assert.equal(detail.draft.sections[0]?.items.length, 1);
 
   await database
     .insertInto("course")
@@ -224,7 +249,7 @@ try {
     })
     .execute();
 
-  const { findLearnerSurvey, submitLearnerSurvey } =
+  const { advanceLearnerSurvey, findLearnerSurvey } =
     await import("#/server/learning/learner-survey.server");
   const learnerSurvey = await findLearnerSurvey(ids.enrollment, ids.item, user);
   assert.notEqual(learnerSurvey, null);
@@ -232,27 +257,59 @@ try {
   if (!learnerSurvey || learnerSurvey === "unavailable")
     throw new Error("Expected learner survey");
   assert.equal(learnerSurvey.surveyVersionId, created.versionId);
-  const invalid = await submitLearnerSurvey(
+  assert.equal(learnerSurvey.progress.completedItems, 0);
+  assert.equal(learnerSurvey.progress.currentItemId, "instruction_privacy");
+  const outOfSequence = await advanceLearnerSurvey(
     {
       enrollmentId: ids.enrollment,
       courseVersionItemId: ids.item,
-      answers: [],
+      itemId: "question_required",
     },
     user,
   );
-  assert.equal(invalid.status, "invalid");
-  const submitted = await submitLearnerSurvey(
+  assert.equal(outOfSequence.status, "invalid");
+  const viewed = await advanceLearnerSurvey(
     {
       enrollmentId: ids.enrollment,
       courseVersionItemId: ids.item,
-      answers: [
-        { questionId: "question_required", value: "answer_two" },
-        { questionId: "question_optional", value: "Useful" },
-      ],
+      itemId: "instruction_privacy",
     },
     user,
   );
-  assert.deepEqual(submitted, { status: "submitted", completedCourse: true });
+  assert.equal(viewed.status, "advanced");
+  assert.equal(viewed.progress.completedItems, 1);
+  assert.equal(viewed.progress.sections[0]?.completed, true);
+  const requiredMissing = await advanceLearnerSurvey(
+    {
+      enrollmentId: ids.enrollment,
+      courseVersionItemId: ids.item,
+      itemId: "question_required",
+    },
+    user,
+  );
+  assert.equal(requiredMissing.status, "invalid");
+  const answered = await advanceLearnerSurvey(
+    {
+      enrollmentId: ids.enrollment,
+      courseVersionItemId: ids.item,
+      itemId: "question_required",
+      answer: "answer_two",
+    },
+    user,
+  );
+  assert.equal(answered.status, "advanced");
+  const submitted = await advanceLearnerSurvey(
+    {
+      enrollmentId: ids.enrollment,
+      courseVersionItemId: ids.item,
+      itemId: "question_optional",
+    },
+    user,
+  );
+  assert.equal(submitted.status, "submitted");
+  assert.equal(submitted.completedCourse, true);
+  assert.equal(submitted.progress.completedItems, 3);
+  assert.equal(submitted.progress.percent, 100);
   assert.equal(
     await database
       .selectFrom("survey_response")
@@ -262,6 +319,18 @@ try {
       .then((row) => String(row.count)),
     "1",
   );
+  const storedProgress = await database
+    .selectFrom("survey_progress")
+    .select(["visitedItemIds", "completedAt"])
+    .where("enrollmentId", "=", ids.enrollment)
+    .where("courseVersionItemId", "=", ids.item)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(storedProgress.visitedItemIds, [
+    "instruction_privacy",
+    "question_required",
+    "question_optional",
+  ]);
+  assert.ok(storedProgress.completedAt);
   assert.equal(
     (
       await database
@@ -273,7 +342,7 @@ try {
     "completed",
   );
   console.log(
-    "Verified immutable survey versions, exact-version entitlement, answer validation, response evidence and course completion",
+    "Verified immutable survey sections, ordered view and answer progress, response evidence and course completion",
   );
 } finally {
   await cleanup();

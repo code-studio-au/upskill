@@ -1,12 +1,4 @@
-import {
-  Alert,
-  Button,
-  Group,
-  Paper,
-  Stack,
-  TextInput,
-  Title,
-} from "@mantine/core";
+import { Alert, Button, Group, Paper, Stack, Title } from "@mantine/core";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { useState, type SyntheticEvent } from "react";
 import {
@@ -14,6 +6,7 @@ import {
   type AdminScormPackageSummary,
 } from "#/features/scorm/scorm-package.schema";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import classes from "./admin-scorm.module.css";
 
 interface AdminScormUploadPanelProps {
@@ -152,7 +145,7 @@ export function AdminScormUploadPanel({
                 })),
               ]}
             />
-            <TextInput
+            <MantineTextInput
               label="Module name"
               value={title}
               onChange={(event) => {

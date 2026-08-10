@@ -2,10 +2,15 @@ import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
 import {
-  surveyVersionContentSchema,
+  surveyAnswerValueSchema,
+  parseSurveyVersionContent,
   type LearnerSurvey,
-  type LearnerSurveySubmission,
-  type LearnerSurveySubmissionResult,
+  type LearnerSurveyProgress,
+  type LearnerSurveyStep,
+  type LearnerSurveyStepResult,
+  type SurveyAnswerValue,
+  type SurveyItem,
+  type SurveyQuestion,
   type SurveyVersionContent,
 } from "#/features/survey/survey.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
@@ -13,67 +18,139 @@ import { getDatabase } from "#/server/db/database.server";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 
-function validateAnswers(
-  content: SurveyVersionContent,
-  submitted: LearnerSurveySubmission["answers"],
-):
-  | { valid: true; answers: Record<string, string | Array<string>> }
-  | {
-      valid: false;
-      message: string;
-    } {
-  const submittedByQuestion = new Map(
-    submitted.map((answer) => [answer.questionId, answer.value]),
-  );
-  const questionIds = new Set(content.questions.map((question) => question.id));
-  if (submitted.some((answer) => !questionIds.has(answer.questionId)))
-    return {
-      valid: false,
-      message: "The survey questions have changed. Refresh and try again.",
-    };
+interface StoredProgress {
+  answers: Record<string, SurveyAnswerValue>;
+  visitedItemIds: Array<string>;
+  currentItemId: string | null;
+  completedAt: Date | null;
+}
 
-  const answers: Record<string, string | Array<string>> = {};
-  for (const question of content.questions) {
-    const value = submittedByQuestion.get(question.id);
-    if (typeof value === "undefined") {
+function flattenedItems(content: SurveyVersionContent): Array<SurveyItem> {
+  return content.sections.flatMap((section) => section.items);
+}
+
+function storedAnswers(value: unknown): Record<string, SurveyAnswerValue> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const answers: Record<string, SurveyAnswerValue> = {};
+  for (const [questionId, answer] of Object.entries(value)) {
+    const parsed = surveyAnswerValueSchema.safeParse(answer);
+    if (parsed.success) answers[questionId] = parsed.data;
+  }
+  return answers;
+}
+
+function storedVisited(value: unknown): Array<string> {
+  if (!Array.isArray(value)) return [];
+  return [
+    ...new Set(
+      value.filter((itemId): itemId is string => typeof itemId === "string"),
+    ),
+  ];
+}
+
+function deriveProgress(
+  content: SurveyVersionContent,
+  stored: StoredProgress | null,
+): LearnerSurveyProgress {
+  const items = flattenedItems(content);
+  const validItemIds = new Set(items.map((item) => item.id));
+  const visitedItemIds = (stored?.visitedItemIds ?? []).filter((itemId) =>
+    validItemIds.has(itemId),
+  );
+  const visited = new Set(visitedItemIds);
+  const completedItems = visited.size;
+  const totalItems = items.length;
+  return {
+    answers: stored?.answers ?? {},
+    visitedItemIds,
+    currentItemId:
+      stored?.completedAt || totalItems === 0
+        ? null
+        : stored?.currentItemId && validItemIds.has(stored.currentItemId)
+          ? stored.currentItemId
+          : (items.find((item) => !visited.has(item.id))?.id ?? null),
+    completedAt: stored?.completedAt?.toISOString() ?? null,
+    completedItems,
+    totalItems,
+    percent:
+      totalItems === 0 ? 0 : Math.round((completedItems / totalItems) * 100),
+    sections: content.sections.map((section) => {
+      const sectionCompleted = section.items.filter((item) =>
+        visited.has(item.id),
+      ).length;
+      const sectionTotal = section.items.length;
+      return {
+        id: section.id,
+        completedItems: sectionCompleted,
+        totalItems: sectionTotal,
+        percent:
+          sectionTotal === 0
+            ? 0
+            : Math.round((sectionCompleted / sectionTotal) * 100),
+        completed: sectionTotal > 0 && sectionCompleted === sectionTotal,
+      };
+    }),
+  };
+}
+
+function validateAnswer(
+  question: SurveyQuestion,
+  value: SurveyAnswerValue | undefined,
+):
+  | { valid: true; answer?: SurveyAnswerValue }
+  | { valid: false; message: string } {
+  if (question.kind === "text") {
+    if (typeof value === "undefined" || value === "") {
       if (question.required)
         return { valid: false, message: `Answer “${question.prompt}”.` };
-      continue;
+      return { valid: true };
     }
-    if (question.kind === "text") {
-      if (typeof value !== "string" || value.length > question.maximumLength)
-        return { valid: false, message: `Review “${question.prompt}”.` };
-      const normalized = value.trim();
-      if (question.required && !normalized)
-        return { valid: false, message: `Answer “${question.prompt}”.` };
-      if (normalized) answers[question.id] = normalized;
-      continue;
-    }
-    const optionIds = new Set(question.options.map((option) => option.id));
-    if (question.kind === "single_choice") {
-      if (value === "" && !question.required) continue;
-      if (typeof value !== "string" || !optionIds.has(value))
+    if (typeof value !== "string" || value.length > question.maximumLength)
+      return { valid: false, message: `Review “${question.prompt}”.` };
+    const normalized = value.trim();
+    if (question.required && !normalized)
+      return { valid: false, message: `Answer “${question.prompt}”.` };
+    return normalized ? { valid: true, answer: normalized } : { valid: true };
+  }
+
+  const optionIds = new Set(question.options.map((option) => option.id));
+  if (question.kind === "single_choice") {
+    if (typeof value === "undefined" || value === "") {
+      if (question.required)
         return {
           valid: false,
           message: `Choose an answer for “${question.prompt}”.`,
         };
-      answers[question.id] = value;
-      continue;
+      return { valid: true };
     }
-    if (!Array.isArray(value))
-      return { valid: false, message: `Review “${question.prompt}”.` };
-    const unique = [...new Set(value)];
-    if (
-      unique.some((optionId) => !optionIds.has(optionId)) ||
-      (question.required && unique.length === 0)
-    )
+    if (typeof value !== "string" || !optionIds.has(value))
       return {
         valid: false,
         message: `Choose an answer for “${question.prompt}”.`,
       };
-    if (unique.length > 0) answers[question.id] = unique;
+    return { valid: true, answer: value };
   }
-  return { valid: true, answers };
+
+  if (typeof value === "undefined") {
+    if (question.required)
+      return {
+        valid: false,
+        message: `Choose an answer for “${question.prompt}”.`,
+      };
+    return { valid: true };
+  }
+  if (!Array.isArray(value))
+    return { valid: false, message: `Review “${question.prompt}”.` };
+  const unique = [...new Set(value)];
+  if (
+    unique.some((optionId) => !optionIds.has(optionId)) ||
+    (question.required && unique.length === 0)
+  )
+    return {
+      valid: false,
+      message: `Choose an answer for “${question.prompt}”.`,
+    };
+  return unique.length > 0 ? { valid: true, answer: unique } : { valid: true };
 }
 
 export async function findLearnerSurvey(
@@ -115,6 +192,15 @@ export async function findLearnerSurvey(
           "course_version_item.id",
         ),
     )
+    .leftJoin("survey_progress", (join) =>
+      join
+        .onRef("survey_progress.enrollmentId", "=", "enrollment.id")
+        .onRef(
+          "survey_progress.courseVersionItemId",
+          "=",
+          "course_version_item.id",
+        ),
+    )
     .select([
       "enrollment.id as enrollmentId",
       "course.title as courseTitle",
@@ -123,7 +209,12 @@ export async function findLearnerSurvey(
       "survey_version.id as surveyVersionId",
       "survey_version.content",
       "survey_version.publishedAt",
+      "survey_response.answers as responseAnswers",
       "survey_response.submittedAt",
+      "survey_progress.answers as progressAnswers",
+      "survey_progress.visitedItemIds",
+      "survey_progress.currentItemId",
+      "survey_progress.completedAt as progressCompletedAt",
     ])
     .where("enrollment.id", "=", enrollmentId)
     .where("enrollment.userId", "=", user.id)
@@ -140,21 +231,39 @@ export async function findLearnerSurvey(
     .executeTakeFirst();
   if (!row) return null;
   if (!row.publishedAt) return "unavailable";
+  const content = parseSurveyVersionContent(row.content);
+  const completedItems = flattenedItems(content).map((item) => item.id);
+  const stored: StoredProgress | null = row.submittedAt
+    ? {
+        answers: storedAnswers(row.responseAnswers),
+        visitedItemIds: completedItems,
+        currentItemId: null,
+        completedAt: row.progressCompletedAt ?? row.submittedAt,
+      }
+    : row.progressAnswers
+      ? {
+          answers: storedAnswers(row.progressAnswers),
+          visitedItemIds: storedVisited(row.visitedItemIds),
+          currentItemId: row.currentItemId,
+          completedAt: row.progressCompletedAt,
+        }
+      : null;
   return {
     enrollmentId: row.enrollmentId,
     courseVersionItemId: row.courseVersionItemId,
     courseTitle: row.courseTitle,
     sectionTitle: row.sectionTitle,
     surveyVersionId: row.surveyVersionId,
-    content: surveyVersionContentSchema.parse(row.content),
+    content,
+    progress: deriveProgress(content, stored),
     submittedAt: row.submittedAt?.toISOString() ?? null,
   };
 }
 
-export async function submitLearnerSurvey(
-  input: LearnerSurveySubmission,
+export async function advanceLearnerSurvey(
+  input: LearnerSurveyStep,
   user: AuthenticatedUser,
-): Promise<LearnerSurveySubmissionResult> {
+): Promise<LearnerSurveyStepResult> {
   const database = getDatabase();
   const now = new Date();
   const outcome = await database.transaction().execute(async (transaction) => {
@@ -194,19 +303,125 @@ export async function submitLearnerSurvey(
       .executeTakeFirst();
     if (!row) return { status: "not-found" } as const;
     if (!row.publishedAt) return { status: "unavailable" } as const;
-    const existing = await transaction
+
+    const content = parseSurveyVersionContent(row.content);
+    const items = flattenedItems(content);
+    const submittedResponse = await transaction
       .selectFrom("survey_response")
-      .select("id")
+      .select(["answers", "submittedAt"])
       .where("enrollmentId", "=", input.enrollmentId)
       .where("courseVersionItemId", "=", input.courseVersionItemId)
       .executeTakeFirst();
-    if (existing)
-      return { status: "submitted", completedCourse: false } as const;
+    if (submittedResponse) {
+      const progress = deriveProgress(content, {
+        answers: storedAnswers(submittedResponse.answers),
+        visitedItemIds: items.map((item) => item.id),
+        currentItemId: null,
+        completedAt: submittedResponse.submittedAt,
+      });
+      return {
+        status: "submitted",
+        progress,
+        completedCourse: false,
+      } as const;
+    }
 
-    const content = surveyVersionContentSchema.parse(row.content);
-    const validation = validateAnswers(content, input.answers);
-    if (!validation.valid)
-      return { status: "invalid", message: validation.message } as const;
+    const persisted = await transaction
+      .selectFrom("survey_progress")
+      .select(["answers", "visitedItemIds", "currentItemId", "completedAt"])
+      .where("enrollmentId", "=", input.enrollmentId)
+      .where("courseVersionItemId", "=", input.courseVersionItemId)
+      .forUpdate()
+      .executeTakeFirst();
+    const stored: StoredProgress = persisted
+      ? {
+          answers: storedAnswers(persisted.answers),
+          visitedItemIds: storedVisited(persisted.visitedItemIds),
+          currentItemId: persisted.currentItemId,
+          completedAt: persisted.completedAt,
+        }
+      : {
+          answers: {},
+          visitedItemIds: [],
+          currentItemId: items[0]?.id ?? null,
+          completedAt: null,
+        };
+    const itemIndex = items.findIndex((item) => item.id === input.itemId);
+    if (itemIndex < 0)
+      return {
+        status: "invalid",
+        message: "The survey has changed. Refresh and try again.",
+      } as const;
+    const alreadyVisited = stored.visitedItemIds.includes(input.itemId);
+    if (!alreadyVisited && input.itemId !== stored.currentItemId)
+      return {
+        status: "invalid",
+        message: "Complete the current survey item before continuing.",
+      } as const;
+
+    const item = items[itemIndex] as SurveyItem;
+    let answers = { ...stored.answers };
+    if (item.kind === "instruction") {
+      if (typeof input.answer !== "undefined")
+        return {
+          status: "invalid",
+          message: "This information block does not require an answer.",
+        } as const;
+    } else {
+      const validation = validateAnswer(item, input.answer);
+      if (!validation.valid)
+        return { status: "invalid", message: validation.message } as const;
+      if (typeof validation.answer === "undefined")
+        answers = Object.fromEntries(
+          Object.entries(answers).filter(
+            ([questionId]) => questionId !== item.id,
+          ),
+        );
+      else answers[item.id] = validation.answer;
+    }
+
+    const visitedItemIds = alreadyVisited
+      ? stored.visitedItemIds
+      : [...stored.visitedItemIds, item.id];
+    const currentItemId = alreadyVisited
+      ? stored.currentItemId
+      : (items[itemIndex + 1]?.id ?? null);
+    const completed = visitedItemIds.length === items.length;
+    const completedAt = completed ? now : null;
+
+    await transaction
+      .insertInto("survey_progress")
+      .values({
+        enrollmentId: input.enrollmentId,
+        courseVersionItemId: input.courseVersionItemId,
+        surveyVersionId: row.surveyVersionId,
+        answers,
+        visitedItemIds: JSON.stringify(visitedItemIds),
+        currentItemId,
+        startedAt: now,
+        updatedAt: now,
+        completedAt,
+      })
+      .onConflict((conflict) =>
+        conflict.columns(["enrollmentId", "courseVersionItemId"]).doUpdateSet({
+          answers,
+          visitedItemIds: JSON.stringify(visitedItemIds),
+          currentItemId,
+          updatedAt: now,
+          completedAt,
+        }),
+      )
+      .execute();
+
+    const progress = deriveProgress(content, {
+      answers,
+      visitedItemIds,
+      currentItemId,
+      completedAt,
+    });
+    if (!completed)
+      return { status: "advanced", progress, completedCourse: false } as const;
+
     await transaction
       .insertInto("survey_response")
       .values({
@@ -214,7 +429,7 @@ export async function submitLearnerSurvey(
         enrollmentId: input.enrollmentId,
         courseVersionItemId: input.courseVersionItemId,
         surveyVersionId: row.surveyVersionId,
-        answers: validation.answers,
+        answers,
         submittedAt: now,
       })
       .execute();
@@ -242,7 +457,7 @@ export async function submitLearnerSurvey(
       },
       now,
     );
-    return { status: "submitted", completedCourse } as const;
+    return { status: "submitted", progress, completedCourse } as const;
   });
   if (outcome.status === "submitted")
     logServerEvent({
