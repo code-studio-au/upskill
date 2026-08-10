@@ -271,7 +271,7 @@ test("server-rendered navigation and actions stay visible before hydration", asy
   const context = await browser.newContext({
     baseURL,
     javaScriptEnabled: false,
-    viewport: { width: 393, height: 852 },
+    viewport: { width: 320, height: 800 },
   });
   const page = await context.newPage();
 
@@ -283,12 +283,20 @@ test("server-rendered navigation and actions stay visible before hydration", asy
   await expect(
     page.getByRole("link", { name: "Courses", exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "My learning", exact: true }),
+  ).toBeVisible();
   const exploreCourses = page.getByRole("link", { name: "Explore courses" });
   await expect(exploreCourses).toBeVisible();
   await expect(exploreCourses).not.toHaveCSS(
     "background-color",
     "rgba(0, 0, 0, 0)",
   );
+
+  await page.goto("/courses");
+  await expect(
+    page.getByRole("link", { name: "My learning", exact: true }),
+  ).toBeVisible();
 
   await page.goto("/login");
   const signIn = page.getByRole("button", { name: "Sign in" });
