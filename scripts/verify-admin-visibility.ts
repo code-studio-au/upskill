@@ -13,6 +13,8 @@ const ids = {
   learner: "verify_admin_visibility_learner",
   course: "verify_admin_visibility_course",
   version: "verify_admin_visibility_version",
+  section: "verify_admin_visibility_section",
+  item: "verify_admin_visibility_item",
   enrollment: "verify_admin_visibility_enrollment",
   order: "verify_admin_visibility_order",
   package: "verify_admin_visibility_package",
@@ -57,6 +59,14 @@ async function cleanup(): Promise<void> {
     await database
       .deleteFrom("course_version_module")
       .where("courseVersionId", "=", ids.version)
+      .execute();
+    await database
+      .deleteFrom("course_version_item")
+      .where("id", "=", ids.item)
+      .execute();
+    await database
+      .deleteFrom("course_version_section")
+      .where("id", "=", ids.section)
       .execute();
     await database
       .deleteFrom("enrollment")
@@ -210,6 +220,33 @@ try {
       courseVersionId: ids.version,
       position: 0,
       scormPackageVersionId: ids.packageVersion,
+    })
+    .execute();
+  await database
+    .insertInto("course_version_section")
+    .values({
+      id: ids.section,
+      courseVersionId: ids.version,
+      position: 0,
+      title: "Verified section",
+      description: "Administration visibility verification fixture.",
+    })
+    .execute();
+  await database
+    .insertInto("course_version_item")
+    .values({
+      id: ids.item,
+      courseVersionId: ids.version,
+      sectionId: ids.section,
+      position: 0,
+      kind: "scorm",
+      title: "Verified module",
+      required: true,
+      durationMinutes: 20,
+      modulePosition: 0,
+      scormPackageVersionId: ids.packageVersion,
+      surveyVersionId: null,
+      resourceVersionId: null,
     })
     .execute();
   await database
