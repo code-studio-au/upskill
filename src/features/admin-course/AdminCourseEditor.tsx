@@ -27,6 +27,7 @@ import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { firstFormError } from "#/features/shared/form-errors";
+import { AdminCourseRoster } from "./AdminCourseRoster";
 import classes from "./AdminCourseEditor.module.css";
 
 type Confirmation =
@@ -710,6 +711,8 @@ export function AdminCourseEditor({
           </Paper>
         ))}
       </Stack>
+
+      <AdminCourseRoster roster={detail.roster} />
 
       <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
         <Stack gap="md">

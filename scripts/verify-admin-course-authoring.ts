@@ -399,12 +399,31 @@ try {
       courseVersionId: created.versionId,
       accessGrantId: null,
       status: "active",
-      enrolledAt: new Date(),
+      enrolledAt: new Date("2026-08-05T02:00:00.000Z"),
       completedAt: null,
-      expiresAt: null,
+      expiresAt: new Date("2027-08-05T02:00:00.000Z"),
       removedAt: null,
     })
     .execute();
+  const courseWithRoster = await authoring.findAdminCourse(created.courseId);
+  assert.ok(courseWithRoster);
+  assert.equal(courseWithRoster.roster.total, 1);
+  assert.deepEqual(courseWithRoster.roster.enrollments, [
+    {
+      enrollmentId: ids.enrollment,
+      learnerId: ids.user,
+      learnerName: administrator.name,
+      learnerEmail: administrator.email,
+      courseVersion: 1,
+      state: "active",
+      enrolledAt: "2026-08-05T02:00:00.000Z",
+      enrolledAtLabel: "5 Aug 2026",
+      completedAt: null,
+      expiresAt: "2027-08-05T02:00:00.000Z",
+      removedAt: null,
+      statusDateLabel: "Expires 5 Aug 2027",
+    },
+  ]);
   assert.equal(
     await authoring.deleteArchivedAdminCourse(created.courseId, administrator),
     "conflict",
@@ -420,7 +439,7 @@ try {
   assert.equal(await authoring.findAdminCourse(created.courseId), null);
 
   console.log(
-    "Verified course archive/delete safety, immutable version creation, section ordering and linked exact-version module, survey and PDF usage",
+    "Verified course archive/delete safety, bounded learner roster, immutable version creation, section ordering and linked exact-version module, survey and PDF usage",
   );
 } finally {
   await cleanup();

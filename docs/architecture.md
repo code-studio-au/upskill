@@ -41,6 +41,9 @@ and immutable-version enrolment profiles are read boundaries. Manual module and
 course completion corrections use a separate audited command boundary with
 append-only actor, timestamp and state history. Impersonation remains a later,
 separately audited session capability and is not implied by either boundary.
+Course administration exposes a bounded, newest-first learner roster across all
+immutable versions, with effective active, completed, expired and removed state
+and links back to the existing enrolment-scoped progress boundary.
 
 The application uses nonce-based script CSP with no script `unsafe-inline`.
 Mantine is styled primarily through CSS Modules. Mantine's CSS-variable style

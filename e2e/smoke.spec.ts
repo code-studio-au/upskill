@@ -713,6 +713,23 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Courses", exact: true }),
     ).toBeVisible();
+    const rosterCourse = await authoringDatabase.query<{ id: string }>(
+      `select id from course where slug = 'leading-through-change'`,
+    );
+    const rosterCourseId = rosterCourse.rows[0]?.id;
+    expect(rosterCourseId).toBeTruthy();
+    await page.goto(
+      `/admin/courses/${encodeURIComponent(rosterCourseId ?? "")}`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Learner roster" }),
+    ).toBeVisible();
+    await expect(page.getByText("learner@example.com")).toBeVisible();
+    await expect(page.getByText(/Version 1 · Enrolled/)).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: "Review learner progress" }),
+    ).toBeVisible();
+    await page.goto("/admin/courses");
     await page.getByRole("button", { name: "Create course" }).click();
     await page.getByLabel("Course title").fill("E2E editable course draft");
     await expect(page.getByLabel("URL slug")).toHaveValue(authoringSlug);

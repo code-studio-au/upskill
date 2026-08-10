@@ -183,6 +183,24 @@ export interface AdminCourseDetail {
     version: number;
     publishedAt: string | null;
   }>;
+  roster: {
+    total: number;
+    limit: number;
+    enrollments: Array<{
+      enrollmentId: string;
+      learnerId: string;
+      learnerName: string;
+      learnerEmail: string;
+      courseVersion: number;
+      state: "active" | "completed" | "expired" | "removed";
+      enrolledAt: string;
+      enrolledAtLabel: string;
+      completedAt: string | null;
+      expiresAt: string | null;
+      removedAt: string | null;
+      statusDateLabel: string | null;
+    }>;
+  };
   draft: AdminCourseDraft;
   library: {
     modules: Array<AdminCourseModuleOption>;
