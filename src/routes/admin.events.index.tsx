@@ -46,11 +46,13 @@ export const Route = createFileRoute("/admin/events/")({
   component: AdminEventsPage,
 });
 
-const eventDateFormatter = new Intl.DateTimeFormat("en-AU", {
-  dateStyle: "medium",
-  timeStyle: "short",
-  timeZone: "Australia/Sydney",
-});
+function formatEventDate(value: string, timezone: string): string {
+  return new Date(value).toLocaleString("en-AU", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: timezone,
+  });
+}
 
 function readable(value: string): string {
   return value.replaceAll("_", " ");
@@ -254,9 +256,14 @@ function AdminEventsPage() {
                       </Badge>
                     </Group>
                     <Text size="sm">
-                      {eventDateFormatter.format(new Date(occurrence.startsAt))}
+                      {formatEventDate(
+                        occurrence.startsAt,
+                        occurrence.timezone,
+                      )}
                       {" – "}
-                      {eventDateFormatter.format(new Date(occurrence.endsAt))}
+                      {formatEventDate(occurrence.endsAt, occurrence.timezone)}
+                      {" · "}
+                      {occurrence.timezone}
                     </Text>
                     <Text size="sm" c="dimmed">
                       {readable(occurrence.deliveryMode)} ·{" "}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   adminEventOccurrenceCreateSchema,
+  adminEventOccurrenceFormSchema,
   adminEventTemplateCreateSchema,
   normalizeEventDomains,
 } from "./admin-event.schema";
@@ -22,6 +23,15 @@ const validOccurrence = {
   venueAddress: "1 Example Street",
   virtualJoinUrl: "https://meet.example.com/workshop",
   domains: "HEALTH.EXAMPLE.ORG, example.com",
+};
+
+const validOccurrenceForm = {
+  ...validOccurrence,
+  startsAt: "2027-08-21T09:00",
+  endsAt: "2027-08-21T15:00",
+  registrationOpensAt: "2027-06-01T10:00",
+  registrationClosesAt: "2027-08-10T10:00",
+  coordinatorLockAt: "2027-08-12T10:00",
 };
 
 describe("event administration schemas", () => {
@@ -61,6 +71,21 @@ describe("event administration schemas", () => {
         deliveryMode: "virtual",
         venueName: "",
         virtualJoinUrl: "",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts occurrence form wall-clock times for server conversion", () => {
+    expect(
+      adminEventOccurrenceFormSchema.safeParse(validOccurrenceForm).success,
+    ).toBe(true);
+  });
+
+  it("rejects malformed local times", () => {
+    expect(
+      adminEventOccurrenceFormSchema.safeParse({
+        ...validOccurrenceForm,
+        startsAt: "not-a-date",
       }).success,
     ).toBe(false);
   });

@@ -584,10 +584,12 @@ export async function publishAdminEventOccurrence(
       const coverage = await transaction
         .selectFrom("event_occurrence")
         .select([
-          sql<number>`(select count(*)::integer from event_admin_assignment
-            where "eventOccurrenceId" = ${eventOccurrenceId} and "endedAt" is null)`.as(
-            "admins",
-          ),
+          sql<number>`(select count(*)::integer
+            from event_admin_assignment assignments
+            inner join platform_admin active_admin
+              on active_admin."userId" = assignments."userId"
+            where assignments."eventOccurrenceId" = ${eventOccurrenceId}
+              and assignments."endedAt" is null)`.as("admins"),
           sql<number>`(select count(*)::integer from event_session
             where "eventOccurrenceId" = ${eventOccurrenceId})`.as("sessions"),
           sql<number>`(select count(*)::integer from event_session sessions

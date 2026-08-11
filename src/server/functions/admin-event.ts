@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
-  adminEventOccurrenceCreateSchema,
+  adminEventOccurrenceFormSchema,
   adminEventOccurrenceParamsSchema,
   adminEventTemplateCreateSchema,
   adminEventTemplateVersionParamsSchema,
@@ -71,15 +71,23 @@ export const publishAdminEventTemplate = createServerFn({ method: "POST" })
   });
 
 export const createAdminEventOccurrence = createServerFn({ method: "POST" })
-  .validator(adminEventOccurrenceCreateSchema)
+  .validator(adminEventOccurrenceFormSchema)
   .handler(async ({ data }): Promise<AdminEventMutationResult> => {
     const { getAdministratorRequest } =
       await import("#/server/admin/admin-access.server");
     const request = await getAdministratorRequest();
     if (request.status !== "ready") return request;
-    const { createAdminEventOccurrence: createOccurrence } =
-      await import("#/server/admin/admin-event.server");
-    const outcome = await createOccurrence(data, request.user);
+    const [
+      { createAdminEventOccurrence: createOccurrence },
+      { convertAdminEventOccurrenceForm },
+    ] = await Promise.all([
+      import("#/server/admin/admin-event.server"),
+      import("#/server/admin/event-timezone.server"),
+    ]);
+    const occurrence = convertAdminEventOccurrenceForm(data);
+    if (!occurrence)
+      return { status: "conflict", reason: "occurrence_not_publishable" };
+    const outcome = await createOccurrence(occurrence, request.user);
     if (outcome.status === "not-found") return { status: "not-found" };
     if (outcome.status === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };

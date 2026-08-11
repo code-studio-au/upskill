@@ -73,7 +73,7 @@ export const adminEventOccurrenceCreateSchema = z
       "required_restricted",
     ]),
     approvalMode: z.enum(["automatic", "manual"]),
-    timezone: boundedText(100, "Enter an IANA timezone."),
+    timezone: boundedText(100, "Enter a timezone."),
     startsAt: dateTime,
     endsAt: dateTime,
     registrationOpensAt: z.union([z.literal(""), dateTime]),
@@ -164,11 +164,56 @@ export const adminEventOccurrenceCreateSchema = z
     }),
   );
 
-export type AdminEventTemplateCreateInput = z.infer<
-  typeof adminEventTemplateCreateSchema
->;
 export type AdminEventOccurrenceCreateInput = z.infer<
   typeof adminEventOccurrenceCreateSchema
+>;
+export type AdminEventOccurrenceFormInput = Omit<
+  AdminEventOccurrenceCreateInput,
+  | "startsAt"
+  | "endsAt"
+  | "registrationOpensAt"
+  | "registrationClosesAt"
+  | "coordinatorLockAt"
+> & {
+  startsAt: string;
+  endsAt: string;
+  registrationOpensAt: string;
+  registrationClosesAt: string;
+  coordinatorLockAt: string;
+};
+
+export const adminEventOccurrenceFormSchema = z
+  .custom<AdminEventOccurrenceFormInput>(
+    (value: unknown) => typeof value === "object" && value !== null,
+  )
+  .check(
+    z.superRefine((value, context) => {
+      const candidate = eventOccurrenceFormCandidate(value);
+      const parsed = adminEventOccurrenceCreateSchema.safeParse(candidate);
+      if (!parsed.success)
+        for (const issue of parsed.error.issues) context.addIssue({ ...issue });
+    }),
+  );
+
+function eventOccurrenceFormCandidate(
+  input: AdminEventOccurrenceFormInput,
+): Record<string, unknown> {
+  const convert = (value: string) =>
+    value ? `${value}${value.length === 16 ? ":00" : ""}Z` : "";
+  const candidate: Record<string, unknown> = { ...input };
+  for (const field of [
+    "startsAt",
+    "endsAt",
+    "registrationOpensAt",
+    "registrationClosesAt",
+    "coordinatorLockAt",
+  ] as const)
+    candidate[field] = convert(input[field]);
+  return candidate;
+}
+
+export type AdminEventTemplateCreateInput = z.infer<
+  typeof adminEventTemplateCreateSchema
 >;
 
 export interface AdminEventWorkspace {

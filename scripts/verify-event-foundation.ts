@@ -226,6 +226,18 @@ try {
   );
   assert.equal(createdOccurrence.status, "created");
   eventOccurrenceId = createdOccurrence.eventOccurrenceId;
+  await database
+    .deleteFrom("platform_admin")
+    .where("userId", "=", administrator.id)
+    .execute();
+  assert.equal(
+    await publishAdminEventOccurrence(eventOccurrenceId, administrator),
+    "conflict",
+  );
+  await database
+    .insertInto("platform_admin")
+    .values({ userId: administrator.id, grantedByUserId: null })
+    .execute();
   assert.equal(
     await publishAdminEventOccurrence(eventOccurrenceId, administrator),
     "published",
@@ -379,7 +391,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, staff/session snapshots, restricted domains, registration/participation separation, attendance evidence and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, current administrator-role publication coverage, staff/session snapshots, restricted domains, registration/participation separation, attendance evidence and capacity constraints",
   );
 } finally {
   await cleanup();

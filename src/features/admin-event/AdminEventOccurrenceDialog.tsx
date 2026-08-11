@@ -6,30 +6,21 @@ import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
 import {
-  adminEventOccurrenceCreateSchema,
-  type AdminEventOccurrenceCreateInput,
+  adminEventOccurrenceFormSchema,
+  type AdminEventOccurrenceFormInput,
   type AdminEventWorkspace,
 } from "./admin-event.schema";
 import { createAdminEventOccurrence } from "#/server/functions/admin-event";
 
+const defaultTimezone = "Australia/Sydney";
+
 function initialSchedule() {
-  const startsAt = new Date();
-  startsAt.setDate(startsAt.getDate() + 7);
-  startsAt.setHours(9, 0, 0, 0);
-  const endsAt = new Date(startsAt);
-  endsAt.setHours(endsAt.getHours() + 1);
-  return { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString() };
-}
-
-function localDateTimeValue(value: string): string {
-  if (!value) return "";
-  const date = new Date(value);
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
-}
-
-function isoDateTimeValue(value: string): string {
-  return value ? new Date(value).toISOString() : "";
+  const futureInstant = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const localDate = futureInstant.toISOString().slice(0, 10);
+  return {
+    startsAt: `${localDate}T09:00`,
+    endsAt: `${localDate}T10:00`,
+  };
 }
 
 export function AdminEventOccurrenceDialog({
@@ -43,13 +34,13 @@ export function AdminEventOccurrenceDialog({
 }) {
   const [error, setError] = useState<string | null>(null);
   const schedule = initialSchedule();
-  const defaultValues: AdminEventOccurrenceCreateInput = {
+  const defaultValues: AdminEventOccurrenceFormInput = {
     eventTemplateVersionId: publishedVersions[0]?.eventTemplateVersionId ?? "",
     title: "",
     deliveryMode: "virtual",
     registrationMode: "open_entry",
     approvalMode: "automatic",
-    timezone: "Australia/Sydney",
+    timezone: defaultTimezone,
     startsAt: schedule.startsAt,
     endsAt: schedule.endsAt,
     registrationOpensAt: "",
@@ -63,9 +54,9 @@ export function AdminEventOccurrenceDialog({
   };
   const form = useForm({
     defaultValues,
-    validators: { onSubmit: adminEventOccurrenceCreateSchema },
+    validators: { onSubmit: adminEventOccurrenceFormSchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminEventOccurrenceCreateSchema.safeParse(value);
+      const parsed = adminEventOccurrenceFormSchema.safeParse(value);
       if (!parsed.success) return;
       setError(null);
       const result = await createAdminEventOccurrence({ data: parsed.data });
@@ -210,12 +201,10 @@ export function AdminEventOccurrenceDialog({
                     <MantineTextInput
                       type="datetime-local"
                       label="Starts"
-                      value={localDateTimeValue(field.state.value)}
+                      value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
-                        field.handleChange(
-                          isoDateTimeValue(event.currentTarget.value),
-                        );
+                        field.handleChange(event.currentTarget.value);
                       }}
                       error={firstFormError(field.state.meta.errors)}
                       required
@@ -227,12 +216,10 @@ export function AdminEventOccurrenceDialog({
                     <MantineTextInput
                       type="datetime-local"
                       label="Ends"
-                      value={localDateTimeValue(field.state.value)}
+                      value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
-                        field.handleChange(
-                          isoDateTimeValue(event.currentTarget.value),
-                        );
+                        field.handleChange(event.currentTarget.value);
                       }}
                       error={firstFormError(field.state.meta.errors)}
                       required
@@ -345,12 +332,10 @@ export function AdminEventOccurrenceDialog({
                       <MantineTextInput
                         type="datetime-local"
                         label={label}
-                        value={localDateTimeValue(field.state.value)}
+                        value={field.state.value}
                         onBlur={field.handleBlur}
                         onChange={(event) => {
-                          field.handleChange(
-                            isoDateTimeValue(event.currentTarget.value),
-                          );
+                          field.handleChange(event.currentTarget.value);
                         }}
                         error={firstFormError(field.state.meta.errors)}
                       />

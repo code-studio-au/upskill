@@ -1169,6 +1169,8 @@ test("platform administrators can inspect learner progress", async ({
     await occurrenceDialog
       .getByLabel("Occurrence title")
       .fill("E2E hybrid workshop · August");
+    await occurrenceDialog.getByLabel("Starts").fill("2027-08-21T09:00");
+    await occurrenceDialog.getByLabel("Ends").fill("2027-08-21T10:30");
     await occurrenceDialog
       .getByLabel("Protected virtual meeting URL")
       .fill("https://meet.example.com/e2e-workshop");
@@ -1179,15 +1181,17 @@ test("platform administrators can inspect learner progress", async ({
       name: "E2E hybrid workshop · August",
     });
     await expect(occurrenceHeading).toBeVisible();
+    await expect(page.getByText(/Australia\/Sydney/u)).toBeVisible();
     await page.getByRole("button", { name: "Publish occurrence" }).click();
     await expect(page.getByText("published", { exact: true })).toHaveCount(2);
     const storedOccurrence = await authoringDatabase.query<{
       eventTemplateVersionId: string;
+      startsAt: Date;
       sessionCount: number;
       administratorCount: number;
       presenterCount: number;
     }>(
-      `select occurrence."eventTemplateVersionId",
+      `select occurrence."eventTemplateVersionId", occurrence."startsAt",
         (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
         (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
         (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount"
@@ -1195,6 +1199,7 @@ test("platform administrators can inspect learner progress", async ({
       ["E2E hybrid workshop · August"],
     );
     expect(storedOccurrence.rows[0]).toMatchObject({
+      startsAt: new Date("2027-08-20T23:00:00.000Z"),
       sessionCount: 1,
       administratorCount: 1,
       presenterCount: 1,
