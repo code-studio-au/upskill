@@ -48,7 +48,7 @@ export const startAdminEventTemplate = createServerFn({
     await import("#/server/admin/admin-event.server");
   const outcome = await startTemplate(request.user);
   if (outcome.status === "conflict")
-    return { status: "conflict", reason: "slug_in_use" };
+    return { status: "conflict", reason: "template_not_publishable" };
   return {
     status: "ready",
     data: {
@@ -97,14 +97,8 @@ export const saveAdminEventTemplate = createServerFn({ method: "POST" })
       await import("#/server/admin/admin-event.server");
     const outcome = await saveAdminEventTemplateDraft(data, request.user);
     if (outcome === "not-found") return { status: "not-found" };
-    if (outcome === "conflict" || outcome === "slug-in-use")
-      return {
-        status: "conflict",
-        reason:
-          outcome === "slug-in-use"
-            ? "slug_in_use"
-            : "template_not_publishable",
-      };
+    if (outcome === "conflict")
+      return { status: "conflict", reason: "template_not_publishable" };
     return {
       status: "ready",
       data: {
@@ -161,6 +155,8 @@ export const createAdminEventOccurrence = createServerFn({ method: "POST" })
       return { status: "conflict", reason: "occurrence_not_publishable" };
     const outcome = await createOccurrence(occurrence, request.user);
     if (outcome.status === "not-found") return { status: "not-found" };
+    if (outcome.status === "slug-in-use")
+      return { status: "conflict", reason: "slug_in_use" };
     if (outcome.status === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {
@@ -195,6 +191,8 @@ export const updateAdminEventOccurrence = createServerFn({ method: "POST" })
       request.user,
     );
     if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "slug-in-use")
+      return { status: "conflict", reason: "slug_in_use" };
     if (outcome === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {

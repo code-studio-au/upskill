@@ -1,11 +1,12 @@
 import { Alert, Button, Group, Stack, Text } from "@mantine/core";
 import { useForm } from "@tanstack/react-form";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
 import { formatDateTimeLocalInput } from "#/features/shared/local-date";
+import { createFriendlySlug } from "#/features/shared/friendly-slug";
 import {
   adminEventOccurrenceFormSchema,
   type AdminEventOccurrenceFormInput,
@@ -49,6 +50,7 @@ export function AdminEventOccurrenceDialog({
     ? {
         eventTemplateVersionId: occurrence.eventTemplateVersionId,
         title: occurrence.title,
+        slug: occurrence.slug,
         deliveryMode: occurrence.deliveryMode,
         registrationMode: occurrence.registrationMode,
         approvalMode: occurrence.approvalMode,
@@ -68,6 +70,7 @@ export function AdminEventOccurrenceDialog({
         eventTemplateVersionId:
           publishedVersions[0]?.eventTemplateVersionId ?? "",
         title: "",
+        slug: "",
         deliveryMode: "virtual",
         registrationMode: "open_entry",
         approvalMode: "automatic",
@@ -83,6 +86,7 @@ export function AdminEventOccurrenceDialog({
         virtualJoinUrl: "",
         domains: "",
       };
+  const autoSlug = useRef(!occurrence);
   const form = useForm({
     defaultValues,
     validators: { onSubmit: adminEventOccurrenceFormSchema },
@@ -100,9 +104,11 @@ export function AdminEventOccurrenceDialog({
         : await createAdminEventOccurrence({ data: parsed.data });
       if (result.status !== "ready") {
         setError(
-          result.status === "conflict"
-            ? "The occurrence could not be saved with this configuration."
-            : "The occurrence could not be saved.",
+          result.status === "conflict" && result.reason === "slug_in_use"
+            ? "That friendly URL is already used by another event instance. Choose a unique value."
+            : result.status === "conflict"
+              ? "The occurrence could not be saved with this configuration."
+              : "The occurrence could not be saved.",
         );
         return;
       }
@@ -160,6 +166,25 @@ export function AdminEventOccurrenceDialog({
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      field.handleChange(value);
+                      if (autoSlug.current)
+                        form.setFieldValue("slug", createFriendlySlug(value));
+                    }}
+                    error={firstFormError(field.state.meta.errors)}
+                    required
+                  />
+                )}
+              </form.Field>
+              <form.Field name="slug">
+                {(field) => (
+                  <MantineTextInput
+                    label="Friendly URL"
+                    description="Used in the public event URL. It must be unique."
+                    value={field.state.value}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => {
+                      autoSlug.current = false;
                       field.handleChange(event.currentTarget.value);
                     }}
                     error={firstFormError(field.state.meta.errors)}

@@ -168,7 +168,6 @@ try {
   const createdTemplate = await createAdminEventTemplate(
     {
       title: "Verification workshop",
-      slug: `verification-workshop-${suffix}`,
       defaultAdministratorIds: [administrator.id],
     },
     administrator,
@@ -182,7 +181,6 @@ try {
         eventTemplateId,
         eventTemplateVersionId,
         title: "Verification workshop",
-        slug: `verification-workshop-${suffix}`,
         summary: "A versioned Event Template verification fixture.",
         description:
           "Verifies exact-version occurrence provenance and durable staff attribution.",
@@ -236,29 +234,35 @@ try {
     startsAt.getTime() - 48 * 60 * 60 * 1000,
   );
   const coordinatorLockAt = new Date(startsAt.getTime() - 24 * 60 * 60 * 1000);
+  const occurrenceInput = {
+    eventTemplateVersionId,
+    title: "Verification workshop · Sydney",
+    slug: `verification-workshop-sydney-${suffix}`,
+    deliveryMode: "in_person" as const,
+    registrationMode: "required_restricted" as const,
+    approvalMode: "manual" as const,
+    timezone: "Australia/Sydney",
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt.toISOString(),
+    registrationOpensAt: registrationOpensAt.toISOString(),
+    registrationClosesAt: registrationClosesAt.toISOString(),
+    coordinatorLockAt: coordinatorLockAt.toISOString(),
+    capacity: 2,
+    venueName: "Verification Centre",
+    venueAddress: "1 Test Street, Sydney NSW",
+    virtualJoinUrl: "",
+    domains: "example.com, health.example.org",
+  };
   const createdOccurrence = await createAdminEventOccurrence(
-    {
-      eventTemplateVersionId,
-      title: "Verification workshop · Sydney",
-      deliveryMode: "in_person",
-      registrationMode: "required_restricted",
-      approvalMode: "manual",
-      timezone: "Australia/Sydney",
-      startsAt: startsAt.toISOString(),
-      endsAt: endsAt.toISOString(),
-      registrationOpensAt: registrationOpensAt.toISOString(),
-      registrationClosesAt: registrationClosesAt.toISOString(),
-      coordinatorLockAt: coordinatorLockAt.toISOString(),
-      capacity: 2,
-      venueName: "Verification Centre",
-      venueAddress: "1 Test Street, Sydney NSW",
-      virtualJoinUrl: "",
-      domains: "example.com, health.example.org",
-    },
+    occurrenceInput,
     administrator,
   );
   assert.equal(createdOccurrence.status, "created");
   eventOccurrenceId = createdOccurrence.eventOccurrenceId;
+  assert.deepEqual(
+    await createAdminEventOccurrence(occurrenceInput, administrator),
+    { status: "slug-in-use" },
+  );
   const rescheduledStartsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
   const rescheduledEndsAt = new Date(endsAt.getTime() + 60 * 60 * 1000);
   assert.equal(
@@ -267,6 +271,7 @@ try {
       {
         eventTemplateVersionId,
         title: "Verification workshop · Rescheduled",
+        slug: `verification-workshop-rescheduled-${suffix}`,
         deliveryMode: "in_person",
         registrationMode: "required_restricted",
         approvalMode: "manual",
@@ -311,6 +316,7 @@ try {
     .selectFrom("event_occurrence")
     .select([
       "eventTemplateVersionId",
+      "slug",
       "status",
       "deliveryMode",
       "registrationMode",
@@ -321,6 +327,7 @@ try {
     .executeTakeFirstOrThrow();
   assert.deepEqual(occurrence, {
     eventTemplateVersionId,
+    slug: `verification-workshop-rescheduled-${suffix}`,
     status: "published",
     deliveryMode: "in_person",
     registrationMode: "required_restricted",

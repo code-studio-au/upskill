@@ -265,7 +265,6 @@ interface LearningItemProgressTable {
 
 interface EventTemplateTable {
   id: string;
-  slug: string;
   title: string;
   status: "draft" | "published" | "archived";
   createdAt: Timestamp;
@@ -356,6 +355,7 @@ interface EventOccurrenceTable {
   id: string;
   eventTemplateVersionId: string;
   title: string;
+  slug: string;
   status: "draft" | "published" | "cancelled" | "completed" | "archived";
   deliveryMode: "in_person" | "virtual";
   registrationMode:

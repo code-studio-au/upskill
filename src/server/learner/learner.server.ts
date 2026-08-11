@@ -145,6 +145,7 @@ export async function findLearnerDashboard(
     )
     .select([
       "event_occurrence.id as eventOccurrenceId",
+      "event_occurrence.slug",
       "event_occurrence.title",
       "event_template.title as eventTemplateTitle",
       "event_occurrence.deliveryMode",
@@ -208,6 +209,7 @@ export async function findLearnerDashboard(
     return [
       {
         eventOccurrenceId: event.eventOccurrenceId,
+        slug: event.slug,
         title: event.title,
         eventTemplateTitle: event.eventTemplateTitle,
         deliveryMode: event.deliveryMode,

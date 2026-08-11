@@ -28,6 +28,7 @@ describe("Event timezone conversion", () => {
     expect(
       convertAdminEventOccurrenceForm({
         eventTemplateVersionId: "event_template_version_1",
+        slug: "sydney-workshop",
         title: "Statewide workshop",
         deliveryMode: "virtual",
         registrationMode: "open_entry",

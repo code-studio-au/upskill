@@ -114,6 +114,7 @@ try {
     "event_admin_assignment_active_idx",
     "event_coordinator_assignment_active_idx",
     "event_occurrence_schedule_idx",
+    "event_occurrence_slug_uq",
     "event_presenter_assignment_active_idx",
     "event_registration_selection_idx",
     "learning_progress_override_latest_idx",
@@ -137,6 +138,25 @@ try {
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
+  const eventTemplateColumns = await sql<{
+    column_name: string;
+  }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'event_template'`.execute(
+    db,
+  );
+  if (eventTemplateColumns.rows.some((column) => column.column_name === "slug"))
+    throw new Error("Internal Event Templates must not own public URL slugs");
+  const eventOccurrenceColumns = await sql<{
+    column_name: string;
+    is_nullable: string;
+  }>`select column_name, is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'event_occurrence'`.execute(
+    db,
+  );
+  if (
+    !eventOccurrenceColumns.rows.some(
+      (column) => column.column_name === "slug" && column.is_nullable === "NO",
+    )
+  )
+    throw new Error("Event occurrences must own a required public URL slug");
   const accessCodeIndex = indexResult.rows.find(
     (index) => index.indexname === "access_grant_code_lookup_id_uq",
   );

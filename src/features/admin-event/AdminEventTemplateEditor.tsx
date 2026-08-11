@@ -27,7 +27,6 @@ import {
   type AdminEventTemplateItem,
 } from "./admin-event.schema";
 import classes from "./AdminEventTemplateEditor.module.css";
-import { createFriendlySlug } from "#/features/shared/friendly-slug";
 
 function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
   const destination = index + direction;
@@ -54,9 +53,6 @@ export function AdminEventTemplateEditor({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const intent = useRef<"save" | "publish">("save");
-  const autoSlug = useRef(
-    detail.draft.slug.startsWith("draft-event-template-"),
-  );
   const form = useForm({
     defaultValues: { draft: detail.draft },
     onSubmit: async ({ value }) => {
@@ -74,9 +70,7 @@ export function AdminEventTemplateEditor({
         const saved = await saveAdminEventTemplate({ data: parsed.data });
         if (saved.status !== "ready") {
           setError(
-            saved.status === "conflict" && saved.reason === "slug_in_use"
-              ? "That friendly URL is already used by another event template. Choose a unique value."
-              : "The template could not be saved. Check all selected people and activities.",
+            "The template could not be saved. Check all selected people and activities.",
           );
           return;
         }
@@ -269,24 +263,7 @@ export function AdminEventTemplateEditor({
                 disabled={!detail.version.editable}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
-                  setDraft((current) => ({
-                    ...current,
-                    title: value,
-                    slug: autoSlug.current
-                      ? createFriendlySlug(value)
-                      : current.slug,
-                  }));
-                }}
-              />
-              <MantineTextInput
-                label="Friendly URL"
-                description="Reserved for public event promotion URLs. It must be unique."
-                value={draft.slug}
-                disabled={!detail.version.editable}
-                onChange={(event) => {
-                  autoSlug.current = false;
-                  const value = event.currentTarget.value;
-                  setDraft((current) => ({ ...current, slug: value }));
+                  setDraft((current) => ({ ...current, title: value }));
                 }}
               />
               <MantineTextInput

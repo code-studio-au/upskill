@@ -9,6 +9,7 @@ import {
 const validOccurrence = {
   eventTemplateVersionId: "event_template_version_1",
   title: "Statewide workshop",
+  slug: "statewide-workshop",
   deliveryMode: "virtual" as const,
   registrationMode: "required_restricted" as const,
   approvalMode: "manual" as const,
@@ -119,7 +120,6 @@ describe("event administration schemas", () => {
     expect(
       adminEventTemplateCreateSchema.safeParse({
         title: "Workshop template",
-        slug: "workshop-template",
         defaultAdministratorIds: ["admin_1"],
       }).success,
     ).toBe(true);

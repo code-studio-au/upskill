@@ -168,9 +168,6 @@ function AdminEventsPage() {
                     <Group justify="space-between" align="start" wrap="nowrap">
                       <div>
                         <Title order={3}>{template.title}</Title>
-                        <Text size="sm" c="dimmed">
-                          /events/{template.slug}
-                        </Text>
                       </div>
                       <Badge
                         color={
@@ -233,6 +230,9 @@ function AdminEventsPage() {
                         <Text size="sm" c="dimmed">
                           {occurrence.eventTemplateTitle} · Version{" "}
                           {occurrence.templateVersion}
+                        </Text>
+                        <Text size="sm" c="dimmed">
+                          /events/{occurrence.slug}
                         </Text>
                       </div>
                       <Badge

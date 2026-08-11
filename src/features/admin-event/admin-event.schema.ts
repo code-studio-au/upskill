@@ -36,14 +36,6 @@ export function normalizeEventDomains(value: string): Array<string> | null {
 
 export const adminEventTemplateCreateSchema = z.object({
   title: boundedText(160, "Enter an event template title."),
-  slug: z
-    .string()
-    .check(
-      z.trim(),
-      z.minLength(1, "Enter a URL slug."),
-      z.maxLength(100),
-      z.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use a valid URL slug."),
-    ),
   defaultAdministratorIds: z.array(identifierSchema).check(
     z.minLength(1, "Select at least one default administrator."),
     z.maxLength(20),
@@ -122,7 +114,6 @@ export const adminEventTemplateDraftSchema = z
     eventTemplateId: identifierSchema,
     eventTemplateVersionId: identifierSchema,
     title: boundedText(160, "Enter an event template title."),
-    slug: adminEventTemplateCreateSchema.shape.slug,
     summary: boundedText(320, "Enter a short summary."),
     description: boundedText(10_000, "Enter an event description."),
     hasCompletionCertificate: z.boolean(),
@@ -226,6 +217,14 @@ export const adminEventOccurrenceCreateSchema = z
   .object({
     eventTemplateVersionId: identifierSchema,
     title: boundedText(200, "Enter an occurrence title."),
+    slug: z
+      .string()
+      .check(
+        z.trim(),
+        z.minLength(1, "Enter a URL slug."),
+        z.maxLength(100),
+        z.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use a valid URL slug."),
+      ),
     deliveryMode: z.enum(["in_person", "virtual"]),
     registrationMode: z.enum([
       "open_entry",
@@ -414,7 +413,6 @@ interface AdminEventPersonOption {
 export interface AdminEventTemplateDetail {
   template: {
     id: string;
-    slug: string;
     title: string;
     status: "draft" | "published" | "archived";
   };
@@ -445,7 +443,6 @@ export interface AdminEventTemplateDetail {
 export interface AdminEventWorkspace {
   templates: Array<{
     id: string;
-    slug: string;
     title: string;
     status: "draft" | "published" | "archived";
     latestVersion: number;
@@ -468,6 +465,7 @@ export interface AdminEventWorkspace {
     eventTemplateTitle: string;
     templateVersion: number;
     title: string;
+    slug: string;
     status: "draft" | "published" | "cancelled" | "completed" | "archived";
     deliveryMode: "in_person" | "virtual";
     registrationMode:

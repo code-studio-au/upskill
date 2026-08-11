@@ -245,7 +245,8 @@ DLQ/outbox monitoring, and operational support tooling.
 ## Core Event Concepts
 
 - **Event / Event Template:** stable reusable identity for an
-  instructor-led/blended offering.
+  instructor-led/blended offering. It is internal authoring identity and does
+  not own a public URL slug.
 - **Event Template Version:** immutable published future-instance definition,
   including exact Section Items/content versions, workflow/release defaults,
   communication plan, default assigned standard administrators and one or more
@@ -253,7 +254,8 @@ DLQ/outbox monitoring, and operational support tooling.
   presenter-required occurrence/Session scope.
 - **Event Occurrence / Instance:** scheduled delivery pinned to one exact Event
   Template Version, with dates, timezone, delivery mode, capacity, snapshotted
-  administrator ownership, other assignments, Sessions and ordered Sections.
+  administrator ownership, other assignments, Sessions, ordered Sections and a
+  required unique friendly slug for its public URL.
 - **Event Session:** attendance unit such as a workshop day/session.
 - **Registration:** person's request/intention to participate,
   distinct from enrolment and attendance.

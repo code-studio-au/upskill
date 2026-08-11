@@ -135,7 +135,8 @@ Transactional Outbox.
 ### Event
 
 The stable identity of an instructor-led or blended educational offering. In
-administration this is the reusable **Event Template** identity.
+administration this is the reusable **Event Template** identity. Event Templates
+are internal authoring records and do not own public URL slugs.
 
 ### Event Template Version
 
@@ -153,7 +154,8 @@ A scheduled delivery of one exact Event Template Version. It snapshots that
 version's configuration and default administrator/Coordinator/Presenter
 assignments, then adds dates, timezone, delivery mode, venue/virtual details,
 capacity, registration window, Sessions and occurrence-local permitted
-overrides.
+overrides. Each occurrence owns a required unique friendly slug for its public
+promotion, registration and access URL.
 
 ### Event session
 

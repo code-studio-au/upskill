@@ -20,6 +20,7 @@ type LearnerEventRegistrationStatus =
 
 export interface LearnerEvent {
   eventOccurrenceId: string;
+  slug: string;
   title: string;
   eventTemplateTitle: string;
   deliveryMode: "in_person" | "virtual";

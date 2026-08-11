@@ -18,15 +18,6 @@ import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { logServerEvent } from "#/server/logging/server-logger";
 
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505"
-  );
-}
-
 function optionalDate(value: string): Date | null {
   return value ? new Date(value) : null;
 }
@@ -56,7 +47,7 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
   ] = await Promise.all([
     database
       .selectFrom("event_template")
-      .select(["id", "slug", "title", "status"])
+      .select(["id", "title", "status"])
       .orderBy("title")
       .execute(),
     database
@@ -83,6 +74,7 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         "event_template.title as eventTemplateTitle",
         "event_template_version.version as templateVersion",
         "event_occurrence.title",
+        "event_occurrence.slug",
         "event_occurrence.status",
         "event_occurrence.deliveryMode",
         "event_occurrence.registrationMode",
@@ -202,64 +194,58 @@ export async function createAdminEventTemplate(
 > {
   const eventTemplateId = `event_template_${randomUUID()}`;
   const eventTemplateVersionId = `event_template_version_${randomUUID()}`;
-  try {
-    const created = await getDatabase()
-      .transaction()
-      .execute(async (transaction) => {
-        const administrators = await transaction
-          .selectFrom("platform_admin")
-          .select("userId")
-          .where("userId", "in", input.defaultAdministratorIds)
-          .execute();
-        if (
-          new Set(administrators.map((row) => row.userId)).size !==
-          new Set(input.defaultAdministratorIds).size
+  const created = await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const administrators = await transaction
+        .selectFrom("platform_admin")
+        .select("userId")
+        .where("userId", "in", input.defaultAdministratorIds)
+        .execute();
+      if (
+        new Set(administrators.map((row) => row.userId)).size !==
+        new Set(input.defaultAdministratorIds).size
+      )
+        return false;
+      await transaction
+        .insertInto("event_template")
+        .values({
+          id: eventTemplateId,
+          title: input.title,
+          status: "draft",
+        })
+        .execute();
+      await transaction
+        .insertInto("event_template_version")
+        .values({
+          id: eventTemplateVersionId,
+          eventTemplateId,
+          version: 1,
+          summary: "Event summary to be completed.",
+          description: "Event description to be completed.",
+          hasCompletionCertificate: false,
+          publishedAt: null,
+        })
+        .execute();
+      await transaction
+        .insertInto("event_template_version_admin_default")
+        .values(
+          input.defaultAdministratorIds.map((userId) => ({
+            eventTemplateVersionId,
+            userId,
+          })),
         )
-          return false;
-        await transaction
-          .insertInto("event_template")
-          .values({
-            id: eventTemplateId,
-            slug: input.slug,
-            title: input.title,
-            status: "draft",
-          })
-          .execute();
-        await transaction
-          .insertInto("event_template_version")
-          .values({
-            id: eventTemplateVersionId,
-            eventTemplateId,
-            version: 1,
-            summary: "Event summary to be completed.",
-            description: "Event description to be completed.",
-            hasCompletionCertificate: false,
-            publishedAt: null,
-          })
-          .execute();
-        await transaction
-          .insertInto("event_template_version_admin_default")
-          .values(
-            input.defaultAdministratorIds.map((userId) => ({
-              eventTemplateVersionId,
-              userId,
-            })),
-          )
-          .execute();
-        await recordDurableAuditEvent(transaction, {
-          actorUserId: administrator.id,
-          action: "event_template.created",
-          subjectType: "event_template",
-          subjectId: eventTemplateId,
-          metadata: { eventTemplateVersionId },
-        });
-        return true;
+        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "event_template.created",
+        subjectType: "event_template",
+        subjectId: eventTemplateId,
+        metadata: { eventTemplateVersionId },
       });
-    if (!created) return { status: "conflict" };
-  } catch (error) {
-    if (isUniqueViolation(error)) return { status: "conflict" };
-    throw error;
-  }
+      return true;
+    });
+  if (!created) return { status: "conflict" };
   return { status: "created", eventTemplateId, eventTemplateVersionId };
 }
 
@@ -269,7 +255,6 @@ export async function startAdminEventTemplate(
   return await createAdminEventTemplate(
     {
       title: "Untitled event template",
-      slug: `draft-event-template-${randomUUID()}`,
       defaultAdministratorIds: [administrator.id],
     },
     administrator,
@@ -329,7 +314,7 @@ function eventItemFromRow(row: {
 
 async function loadEventTemplateDraft(
   database: Transaction<Database> | ReturnType<typeof getDatabase>,
-  template: { id: string; slug: string; title: string },
+  template: { id: string; title: string },
   version: {
     id: string;
     summary: string;
@@ -448,7 +433,6 @@ async function loadEventTemplateDraft(
     eventTemplateId: template.id,
     eventTemplateVersionId: version.id,
     title: template.title,
-    slug: template.slug,
     summary: version.summary,
     description: version.description,
     hasCompletionCertificate: version.hasCompletionCertificate,
@@ -467,7 +451,7 @@ export async function findAdminEventTemplate(
   const database = getDatabase();
   const template = await database
     .selectFrom("event_template")
-    .select(["id", "slug", "title", "status"])
+    .select(["id", "title", "status"])
     .where("id", "=", eventTemplateId)
     .executeTakeFirst();
   if (!template) return null;
@@ -783,61 +767,44 @@ async function replaceEventDraftStructure(
 export async function saveAdminEventTemplateDraft(
   draft: AdminEventTemplateDraft,
   administrator: AuthenticatedUser,
-): Promise<"saved" | "not-found" | "conflict" | "slug-in-use"> {
-  let result: "saved" | "not-found" | "conflict" | "slug-in-use";
-  try {
-    result = await getDatabase()
-      .transaction()
-      .execute(async (transaction) => {
-        const version = await transaction
-          .selectFrom("event_template_version")
-          .innerJoin(
-            "event_template",
-            "event_template.id",
-            "event_template_version.eventTemplateId",
-          )
-          .select([
-            "event_template_version.publishedAt",
-            "event_template.status",
-            "event_template.slug",
-          ])
-          .where("event_template_version.id", "=", draft.eventTemplateVersionId)
-          .where("event_template.id", "=", draft.eventTemplateId)
-          .forUpdate()
-          .executeTakeFirst();
-        if (!version) return "not-found" as const;
-        if (version.publishedAt || version.status === "archived")
-          return "conflict" as const;
-        if (!(await validateEventDraftReferences(transaction, draft)))
-          return "conflict" as const;
-        const slugOwner = await transaction
-          .selectFrom("event_template")
-          .select("id")
-          .where("slug", "=", draft.slug)
-          .where("id", "!=", draft.eventTemplateId)
-          .executeTakeFirst();
-        if (slugOwner) return "slug-in-use" as const;
-        await transaction
-          .updateTable("event_template")
-          .set({ title: draft.title, slug: draft.slug, updatedAt: new Date() })
-          .where("id", "=", draft.eventTemplateId)
-          .executeTakeFirstOrThrow();
-        await transaction
-          .updateTable("event_template_version")
-          .set({
-            summary: draft.summary,
-            description: draft.description,
-            hasCompletionCertificate: draft.hasCompletionCertificate,
-          })
-          .where("id", "=", draft.eventTemplateVersionId)
-          .executeTakeFirstOrThrow();
-        await replaceEventDraftStructure(transaction, draft);
-        return "saved" as const;
-      });
-  } catch (error) {
-    if (isUniqueViolation(error)) result = "slug-in-use";
-    else throw error;
-  }
+): Promise<"saved" | "not-found" | "conflict"> {
+  const result = await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const version = await transaction
+        .selectFrom("event_template_version")
+        .innerJoin(
+          "event_template",
+          "event_template.id",
+          "event_template_version.eventTemplateId",
+        )
+        .select(["event_template_version.publishedAt", "event_template.status"])
+        .where("event_template_version.id", "=", draft.eventTemplateVersionId)
+        .where("event_template.id", "=", draft.eventTemplateId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!version) return "not-found" as const;
+      if (version.publishedAt || version.status === "archived")
+        return "conflict" as const;
+      if (!(await validateEventDraftReferences(transaction, draft)))
+        return "conflict" as const;
+      await transaction
+        .updateTable("event_template")
+        .set({ title: draft.title, updatedAt: new Date() })
+        .where("id", "=", draft.eventTemplateId)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable("event_template_version")
+        .set({
+          summary: draft.summary,
+          description: draft.description,
+          hasCompletionCertificate: draft.hasCompletionCertificate,
+        })
+        .where("id", "=", draft.eventTemplateVersionId)
+        .executeTakeFirstOrThrow();
+      await replaceEventDraftStructure(transaction, draft);
+      return "saved" as const;
+    });
   if (result === "saved")
     logServerEvent({
       level: "info",
@@ -863,7 +830,7 @@ export async function createAdminEventTemplateVersion(
     .execute(async (transaction) => {
       const template = await transaction
         .selectFrom("event_template")
-        .select(["id", "slug", "title", "status"])
+        .select(["id", "title", "status"])
         .where("id", "=", eventTemplateId)
         .forUpdate()
         .executeTakeFirst();
@@ -950,7 +917,6 @@ export async function publishAdminEventTemplateVersion(
           "event_template_version.version",
           "event_template_version.publishedAt",
           "event_template.status",
-          "event_template.slug",
           "event_template.title",
         ])
         .where("event_template_version.id", "=", eventTemplateVersionId)
@@ -961,8 +927,7 @@ export async function publishAdminEventTemplateVersion(
       if (
         version.publishedAt ||
         version.status === "archived" ||
-        version.title === "Untitled event template" ||
-        version.slug.startsWith("draft-event-template-")
+        version.title === "Untitled event template"
       )
         return "conflict" as const;
       const [administratorCoverage, presenterCoverage, structure] =
@@ -1079,6 +1044,7 @@ export async function createAdminEventOccurrence(
   | { status: "created"; eventOccurrenceId: string }
   | { status: "not-found" }
   | { status: "conflict" }
+  | { status: "slug-in-use" }
 > {
   if (!hasValidTimezone(input.timezone)) return { status: "conflict" };
   const domains = normalizeEventDomains(input.domains);
@@ -1087,6 +1053,15 @@ export async function createAdminEventOccurrence(
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(hashtext(${input.slug}))`.execute(
+        transaction,
+      );
+      const slugOwner = await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("slug", "=", input.slug)
+        .executeTakeFirst();
+      if (slugOwner) return { status: "slug-in-use" } as const;
       const version = await transaction
         .selectFrom("event_template_version")
         .innerJoin(
@@ -1190,6 +1165,7 @@ export async function createAdminEventOccurrence(
           id: eventOccurrenceId,
           eventTemplateVersionId: version.id,
           title: input.title,
+          slug: input.slug,
           status: "draft",
           deliveryMode: input.deliveryMode,
           registrationMode: input.registrationMode,
@@ -1323,7 +1299,7 @@ export async function updateAdminEventOccurrence(
   eventOccurrenceId: string,
   input: AdminEventOccurrenceCreateInput,
   administrator: AuthenticatedUser,
-): Promise<"updated" | "not-found" | "conflict"> {
+): Promise<"updated" | "not-found" | "conflict" | "slug-in-use"> {
   if (!hasValidTimezone(input.timezone)) return "conflict";
   const domains = normalizeEventDomains(input.domains);
   if (!domains) return "conflict";
@@ -1331,6 +1307,16 @@ export async function updateAdminEventOccurrence(
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(hashtext(${input.slug}))`.execute(
+        transaction,
+      );
+      const slugOwner = await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("slug", "=", input.slug)
+        .where("id", "!=", eventOccurrenceId)
+        .executeTakeFirst();
+      if (slugOwner) return "slug-in-use" as const;
       const occurrence = await transaction
         .selectFrom("event_occurrence")
         .select([
@@ -1371,6 +1357,7 @@ export async function updateAdminEventOccurrence(
         .updateTable("event_occurrence")
         .set({
           title: input.title,
+          slug: input.slug,
           deliveryMode: input.deliveryMode,
           registrationMode: input.registrationMode,
           approvalMode: input.approvalMode,
