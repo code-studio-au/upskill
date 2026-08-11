@@ -158,11 +158,11 @@ async function cleanupCourseAuthoringFixture(
 
 async function cleanupEventAuthoringFixture(
   database: Client,
-  slug: string,
+  title: string,
 ): Promise<void> {
   const template = await database.query<{ id: string }>(
-    `select id from event_template where slug = $1`,
-    [slug],
+    `select id from event_template where title = $1`,
+    [title],
   );
   const eventTemplateId = template.rows[0]?.id;
   if (!eventTemplateId) return;
@@ -880,7 +880,9 @@ test("platform administrators can inspect learner progress", async ({
   const accessGrantLabel = "E2E organisation access";
   const accessOrganizationName = "E2E Access Organisation";
   const accessCodeBase = "E2E-ACCESS-2027";
-  const eventSlug = "e2e-hybrid-workshop";
+  const eventTemplateTitle = "E2E virtual workshop";
+  const eventOccurrenceTitle = "E2E virtual workshop · August";
+  const eventSlug = "e2e-virtual-workshop-august";
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
@@ -893,7 +895,7 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
-    await cleanupEventAuthoringFixture(authoringDatabase, eventSlug);
+    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await page
       .getByRole("main")
       .getByRole("link", { name: "Courses", exact: true })
@@ -929,13 +931,13 @@ test("platform administrators can inspect learner progress", async ({
     ).toBeVisible();
     await page.goto("/admin/courses");
     await page.getByRole("button", { name: "Create course" }).click();
-    await page.getByLabel("Course title").fill("E2E editable course draft");
-    await expect(page.getByLabel("URL slug")).toHaveValue(authoringSlug);
-    await page.getByRole("button", { name: "Create draft" }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(
-      "E2E editable course draft",
-    );
+    await expect(page).toHaveURL(/\/admin\/courses\/course_/u);
+    await expect(
+      page.getByRole("heading", { name: "Untitled course", level: 1 }),
+    ).toBeVisible();
     await page.getByLabel("Title").fill("E2E edited course draft");
+    await page.getByLabel("Friendly URL").fill(authoringSlug);
+    await expect(page.getByLabel("Friendly URL")).toHaveValue(authoringSlug);
     await expect(page.getByLabel("Title")).toHaveValue(
       "E2E edited course draft",
     );
@@ -1136,39 +1138,47 @@ test("platform administrators can inspect learner progress", async ({
       page.getByRole("heading", { name: "Events", exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Create template" }).click();
-    const templateDialog = page.getByRole("dialog", {
-      name: "Create event template",
-    });
-    await templateDialog
-      .getByLabel("Template title")
-      .fill("E2E hybrid workshop");
-    await expect(templateDialog.getByLabel("URL slug")).toHaveValue(eventSlug);
-    await templateDialog
+    await expect(page).toHaveURL(/\/admin\/events\/event_template_/u);
+    await expect(
+      page.getByRole("heading", {
+        name: "Untitled event template",
+        level: 1,
+      }),
+    ).toBeVisible();
+    await page.getByLabel("Title").fill(eventTemplateTitle);
+    await page
       .getByLabel("Summary")
       .fill("A reusable Event Template created through the browser.");
-    await templateDialog
+    await page
       .getByLabel("Description")
       .fill("Exercises exact-version Event Occurrence scheduling.");
-    await templateDialog
-      .getByLabel("Default session title")
-      .fill("Live workshop");
-    await templateDialog.getByLabel("Duration (minutes)").fill("90");
-    await templateDialog
-      .getByRole("button", { name: "Create template" })
-      .click();
-    const templateCard = page.getByRole("heading", {
-      name: "E2E hybrid workshop",
-    });
-    await expect(templateCard).toBeVisible();
-    await page.getByRole("button", { name: "Publish version 1" }).click();
-    await expect(page.getByText("Published version 1")).toBeVisible();
+    await page.getByRole("button", { name: "Add section" }).click();
+    await page.getByLabel("Section title").fill("Event session");
+    await page.getByRole("button", { name: "Add event session" }).click();
+    await page.getByLabel("Display title").fill("Live workshop");
+    await page.getByLabel("Duration (minutes)").fill("90");
+    await page
+      .getByLabel("Avery Administrator · admin@example.com")
+      .first()
+      .check();
+    await page.getByRole("button", { name: "Save and publish" }).click();
+    await expect(
+      page.getByRole("button", { name: "Create new version" }),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "Back to events" }).click();
+    await expect(
+      page.getByRole("heading", { name: eventTemplateTitle }),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Schedule occurrence" }).click();
     const occurrenceDialog = page.getByRole("dialog", {
       name: "Schedule event occurrence",
     });
     await occurrenceDialog
       .getByLabel("Occurrence title")
-      .fill("E2E hybrid workshop · August");
+      .fill(eventOccurrenceTitle);
+    await expect(occurrenceDialog.getByLabel("Friendly URL")).toHaveValue(
+      eventSlug,
+    );
     await occurrenceDialog.getByLabel("Starts").fill("2027-08-21T09:00");
     await occurrenceDialog.getByLabel("Ends").fill("2027-08-21T10:30");
     await occurrenceDialog
@@ -1178,27 +1188,40 @@ test("platform administrators can inspect learner progress", async ({
       .getByRole("button", { name: "Create draft occurrence" })
       .click();
     const occurrenceHeading = page.getByRole("heading", {
-      name: "E2E hybrid workshop · August",
+      name: eventOccurrenceTitle,
     });
     await expect(occurrenceHeading).toBeVisible();
-    await expect(page.getByText(/Australia\/Sydney/u)).toBeVisible();
-    await page.getByRole("button", { name: "Publish occurrence" }).click();
-    await expect(page.getByText("published", { exact: true })).toHaveCount(2);
+    const occurrenceCard = page.getByRole("article").filter({
+      has: occurrenceHeading,
+    });
+    await occurrenceCard
+      .getByRole("button", { name: "Publish occurrence" })
+      .click();
+    await expect(
+      occurrenceCard.getByText("published", { exact: true }),
+    ).toBeVisible();
     const storedOccurrence = await authoringDatabase.query<{
       eventTemplateVersionId: string;
+      slug: string;
+      status: string;
+      timezone: string;
       startsAt: Date;
       sessionCount: number;
       administratorCount: number;
       presenterCount: number;
     }>(
-      `select occurrence."eventTemplateVersionId", occurrence."startsAt",
+      `select occurrence."eventTemplateVersionId", occurrence.slug, occurrence.status,
+        occurrence.timezone, occurrence."startsAt",
         (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
         (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
         (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount"
        from event_occurrence occurrence where occurrence.title = $1`,
-      ["E2E hybrid workshop · August"],
+      [eventOccurrenceTitle],
     );
     expect(storedOccurrence.rows[0]).toMatchObject({
+      slug: eventSlug,
+      status: "published",
+      timezone: "Australia/Sydney",
       startsAt: new Date("2027-08-20T23:00:00.000Z"),
       sessionCount: 1,
       administratorCount: 1,
@@ -1218,7 +1241,7 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
-    await cleanupEventAuthoringFixture(authoringDatabase, eventSlug);
+    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await authoringDatabase.end();
   }
 

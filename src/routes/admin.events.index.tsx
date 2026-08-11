@@ -222,7 +222,13 @@ function AdminEventsPage() {
           ) : (
             <div className={classes.cardGrid}>
               {workspace.occurrences.map((occurrence) => (
-                <Paper key={occurrence.id} withBorder radius="lg" p="lg">
+                <Paper
+                  component="article"
+                  key={occurrence.id}
+                  withBorder
+                  radius="lg"
+                  p="lg"
+                >
                   <Stack gap="sm">
                     <Group justify="space-between" align="start" wrap="nowrap">
                       <div>
