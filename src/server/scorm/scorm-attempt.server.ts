@@ -75,19 +75,20 @@ export async function createScormLaunch(
         return { status: "not-found" } as const;
 
       const packageVersion = await transaction
-        .selectFrom("course_version_module")
+        .selectFrom("course_version_item")
         .innerJoin(
           "scorm_package_version",
           "scorm_package_version.id",
-          "course_version_module.scormPackageVersionId",
+          "course_version_item.learningActivityVersionId",
         )
         .select(["scorm_package_version.id", "scorm_package_version.status"])
         .where(
-          "course_version_module.courseVersionId",
+          "course_version_item.courseVersionId",
           "=",
           enrollment.courseVersionId,
         )
-        .where("course_version_module.position", "=", modulePosition)
+        .where("course_version_item.kind", "=", "scorm")
+        .where("course_version_item.modulePosition", "=", modulePosition)
         .executeTakeFirst();
       if (!packageVersion || packageVersion.status !== "ready")
         return { status: "unavailable" } as const;

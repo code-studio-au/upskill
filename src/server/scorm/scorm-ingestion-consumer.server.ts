@@ -2,14 +2,12 @@ import "@tanstack/react-start/server-only";
 
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
-import { generateCompletionCertificate } from "#/server/certificate/completion-certificate-generation.server";
 import {
   changeQueueMessageVisibility,
   deleteQueueMessage,
   receiveQueueMessage,
 } from "#/server/queue/sqs.server";
 import {
-  CERTIFICATE_GENERATION_TOPIC,
   parseContentWorkMessage,
   RESOURCE_DELETION_TOPIC,
   SCORM_DELETION_TOPIC,
@@ -24,10 +22,7 @@ import {
   deleteObjectPrefix,
 } from "#/server/storage/object-storage.server";
 
-type ScormWorkOutcome =
-  | ScormIngestionOutcome
-  | { status: "storage-removed" }
-  | { status: "ready" | "already-ready" };
+type ScormWorkOutcome = ScormIngestionOutcome | { status: "storage-removed" };
 
 export type ScormConsumerOutcome =
   | { status: "no-work" }
@@ -49,14 +44,6 @@ export type ScormConsumerOutcome =
 export async function handleContentWorkMessage(
   message: ContentWorkMessage,
 ): Promise<ScormWorkOutcome> {
-  if (message.topic === CERTIFICATE_GENERATION_TOPIC) {
-    if (message.aggregateId !== message.payload.certificateId)
-      throw new Error("Work message aggregate and certificate do not match");
-    return generateCompletionCertificate(
-      message.payload.certificateId,
-      message.payload.objectKey,
-    );
-  }
   if (message.topic === RESOURCE_DELETION_TOPIC) {
     if (message.aggregateId !== message.payload.resourceVersionId)
       throw new Error(

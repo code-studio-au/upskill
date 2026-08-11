@@ -1,6 +1,8 @@
 # ADR 0005: Mantine, CSP and responsive UI
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

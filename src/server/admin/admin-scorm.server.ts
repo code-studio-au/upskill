@@ -22,22 +22,27 @@ export async function findAdminScormPackages(): Promise<
     database
       .selectFrom("scorm_package_version")
       .innerJoin(
-        "scorm_package",
-        "scorm_package.id",
-        "scorm_package_version.packageId",
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "scorm_package_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
       )
       .select([
-        "scorm_package.id as packageId",
-        "scorm_package.title",
+        "learning_activity.id as packageId",
+        "learning_activity.title",
         "scorm_package_version.id",
-        "scorm_package_version.version",
+        "learning_activity_version.version",
         "scorm_package_version.status",
         "scorm_package_version.sourceBytes",
         "scorm_package_version.failureCode",
       ])
-      .orderBy("scorm_package.title")
-      .orderBy("scorm_package.id")
-      .orderBy("scorm_package_version.version", "desc")
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity.id")
+      .orderBy("learning_activity_version.version", "desc")
       .execute(),
     findContentCourseVersionUsage(),
     database
@@ -88,17 +93,22 @@ export async function removeAdminScormPackageVersion(
       const version = await transaction
         .selectFrom("scorm_package_version")
         .innerJoin(
-          "scorm_package",
-          "scorm_package.id",
-          "scorm_package_version.packageId",
+          "learning_activity_version",
+          "learning_activity_version.id",
+          "scorm_package_version.id",
+        )
+        .innerJoin(
+          "learning_activity",
+          "learning_activity.id",
+          "learning_activity_version.activityId",
         )
         .select([
           "scorm_package_version.id",
-          "scorm_package_version.packageId",
-          "scorm_package_version.version",
+          "learning_activity_version.activityId as packageId",
+          "learning_activity_version.version",
           "scorm_package_version.status",
           "scorm_package_version.contentPrefix",
-          "scorm_package.title",
+          "learning_activity.title",
         ])
         .where("scorm_package_version.id", "=", packageVersionId)
         .forUpdate()
@@ -111,7 +121,7 @@ export async function removeAdminScormPackageVersion(
         attemptCount: number;
         courseUsageCount: number;
       }>`select
-          (select count(*)::integer from course_version_module where "scormPackageVersionId" = ${packageVersionId}) as "courseUsageCount",
+          (select count(*)::integer from course_version_item where "learningActivityVersionId" = ${packageVersionId}) as "courseUsageCount",
           (select count(*)::integer from scorm_attempt where "scormPackageVersionId" = ${packageVersionId}) as "attemptCount"`.execute(
         transaction,
       );
@@ -134,18 +144,18 @@ export async function removeAdminScormPackageVersion(
         .where("processedAt", "is", null)
         .execute();
       await transaction
-        .deleteFrom("scorm_package_version")
+        .deleteFrom("learning_activity_version")
         .where("id", "=", packageVersionId)
         .executeTakeFirstOrThrow();
       const remaining = await transaction
-        .selectFrom("scorm_package_version")
+        .selectFrom("learning_activity_version")
         .select(sql<number>`count(*)::integer`.as("count"))
-        .where("packageId", "=", version.packageId)
+        .where("activityId", "=", version.packageId)
         .executeTakeFirstOrThrow();
       const packageRemoved = remaining.count === 0;
       if (packageRemoved)
         await transaction
-          .deleteFrom("scorm_package")
+          .deleteFrom("learning_activity")
           .where("id", "=", version.packageId)
           .executeTakeFirstOrThrow();
 

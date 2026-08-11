@@ -57,19 +57,15 @@ async function cleanup(): Promise<void> {
       .where("enrollmentId", "=", ids.enrollment)
       .execute();
     await database
-      .deleteFrom("course_version_module")
-      .where("courseVersionId", "=", ids.version)
-      .execute();
-    await database
       .deleteFrom("enrollment")
       .where("id", "=", ids.enrollment)
       .execute();
     await database
-      .deleteFrom("scorm_package_version")
+      .deleteFrom("learning_activity_version")
       .where("id", "=", ids.packageVersion)
       .execute();
     await database
-      .deleteFrom("scorm_package")
+      .deleteFrom("learning_activity")
       .where("id", "=", ids.package)
       .execute();
     await database
@@ -153,33 +149,34 @@ try {
     })
     .execute();
   await database
-    .insertInto("scorm_package")
-    .values({ id: ids.package, title: "Verified progress module" })
+    .insertInto("learning_activity")
+    .values({
+      id: ids.package,
+      kind: "scorm",
+      title: "Verified progress module",
+    })
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values({
+      id: ids.packageVersion,
+      activityId: ids.package,
+      kind: "scorm",
+      version: 1,
+      publishedAt: new Date(),
+    })
     .execute();
   await database
     .insertInto("scorm_package_version")
     .values({
       id: ids.packageVersion,
-      packageId: ids.package,
-      version: 1,
       status: "ready",
       standard: "scorm-1.2",
       contentPrefix: "verify/admin-progress/v1",
       launchPath: "index.html",
       sha256: "1".repeat(64),
       manifest: {},
-      publishedAt: new Date(),
     })
-    .execute();
-  await database
-    .insertInto("course_version_module")
-    .values(
-      [0, 1].map((position) => ({
-        courseVersionId: ids.version,
-        position,
-        scormPackageVersionId: ids.packageVersion,
-      })),
-    )
     .execute();
   await database
     .insertInto("enrollment")

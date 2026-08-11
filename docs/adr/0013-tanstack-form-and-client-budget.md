@@ -1,6 +1,8 @@
 # ADR 0013: TanStack Form and client budget
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

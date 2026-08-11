@@ -1,6 +1,8 @@
 # ADR 0003: Versioned learning domain
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

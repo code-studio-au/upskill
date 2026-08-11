@@ -1,7 +1,6 @@
 import { sql, type Kysely } from "kysely";
 
 const previousActions = [
-  "certificate.issued",
   "course.archived",
   "course.created",
   "course.deleted",

@@ -13,6 +13,8 @@ const ids = {
   anotherUser: "verify_scorm_another_user",
   course: "verify_scorm_course",
   courseVersion: "verify_scorm_course_version",
+  section: "verify_scorm_section",
+  item: "verify_scorm_item",
   enrollment: "verify_scorm_enrollment",
   package: "verify_scorm_package",
   packageVersion: "verify_scorm_package_version",
@@ -80,19 +82,23 @@ async function cleanup(): Promise<void> {
       .where("enrollmentId", "=", ids.enrollment)
       .execute();
     await database
-      .deleteFrom("course_version_module")
-      .where("courseVersionId", "=", ids.courseVersion)
+      .deleteFrom("course_version_item")
+      .where("id", "=", ids.item)
+      .execute();
+    await database
+      .deleteFrom("course_version_section")
+      .where("id", "=", ids.section)
       .execute();
     await database
       .deleteFrom("enrollment")
       .where("id", "=", ids.enrollment)
       .execute();
     await database
-      .deleteFrom("scorm_package_version")
+      .deleteFrom("learning_activity_version")
       .where("id", "=", ids.packageVersion)
       .execute();
     await database
-      .deleteFrom("scorm_package")
+      .deleteFrom("learning_activity")
       .where("id", "=", ids.package)
       .execute();
     await database
@@ -167,30 +173,58 @@ try {
     })
     .execute();
   await database
-    .insertInto("scorm_package")
-    .values({ id: ids.package, title: "Verified SCORM package" })
+    .insertInto("learning_activity")
+    .values({
+      id: ids.package,
+      kind: "scorm",
+      title: "Verified SCORM package",
+    })
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values({
+      id: ids.packageVersion,
+      activityId: ids.package,
+      kind: "scorm",
+      version: 1,
+      publishedAt: new Date(),
+    })
     .execute();
   await database
     .insertInto("scorm_package_version")
     .values({
       id: ids.packageVersion,
-      packageId: ids.package,
-      version: 1,
       status: "ready",
       standard: "scorm-1.2",
       contentPrefix: "verified/package/v1",
       launchPath: "index.html",
       sha256: "a".repeat(64),
       manifest: { identifier: "verified-sco" },
-      publishedAt: new Date(),
     })
     .execute();
   await database
-    .insertInto("course_version_module")
+    .insertInto("course_version_section")
     .values({
       courseVersionId: ids.courseVersion,
+      id: ids.section,
       position: 0,
-      scormPackageVersionId: ids.packageVersion,
+      title: "Verified section",
+      description: "SCORM attempt verification",
+    })
+    .execute();
+  await database
+    .insertInto("course_version_item")
+    .values({
+      id: ids.item,
+      courseVersionId: ids.courseVersion,
+      sectionId: ids.section,
+      position: 0,
+      kind: "scorm",
+      title: "Verified SCO",
+      required: true,
+      durationMinutes: 20,
+      modulePosition: 0,
+      learningActivityVersionId: ids.packageVersion,
     })
     .execute();
   await database

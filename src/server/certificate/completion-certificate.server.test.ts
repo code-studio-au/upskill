@@ -8,7 +8,7 @@ import {
 describe("completion certificate PDF", () => {
   it("renders a valid single-page PDF and replaces unsupported glyphs", async () => {
     const bytes = await renderCompletionCertificate({
-      certificateId: "certificate_1",
+      completionReference: "COMPLETION-1",
       learnerName: "Zoë 🚀 Learner",
       courseTitle: "Safe meal support",
       completedAt: new Date("2026-08-10T00:00:00.000Z"),
@@ -53,7 +53,7 @@ describe("completion certificate PDF", () => {
       ).toBe(true);
 
     const bytes = await renderCompletionCertificate({
-      certificateId: "certificate_with_long_text",
+      completionReference: "COMPLETION-WITH-LONG-TEXT",
       learnerName,
       courseTitle,
       completedAt: new Date("2026-08-10T00:00:00.000Z"),

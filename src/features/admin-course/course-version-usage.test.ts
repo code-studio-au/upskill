@@ -12,9 +12,8 @@ function usageRow(overrides: Partial<ContentUsageRow> = {}): ContentUsageRow {
     courseStatus: "published",
     version: 1,
     versionState: "published",
-    resourceVersionId: null,
-    scormPackageVersionId: null,
-    surveyVersionId: null,
+    kind: "scorm",
+    learningActivityVersionId: "module_version_one",
     ...overrides,
   };
 }
@@ -22,9 +21,18 @@ function usageRow(overrides: Partial<ContentUsageRow> = {}): ContentUsageRow {
 describe("content course-version usage", () => {
   it("indexes each exact content reference", () => {
     const indexed = indexContentCourseVersionUsage([
-      usageRow({ scormPackageVersionId: "module_version_one" }),
-      usageRow({ resourceVersionId: "resource_version_one" }),
-      usageRow({ surveyVersionId: "survey_version_one" }),
+      usageRow({
+        kind: "scorm",
+        learningActivityVersionId: "module_version_one",
+      }),
+      usageRow({
+        kind: "resource",
+        learningActivityVersionId: "resource_version_one",
+      }),
+      usageRow({
+        kind: "survey",
+        learningActivityVersionId: "survey_version_one",
+      }),
     ]);
 
     expect(indexed.modules.get("module_version_one")).toEqual([
@@ -39,8 +47,14 @@ describe("content course-version usage", () => {
 
   it("deduplicates repeated items within one course version", () => {
     const indexed = indexContentCourseVersionUsage([
-      usageRow({ scormPackageVersionId: "module_version_one" }),
-      usageRow({ scormPackageVersionId: "module_version_one" }),
+      usageRow({
+        kind: "scorm",
+        learningActivityVersionId: "module_version_one",
+      }),
+      usageRow({
+        kind: "scorm",
+        learningActivityVersionId: "module_version_one",
+      }),
       usageRow({
         courseId: "course_two",
         courseVersionId: "course_version_two",
@@ -48,7 +62,8 @@ describe("content course-version usage", () => {
         courseStatus: "archived",
         version: 2,
         versionState: "draft",
-        scormPackageVersionId: "module_version_one",
+        kind: "scorm",
+        learningActivityVersionId: "module_version_one",
       }),
     ]);
 

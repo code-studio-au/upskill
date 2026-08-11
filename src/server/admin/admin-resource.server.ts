@@ -43,22 +43,27 @@ export async function findAdminResources(): Promise<
     database
       .selectFrom("learning_resource_version")
       .innerJoin(
-        "learning_resource",
-        "learning_resource.id",
-        "learning_resource_version.resourceId",
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "learning_resource_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
       )
       .select([
-        "learning_resource.id as resourceId",
-        "learning_resource.title",
+        "learning_activity.id as resourceId",
+        "learning_activity.title",
         "learning_resource_version.id",
-        "learning_resource_version.version",
+        "learning_activity_version.version",
         "learning_resource_version.displayName",
         "learning_resource_version.description",
         "learning_resource_version.sourceBytes",
       ])
-      .orderBy("learning_resource.title")
-      .orderBy("learning_resource.id")
-      .orderBy("learning_resource_version.version", "desc")
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity.id")
+      .orderBy("learning_activity_version.version", "desc")
       .execute(),
     findContentCourseVersionUsage(),
   ]);
@@ -93,14 +98,14 @@ export async function removeAdminResourceVersion(
       const version = await transaction
         .selectFrom("learning_resource_version")
         .innerJoin(
-          "learning_resource",
-          "learning_resource.id",
-          "learning_resource_version.resourceId",
+          "learning_activity_version",
+          "learning_activity_version.id",
+          "learning_resource_version.id",
         )
         .select([
           "learning_resource_version.id",
-          "learning_resource_version.resourceId",
-          "learning_resource_version.version",
+          "learning_activity_version.activityId as resourceId",
+          "learning_activity_version.version",
           "learning_resource_version.objectKey",
         ])
         .where("learning_resource_version.id", "=", resourceVersionId)
@@ -111,7 +116,7 @@ export async function removeAdminResourceVersion(
       const reference = await transaction
         .selectFrom("course_version_item")
         .select(sql<number>`count(*)::integer`.as("count"))
-        .where("resourceVersionId", "=", resourceVersionId)
+        .where("learningActivityVersionId", "=", resourceVersionId)
         .executeTakeFirstOrThrow();
       if (reference.count > 0)
         return {
@@ -120,18 +125,18 @@ export async function removeAdminResourceVersion(
         };
 
       await transaction
-        .deleteFrom("learning_resource_version")
+        .deleteFrom("learning_activity_version")
         .where("id", "=", resourceVersionId)
         .executeTakeFirstOrThrow();
       const remaining = await transaction
-        .selectFrom("learning_resource_version")
+        .selectFrom("learning_activity_version")
         .select(sql<number>`count(*)::integer`.as("count"))
-        .where("resourceId", "=", version.resourceId)
+        .where("activityId", "=", version.resourceId)
         .executeTakeFirstOrThrow();
       const resourceRemoved = remaining.count === 0;
       if (resourceRemoved)
         await transaction
-          .deleteFrom("learning_resource")
+          .deleteFrom("learning_activity")
           .where("id", "=", version.resourceId)
           .executeTakeFirstOrThrow();
 
@@ -208,36 +213,49 @@ export async function uploadAdminPdfResource(input: {
         let nextVersion = 1;
         if (input.metadata.resourceId) {
           const resource = await transaction
-            .selectFrom("learning_resource")
+            .selectFrom("learning_activity")
             .select("id")
             .where("id", "=", input.metadata.resourceId)
+            .where("kind", "=", "resource")
             .forUpdate()
             .executeTakeFirst();
           if (!resource) throw new Error("Learning resource not found");
           const latest = await transaction
-            .selectFrom("learning_resource_version")
+            .selectFrom("learning_activity_version")
             .select("version")
-            .where("resourceId", "=", resourceId)
+            .where("activityId", "=", resourceId)
             .orderBy("version", "desc")
             .executeTakeFirst();
           nextVersion = (latest?.version ?? 0) + 1;
           await transaction
-            .updateTable("learning_resource")
+            .updateTable("learning_activity")
             .set({ title: input.metadata.title })
             .where("id", "=", resourceId)
             .executeTakeFirstOrThrow();
         } else {
           await transaction
-            .insertInto("learning_resource")
-            .values({ id: resourceId, title: input.metadata.title })
+            .insertInto("learning_activity")
+            .values({
+              id: resourceId,
+              kind: "resource",
+              title: input.metadata.title,
+            })
             .execute();
         }
+        await transaction
+          .insertInto("learning_activity_version")
+          .values({
+            id: resourceVersionId,
+            activityId: resourceId,
+            kind: "resource",
+            version: nextVersion,
+            publishedAt: new Date(),
+          })
+          .execute();
         await transaction
           .insertInto("learning_resource_version")
           .values({
             id: resourceVersionId,
-            resourceId,
-            version: nextVersion,
             displayName: input.metadata.displayName,
             description: input.metadata.description,
             objectKey,

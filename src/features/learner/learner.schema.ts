@@ -11,8 +11,7 @@ export interface LearnerCourse {
   completedAt: string | null;
   expiresAt: string | null;
   certificate: {
-    id: string;
-    status: "pending" | "ready";
+    enrollmentId: string;
   } | null;
 }
 

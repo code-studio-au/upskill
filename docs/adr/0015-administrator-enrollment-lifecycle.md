@@ -20,7 +20,8 @@ and derives the restored status from the retained completion timestamp.
 
 Removal is a soft lifecycle transition: the enrolment becomes cancelled and
 receives a removal timestamp. Progress, completion, order/grant references and
-certificates remain historical evidence. Learner content boundaries continue to
+audit evidence remain historical. No certificate is persisted; learner content
+and on-demand certificate boundaries continue to
 deny removed access.
 
 Grant, restoration and removal serialize on the enrolment identity and commit

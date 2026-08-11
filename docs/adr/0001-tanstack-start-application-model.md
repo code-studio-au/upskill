@@ -1,6 +1,8 @@
 # ADR 0001: TanStack Start application model
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

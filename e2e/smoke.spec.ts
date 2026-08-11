@@ -19,7 +19,11 @@ async function cleanupScormPackageFixture(
     await transaction.query(`delete from scorm_package_version where id = $1`, [
       packageVersionId,
     ]);
-    await transaction.query(`delete from scorm_package where id = $1`, [
+    await transaction.query(
+      `delete from learning_activity_version where id = $1`,
+      [packageVersionId],
+    );
+    await transaction.query(`delete from learning_activity where id = $1`, [
       packageId,
     ]);
   });
@@ -71,6 +75,14 @@ async function cleanupLearnerScormPlayerFixture(
       ],
     );
     await transaction.query(
+      `delete from learning_item_progress where "enrollmentId" = $1`,
+      [ids.enrollment],
+    );
+    await transaction.query(
+      `delete from learning_progress_override where "enrollmentId" = $1`,
+      [ids.enrollment],
+    );
+    await transaction.query(
       `delete from scorm_attempt where "enrollmentId" = $1`,
       [ids.enrollment],
     );
@@ -85,14 +97,14 @@ async function cleanupLearnerScormPlayerFixture(
       `delete from course_version_section where "courseVersionId" = $1`,
       [ids.courseVersion],
     );
-    await transaction.query(
-      `delete from course_version_module where "courseVersionId" = $1`,
-      [ids.courseVersion],
-    );
     await transaction.query(`delete from scorm_package_version where id = $1`, [
       ids.packageVersion,
     ]);
-    await transaction.query(`delete from scorm_package where id = $1`, [
+    await transaction.query(
+      `delete from learning_activity_version where id = $1`,
+      [ids.packageVersion],
+    );
+    await transaction.query(`delete from learning_activity where id = $1`, [
       ids.package,
     ]);
     await transaction.query(`delete from course_version where id = $1`, [
@@ -128,10 +140,6 @@ async function cleanupCourseAuthoringFixture(
     );
     if (versionIds.length > 0) {
       await transaction.query(
-        `delete from course_version_module where "courseVersionId" = any($1::text[])`,
-        [versionIds],
-      );
-      await transaction.query(
         `delete from course_version_item where "courseVersionId" = any($1::text[])`,
         [versionIds],
       );
@@ -153,27 +161,39 @@ async function cleanupSurveyAuthoringFixture(
   titles: Array<string>,
 ): Promise<void> {
   const surveys = await database.query<{ id: string }>(
-    `select id from survey where title = any($1::text[])`,
+    `select id from learning_activity where kind = 'survey' and title = any($1::text[])`,
     [titles],
   );
   const surveyIds = surveys.rows.map((survey) => survey.id);
   if (surveyIds.length === 0) return;
+  const versions = await database.query<{ id: string }>(
+    `select id from learning_activity_version where "activityId" = any($1::text[])`,
+    [surveyIds],
+  );
+  const versionIds = versions.rows.map((version) => version.id);
   await withPgAuditMaintenance(database, async (transaction) => {
     await transaction.query(
       `delete from outbox_event where "aggregateId" = any($1::text[])`,
-      [surveyIds],
+      [[...surveyIds, ...versionIds]],
     );
     await transaction.query(
       `delete from audit_event where "subjectId" = any($1::text[])`,
-      [surveyIds],
+      [[...surveyIds, ...versionIds]],
     );
+    if (versionIds.length > 0) {
+      await transaction.query(
+        `delete from survey_version where id = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from learning_activity_version where id = any($1::text[])`,
+        [versionIds],
+      );
+    }
     await transaction.query(
-      `delete from survey_version where "surveyId" = any($1::text[])`,
+      `delete from learning_activity where id = any($1::text[])`,
       [surveyIds],
     );
-    await transaction.query(`delete from survey where id = any($1::text[])`, [
-      surveyIds,
-    ]);
   });
 }
 
@@ -183,12 +203,12 @@ async function cleanupResourceFixture(
   knownVersionIds: Array<string>,
 ): Promise<void> {
   const resources = await database.query<{ id: string }>(
-    `select id from learning_resource where title = $1`,
+    `select id from learning_activity where kind = 'resource' and title = $1`,
     [title],
   );
   const resourceIds = resources.rows.map((resource) => resource.id);
   const versions = await database.query<{ id: string }>(
-    `select id from learning_resource_version where "resourceId" = any($1::text[])`,
+    `select id from learning_activity_version where "activityId" = any($1::text[])`,
     [resourceIds],
   );
   const versionIds = [
@@ -211,9 +231,13 @@ async function cleanupResourceFixture(
         `delete from learning_resource_version where id = any($1::text[])`,
         [versionIds],
       );
+      await transaction.query(
+        `delete from learning_activity_version where id = any($1::text[])`,
+        [versionIds],
+      );
     }
     await transaction.query(
-      `delete from learning_resource where id = any($1::text[])`,
+      `delete from learning_activity where id = any($1::text[])`,
       [resourceIds],
     );
   });
@@ -528,18 +552,20 @@ test("learners run SCORM inside the course workspace", async ({
       ],
     );
     await database.query(
-      `insert into scorm_package (id, title) values ($1, $2)`,
+      `insert into learning_activity (id, kind, title) values ($1, 'scorm', $2)`,
       [ids.package, "E2E embedded package"],
     );
     await database.query(
-      `insert into scorm_package_version
-        (id, "packageId", version, status, standard, "contentPrefix", "launchPath", sha256, manifest, "sourceBytes", "publishedAt")
-       values ($1, $2, 1, 'ready', 'scorm-1.2', 'e2e/scorm/player', 'index.html', $3, '{}'::jsonb, 1024, now())`,
-      [ids.packageVersion, ids.package, "9".repeat(64)],
+      `insert into learning_activity_version
+        (id, "activityId", kind, version, "publishedAt")
+       values ($1, $2, 'scorm', 1, now())`,
+      [ids.packageVersion, ids.package],
     );
     await database.query(
-      `insert into course_version_module ("courseVersionId", position, "scormPackageVersionId") values ($1, 0, $2)`,
-      [ids.courseVersion, ids.packageVersion],
+      `insert into scorm_package_version
+        (id, status, standard, "contentPrefix", "launchPath", sha256, manifest, "sourceBytes", "processedAt")
+       values ($1, 'ready', 'scorm-1.2', 'e2e/scorm/player', 'index.html', $2, '{}'::jsonb, 1024, now())`,
+      [ids.packageVersion, "9".repeat(64)],
     );
     await database.query(
       `insert into course_version_section (id, "courseVersionId", position, title, description) values ($1, $2, 0, $3, $4)`,
@@ -547,7 +573,7 @@ test("learners run SCORM inside the course workspace", async ({
     );
     await database.query(
       `insert into course_version_item
-        (id, "courseVersionId", "sectionId", position, kind, title, required, "durationMinutes", "modulePosition", "scormPackageVersionId")
+        (id, "courseVersionId", "sectionId", position, kind, title, required, "durationMinutes", "modulePosition", "learningActivityVersionId")
        values ($1, $2, $3, 0, 'scorm', $4, true, 5, 0, $5)`,
       [
         itemId,
@@ -896,16 +922,21 @@ test("platform administrators can inspect learner progress", async ({
     ).toBeVisible();
 
     await authoringDatabase.query(
-      `insert into learning_resource (id, title) values ($1, $2)`,
+      `insert into learning_activity (id, kind, title) values ($1, 'resource', $2)`,
       [resourceId, resourceTitle],
     );
     await authoringDatabase.query(
+      `insert into learning_activity_version
+        (id, "activityId", kind, version, "publishedAt")
+       values ($1, $2, 'resource', 1, now())`,
+      [resourceVersionId, resourceId],
+    );
+    await authoringDatabase.query(
       `insert into learning_resource_version
-        (id, "resourceId", version, "displayName", description, "objectKey", sha256, "sourceBytes", "mediaType")
-       values ($1, $2, 1, 'e2e-resource.pdf', 'E2E resource description', $3, $4, 128, 'application/pdf')`,
+        (id, "displayName", description, "objectKey", sha256, "sourceBytes", "mediaType")
+       values ($1, 'e2e-resource.pdf', 'E2E resource description', $2, $3, 128, 'application/pdf')`,
       [
         resourceVersionId,
-        resourceId,
         `resources/${resourceVersionId}/${"4".repeat(64)}.pdf`,
         "4".repeat(64),
       ],
@@ -1088,16 +1119,21 @@ test("platform administrators can inspect learner progress", async ({
   try {
     await cleanupScormPackageFixture(database, packageId, packageVersionId);
     await database.query(
-      `insert into scorm_package (id, title) values ($1, $2)`,
+      `insert into learning_activity (id, kind, title) values ($1, 'scorm', $2)`,
       [packageId, "Automatic verification status"],
     );
     await database.query(
+      `insert into learning_activity_version
+        (id, "activityId", kind, version)
+       values ($1, $2, 'scorm', 1)`,
+      [packageVersionId, packageId],
+    );
+    await database.query(
       `insert into scorm_package_version
-        (id, "packageId", version, status, standard, "contentPrefix", "launchPath", sha256, manifest, "sourceBytes")
-       values ($1, $2, 1, 'processing', 'scorm-1.2', $3, 'pending.html', $4, '{}'::jsonb, 2048)`,
+        (id, status, standard, "contentPrefix", "launchPath", sha256, manifest, "sourceBytes")
+       values ($1, 'processing', 'scorm-1.2', $2, 'pending.html', $3, '{}'::jsonb, 2048)`,
       [
         packageVersionId,
-        packageId,
         `scorm/${packageVersionId}/${"1".repeat(64)}`,
         "1".repeat(64),
       ],
@@ -1129,8 +1165,12 @@ test("platform administrators can inspect learner progress", async ({
 
     await database.query(
       `update scorm_package_version
-       set status = 'ready', "processedAt" = now(), "publishedAt" = now(), "launchPath" = 'index.html'
+       set status = 'ready', "processedAt" = now(), "launchPath" = 'index.html'
        where id = $1`,
+      [packageVersionId],
+    );
+    await database.query(
+      `update learning_activity_version set "publishedAt" = now() where id = $1`,
       [packageVersionId],
     );
     await expect(moduleCard.getByText("Ready", { exact: true })).toBeVisible({
@@ -1170,7 +1210,7 @@ test("platform administrators can inspect learner progress", async ({
     );
     expect(removedVersion.rows[0]?.count).toBe(0);
     const removedPackage = await database.query<{ count: number }>(
-      `select count(*)::integer as count from scorm_package where id = $1`,
+      `select count(*)::integer as count from learning_activity where id = $1`,
       [packageId],
     );
     expect(removedPackage.rows[0]?.count).toBe(0);

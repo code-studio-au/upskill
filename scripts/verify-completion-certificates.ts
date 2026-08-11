@@ -1,15 +1,11 @@
 import assert from "node:assert/strict";
-import { Kysely, PostgresDialect } from "kysely";
+import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
-import { requestCompletionCertificate } from "#/server/certificate/completion-certificate.server";
+import { getLearnerCompletionCertificate } from "#/server/certificate/learner-certificate.server";
 import { destroyDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { findLearnerDashboard } from "#/server/learner/learner.server";
-import {
-  CERTIFICATE_GENERATION_TOPIC,
-  parseContentWorkMessage,
-} from "#/server/queue/work-message";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -27,6 +23,12 @@ const learner: AuthenticatedUser = {
   email: "certificate-learner@example.com",
   emailVerified: true,
 };
+const otherUser: AuthenticatedUser = {
+  id: ids.otherUser,
+  name: "Other Learner",
+  email: "certificate-other@example.com",
+  emailVerified: true,
+};
 const database = new Kysely<Database>({
   dialect: new PostgresDialect({
     pool: new Pool({ connectionString: databaseUrl }),
@@ -34,25 +36,6 @@ const database = new Kysely<Database>({
 });
 
 async function cleanup(): Promise<void> {
-  const certificates = await database
-    .selectFrom("completion_certificate")
-    .select("id")
-    .where("enrollmentId", "=", ids.enrollment)
-    .execute();
-  const certificateIds = certificates.map((certificate) => certificate.id);
-  if (certificateIds.length > 0)
-    await database
-      .deleteFrom("outbox_event")
-      .where("aggregateId", "in", certificateIds)
-      .execute();
-  await database
-    .deleteFrom("outbox_event")
-    .where("aggregateId", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("completion_certificate")
-    .where("enrollmentId", "=", ids.enrollment)
-    .execute();
   await database
     .deleteFrom("enrollment")
     .where("id", "=", ids.enrollment)
@@ -73,19 +56,8 @@ try {
   await database
     .insertInto("user")
     .values([
-      {
-        ...learner,
-        image: null,
-        stripeCustomerId: null,
-      },
-      {
-        id: ids.otherUser,
-        name: "Other Learner",
-        email: "certificate-other@example.com",
-        emailVerified: true,
-        image: null,
-        stripeCustomerId: null,
-      },
+      { ...learner, image: null, stripeCustomerId: null },
+      { ...otherUser, image: null, stripeCustomerId: null },
     ])
     .execute();
   await database
@@ -105,7 +77,7 @@ try {
       version: 1,
       content: {
         title: "Certificate verifier course",
-        summary: "Verifies idempotent certificate issuance.",
+        summary: "Verifies on-demand certificate rendering.",
         description: "Certificate workflow verification fixture.",
         topic: "technology",
         durationMinutes: 15,
@@ -138,81 +110,25 @@ try {
     })
     .execute();
 
-  const firstCertificateId = await database
-    .transaction()
-    .execute(async (transaction) =>
-      requestCompletionCertificate(
-        transaction,
-        {
-          enrollmentId: ids.enrollment,
-          courseVersionId: ids.courseVersion,
-        },
-        new Date("2026-08-10T01:01:00.000Z"),
-      ),
-    );
-  assert.ok(firstCertificateId);
-  const duplicateCertificateId = await database
-    .transaction()
-    .execute(async (transaction) =>
-      requestCompletionCertificate(
-        transaction,
-        {
-          enrollmentId: ids.enrollment,
-          courseVersionId: ids.courseVersion,
-        },
-        new Date("2026-08-10T01:02:00.000Z"),
-      ),
-    );
-  assert.equal(duplicateCertificateId, firstCertificateId);
-
-  const certificates = await database
-    .selectFrom("completion_certificate")
-    .selectAll()
-    .where("enrollmentId", "=", ids.enrollment)
-    .execute();
-  assert.equal(certificates.length, 1);
-  const certificate = certificates[0];
-  assert.ok(certificate);
-  assert.equal(certificate.learnerName, learner.name);
-  assert.equal(certificate.courseTitle, "Certificate verifier course");
-  const workEvents = await database
-    .selectFrom("outbox_event")
-    .select(["id", "topic", "aggregateId", "payload"])
-    .where("aggregateId", "=", firstCertificateId)
-    .where("topic", "=", CERTIFICATE_GENERATION_TOPIC)
-    .execute();
-  assert.equal(workEvents.length, 1);
-  const workEvent = workEvents[0];
-  assert.ok(workEvent);
-  assert.equal(
-    parseContentWorkMessage(
-      JSON.stringify({
-        version: 1,
-        eventId: workEvent.id,
-        topic: workEvent.topic,
-        aggregateId: workEvent.aggregateId,
-        payload: workEvent.payload,
-      }),
-    ).aggregateId,
-    firstCertificateId,
-  );
-
   let dashboard = await findLearnerDashboard(learner);
   assert.deepEqual(dashboard.courses[0]?.certificate, {
-    id: firstCertificateId,
-    status: "pending",
+    enrollmentId: ids.enrollment,
   });
-  await database
-    .updateTable("completion_certificate")
-    .set({
-      status: "ready",
-      issuedAt: new Date("2026-08-10T01:03:00.000Z"),
-      updatedAt: new Date("2026-08-10T01:03:00.000Z"),
-    })
-    .where("id", "=", firstCertificateId)
-    .executeTakeFirstOrThrow();
-  dashboard = await findLearnerDashboard(learner);
-  assert.equal(dashboard.courses[0]?.certificate?.status, "ready");
+
+  const generated = await getLearnerCompletionCertificate(
+    ids.enrollment,
+    learner,
+  );
+  assert.equal(generated.status, "generated");
+  assert.equal(new TextDecoder().decode(generated.bytes.slice(0, 5)), "%PDF-");
+  assert.equal(
+    generated.displayName,
+    "Certificate-verifier-course-completion-certificate.pdf",
+  );
+  assert.deepEqual(
+    await getLearnerCompletionCertificate(ids.enrollment, otherUser),
+    { status: "not-found" },
+  );
 
   await database
     .updateTable("enrollment")
@@ -221,30 +137,32 @@ try {
     .executeTakeFirstOrThrow();
   dashboard = await findLearnerDashboard(learner);
   assert.equal(dashboard.courses[0]?.certificate, null);
+  assert.deepEqual(
+    await getLearnerCompletionCertificate(ids.enrollment, learner),
+    { status: "not-found" },
+  );
 
-  const secondCompletedAt = new Date("2026-08-10T02:00:00.000Z");
   await database
     .updateTable("enrollment")
-    .set({ status: "completed", completedAt: secondCompletedAt })
+    .set({
+      status: "completed",
+      completedAt: new Date("2026-08-10T02:00:00.000Z"),
+    })
     .where("id", "=", ids.enrollment)
     .executeTakeFirstOrThrow();
-  const secondCertificateId = await database
-    .transaction()
-    .execute(async (transaction) =>
-      requestCompletionCertificate(
-        transaction,
-        {
-          enrollmentId: ids.enrollment,
-          courseVersionId: ids.courseVersion,
-        },
-        new Date("2026-08-10T02:01:00.000Z"),
-      ),
-    );
-  assert.ok(secondCertificateId);
-  assert.notEqual(secondCertificateId, firstCertificateId);
+  assert.equal(
+    (await getLearnerCompletionCertificate(ids.enrollment, learner)).status,
+    "generated",
+  );
+
+  const certificateTables = await sql<{ table_name: string }>`select table_name
+    from information_schema.tables
+    where table_schema = 'public'
+      and table_name = 'completion_certificate'`.execute(database);
+  assert.equal(certificateTables.rows.length, 0);
 
   console.log(
-    "Verified snapshot certificates, idempotent generation work, revocation and recompletion issuance",
+    "Verified authorization-scoped on-demand certificate rendering and immediate completion revocation/recompletion behavior",
   );
 } finally {
   await cleanup();

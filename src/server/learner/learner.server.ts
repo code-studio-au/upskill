@@ -28,15 +28,6 @@ export async function findLearnerDashboard(
       "enrollment.courseVersionId",
     )
     .innerJoin("course", "course.id", "course_version.courseId")
-    .leftJoin("completion_certificate", (join) =>
-      join
-        .onRef("completion_certificate.enrollmentId", "=", "enrollment.id")
-        .onRef(
-          "completion_certificate.completedAt",
-          "=",
-          "enrollment.completedAt",
-        ),
-    )
     .select([
       "enrollment.id as enrollmentId",
       "enrollment.status",
@@ -46,8 +37,6 @@ export async function findLearnerDashboard(
       "enrollment.removedAt",
       "course.slug",
       "course_version.content",
-      "completion_certificate.id as certificateId",
-      "completion_certificate.status as certificateStatus",
     ])
     .where("enrollment.userId", "=", user.id)
     .orderBy("enrollment.enrolledAt", "desc")
@@ -71,8 +60,10 @@ export async function findLearnerDashboard(
       completedAt: row.completedAt?.toISOString() ?? null,
       expiresAt: row.expiresAt?.toISOString() ?? null,
       certificate:
-        row.certificateId && row.certificateStatus
-          ? { id: row.certificateId, status: row.certificateStatus }
+        row.status === "completed" &&
+        row.completedAt !== null &&
+        content.hasCompletionCertificate
+          ? { enrollmentId: row.enrollmentId }
           : null,
     };
   });

@@ -1,6 +1,8 @@
 # ADR 0002: Identity, commerce and authorization
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 
@@ -32,9 +34,17 @@ read functions authorize the assignment before running global statistics,
 learner search or profile queries. Impersonation and manual progress changes use
 separate audited commands with actor, timestamp and state-transition metadata.
 
-Bulk access codes are stored as canonical plaintext values so authorized
-administrators can retrieve them for customers. A normalized PostgreSQL unique
-index provides direct equality lookup without a separate application secret.
-Grant capacity is serialized with a database row lock before enrolment, audit
-and outbox writes commit together. Retrieval and capacity changes are authorized
-and audited, and codes are excluded from log and audit metadata.
+Stable identity and historical attribution follow
+[ADR 0022](0022-stable-identity-and-historical-attribution.md). Mutable email,
+profile and current capability state never identify historical domain records.
+Revoking a role or scoped assignment removes future authority without orphaning
+the assignments, redemptions, learning evidence or audit records it previously
+created.
+
+Bulk access-code lifecycle and recovery are governed by
+[ADR 0016](0016-administrator-access-grant-lifecycle.md) and
+[ADR 0019](0019-encrypted-recoverable-access-codes.md). Grant capacity is
+serialized with a database row lock before enrolment, audit and outbox writes
+commit together. Retrieval and capacity changes are authorized and audited, and
+codes and their cryptographic representations are excluded from logs, generic
+reports, queue payloads and audit metadata.

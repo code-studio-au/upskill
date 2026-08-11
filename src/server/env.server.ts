@@ -29,7 +29,6 @@ const envSchema = z.object({
     .string()
     .min(3)
     .default("upskill-private-resources"),
-  S3_CERTIFICATES_BUCKET: z.string().min(3).default("upskill-certificates"),
   SQS_ENDPOINT: z.url().optional(),
   SQS_QUEUE_URL: z
     .url()

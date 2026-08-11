@@ -1,6 +1,8 @@
 # ADR 0011: Versioned surveys and response evidence
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

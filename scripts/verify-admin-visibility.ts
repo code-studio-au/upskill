@@ -57,10 +57,6 @@ async function cleanup(): Promise<void> {
       .where("id", "=", ids.attempt)
       .execute();
     await database
-      .deleteFrom("course_version_module")
-      .where("courseVersionId", "=", ids.version)
-      .execute();
-    await database
       .deleteFrom("course_version_item")
       .where("id", "=", ids.item)
       .execute();
@@ -74,11 +70,11 @@ async function cleanup(): Promise<void> {
       .execute();
     await database.deleteFrom("order").where("id", "=", ids.order).execute();
     await database
-      .deleteFrom("scorm_package_version")
+      .deleteFrom("learning_activity_version")
       .where("id", "in", [ids.packageVersion, ids.unusedPackageVersion])
       .execute();
     await database
-      .deleteFrom("scorm_package")
+      .deleteFrom("learning_activity")
       .where("id", "in", [ids.package, ids.unusedPackage])
       .execute();
     await database
@@ -171,15 +167,43 @@ try {
     })
     .execute();
   await database
-    .insertInto("scorm_package")
-    .values({ id: ids.package, title: "Verified administration module" })
+    .insertInto("learning_activity")
+    .values([
+      {
+        id: ids.package,
+        kind: "scorm",
+        title: "Verified administration module",
+      },
+      {
+        id: ids.unusedPackage,
+        kind: "scorm",
+        title: "Unused administration module",
+      },
+    ])
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values([
+      {
+        id: ids.packageVersion,
+        activityId: ids.package,
+        kind: "scorm",
+        version: 1,
+        publishedAt: new Date(),
+      },
+      {
+        id: ids.unusedPackageVersion,
+        activityId: ids.unusedPackage,
+        kind: "scorm",
+        version: 1,
+        publishedAt: new Date(),
+      },
+    ])
     .execute();
   await database
     .insertInto("scorm_package_version")
     .values({
       id: ids.packageVersion,
-      packageId: ids.package,
-      version: 1,
       status: "ready",
       standard: "scorm-1.2",
       contentPrefix: "verify/admin-visibility/v1",
@@ -189,19 +213,12 @@ try {
       sourceBytes: 1234,
       failureCode: null,
       processedAt: new Date(),
-      publishedAt: new Date(),
     })
-    .execute();
-  await database
-    .insertInto("scorm_package")
-    .values({ id: ids.unusedPackage, title: "Unused administration module" })
     .execute();
   await database
     .insertInto("scorm_package_version")
     .values({
       id: ids.unusedPackageVersion,
-      packageId: ids.unusedPackage,
-      version: 1,
       status: "ready",
       standard: "scorm-1.2",
       contentPrefix: `scorm/${ids.unusedPackageVersion}/${"1".repeat(64)}`,
@@ -211,15 +228,6 @@ try {
       sourceBytes: 456,
       failureCode: null,
       processedAt: new Date(),
-      publishedAt: new Date(),
-    })
-    .execute();
-  await database
-    .insertInto("course_version_module")
-    .values({
-      courseVersionId: ids.version,
-      position: 0,
-      scormPackageVersionId: ids.packageVersion,
     })
     .execute();
   await database
@@ -244,9 +252,7 @@ try {
       required: true,
       durationMinutes: 20,
       modulePosition: 0,
-      scormPackageVersionId: ids.packageVersion,
-      surveyVersionId: null,
-      resourceVersionId: null,
+      learningActivityVersionId: ids.packageVersion,
     })
     .execute();
   await database

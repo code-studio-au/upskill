@@ -1,6 +1,8 @@
 # ADR 0007: AWS deployment and verification
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 
@@ -12,3 +14,6 @@ one immutable artifact through staging to production.
 
 Stateful resources have retention protection, application releases can roll
 back independently, and schema evolution must use expand/contract migrations.
+Before the first non-disposable environment or external user, the temporary
+pre-production rebaselining exception in
+[ADR 0021](0021-pre-production-schema-rebaselining.md) applies instead.

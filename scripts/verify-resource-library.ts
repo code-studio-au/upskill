@@ -52,11 +52,11 @@ async function cleanup(): Promise<void> {
     .execute();
   await database.deleteFrom("course").where("id", "=", ids.course).execute();
   await database
-    .deleteFrom("learning_resource_version")
+    .deleteFrom("learning_activity_version")
     .where("id", "in", [ids.versionOne, ids.versionTwo])
     .execute();
   await database
-    .deleteFrom("learning_resource")
+    .deleteFrom("learning_activity")
     .where("id", "=", ids.resource)
     .execute();
   await database.deleteFrom("user").where("id", "=", ids.user).execute();
@@ -76,16 +76,33 @@ try {
     })
     .execute();
   await database
-    .insertInto("learning_resource")
-    .values({ id: ids.resource, title: "Verified policies" })
+    .insertInto("learning_activity")
+    .values({ id: ids.resource, kind: "resource", title: "Verified policies" })
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values([
+      {
+        id: ids.versionOne,
+        activityId: ids.resource,
+        kind: "resource",
+        version: 1,
+        publishedAt: new Date(),
+      },
+      {
+        id: ids.versionTwo,
+        activityId: ids.resource,
+        kind: "resource",
+        version: 2,
+        publishedAt: new Date(),
+      },
+    ])
     .execute();
   await database
     .insertInto("learning_resource_version")
     .values([
       {
         id: ids.versionOne,
-        resourceId: ids.resource,
-        version: 1,
         displayName: "policies-v1.pdf",
         description: "Referenced version",
         objectKey: `resources/${ids.versionOne}/${"1".repeat(64)}.pdf`,
@@ -95,8 +112,6 @@ try {
       },
       {
         id: ids.versionTwo,
-        resourceId: ids.resource,
-        version: 2,
         displayName: "policies-v2.pdf",
         description: "Unreferenced version",
         objectKey: `resources/${ids.versionTwo}/${"2".repeat(64)}.pdf`,
@@ -147,9 +162,7 @@ try {
       required: true,
       durationMinutes: null,
       modulePosition: null,
-      scormPackageVersionId: null,
-      surveyVersionId: null,
-      resourceVersionId: ids.versionOne,
+      learningActivityVersionId: ids.versionOne,
     })
     .execute();
 

@@ -1,15 +1,14 @@
 import "@tanstack/react-start/server-only";
 
+import { createHash } from "node:crypto";
+import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
+import { renderCompletionCertificate } from "#/server/certificate/completion-certificate-pdf.server";
 import { getDatabase } from "#/server/db/database.server";
-import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
-import { getObjectBytes } from "#/server/storage/object-storage.server";
-
-const MAX_CERTIFICATE_BYTES = 5 * 1024 * 1024;
 
 export type LearnerCertificateResult =
-  | { status: "ready"; bytes: Uint8Array; displayName: string }
+  | { status: "generated"; bytes: Uint8Array; displayName: string }
   | { status: "not-found" | "unavailable" };
 
 function safeFilename(value: string): string {
@@ -23,48 +22,55 @@ function safeFilename(value: string): string {
 }
 
 export async function getLearnerCompletionCertificate(
-  certificateId: string,
+  enrollmentId: string,
   user: AuthenticatedUser,
 ): Promise<LearnerCertificateResult> {
-  const certificate = await getDatabase()
-    .selectFrom("completion_certificate")
+  const completion = await getDatabase()
+    .selectFrom("enrollment")
+    .innerJoin("user", "user.id", "enrollment.userId")
     .innerJoin(
-      "enrollment",
-      "enrollment.id",
-      "completion_certificate.enrollmentId",
+      "course_version",
+      "course_version.id",
+      "enrollment.courseVersionId",
     )
     .select([
-      "completion_certificate.objectKey",
-      "completion_certificate.courseTitle",
-      "completion_certificate.status",
-    ])
-    .where("completion_certificate.id", "=", certificateId)
-    .where("enrollment.userId", "=", user.id)
-    .whereRef(
       "enrollment.completedAt",
-      "=",
-      "completion_certificate.completedAt",
-    )
+      "course_version.content",
+      "user.name as learnerName",
+    ])
+    .where("enrollment.id", "=", enrollmentId)
+    .where("enrollment.userId", "=", user.id)
+    .where("enrollment.status", "=", "completed")
+    .where("enrollment.completedAt", "is not", null)
     .executeTakeFirst();
-  if (!certificate || certificate.status !== "ready")
-    return { status: "not-found" };
+  if (!completion?.completedAt) return { status: "not-found" };
+
+  const content = courseContentSchema.parse(completion.content);
+  if (!content.hasCompletionCertificate) return { status: "not-found" };
+
+  const completionReference = createHash("sha256")
+    .update(`${enrollmentId}:${completion.completedAt.toISOString()}`)
+    .digest("hex")
+    .slice(0, 24)
+    .toUpperCase();
 
   try {
     return {
-      status: "ready",
-      bytes: await getObjectBytes(
-        getServerEnv().S3_CERTIFICATES_BUCKET,
-        certificate.objectKey,
-        MAX_CERTIFICATE_BYTES,
-      ),
-      displayName: safeFilename(certificate.courseTitle),
+      status: "generated",
+      bytes: await renderCompletionCertificate({
+        completionReference,
+        learnerName: completion.learnerName,
+        courseTitle: content.title,
+        completedAt: completion.completedAt,
+      }),
+      displayName: safeFilename(content.title),
     };
   } catch (error) {
     logServerEvent({
       level: "error",
-      event: "certificate.download_unavailable",
+      event: "certificate.render_failed",
       error,
-      fields: { entityType: "completion_certificate", entityId: certificateId },
+      fields: { entityType: "enrollment", entityId: enrollmentId },
     });
     return { status: "unavailable" };
   }

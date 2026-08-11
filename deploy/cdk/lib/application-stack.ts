@@ -67,7 +67,6 @@ export class ApplicationStack extends Stack {
           S3_QUARANTINE_BUCKET: props.quarantineBucket.bucketName,
           S3_LEARNING_CONTENT_BUCKET: props.learningBucket.bucketName,
           S3_PRIVATE_RESOURCES_BUCKET: props.privateBucket.bucketName,
-          S3_CERTIFICATES_BUCKET: props.privateBucket.bucketName,
           SQS_QUEUE_URL: props.workQueue.queueUrl,
           SQS_RECEIVE_WAIT_SECONDS: "20",
           SQS_VISIBILITY_TIMEOUT_SECONDS: "900",

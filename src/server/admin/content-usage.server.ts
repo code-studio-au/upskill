@@ -22,29 +22,9 @@ export async function findContentCourseVersionUsage(): Promise<ContentCourseVers
       "course_version.id as courseVersionId",
       "course_version.version",
       "course_version.publishedAt",
-      "course_version_item.resourceVersionId",
-      "course_version_item.scormPackageVersionId",
-      "course_version_item.surveyVersionId",
+      "course_version_item.kind",
+      "course_version_item.learningActivityVersionId",
     ])
-    .where((expressionBuilder) =>
-      expressionBuilder.or([
-        expressionBuilder(
-          "course_version_item.resourceVersionId",
-          "is not",
-          null,
-        ),
-        expressionBuilder(
-          "course_version_item.scormPackageVersionId",
-          "is not",
-          null,
-        ),
-        expressionBuilder(
-          "course_version_item.surveyVersionId",
-          "is not",
-          null,
-        ),
-      ]),
-    )
     .orderBy("course.title")
     .orderBy("course_version.version", "desc")
     .execute();

@@ -12,7 +12,6 @@ export const durableAuditActions = [
   "access_grant.administrator_code_revealed",
   "access_grant.administrator_created",
   "access_grant.administrator_revoked",
-  "certificate.issued",
   "course.archived",
   "course.created",
   "course.deleted",

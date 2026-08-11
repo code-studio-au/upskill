@@ -1,15 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  CERTIFICATE_GENERATION_TOPIC,
-  RESOURCE_DELETION_TOPIC,
-} from "#/server/queue/work-message";
+import { RESOURCE_DELETION_TOPIC } from "#/server/queue/work-message";
 
 const mocks = vi.hoisted(() => ({
   changeVisibility: vi.fn(),
   deleteMessage: vi.fn(),
   deleteObject: vi.fn(),
   deleteObjectPrefix: vi.fn(),
-  generateCertificate: vi.fn(),
   ingest: vi.fn(),
   receive: vi.fn(),
 }));
@@ -28,12 +24,6 @@ vi.mock("#/server/storage/object-storage.server", () => ({
 vi.mock("#/server/scorm/scorm-package-ingestion.server", () => ({
   ingestScormPackageVersion: mocks.ingest,
 }));
-vi.mock(
-  "#/server/certificate/completion-certificate-generation.server",
-  () => ({
-    generateCompletionCertificate: mocks.generateCertificate,
-  }),
-);
 vi.mock("#/server/queue/sqs.server", () => ({
   changeQueueMessageVisibility: mocks.changeVisibility,
   deleteQueueMessage: mocks.deleteMessage,
@@ -63,41 +53,6 @@ describe("content work consumer", () => {
       "private-resources",
       objectKey,
     );
-  });
-
-  it("generates only the matching completion certificate", async () => {
-    mocks.generateCertificate.mockResolvedValue({ status: "ready" });
-    const { handleContentWorkMessage } =
-      await import("./scorm-ingestion-consumer.server");
-    await expect(
-      handleContentWorkMessage({
-        version: 1,
-        eventId: "outbox_certificate_1",
-        topic: CERTIFICATE_GENERATION_TOPIC,
-        aggregateId: "certificate_1",
-        payload: {
-          certificateId: "certificate_1",
-          objectKey: "certificates/certificate_1.pdf",
-        },
-      }),
-    ).resolves.toEqual({ status: "ready" });
-    expect(mocks.generateCertificate).toHaveBeenCalledWith(
-      "certificate_1",
-      "certificates/certificate_1.pdf",
-    );
-
-    await expect(
-      handleContentWorkMessage({
-        version: 1,
-        eventId: "outbox_certificate_2",
-        topic: CERTIFICATE_GENERATION_TOPIC,
-        aggregateId: "certificate_other",
-        payload: {
-          certificateId: "certificate_1",
-          objectKey: "certificates/certificate_1.pdf",
-        },
-      }),
-    ).rejects.toThrow("aggregate and certificate do not match");
   });
 
   it("rejects a resource aggregate mismatch before storage access", async () => {
