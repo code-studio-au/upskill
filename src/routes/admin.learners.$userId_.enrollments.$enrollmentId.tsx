@@ -1,4 +1,5 @@
 import { Badge } from "#/features/shared/Badge";
+import { formatLocalDateTime } from "#/features/shared/local-date";
 import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import {
   createFileRoute,
@@ -98,7 +99,9 @@ function AdminEnrollmentPage() {
                 <Text size="sm" c="dimmed">
                   Enrolled
                 </Text>
-                <Text fw={600}>{detail.enrollment.enrolledAtLabel}</Text>
+                <Text fw={600}>
+                  {formatLocalDateTime(detail.enrollment.enrolledAt)}
+                </Text>
               </div>
               <div>
                 <Text size="sm" c="dimmed">
@@ -111,7 +114,9 @@ function AdminEnrollmentPage() {
                   Completed
                 </Text>
                 <Text fw={600}>
-                  {detail.enrollment.completedAtLabel ?? "Not completed"}
+                  {detail.enrollment.completedAt
+                    ? formatLocalDateTime(detail.enrollment.completedAt)
+                    : "Not completed"}
                 </Text>
               </div>
             </div>
@@ -245,7 +250,9 @@ function AdminEnrollmentPage() {
                           Latest activity
                         </Text>
                         <Text fw={600}>
-                          {module.latestActivityAtLabel ?? "No activity"}
+                          {module.latestActivityAt
+                            ? formatLocalDateTime(module.latestActivityAt)
+                            : "No activity"}
                         </Text>
                       </div>
                     </div>
@@ -293,7 +300,8 @@ function AdminEnrollmentPage() {
                       <Text size="sm">{override.reason}</Text>
                     ) : null}
                     <Text size="xs" c="dimmed" mt={4}>
-                      {override.administratorName} · {override.createdAtLabel}
+                      {override.administratorName} ·{" "}
+                      {formatLocalDateTime(override.createdAt)}
                     </Text>
                   </Paper>
                 </li>

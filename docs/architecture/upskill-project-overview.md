@@ -45,12 +45,20 @@ capabilities.
   administrator action.
 - Organisation-aware, capacity-limited access grants with optional domain
   eligibility, expiry and revocation.
+- AES-256-GCM encrypted, individually recoverable human-readable access codes
+  with indexed public lookup identifiers and audited administrator retrieval.
 - Versioned SCORM, surveys and private PDF resources arranged in course
   sections.
 - Evidence-derived progress, completion, administrator corrections and
   completion certificates.
 - Platform administration, structured logging, durable audit evidence,
   transactional outbox records and SQS-backed work commands.
+- A first-class Event relational foundation with immutable Template Versions,
+  exact-version occurrences, sessions, regions, staff assignment history,
+  registration, participation and attendance records. Platform Administrators
+  can create a blank Template with explicit default administrators, author and
+  publish multi-session versions, create successor versions, and schedule an occurrence; the
+  broader Event operational and learner workflows remain target work.
 
 ### Target Product
 
@@ -81,7 +89,6 @@ capabilities.
 - Complete filtered or all-authorized Course/Event CSV exports covering
   enrolment/participation summaries, progress, Section completion, activity
   state and Event Attendance through explicit versioned datasets.
-- Encrypted, recoverable access codes as accepted by ADR 0019.
 
 ### Future Possibilities
 
@@ -211,7 +218,7 @@ remain on the same schedule, so a late joiner can catch up during opening minute
 or breaks without prematurely opening future learning.
 
 Participation/registration mode is independent of delivery mode. Any physical,
-virtual or hybrid Event may use open entry with no registration, require
+virtual Event may use open entry with no registration, require
 unrestricted registration, or require registration restricted to one or more
 configured verified email domains. This is also independent of capacity,
 payment/entitlement and whether acceptance is automatic or manually reviewed.
@@ -677,13 +684,12 @@ review include:
     target-instance deployment results;
 2.  distributed authentication abuse/rate limiting rather than
     process-local counters alone;
-3.  implement the keyed lookup plus encrypted recovery accepted by ADR 0019;
-4.  operational metrics/alerts for outbox, queue, DLQ, worker,
+3.  operational metrics/alerts for outbox, queue, DLQ, worker,
     certificate rendering, SCORM, database, and HTTP health;
-5.  explicit readiness/version visibility for deployments;
-6.  failure/concurrency testing around payment, enrolment, event
+4.  explicit readiness/version visibility for deployments;
+5.  failure/concurrency testing around payment, enrolment, event
     capacity, outbox, and workers; and
-7.  continued alignment between security documentation and the actual
+6.  continued alignment between security documentation and the actual
     implementation.
 
 ## Documentation Handbook

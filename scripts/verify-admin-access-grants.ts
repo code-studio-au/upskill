@@ -193,27 +193,30 @@ try {
     administrator,
   );
   assert.equal(created.status, "created");
-  assert.equal(created.accessCode, "VERIFY-ORGANISATION-2027");
-  assert.deepEqual(
-    await createAdminAccessGrant(
-      {
-        label: "Duplicate normalized code",
-        organizationName,
-        accessCode: "verifyorganisation2027",
-        courseVersionId: ids.version,
-        quantity: 1,
-        enrollmentDurationDays: 60,
-        expiresOn: "",
-        domains: "",
-      },
-      administrator,
-    ),
-    { status: "conflict", reason: "code_already_in_use" },
+  assert.match(
+    created.accessCode,
+    /^VERIFY-ORGANISATION-2027-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{10}$/u,
   );
+  const sameBase = await createAdminAccessGrant(
+    {
+      label: "Independent code with the same memorable base",
+      organizationName,
+      accessCode: "verify organisation 2027",
+      courseVersionId: ids.version,
+      quantity: 1,
+      enrollmentDurationDays: 60,
+      expiresOn: "",
+      domains: "",
+    },
+    administrator,
+  );
+  assert.equal(sameBase.status, "created");
+  assert.notEqual(sameBase.accessCode, created.accessCode);
   const stored = await database
     .selectFrom("access_grant")
     .select([
-      "accessCode",
+      "accessCodeLookupId",
+      "encryptedAccessCode",
       "quantity",
       "redeemed",
       "revokedAt",
@@ -221,7 +224,9 @@ try {
     ])
     .where("id", "=", created.accessGrantId)
     .executeTakeFirstOrThrow();
-  assert.equal(stored.accessCode, created.accessCode);
+  assert.equal(stored.accessCodeLookupId, created.accessCode.slice(-10));
+  assert.ok(stored.encryptedAccessCode?.startsWith("v1."));
+  assert.ok(!stored.encryptedAccessCode?.includes("VERIFY"));
   assert.equal(stored.quantity, 2);
   assert.equal(stored.redeemed, 0);
   assert.equal(stored.revokedAt, null);
@@ -233,6 +238,17 @@ try {
       .where("accessGrantId", "=", created.accessGrantId)
       .execute(),
     [],
+  );
+  assert.deepEqual(
+    await revealAdminAccessGrantCode(
+      { accessGrantId: created.accessGrantId },
+      administrator,
+    ),
+    {
+      status: "ready",
+      accessGrantId: created.accessGrantId,
+      accessCode: created.accessCode,
+    },
   );
   const directory = await findAdminAccessGrants();
   assert.ok(
@@ -273,7 +289,7 @@ try {
   const { redeemAccessCode } =
     await import("#/server/access/redeem-access-code.server");
   const redeemed = await redeemAccessCode(
-    "verify organisation 2027",
+    created.accessCode.replaceAll("-", " ").toLocaleLowerCase("en-AU"),
     firstLearner,
   );
   assert.equal(redeemed.status, "enrolled");
@@ -327,10 +343,10 @@ try {
       .where("subjectId", "=", created.accessGrantId)
       .executeTakeFirstOrThrow()
       .then((row) => row.count),
-    4,
+    5,
   );
   console.log(
-    "Verified retrievable human-readable codes, unrestricted organisations, editable capacity, redemption visibility and non-destructive revocation",
+    "Verified encrypted retrievable codes, repeated reveal, public lookup, editable capacity, redemption visibility and non-destructive revocation",
   );
 } finally {
   await cleanup();

@@ -24,6 +24,8 @@ import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
 import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
 import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
+import { Route as AdminEventsIndexRouteImport } from './routes/admin.events.index'
+import { Route as AdminEventsEventTemplateIdRouteImport } from './routes/admin.events.$eventTemplateId'
 import { Route as AdminLearnersIndexRouteImport } from './routes/admin.learners.index'
 import { Route as AdminLearnersUserIdRouteImport } from './routes/admin.learners.$userId'
 import { Route as AdminSurveysIndexRouteImport } from './routes/admin.surveys.index'
@@ -116,6 +118,17 @@ const AdminCoursesCourseIdRoute = AdminCoursesCourseIdRouteImport.update({
   path: '/courses/$courseId',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminEventsIndexRoute = AdminEventsIndexRouteImport.update({
+  id: '/events/',
+  path: '/events/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminEventsEventTemplateIdRoute =
+  AdminEventsEventTemplateIdRouteImport.update({
+    id: '/events/$eventTemplateId',
+    path: '/events/$eventTemplateId',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminLearnersIndexRoute = AdminLearnersIndexRouteImport.update({
   id: '/learners/',
   path: '/learners/',
@@ -218,6 +231,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -227,6 +241,7 @@ export interface FileRoutesByFullPath {
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
+  '/admin/events/': typeof AdminEventsIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -250,6 +265,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/courses': typeof CoursesIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -259,6 +275,7 @@ export interface FileRoutesByTo {
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/admin/courses': typeof AdminCoursesIndexRoute
+  '/admin/events': typeof AdminEventsIndexRoute
   '/admin/learners': typeof AdminLearnersIndexRoute
   '/admin/surveys': typeof AdminSurveysIndexRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -284,6 +301,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -293,6 +311,7 @@ export interface FileRoutesById {
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
+  '/admin/events/': typeof AdminEventsIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -319,6 +338,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/courses/'
     | '/admin/courses/$courseId'
+    | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -328,6 +348,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
     | '/admin/courses/'
+    | '/admin/events/'
     | '/admin/learners/'
     | '/admin/surveys/'
     | '/api/learning/certificates/$enrollmentId'
@@ -351,6 +372,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/courses'
     | '/admin/courses/$courseId'
+    | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -360,6 +382,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
     | '/admin/courses'
+    | '/admin/events'
     | '/admin/learners'
     | '/admin/surveys'
     | '/api/learning/certificates/$enrollmentId'
@@ -384,6 +407,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/courses/'
     | '/admin/courses/$courseId'
+    | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -393,6 +417,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
     | '/admin/courses/'
+    | '/admin/events/'
     | '/admin/learners/'
     | '/admin/surveys/'
     | '/api/learning/certificates/$enrollmentId'
@@ -532,6 +557,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCoursesCourseIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/events/': {
+      id: '/admin/events/'
+      path: '/events'
+      fullPath: '/admin/events/'
+      preLoaderRoute: typeof AdminEventsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/events/$eventTemplateId': {
+      id: '/admin/events/$eventTemplateId'
+      path: '/events/$eventTemplateId'
+      fullPath: '/admin/events/$eventTemplateId'
+      preLoaderRoute: typeof AdminEventsEventTemplateIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/learners/': {
       id: '/admin/learners/'
       path: '/learners'
@@ -653,9 +692,11 @@ interface AdminRouteChildren {
   AdminResourcesRoute: typeof AdminResourcesRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
+  AdminEventsEventTemplateIdRoute: typeof AdminEventsEventTemplateIdRoute
   AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
   AdminSurveysSurveyIdRoute: typeof AdminSurveysSurveyIdRoute
   AdminCoursesIndexRoute: typeof AdminCoursesIndexRoute
+  AdminEventsIndexRoute: typeof AdminEventsIndexRoute
   AdminLearnersIndexRoute: typeof AdminLearnersIndexRoute
   AdminSurveysIndexRoute: typeof AdminSurveysIndexRoute
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
@@ -667,9 +708,11 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminResourcesRoute: AdminResourcesRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
+  AdminEventsEventTemplateIdRoute: AdminEventsEventTemplateIdRoute,
   AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,
   AdminSurveysSurveyIdRoute: AdminSurveysSurveyIdRoute,
   AdminCoursesIndexRoute: AdminCoursesIndexRoute,
+  AdminEventsIndexRoute: AdminEventsIndexRoute,
   AdminLearnersIndexRoute: AdminLearnersIndexRoute,
   AdminSurveysIndexRoute: AdminSurveysIndexRoute,
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute:

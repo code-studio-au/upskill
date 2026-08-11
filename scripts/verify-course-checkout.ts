@@ -244,13 +244,20 @@ try {
   assert.ok(enrollment.expiresAt);
   const grant = await database
     .selectFrom("access_grant")
-    .select(["orderId", "quantity", "redeemed", "accessCode"])
+    .select([
+      "orderId",
+      "quantity",
+      "redeemed",
+      "accessCodeLookupId",
+      "encryptedAccessCode",
+    ])
     .where("id", "=", enrollment.accessGrantId)
     .executeTakeFirstOrThrow();
   assert.equal(grant.orderId, ids.paidOrder);
   assert.equal(grant.quantity, 1);
   assert.equal(grant.redeemed, 1);
-  assert.equal(grant.accessCode, null);
+  assert.equal(grant.accessCodeLookupId, null);
+  assert.equal(grant.encryptedAccessCode, null);
 
   const auditCount = await database
     .selectFrom("audit_event")

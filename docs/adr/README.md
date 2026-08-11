@@ -25,7 +25,7 @@ is complete.
 | 0016 | [Administrator-managed access-grant lifecycle](0016-administrator-access-grant-lifecycle.md)                              | Lifecycle accepted; storage decision superseded by 0019 |
 | 0017 | [Local TLS and HTTP compression](0017-local-tls-and-http-compression.md)                                                  | Accepted                                                |
 | 0018 | [Audited progress overrides](0018-audited-progress-overrides.md)                                                          | Accepted                                                |
-| 0019 | [Encrypted recoverable access codes](0019-encrypted-recoverable-access-codes.md)                                          | Accepted; implementation pending                        |
+| 0019 | [Encrypted recoverable access codes](0019-encrypted-recoverable-access-codes.md)                                          | Accepted and implemented                                |
 | 0020 | [Stable learning activities and immutable activity versions](0020-learning-activity-versions.md)                          | Accepted                                                |
 | 0021 | [Pre-production schema rebaselining](0021-pre-production-schema-rebaselining.md)                                          | Temporary pre-production policy                         |
 | 0022 | [Stable identity and historical attribution](0022-stable-identity-and-historical-attribution.md)                          | Accepted; target adoption is feature-specific           |
@@ -34,6 +34,6 @@ is complete.
 | 0025 | [Event registration finalisation and staged section release](0025-event-registration-finalisation-and-section-release.md) | Accepted target; implementation pending                 |
 | 0026 | [Regional Event review, selection and late invitations](0026-regional-event-registration-selection.md)                    | Accepted target; implementation pending                 |
 | 0027 | [Section-embedded automated email plans and occurrence overrides](0027-section-embedded-automated-emails.md)              | Accepted target; implementation pending                 |
-| 0028 | [Versioned Event Templates and resilient staff coverage](0028-versioned-event-templates-and-admin-ownership.md)           | Accepted target; implementation pending                 |
+| 0028 | [Versioned Event Templates and resilient staff coverage](0028-versioned-event-templates-and-admin-ownership.md)           | Accepted; foundation and initial authoring implemented  |
 | 0029 | [Survey-backed versioned user onboarding](0029-survey-backed-versioned-user-onboarding.md)                                | Accepted target; implementation pending                 |
 | 0030 | [Standard Survey question types and option authoring](0030-standard-survey-question-types-and-option-authoring.md)        | Accepted target; implementation pending                 |

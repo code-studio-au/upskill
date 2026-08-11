@@ -1,6 +1,8 @@
 import { hashPassword } from "better-auth/crypto";
 import { Kysely, PostgresDialect, type Transaction } from "kysely";
 import { Pool } from "pg";
+import { encryptAccessCode } from "#/server/access/access-code-encryption.server";
+import { issueAccessCode } from "#/server/access/access-code.server";
 import type { Database } from "#/server/db/types";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -27,6 +29,15 @@ const administrator = {
   name: "Avery Administrator",
   email: "admin@example.com",
 };
+const exampleAccessGrantId = "access_grant_example_psychological_safety";
+const exampleIssuedCode = issueAccessCode("EXAMPLE-LEARN-2026", "EXAMP7E26X");
+if (!exampleIssuedCode)
+  throw new Error("Local access-code fixture was invalid");
+const exampleEncryptedCode = encryptAccessCode({
+  accessGrantId: exampleAccessGrantId,
+  lookupId: exampleIssuedCode.lookupId,
+  accessCode: exampleIssuedCode.accessCode,
+});
 
 async function seedCredentialUser(
   transaction: Transaction<Database>,
@@ -173,11 +184,12 @@ try {
     await transaction
       .insertInto("access_grant")
       .values({
-        id: "access_grant_example_psychological_safety",
+        id: exampleAccessGrantId,
         organizationId: "organization_example",
         orderId: null,
         courseVersionId: "course_version_psychological_safety_1",
-        accessCode: "EXAMPLE-LEARN-2026",
+        accessCodeLookupId: exampleIssuedCode.lookupId,
+        encryptedAccessCode: exampleEncryptedCode,
         enrollmentDurationDays: 365,
         quantity: 100,
         redeemed: 0,
@@ -187,7 +199,8 @@ try {
         conflict.column("id").doUpdateSet({
           quantity: 100,
           redeemed: 0,
-          accessCode: "EXAMPLE-LEARN-2026",
+          accessCodeLookupId: exampleIssuedCode.lookupId,
+          encryptedAccessCode: exampleEncryptedCode,
           enrollmentDurationDays: 365,
           expiresAt: new Date("2027-12-31T23:59:59.000Z"),
         }),

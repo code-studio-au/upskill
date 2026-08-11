@@ -1,6 +1,7 @@
 import { Alert, Button, Group, Stack, Text } from "@mantine/core";
 import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
+import { formatLocalDate } from "#/features/shared/local-date";
 import { useMemo, useState } from "react";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { firstFormError } from "#/features/shared/form-errors";
@@ -234,10 +235,14 @@ export function AdminCourseRoster({
               </div>
               <p className={classes.details}>
                 Version {enrollment.courseVersion} · Enrolled{" "}
-                {enrollment.enrolledAtLabel}
-                {enrollment.statusDateLabel
-                  ? ` · ${enrollment.statusDateLabel}`
-                  : ""}
+                {formatLocalDate(enrollment.enrolledAt)}
+                {enrollment.state === "removed" && enrollment.removedAt
+                  ? ` · Removed ${formatLocalDate(enrollment.removedAt)}`
+                  : enrollment.state === "completed" && enrollment.completedAt
+                    ? ` · Completed ${formatLocalDate(enrollment.completedAt)}`
+                    : enrollment.expiresAt
+                      ? ` · ${enrollment.state === "expired" ? "Expired" : "Expires"} ${formatLocalDate(enrollment.expiresAt)}`
+                      : ""}
               </p>
               <div className={classes.cardActions}>
                 <Link

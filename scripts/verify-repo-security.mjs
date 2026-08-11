@@ -129,12 +129,25 @@ for (const learningException of [
   '"script-src": ["\'self\'", "\'unsafe-inline\'", "\'unsafe-eval\'"]',
   '"script-src-attr": ["\'unsafe-inline\'"]',
   '"style-src-attr": ["\'unsafe-inline\'"]',
+  '"https://embed.articulateusercontent.com"',
 ]) {
   if (!learningCsp.includes(learningException))
     failures.push(
       `Learning-origin SCORM compatibility policy is missing: ${learningException}`,
     );
 }
+const learnerRoute = fs.readFileSync(
+  path.join(root, "src/routes/learn.$enrollmentId.tsx"),
+  "utf8",
+);
+if (
+  !learnerRoute.includes(
+    'sandbox="allow-downloads allow-popups allow-same-origin allow-scripts"',
+  )
+)
+  failures.push(
+    "The SCORM sandbox must retain the bounded download and popup compatibility profile",
+  );
 if (!zodAdapter.includes("z.config({ jitless: true })"))
   failures.push("The shared Zod adapter must disable eval-based JIT probing");
 if (!serverZodAdapter.includes("z.config({ jitless: true })"))
@@ -147,6 +160,16 @@ if (!applicationStack.includes("SQS_QUEUE_URL: props.workQueue.queueUrl"))
   failures.push("The deployed worker must receive its CDK-managed queue URL");
 if (!applicationStack.includes('UPSKILL_TRUST_PROXY: "true"'))
   failures.push("The loopback-only nginx deployment must preserve client IPs");
+for (const requiredAccessCodeBoundary of [
+  '"AccessCodeEncryptionKey"',
+  "accessCodeEncryptionSecret.grantRead(role)",
+  "ACCESS_CODE_ENCRYPTION_KEY",
+]) {
+  if (!applicationStack.includes(requiredAccessCodeBoundary))
+    failures.push(
+      `The deployed access-code encryption boundary is missing: ${requiredAccessCodeBoundary}`,
+    );
+}
 for (const relative of [
   ".env.example",
   ".github/workflows/ci.yml",

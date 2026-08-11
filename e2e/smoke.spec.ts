@@ -156,6 +156,81 @@ async function cleanupCourseAuthoringFixture(
   });
 }
 
+async function cleanupEventAuthoringFixture(
+  database: Client,
+  title: string,
+): Promise<void> {
+  const template = await database.query<{ id: string }>(
+    `select id from event_template where title = $1`,
+    [title],
+  );
+  const eventTemplateId = template.rows[0]?.id;
+  if (!eventTemplateId) return;
+  const versions = await database.query<{ id: string }>(
+    `select id from event_template_version where "eventTemplateId" = $1`,
+    [eventTemplateId],
+  );
+  const versionIds = versions.rows.map((version) => version.id);
+  const occurrences = await database.query<{ id: string }>(
+    `select id from event_occurrence where "eventTemplateVersionId" = any($1::text[])`,
+    [versionIds],
+  );
+  const occurrenceIds = occurrences.rows.map((occurrence) => occurrence.id);
+  await withPgAuditMaintenance(database, async (transaction) => {
+    await transaction.query(
+      `delete from outbox_event where "aggregateId" = any($1::text[])`,
+      [[eventTemplateId, ...occurrenceIds]],
+    );
+    await transaction.query(
+      `delete from audit_event where "subjectId" = any($1::text[])`,
+      [[eventTemplateId, ...versionIds, ...occurrenceIds]],
+    );
+    if (occurrenceIds.length > 0) {
+      await transaction.query(
+        `delete from event_presenter_assignment where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_admin_assignment where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_session where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_occurrence_domain where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_occurrence where id = any($1::text[])`,
+        [occurrenceIds],
+      );
+    }
+    if (versionIds.length > 0) {
+      await transaction.query(
+        `delete from event_template_version_presenter_default where "eventTemplateVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from event_template_session_definition where "eventTemplateVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from event_template_version_admin_default where "eventTemplateVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from event_template_version where id = any($1::text[])`,
+        [versionIds],
+      );
+    }
+    await transaction.query(`delete from event_template where id = $1`, [
+      eventTemplateId,
+    ]);
+  });
+}
+
 async function cleanupSurveyAuthoringFixture(
   database: Client,
   titles: Array<string>,
@@ -491,6 +566,9 @@ test("SCORM launch boundaries reject the wrong origin and missing session", asyn
   expect(missingAttemptSession.headers()["content-security-policy"]).toContain(
     `frame-ancestors 'self' ${new URL(testInfo.project.use.baseURL ?? "").origin}`,
   );
+  expect(missingAttemptSession.headers()["content-security-policy"]).toContain(
+    "frame-src 'self' https://embed.articulateusercontent.com",
+  );
 });
 
 test("learners run SCORM inside the course workspace", async ({
@@ -628,6 +706,10 @@ test("learners run SCORM inside the course workspace", async ({
       has: page.getByText("E2E embedded module", { exact: true }),
     });
     await moduleCard.getByRole("button", { name: "Launch" }).click();
+    await expect(moduleCard.locator("iframe")).toHaveAttribute(
+      "sandbox",
+      "allow-downloads allow-popups allow-same-origin allow-scripts",
+    );
     const shell = page.frameLocator('iframe[title="E2E embedded module"]');
     const sco = shell.frameLocator("#scorm-content");
     await expect(
@@ -804,7 +886,10 @@ test("platform administrators can inspect learner progress", async ({
   const resourceVersionId = "e2e_resource_library_version";
   const accessGrantLabel = "E2E organisation access";
   const accessOrganizationName = "E2E Access Organisation";
-  const accessCode = "E2E-ACCESS-2027";
+  const accessCodeBase = "E2E-ACCESS-2027";
+  const eventTemplateTitle = "E2E virtual workshop";
+  const eventOccurrenceTitle = "E2E virtual workshop · August";
+  const eventSlug = "e2e-virtual-workshop-august";
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
@@ -817,6 +902,7 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
+    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await page
       .getByRole("main")
       .getByRole("link", { name: "Courses", exact: true })
@@ -852,13 +938,13 @@ test("platform administrators can inspect learner progress", async ({
     ).toBeVisible();
     await page.goto("/admin/courses");
     await page.getByRole("button", { name: "Create course" }).click();
-    await page.getByLabel("Course title").fill("E2E editable course draft");
-    await expect(page.getByLabel("URL slug")).toHaveValue(authoringSlug);
-    await page.getByRole("button", { name: "Create draft" }).click();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText(
-      "E2E editable course draft",
-    );
+    await expect(page).toHaveURL(/\/admin\/courses\/course_/u);
+    await expect(
+      page.getByRole("heading", { name: "Untitled course", level: 1 }),
+    ).toBeVisible();
     await page.getByLabel("Title").fill("E2E edited course draft");
+    await page.getByLabel("Friendly URL").fill(authoringSlug);
+    await expect(page.getByLabel("Friendly URL")).toHaveValue(authoringSlug);
     await expect(page.getByLabel("Title")).toHaveValue(
       "E2E edited course draft",
     );
@@ -988,7 +1074,11 @@ test("platform administrators can inspect learner progress", async ({
         "Access grant created. Administrators can retrieve this code again later.",
       ),
     ).toBeVisible();
-    await expect(page.locator("code")).toHaveText(accessCode);
+    const issuedCodeElement = page.locator("code");
+    await expect(issuedCodeElement).toHaveText(
+      /^E2E-ACCESS-2027-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{10}$/u,
+    );
+    const accessCode = await issuedCodeElement.innerText();
     const grantCard = page.getByRole("article").filter({
       has: page.getByRole("heading", { name: accessGrantLabel }),
     });
@@ -997,14 +1087,19 @@ test("platform administrators can inspect learner progress", async ({
       grantCard.getByText("Restricted to e2e.example.com"),
     ).toBeVisible();
     const storedGrant = await authoringDatabase.query<{
-      accessCode: string | null;
+      accessCodeLookupId: string | null;
+      encryptedAccessCode: string | null;
       quantity: number;
       revokedAt: Date | null;
     }>(
-      `select "accessCode", quantity, "revokedAt" from access_grant where label = $1`,
+      `select "accessCodeLookupId", "encryptedAccessCode", quantity, "revokedAt" from access_grant where label = $1`,
       [accessGrantLabel],
     );
-    expect(storedGrant.rows[0]?.accessCode).toBe(accessCode);
+    expect(storedGrant.rows[0]?.accessCodeLookupId).toBe(accessCode.slice(-10));
+    expect(storedGrant.rows[0]?.encryptedAccessCode).toMatch(/^v1\./u);
+    expect(storedGrant.rows[0]?.encryptedAccessCode).not.toContain(
+      accessCodeBase,
+    );
     expect(storedGrant.rows[0]?.quantity).toBe(3);
     expect(storedGrant.rows[0]?.revokedAt).toBeNull();
     await page.getByRole("button", { name: "Hide code" }).click();
@@ -1018,12 +1113,16 @@ test("platform administrators can inspect learner progress", async ({
     await capacityDialog.getByRole("button", { name: "Save capacity" }).click();
     await expect(grantCard.getByText("0 of 5")).toBeVisible();
     const expandedGrant = await authoringDatabase.query<{
-      accessCode: string | null;
+      encryptedAccessCode: string | null;
       quantity: number;
-    }>(`select "accessCode", quantity from access_grant where label = $1`, [
-      accessGrantLabel,
-    ]);
-    expect(expandedGrant.rows[0]).toEqual({ accessCode, quantity: 5 });
+    }>(
+      `select "encryptedAccessCode", quantity from access_grant where label = $1`,
+      [accessGrantLabel],
+    );
+    expect(expandedGrant.rows[0]).toEqual({
+      encryptedAccessCode: storedGrant.rows[0]?.encryptedAccessCode,
+      quantity: 5,
+    });
     await grantCard.getByRole("button", { name: "Revoke code" }).click();
     const revocationDialog = page.getByRole("dialog", {
       name: "Revoke access code?",
@@ -1037,6 +1136,105 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
     ]);
     expect(revokedGrant.rows[0]?.revokedAt).not.toBeNull();
+
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Events", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Events", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Create template" }).click();
+    await expect(page).toHaveURL(/\/admin\/events\/event_template_/u);
+    await expect(
+      page.getByRole("heading", {
+        name: "Untitled event template",
+        level: 1,
+      }),
+    ).toBeVisible();
+    await page.getByLabel("Title").fill(eventTemplateTitle);
+    await page
+      .getByLabel("Summary")
+      .fill("A reusable Event Template created through the browser.");
+    await page
+      .getByLabel("Description")
+      .fill("Exercises exact-version Event Occurrence scheduling.");
+    await page.getByRole("button", { name: "Add section" }).click();
+    await page.getByLabel("Section title").fill("Event session");
+    await page.getByRole("button", { name: "Add event session" }).click();
+    await page.getByLabel("Display title").fill("Live workshop");
+    await page.getByLabel("Duration (minutes)").fill("90");
+    await page
+      .getByLabel("Avery Administrator · admin@example.com")
+      .first()
+      .check();
+    await page.getByRole("button", { name: "Save and publish" }).click();
+    await expect(
+      page.getByRole("button", { name: "Create new version" }),
+    ).toBeVisible();
+    await page.getByRole("link", { name: "Back to events" }).click();
+    await expect(
+      page.getByRole("heading", { name: eventTemplateTitle }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Schedule occurrence" }).click();
+    const occurrenceDialog = page.getByRole("dialog", {
+      name: "Schedule event occurrence",
+    });
+    await occurrenceDialog
+      .getByLabel("Occurrence title")
+      .fill(eventOccurrenceTitle);
+    await expect(occurrenceDialog.getByLabel("Friendly URL")).toHaveValue(
+      eventSlug,
+    );
+    await occurrenceDialog.getByLabel("IANA timezone").fill("Australia/Sydney");
+    await occurrenceDialog.getByLabel("Starts").fill("2027-08-21T09:00");
+    await occurrenceDialog.getByLabel("Ends").fill("2027-08-21T10:30");
+    await occurrenceDialog
+      .getByLabel("Protected virtual meeting URL")
+      .fill("https://meet.example.com/e2e-workshop");
+    await occurrenceDialog
+      .getByRole("button", { name: "Create draft occurrence" })
+      .click();
+    const occurrenceHeading = page.getByRole("heading", {
+      name: eventOccurrenceTitle,
+    });
+    await expect(occurrenceHeading).toBeVisible();
+    const occurrenceCard = page.getByRole("article").filter({
+      has: occurrenceHeading,
+    });
+    await occurrenceCard
+      .getByRole("button", { name: "Publish occurrence" })
+      .click();
+    await expect(
+      occurrenceCard.getByText("published", { exact: true }),
+    ).toBeVisible();
+    const storedOccurrence = await authoringDatabase.query<{
+      eventTemplateVersionId: string;
+      slug: string;
+      status: string;
+      timezone: string;
+      startsAt: Date;
+      sessionCount: number;
+      administratorCount: number;
+      presenterCount: number;
+    }>(
+      `select occurrence."eventTemplateVersionId", occurrence.slug, occurrence.status,
+        occurrence.timezone, occurrence."startsAt",
+        (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
+        (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
+        (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount"
+       from event_occurrence occurrence where occurrence.title = $1`,
+      [eventOccurrenceTitle],
+    );
+    expect(storedOccurrence.rows[0]).toMatchObject({
+      slug: eventSlug,
+      status: "published",
+      timezone: "Australia/Sydney",
+      startsAt: new Date("2027-08-20T23:00:00.000Z"),
+      sessionCount: 1,
+      administratorCount: 1,
+      presenterCount: 1,
+    });
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const accessAccessibility = await new AxeBuilder({ page }).analyze();
     expect(accessAccessibility.violations).toEqual([]);
@@ -1051,6 +1249,7 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
+    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await authoringDatabase.end();
   }
 
@@ -1262,7 +1461,7 @@ test("verified learners see entitlements and can redeem access", async ({
   await page.getByRole("button", { name: "Apply access code" }).click();
   await expect(page.getByText("Code not accepted")).toBeVisible();
 
-  await code.fill("EXAMPLE-LEARN-2026");
+  await code.fill("EXAMPLE-LEARN-2026-EXAMP7E26X");
   await page.getByRole("button", { name: "Apply access code" }).click();
   await expect(
     page.getByText(/Access code applied|Already enrolled/),

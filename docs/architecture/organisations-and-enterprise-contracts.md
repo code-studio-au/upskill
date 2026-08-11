@@ -460,7 +460,7 @@ the Events domain.
 
 An occurrence may independently use open entry, require unrestricted
 registration, or require registration restricted to one or more verified email
-domains, whether delivery is physical, virtual or hybrid. Contract coverage and
+domains, whether delivery is in-person or virtual. Contract coverage and
 domain eligibility answer different questions: coverage determines who need not
 pay, while the Event registration policy determines who may register. Where both
 apply, both checks must pass.

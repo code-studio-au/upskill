@@ -55,29 +55,9 @@ async function replaceAuditConstraint(
 }
 
 export async function up(db: Kysely<unknown>): Promise<void> {
-  await db.schema
-    .alterTable("access_grant")
-    .addColumn("accessCode", "text")
-    .execute();
-  await db.schema
-    .alterTable("access_grant")
-    .addCheckConstraint(
-      "access_grant_plaintext_code_length_ck",
-      sql`"accessCode" is null or (
-        char_length("accessCode") between 8 and 80
-        and "accessCode" ~ '^[A-Z0-9]+(-[A-Z0-9]+)*$'
-        and char_length(replace("accessCode", '-', '')) between 8 and 64
-      )`,
-    )
-    .execute();
   await replaceAuditConstraint(db, actions);
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
   await replaceAuditConstraint(db, previousActions);
-  await db.schema
-    .alterTable("access_grant")
-    .dropConstraint("access_grant_plaintext_code_length_ck")
-    .execute();
-  await db.schema.alterTable("access_grant").dropColumn("accessCode").execute();
 }

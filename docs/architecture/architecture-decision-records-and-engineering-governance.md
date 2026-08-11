@@ -186,14 +186,14 @@ history remain distinct.
 | Audit, logging and progress corrections              | [0009](../adr/0009-structured-logging-and-durable-audit.md), [0018](../adr/0018-audited-progress-overrides.md)                                                                                                                                                                                                                                                                 | Implemented                                                                       |
 | Certificates                                         | [0014](../adr/0014-completion-certificate-issuance.md)                                                                                                                                                                                                                                                                                                                         | Implemented                                                                       |
 | Administrator enrolment and access-grant lifecycle   | [0015](../adr/0015-administrator-enrollment-lifecycle.md), [0016](../adr/0016-administrator-access-grant-lifecycle.md)                                                                                                                                                                                                                                                         | Implemented lifecycle                                                             |
-| Encrypted recoverable access codes                   | [0019](../adr/0019-encrypted-recoverable-access-codes.md)                                                                                                                                                                                                                                                                                                                      | Accepted target; implementation pending                                           |
+| Encrypted recoverable access codes                   | [0019](../adr/0019-encrypted-recoverable-access-codes.md)                                                                                                                                                                                                                                                                                                                      | Implemented                                                                       |
 | Database migration policy                            | [0007](../adr/0007-aws-deployment-and-verification.md), [0021](../adr/0021-pre-production-schema-rebaselining.md)                                                                                                                                                                                                                                                              | Resettable pre-production baseline; forward-only after production trigger         |
 | Onboarding and open-entry guest check-in             | [0022](../adr/0022-stable-identity-and-historical-attribution.md), [0023](../adr/0023-onboarding-and-open-entry-guest-check-in.md), [0029](../adr/0029-survey-backed-versioned-user-onboarding.md)                                                                                                                                                                             | Accepted target; implementation pending                                           |
 | Event prerequisite recovery and passwordless auth    | [0024](../adr/0024-event-prerequisite-recovery-and-passwordless-access.md)                                                                                                                                                                                                                                                                                                     | Accepted target; implementation pending                                           |
 | Event registration finalisation and Section release  | [0025](../adr/0025-event-registration-finalisation-and-section-release.md)                                                                                                                                                                                                                                                                                                     | Accepted target; implementation pending                                           |
 | Regional Event review, selection and late invitation | [0026](../adr/0026-regional-event-registration-selection.md)                                                                                                                                                                                                                                                                                                                   | Accepted target; implementation pending                                           |
 | Section-embedded automated emails                    | [0027](../adr/0027-section-embedded-automated-emails.md)                                                                                                                                                                                                                                                                                                                       | Accepted target; implementation pending                                           |
-| Versioned Event Templates and resilient staff cover  | [0028](../adr/0028-versioned-event-templates-and-admin-ownership.md)                                                                                                                                                                                                                                                                                                           | Accepted target; implementation pending                                           |
+| Versioned Event Templates and resilient staff cover  | [0028](../adr/0028-versioned-event-templates-and-admin-ownership.md)                                                                                                                                                                                                                                                                                                           | Accepted; relational foundation and initial authoring implemented                 |
 
 New Events, enterprise-entitlement, notification and scoped-assignment
 decisions should receive ADRs when their implementation design is accepted.
@@ -611,18 +611,16 @@ and status.
 
 ## Recommended Next Steps
 
-1.  Implement and verify the encrypted access-code transition accepted in ADR
-    0019 without claiming it as current behavior beforehand.
-2.  Freeze the migration baseline and enable forward-only enforcement before
+1.  Freeze the migration baseline and enable forward-only enforcement before
     the first non-disposable environment or external user.
-3.  Keep current product, target product and future possibilities explicit in
+2.  Keep current product, target product and future possibilities explicit in
     every document that spans more than one horizon.
-4.  Add documentation/ADR prompts to significant PR templates.
-5.  Add executable verification for new Events, entitlement,
+3.  Add documentation/ADR prompts to significant PR templates.
+4.  Add executable verification for new Events, entitlement,
     notification, and scoped-authorisation invariants as those domains
     are implemented.
-6.  Add deterministic internal-link and ADR-index verification to CI.
-7.  Review the Product Architecture Roadmap at major planning
+5.  Add deterministic internal-link and ADR-index verification to CI.
+6.  Review the Product Architecture Roadmap at major planning
     milestones.
 
 ## Summary

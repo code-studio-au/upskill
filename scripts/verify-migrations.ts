@@ -35,7 +35,28 @@ try {
     "course_version",
     "course_version_item",
     "course_version_section",
+    "coordination_region",
     "enrollment",
+    "event_admin_assignment",
+    "event_attendance",
+    "event_coordinator_assignment",
+    "event_occurrence",
+    "event_occurrence_domain",
+    "event_occurrence_region",
+    "event_participation",
+    "event_presenter_assignment",
+    "event_region_review_round",
+    "event_registration",
+    "event_session",
+    "event_template",
+    "event_template_session_definition",
+    "event_template_version",
+    "event_template_version_admin_default",
+    "event_template_version_coordinator_default",
+    "event_template_version_item",
+    "event_template_version_presenter_default",
+    "event_template_version_region",
+    "event_template_version_section",
     "learning_activity",
     "learning_activity_version",
     "learning_item_progress",
@@ -80,7 +101,7 @@ try {
     );
 
   const expectedIndexes = [
-    "access_grant_access_code_normalized_uq",
+    "access_grant_code_lookup_id_uq",
     "access_grant_domain_lookup_idx",
     "access_grant_admin_lookup_idx",
     "audit_event_action_created_idx",
@@ -90,6 +111,12 @@ try {
     "course_version_published_lookup_idx",
     "course_version_item_module_position_uq",
     "enrollment_user_status_idx",
+    "event_admin_assignment_active_idx",
+    "event_coordinator_assignment_active_idx",
+    "event_occurrence_schedule_idx",
+    "event_occurrence_slug_uq",
+    "event_presenter_assignment_active_idx",
+    "event_registration_selection_idx",
     "learning_progress_override_latest_idx",
     "learning_item_progress_enrollment_idx",
     "order_purchaser_status_idx",
@@ -111,16 +138,31 @@ try {
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
-  const accessCodeIndex = indexResult.rows.find(
-    (index) => index.indexname === "access_grant_access_code_normalized_uq",
+  const eventTemplateColumns = await sql<{
+    column_name: string;
+  }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'event_template'`.execute(
+    db,
+  );
+  if (eventTemplateColumns.rows.some((column) => column.column_name === "slug"))
+    throw new Error("Internal Event Templates must not own public URL slugs");
+  const eventOccurrenceColumns = await sql<{
+    column_name: string;
+    is_nullable: string;
+  }>`select column_name, is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'event_occurrence'`.execute(
+    db,
   );
   if (
-    !accessCodeIndex?.indexdef.includes(
-      "upper(replace(\"accessCode\", '-'::text, ''::text))",
+    !eventOccurrenceColumns.rows.some(
+      (column) => column.column_name === "slug" && column.is_nullable === "NO",
     )
   )
+    throw new Error("Event occurrences must own a required public URL slug");
+  const accessCodeIndex = indexResult.rows.find(
+    (index) => index.indexname === "access_grant_code_lookup_id_uq",
+  );
+  if (!accessCodeIndex?.indexdef.includes('"accessCodeLookupId"'))
     throw new Error(
-      "Access-code unique index must normalize case and presentation separators",
+      "Access-code unique index must use the public lookup identifier",
     );
   const ingestionColumns = await sql<{
     column_name: string;
@@ -182,15 +224,18 @@ try {
   const actualAccessGrantColumns = new Set(
     accessGrantColumns.rows.map((row) => row.column_name),
   );
-  const missingAccessGrantColumns = ["accessCode"].filter(
-    (column) => !actualAccessGrantColumns.has(column),
-  );
+  const missingAccessGrantColumns = [
+    "accessCodeLookupId",
+    "encryptedAccessCode",
+  ].filter((column) => !actualAccessGrantColumns.has(column));
   if (missingAccessGrantColumns.length > 0)
     throw new Error(
       `Missing access-grant columns: ${missingAccessGrantColumns.join(", ")}`,
     );
   if (actualAccessGrantColumns.has("accessCodeDigest"))
     throw new Error("Legacy access-code HMAC digest column must be removed");
+  if (actualAccessGrantColumns.has("accessCode"))
+    throw new Error("Plaintext access-code column must be removed");
 
   const auditVerificationId = "verify_audit_append_only";
   const auditVerificationActorId = "verify_audit_append_only_actor";

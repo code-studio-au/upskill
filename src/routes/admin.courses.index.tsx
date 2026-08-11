@@ -1,6 +1,5 @@
 import { Badge } from "#/features/shared/Badge";
 import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
-import { useForm } from "@tanstack/react-form";
 import {
   createFileRoute,
   Link,
@@ -9,13 +8,9 @@ import {
 } from "@tanstack/react-router";
 import { useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
-import { adminCourseCreateSchema } from "#/features/admin-course/admin-course.schema";
-import { AppDialog } from "#/features/shared/AppDialog";
-import { MantineTextInput } from "#/features/shared/MantineTextInput";
-import { firstFormError } from "#/features/shared/form-errors";
 import {
-  createAdminCourse,
   getAdminCourses,
+  startAdminCourse,
 } from "#/server/functions/admin-course";
 import classes from "./admin.courses.module.css";
 
@@ -36,30 +31,25 @@ export const Route = createFileRoute("/admin/courses/")({
 function AdminCoursesPage() {
   const result = Route.useLoaderData();
   const router = useRouter();
-  const [opened, setOpened] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const courseForm = useForm({
-    defaultValues: { title: "", slug: "" },
-    validators: { onSubmit: adminCourseCreateSchema },
-    onSubmit: async ({ value }) => {
-      const parsed = adminCourseCreateSchema.safeParse(value);
-      if (!parsed.success) return;
-      setError(null);
-      const created = await createAdminCourse({ data: parsed.data });
+  async function startCourse() {
+    setCreating(true);
+    setError(null);
+    try {
+      const created = await startAdminCourse();
       if (created.status !== "ready") {
-        setError(
-          created.status === "conflict"
-            ? "That URL slug is already in use."
-            : "The course could not be created.",
-        );
+        setError("The draft course could not be started.");
         return;
       }
       await router.navigate({
         to: "/admin/courses/$courseId",
         params: { courseId: created.data.courseId },
       });
-    },
-  });
+    } finally {
+      setCreating(false);
+    }
+  }
 
   if (result.status === "forbidden") return <AdminAccessDenied />;
 
@@ -78,15 +68,16 @@ function AdminCoursesPage() {
           </Text>
         </div>
         <Button
+          loading={creating}
           onClick={() => {
-            courseForm.reset();
-            setError(null);
-            setOpened(true);
+            void startCourse();
           }}
         >
           Create course
         </Button>
       </Group>
+
+      {error ? <Alert color="red">{error}</Alert> : null}
 
       {courses.length === 0 ? (
         <Alert title="No courses yet">Create the first course draft.</Alert>
@@ -134,93 +125,6 @@ function AdminCoursesPage() {
           ))}
         </div>
       )}
-
-      {opened ? (
-        <courseForm.Subscribe selector={(state) => state.isSubmitting}>
-          {(isSubmitting) => (
-            <AppDialog
-              onClose={() => {
-                if (!isSubmitting) setOpened(false);
-              }}
-              closeDisabled={isSubmitting}
-              title="Create course"
-            >
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void courseForm.handleSubmit();
-                }}
-              >
-                <Stack gap="md">
-                  <courseForm.Field name="title">
-                    {(field) => (
-                      <MantineTextInput
-                        label="Course title"
-                        name={field.name}
-                        value={field.state.value}
-                        onBlur={field.handleBlur}
-                        onChange={(event) => {
-                          const value = event.currentTarget.value;
-                          field.handleChange(value);
-                          courseForm.setFieldValue(
-                            "slug",
-                            value
-                              .toLocaleLowerCase("en-AU")
-                              .replace(/[^a-z0-9]+/g, "-")
-                              .replace(/^-|-$/g, ""),
-                          );
-                        }}
-                        error={firstFormError(field.state.meta.errors)}
-                        required
-                      />
-                    )}
-                  </courseForm.Field>
-                  <courseForm.Field name="slug">
-                    {(field) => (
-                      <MantineTextInput
-                        label="URL slug"
-                        name={field.name}
-                        value={field.state.value}
-                        onBlur={field.handleBlur}
-                        onChange={(event) => {
-                          field.handleChange(event.currentTarget.value);
-                        }}
-                        error={firstFormError(field.state.meta.errors)}
-                        required
-                      />
-                    )}
-                  </courseForm.Field>
-                  {error ? <Alert color="red">{error}</Alert> : null}
-                  <Group justify="flex-end">
-                    <Button
-                      type="button"
-                      variant="default"
-                      onClick={() => {
-                        setOpened(false);
-                      }}
-                      disabled={isSubmitting}
-                    >
-                      Cancel
-                    </Button>
-                    <courseForm.Subscribe selector={(state) => state.canSubmit}>
-                      {(canSubmit) => (
-                        <Button
-                          type="submit"
-                          loading={isSubmitting}
-                          disabled={!canSubmit}
-                        >
-                          Create draft
-                        </Button>
-                      )}
-                    </courseForm.Subscribe>
-                  </Group>
-                </Stack>
-              </form>
-            </AppDialog>
-          )}
-        </courseForm.Subscribe>
-      ) : null}
     </Stack>
   );
 }

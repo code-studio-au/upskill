@@ -43,6 +43,7 @@ import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { firstFormError } from "#/features/shared/form-errors";
+import { createFriendlySlug } from "#/features/shared/friendly-slug";
 import classes from "./AdminCourseEditor.module.css";
 
 const AdminCourseRoster = lazy(async () => {
@@ -93,6 +94,7 @@ export function AdminCourseEditor({
     null,
   );
   const submitIntent = useRef<"save" | "publish">("save");
+  const autoSlug = useRef(detail.draft.slug.startsWith("draft-course-"));
   const courseForm = useForm({
     defaultValues: { draft: detail.draft },
     validators: {
@@ -115,7 +117,11 @@ export function AdminCourseEditor({
       setMessage(null);
       const saved = await saveAdminCourse({ data: parsed.data });
       if (saved.status !== "ready") {
-        setError("The course draft could not be saved. Refresh and try again.");
+        setError(
+          saved.status === "conflict" && saved.reason === "slug_in_use"
+            ? "That URL slug is already used by another course. Choose a unique slug."
+            : "The course draft could not be saved. Refresh and try again.",
+        );
         return;
       }
       if (submitIntent.current === "save") {
@@ -377,34 +383,34 @@ export function AdminCourseEditor({
       <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
         <Stack gap="md">
           <Title order={2}>Course details</Title>
-          <div className={classes.twoColumns}>
-            <MantineTextInput
-              label="Title"
-              value={draft.title}
-              disabled={!editable}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setDraft((current) => ({
-                  ...current,
-                  title: value,
-                }));
-              }}
-              required
-            />
-            <MantineTextInput
-              label="URL slug"
-              value={draft.slug}
-              disabled={!editable}
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setDraft((current) => ({
-                  ...current,
-                  slug: value,
-                }));
-              }}
-              required
-            />
-          </div>
+          <MantineTextInput
+            label="Title"
+            value={draft.title}
+            disabled={!editable}
+            onChange={(event) => {
+              const value = event.currentTarget.value;
+              setDraft((current) => ({
+                ...current,
+                title: value,
+                slug: autoSlug.current
+                  ? createFriendlySlug(value)
+                  : current.slug,
+              }));
+            }}
+            required
+          />
+          <MantineTextInput
+            label="Friendly URL"
+            description="Used in the public course URL. It must be unique."
+            value={draft.slug}
+            disabled={!editable}
+            onChange={(event) => {
+              autoSlug.current = false;
+              const value = event.currentTarget.value;
+              setDraft((current) => ({ ...current, slug: value }));
+            }}
+            required
+          />
           <MantineTextInput
             component="textarea"
             label="Summary"

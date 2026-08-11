@@ -24,8 +24,9 @@ additional complexity becomes justified.
 - Keep commerce/access separate from learning evidence.
 - Prefer reusable domain concepts over feature-specific duplication.
 - Make failures visible before adding complexity to avoid them.
-- Introduce infrastructure only for measured needs. \## Deployment
-  verification
+- Introduce infrastructure only for measured needs.
+
+## Deployment verification
 
 **Priority:** Near-term\
 **Primary benefit:** Reliability\
@@ -42,20 +43,6 @@ success must mean the release is actually running.
 
 Move abuse controls beyond process-local memory; use WAF and
 shared/account-aware controls where needed.
-
-## Encrypted access-code storage delivery
-
-**Priority:** Near-term\
-**Primary benefit:** Security\
-**Trigger:** Before large enterprise code usage
-
-This is accepted Target Product work rather than an optional future design.
-Implement [ADR 0019](../adr/0019-encrypted-recoverable-access-codes.md): include
-a generated public lookup ID in each human-readable code, use it for an ordinary
-indexed lookup and authenticated-decrypt only that candidate for full-code
-comparison and recovery. Versioned encryption key material remains outside
-PostgreSQL; no HMAC lookup secret is required. This remains in the backlog until
-the current plaintext implementation is migrated and verified.
 
 ## Operational observability
 
@@ -263,26 +250,25 @@ warehouse only if real business analytics requirements justify it.
 
 # Prioritisation Summary
 
-| Idea                                   | Priority                  | Trigger                                              |
-| -------------------------------------- | ------------------------- | ---------------------------------------------------- |
-| Deployment verification                | Near-term                 | Before serious production rollout                    |
-| Distributed auth rate limiting         | Near-term                 | Before substantial public traffic                    |
-| Encrypted access-code storage delivery | Near-term accepted target | Before large enterprise code usage                   |
-| Operational observability              | Near-term                 | Before meaningful production scale                   |
-| Richer domain events                   | Medium                    | When transitions gain multiple independent reactions |
-| Notifications capability               | Medium                    | Alongside Events                                     |
-| Enterprise contract model              | Medium                    | Before true blanket multi-course contracts           |
-| Event read models                      | Medium                    | During Events implementation                         |
-| Capability vocabulary                  | Medium                    | With coordinator/presenter roles                     |
-| Support inspection tools               | Medium                    | Before impersonation                                 |
-| Reporting projections                  | Later                     | When transactional reporting becomes expensive       |
-| Content lifecycle workflow             | Later                     | When authoring workflow team/frequency grows         |
-| Learning programs/journeys             | Later                     | When a real multi-offering pathway exists            |
-| Broader resource formats               | Later                     | When non-PDF materials are needed                    |
-| Separate web/worker compute            | Scale-triggered           | When worker load affects web latency                 |
-| EventBridge/SNS fan-out                | Scale-triggered           | When events routinely have several consumers         |
-| DB connection proxying                 | Scale-triggered           | When connection budgets show pressure                |
-| Dedicated search                       | Scale/product-triggered   | When PostgreSQL search is demonstrably insufficient  |
+| Idea                           | Priority                | Trigger                                              |
+| ------------------------------ | ----------------------- | ---------------------------------------------------- |
+| Deployment verification        | Near-term               | Before serious production rollout                    |
+| Distributed auth rate limiting | Near-term               | Before substantial public traffic                    |
+| Operational observability      | Near-term               | Before meaningful production scale                   |
+| Richer domain events           | Medium                  | When transitions gain multiple independent reactions |
+| Notifications capability       | Medium                  | Alongside Events                                     |
+| Enterprise contract model      | Medium                  | Before true blanket multi-course contracts           |
+| Event read models              | Medium                  | During Events implementation                         |
+| Capability vocabulary          | Medium                  | With coordinator/presenter roles                     |
+| Support inspection tools       | Medium                  | Before impersonation                                 |
+| Reporting projections          | Later                   | When transactional reporting becomes expensive       |
+| Content lifecycle workflow     | Later                   | When authoring workflow team/frequency grows         |
+| Learning programs/journeys     | Later                   | When a real multi-offering pathway exists            |
+| Broader resource formats       | Later                   | When non-PDF materials are needed                    |
+| Separate web/worker compute    | Scale-triggered         | When worker load affects web latency                 |
+| EventBridge/SNS fan-out        | Scale-triggered         | When events routinely have several consumers         |
+| DB connection proxying         | Scale-triggered         | When connection budgets show pressure                |
+| Dedicated search               | Scale/product-triggered | When PostgreSQL search is demonstrably insufficient  |
 
 # How to Use This Document
 

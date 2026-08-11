@@ -1,0 +1,32 @@
+.twoColumnGrid,
+.threeColumnGrid,
+.scheduleGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  align-items: start;
+}
+
+.twoColumnGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.threeColumnGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.scheduleGrid {
+  grid-template-columns: 1fr;
+}
+
+.twoColumnGrid > *,
+.threeColumnGrid > *,
+.scheduleGrid > * {
+  min-width: 0;
+}
+
+@media (max-width: 48em) {
+  .twoColumnGrid,
+  .threeColumnGrid {
+    grid-template-columns: 1fr;
+  }
+}

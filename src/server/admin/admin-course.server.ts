@@ -21,13 +21,15 @@ import type { Database } from "#/server/db/types";
 import { logServerEvent } from "#/server/logging/server-logger";
 
 const ADMIN_COURSE_ROSTER_LIMIT = 100;
-const adminCourseRosterDateFormatter = new Intl.DateTimeFormat("en-AU", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  timeZone: "Australia/Sydney",
-});
 
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "23505"
+  );
+}
 function blankCourseContent(title: string): CourseContent {
   return {
     title,
@@ -424,12 +426,6 @@ export async function findAdminCourse(
               : enrollment.status === "completed"
                 ? "completed"
                 : "active";
-        const statusDate =
-          state === "removed"
-            ? enrollment.removedAt
-            : state === "completed"
-              ? enrollment.completedAt
-              : enrollment.expiresAt;
         return {
           enrollmentId: enrollment.enrollmentId,
           learnerId: enrollment.learnerId,
@@ -438,15 +434,9 @@ export async function findAdminCourse(
           courseVersion: enrollment.courseVersion,
           state,
           enrolledAt: enrollment.enrolledAt.toISOString(),
-          enrolledAtLabel: adminCourseRosterDateFormatter.format(
-            enrollment.enrolledAt,
-          ),
           completedAt: enrollment.completedAt?.toISOString() ?? null,
           expiresAt: enrollment.expiresAt?.toISOString() ?? null,
           removedAt: enrollment.removedAt?.toISOString() ?? null,
-          statusDateLabel: statusDate
-            ? `${state === "active" ? "Expires" : state === "expired" ? "Expired" : state === "completed" ? "Completed" : "Removed"} ${adminCourseRosterDateFormatter.format(statusDate)}`
-            : null,
         };
       }),
     },
@@ -615,54 +605,79 @@ export async function createAdminCourse(
   return { status: "created", courseId, versionId };
 }
 
+export async function startAdminCourse(administrator: AuthenticatedUser) {
+  return await createAdminCourse(
+    {
+      title: "Untitled course",
+      slug: `draft-course-${randomUUID()}`,
+    },
+    administrator,
+  );
+}
+
 export async function saveAdminCourseDraft(
   draft: AdminCourseDraft,
   administrator: AuthenticatedUser,
-): Promise<"saved" | "not-found" | "not-editable" | "invalid-reference"> {
-  const outcome = await getDatabase()
-    .transaction()
-    .execute(async (transaction) => {
-      const version = await transaction
-        .selectFrom("course_version")
-        .innerJoin("course", "course.id", "course_version.courseId")
-        .select([
-          "course_version.id",
-          "course_version.publishedAt",
-          "course.status",
-        ])
-        .where("course_version.id", "=", draft.versionId)
-        .where("course.id", "=", draft.courseId)
-        .forUpdate()
-        .executeTakeFirst();
-      if (!version) return "not-found" as const;
-      if (version.publishedAt || version.status === "archived")
-        return "not-editable" as const;
-      if (!(await validateDraftReferences(transaction, draft)))
-        return "invalid-reference" as const;
-      const slugOwner = await transaction
-        .selectFrom("course")
-        .select("id")
-        .where("slug", "=", draft.slug)
-        .where("id", "!=", draft.courseId)
-        .executeTakeFirst();
-      if (slugOwner) return "invalid-reference" as const;
-      await transaction
-        .updateTable("course")
-        .set({
-          slug: draft.slug,
-          title: draft.title,
-          updatedAt: new Date(),
-        })
-        .where("id", "=", draft.courseId)
-        .executeTakeFirstOrThrow();
-      await transaction
-        .updateTable("course_version")
-        .set({ content: contentFromDraft(draft) })
-        .where("id", "=", draft.versionId)
-        .executeTakeFirstOrThrow();
-      await replaceDraftStructure(transaction, draft);
-      return "saved" as const;
-    });
+): Promise<
+  "saved" | "not-found" | "not-editable" | "invalid-reference" | "slug-in-use"
+> {
+  let outcome:
+    | "saved"
+    | "not-found"
+    | "not-editable"
+    | "invalid-reference"
+    | "slug-in-use";
+  try {
+    outcome = await getDatabase()
+      .transaction()
+      .execute(async (transaction) => {
+        const version = await transaction
+          .selectFrom("course_version")
+          .innerJoin("course", "course.id", "course_version.courseId")
+          .select([
+            "course_version.id",
+            "course_version.publishedAt",
+            "course.status",
+            "course.slug",
+            "course.title",
+          ])
+          .where("course_version.id", "=", draft.versionId)
+          .where("course.id", "=", draft.courseId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!version) return "not-found" as const;
+        if (version.publishedAt || version.status === "archived")
+          return "not-editable" as const;
+        if (!(await validateDraftReferences(transaction, draft)))
+          return "invalid-reference" as const;
+        const slugOwner = await transaction
+          .selectFrom("course")
+          .select("id")
+          .where("slug", "=", draft.slug)
+          .where("id", "!=", draft.courseId)
+          .executeTakeFirst();
+        if (slugOwner) return "slug-in-use" as const;
+        await transaction
+          .updateTable("course")
+          .set({
+            slug: draft.slug,
+            title: draft.title,
+            updatedAt: new Date(),
+          })
+          .where("id", "=", draft.courseId)
+          .executeTakeFirstOrThrow();
+        await transaction
+          .updateTable("course_version")
+          .set({ content: contentFromDraft(draft) })
+          .where("id", "=", draft.versionId)
+          .executeTakeFirstOrThrow();
+        await replaceDraftStructure(transaction, draft);
+        return "saved" as const;
+      });
+  } catch (error) {
+    if (isUniqueViolation(error)) outcome = "slug-in-use";
+    else throw error;
+  }
   if (outcome === "saved")
     logServerEvent({
       level: "info",
@@ -762,13 +777,20 @@ export async function publishAdminCourseVersion(
           "course_version.version",
           "course_version.publishedAt",
           "course.status",
+          "course.slug",
+          "course.title",
         ])
         .where("course_version.id", "=", versionId)
         .where("course.id", "=", courseId)
         .forUpdate()
         .executeTakeFirst();
       if (!version) return "not-found" as const;
-      if (version.publishedAt || version.status === "archived")
+      if (
+        version.publishedAt ||
+        version.status === "archived" ||
+        version.title === "Untitled course" ||
+        version.slug.startsWith("draft-course-")
+      )
         return "conflict" as const;
       const structure = await transaction
         .selectFrom("course_version_section")

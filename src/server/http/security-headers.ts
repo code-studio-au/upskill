@@ -42,7 +42,9 @@ export function buildLearningContentSecurityPolicy(
     "font-src": ["'self'", "data:"],
     "form-action": ["'none'"],
     "frame-ancestors": ["'self'", applicationOrigin],
-    "frame-src": ["'self'"],
+    // Rise 360 proxies supported third-party media, including Vimeo, through
+    // Articulate's embed boundary rather than framing the provider directly.
+    "frame-src": ["'self'", "https://embed.articulateusercontent.com"],
     "img-src": ["'self'", "data:", "blob:"],
     "media-src": ["'self'", "blob:"],
     "object-src": ["'none'"],

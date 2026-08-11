@@ -21,19 +21,6 @@ import {
 } from "#/server/learning/progress-overrides.server";
 
 const PAGE_SIZE = 20;
-const adminDateTimeFormatter = new Intl.DateTimeFormat("en-AU", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  hour: "numeric",
-  minute: "2-digit",
-  timeZone: "Australia/Sydney",
-});
-
-function adminDateTimeLabel(value: Date): string {
-  return adminDateTimeFormatter.format(value);
-}
-
 function learnerPredicate() {
   return sql<boolean>`not exists (
     select 1 from platform_admin
@@ -413,11 +400,7 @@ export async function findAdminEnrollmentDetail(
         (enrollment.status === "completed" ? "completed" : "incomplete"),
       completionSource: completionOverride ? "administrator" : "system",
       enrolledAt: enrollment.enrolledAt.toISOString(),
-      enrolledAtLabel: adminDateTimeLabel(enrollment.enrolledAt),
       completedAt: enrollment.completedAt?.toISOString() ?? null,
-      completedAtLabel: enrollment.completedAt
-        ? adminDateTimeLabel(enrollment.completedAt)
-        : null,
       expiresAt: enrollment.expiresAt?.toISOString() ?? null,
     },
     modules: moduleCompletion.map((module) => {
@@ -432,9 +415,6 @@ export async function findAdminEnrollmentDetail(
         source: module.source,
         attemptCount: attempt?.attemptCount ?? 0,
         latestActivityAt: attempt?.latestActivityAt?.toISOString() ?? null,
-        latestActivityAtLabel: attempt?.latestActivityAt
-          ? adminDateTimeLabel(attempt.latestActivityAt)
-          : null,
       };
     }),
     sections: sectionRows.map((section) => {
@@ -478,7 +458,6 @@ export async function findAdminEnrollmentDetail(
       administratorName: override.administratorName,
       reason: override.reason,
       createdAt: override.createdAt.toISOString(),
-      createdAtLabel: adminDateTimeLabel(override.createdAt),
     })),
   };
 }

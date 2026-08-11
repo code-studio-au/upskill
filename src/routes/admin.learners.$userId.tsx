@@ -1,4 +1,5 @@
 import { Badge } from "#/features/shared/Badge";
+import { formatLocalDate } from "#/features/shared/local-date";
 import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import { MantineProgress } from "#/features/shared/MantineProgress";
 import {
@@ -31,12 +32,6 @@ export const Route = createFileRoute("/admin/learners/$userId")({
   component: AdminLearnerProfilePage,
 });
 
-const dateFormatter = new Intl.DateTimeFormat("en-AU", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-});
-
 function AdminLearnerProfilePage() {
   const result = Route.useLoaderData();
   if (result.status === "forbidden") return <AdminAccessDenied />;
@@ -54,7 +49,7 @@ function AdminLearnerProfilePage() {
             {profile.learner.email}
           </Text>
           <Text c="dimmed" size="sm">
-            Joined {dateFormatter.format(new Date(profile.learner.joinedAt))}
+            Joined {formatLocalDate(profile.learner.joinedAt)}
           </Text>
         </div>
         <Button component={Link} to="/admin/learners" variant="light">
@@ -112,15 +107,12 @@ function AdminLearnerProfilePage() {
                         />
                       </div>
                       <Text size="sm">
-                        Enrolled{" "}
-                        {dateFormatter.format(new Date(enrollment.enrolledAt))}
+                        Enrolled {formatLocalDate(enrollment.enrolledAt)}
                       </Text>
                       {enrollment.lastActivityAt ? (
                         <Text size="sm" c="dimmed">
                           Last activity{" "}
-                          {dateFormatter.format(
-                            new Date(enrollment.lastActivityAt),
-                          )}
+                          {formatLocalDate(enrollment.lastActivityAt)}
                         </Text>
                       ) : null}
                       <Link

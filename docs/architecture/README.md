@@ -105,7 +105,7 @@ Engineering Governance + ADRs apply across all domains.
 5.  Completion derives from evidence and explicit rules.
 6.  Events reuse learning activities rather than cloning learning
     systems.
-7.  Physical, virtual and hybrid Event delivery remains independent of open
+7.  In-person and virtual Event delivery remains independent of open
     entry, required unrestricted registration or required
     verified-domain-restricted registration policy.
 8.  Users may hold multiple capabilities; scoped permissions remain

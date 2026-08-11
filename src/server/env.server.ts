@@ -2,6 +2,9 @@ import "@tanstack/react-start/server-only";
 
 import { z } from "#/validation/zod.server";
 
+const LOCAL_ACCESS_CODE_ENCRYPTION_KEY =
+  "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE";
+
 const envSchema = z.object({
   APP_ENV: z
     .enum(["development", "test", "staging", "production"])
@@ -10,6 +13,10 @@ const envSchema = z.object({
   LEARNING_ORIGIN: z.url().default("http://localhost:3001"),
   DATABASE_URL: z.string().min(1),
   BETTER_AUTH_SECRET: z.string().min(32),
+  ACCESS_CODE_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{43}$/u)
+    .default(LOCAL_ACCESS_CODE_ENCRYPTION_KEY),
   STRIPE_SECRET_KEY: z.string().startsWith("sk_"),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_"),
   AWS_REGION: z.string().min(1).default("ap-southeast-2"),
@@ -53,6 +60,13 @@ export function getServerEnv(): ServerEnv {
   if (parsed) return parsed;
   const validated = envSchema.parse(process.env);
   if (validated.APP_ENV === "staging" || validated.APP_ENV === "production") {
+    if (
+      !process.env.ACCESS_CODE_ENCRYPTION_KEY ||
+      validated.ACCESS_CODE_ENCRYPTION_KEY === LOCAL_ACCESS_CODE_ENCRYPTION_KEY
+    )
+      throw new Error(
+        "A non-local ACCESS_CODE_ENCRYPTION_KEY is required outside local environments",
+      );
     if (!process.env.SQS_QUEUE_URL)
       throw new Error("SQS_QUEUE_URL is required outside local environments");
     if (validated.SQS_ENDPOINT)

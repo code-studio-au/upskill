@@ -88,17 +88,15 @@ Single-course Checkout snapshots the published course version and price in an
 order item before redirecting to Stripe. A raw-body, signature-verified webhook
 reconciles the session to that snapshot and serializes replay-safe fulfilment on
 the order row; the browser success redirect only reads the resulting status.
-Administrator-issued access codes are canonical human-readable values stored as
-plaintext in the current implementation so authorized staff can retrieve them
-for customers. PostgreSQL uses a unique normalized-code index for equality
-lookup. [ADR 0019](adr/0019-encrypted-recoverable-access-codes.md) accepts a
-pre-production migration to authenticated ciphertext plus a generated public
-lookup ID embedded in the displayed code. Redemption will select one row by that
-ordinary indexed ID, decrypt it and compare the complete code; no separate HMAC
-lookup key is required. That target must not be described as implemented until
-the migration and runtime boundary land. Codes and their cryptographic forms are
-never written to logs or audit metadata. Retrieval is an explicit authorized
-command with durable audit evidence. Redemption locks the grant row and commits
+Administrator-issued access codes remain human-readable and recoverable while
+being stored only as AES-256-GCM authenticated ciphertext. Each displayed code
+ends in a generated public lookup ID that PostgreSQL indexes uniquely.
+Redemption selects one row by that ID, decrypts the bound ciphertext and compares
+the complete normalized code; no HMAC lookup key or plaintext code column
+exists. The versioned encryption key lives outside PostgreSQL in AWS Secrets
+Manager for deployed environments. Codes and their cryptographic forms are never
+written to logs or audit metadata. Retrieval is an explicit authorized command
+with durable audit evidence. Redemption locks the grant row and commits
 the capacity update, enrolment, audit event and outbox event in one transaction.
 Grants bind an organisation, capacity, learner access duration, optional expiry
 and optional normalized email domains. Administrators may change total capacity

@@ -275,24 +275,21 @@ enrolments. Privileged grants should be audited.
 Upskill requires retrievable human-readable codes for customer support.
 One-way password-style hashing cannot satisfy exact recovery.
 
-The current implementation stores canonical plaintext and uses a normalized
-PostgreSQL expression index. [ADR 0019](../adr/0019-encrypted-recoverable-access-codes.md)
-accepts the target transition to:
+The current implementation follows
+[ADR 0019](../adr/0019-encrypted-recoverable-access-codes.md):
 
 ```text
 submitted code -> extract public lookup ID -> indexed grant lookup
 selected ciphertext -> authenticated decryption -> full normalized-code comparison
 ```
 
-The server-generated lookup ID is a stable, non-secret segment of the displayed
-human-readable code and is stored uniquely in PostgreSQL. Encryption key
-material remains outside PostgreSQL, ideally under AWS KMS or an equivalent
-key-management boundary. This preserves efficient ordinary lookup and
-authorised recovery without a separate HMAC lookup key while reducing the impact
-of a database-only disclosure.
-
-This is an accepted implementation target, not current behavior and not a reason
-to redesign the grant/redemption transaction.
+The server-generated ten-character lookup ID is a stable, non-secret segment of
+the displayed human-readable code and is stored uniquely in PostgreSQL. The
+complete code is stored only in one AES-256-GCM envelope bound to its grant and
+lookup IDs. Deployed key material remains outside PostgreSQL in a dedicated AWS
+Secrets Manager value protected at rest by KMS. This preserves efficient
+ordinary lookup and authorised repeated recovery without a separate HMAC lookup
+key while reducing the impact of a database-only disclosure.
 
 ## Expiry, removal, revocation, and refunds
 
@@ -359,7 +356,7 @@ scheduling, sessions, attendance, coordinators, presenters, and event
 workflow.
 
 An Event's registration mode is separate from its commercial access. Any
-physical, virtual or hybrid occurrence may use open entry with no registration,
+in-person or virtual occurrence may use open entry with no registration,
 require unrestricted registration, or require registration restricted to
 configured verified email domains. A paid or contract-covered Event can still
 use any mode, and satisfying a domain restriction does not by itself prove
@@ -403,8 +400,8 @@ unaware of the commercial source?** If yes, the boundary is working.
 - Preserve serialized capacity redemption.
 - Preserve exact-version enrolments and immutable learning history.
 - Document access origin consistently for every enrolment.
-- Reconcile documentation so it accurately reflects the current
-  access-code storage/lookup implementation.
+- Preserve encrypted access-code storage, indexed candidate lookup and audited
+  individual recovery.
 
 ### Next --- introduce explicit entitlement semantics
 

@@ -263,6 +263,260 @@ interface LearningItemProgressTable {
   updatedAt: Timestamp;
 }
 
+interface EventTemplateTable {
+  id: string;
+  title: string;
+  status: "draft" | "published" | "archived";
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface EventTemplateVersionTable {
+  id: string;
+  eventTemplateId: string;
+  version: number;
+  summary: string;
+  description: string;
+  hasCompletionCertificate: boolean;
+  publishedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface CoordinationRegionTable {
+  id: string;
+  parentId: string | null;
+  code: string;
+  name: string;
+  status: "active" | "retired";
+  createdAt: Timestamp;
+}
+
+interface EventTemplateVersionRegionTable {
+  eventTemplateVersionId: string;
+  regionId: string;
+  position: number;
+}
+
+interface EventTemplateVersionAdminDefaultTable {
+  eventTemplateVersionId: string;
+  userId: string;
+  createdAt: Timestamp;
+}
+
+interface EventTemplateVersionCoordinatorDefaultTable {
+  eventTemplateVersionId: string;
+  regionId: string;
+  userId: string;
+  createdAt: Timestamp;
+}
+
+interface EventTemplateSessionDefinitionTable {
+  id: string;
+  eventTemplateVersionId: string;
+  position: number;
+  title: string;
+  durationMinutes: number;
+  presenterRequired: boolean;
+  createdAt: Timestamp;
+}
+
+interface EventTemplateVersionPresenterDefaultTable {
+  eventTemplateVersionId: string;
+  sessionDefinitionId: string | null;
+  userId: string;
+  scopeKey: string;
+  createdAt: Timestamp;
+}
+
+interface EventTemplateVersionSectionTable {
+  id: string;
+  eventTemplateVersionId: string;
+  position: number;
+  title: string;
+  description: string;
+  createdAt: Timestamp;
+}
+
+interface EventTemplateVersionItemTable {
+  id: string;
+  eventTemplateVersionId: string;
+  sectionId: string;
+  position: number;
+  kind: "session" | "scorm" | "survey" | "resource";
+  title: string;
+  required: boolean;
+  durationMinutes: number | null;
+  learningActivityVersionId: string | null;
+  sessionDefinitionId: string | null;
+  createdAt: Timestamp;
+}
+
+interface EventOccurrenceTable {
+  id: string;
+  eventTemplateVersionId: string;
+  title: string;
+  slug: string;
+  status: "draft" | "published" | "cancelled" | "completed" | "archived";
+  deliveryMode: "in_person" | "virtual";
+  registrationMode:
+    "open_entry" | "required_unrestricted" | "required_restricted";
+  approvalMode: "automatic" | "manual";
+  timezone: string;
+  startsAt: Timestamp;
+  endsAt: Timestamp;
+  registrationOpensAt: Timestamp | null;
+  registrationClosesAt: Timestamp | null;
+  coordinatorLockAt: Timestamp | null;
+  capacity: number;
+  confirmedCount: Generated<number>;
+  venueName: string | null;
+  venueAddress: string | null;
+  virtualJoinUrl: string | null;
+  administratorAttentionRequired: Generated<boolean>;
+  coordinatorAttentionRequired: Generated<boolean>;
+  presenterAttentionRequired: Generated<boolean>;
+  publishedAt: Timestamp | null;
+  createdByUserId: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface EventOccurrenceDomainTable {
+  eventOccurrenceId: string;
+  domain: string;
+  createdAt: Timestamp;
+}
+
+interface EventOccurrenceRegionTable {
+  id: string;
+  eventOccurrenceId: string;
+  regionId: string;
+  position: number;
+  retiredAt: Timestamp | null;
+}
+
+interface EventSessionTable {
+  id: string;
+  eventOccurrenceId: string;
+  sessionDefinitionId: string;
+  position: number;
+  title: string;
+  startsAt: Timestamp;
+  endsAt: Timestamp;
+  presenterRequired: boolean;
+  venueName: string | null;
+  venueAddress: string | null;
+  virtualJoinUrl: string | null;
+}
+
+type EventAssignmentSource =
+  "template_default" | "occurrence_local" | "replacement";
+
+interface EventAdminAssignmentTable {
+  id: string;
+  eventOccurrenceId: string;
+  userId: string;
+  source: EventAssignmentSource;
+  assignedByUserId: string;
+  assignedAt: Timestamp;
+  endedAt: Timestamp | null;
+  endReason:
+    | "assignment_ended"
+    | "platform_admin_revoked"
+    | "user_disabled"
+    | "replaced"
+    | null;
+}
+
+interface EventCoordinatorAssignmentTable {
+  id: string;
+  eventOccurrenceRegionId: string;
+  userId: string;
+  source: EventAssignmentSource;
+  assignedByUserId: string;
+  assignedAt: Timestamp;
+  endedAt: Timestamp | null;
+  endReason: "assignment_ended" | "user_disabled" | "replaced" | null;
+}
+
+interface EventPresenterAssignmentTable {
+  id: string;
+  eventOccurrenceId: string;
+  eventSessionId: string | null;
+  userId: string;
+  scopeKey: string;
+  source: EventAssignmentSource;
+  assignedByUserId: string;
+  assignedAt: Timestamp;
+  endedAt: Timestamp | null;
+  endReason: "assignment_ended" | "user_disabled" | "replaced" | null;
+}
+
+interface EventRegionReviewRoundTable {
+  id: string;
+  eventOccurrenceRegionId: string;
+  round: number;
+  registrationClosesAt: Timestamp;
+  coordinatorLockAt: Timestamp;
+  lockedAt: Timestamp | null;
+  lockedByUserId: string | null;
+  lockSource: "manual" | "deadline" | "administrator" | null;
+}
+
+interface EventRegistrationTable {
+  id: string;
+  eventOccurrenceId: string;
+  userId: string;
+  eventOccurrenceRegionId: string | null;
+  reviewRoundId: string | null;
+  nameSnapshot: string;
+  emailSnapshot: string;
+  source: "ordinary" | "late_invitation" | "administrator_override";
+  eligibilitySource:
+    "unrestricted" | "verified_domain" | "administrator_override";
+  status:
+    | "submitted"
+    | "coordinator_approved"
+    | "coordinator_declined"
+    | "selected"
+    | "waitlisted"
+    | "not_selected"
+    | "withdrawn"
+    | "cancelled";
+  coordinatorPriority: number | null;
+  submittedAt: Timestamp;
+  coordinatorDecidedAt: Timestamp | null;
+  coordinatorDecidedByUserId: string | null;
+  finalDecidedAt: Timestamp | null;
+  finalDecidedByUserId: string | null;
+  lockedInAt: Timestamp | null;
+}
+
+interface EventParticipationTable {
+  id: string;
+  eventOccurrenceId: string;
+  userId: string;
+  registrationId: string | null;
+  mode: "registered" | "open_entry";
+  nameSnapshot: string;
+  emailSnapshot: string;
+  detailsSubmittedAt: Timestamp | null;
+  joinDisclosedAt: Timestamp | null;
+  checkedInAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface EventAttendanceTable {
+  eventParticipationId: string;
+  eventSessionId: string;
+  state: "not_recorded" | "checked_in" | "attended" | "absent";
+  source:
+    "system" | "self_check_in" | "coordinator" | "presenter" | "administrator";
+  recordedByUserId: string | null;
+  recordedAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 interface OrderTable {
   id: string;
   purchaserUserId: string | null;
@@ -290,7 +544,8 @@ interface AccessGrantTable {
   organizationId: string | null;
   orderId: string | null;
   courseVersionId: string;
-  accessCode: Generated<string | null>;
+  accessCodeLookupId: Generated<string | null>;
+  encryptedAccessCode: Generated<string | null>;
   label: Generated<string | null>;
   createdByUserId: Generated<string | null>;
   enrollmentDurationDays: number;
@@ -329,6 +584,13 @@ export type AuditEventAction =
   | "course.deleted"
   | "course.published"
   | "course.version_created"
+  | "event_occurrence.created"
+  | "event_occurrence.updated"
+  | "event_occurrence.published"
+  | "event_registration.submitted"
+  | "event_template.created"
+  | "event_template.version_created"
+  | "event_template.version_published"
   | "enrollment.access_code_redeemed"
   | "enrollment.administrator_added"
   | "enrollment.administrator_removed"
@@ -370,7 +632,28 @@ export interface Database {
   course_version: CourseVersionTable;
   course_version_item: CourseVersionItemTable;
   course_version_section: CourseVersionSectionTable;
+  coordination_region: CoordinationRegionTable;
   enrollment: EnrollmentTable;
+  event_admin_assignment: EventAdminAssignmentTable;
+  event_attendance: EventAttendanceTable;
+  event_coordinator_assignment: EventCoordinatorAssignmentTable;
+  event_occurrence: EventOccurrenceTable;
+  event_occurrence_domain: EventOccurrenceDomainTable;
+  event_occurrence_region: EventOccurrenceRegionTable;
+  event_participation: EventParticipationTable;
+  event_presenter_assignment: EventPresenterAssignmentTable;
+  event_region_review_round: EventRegionReviewRoundTable;
+  event_registration: EventRegistrationTable;
+  event_session: EventSessionTable;
+  event_template: EventTemplateTable;
+  event_template_session_definition: EventTemplateSessionDefinitionTable;
+  event_template_version: EventTemplateVersionTable;
+  event_template_version_admin_default: EventTemplateVersionAdminDefaultTable;
+  event_template_version_coordinator_default: EventTemplateVersionCoordinatorDefaultTable;
+  event_template_version_presenter_default: EventTemplateVersionPresenterDefaultTable;
+  event_template_version_region: EventTemplateVersionRegionTable;
+  event_template_version_item: EventTemplateVersionItemTable;
+  event_template_version_section: EventTemplateVersionSectionTable;
   learning_item_progress: LearningItemProgressTable;
   learning_activity: LearningActivityTable;
   learning_activity_version: LearningActivityVersionTable;

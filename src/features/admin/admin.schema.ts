@@ -108,7 +108,6 @@ interface AdminEnrollmentModule {
   source: "scorm" | "administrator" | "none";
   attemptCount: number;
   latestActivityAt: string | null;
-  latestActivityAtLabel: string | null;
 }
 
 interface AdminEnrollmentSectionItem {
@@ -137,7 +136,6 @@ interface AdminProgressOverrideHistoryItem {
   administratorName: string;
   reason: string | null;
   createdAt: string;
-  createdAtLabel: string;
 }
 
 export interface AdminEnrollmentDetail {
@@ -150,9 +148,7 @@ export interface AdminEnrollmentDetail {
     completionState: "completed" | "incomplete";
     completionSource: "system" | "administrator";
     enrolledAt: string;
-    enrolledAtLabel: string;
     completedAt: string | null;
-    completedAtLabel: string | null;
     expiresAt: string | null;
   };
   modules: Array<AdminEnrollmentModule>;
