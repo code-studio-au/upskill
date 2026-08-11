@@ -45,6 +45,15 @@ increased the complete all-route output by 16,793 bytes of JavaScript and 2,161
 bytes of CSS. Total caps therefore ratchet by 17 KB and 2 KB. Root preload,
 largest-asset and per-route caps remain unchanged.
 
+The first-class Event foundation keeps `/admin/events` route-scoped and loads
+its Template and occurrence authoring dialogs only when opened. This reduced
+the parent route chunk from 17.45 KB to 7.12 KB, with separate 3.22 KB and 6.59
+KB conditional chunks. The complete all-route build nevertheless gained the
+new product workflow and measured 620,840 bytes raw and 180,414 bytes Brotli.
+The corresponding total JavaScript caps therefore ratchet by 20 KB raw and 5
+KB Brotli. Root preload, largest-asset and per-route incremental caps remain
+unchanged.
+
 ## Consequences
 
 Validation, dirty/touched state and loading behavior now have one consistent

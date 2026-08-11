@@ -1,0 +1,11 @@
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  gap: var(--mantine-spacing-md);
+}
+
+@media (max-width: 48em) {
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -156,6 +156,81 @@ async function cleanupCourseAuthoringFixture(
   });
 }
 
+async function cleanupEventAuthoringFixture(
+  database: Client,
+  slug: string,
+): Promise<void> {
+  const template = await database.query<{ id: string }>(
+    `select id from event_template where slug = $1`,
+    [slug],
+  );
+  const eventTemplateId = template.rows[0]?.id;
+  if (!eventTemplateId) return;
+  const versions = await database.query<{ id: string }>(
+    `select id from event_template_version where "eventTemplateId" = $1`,
+    [eventTemplateId],
+  );
+  const versionIds = versions.rows.map((version) => version.id);
+  const occurrences = await database.query<{ id: string }>(
+    `select id from event_occurrence where "eventTemplateVersionId" = any($1::text[])`,
+    [versionIds],
+  );
+  const occurrenceIds = occurrences.rows.map((occurrence) => occurrence.id);
+  await withPgAuditMaintenance(database, async (transaction) => {
+    await transaction.query(
+      `delete from outbox_event where "aggregateId" = any($1::text[])`,
+      [[eventTemplateId, ...occurrenceIds]],
+    );
+    await transaction.query(
+      `delete from audit_event where "subjectId" = any($1::text[])`,
+      [[eventTemplateId, ...versionIds, ...occurrenceIds]],
+    );
+    if (occurrenceIds.length > 0) {
+      await transaction.query(
+        `delete from event_presenter_assignment where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_admin_assignment where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_session where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_occurrence_domain where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_occurrence where id = any($1::text[])`,
+        [occurrenceIds],
+      );
+    }
+    if (versionIds.length > 0) {
+      await transaction.query(
+        `delete from event_template_version_presenter_default where "eventTemplateVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from event_template_session_definition where "eventTemplateVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from event_template_version_admin_default where "eventTemplateVersionId" = any($1::text[])`,
+        [versionIds],
+      );
+      await transaction.query(
+        `delete from event_template_version where id = any($1::text[])`,
+        [versionIds],
+      );
+    }
+    await transaction.query(`delete from event_template where id = $1`, [
+      eventTemplateId,
+    ]);
+  });
+}
+
 async function cleanupSurveyAuthoringFixture(
   database: Client,
   titles: Array<string>,
@@ -805,6 +880,7 @@ test("platform administrators can inspect learner progress", async ({
   const accessGrantLabel = "E2E organisation access";
   const accessOrganizationName = "E2E Access Organisation";
   const accessCodeBase = "E2E-ACCESS-2027";
+  const eventSlug = "e2e-hybrid-workshop";
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
@@ -817,6 +893,7 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
+    await cleanupEventAuthoringFixture(authoringDatabase, eventSlug);
     await page
       .getByRole("main")
       .getByRole("link", { name: "Courses", exact: true })
@@ -1050,6 +1127,78 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
     ]);
     expect(revokedGrant.rows[0]?.revokedAt).not.toBeNull();
+
+    await page
+      .getByRole("main")
+      .getByRole("link", { name: "Events", exact: true })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Events", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Create template" }).click();
+    const templateDialog = page.getByRole("dialog", {
+      name: "Create event template",
+    });
+    await templateDialog
+      .getByLabel("Template title")
+      .fill("E2E hybrid workshop");
+    await expect(templateDialog.getByLabel("URL slug")).toHaveValue(eventSlug);
+    await templateDialog
+      .getByLabel("Summary")
+      .fill("A reusable Event Template created through the browser.");
+    await templateDialog
+      .getByLabel("Description")
+      .fill("Exercises exact-version Event Occurrence scheduling.");
+    await templateDialog
+      .getByLabel("Default session title")
+      .fill("Live workshop");
+    await templateDialog.getByLabel("Duration (minutes)").fill("90");
+    await templateDialog
+      .getByRole("button", { name: "Create template" })
+      .click();
+    const templateCard = page.getByRole("heading", {
+      name: "E2E hybrid workshop",
+    });
+    await expect(templateCard).toBeVisible();
+    await page.getByRole("button", { name: "Publish version 1" }).click();
+    await expect(page.getByText("Published version 1")).toBeVisible();
+    await page.getByRole("button", { name: "Schedule occurrence" }).click();
+    const occurrenceDialog = page.getByRole("dialog", {
+      name: "Schedule event occurrence",
+    });
+    await occurrenceDialog
+      .getByLabel("Occurrence title")
+      .fill("E2E hybrid workshop · August");
+    await occurrenceDialog
+      .getByLabel("Protected virtual meeting URL")
+      .fill("https://meet.example.com/e2e-workshop");
+    await occurrenceDialog
+      .getByRole("button", { name: "Create draft occurrence" })
+      .click();
+    const occurrenceHeading = page.getByRole("heading", {
+      name: "E2E hybrid workshop · August",
+    });
+    await expect(occurrenceHeading).toBeVisible();
+    await page.getByRole("button", { name: "Publish occurrence" }).click();
+    await expect(page.getByText("published", { exact: true })).toHaveCount(2);
+    const storedOccurrence = await authoringDatabase.query<{
+      eventTemplateVersionId: string;
+      sessionCount: number;
+      administratorCount: number;
+      presenterCount: number;
+    }>(
+      `select occurrence."eventTemplateVersionId",
+        (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
+        (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
+        (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount"
+       from event_occurrence occurrence where occurrence.title = $1`,
+      ["E2E hybrid workshop · August"],
+    );
+    expect(storedOccurrence.rows[0]).toMatchObject({
+      sessionCount: 1,
+      administratorCount: 1,
+      presenterCount: 1,
+    });
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const accessAccessibility = await new AxeBuilder({ page }).analyze();
     expect(accessAccessibility.violations).toEqual([]);
@@ -1064,6 +1213,7 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
+    await cleanupEventAuthoringFixture(authoringDatabase, eventSlug);
     await authoringDatabase.end();
   }
 

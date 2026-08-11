@@ -20,6 +20,9 @@ export function AdminNavigation() {
         <Button component={Link} to="/admin/courses" variant="subtle">
           Courses
         </Button>
+        <Button component={Link} to="/admin/events" variant="subtle">
+          Events
+        </Button>
         <Button component={Link} to="/admin/access" variant="subtle">
           Access
         </Button>

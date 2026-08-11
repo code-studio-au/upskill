@@ -22,7 +22,7 @@
 .badge[data-color="green"],
 .badge[data-color="teal"] {
   background: var(--mantine-color-green-0);
-  color: var(--mantine-color-green-8);
+  color: #176329;
 }
 
 .badge[data-color="blue"] {

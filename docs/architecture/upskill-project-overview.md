@@ -53,6 +53,11 @@ capabilities.
   completion certificates.
 - Platform administration, structured logging, durable audit evidence,
   transactional outbox records and SQS-backed work commands.
+- A first-class Event relational foundation with immutable Template Versions,
+  exact-version occurrences, sessions, regions, staff assignment history,
+  registration, participation and attendance records. Platform Administrators
+  can create and publish an initial one-session Template and occurrence; the
+  broader Event operational and learner workflows remain target work.
 
 ### Target Product
 

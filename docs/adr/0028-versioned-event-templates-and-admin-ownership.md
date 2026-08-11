@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted target; implementation pending.
+Accepted; relational foundation and initial authoring workflow implemented.
 
 ## Context
 
@@ -191,3 +191,13 @@ This ADR supersedes the separate occurrence-scoped Event Administrator role
 described in earlier target wording. ADRs 0025-0027 continue to govern their
 registration, communication and release workflows using assigned standard
 Platform Administrators.
+
+## Implementation Status
+
+The current implementation establishes immutable Template Versions,
+exact-version occurrences and Sessions, versioned administrator/Coordinator/
+Presenter defaults, occurrence assignment history and publish-time coverage
+checks. The initial administration flow creates one Session and supports
+Template and occurrence publication. Multi-session and region authoring,
+assignment replacement/revocation automation, registration decisions and
+attendance operations remain follow-on work under this ADR.

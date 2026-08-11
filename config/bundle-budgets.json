@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 601000,
+  "clientJavaScriptBytes": 621000,
   "clientCssBytes": 254000,
-  "clientJavaScriptBrotliBytes": 176000,
+  "clientJavaScriptBrotliBytes": 181000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,

@@ -24,10 +24,13 @@ activities, completion, and certification.
 
 ## Architecture Horizons
 
-- **Current Product:** reusable course learning activities, enrolments,
-  completion, certificates, organisations and outbox foundations exist, but no
-  first-class Event, occurrence, session, registration or attendance model is
-  implemented.
+- **Current Product:** a first-class relational Event foundation now models
+  immutable Event Template Versions, exact-version occurrences, sessions,
+  regions, staff assignments, registration, participation and attendance. An
+  initial Platform Administrator workflow can create and publish a one-session
+  Template and schedule and publish an occurrence. Registration, attendance,
+  regional review, multi-session design and learner Event workflows are schema
+  foundations only and are not yet exposed as complete product workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
   capacity-safe registration, attendance and blended learning. Every physical,
@@ -61,6 +64,28 @@ Some Events may instead be open-entry experiences with no formal registration
 record. Open entry is distinct from **registration required, unrestricted**,
 which creates a registration but does not restrict it by email domain. All modes
 share one Event domain rather than becoming separate platforms.
+
+## Current Implementation Boundary
+
+The implemented foundation deliberately establishes the breaking relational
+boundaries before adding broad UI workflows:
+
+- Event Instances are occurrences pinned to one immutable Event Template
+  Version;
+- delivery, registration and approval modes are independent values rather than
+  one overloaded Event type;
+- occurrence sessions and administrator, regional Coordinator and Presenter
+  assignments are durable snapshots with historical assignment intervals;
+- registration, participation and attendance are separate records; and
+- restricted occurrences store normalized eligible domains independently of
+  open-entry and unrestricted registration modes.
+
+The first authoring workflow creates one default Session and snapshots the
+creating Platform Administrator as both operational owner and default Presenter.
+The schema supports multiple Sessions, regions and shared assignments, but their
+designers and replacement workflows remain subsequent slices. No public
+registration, check-in, attendance-taking or learner Event workspace should be
+described as implemented yet.
 
 ## Domain Philosophy
 
