@@ -112,25 +112,30 @@ interface CourseVersionItemTable {
   required: boolean;
   durationMinutes: number | null;
   modulePosition: number | null;
-  scormPackageVersionId: string | null;
-  surveyVersionId: string | null;
-  resourceVersionId: string | null;
+  learningActivityVersionId: string;
   createdAt: Timestamp;
 }
 
-interface SurveyTable {
+interface LearningActivityTable {
   id: string;
+  kind: "scorm" | "survey" | "resource";
   title: string;
+  createdAt: Timestamp;
+}
+
+interface LearningActivityVersionTable {
+  id: string;
+  activityId: string;
+  kind: "scorm" | "survey" | "resource";
+  version: number;
+  publishedAt: Timestamp | null;
   createdAt: Timestamp;
 }
 
 interface SurveyVersionTable {
   id: string;
-  surveyId: string;
-  version: number;
+  kind: Generated<"survey">;
   content: Json;
-  publishedAt: Timestamp | null;
-  createdAt: Timestamp;
 }
 
 interface SurveyResponseTable {
@@ -154,35 +159,20 @@ interface SurveyProgressTable {
   completedAt: Timestamp | null;
 }
 
-interface LearningResourceTable {
-  id: string;
-  title: string;
-  createdAt: Timestamp;
-}
-
 interface LearningResourceVersionTable {
   id: string;
-  resourceId: string;
-  version: number;
+  kind: Generated<"resource">;
   displayName: string;
   description: string;
   objectKey: string;
   sha256: string;
   sourceBytes: number;
   mediaType: "application/pdf";
-  createdAt: Timestamp;
-}
-
-interface ScormPackageTable {
-  id: string;
-  title: string;
-  createdAt: Timestamp;
 }
 
 interface ScormPackageVersionTable {
   id: string;
-  packageId: string;
-  version: number;
+  kind: Generated<"scorm">;
   status: "quarantined" | "processing" | "ready" | "rejected";
   standard: "scorm-1.2";
   contentPrefix: string;
@@ -196,15 +186,6 @@ interface ScormPackageVersionTable {
     Date | string | null | undefined,
     Date | string | null
   >;
-  publishedAt: Timestamp | null;
-  createdAt: Timestamp;
-}
-
-interface CourseVersionModuleTable {
-  courseVersionId: string;
-  position: number;
-  scormPackageVersionId: string;
-  createdAt: Timestamp;
 }
 
 interface EnrollmentTable {
@@ -217,20 +198,6 @@ interface EnrollmentTable {
   completedAt: Timestamp | null;
   expiresAt: Timestamp | null;
   removedAt: Timestamp | null;
-}
-
-interface CompletionCertificateTable {
-  id: string;
-  enrollmentId: string;
-  courseVersionId: string;
-  learnerName: string;
-  courseTitle: string;
-  completedAt: Timestamp;
-  objectKey: string;
-  status: "pending" | "ready";
-  issuedAt: Timestamp | null;
-  createdAt: Timestamp;
-  updatedAt: Timestamp;
 }
 
 interface ScormAttemptTable {
@@ -357,7 +324,6 @@ export type AuditEventAction =
   | "access_grant.administrator_code_revealed"
   | "access_grant.administrator_created"
   | "access_grant.administrator_revoked"
-  | "certificate.issued"
   | "course.archived"
   | "course.created"
   | "course.deleted"
@@ -400,16 +366,15 @@ export interface Database {
   access_grant: AccessGrantTable;
   access_grant_domain: AccessGrantDomainTable;
   audit_event: AuditEventTable;
-  completion_certificate: CompletionCertificateTable;
   course: CourseTable;
   course_version: CourseVersionTable;
   course_version_item: CourseVersionItemTable;
-  course_version_module: CourseVersionModuleTable;
   course_version_section: CourseVersionSectionTable;
   enrollment: EnrollmentTable;
   learning_item_progress: LearningItemProgressTable;
+  learning_activity: LearningActivityTable;
+  learning_activity_version: LearningActivityVersionTable;
   learning_progress_override: LearningProgressOverrideTable;
-  learning_resource: LearningResourceTable;
   learning_resource_version: LearningResourceVersionTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
@@ -421,9 +386,7 @@ export interface Database {
   scorm_attempt: ScormAttemptTable;
   scorm_attempt_session: ScormAttemptSessionTable;
   scorm_launch_token: ScormLaunchTokenTable;
-  scorm_package: ScormPackageTable;
   scorm_package_version: ScormPackageVersionTable;
-  survey: SurveyTable;
   survey_progress: SurveyProgressTable;
   survey_response: SurveyResponseTable;
   survey_version: SurveyVersionTable;

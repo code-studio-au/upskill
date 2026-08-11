@@ -1,6 +1,8 @@
 # ADR 0010: Versioned course authoring and section progress
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 
@@ -8,10 +10,11 @@ A course version owns an ordered list of sections. Each section owns ordered
 items that reference one exact immutable SCORM package version, survey version
 or PDF resource version. Published course versions are read-only. Any reorder,
 addition or removal begins by explicitly cloning the latest published version
-to a new draft with new section and item identities. The legacy flat
-`course_version_module` positions remain a compatibility projection rebuilt
-from the draft's ordered SCORM items until all SCORM runtime consumers use item
-identities directly.
+to a new draft with new section and item identities. Each item stores one common
+Learning Activity Version reference and matching kind. SCORM items additionally
+store their course-wide module position because attempt and progress-override
+evidence currently uses that stable position; there is no separate flat module
+mapping table.
 
 Administrators may archive a course without changing its versions or learner
 history. Permanent deletion is limited to archived courses with neither
@@ -38,7 +41,7 @@ content. Section progress cannot drift from its item evidence. Course deletion
 is deliberately stricter than an enrolment-only check because paid-order and
 access-grant records are business history.
 
-The course editor can reference published survey versions, but the branching
-survey designer and response schema remain a separate delivery slice. Their
-future implementation must preserve the exact-version and item-evidence
+The course editor references published survey versions through the common
+Learning Activity Version boundary. Survey design and response evidence retain
+their validated type-specific model and the exact-version and item-evidence
 boundaries established here.

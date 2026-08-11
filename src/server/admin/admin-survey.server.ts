@@ -37,13 +37,15 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
   const database = getDatabase();
   const [surveys, versions, courseUsage] = await Promise.all([
     database
-      .selectFrom("survey")
+      .selectFrom("learning_activity")
       .select(["id", "title"])
+      .where("kind", "=", "survey")
       .orderBy("title")
       .execute(),
     database
-      .selectFrom("survey_version")
-      .select(["id", "surveyId", "version", "publishedAt"])
+      .selectFrom("learning_activity_version")
+      .select(["id", "activityId as surveyId", "version", "publishedAt"])
+      .where("kind", "=", "survey")
       .orderBy("version", "desc")
       .execute(),
     findContentCourseVersionUsage(),
@@ -77,16 +79,27 @@ export async function findAdminSurvey(
 ): Promise<AdminSurveyDetail | null> {
   const database = getDatabase();
   const survey = await database
-    .selectFrom("survey")
+    .selectFrom("learning_activity")
     .select(["id", "title"])
     .where("id", "=", surveyId)
+    .where("kind", "=", "survey")
     .executeTakeFirst();
   if (!survey) return null;
   const versions = await database
-    .selectFrom("survey_version")
-    .select(["id", "version", "content", "publishedAt"])
-    .where("surveyId", "=", surveyId)
-    .orderBy("version", "desc")
+    .selectFrom("learning_activity_version")
+    .innerJoin(
+      "survey_version",
+      "survey_version.id",
+      "learning_activity_version.id",
+    )
+    .select([
+      "learning_activity_version.id",
+      "learning_activity_version.version",
+      "survey_version.content",
+      "learning_activity_version.publishedAt",
+    ])
+    .where("learning_activity_version.activityId", "=", surveyId)
+    .orderBy("learning_activity_version.version", "desc")
     .execute();
   const version =
     versions.find((candidate) => candidate.publishedAt === null) ?? versions[0];
@@ -123,19 +136,23 @@ export async function createAdminSurvey(
   const now = new Date();
   await database.transaction().execute(async (transaction) => {
     await transaction
-      .insertInto("survey")
-      .values({ id: surveyId, title, createdAt: now })
+      .insertInto("learning_activity")
+      .values({ id: surveyId, kind: "survey", title, createdAt: now })
       .execute();
     await transaction
-      .insertInto("survey_version")
+      .insertInto("learning_activity_version")
       .values({
         id: versionId,
-        surveyId,
+        activityId: surveyId,
+        kind: "survey",
         version: 1,
-        content: blankSurvey(title),
         publishedAt: null,
         createdAt: now,
       })
+      .execute();
+    await transaction
+      .insertInto("survey_version")
+      .values({ id: versionId, content: blankSurvey(title) })
       .execute();
     await recordDurableAuditEvent(transaction, {
       actorUserId: user.id,
@@ -157,10 +174,11 @@ export async function saveAdminSurveyDraft(
   const content = surveyVersionContentSchema.parse(draft);
   const saved = await database.transaction().execute(async (transaction) => {
     const version = await transaction
-      .selectFrom("survey_version")
+      .selectFrom("learning_activity_version")
       .select(["id", "publishedAt"])
       .where("id", "=", draft.versionId)
-      .where("surveyId", "=", draft.surveyId)
+      .where("activityId", "=", draft.surveyId)
+      .where("kind", "=", "survey")
       .forUpdate()
       .executeTakeFirst();
     if (!version) return "not-found" as const;
@@ -171,7 +189,7 @@ export async function saveAdminSurveyDraft(
       .where("id", "=", draft.versionId)
       .execute();
     await transaction
-      .updateTable("survey")
+      .updateTable("learning_activity")
       .set({ title: content.title })
       .where("id", "=", draft.surveyId)
       .execute();
@@ -200,17 +218,27 @@ export async function createAdminSurveyVersion(
   const database = getDatabase();
   return await database.transaction().execute(async (transaction) => {
     const survey = await transaction
-      .selectFrom("survey")
+      .selectFrom("learning_activity")
       .select("id")
       .where("id", "=", surveyId)
+      .where("kind", "=", "survey")
       .forUpdate()
       .executeTakeFirst();
     if (!survey) return { status: "not-found" } as const;
     const versions = await transaction
-      .selectFrom("survey_version")
-      .select(["version", "content", "publishedAt"])
-      .where("surveyId", "=", surveyId)
-      .orderBy("version", "desc")
+      .selectFrom("learning_activity_version")
+      .innerJoin(
+        "survey_version",
+        "survey_version.id",
+        "learning_activity_version.id",
+      )
+      .select([
+        "learning_activity_version.version",
+        "survey_version.content",
+        "learning_activity_version.publishedAt",
+      ])
+      .where("learning_activity_version.activityId", "=", surveyId)
+      .orderBy("learning_activity_version.version", "desc")
       .execute();
     if (versions.some((version) => version.publishedAt === null))
       return { status: "draft-exists" } as const;
@@ -219,14 +247,21 @@ export async function createAdminSurveyVersion(
     const versionId = `survey_version_${randomUUID()}`;
     const now = new Date();
     await transaction
+      .insertInto("learning_activity_version")
+      .values({
+        id: versionId,
+        activityId: surveyId,
+        kind: "survey",
+        version: latest.version + 1,
+        publishedAt: null,
+        createdAt: now,
+      })
+      .execute();
+    await transaction
       .insertInto("survey_version")
       .values({
         id: versionId,
-        surveyId,
-        version: latest.version + 1,
         content: parseSurveyVersionContent(latest.content),
-        publishedAt: null,
-        createdAt: now,
       })
       .execute();
     await recordDurableAuditEvent(transaction, {
@@ -249,10 +284,19 @@ export async function publishAdminSurveyVersion(
   const database = getDatabase();
   return await database.transaction().execute(async (transaction) => {
     const version = await transaction
-      .selectFrom("survey_version")
-      .select(["version", "content", "publishedAt"])
-      .where("id", "=", versionId)
-      .where("surveyId", "=", surveyId)
+      .selectFrom("learning_activity_version")
+      .innerJoin(
+        "survey_version",
+        "survey_version.id",
+        "learning_activity_version.id",
+      )
+      .select([
+        "learning_activity_version.version",
+        "survey_version.content",
+        "learning_activity_version.publishedAt",
+      ])
+      .where("learning_activity_version.id", "=", versionId)
+      .where("learning_activity_version.activityId", "=", surveyId)
       .forUpdate()
       .executeTakeFirst();
     if (!version) return "not-found" as const;
@@ -265,7 +309,7 @@ export async function publishAdminSurveyVersion(
       return "invalid" as const;
     const now = new Date();
     await transaction
-      .updateTable("survey_version")
+      .updateTable("learning_activity_version")
       .set({ publishedAt: now })
       .where("id", "=", versionId)
       .execute();

@@ -1,6 +1,8 @@
 # ADR 0012: Versioned PDF resource library
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

@@ -31,16 +31,15 @@ try {
     "access_grant",
     "access_grant_domain",
     "audit_event",
-    "completion_certificate",
     "course",
     "course_version",
     "course_version_item",
-    "course_version_module",
     "course_version_section",
     "enrollment",
+    "learning_activity",
+    "learning_activity_version",
     "learning_item_progress",
     "learning_progress_override",
-    "learning_resource",
     "learning_resource_version",
     "order",
     "order_item",
@@ -50,9 +49,7 @@ try {
     "scorm_attempt",
     "scorm_attempt_session",
     "scorm_launch_token",
-    "scorm_package",
     "scorm_package_version",
-    "survey",
     "survey_progress",
     "survey_response",
     "survey_version",
@@ -67,6 +64,20 @@ try {
   const missing = expectedTables.filter((table) => !actual.has(table));
   if (missing.length > 0)
     throw new Error(`Missing tables: ${missing.join(", ")}`);
+  const retiredTables = [
+    "completion_certificate",
+    "course_version_module",
+    "learning_resource",
+    "scorm_package",
+    "survey",
+  ];
+  const retainedRetiredTables = retiredTables.filter((table) =>
+    actual.has(table),
+  );
+  if (retainedRetiredTables.length > 0)
+    throw new Error(
+      `Retired tables must not remain: ${retainedRetiredTables.join(", ")}`,
+    );
 
   const expectedIndexes = [
     "access_grant_access_code_normalized_uq",
@@ -78,7 +89,6 @@ try {
     "course_status_idx",
     "course_version_published_lookup_idx",
     "course_version_item_module_position_uq",
-    "completion_certificate_enrollment_idx",
     "enrollment_user_status_idx",
     "learning_progress_override_latest_idx",
     "learning_item_progress_enrollment_idx",
@@ -129,6 +139,41 @@ try {
     throw new Error(
       `Missing SCORM ingestion columns: ${missingIngestionColumns.join(", ")}`,
     );
+  const activityItemColumns = await sql<{
+    column_name: string;
+  }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'course_version_item'`.execute(
+    db,
+  );
+  const actualActivityItemColumns = new Set(
+    activityItemColumns.rows.map((row) => row.column_name),
+  );
+  if (!actualActivityItemColumns.has("learningActivityVersionId"))
+    throw new Error(
+      "Course items must reference one common Learning Activity Version",
+    );
+  for (const legacyColumn of [
+    "scormPackageVersionId",
+    "surveyVersionId",
+    "resourceVersionId",
+  ])
+    if (actualActivityItemColumns.has(legacyColumn))
+      throw new Error(
+        `Legacy polymorphic course-item column must be removed: ${legacyColumn}`,
+      );
+  const activityKinds = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'learning_activity_kind_ck',
+          'learning_activity_version_activity_fk',
+          'course_version_item_activity_version_fk'
+        )`.execute(db);
+  assert.equal(
+    activityKinds.rows.length,
+    3,
+    "Learning Activity identity/version and course-item constraints must exist",
+  );
   const accessGrantColumns = await sql<{
     column_name: string;
   }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'access_grant'`.execute(

@@ -1,6 +1,8 @@
 # ADR 0006: Runtime and dependency cohorts
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

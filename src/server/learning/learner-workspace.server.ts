@@ -100,7 +100,7 @@ export async function findLearnerWorkspace(
         "required",
         "durationMinutes",
         "modulePosition",
-        "resourceVersionId",
+        "learningActivityVersionId",
       ])
       .where("courseVersionId", "=", row.courseVersionId)
       .orderBy("position", "asc")
@@ -133,7 +133,8 @@ export async function findLearnerWorkspace(
             ? ("completed" as const)
             : ("incomplete" as const),
         modulePosition: item.modulePosition,
-        resourceVersionId: item.resourceVersionId,
+        resourceVersionId:
+          item.kind === "resource" ? item.learningActivityVersionId : null,
       }));
     const requiredItems = items.filter((item) => item.required);
     const completionTargets = requiredItems.length > 0 ? requiredItems : items;

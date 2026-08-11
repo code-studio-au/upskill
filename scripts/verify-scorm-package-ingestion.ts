@@ -135,11 +135,11 @@ async function cleanup(): Promise<void> {
         .where("subjectId", "in", versionIds)
         .execute();
       await database
-        .deleteFrom("scorm_package_version")
+        .deleteFrom("learning_activity_version")
         .where("id", "in", versionIds)
         .execute();
       await database
-        .deleteFrom("scorm_package")
+        .deleteFrom("learning_activity")
         .where("id", "in", packageIds)
         .execute();
     });

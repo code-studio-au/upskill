@@ -1,6 +1,8 @@
 # ADR 0008: SQS worker delivery
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

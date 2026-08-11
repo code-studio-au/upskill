@@ -14,9 +14,8 @@ export interface ContentCourseVersionUsage {
 }
 
 export interface ContentUsageRow extends CourseVersionUsage {
-  resourceVersionId: string | null;
-  scormPackageVersionId: string | null;
-  surveyVersionId: string | null;
+  kind: "scorm" | "survey" | "resource";
+  learningActivityVersionId: string;
 }
 
 function addUsage(
@@ -48,9 +47,15 @@ export function indexContentCourseVersionUsage(
     surveys: new Map(),
   };
   for (const row of rows) {
-    addUsage(usage.modules, row.scormPackageVersionId, row);
-    addUsage(usage.resources, row.resourceVersionId, row);
-    addUsage(usage.surveys, row.surveyVersionId, row);
+    addUsage(
+      row.kind === "scorm"
+        ? usage.modules
+        : row.kind === "resource"
+          ? usage.resources
+          : usage.surveys,
+      row.learningActivityVersionId,
+      row,
+    );
   }
   return usage;
 }

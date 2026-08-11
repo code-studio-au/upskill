@@ -33,7 +33,7 @@ export async function getLearnerPdfResource(
     .innerJoin(
       "learning_resource_version",
       "learning_resource_version.id",
-      "course_version_item.resourceVersionId",
+      "course_version_item.learningActivityVersionId",
     )
     .select([
       "course_version_item.id as itemId",

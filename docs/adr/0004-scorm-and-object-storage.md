@@ -1,6 +1,8 @@
 # ADR 0004: SCORM and object storage
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

@@ -1,6 +1,8 @@
 # ADR 0017: Local TLS and HTTP compression
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

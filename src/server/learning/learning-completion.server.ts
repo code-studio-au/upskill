@@ -3,7 +3,6 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import type { Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
-import { requestCompletionCertificate } from "#/server/certificate/completion-certificate.server";
 import type { Database } from "#/server/db/types";
 import { findEffectiveModuleCompletion } from "#/server/learning/progress-overrides.server";
 
@@ -117,6 +116,5 @@ export async function completeEnrollmentIfReady(
       createdAt: now,
     })
     .execute();
-  await requestCompletionCertificate(transaction, input, now);
   return true;
 }

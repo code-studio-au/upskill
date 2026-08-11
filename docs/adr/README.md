@@ -1,19 +1,39 @@
 # Architecture decision records
 
-- [ADR 0001: TanStack Start application model](0001-tanstack-start-application-model.md)
-- [ADR 0002: Identity, commerce and authorization](0002-identity-commerce-authorization.md)
-- [ADR 0003: Versioned learning domain](0003-versioned-learning-domain.md)
-- [ADR 0004: SCORM and object storage](0004-scorm-and-object-storage.md)
-- [ADR 0005: Mantine, CSP and responsive UI](0005-mantine-csp-responsive-ui.md)
-- [ADR 0006: Runtime and dependency cohorts](0006-runtime-and-dependency-cohorts.md)
-- [ADR 0007: AWS deployment and verification](0007-aws-deployment-and-verification.md)
-- [ADR 0008: SQS worker delivery](0008-sqs-worker-delivery.md)
-- [ADR 0009: Structured logging and durable audit projection](0009-structured-logging-and-durable-audit.md)
-- [ADR 0010: Versioned course authoring and section progress](0010-versioned-course-authoring-and-section-progress.md)
-- [ADR 0011: Versioned surveys and response evidence](0011-versioned-surveys-and-response-evidence.md)
-- [ADR 0012: Versioned PDF resource library](0012-versioned-pdf-resource-library.md)
-- [ADR 0013: TanStack Form and client budget](0013-tanstack-form-and-client-budget.md)
-- [ADR 0014: Completion certificate issuance](0014-completion-certificate-issuance.md)
-- [ADR 0015: Administrator-managed course enrolment lifecycle](0015-administrator-enrollment-lifecycle.md)
-- [ADR 0016: Administrator-managed access-grant lifecycle](0016-administrator-access-grant-lifecycle.md)
-- [ADR 0017: Local TLS and HTTP compression](0017-local-tls-and-http-compression.md)
+ADRs preserve durable decision history. An accepted ADR may describe Target
+Product work whose implementation is explicitly pending; current executable
+behavior remains identified in the ADR and architecture handbook until rollout
+is complete.
+
+| ADR  | Decision                                                                                                                  | Status                                                  |
+| ---- | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| 0001 | [TanStack Start application model](0001-tanstack-start-application-model.md)                                              | Accepted                                                |
+| 0002 | [Identity, commerce and authorization](0002-identity-commerce-authorization.md)                                           | Accepted                                                |
+| 0003 | [Versioned learning domain](0003-versioned-learning-domain.md)                                                            | Accepted                                                |
+| 0004 | [SCORM and object storage](0004-scorm-and-object-storage.md)                                                              | Accepted                                                |
+| 0005 | [Mantine, CSP and responsive UI](0005-mantine-csp-responsive-ui.md)                                                       | Accepted                                                |
+| 0006 | [Runtime and dependency cohorts](0006-runtime-and-dependency-cohorts.md)                                                  | Accepted                                                |
+| 0007 | [AWS deployment and verification](0007-aws-deployment-and-verification.md)                                                | Accepted                                                |
+| 0008 | [SQS worker delivery](0008-sqs-worker-delivery.md)                                                                        | Accepted                                                |
+| 0009 | [Structured logging and durable audit projection](0009-structured-logging-and-durable-audit.md)                           | Accepted                                                |
+| 0010 | [Versioned course authoring and section progress](0010-versioned-course-authoring-and-section-progress.md)                | Accepted                                                |
+| 0011 | [Versioned surveys and response evidence](0011-versioned-surveys-and-response-evidence.md)                                | Accepted                                                |
+| 0012 | [Versioned PDF resource library](0012-versioned-pdf-resource-library.md)                                                  | Accepted                                                |
+| 0013 | [TanStack Form and client budget](0013-tanstack-form-and-client-budget.md)                                                | Accepted                                                |
+| 0014 | [On-demand completion certificates](0014-completion-certificate-issuance.md)                                              | Accepted                                                |
+| 0015 | [Administrator-managed course enrolment lifecycle](0015-administrator-enrollment-lifecycle.md)                            | Accepted                                                |
+| 0016 | [Administrator-managed access-grant lifecycle](0016-administrator-access-grant-lifecycle.md)                              | Lifecycle accepted; storage decision superseded by 0019 |
+| 0017 | [Local TLS and HTTP compression](0017-local-tls-and-http-compression.md)                                                  | Accepted                                                |
+| 0018 | [Audited progress overrides](0018-audited-progress-overrides.md)                                                          | Accepted                                                |
+| 0019 | [Encrypted recoverable access codes](0019-encrypted-recoverable-access-codes.md)                                          | Accepted; implementation pending                        |
+| 0020 | [Stable learning activities and immutable activity versions](0020-learning-activity-versions.md)                          | Accepted                                                |
+| 0021 | [Pre-production schema rebaselining](0021-pre-production-schema-rebaselining.md)                                          | Temporary pre-production policy                         |
+| 0022 | [Stable identity and historical attribution](0022-stable-identity-and-historical-attribution.md)                          | Accepted; target adoption is feature-specific           |
+| 0023 | [User onboarding and open-entry guest check-in](0023-onboarding-and-open-entry-guest-check-in.md)                         | Accepted target; implementation pending                 |
+| 0024 | [Event prerequisite recovery and passwordless access](0024-event-prerequisite-recovery-and-passwordless-access.md)        | Accepted target; implementation pending                 |
+| 0025 | [Event registration finalisation and staged section release](0025-event-registration-finalisation-and-section-release.md) | Accepted target; implementation pending                 |
+| 0026 | [Regional Event review, selection and late invitations](0026-regional-event-registration-selection.md)                    | Accepted target; implementation pending                 |
+| 0027 | [Section-embedded automated email plans and occurrence overrides](0027-section-embedded-automated-emails.md)              | Accepted target; implementation pending                 |
+| 0028 | [Versioned Event Templates and resilient staff coverage](0028-versioned-event-templates-and-admin-ownership.md)           | Accepted target; implementation pending                 |
+| 0029 | [Survey-backed versioned user onboarding](0029-survey-backed-versioned-user-onboarding.md)                                | Accepted target; implementation pending                 |
+| 0030 | [Standard Survey question types and option authoring](0030-standard-survey-question-types-and-option-authoring.md)        | Accepted target; implementation pending                 |

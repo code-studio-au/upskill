@@ -31,8 +31,9 @@ let surveyId: string | undefined;
 
 async function cleanup(): Promise<void> {
   const existingSurvey = await database
-    .selectFrom("survey")
+    .selectFrom("learning_activity")
     .select("id")
+    .where("kind", "=", "survey")
     .where("title", "=", "Verified learner survey")
     .executeTakeFirst();
   const targetSurveyId = surveyId ?? existingSurvey?.id;
@@ -67,11 +68,11 @@ async function cleanup(): Promise<void> {
   await database.deleteFrom("course").where("id", "=", ids.course).execute();
   if (targetSurveyId) {
     await database
-      .deleteFrom("survey_version")
-      .where("surveyId", "=", targetSurveyId)
+      .deleteFrom("learning_activity_version")
+      .where("activityId", "=", targetSurveyId)
       .execute();
     await database
-      .deleteFrom("survey")
+      .deleteFrom("learning_activity")
       .where("id", "=", targetSurveyId)
       .execute();
   }
@@ -229,9 +230,7 @@ try {
       required: true,
       durationMinutes: 5,
       modulePosition: null,
-      scormPackageVersionId: null,
-      surveyVersionId: created.versionId,
-      resourceVersionId: null,
+      learningActivityVersionId: created.versionId,
     })
     .execute();
   await database

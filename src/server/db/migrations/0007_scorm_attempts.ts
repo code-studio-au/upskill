@@ -2,21 +2,49 @@ import { sql, type Kysely } from "kysely";
 
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
-    .createTable("scorm_package")
+    .createTable("learning_activity")
     .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("kind", "text", (column) => column.notNull())
     .addColumn("title", "text", (column) => column.notNull())
     .addColumn("createdAt", "timestamptz", (column) =>
       column.notNull().defaultTo(sql`now()`),
     )
+    .addUniqueConstraint("learning_activity_id_kind_uq", ["id", "kind"])
+    .addCheckConstraint(
+      "learning_activity_kind_ck",
+      sql`kind in ('scorm', 'survey', 'resource')`,
+    )
+    .execute();
+
+  await db.schema
+    .createTable("learning_activity_version")
+    .addColumn("id", "text", (column) => column.primaryKey())
+    .addColumn("activityId", "text", (column) => column.notNull())
+    .addColumn("kind", "text", (column) => column.notNull())
+    .addColumn("version", "integer", (column) => column.notNull())
+    .addColumn("publishedAt", "timestamptz")
+    .addColumn("createdAt", "timestamptz", (column) =>
+      column.notNull().defaultTo(sql`now()`),
+    )
+    .addForeignKeyConstraint(
+      "learning_activity_version_activity_fk",
+      ["activityId", "kind"],
+      "learning_activity",
+      ["id", "kind"],
+      (constraint) => constraint.onDelete("restrict"),
+    )
+    .addUniqueConstraint("learning_activity_version_number_uq", [
+      "activityId",
+      "version",
+    ])
+    .addUniqueConstraint("learning_activity_version_id_kind_uq", ["id", "kind"])
+    .addCheckConstraint("learning_activity_version_number_ck", sql`version > 0`)
     .execute();
 
   await db.schema
     .createTable("scorm_package_version")
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("packageId", "text", (column) =>
-      column.notNull().references("scorm_package.id").onDelete("restrict"),
-    )
-    .addColumn("version", "integer", (column) => column.notNull())
+    .addColumn("kind", "text", (column) => column.notNull().defaultTo("scorm"))
     .addColumn("status", "text", (column) => column.notNull())
     .addColumn("standard", "text", (column) => column.notNull())
     .addColumn("contentPrefix", "text", (column) => column.notNull())
@@ -25,42 +53,16 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("manifest", "jsonb", (column) =>
       column.notNull().defaultTo(sql`'{}'::jsonb`),
     )
-    .addColumn("publishedAt", "timestamptz")
-    .addColumn("createdAt", "timestamptz", (column) =>
-      column.notNull().defaultTo(sql`now()`),
+    .addForeignKeyConstraint(
+      "scorm_package_version_activity_fk",
+      ["id", "kind"],
+      "learning_activity_version",
+      ["id", "kind"],
+      (constraint) => constraint.onDelete("cascade"),
     )
-    .addUniqueConstraint("scorm_package_version_number_uq", [
-      "packageId",
-      "version",
-    ])
     .addCheckConstraint(
       "scorm_package_version_values_check",
-      sql`version > 0 and status in ('quarantined', 'processing', 'ready', 'rejected') and standard = 'scorm-1.2' and "contentPrefix" ~ '^[A-Za-z0-9][A-Za-z0-9._/-]*$' and "contentPrefix" not like '%..%' and "launchPath" ~ '^[A-Za-z0-9][A-Za-z0-9._/-]*$' and "launchPath" not like '%..%' and sha256 ~ '^[a-f0-9]{64}$'`,
-    )
-    .execute();
-
-  await db.schema
-    .createTable("course_version_module")
-    .addColumn("courseVersionId", "text", (column) =>
-      column.notNull().references("course_version.id").onDelete("restrict"),
-    )
-    .addColumn("position", "integer", (column) => column.notNull())
-    .addColumn("scormPackageVersionId", "text", (column) =>
-      column
-        .notNull()
-        .references("scorm_package_version.id")
-        .onDelete("restrict"),
-    )
-    .addColumn("createdAt", "timestamptz", (column) =>
-      column.notNull().defaultTo(sql`now()`),
-    )
-    .addPrimaryKeyConstraint("course_version_module_pk", [
-      "courseVersionId",
-      "position",
-    ])
-    .addCheckConstraint(
-      "course_version_module_position_check",
-      sql`position >= 0`,
+      sql`kind = 'scorm' and status in ('quarantined', 'processing', 'ready', 'rejected') and standard = 'scorm-1.2' and "contentPrefix" ~ '^[A-Za-z0-9][A-Za-z0-9._/-]*$' and "contentPrefix" not like '%..%' and "launchPath" ~ '^[A-Za-z0-9][A-Za-z0-9._/-]*$' and "launchPath" not like '%..%' and sha256 ~ '^[a-f0-9]{64}$'`,
     )
     .execute();
 
@@ -160,9 +162,9 @@ export async function down(db: Kysely<unknown>): Promise<void> {
     "scorm_attempt_session",
     "scorm_launch_token",
     "scorm_attempt",
-    "course_version_module",
     "scorm_package_version",
-    "scorm_package",
+    "learning_activity_version",
+    "learning_activity",
   ]) {
     await db.schema.dropTable(table).ifExists().execute();
   }

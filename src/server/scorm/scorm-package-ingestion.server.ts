@@ -88,31 +88,40 @@ async function registerScormPackage(
       let nextVersion = 1;
       if (input.packageId) {
         const existingPackage = await transaction
-          .selectFrom("scorm_package")
+          .selectFrom("learning_activity")
           .select("id")
           .where("id", "=", packageId)
+          .where("kind", "=", "scorm")
           .forUpdate()
           .executeTakeFirst();
         if (!existingPackage) throw new ScormPackageNotFoundError();
         const latest = await transaction
-          .selectFrom("scorm_package_version")
+          .selectFrom("learning_activity_version")
           .select(sql<number>`coalesce(max(version), 0)::integer`.as("version"))
-          .where("packageId", "=", packageId)
+          .where("activityId", "=", packageId)
           .executeTakeFirstOrThrow();
         nextVersion = latest.version + 1;
       } else {
         await transaction
-          .insertInto("scorm_package")
-          .values({ id: packageId, title: input.title })
+          .insertInto("learning_activity")
+          .values({ id: packageId, kind: "scorm", title: input.title })
           .execute();
       }
       const contentPrefix = `scorm/${input.packageVersionId}/${input.sha256}`;
       await transaction
+        .insertInto("learning_activity_version")
+        .values({
+          id: input.packageVersionId,
+          activityId: packageId,
+          kind: "scorm",
+          version: nextVersion,
+          publishedAt: null,
+        })
+        .execute();
+      await transaction
         .insertInto("scorm_package_version")
         .values({
           id: input.packageVersionId,
-          packageId,
-          version: nextVersion,
           status: "quarantined",
           standard: "scorm-1.2",
           contentPrefix,
@@ -122,7 +131,6 @@ async function registerScormPackage(
           sourceBytes: input.sourceBytes,
           failureCode: null,
           processedAt: null,
-          publishedAt: null,
         })
         .execute();
       await recordDurableAuditEvent(transaction, {
@@ -218,9 +226,10 @@ export async function stageScormPackageStream(
   const title = normalizedTitle(input.title);
   if (input.packageId) {
     const existingPackage = await getDatabase()
-      .selectFrom("scorm_package")
+      .selectFrom("learning_activity")
       .select("id")
       .where("id", "=", input.packageId)
+      .where("kind", "=", "scorm")
       .executeTakeFirst();
     if (!existingPackage) throw new ScormPackageNotFoundError();
   }
@@ -383,8 +392,12 @@ export async function ingestScormPackageVersion(
             manifest,
             failureCode: null,
             processedAt: new Date(),
-            publishedAt: new Date(),
           })
+          .where("id", "=", packageVersionId)
+          .executeTakeFirstOrThrow();
+        await transaction
+          .updateTable("learning_activity_version")
+          .set({ publishedAt: new Date() })
           .where("id", "=", packageVersionId)
           .executeTakeFirstOrThrow();
         return true;

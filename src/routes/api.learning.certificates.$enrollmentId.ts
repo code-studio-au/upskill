@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { z } from "#/validation/zod.server";
 import { getRequestUser } from "#/server/auth/session.server";
 import { getLearnerCompletionCertificate } from "#/server/certificate/learner-certificate.server";
+import { z } from "#/validation/zod.server";
 
-const certificateIdSchema = z
+const enrollmentIdSchema = z
   .string()
   .min(1)
   .max(200)
@@ -11,17 +11,15 @@ const certificateIdSchema = z
 const noStoreHeaders = { "Cache-Control": "private, no-store" };
 
 export const Route = createFileRoute(
-  "/api/learning/certificates/$certificateId",
+  "/api/learning/certificates/$enrollmentId",
 )({
   server: {
     handlers: {
       GET: async ({ params }) => {
-        const certificateId = certificateIdSchema.safeParse(
-          params.certificateId,
-        );
-        if (!certificateId.success)
+        const enrollmentId = enrollmentIdSchema.safeParse(params.enrollmentId);
+        if (!enrollmentId.success)
           return Response.json(
-            { error: "invalid_certificate" },
+            { error: "invalid_enrollment" },
             { status: 400, headers: noStoreHeaders },
           );
         const user = await getRequestUser();
@@ -31,10 +29,10 @@ export const Route = createFileRoute(
             { status: 401, headers: noStoreHeaders },
           );
         const certificate = await getLearnerCompletionCertificate(
-          certificateId.data,
+          enrollmentId.data,
           user,
         );
-        if (certificate.status !== "ready")
+        if (certificate.status !== "generated")
           return Response.json(
             { error: certificate.status },
             {

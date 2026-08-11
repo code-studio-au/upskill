@@ -71,11 +71,11 @@ async function cleanup(): Promise<void> {
     .execute();
   await database.deleteFrom("course").where("id", "=", ids.course).execute();
   await database
-    .deleteFrom("learning_resource_version")
+    .deleteFrom("learning_activity_version")
     .where("id", "=", ids.resourceVersion)
     .execute();
   await database
-    .deleteFrom("learning_resource")
+    .deleteFrom("learning_activity")
     .where("id", "=", ids.resource)
     .execute();
   await database
@@ -108,15 +108,23 @@ try {
     ])
     .execute();
   await database
-    .insertInto("learning_resource")
-    .values({ id: ids.resource, title: "Verified guide" })
+    .insertInto("learning_activity")
+    .values({ id: ids.resource, kind: "resource", title: "Verified guide" })
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values({
+      id: ids.resourceVersion,
+      activityId: ids.resource,
+      kind: "resource",
+      version: 1,
+      publishedAt: new Date(),
+    })
     .execute();
   await database
     .insertInto("learning_resource_version")
     .values({
       id: ids.resourceVersion,
-      resourceId: ids.resource,
-      version: 1,
       displayName: "verified-guide.pdf",
       description: "Workspace progress fixture",
       objectKey: `resources/${ids.resourceVersion}/${"4".repeat(64)}.pdf`,
@@ -187,9 +195,7 @@ try {
       required: true,
       durationMinutes: null,
       modulePosition: null,
-      scormPackageVersionId: null,
-      surveyVersionId: null,
-      resourceVersionId: ids.resourceVersion,
+      learningActivityVersionId: ids.resourceVersion,
     })
     .execute();
   await database

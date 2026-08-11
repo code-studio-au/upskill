@@ -1,38 +1,38 @@
-# ADR 0014: Completion certificate issuance
+# ADR 0014: On-demand completion certificates
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 
-A course version may opt into completion certificates. When an eligible
-enrolment first transitions to completed, the same database transaction creates
-one pending certificate snapshot and one `certificate.generate_requested`
-outbox event. The snapshot retains the exact learner name, course title,
-course-version identifier and completion timestamp used to issue the document.
-The unique enrolment and completion-time pair makes repeated completion signals
-idempotent.
+An exact course version may opt into completion certificates. A learner may
+download one only when the authenticated user owns the exact enrolment, that
+enrolment is currently completed with a completion timestamp, and its enrolled
+course version still has certificate support enabled.
 
-The existing content worker validates the versioned work envelope, renders the
-PDF server-side and writes it to the private certificate bucket at
-`certificates/{certificateId}.pdf`. It then marks the snapshot ready and commits
-a durable `certificate.issued` audit event. Object creation and database
-finalisation are safe to retry after partial failure. Existing completed
-enrolments are backfilled as pending by the schema migration.
+The authenticated same-origin route evaluates those conditions on every
+request, renders the PDF synchronously and streams it with `Cache-Control:
+private, no-store`. The document includes the current learner name, exact course
+version title and completion time. A deterministic completion reference is
+derived at runtime from the enrolment identity and completion timestamp.
 
-Learners download certificates only through a same-origin authenticated route.
-The route verifies ownership and requires the enrolment's current completion
-timestamp to equal the certificate snapshot before returning private,
-non-cacheable PDF bytes. An administrator revocation therefore removes download
-eligibility without deleting evidence; a later recompletion issues a new
-snapshot. The dashboard polls only while generation is pending and exposes a
-download action once ready.
+Certificates are not domain records. The application does not retain a
+certificate table, PDF object, storage bucket, queue command, worker lifecycle,
+pending state, polling UI or certificate-specific issuance audit event. The
+authoritative enrolment completion and its existing progress/override evidence
+remain the source of truth.
+
+An administrator completion override makes the certificate unavailable
+immediately. If the learner later completes the requirements again, the current
+completion makes a newly rendered download available immediately.
 
 ## Consequences
 
-Certificate history remains immutable and reproducible across course edits,
-learner profile edits and completion corrections. Database state cannot claim a
-certificate request without retaining its retryable work item. Generation is
-eventually consistent, so delayed or dead-lettered work remains visible as
-pending and must be covered by worker monitoring. Branded templates, uploaded
-signatures and email delivery are separate future slices; they do not alter the
-issuance or authorization model.
+There is no stored certificate to revoke, clean up, reconcile or preserve.
+Downloaded copies are outside the application's control, as with any downloaded
+document. Course and learner profile changes may alter a later rendering; the
+exact enrolled version and authoritative completion time remain fixed inputs.
+If future legal or regulatory requirements demand issued-document retention,
+that must be introduced as a new explicit product decision rather than hidden
+inside the current download feature.

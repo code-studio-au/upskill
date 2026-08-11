@@ -7,7 +7,6 @@ import {
 import { getDatabase } from "#/server/db/database.server";
 import { logAuditEvent } from "#/server/logging/server-logger";
 import {
-  CERTIFICATE_GENERATION_TOPIC,
   parseContentWorkMessage,
   RESOURCE_DELETION_TOPIC,
   SCORM_DELETION_TOPIC,
@@ -42,7 +41,6 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
       .select(["id", "topic", "aggregateId", "payload", "attempts"])
       .where("topic", "in", [
         AUDIT_LOG_TOPIC,
-        CERTIFICATE_GENERATION_TOPIC,
         RESOURCE_DELETION_TOPIC,
         SCORM_INGESTION_TOPIC,
         SCORM_DELETION_TOPIC,
@@ -104,11 +102,9 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
       }),
     );
     const subjectId =
-      message.topic === CERTIFICATE_GENERATION_TOPIC
-        ? message.payload.certificateId
-        : message.topic === RESOURCE_DELETION_TOPIC
-          ? message.payload.resourceVersionId
-          : message.payload.packageVersionId;
+      message.topic === RESOURCE_DELETION_TOPIC
+        ? message.payload.resourceVersionId
+        : message.payload.packageVersionId;
     if (subjectId !== claimed.aggregateId)
       throw new Error("Outbox aggregate and work subject do not match");
     const messageId = await sendQueueMessage(JSON.stringify(message));

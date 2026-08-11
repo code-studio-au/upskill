@@ -49,10 +49,8 @@ services:
         mc mb --ignore-existing local/upskill-quarantine;
         mc mb --ignore-existing local/upskill-learning-content;
         mc mb --ignore-existing local/upskill-private-resources;
-        mc mb --ignore-existing local/upskill-certificates;
         mc version enable local/upskill-learning-content;
-        mc version enable local/upskill-private-resources;
-        mc version enable local/upskill-certificates
+        mc version enable local/upskill-private-resources
 
   elasticmq:
     image: softwaremill/elasticmq-native:1.7.1

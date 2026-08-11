@@ -27,62 +27,42 @@ function auditActionConstraint(actions: ReadonlyArray<string>): string {
 
 export async function up(db: Kysely<unknown>): Promise<void> {
   await db.schema
-    .createTable("survey")
-    .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("title", "text", (column) => column.notNull())
-    .addColumn("createdAt", "timestamptz", (column) =>
-      column.notNull().defaultTo(sql`now()`),
-    )
-    .execute();
-
-  await db.schema
     .createTable("survey_version")
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("surveyId", "text", (column) =>
-      column.notNull().references("survey.id").onDelete("restrict"),
-    )
-    .addColumn("version", "integer", (column) => column.notNull())
+    .addColumn("kind", "text", (column) => column.notNull().defaultTo("survey"))
     .addColumn("content", "jsonb", (column) => column.notNull())
-    .addColumn("publishedAt", "timestamptz")
-    .addColumn("createdAt", "timestamptz", (column) =>
-      column.notNull().defaultTo(sql`now()`),
+    .addForeignKeyConstraint(
+      "survey_version_activity_fk",
+      ["id", "kind"],
+      "learning_activity_version",
+      ["id", "kind"],
+      (constraint) => constraint.onDelete("cascade"),
     )
-    .addUniqueConstraint("survey_version_number_uq", ["surveyId", "version"])
-    .addCheckConstraint("survey_version_number_ck", sql`version > 0`)
-    .execute();
-
-  await db.schema
-    .createTable("learning_resource")
-    .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("title", "text", (column) => column.notNull())
-    .addColumn("createdAt", "timestamptz", (column) =>
-      column.notNull().defaultTo(sql`now()`),
-    )
+    .addCheckConstraint("survey_version_kind_ck", sql`kind = 'survey'`)
     .execute();
 
   await db.schema
     .createTable("learning_resource_version")
     .addColumn("id", "text", (column) => column.primaryKey())
-    .addColumn("resourceId", "text", (column) =>
-      column.notNull().references("learning_resource.id").onDelete("restrict"),
+    .addColumn("kind", "text", (column) =>
+      column.notNull().defaultTo("resource"),
     )
-    .addColumn("version", "integer", (column) => column.notNull())
     .addColumn("displayName", "text", (column) => column.notNull())
     .addColumn("description", "text", (column) => column.notNull())
     .addColumn("objectKey", "text", (column) => column.notNull().unique())
     .addColumn("sha256", "text", (column) => column.notNull())
     .addColumn("sourceBytes", "integer", (column) => column.notNull())
     .addColumn("mediaType", "text", (column) => column.notNull())
-    .addColumn("createdAt", "timestamptz", (column) =>
-      column.notNull().defaultTo(sql`now()`),
+    .addForeignKeyConstraint(
+      "learning_resource_version_activity_fk",
+      ["id", "kind"],
+      "learning_activity_version",
+      ["id", "kind"],
+      (constraint) => constraint.onDelete("cascade"),
     )
-    .addUniqueConstraint("learning_resource_version_number_uq", [
-      "resourceId",
-      "version",
-    ])
     .addCheckConstraint(
       "learning_resource_version_values_ck",
-      sql`version > 0
+      sql`kind = 'resource'
         and "sourceBytes" > 0
         and "mediaType" = 'application/pdf'
         and sha256 ~ '^[a-f0-9]{64}$'
@@ -129,14 +109,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     )
     .addColumn("durationMinutes", "integer")
     .addColumn("modulePosition", "integer")
-    .addColumn("scormPackageVersionId", "text", (column) =>
-      column.references("scorm_package_version.id").onDelete("restrict"),
-    )
-    .addColumn("surveyVersionId", "text", (column) =>
-      column.references("survey_version.id").onDelete("restrict"),
-    )
-    .addColumn("resourceVersionId", "text", (column) =>
-      column.references("learning_resource_version.id").onDelete("restrict"),
+    .addColumn("learningActivityVersionId", "text", (column) =>
+      column.notNull(),
     )
     .addColumn("createdAt", "timestamptz", (column) =>
       column.notNull().defaultTo(sql`now()`),
@@ -148,6 +122,13 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       ["id", "courseVersionId"],
       (constraint) => constraint.onDelete("restrict"),
     )
+    .addForeignKeyConstraint(
+      "course_version_item_activity_version_fk",
+      ["learningActivityVersionId", "kind"],
+      "learning_activity_version",
+      ["id", "kind"],
+      (constraint) => constraint.onDelete("restrict"),
+    )
     .addUniqueConstraint("course_version_item_position_uq", [
       "sectionId",
       "position",
@@ -157,25 +138,16 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       "course_version_item_reference_ck",
       sql`(
           kind = 'scorm'
-          and "scormPackageVersionId" is not null
-          and "surveyVersionId" is null
-          and "resourceVersionId" is null
           and "modulePosition" is not null
           and "modulePosition" >= 0
           and "durationMinutes" is not null
           and "durationMinutes" > 0
         ) or (
           kind = 'survey'
-          and "scormPackageVersionId" is null
-          and "surveyVersionId" is not null
-          and "resourceVersionId" is null
           and "modulePosition" is null
           and ("durationMinutes" is null or "durationMinutes" > 0)
         ) or (
           kind = 'resource'
-          and "scormPackageVersionId" is null
-          and "surveyVersionId" is null
-          and "resourceVersionId" is not null
           and "modulePosition" is null
           and "durationMinutes" is null
         )`,
@@ -244,9 +216,7 @@ export async function down(db: Kysely<unknown>): Promise<void> {
     "course_version_item",
     "course_version_section",
     "learning_resource_version",
-    "learning_resource",
     "survey_version",
-    "survey",
   ])
     await db.schema.dropTable(table).ifExists().execute();
 

@@ -1,10 +1,18 @@
 # Architecture specification
 
+For the broader product and domain design, recommended future direction, and
+engineering governance, see the [Architecture Handbook](architecture/README.md).
+Accepted architectural decisions remain indexed in the [ADR
+collection](adr/README.md). This document is the concise specification of the
+implemented application architecture.
+
 ## Purpose
 
-Upskill provides a public course and event catalog, authenticated purchasing,
-bulk and contract access grants, versioned learning content, embedded SCORM,
-surveys, certificates, scheduled communications and audited administration.
+Upskill currently provides a public course catalogue, authenticated purchasing,
+organisation access grants, versioned course/SCORM/survey/PDF content,
+certificates, transactional background work and audited administration. The
+broader handbook identifies Events, enterprise contracts and notifications as
+Target Product capabilities rather than implemented features.
 
 ## Application model
 
@@ -60,29 +68,38 @@ generated style elements require the request nonce.
 
 ## Data model
 
-Stable identities (`course`, `module`, `survey`, `event_template`) are separated
-from immutable published versions. Enrolments snapshot exact versions so later
-publishing cannot rewrite learner history. Administrative completion changes are
-append-only overrides with actor, timestamp and state. Module overrides take
-precedence over SCORM evidence without rewriting attempts; the latest explicit
-course override takes precedence over derived module completion. The enrolment
-completion projection and corresponding outbox event change in the same
-transaction.
+Stable `course` and `learning_activity` identities are separated from version
+records. `learning_activity_version` is the common version envelope; SCORM,
+survey and resource child tables own validated type-specific content. Course
+items reference one exact common activity version and matching kind. Published
+learning versions are immutable, and enrolments snapshot exact course versions
+so later publishing cannot rewrite learner history. Administrative completion
+changes are append-only overrides with actor, timestamp and state. Module
+overrides take precedence over SCORM evidence without rewriting attempts; the
+latest explicit course override takes precedence over derived module completion.
+The enrolment completion projection and corresponding outbox event change in the
+same transaction.
 
-Orders and contracts create access grants. Atomic redemptions create enrolments.
-Verified email domains may restrict discovery and redemption. Stripe confirms
-payment, while Upskill remains authoritative for fulfilment.
+Paid orders and administrator actions create access grants or enrolments. Atomic
+redemptions create enrolments. Verified email domains may restrict discovery and
+redemption. Stripe confirms payment, while Upskill remains authoritative for
+fulfilment.
 Single-course Checkout snapshots the published course version and price in an
 order item before redirecting to Stripe. A raw-body, signature-verified webhook
 reconciles the session to that snapshot and serializes replay-safe fulfilment on
 the order row; the browser success redirect only reads the resulting status.
 Administrator-issued access codes are canonical human-readable values stored as
-plaintext so authorized staff can retrieve them for customers. PostgreSQL uses
-a unique normalized-code index for ordinary equality lookup; no separate HMAC
-key or access-code secret is required. Codes are never written to logs or audit
-metadata. Retrieval is an explicit authorized command with durable audit
-evidence. Redemption locks the grant row and commits the capacity update,
-enrolment, audit event and outbox event in one transaction.
+plaintext in the current implementation so authorized staff can retrieve them
+for customers. PostgreSQL uses a unique normalized-code index for equality
+lookup. [ADR 0019](adr/0019-encrypted-recoverable-access-codes.md) accepts a
+pre-production migration to authenticated ciphertext plus a generated public
+lookup ID embedded in the displayed code. Redemption will select one row by that
+ordinary indexed ID, decrypt it and compare the complete code; no separate HMAC
+lookup key is required. That target must not be described as implemented until
+the migration and runtime boundary land. Codes and their cryptographic forms are
+never written to logs or audit metadata. Retrieval is an explicit authorized
+command with durable audit evidence. Redemption locks the grant row and commits
+the capacity update, enrolment, audit event and outbox event in one transaction.
 Grants bind an organisation, capacity, learner access duration, optional expiry
 and optional normalized email domains. Administrators may change total capacity
 without changing the code, but cannot reduce it below the number already
@@ -94,16 +111,17 @@ the authenticated user. They resolve the exact enrolled course version and
 reject expired or removed access before any learning content is exposed;
 completed enrolments remain reviewable while their access window is valid.
 
-Course versions contain ordered sections and ordered items. Every item points
-to one exact SCORM, survey or PDF resource version. Published versions are
-immutable; an author must explicitly create a new draft version before
-reordering or removing content. Archiving removes a course from discovery while
-retaining history. Permanent deletion requires an archived course with no
-enrolment, order-item or access-grant references. Learner item evidence is
-stored, while section completion is derived from required items so it cannot
-drift from module, survey or resource progress. Content libraries expose the
-exact linked course version and its draft, published and archived state so
-administrators can understand reference and removal boundaries.
+Course versions contain ordered sections and ordered items. Every item points to
+one exact Learning Activity Version, discriminated as SCORM, survey or PDF
+resource. Published versions are immutable; an author must explicitly create a
+new draft version before reordering or removing content. Archiving removes a
+course from discovery while retaining history. Permanent deletion requires an
+archived course with no enrolment, order-item or access-grant references.
+Learner item evidence is stored, while section completion is derived from
+required items so it cannot drift from module, survey or resource progress.
+Content libraries expose the exact linked course version and its draft,
+published and archived state so administrators can understand reference and
+removal boundaries.
 
 Published survey versions contain validated written, single-choice and
 multiple-choice questions. Learner responses are entitlement-scoped to an
@@ -113,7 +131,7 @@ stored as immutable evidence without answer content entering centralized logs.
 ## Content and asynchronous work
 
 S3 buckets separate quarantine uploads, immutable learning content, private
-resources/certificates and deployment artifacts. SCORM runs on a dedicated
+resources and deployment artifacts. SCORM runs on a dedicated
 learning origin so package scripts do not receive the main application's auth
 cookies or weaken the primary application's CSP. The application embeds the
 attempt player in a sandboxed iframe. Rise's required inline-script, inline-style
@@ -152,17 +170,16 @@ in a shared library. A version can be removed only when no draft or published
 course item references it; removal commits its durable audit event and exact-key
 cleanup request atomically, then the content worker deletes the private object.
 
-Completion certificates are immutable snapshots of an exact learner, course
-version and completion timestamp. Eligible completion transactions atomically
-create one pending snapshot and generation outbox event. The content worker
-renders the PDF into the private certificate bucket, marks it ready and records
-durable issuance evidence. Learner downloads are same-origin, authenticated and
-non-cacheable; ownership and the current matching completion timestamp are
-rechecked on every request, so an administrator completion revocation removes
-download eligibility while preserving historical evidence.
+Completion certificates are derived documents rather than persisted domain
+state. A same-origin authenticated download rechecks ownership, the exact
+enrolled course version, its certificate setting and the enrolment's current
+completed state, then renders the PDF synchronously and returns private,
+non-cacheable bytes. No certificate database row, S3 object, queue command or
+issuance audit record exists. An administrator completion override removes
+download eligibility immediately; recompletion restores it immediately.
 
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
-fulfilment, SCORM extraction, certificates, email and scheduled rules. The
+fulfilment, SCORM extraction, resource cleanup, email and scheduled rules. The
 dispatcher publishes versioned envelopes after the domain transaction commits;
 consumers delete messages only after idempotent handlers reach a terminal
 outcome. Long-running work extends its visibility lease, transient failure is
@@ -226,3 +243,12 @@ direct local launches replace any client-supplied value with the socket address.
 - Transactional append-only audit records with committed structured-log
   projections, sanitized operational/error events, request correlation and
   deployment identity output suitable for journald and future Datadog intake.
+
+While the product has no non-disposable environment or real users, the
+pre-production policy in
+[ADR 0021](adr/0021-pre-production-schema-rebaselining.md) permits a deliberate
+migration-chain rebase plus local/CI database reset. Fresh-database and complete
+behaviour gates are authoritative during this temporary phase. Forward-only
+expand/contract migrations become mandatory at the production-baseline trigger;
+published content and learner evidence remain historically immutable
+throughout.

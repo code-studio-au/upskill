@@ -25,13 +25,20 @@ pnpm dev
 The local stack follows the Projex pattern: PostgreSQL, MinIO and ElasticMQ,
 with durable database/object data under the ignored `.local/` directory. MinIO
 exposes its S3 API on port 9020 and console on 9021, and initializes private
-quarantine, learning-content, resource and certificate buckets. ElasticMQ
+quarantine, learning-content and resource buckets. ElasticMQ
 exposes its SQS-compatible API on port 9324 and web UI on 9325; its work queue,
 15-minute visibility timeout and five-receive DLQ policy match CDK. `pnpm dev`
 starts Vite for the application on port 3000, the isolated learning origin on
 port 3001 and the local SCORM worker, so asynchronous uploads are processed and
 modules run inside the learner workspace. Use `pnpm dev:web` only when
 deliberately running the learning origin and worker separately.
+
+The project is currently pre-production with no real data. Accepted breaking
+domain changes may rebase the migration chain and require a reset of only
+`.local/postgres`; see ADR 0021. This temporary policy ends before the first
+non-disposable environment or external user, when the migration baseline is
+frozen and all later schema changes become forward-only. Object-storage data is
+not implicitly removed by a database reset.
 
 To exercise the production asset and HTTP-compression path locally, run:
 
@@ -88,14 +95,21 @@ capacity-limited codes for an exact published version with an enrolment duration
 optional expiry and optional verified-email domains. Administrators choose a
 memorable code, can retrieve it later, and can increase or otherwise adjust its
 capacity without replacing it; capacity cannot be reduced below places already
-redeemed. The canonical code is stored as plaintext by design, while a keyed
-digest provides normalized unique lookup. Code retrieval and capacity changes
-are audited. Revocation blocks discovery and future redemption while retaining
-existing learner enrolments and audit history.
-Published versions are immutable, so structural changes require an explicit new
-version and never rewrite existing enrolments. Courses can be archived; an
-archived course can be permanently deleted only when it has no enrolment or
-commerce history. The learner workspace shows derived item and section progress.
+redeemed. The canonical code is currently stored as plaintext, with a normalized
+PostgreSQL expression index providing lookup. The accepted pre-production target
+encrypts the recoverable code and embeds a generated public lookup ID for an
+ordinary indexed candidate lookup and full-code comparison; see ADR 0019. It
+does not require a separate HMAC lookup secret. Code retrieval and capacity
+changes are audited. Revocation blocks discovery and future redemption while
+retaining existing learner enrolments and audit history.
+SCORM, surveys and resources share stable Learning Activity identities and a
+common Learning Activity Version envelope, with validated type-specific content
+tables keyed by the same version identifier. Course items carry one exact
+activity-version reference and kind. Published versions are immutable, so
+structural changes require an explicit new version and never rewrite existing
+enrolments. Courses can be archived; an archived course can be permanently
+deleted only when it has no enrolment or commerce history. The learner workspace
+shows derived item and section progress.
 Survey authoring is available at `/admin/surveys`; published question sets are
 immutable, and entitled learners submit exact-version responses that contribute
 to section and course completion. The survey library identifies every course
@@ -104,12 +118,12 @@ Private PDF resources are managed at `/admin/resources`. Uploads create stable
 resources or immutable new versions; unreferenced versions can be removed, with
 durable audit and retryable exact-object cleanup through the content worker.
 Referenced PDF versions link back to each exact course version that uses them.
-Courses configured with a completion certificate issue an immutable PDF
-snapshot when an enrolment completes. The local content worker generates the
-document in the private certificate bucket; the learner dashboard automatically
-changes from a preparing state to an authenticated download action. Revoking a
-completion removes access to that certificate, while a later recompletion
-issues a new snapshot.
+Courses configured with a completion certificate expose a download only while
+the learner's exact enrolment is currently completed. The authenticated route
+rechecks ownership, completion and the exact course-version setting, renders the
+PDF on demand and returns private, non-cacheable bytes. It stores no certificate
+row or object. An administrator completion override therefore removes the
+download immediately; recompletion restores it immediately.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:
@@ -132,14 +146,18 @@ pnpm run verify:cdk
 pnpm run verify:db:gate
 ```
 
-See [the architecture specification](docs/architecture.md) and
+See the [architecture specification](docs/architecture.md), broader
+[architecture handbook](docs/architecture/README.md) and
 [architecture decisions](docs/adr/README.md).
 
 Before the first AWS release, populate the application configuration secret
 output by the CDK application stack with the real application/learning origins
-and Stripe keys. EC2 combines that secret with the separately generated
-access-code pepper and RDS secrets into a private systemd environment file on
-boot and at every atomic deployment.
+and Stripe keys. EC2 combines that application secret with the RDS secret in a
+private systemd environment file on boot and at every atomic deployment. The
+access-code encryption key required by ADR 0019 must be added to this external
+secret boundary when that pending migration is implemented; it does not exist in
+the current runtime. The public lookup ID is stored in PostgreSQL and requires no
+separate secret.
 Set the corresponding GitHub environment's `AWS_DEPLOY_ROLE_ARN` and
 `ARTIFACT_BUCKET` secrets from the deployment-identity and storage stack
 outputs.

@@ -51,10 +51,6 @@ async function cleanup(): Promise<void> {
     const versionIds = versions.map((version) => version.id);
     if (versionIds.length > 0) {
       await database
-        .deleteFrom("course_version_module")
-        .where("courseVersionId", "in", versionIds)
-        .execute();
-      await database
         .deleteFrom("course_version_item")
         .where("courseVersionId", "in", versionIds)
         .execute();
@@ -70,25 +66,17 @@ async function cleanup(): Promise<void> {
     await database.deleteFrom("course").where("id", "=", id).execute();
   }
   await database
-    .deleteFrom("learning_resource_version")
-    .where("id", "=", ids.resourceVersion)
+    .deleteFrom("learning_activity_version")
+    .where("id", "in", [
+      ids.moduleVersionOne,
+      ids.moduleVersionTwo,
+      ids.resourceVersion,
+      ids.surveyVersion,
+    ])
     .execute();
   await database
-    .deleteFrom("learning_resource")
-    .where("id", "=", ids.resource)
-    .execute();
-  await database
-    .deleteFrom("survey_version")
-    .where("id", "=", ids.surveyVersion)
-    .execute();
-  await database.deleteFrom("survey").where("id", "=", ids.survey).execute();
-  await database
-    .deleteFrom("scorm_package_version")
-    .where("id", "in", [ids.moduleVersionOne, ids.moduleVersionTwo])
-    .execute();
-  await database
-    .deleteFrom("scorm_package")
-    .where("id", "=", ids.module)
+    .deleteFrom("learning_activity")
+    .where("id", "in", [ids.module, ids.resource, ids.survey])
     .execute();
   await database
     .deleteFrom("outbox_event")
@@ -126,16 +114,51 @@ try {
     .values({ userId: ids.user, grantedByUserId: ids.user })
     .execute();
   await database
-    .insertInto("scorm_package")
-    .values({ id: ids.module, title: "Verified module" })
+    .insertInto("learning_activity")
+    .values([
+      { id: ids.module, kind: "scorm", title: "Verified module" },
+      { id: ids.resource, kind: "resource", title: "Verified PDF" },
+      { id: ids.survey, kind: "survey", title: "Verified survey" },
+    ])
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values([
+      {
+        id: ids.moduleVersionOne,
+        activityId: ids.module,
+        kind: "scorm",
+        version: 1,
+        publishedAt: new Date(),
+      },
+      {
+        id: ids.moduleVersionTwo,
+        activityId: ids.module,
+        kind: "scorm",
+        version: 2,
+        publishedAt: new Date(),
+      },
+      {
+        id: ids.resourceVersion,
+        activityId: ids.resource,
+        kind: "resource",
+        version: 1,
+        publishedAt: new Date(),
+      },
+      {
+        id: ids.surveyVersion,
+        activityId: ids.survey,
+        kind: "survey",
+        version: 1,
+        publishedAt: new Date(),
+      },
+    ])
     .execute();
   await database
     .insertInto("scorm_package_version")
     .values([
       {
         id: ids.moduleVersionOne,
-        packageId: ids.module,
-        version: 1,
         status: "ready",
         standard: "scorm-1.2",
         contentPrefix: "verify/authoring/module-one",
@@ -145,12 +168,9 @@ try {
         sourceBytes: 1,
         failureCode: null,
         processedAt: new Date(),
-        publishedAt: new Date(),
       },
       {
         id: ids.moduleVersionTwo,
-        packageId: ids.module,
-        version: 2,
         status: "ready",
         standard: "scorm-1.2",
         contentPrefix: "verify/authoring/module-two",
@@ -160,20 +180,13 @@ try {
         sourceBytes: 1,
         failureCode: null,
         processedAt: new Date(),
-        publishedAt: new Date(),
       },
     ])
-    .execute();
-  await database
-    .insertInto("learning_resource")
-    .values({ id: ids.resource, title: "Verified PDF" })
     .execute();
   await database
     .insertInto("learning_resource_version")
     .values({
       id: ids.resourceVersion,
-      resourceId: ids.resource,
-      version: 1,
       displayName: "verified.pdf",
       description: "Verified immutable resource",
       objectKey: `resources/${ids.resourceVersion}/${"3".repeat(64)}.pdf`,
@@ -183,17 +196,10 @@ try {
     })
     .execute();
   await database
-    .insertInto("survey")
-    .values({ id: ids.survey, title: "Verified survey" })
-    .execute();
-  await database
     .insertInto("survey_version")
     .values({
       id: ids.surveyVersion,
-      surveyId: ids.survey,
-      version: 1,
       content: { sections: [] },
-      publishedAt: new Date(),
     })
     .execute();
 
@@ -272,10 +278,14 @@ try {
   );
   assert.deepEqual(
     await database
-      .selectFrom("course_version_module")
-      .select(["position", "scormPackageVersionId"])
+      .selectFrom("course_version_item")
+      .select([
+        "modulePosition as position",
+        "learningActivityVersionId as scormPackageVersionId",
+      ])
       .where("courseVersionId", "=", created.versionId)
-      .orderBy("position")
+      .where("kind", "=", "scorm")
+      .orderBy("modulePosition")
       .execute(),
     [
       { position: 0, scormPackageVersionId: ids.moduleVersionOne },
@@ -317,17 +327,22 @@ try {
   );
   assert.deepEqual(
     await database
-      .selectFrom("course_version_module")
-      .select(["position", "scormPackageVersionId"])
+      .selectFrom("course_version_item")
+      .select([
+        "modulePosition as position",
+        "learningActivityVersionId as scormPackageVersionId",
+      ])
       .where("courseVersionId", "=", versioned.versionId)
+      .where("kind", "=", "scorm")
       .execute(),
     [{ position: 0, scormPackageVersionId: ids.moduleVersionTwo }],
   );
   assert.equal(
     await database
-      .selectFrom("course_version_module")
-      .select("scormPackageVersionId")
+      .selectFrom("course_version_item")
+      .select("learningActivityVersionId")
       .where("courseVersionId", "=", created.versionId)
+      .where("kind", "=", "scorm")
       .execute()
       .then((rows) => rows.length),
     2,

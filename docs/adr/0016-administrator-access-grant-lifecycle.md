@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted.
+Partially superseded by
+[ADR 0019: Encrypted recoverable access codes](0019-encrypted-recoverable-access-codes.md).
+The grant lifecycle remains accepted; the plaintext-storage and lookup decision
+below is retained as historical context.
 
 ## Decision
 

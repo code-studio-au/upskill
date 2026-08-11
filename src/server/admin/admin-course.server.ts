@@ -96,38 +96,34 @@ function itemFromRow(row: {
   title: string;
   required: boolean;
   durationMinutes: number | null;
-  scormPackageVersionId: string | null;
-  surveyVersionId: string | null;
-  resourceVersionId: string | null;
+  learningActivityVersionId: string;
 }): AdminCourseItem {
-  if (row.kind === "scorm" && row.scormPackageVersionId)
+  if (row.kind === "scorm")
     return {
       id: row.id,
       kind: "scorm",
       title: row.title,
       required: row.required,
       durationMinutes: row.durationMinutes ?? 1,
-      scormPackageVersionId: row.scormPackageVersionId,
+      scormPackageVersionId: row.learningActivityVersionId,
     };
-  if (row.kind === "survey" && row.surveyVersionId)
+  if (row.kind === "survey")
     return {
       id: row.id,
       kind: "survey",
       title: row.title,
       required: row.required,
       durationMinutes: row.durationMinutes,
-      surveyVersionId: row.surveyVersionId,
+      surveyVersionId: row.learningActivityVersionId,
     };
-  if (row.kind === "resource" && row.resourceVersionId)
-    return {
-      id: row.id,
-      kind: "resource",
-      title: row.title,
-      required: row.required,
-      durationMinutes: null,
-      resourceVersionId: row.resourceVersionId,
-    };
-  throw new Error("Course version item has an invalid reference shape");
+  return {
+    id: row.id,
+    kind: "resource",
+    title: row.title,
+    required: row.required,
+    durationMinutes: null,
+    resourceVersionId: row.learningActivityVersionId,
+  };
 }
 
 async function loadDraftStructure(
@@ -155,9 +151,7 @@ async function loadDraftStructure(
       "course_version_item.required as itemRequired",
       "course_version_item.durationMinutes",
       "course_version_item.position as itemPosition",
-      "course_version_item.scormPackageVersionId",
-      "course_version_item.surveyVersionId",
-      "course_version_item.resourceVersionId",
+      "course_version_item.learningActivityVersionId",
     ])
     .where("course_version_section.courseVersionId", "=", versionId)
     .orderBy("course_version_section.position")
@@ -176,7 +170,12 @@ async function loadDraftStructure(
       };
       sections.set(row.sectionId, section);
     }
-    if (row.itemId && row.itemKind && row.itemTitle)
+    if (
+      row.itemId &&
+      row.itemKind &&
+      row.itemTitle &&
+      row.learningActivityVersionId
+    )
       section.items.push(
         itemFromRow({
           id: row.itemId,
@@ -184,9 +183,7 @@ async function loadDraftStructure(
           title: row.itemTitle,
           required: row.itemRequired ?? true,
           durationMinutes: row.durationMinutes,
-          scormPackageVersionId: row.scormPackageVersionId,
-          surveyVersionId: row.surveyVersionId,
-          resourceVersionId: row.resourceVersionId,
+          learningActivityVersionId: row.learningActivityVersionId,
         }),
       );
   }
@@ -324,51 +321,70 @@ export async function findAdminCourse(
       database
         .selectFrom("scorm_package_version")
         .innerJoin(
-          "scorm_package",
-          "scorm_package.id",
-          "scorm_package_version.packageId",
+          "learning_activity_version",
+          "learning_activity_version.id",
+          "scorm_package_version.id",
+        )
+        .innerJoin(
+          "learning_activity",
+          "learning_activity.id",
+          "learning_activity_version.activityId",
         )
         .select([
           "scorm_package_version.id",
-          "scorm_package.id as packageId",
-          "scorm_package.title",
-          "scorm_package_version.version",
+          "learning_activity.id as packageId",
+          "learning_activity.title",
+          "learning_activity_version.version",
         ])
         .where("scorm_package_version.status", "=", "ready")
-        .orderBy("scorm_package.title")
-        .orderBy("scorm_package_version.version", "desc")
+        .orderBy("learning_activity.title")
+        .orderBy("learning_activity_version.version", "desc")
         .execute(),
       database
         .selectFrom("learning_resource_version")
         .innerJoin(
-          "learning_resource",
-          "learning_resource.id",
-          "learning_resource_version.resourceId",
+          "learning_activity_version",
+          "learning_activity_version.id",
+          "learning_resource_version.id",
+        )
+        .innerJoin(
+          "learning_activity",
+          "learning_activity.id",
+          "learning_activity_version.activityId",
         )
         .select([
           "learning_resource_version.id",
-          "learning_resource.id as resourceId",
-          "learning_resource.title",
+          "learning_activity.id as resourceId",
+          "learning_activity.title",
           "learning_resource_version.displayName",
           "learning_resource_version.description",
-          "learning_resource_version.version",
+          "learning_activity_version.version",
           "learning_resource_version.sourceBytes",
         ])
-        .orderBy("learning_resource.title")
-        .orderBy("learning_resource_version.version", "desc")
+        .orderBy("learning_activity.title")
+        .orderBy("learning_activity_version.version", "desc")
         .execute(),
       database
         .selectFrom("survey_version")
-        .innerJoin("survey", "survey.id", "survey_version.surveyId")
+        .innerJoin(
+          "learning_activity_version",
+          "learning_activity_version.id",
+          "survey_version.id",
+        )
+        .innerJoin(
+          "learning_activity",
+          "learning_activity.id",
+          "learning_activity_version.activityId",
+        )
         .select([
           "survey_version.id",
-          "survey.id as surveyId",
-          "survey.title",
-          "survey_version.version",
+          "learning_activity.id as surveyId",
+          "learning_activity.title",
+          "learning_activity_version.version",
         ])
-        .where("survey_version.publishedAt", "is not", null)
-        .orderBy("survey.title")
-        .orderBy("survey_version.version", "desc")
+        .where("learning_activity_version.publishedAt", "is not", null)
+        .orderBy("learning_activity.title")
+        .orderBy("learning_activity_version.version", "desc")
         .execute(),
     ]);
 
@@ -463,9 +479,14 @@ async function validateDraftReferences(
       ? []
       : transaction
           .selectFrom("scorm_package_version")
-          .select("id")
-          .where("id", "in", moduleIds)
-          .where("status", "=", "ready")
+          .innerJoin(
+            "learning_activity_version",
+            "learning_activity_version.id",
+            "scorm_package_version.id",
+          )
+          .select("scorm_package_version.id as id")
+          .where("scorm_package_version.id", "in", moduleIds)
+          .where("scorm_package_version.status", "=", "ready")
           .execute(),
     resourceIds.length === 0
       ? []
@@ -478,9 +499,14 @@ async function validateDraftReferences(
       ? []
       : transaction
           .selectFrom("survey_version")
-          .select("id")
-          .where("id", "in", surveyIds)
-          .where("publishedAt", "is not", null)
+          .innerJoin(
+            "learning_activity_version",
+            "learning_activity_version.id",
+            "survey_version.id",
+          )
+          .select("survey_version.id as id")
+          .where("survey_version.id", "in", surveyIds)
+          .where("learning_activity_version.publishedAt", "is not", null)
           .execute(),
   ]);
   return (
@@ -494,10 +520,6 @@ async function replaceDraftStructure(
   transaction: Transaction<Database>,
   draft: AdminCourseDraft,
 ): Promise<void> {
-  await transaction
-    .deleteFrom("course_version_module")
-    .where("courseVersionId", "=", draft.versionId)
-    .execute();
   await transaction
     .deleteFrom("course_version_item")
     .where("courseVersionId", "=", draft.versionId)
@@ -534,22 +556,14 @@ async function replaceDraftStructure(
           required: item.required,
           durationMinutes: item.durationMinutes,
           modulePosition: currentModulePosition,
-          scormPackageVersionId:
-            item.kind === "scorm" ? item.scormPackageVersionId : null,
-          surveyVersionId: item.kind === "survey" ? item.surveyVersionId : null,
-          resourceVersionId:
-            item.kind === "resource" ? item.resourceVersionId : null,
+          learningActivityVersionId:
+            item.kind === "scorm"
+              ? item.scormPackageVersionId
+              : item.kind === "survey"
+                ? item.surveyVersionId
+                : item.resourceVersionId,
         })
         .execute();
-      if (item.kind === "scorm" && currentModulePosition !== null)
-        await transaction
-          .insertInto("course_version_module")
-          .values({
-            courseVersionId: draft.versionId,
-            position: currentModulePosition,
-            scormPackageVersionId: item.scormPackageVersionId,
-          })
-          .execute();
     }
   }
 }
@@ -854,10 +868,6 @@ export async function deleteArchivedAdminCourse(
         .execute();
       const ids = versionIds.map(({ id }) => id);
       if (ids.length > 0) {
-        await transaction
-          .deleteFrom("course_version_module")
-          .where("courseVersionId", "in", ids)
-          .execute();
         await transaction
           .deleteFrom("course_version_item")
           .where("courseVersionId", "in", ids)

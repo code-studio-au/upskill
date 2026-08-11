@@ -181,7 +181,12 @@ export async function findLearnerSurvey(
     .innerJoin(
       "survey_version",
       "survey_version.id",
-      "course_version_item.surveyVersionId",
+      "course_version_item.learningActivityVersionId",
+    )
+    .innerJoin(
+      "learning_activity_version",
+      "learning_activity_version.id",
+      "survey_version.id",
     )
     .leftJoin("survey_response", (join) =>
       join
@@ -208,7 +213,7 @@ export async function findLearnerSurvey(
       "course_version_section.title as sectionTitle",
       "survey_version.id as surveyVersionId",
       "survey_version.content",
-      "survey_version.publishedAt",
+      "learning_activity_version.publishedAt",
       "survey_response.answers as responseAnswers",
       "survey_response.submittedAt",
       "survey_progress.answers as progressAnswers",
@@ -277,7 +282,12 @@ export async function advanceLearnerSurvey(
       .innerJoin(
         "survey_version",
         "survey_version.id",
-        "course_version_item.surveyVersionId",
+        "course_version_item.learningActivityVersionId",
+      )
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "survey_version.id",
       )
       .select([
         "enrollment.id as enrollmentId",
@@ -285,7 +295,7 @@ export async function advanceLearnerSurvey(
         "course_version_item.id as itemId",
         "survey_version.id as surveyVersionId",
         "survey_version.content",
-        "survey_version.publishedAt",
+        "learning_activity_version.publishedAt",
       ])
       .where("enrollment.id", "=", input.enrollmentId)
       .where("enrollment.userId", "=", user.id)

@@ -1,6 +1,8 @@
 # ADR 0009: Structured logging and durable audit projection
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 

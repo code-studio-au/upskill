@@ -148,7 +148,7 @@ function drawFittedCentredText(
 }
 
 export async function renderCompletionCertificate(input: {
-  certificateId: string;
+  completionReference: string;
   learnerName: string;
   courseTitle: string;
   completedAt: Date;
@@ -212,7 +212,7 @@ export async function renderCompletionCertificate(input: {
   drawFittedCentredText(
     page,
     regular,
-    `Certificate ID: ${input.certificateId}`,
+    `Completion reference: ${input.completionReference}`,
     74,
     { preferredSize: 9, minimumSize: 7 },
     rgb(0.35, 0.38, 0.45),

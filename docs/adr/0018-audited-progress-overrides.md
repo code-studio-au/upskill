@@ -1,16 +1,18 @@
-# ADR 0005: Audited progress overrides
+# ADR 0018: Audited progress overrides
 
-Status: Accepted
+## Status
+
+Accepted.
 
 ## Decision
 
 Administrator completion corrections are append-only records with actor,
 timestamp and the previous and resulting states. Administrators do not need to
 enter a reason. A module correction supersedes the underlying SCORM result
-without modifying any attempt. The latest explicit overall-course
-correction wins, ordered by a database-generated monotonic sequence so
-concurrent corrections cannot share an ambiguous position. Without one, course
-completion remains derived from the effective state of every mapped module.
+without modifying any attempt. The latest explicit overall-course correction
+wins, ordered by a database-generated monotonic sequence so concurrent
+corrections cannot share an ambiguous position. Without one, course completion
+remains derived from the effective state of every mapped module.
 
 The command locks the enrolment, rejects repeated no-op corrections, writes the
 authoritative override and its sanitized audit-log projection, and updates the
