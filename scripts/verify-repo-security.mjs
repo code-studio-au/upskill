@@ -129,12 +129,25 @@ for (const learningException of [
   '"script-src": ["\'self\'", "\'unsafe-inline\'", "\'unsafe-eval\'"]',
   '"script-src-attr": ["\'unsafe-inline\'"]',
   '"style-src-attr": ["\'unsafe-inline\'"]',
+  '"https://embed.articulateusercontent.com"',
 ]) {
   if (!learningCsp.includes(learningException))
     failures.push(
       `Learning-origin SCORM compatibility policy is missing: ${learningException}`,
     );
 }
+const learnerRoute = fs.readFileSync(
+  path.join(root, "src/routes/learn.$enrollmentId.tsx"),
+  "utf8",
+);
+if (
+  !learnerRoute.includes(
+    'sandbox="allow-downloads allow-popups allow-same-origin allow-scripts"',
+  )
+)
+  failures.push(
+    "The SCORM sandbox must retain the bounded download and popup compatibility profile",
+  );
 if (!zodAdapter.includes("z.config({ jitless: true })"))
   failures.push("The shared Zod adapter must disable eval-based JIT probing");
 if (!serverZodAdapter.includes("z.config({ jitless: true })"))

@@ -566,6 +566,9 @@ test("SCORM launch boundaries reject the wrong origin and missing session", asyn
   expect(missingAttemptSession.headers()["content-security-policy"]).toContain(
     `frame-ancestors 'self' ${new URL(testInfo.project.use.baseURL ?? "").origin}`,
   );
+  expect(missingAttemptSession.headers()["content-security-policy"]).toContain(
+    "frame-src 'self' https://embed.articulateusercontent.com",
+  );
 });
 
 test("learners run SCORM inside the course workspace", async ({
@@ -703,6 +706,10 @@ test("learners run SCORM inside the course workspace", async ({
       has: page.getByText("E2E embedded module", { exact: true }),
     });
     await moduleCard.getByRole("button", { name: "Launch" }).click();
+    await expect(moduleCard.locator("iframe")).toHaveAttribute(
+      "sandbox",
+      "allow-downloads allow-popups allow-same-origin allow-scripts",
+    );
     const shell = page.frameLocator('iframe[title="E2E embedded module"]');
     const sco = shell.frameLocator("#scorm-content");
     await expect(
@@ -1179,6 +1186,7 @@ test("platform administrators can inspect learner progress", async ({
     await expect(occurrenceDialog.getByLabel("Friendly URL")).toHaveValue(
       eventSlug,
     );
+    await occurrenceDialog.getByLabel("IANA timezone").fill("Australia/Sydney");
     await occurrenceDialog.getByLabel("Starts").fill("2027-08-21T09:00");
     await occurrenceDialog.getByLabel("Ends").fill("2027-08-21T10:30");
     await occurrenceDialog

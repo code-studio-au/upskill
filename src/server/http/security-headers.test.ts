@@ -44,14 +44,17 @@ describe("content security policy", () => {
       "https://app.example.test",
     );
     expect(policy).toContain("frame-ancestors 'self' https://app.example.test");
+    expect(policy).toContain(
+      "frame-src 'self' https://embed.articulateusercontent.com",
+    );
     expect(policy).toContain("script-src-attr 'unsafe-inline'");
     expect(policy).toContain("'unsafe-eval'");
-    expect(
-      buildContentSecurityPolicy(
-        "application-nonce",
-        "https://learn.example.test",
-      ),
-    ).not.toContain("unsafe-eval");
+    const applicationPolicy = buildContentSecurityPolicy(
+      "application-nonce",
+      "https://learn.example.test",
+    );
+    expect(applicationPolicy).not.toContain("unsafe-eval");
+    expect(applicationPolicy).not.toContain("articulateusercontent.com");
 
     vi.stubEnv("APP_ORIGIN", "https://app.example.test");
     vi.stubEnv("LEARNING_ORIGIN", "https://learn.example.test");

@@ -50,6 +50,11 @@ SCORM response policy on the dedicated learning origin. The application embeds
 that origin in a sandboxed iframe, the learning origin accepts framing only from
 the configured application origin, and every shell, state and package request
 requires the attempt-scoped HTTP-only session.
+The learning-origin policy permits frames from Articulate's dedicated embed
+origin so supported Rise media can load without broadening the application
+policy or allowing arbitrary HTTPS frames. The outer sandbox permits
+user-initiated popups and downloads so packaged references such as PDFs can
+open, but does not allow popups to escape the sandbox.
 The web process remains in the upload data path, so nginx and the application
 must preserve streaming and coordinated limits. This keeps authorization,
 auditing and cleanup atomic at the application boundary without buffering a

@@ -304,7 +304,7 @@ function ItemAction({
             className={classes.playerFrame}
             src={launchUrl}
             title={item.title}
-            sandbox="allow-same-origin allow-scripts"
+            sandbox="allow-downloads allow-popups allow-same-origin allow-scripts"
             onLoad={() => void router.invalidate()}
           />
         ) : null}
