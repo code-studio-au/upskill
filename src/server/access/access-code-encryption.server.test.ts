@@ -45,7 +45,17 @@ describe("access-code authenticated encryption", () => {
       lookupId: "K7M4P9Q2WX",
       accessCode: "MEAL-SUPPORT-2027-K7M4P9Q2WX",
     });
-    const tampered = `${protectedCode.slice(0, -1)}${protectedCode.endsWith("A") ? "B" : "A"}`;
+    const envelope = protectedCode.split(".");
+    const encodedAuthenticationTag = envelope[3];
+    if (!encodedAuthenticationTag)
+      throw new Error("Encrypted test fixture has no authentication tag");
+    const tamperedAuthenticationTag = Buffer.from(
+      encodedAuthenticationTag,
+      "base64url",
+    );
+    tamperedAuthenticationTag[0] = (tamperedAuthenticationTag[0] ?? 0) ^ 0x01;
+    envelope[3] = tamperedAuthenticationTag.toString("base64url");
+    const tampered = envelope.join(".");
     expect(() =>
       decryptAccessCode({
         accessGrantId: "grant_one",
