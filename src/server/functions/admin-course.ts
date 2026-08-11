@@ -1,6 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
-  adminCourseCreateSchema,
   adminCourseDraftSchema,
   adminCourseEnrollmentCreateSchema,
   adminCourseEnrollmentRemoveSchema,
@@ -38,16 +37,15 @@ export const getAdminCourse = createServerFn({ method: "GET" })
     return course ? { status: "ready", data: course } : { status: "not-found" };
   });
 
-export const createAdminCourse = createServerFn({ method: "POST" })
-  .validator(adminCourseCreateSchema)
-  .handler(async ({ data }): Promise<AdminCourseMutationResult> => {
+export const startAdminCourse = createServerFn({ method: "POST" }).handler(
+  async (): Promise<AdminCourseMutationResult> => {
     const { getAdministratorRequest } =
       await import("#/server/admin/admin-access.server");
     const request = await getAdministratorRequest();
     if (request.status !== "ready") return request;
-    const { createAdminCourse: createCourse } =
+    const { startAdminCourse: startCourse } =
       await import("#/server/admin/admin-course.server");
-    const outcome = await createCourse(data, request.user);
+    const outcome = await startCourse(request.user);
     return outcome.status === "conflict"
       ? { status: "conflict", reason: outcome.reason }
       : {
@@ -58,7 +56,8 @@ export const createAdminCourse = createServerFn({ method: "POST" })
             versionId: outcome.versionId,
           },
         };
-  });
+  },
+);
 
 export const saveAdminCourse = createServerFn({ method: "POST" })
   .validator(adminCourseDraftSchema)
@@ -71,7 +70,11 @@ export const saveAdminCourse = createServerFn({ method: "POST" })
       await import("#/server/admin/admin-course.server");
     const outcome = await saveAdminCourseDraft(data, request.user);
     if (outcome === "not-found") return { status: "not-found" };
-    if (outcome !== "saved") return { status: "conflict", reason: outcome };
+    if (outcome !== "saved")
+      return {
+        status: "conflict",
+        reason: outcome === "slug-in-use" ? "slug_in_use" : outcome,
+      };
     return {
       status: "ready",
       data: { outcome: "saved", courseId: data.courseId },

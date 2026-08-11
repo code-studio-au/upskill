@@ -197,7 +197,7 @@ Implement:
   standard-admin fallback, and successor Template versions that remove disabled
   administrator/Coordinator/Presenter defaults;
 - scheduled occurrences;
-- physical/virtual/hybrid delivery;
+- in-person/virtual delivery;
 - sessions/days;
 - capacity and registration windows;
 - occurrence-level open entry, required unrestricted registration or required
@@ -549,8 +549,9 @@ without understanding why.
   exact-version occurrence/session schema (implemented foundation);
 - separate registration, participation and attendance records plus capacity
   constraints (implemented schema; operational workflows pending);
-- initial one-session Template and occurrence admin authoring (implemented;
-  multi-session, regions and assignment editors pending);
+- blank Template creation with explicit default administrators, multi-session
+  and region/assignment authoring, ordered learning activities, immutable
+  publication and successor versions (implemented);
 - multi-owner standard-admin Event responsibility plus multi-Coordinator regional
   and Presenter assignments, including revocation/replacement workflows;
 - registration selection and attendance-taking workflows.

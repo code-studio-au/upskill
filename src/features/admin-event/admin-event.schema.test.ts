@@ -9,7 +9,7 @@ import {
 const validOccurrence = {
   eventTemplateVersionId: "event_template_version_1",
   title: "Statewide workshop",
-  deliveryMode: "hybrid" as const,
+  deliveryMode: "virtual" as const,
   registrationMode: "required_restricted" as const,
   approvalMode: "manual" as const,
   timezone: "Australia/Sydney",
@@ -19,8 +19,8 @@ const validOccurrence = {
   registrationClosesAt: "2027-08-10T00:00:00.000Z",
   coordinatorLockAt: "2027-08-12T00:00:00.000Z",
   capacity: 80,
-  venueName: "Learning Centre",
-  venueAddress: "1 Example Street",
+  venueName: "",
+  venueAddress: "",
   virtualJoinUrl: "https://meet.example.com/workshop",
   domains: "HEALTH.EXAMPLE.ORG, example.com",
 };
@@ -53,9 +53,19 @@ describe("event administration schemas", () => {
         ...validOccurrence,
         deliveryMode: "in_person",
         venueName: "Learning Centre",
+        venueAddress: "1 Example Street",
         virtualJoinUrl: "",
       }).success,
     ).toBe(true);
+  });
+
+  it("rejects the retired hybrid delivery mode", () => {
+    expect(
+      adminEventOccurrenceCreateSchema.safeParse({
+        ...validOccurrence,
+        deliveryMode: "hybrid",
+      }).success,
+    ).toBe(false);
   });
 
   it("requires restricted domains and mode-specific locations", () => {
@@ -110,11 +120,7 @@ describe("event administration schemas", () => {
       adminEventTemplateCreateSchema.safeParse({
         title: "Workshop template",
         slug: "workshop-template",
-        summary: "Reusable workshop structure.",
-        description: "A complete Event Template description.",
-        sessionTitle: "Main workshop",
-        sessionDurationMinutes: 90,
-        hasCompletionCertificate: true,
+        defaultAdministratorIds: ["admin_1"],
       }).success,
     ).toBe(true);
   });

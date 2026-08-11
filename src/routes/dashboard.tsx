@@ -1,20 +1,29 @@
 import { Badge } from "#/features/shared/Badge";
 import {
   Button,
+  Center,
   Container,
   Group,
+  Loader,
   Paper,
   Stack,
   Text,
   Title,
 } from "@mantine/core";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { lazy, Suspense } from "react";
 import { AccessCodeRedemptionForm } from "#/features/access/AccessCodeRedemptionForm";
 import { SignOutButton } from "#/features/auth/SignOutButton";
 import { LearnerCertificateAction } from "#/features/learner/LearnerCertificateAction";
+import { formatLocalDate } from "#/features/shared/local-date";
 import type { LearnerCourse } from "#/features/learner/learner.schema";
 import { getLearnerDashboard } from "#/server/functions/learner";
 import classes from "./dashboard.module.css";
+
+const LearnerEventSection = lazy(async () => {
+  const module = await import("#/features/learner/LearnerEventSection");
+  return { default: module.LearnerEventSection };
+});
 
 export const Route = createFileRoute("/dashboard")({
   ssr: "data-only",
@@ -28,12 +37,6 @@ export const Route = createFileRoute("/dashboard")({
     return dashboard;
   },
   component: DashboardPage,
-});
-
-const dateFormatter = new Intl.DateTimeFormat("en-AU", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
 });
 
 function statusLabel(course: LearnerCourse): string {
@@ -76,6 +79,18 @@ function DashboardPage() {
         </div>
 
         <AccessCodeRedemptionForm />
+
+        {dashboard.events.length > 0 ? (
+          <Suspense
+            fallback={
+              <Center role="status" aria-label="Loading events">
+                <Loader size="sm" />
+              </Center>
+            }
+          >
+            <LearnerEventSection events={dashboard.events} />
+          </Suspense>
+        ) : null}
 
         <CourseSection title="Continue learning" courses={current} />
 
@@ -173,12 +188,11 @@ function CourseSection({
                     {course.summary}
                   </Text>
                   <Text size="sm">
-                    Enrolled {dateFormatter.format(new Date(course.enrolledAt))}
+                    Enrolled {formatLocalDate(course.enrolledAt)}
                   </Text>
                   {course.expiresAt ? (
                     <Text size="sm" c="dimmed">
-                      Access until{" "}
-                      {dateFormatter.format(new Date(course.expiresAt))}
+                      Access until {formatLocalDate(course.expiresAt)}
                     </Text>
                   ) : null}
                   {course.state === "active" || course.state === "completed" ? (

@@ -25,6 +25,7 @@ import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmen
 import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
 import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
 import { Route as AdminEventsIndexRouteImport } from './routes/admin.events.index'
+import { Route as AdminEventsEventTemplateIdRouteImport } from './routes/admin.events.$eventTemplateId'
 import { Route as AdminLearnersIndexRouteImport } from './routes/admin.learners.index'
 import { Route as AdminLearnersUserIdRouteImport } from './routes/admin.learners.$userId'
 import { Route as AdminSurveysIndexRouteImport } from './routes/admin.surveys.index'
@@ -122,6 +123,12 @@ const AdminEventsIndexRoute = AdminEventsIndexRouteImport.update({
   path: '/events/',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminEventsEventTemplateIdRoute =
+  AdminEventsEventTemplateIdRouteImport.update({
+    id: '/events/$eventTemplateId',
+    path: '/events/$eventTemplateId',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminLearnersIndexRoute = AdminLearnersIndexRouteImport.update({
   id: '/learners/',
   path: '/learners/',
@@ -224,6 +231,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -257,6 +265,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/courses': typeof CoursesIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -292,6 +301,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -328,6 +338,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/courses/'
     | '/admin/courses/$courseId'
+    | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -361,6 +372,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/courses'
     | '/admin/courses/$courseId'
+    | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -395,6 +407,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/courses/'
     | '/admin/courses/$courseId'
+    | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -551,6 +564,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminEventsIndexRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/events/$eventTemplateId': {
+      id: '/admin/events/$eventTemplateId'
+      path: '/events/$eventTemplateId'
+      fullPath: '/admin/events/$eventTemplateId'
+      preLoaderRoute: typeof AdminEventsEventTemplateIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/learners/': {
       id: '/admin/learners/'
       path: '/learners'
@@ -672,6 +692,7 @@ interface AdminRouteChildren {
   AdminResourcesRoute: typeof AdminResourcesRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
+  AdminEventsEventTemplateIdRoute: typeof AdminEventsEventTemplateIdRoute
   AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
   AdminSurveysSurveyIdRoute: typeof AdminSurveysSurveyIdRoute
   AdminCoursesIndexRoute: typeof AdminCoursesIndexRoute
@@ -687,6 +708,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminResourcesRoute: AdminResourcesRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
+  AdminEventsEventTemplateIdRoute: AdminEventsEventTemplateIdRoute,
   AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,
   AdminSurveysSurveyIdRoute: AdminSurveysSurveyIdRoute,
   AdminCoursesIndexRoute: AdminCoursesIndexRoute,

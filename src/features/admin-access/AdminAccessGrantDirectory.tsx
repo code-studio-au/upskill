@@ -3,6 +3,7 @@ import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
+import { formatLocalDate } from "#/features/shared/local-date";
 import {
   revealAdminAccessGrantCode,
   revokeAdminAccessGrant,
@@ -204,7 +205,9 @@ function GrantCard({
           </div>
           <div>
             <dt>Code expiry</dt>
-            <dd>{grant.expiresAtLabel ?? "None"}</dd>
+            <dd>
+              {grant.expiresAt ? formatLocalDate(grant.expiresAt) : "None"}
+            </dd>
           </div>
         </dl>
         <Text size="sm" c="dimmed">
@@ -250,7 +253,7 @@ function GrantCard({
         <Redemptions grant={grant} />
         <div className={classes.cardFooter}>
           <Text size="xs" c="dimmed">
-            Created {grant.createdAtLabel}
+            Created {formatLocalDate(grant.createdAt)}
           </Text>
           <div className={classes.cardActions}>
             <Button

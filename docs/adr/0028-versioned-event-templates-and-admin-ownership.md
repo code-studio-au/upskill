@@ -195,9 +195,11 @@ Platform Administrators.
 ## Implementation Status
 
 The current implementation establishes immutable Template Versions,
-exact-version occurrences and Sessions, versioned administrator/Coordinator/
-Presenter defaults, occurrence assignment history and publish-time coverage
-checks. The initial administration flow creates one Session and supports
-Template and occurrence publication. Multi-session and region authoring,
-assignment replacement/revocation automation, registration decisions and
-attendance operations remain follow-on work under this ADR.
+exact-version occurrences and Sessions, ordered Sections and reusable learning
+activity references, versioned administrator/Coordinator/Presenter defaults,
+occurrence assignment history and publish-time coverage checks. Template
+creation is intentionally blank and requires explicit default administrators.
+The version designer supports multi-session and region authoring, published
+read-only views, and cloned successor versions. Assignment
+replacement/revocation automation, registration decisions and attendance
+operations remain follow-on work under this ADR.

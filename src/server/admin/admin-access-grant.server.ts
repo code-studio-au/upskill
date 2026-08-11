@@ -24,11 +24,6 @@ import { getDatabase } from "#/server/db/database.server";
 
 const DIRECTORY_LIMIT = 100;
 const REDEMPTIONS_PER_GRANT = 20;
-const adminDateFormatter = new Intl.DateTimeFormat("en-AU", {
-  dateStyle: "medium",
-  timeZone: "Australia/Sydney",
-});
-
 function organizationSlug(name: string, id: string): string {
   const base = name
     .toLocaleLowerCase("en-AU")
@@ -165,12 +160,8 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
       enrollmentDurationDays: grant.enrollmentDurationDays,
       domains: domains.get(grant.id) ?? [],
       expiresAt: grant.expiresAt?.toISOString() ?? null,
-      expiresAtLabel: grant.expiresAt
-        ? adminDateFormatter.format(grant.expiresAt)
-        : null,
       revokedAt: grant.revokedAt?.toISOString() ?? null,
       createdAt: grant.createdAt.toISOString(),
-      createdAtLabel: adminDateFormatter.format(grant.createdAt),
       redemptions: redemptions.get(grant.id) ?? [],
     })),
   };

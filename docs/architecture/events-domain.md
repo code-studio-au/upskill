@@ -26,15 +26,18 @@ activities, completion, and certification.
 
 - **Current Product:** a first-class relational Event foundation now models
   immutable Event Template Versions, exact-version occurrences, sessions,
-  regions, staff assignments, registration, participation and attendance. An
-  initial Platform Administrator workflow can create and publish a one-session
-  Template and schedule and publish an occurrence. Registration, attendance,
-  regional review, multi-session design and learner Event workflows are schema
-  foundations only and are not yet exposed as complete product workflows.
+  ordered Sections and reusable learning activities, regions, staff assignments,
+  registration, participation and attendance. Platform Administrators can
+  create a blank Template, explicitly select its default instance
+  administrators, author multi-session and blended-learning content, configure
+  regional Coordinator and session Presenter defaults, publish immutable
+  versions, create successor versions, and schedule and publish occurrences.
+  Registration, attendance, regional review and learner Event workflows remain
+  schema foundations rather than complete product workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
-  capacity-safe registration, attendance and blended learning. Every physical,
-  virtual or hybrid occurrence can be
+  capacity-safe registration, attendance and blended learning. Every in-person
+  or virtual occurrence can be
   open-entry with no registration, require unrestricted registration, or require
   registration restricted to one or more verified email domains.
 - **Future Possibilities:** waitlists, advanced scheduling, external
@@ -80,12 +83,13 @@ boundaries before adding broad UI workflows:
 - restricted occurrences store normalized eligible domains independently of
   open-entry and unrestricted registration modes.
 
-The first authoring workflow creates one default Session and snapshots the
-creating Platform Administrator as both operational owner and default Presenter.
-The schema supports multiple Sessions, regions and shared assignments, but their
-designers and replacement workflows remain subsequent slices. No public
-registration, check-in, attendance-taking or learner Event workspace should be
-described as implemented yet.
+Template creation intentionally creates no implicit Session. The version
+designer requires explicit instance administrators and supports ordered titled
+Sections containing Sessions, SCORM, Surveys and PDF resources, with regional
+Coordinator and session Presenter defaults. Published versions are read-only;
+an administrator creates a cloned successor version before changing them. No
+public registration, check-in, attendance-taking or learner Event workspace
+should be described as implemented yet.
 
 ## Domain Philosophy
 
@@ -177,7 +181,7 @@ Each occurrence has an explicit participation/registration mode:
   and add that specific user despite not matching the occurrence's allowed
   domains.
 
-This mode is independent of physical/virtual/hybrid delivery, price or
+This mode is independent of in-person/virtual delivery, price or
 entitlement, capacity, registration dates, and automatic or manual approval.
 
 ### Event participation
@@ -299,13 +303,13 @@ registration-required unrestricted Events.
 
 ### Delivery mode
 
-Model face-to-face/in-person, virtual, and hybrid delivery explicitly. Public event
+Model face-to-face/in-person and virtual delivery explicitly. Public event
 information may expose a venue summary while sensitive virtual meeting
 credentials remain restricted to accepted participants and authorised
 staff.
 
-Delivery mode does not determine participation/registration mode. An in-person,
-virtual or hybrid occurrence can independently use open entry, unrestricted
+Delivery mode does not determine participation/registration mode. An in-person
+or virtual occurrence can independently use open entry, unrestricted
 required registration, or restricted required registration.
 
 ## Event Lifecycle
@@ -439,7 +443,7 @@ access-code requirement.
 
 | Dimension         | Options                                                | Independent of                          |
 | ----------------- | ------------------------------------------------------ | --------------------------------------- |
-| Delivery mode     | In-person, virtual, hybrid                             | Registration mode                       |
+| Delivery mode     | In-person, virtual                                     | Registration mode                       |
 | Registration mode | Open entry; required/unrestricted; required/restricted | Delivery mode and approval workflow     |
 | Approval workflow | Automatic, manual approval                             | Delivery mode and registration mode     |
 | Commercial access | Free, paid, entitlement-covered                        | Registration mode and approval workflow |
@@ -869,7 +873,7 @@ transactional queries demonstrate real pressure.
 - Versioned default administrator/Coordinator/Presenter sets, automatic instance
   assignment, active-role validation and required-scope coverage enforcement.
 - Event occurrence model and lifecycle.
-- In-person/virtual/hybrid schedule and location.
+- In-person or virtual schedule and location.
 - Sessions/days.
 - Open entry, unrestricted required registration or verified-domain-restricted
   required registration for every delivery mode.

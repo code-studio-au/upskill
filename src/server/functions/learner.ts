@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { accessCodeInputSchema } from "#/features/access/access-code.schema";
+import { learnerEventRegistrationSchema } from "#/features/learner/learner.schema";
 import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema";
 import {
   learnerSurveyParamsSchema,
@@ -30,6 +31,17 @@ export const redeemLearnerAccessCode = createServerFn({ method: "POST" })
     const { redeemAccessCode } =
       await import("#/server/access/redeem-access-code.server");
     return await redeemAccessCode(data.code, user);
+  });
+
+export const registerLearnerEvent = createServerFn({ method: "POST" })
+  .validator(learnerEventRegistrationSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" } as const;
+    const { registerLearnerForEvent } =
+      await import("#/server/learner/learner-event.server");
+    return await registerLearnerForEvent(data.eventOccurrenceId, user);
   });
 
 export const getLearnerWorkspace = createServerFn({ method: "GET" })

@@ -44,19 +44,179 @@ export const adminEventTemplateCreateSchema = z.object({
       z.maxLength(100),
       z.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use a valid URL slug."),
     ),
-  summary: boundedText(320, "Enter a short summary."),
-  description: boundedText(10_000, "Enter an event description."),
-  sessionTitle: boundedText(160, "Enter the default session title."),
-  sessionDurationMinutes: z
-    .number()
-    .check(z.int(), z.minimum(15), z.maximum(10_080)),
-  hasCompletionCertificate: z.boolean(),
+  defaultAdministratorIds: z.array(identifierSchema).check(
+    z.minLength(1, "Select at least one default administrator."),
+    z.maxLength(20),
+    z.refine(
+      (ids) => new Set(ids).size === ids.length,
+      "Default administrators must be unique.",
+    ),
+  ),
 });
 
 export const adminEventTemplateVersionParamsSchema = z.object({
   eventTemplateId: identifierSchema,
   eventTemplateVersionId: identifierSchema,
 });
+
+export const adminEventTemplateParamsSchema = z.object({
+  eventTemplateId: identifierSchema,
+});
+
+const eventTemplateItemBase = {
+  id: identifierSchema,
+  title: boundedText(200, "Enter an item title."),
+  required: z.boolean(),
+};
+
+const adminEventTemplateItemSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...eventTemplateItemBase,
+    kind: z.literal("session"),
+    durationMinutes: z
+      .number()
+      .check(z.int(), z.minimum(15), z.maximum(10_080)),
+    presenterRequired: z.boolean(),
+    presenterIds: z.array(identifierSchema).check(z.maxLength(20)),
+  }),
+  z.object({
+    ...eventTemplateItemBase,
+    kind: z.literal("scorm"),
+    durationMinutes: z
+      .number()
+      .check(z.int(), z.minimum(1), z.maximum(100_000)),
+    learningActivityVersionId: identifierSchema,
+  }),
+  z.object({
+    ...eventTemplateItemBase,
+    kind: z.literal("survey"),
+    durationMinutes: z.nullable(
+      z.number().check(z.int(), z.minimum(1), z.maximum(100_000)),
+    ),
+    learningActivityVersionId: identifierSchema,
+  }),
+  z.object({
+    ...eventTemplateItemBase,
+    kind: z.literal("resource"),
+    durationMinutes: z.null(),
+    learningActivityVersionId: identifierSchema,
+  }),
+]);
+
+const adminEventTemplateSectionSchema = z.object({
+  id: identifierSchema,
+  title: boundedText(160, "Enter a section title."),
+  description: optionalText(2_000),
+  items: z.array(adminEventTemplateItemSchema).check(z.maxLength(200)),
+});
+
+const adminEventTemplateRegionSchema = z.object({
+  regionId: identifierSchema,
+  coordinatorIds: z
+    .array(identifierSchema)
+    .check(z.minLength(1), z.maxLength(20)),
+});
+
+export const adminEventTemplateDraftSchema = z
+  .object({
+    eventTemplateId: identifierSchema,
+    eventTemplateVersionId: identifierSchema,
+    title: boundedText(160, "Enter an event template title."),
+    slug: adminEventTemplateCreateSchema.shape.slug,
+    summary: boundedText(320, "Enter a short summary."),
+    description: boundedText(10_000, "Enter an event description."),
+    hasCompletionCertificate: z.boolean(),
+    defaultAdministratorIds: z
+      .array(identifierSchema)
+      .check(
+        z.minLength(1, "Select at least one default administrator."),
+        z.maxLength(20),
+      ),
+    regions: z.array(adminEventTemplateRegionSchema).check(z.maxLength(100)),
+    sections: z.array(adminEventTemplateSectionSchema).check(z.maxLength(100)),
+  })
+  .check(
+    z.superRefine((draft, context) => {
+      const identifiers = new Set<string>();
+      if (
+        new Set(draft.defaultAdministratorIds).size !==
+        draft.defaultAdministratorIds.length
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["defaultAdministratorIds"],
+          message: "Default administrators must be unique.",
+        });
+      const regionIds = new Set<string>();
+      for (const [regionIndex, region] of draft.regions.entries()) {
+        if (regionIds.has(region.regionId))
+          context.addIssue({
+            code: "custom",
+            path: ["regions", regionIndex, "regionId"],
+            message: "Regions must be unique.",
+          });
+        regionIds.add(region.regionId);
+        if (
+          new Set(region.coordinatorIds).size !== region.coordinatorIds.length
+        )
+          context.addIssue({
+            code: "custom",
+            path: ["regions", regionIndex, "coordinatorIds"],
+            message: "Coordinators must be unique within a region.",
+          });
+      }
+      for (const [sectionIndex, section] of draft.sections.entries()) {
+        if (identifiers.has(section.id))
+          context.addIssue({
+            code: "custom",
+            path: ["sections", sectionIndex, "id"],
+            message: "Section identifiers must be unique.",
+          });
+        identifiers.add(section.id);
+        for (const [itemIndex, item] of section.items.entries()) {
+          if (identifiers.has(item.id))
+            context.addIssue({
+              code: "custom",
+              path: ["sections", sectionIndex, "items", itemIndex, "id"],
+              message: "Item identifiers must be unique.",
+            });
+          identifiers.add(item.id);
+          if (
+            item.kind === "session" &&
+            item.presenterRequired &&
+            item.presenterIds.length === 0
+          )
+            context.addIssue({
+              code: "custom",
+              path: [
+                "sections",
+                sectionIndex,
+                "items",
+                itemIndex,
+                "presenterIds",
+              ],
+              message:
+                "Select a presenter or make the session presenter-optional.",
+            });
+          if (
+            item.kind === "session" &&
+            new Set(item.presenterIds).size !== item.presenterIds.length
+          )
+            context.addIssue({
+              code: "custom",
+              path: [
+                "sections",
+                sectionIndex,
+                "items",
+                itemIndex,
+                "presenterIds",
+              ],
+              message: "Presenters must be unique within a session.",
+            });
+        }
+      }
+    }),
+  );
 
 export const adminEventOccurrenceParamsSchema = z.object({
   eventOccurrenceId: identifierSchema,
@@ -66,7 +226,7 @@ export const adminEventOccurrenceCreateSchema = z
   .object({
     eventTemplateVersionId: identifierSchema,
     title: boundedText(200, "Enter an occurrence title."),
-    deliveryMode: z.enum(["in_person", "virtual", "hybrid"]),
+    deliveryMode: z.enum(["in_person", "virtual"]),
     registrationMode: z.enum([
       "open_entry",
       "required_unrestricted",
@@ -102,6 +262,16 @@ export const adminEventOccurrenceCreateSchema = z
           message: "The occurrence must end after it starts.",
         });
       const domains = normalizeEventDomains(value.domains) ?? [];
+      if (
+        value.registrationMode === "open_entry" &&
+        value.approvalMode !== "automatic"
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["approvalMode"],
+          message:
+            "Open-entry events do not have a registration approval step.",
+        });
       if (value.registrationMode === "required_restricted" && !domains.length)
         context.addIssue({
           code: "custom",
@@ -114,24 +284,32 @@ export const adminEventOccurrenceCreateSchema = z
           path: ["domains"],
           message: "Domains apply only to restricted registration.",
         });
-      if (
-        (value.deliveryMode === "in_person" ||
-          value.deliveryMode === "hybrid") &&
-        !value.venueName.trim()
-      )
+      if (value.deliveryMode === "in_person" && !value.venueName.trim())
         context.addIssue({
           code: "custom",
           path: ["venueName"],
           message: "Enter a venue for in-person delivery.",
         });
-      if (
-        (value.deliveryMode === "virtual" || value.deliveryMode === "hybrid") &&
-        !value.virtualJoinUrl
-      )
+      if (value.deliveryMode === "virtual" && !value.virtualJoinUrl)
         context.addIssue({
           code: "custom",
           path: ["virtualJoinUrl"],
           message: "Enter the protected virtual meeting URL.",
+        });
+      if (value.deliveryMode === "in_person" && value.virtualJoinUrl)
+        context.addIssue({
+          code: "custom",
+          path: ["virtualJoinUrl"],
+          message: "Virtual meeting details do not apply to in-person events.",
+        });
+      if (
+        value.deliveryMode === "virtual" &&
+        (value.venueName.trim() || value.venueAddress.trim())
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["venueName"],
+          message: "Venue details do not apply to virtual events.",
         });
       const opens = value.registrationOpensAt
         ? new Date(value.registrationOpensAt)
@@ -195,6 +373,11 @@ export const adminEventOccurrenceFormSchema = z
     }),
   );
 
+export const adminEventOccurrenceUpdateFormSchema = z.object({
+  eventOccurrenceId: identifierSchema,
+  occurrence: adminEventOccurrenceFormSchema,
+});
+
 function eventOccurrenceFormCandidate(
   input: AdminEventOccurrenceFormInput,
 ): Record<string, unknown> {
@@ -215,6 +398,49 @@ function eventOccurrenceFormCandidate(
 export type AdminEventTemplateCreateInput = z.infer<
   typeof adminEventTemplateCreateSchema
 >;
+export type AdminEventTemplateDraft = z.infer<
+  typeof adminEventTemplateDraftSchema
+>;
+export type AdminEventTemplateItem = z.infer<
+  typeof adminEventTemplateItemSchema
+>;
+
+interface AdminEventPersonOption {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface AdminEventTemplateDetail {
+  template: {
+    id: string;
+    slug: string;
+    title: string;
+    status: "draft" | "published" | "archived";
+  };
+  version: {
+    id: string;
+    version: number;
+    publishedAt: string | null;
+    editable: boolean;
+  };
+  versions: Array<{
+    id: string;
+    version: number;
+    publishedAt: string | null;
+  }>;
+  draft: AdminEventTemplateDraft;
+  people: {
+    platformAdministrators: Array<AdminEventPersonOption>;
+    users: Array<AdminEventPersonOption>;
+  };
+  regions: Array<{ id: string; name: string; code: string }>;
+  library: {
+    modules: Array<{ id: string; title: string; version: number }>;
+    surveys: Array<{ id: string; title: string; version: number }>;
+    resources: Array<{ id: string; title: string; version: number }>;
+  };
+}
 
 export interface AdminEventWorkspace {
   templates: Array<{
@@ -234,20 +460,30 @@ export interface AdminEventWorkspace {
     title: string;
     version: number;
   }>;
+  platformAdministrators: Array<AdminEventPersonOption>;
   occurrences: Array<{
     id: string;
+    eventTemplateVersionId: string;
     eventTemplateId: string;
     eventTemplateTitle: string;
     templateVersion: number;
     title: string;
     status: "draft" | "published" | "cancelled" | "completed" | "archived";
-    deliveryMode: "in_person" | "virtual" | "hybrid";
+    deliveryMode: "in_person" | "virtual";
     registrationMode:
       "open_entry" | "required_unrestricted" | "required_restricted";
+    approvalMode: "automatic" | "manual";
     timezone: string;
     startsAt: string;
     endsAt: string;
+    registrationOpensAt: string;
+    registrationClosesAt: string;
+    coordinatorLockAt: string;
     capacity: number;
+    venueName: string;
+    venueAddress: string;
+    virtualJoinUrl: string;
+    domains: string;
     confirmedCount: number;
     sessionCount: number;
     assignedAdminCount: number;
@@ -263,8 +499,11 @@ export type AdminEventMutationResult =
   | AdminEventResult<{
       outcome:
         | "template-created"
+        | "template-saved"
+        | "template-version-created"
         | "template-published"
         | "occurrence-created"
+        | "occurrence-updated"
         | "occurrence-published";
       eventTemplateId?: string;
       eventTemplateVersionId?: string;
@@ -278,3 +517,6 @@ export type AdminEventMutationResult =
         | "template_not_publishable"
         | "occurrence_not_publishable";
     };
+
+export type AdminEventTemplateDetailResult =
+  AdminEventResult<AdminEventTemplateDetail> | { status: "not-found" };

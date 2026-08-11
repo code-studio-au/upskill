@@ -329,12 +329,35 @@ interface EventTemplateVersionPresenterDefaultTable {
   createdAt: Timestamp;
 }
 
+interface EventTemplateVersionSectionTable {
+  id: string;
+  eventTemplateVersionId: string;
+  position: number;
+  title: string;
+  description: string;
+  createdAt: Timestamp;
+}
+
+interface EventTemplateVersionItemTable {
+  id: string;
+  eventTemplateVersionId: string;
+  sectionId: string;
+  position: number;
+  kind: "session" | "scorm" | "survey" | "resource";
+  title: string;
+  required: boolean;
+  durationMinutes: number | null;
+  learningActivityVersionId: string | null;
+  sessionDefinitionId: string | null;
+  createdAt: Timestamp;
+}
+
 interface EventOccurrenceTable {
   id: string;
   eventTemplateVersionId: string;
   title: string;
   status: "draft" | "published" | "cancelled" | "completed" | "archived";
-  deliveryMode: "in_person" | "virtual" | "hybrid";
+  deliveryMode: "in_person" | "virtual";
   registrationMode:
     "open_entry" | "required_unrestricted" | "required_restricted";
   approvalMode: "automatic" | "manual";
@@ -562,8 +585,11 @@ export type AuditEventAction =
   | "course.published"
   | "course.version_created"
   | "event_occurrence.created"
+  | "event_occurrence.updated"
   | "event_occurrence.published"
+  | "event_registration.submitted"
   | "event_template.created"
+  | "event_template.version_created"
   | "event_template.version_published"
   | "enrollment.access_code_redeemed"
   | "enrollment.administrator_added"
@@ -626,6 +652,8 @@ export interface Database {
   event_template_version_coordinator_default: EventTemplateVersionCoordinatorDefaultTable;
   event_template_version_presenter_default: EventTemplateVersionPresenterDefaultTable;
   event_template_version_region: EventTemplateVersionRegionTable;
+  event_template_version_item: EventTemplateVersionItemTable;
+  event_template_version_section: EventTemplateVersionSectionTable;
   learning_item_progress: LearningItemProgressTable;
   learning_activity: LearningActivityTable;
   learning_activity_version: LearningActivityVersionTable;

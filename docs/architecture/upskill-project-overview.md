@@ -56,7 +56,8 @@ capabilities.
 - A first-class Event relational foundation with immutable Template Versions,
   exact-version occurrences, sessions, regions, staff assignment history,
   registration, participation and attendance records. Platform Administrators
-  can create and publish an initial one-session Template and occurrence; the
+  can create a blank Template with explicit default administrators, author and
+  publish multi-session versions, create successor versions, and schedule an occurrence; the
   broader Event operational and learner workflows remain target work.
 
 ### Target Product
@@ -217,7 +218,7 @@ remain on the same schedule, so a late joiner can catch up during opening minute
 or breaks without prematurely opening future learning.
 
 Participation/registration mode is independent of delivery mode. Any physical,
-virtual or hybrid Event may use open entry with no registration, require
+virtual Event may use open entry with no registration, require
 unrestricted registration, or require registration restricted to one or more
 configured verified email domains. This is also independent of capacity,
 payment/entitlement and whether acceptance is automatic or manually reviewed.

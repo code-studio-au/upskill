@@ -356,7 +356,7 @@ scheduling, sessions, attendance, coordinators, presenters, and event
 workflow.
 
 An Event's registration mode is separate from its commercial access. Any
-physical, virtual or hybrid occurrence may use open entry with no registration,
+in-person or virtual occurrence may use open entry with no registration,
 require unrestricted registration, or require registration restricted to
 configured verified email domains. A paid or contract-covered Event can still
 use any mode, and satisfying a domain restriction does not by itself prove

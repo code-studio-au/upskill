@@ -5,18 +5,25 @@ import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
+import { formatDateTimeLocalInput } from "#/features/shared/local-date";
 import {
   adminEventOccurrenceFormSchema,
   type AdminEventOccurrenceFormInput,
   type AdminEventWorkspace,
 } from "./admin-event.schema";
-import { createAdminEventOccurrence } from "#/server/functions/admin-event";
+import {
+  createAdminEventOccurrence,
+  updateAdminEventOccurrence,
+} from "#/server/functions/admin-event";
+import classes from "./AdminEventOccurrenceDialog.module.css";
 
-const defaultTimezone = "Australia/Sydney";
+const defaultTimezone =
+  Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Sydney";
 
 function initialSchedule() {
   const futureInstant = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
-  const localDate = futureInstant.toISOString().slice(0, 10);
+  const part = (value: number) => String(value).padStart(2, "0");
+  const localDate = `${String(futureInstant.getFullYear())}-${part(futureInstant.getMonth() + 1)}-${part(futureInstant.getDate())}`;
   return {
     startsAt: `${localDate}T09:00`,
     endsAt: `${localDate}T10:00`,
@@ -25,33 +32,57 @@ function initialSchedule() {
 
 export function AdminEventOccurrenceDialog({
   publishedVersions,
+  occurrence,
   onClose,
-  onCreated,
+  onSaved,
 }: {
   publishedVersions: AdminEventWorkspace["publishedVersions"];
+  occurrence?: AdminEventWorkspace["occurrences"][number];
   onClose: () => void;
-  onCreated: () => Promise<void>;
+  onSaved: () => Promise<void>;
 }) {
   const [error, setError] = useState<string | null>(null);
   const schedule = initialSchedule();
-  const defaultValues: AdminEventOccurrenceFormInput = {
-    eventTemplateVersionId: publishedVersions[0]?.eventTemplateVersionId ?? "",
-    title: "",
-    deliveryMode: "virtual",
-    registrationMode: "open_entry",
-    approvalMode: "automatic",
-    timezone: defaultTimezone,
-    startsAt: schedule.startsAt,
-    endsAt: schedule.endsAt,
-    registrationOpensAt: "",
-    registrationClosesAt: "",
-    coordinatorLockAt: "",
-    capacity: 30,
-    venueName: "",
-    venueAddress: "",
-    virtualJoinUrl: "",
-    domains: "",
-  };
+  const initialTime = (value: string) =>
+    value ? formatDateTimeLocalInput(value, occurrence?.timezone ?? "UTC") : "";
+  const defaultValues: AdminEventOccurrenceFormInput = occurrence
+    ? {
+        eventTemplateVersionId: occurrence.eventTemplateVersionId,
+        title: occurrence.title,
+        deliveryMode: occurrence.deliveryMode,
+        registrationMode: occurrence.registrationMode,
+        approvalMode: occurrence.approvalMode,
+        timezone: occurrence.timezone,
+        startsAt: initialTime(occurrence.startsAt),
+        endsAt: initialTime(occurrence.endsAt),
+        registrationOpensAt: initialTime(occurrence.registrationOpensAt),
+        registrationClosesAt: initialTime(occurrence.registrationClosesAt),
+        coordinatorLockAt: initialTime(occurrence.coordinatorLockAt),
+        capacity: occurrence.capacity,
+        venueName: occurrence.venueName,
+        venueAddress: occurrence.venueAddress,
+        virtualJoinUrl: occurrence.virtualJoinUrl,
+        domains: occurrence.domains,
+      }
+    : {
+        eventTemplateVersionId:
+          publishedVersions[0]?.eventTemplateVersionId ?? "",
+        title: "",
+        deliveryMode: "virtual",
+        registrationMode: "open_entry",
+        approvalMode: "automatic",
+        timezone: defaultTimezone,
+        startsAt: schedule.startsAt,
+        endsAt: schedule.endsAt,
+        registrationOpensAt: "",
+        registrationClosesAt: "",
+        coordinatorLockAt: "",
+        capacity: 30,
+        venueName: "",
+        venueAddress: "",
+        virtualJoinUrl: "",
+        domains: "",
+      };
   const form = useForm({
     defaultValues,
     validators: { onSubmit: adminEventOccurrenceFormSchema },
@@ -59,16 +90,23 @@ export function AdminEventOccurrenceDialog({
       const parsed = adminEventOccurrenceFormSchema.safeParse(value);
       if (!parsed.success) return;
       setError(null);
-      const result = await createAdminEventOccurrence({ data: parsed.data });
+      const result = occurrence
+        ? await updateAdminEventOccurrence({
+            data: {
+              eventOccurrenceId: occurrence.id,
+              occurrence: parsed.data,
+            },
+          })
+        : await createAdminEventOccurrence({ data: parsed.data });
       if (result.status !== "ready") {
         setError(
           result.status === "conflict"
-            ? "The occurrence could not be created from this template configuration."
-            : "The occurrence could not be created.",
+            ? "The occurrence could not be saved with this configuration."
+            : "The occurrence could not be saved.",
         );
         return;
       }
-      await onCreated();
+      await onSaved();
     },
   });
 
@@ -76,7 +114,9 @@ export function AdminEventOccurrenceDialog({
     <form.Subscribe selector={(state) => state.isSubmitting}>
       {(isSubmitting) => (
         <AppDialog
-          title="Schedule event occurrence"
+          title={
+            occurrence ? "Edit event occurrence" : "Schedule event occurrence"
+          }
           closeDisabled={isSubmitting}
           onClose={onClose}
         >
@@ -90,8 +130,9 @@ export function AdminEventOccurrenceDialog({
             <Stack gap="md">
               {error ? <Alert color="red">{error}</Alert> : null}
               <Text size="sm" c="dimmed">
-                The occurrence will stay draft until its schedule, owners,
-                presenters and registration policy pass publication checks.
+                {occurrence
+                  ? "Update this event instance without changing its pinned template version."
+                  : "The occurrence will stay draft until its schedule, owners, presenters and registration policy pass publication checks."}
               </Text>
               <form.Field name="eventTemplateVersionId">
                 {(field) => (
@@ -102,6 +143,7 @@ export function AdminEventOccurrenceDialog({
                       label: `${version.title} · Version ${String(version.version)}`,
                     }))}
                     value={field.state.value}
+                    disabled={Boolean(occurrence)}
                     onBlur={field.handleBlur}
                     onChange={(event) => {
                       field.handleChange(event.currentTarget.value);
@@ -125,7 +167,7 @@ export function AdminEventOccurrenceDialog({
                   />
                 )}
               </form.Field>
-              <Group grow align="start">
+              <div className={classes.threeColumnGrid}>
                 <form.Field name="deliveryMode">
                   {(field) => (
                     <MantineNativeSelect
@@ -133,14 +175,19 @@ export function AdminEventOccurrenceDialog({
                       data={[
                         { value: "in_person", label: "In person" },
                         { value: "virtual", label: "Virtual" },
-                        { value: "hybrid", label: "Hybrid" },
                       ]}
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
-                        field.handleChange(
-                          event.currentTarget.value as typeof field.state.value,
-                        );
+                        const value = event.currentTarget
+                          .value as typeof field.state.value;
+                        field.handleChange(value);
+                        if (value === "in_person")
+                          form.setFieldValue("virtualJoinUrl", "");
+                        else {
+                          form.setFieldValue("venueName", "");
+                          form.setFieldValue("venueAddress", "");
+                        }
                       }}
                       error={firstFormError(field.state.meta.errors)}
                       required
@@ -165,37 +212,49 @@ export function AdminEventOccurrenceDialog({
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
-                        field.handleChange(
-                          event.currentTarget.value as typeof field.state.value,
-                        );
+                        const value = event.currentTarget
+                          .value as typeof field.state.value;
+                        field.handleChange(value);
+                        if (value !== "required_restricted")
+                          form.setFieldValue("domains", "");
+                        if (value === "open_entry")
+                          form.setFieldValue("approvalMode", "automatic");
                       }}
                       error={firstFormError(field.state.meta.errors)}
                       required
                     />
                   )}
                 </form.Field>
-                <form.Field name="approvalMode">
-                  {(field) => (
-                    <MantineNativeSelect
-                      label="Approval"
-                      data={[
-                        { value: "automatic", label: "Automatic" },
-                        { value: "manual", label: "Manual" },
-                      ]}
-                      value={field.state.value}
-                      onBlur={field.handleBlur}
-                      onChange={(event) => {
-                        field.handleChange(
-                          event.currentTarget.value as typeof field.state.value,
-                        );
-                      }}
-                      error={firstFormError(field.state.meta.errors)}
-                      required
-                    />
+                <form.Subscribe
+                  selector={(state) => state.values.registrationMode}
+                >
+                  {(registrationMode) => (
+                    <form.Field name="approvalMode">
+                      {(field) => (
+                        <MantineNativeSelect
+                          label="Approval"
+                          data={[
+                            { value: "automatic", label: "Automatic" },
+                            { value: "manual", label: "Manual" },
+                          ]}
+                          value={field.state.value}
+                          disabled={registrationMode === "open_entry"}
+                          onBlur={field.handleBlur}
+                          onChange={(event) => {
+                            field.handleChange(
+                              event.currentTarget
+                                .value as typeof field.state.value,
+                            );
+                          }}
+                          error={firstFormError(field.state.meta.errors)}
+                          required
+                        />
+                      )}
+                    </form.Field>
                   )}
-                </form.Field>
-              </Group>
-              <Group grow align="start">
+                </form.Subscribe>
+              </div>
+              <div className={classes.twoColumnGrid}>
                 <form.Field name="startsAt">
                   {(field) => (
                     <MantineTextInput
@@ -226,8 +285,8 @@ export function AdminEventOccurrenceDialog({
                     />
                   )}
                 </form.Field>
-              </Group>
-              <Group grow align="start">
+              </div>
+              <div className={classes.twoColumnGrid}>
                 <form.Field name="timezone">
                   {(field) => (
                     <MantineTextInput
@@ -258,73 +317,93 @@ export function AdminEventOccurrenceDialog({
                     />
                   )}
                 </form.Field>
-              </Group>
-              <form.Field name="venueName">
-                {(field) => (
-                  <MantineTextInput
-                    label="Venue name"
-                    description="Required for in-person and hybrid delivery."
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                  />
-                )}
-              </form.Field>
-              <form.Field name="venueAddress">
-                {(field) => (
-                  <MantineTextInput
-                    component="textarea"
-                    label="Venue address"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                  />
-                )}
-              </form.Field>
-              <form.Field name="virtualJoinUrl">
-                {(field) => (
-                  <MantineTextInput
-                    label="Protected virtual meeting URL"
-                    description="Required for virtual and hybrid delivery; never shown publicly."
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                  />
-                )}
-              </form.Field>
-              <form.Field name="domains">
-                {(field) => (
-                  <MantineTextInput
-                    component="textarea"
-                    label="Permitted email domains"
-                    description="Only for restricted registration; separate domains with commas or new lines."
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                  />
-                )}
-              </form.Field>
+              </div>
+              <form.Subscribe selector={(state) => state.values.deliveryMode}>
+                {(deliveryMode) =>
+                  deliveryMode === "in_person" ? (
+                    <>
+                      <form.Field name="venueName">
+                        {(field) => (
+                          <MantineTextInput
+                            label="Venue name"
+                            description="Required for in-person delivery."
+                            value={field.state.value}
+                            onBlur={field.handleBlur}
+                            onChange={(event) => {
+                              field.handleChange(event.currentTarget.value);
+                            }}
+                            error={firstFormError(field.state.meta.errors)}
+                            required
+                          />
+                        )}
+                      </form.Field>
+                      <form.Field name="venueAddress">
+                        {(field) => (
+                          <MantineTextInput
+                            component="textarea"
+                            label="Venue address"
+                            value={field.state.value}
+                            onBlur={field.handleBlur}
+                            onChange={(event) => {
+                              field.handleChange(event.currentTarget.value);
+                            }}
+                            error={firstFormError(field.state.meta.errors)}
+                          />
+                        )}
+                      </form.Field>
+                    </>
+                  ) : (
+                    <form.Field name="virtualJoinUrl">
+                      {(field) => (
+                        <MantineTextInput
+                          label="Protected virtual meeting URL"
+                          description="Required for virtual delivery; never shown publicly."
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onChange={(event) => {
+                            field.handleChange(event.currentTarget.value);
+                          }}
+                          error={firstFormError(field.state.meta.errors)}
+                          required
+                        />
+                      )}
+                    </form.Field>
+                  )
+                }
+              </form.Subscribe>
+              <form.Subscribe
+                selector={(state) => state.values.registrationMode}
+              >
+                {(registrationMode) =>
+                  registrationMode === "required_restricted" ? (
+                    <form.Field name="domains">
+                      {(field) => (
+                        <MantineTextInput
+                          component="textarea"
+                          label="Permitted email domains"
+                          description="Separate domains with commas or new lines."
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onChange={(event) => {
+                            field.handleChange(event.currentTarget.value);
+                          }}
+                          error={firstFormError(field.state.meta.errors)}
+                          required
+                        />
+                      )}
+                    </form.Field>
+                  ) : null
+                }
+              </form.Subscribe>
               <Text fw={700} size="sm">
                 Registration timetable
               </Text>
-              <Group grow align="start">
+              <div className={classes.scheduleGrid}>
                 {(
                   [
-                    ["registrationOpensAt", "Opens"],
-                    ["registrationClosesAt", "Closes"],
-                    ["coordinatorLockAt", "Coordinator lock"],
+                    ["registrationOpensAt", "Registration opens"],
+                    ["registrationClosesAt", "Registration closes"],
+                    ["coordinatorLockAt", "Coordinator cut-off"],
                   ] as const
                 ).map(([name, label]) => (
                   <form.Field name={name} key={name}>
@@ -342,7 +421,7 @@ export function AdminEventOccurrenceDialog({
                     )}
                   </form.Field>
                 ))}
-              </Group>
+              </div>
               <Group justify="end">
                 <Button
                   type="button"
@@ -353,7 +432,7 @@ export function AdminEventOccurrenceDialog({
                   Cancel
                 </Button>
                 <Button type="submit" loading={isSubmitting}>
-                  Create draft occurrence
+                  {occurrence ? "Save changes" : "Create draft occurrence"}
                 </Button>
               </Group>
             </Stack>

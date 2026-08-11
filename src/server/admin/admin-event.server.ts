@@ -1,16 +1,22 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
-import { sql } from "kysely";
+import { sql, type Transaction } from "kysely";
 import {
+  adminEventTemplateDraftSchema,
   normalizeEventDomains,
   type AdminEventOccurrenceCreateInput,
   type AdminEventTemplateCreateInput,
+  type AdminEventTemplateDetail,
+  type AdminEventTemplateDraft,
+  type AdminEventTemplateItem,
   type AdminEventWorkspace,
 } from "#/features/admin-event/admin-event.schema";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
+import type { Database } from "#/server/db/types";
+import { logServerEvent } from "#/server/logging/server-logger";
 
 function isUniqueViolation(error: unknown): boolean {
   return (
@@ -41,7 +47,13 @@ function hasValidTimezone(timezone: string): boolean {
 
 export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
   const database = getDatabase();
-  const [templates, versions, occurrences] = await Promise.all([
+  const [
+    templates,
+    versions,
+    occurrences,
+    occurrenceDomains,
+    platformAdministrators,
+  ] = await Promise.all([
     database
       .selectFrom("event_template")
       .select(["id", "slug", "title", "status"])
@@ -66,6 +78,7 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
       )
       .select([
         "event_occurrence.id",
+        "event_occurrence.eventTemplateVersionId",
         "event_template.id as eventTemplateId",
         "event_template.title as eventTemplateTitle",
         "event_template_version.version as templateVersion",
@@ -73,11 +86,18 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         "event_occurrence.status",
         "event_occurrence.deliveryMode",
         "event_occurrence.registrationMode",
+        "event_occurrence.approvalMode",
         "event_occurrence.timezone",
         "event_occurrence.startsAt",
         "event_occurrence.endsAt",
+        "event_occurrence.registrationOpensAt",
+        "event_occurrence.registrationClosesAt",
+        "event_occurrence.coordinatorLockAt",
         "event_occurrence.capacity",
         "event_occurrence.confirmedCount",
+        "event_occurrence.venueName",
+        "event_occurrence.venueAddress",
+        "event_occurrence.virtualJoinUrl",
         sql<number>`(
           select count(*)::integer from event_session
           where event_session."eventOccurrenceId" = event_occurrence.id
@@ -89,6 +109,18 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         )`.as("assignedAdminCount"),
       ])
       .orderBy("event_occurrence.startsAt", "desc")
+      .execute(),
+    database
+      .selectFrom("event_occurrence_domain")
+      .select(["eventOccurrenceId", "domain"])
+      .orderBy("domain")
+      .execute(),
+    database
+      .selectFrom("platform_admin")
+      .innerJoin("user", "user.id", "platform_admin.userId")
+      .select(["user.id", "user.name", "user.email"])
+      .orderBy("user.name")
+      .orderBy("user.email")
       .execute(),
   ]);
 
@@ -137,10 +169,22 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
           ]
         : [];
     }),
+    platformAdministrators,
     occurrences: occurrences.map((occurrence) => ({
       ...occurrence,
       startsAt: occurrence.startsAt.toISOString(),
       endsAt: occurrence.endsAt.toISOString(),
+      registrationOpensAt: occurrence.registrationOpensAt?.toISOString() ?? "",
+      registrationClosesAt:
+        occurrence.registrationClosesAt?.toISOString() ?? "",
+      coordinatorLockAt: occurrence.coordinatorLockAt?.toISOString() ?? "",
+      venueName: occurrence.venueName ?? "",
+      venueAddress: occurrence.venueAddress ?? "",
+      virtualJoinUrl: occurrence.virtualJoinUrl ?? "",
+      domains: occurrenceDomains
+        .filter((domain) => domain.eventOccurrenceId === occurrence.id)
+        .map((domain) => domain.domain)
+        .join(", "),
     })),
   };
 }
@@ -158,11 +202,20 @@ export async function createAdminEventTemplate(
 > {
   const eventTemplateId = `event_template_${randomUUID()}`;
   const eventTemplateVersionId = `event_template_version_${randomUUID()}`;
-  const sessionDefinitionId = `event_session_definition_${randomUUID()}`;
   try {
-    await getDatabase()
+    const created = await getDatabase()
       .transaction()
       .execute(async (transaction) => {
+        const administrators = await transaction
+          .selectFrom("platform_admin")
+          .select("userId")
+          .where("userId", "in", input.defaultAdministratorIds)
+          .execute();
+        if (
+          new Set(administrators.map((row) => row.userId)).size !==
+          new Set(input.defaultAdministratorIds).size
+        )
+          return false;
         await transaction
           .insertInto("event_template")
           .values({
@@ -178,38 +231,20 @@ export async function createAdminEventTemplate(
             id: eventTemplateVersionId,
             eventTemplateId,
             version: 1,
-            summary: input.summary,
-            description: input.description,
-            hasCompletionCertificate: input.hasCompletionCertificate,
+            summary: "Event summary to be completed.",
+            description: "Event description to be completed.",
+            hasCompletionCertificate: false,
             publishedAt: null,
           })
           .execute();
         await transaction
           .insertInto("event_template_version_admin_default")
-          .values({
-            eventTemplateVersionId,
-            userId: administrator.id,
-          })
-          .execute();
-        await transaction
-          .insertInto("event_template_session_definition")
-          .values({
-            id: sessionDefinitionId,
-            eventTemplateVersionId,
-            position: 0,
-            title: input.sessionTitle,
-            durationMinutes: input.sessionDurationMinutes,
-            presenterRequired: true,
-          })
-          .execute();
-        await transaction
-          .insertInto("event_template_version_presenter_default")
-          .values({
-            eventTemplateVersionId,
-            sessionDefinitionId,
-            userId: administrator.id,
-            scopeKey: sessionDefinitionId,
-          })
+          .values(
+            input.defaultAdministratorIds.map((userId) => ({
+              eventTemplateVersionId,
+              userId,
+            })),
+          )
           .execute();
         await recordDurableAuditEvent(transaction, {
           actorUserId: administrator.id,
@@ -218,12 +253,681 @@ export async function createAdminEventTemplate(
           subjectId: eventTemplateId,
           metadata: { eventTemplateVersionId },
         });
+        return true;
       });
+    if (!created) return { status: "conflict" };
   } catch (error) {
     if (isUniqueViolation(error)) return { status: "conflict" };
     throw error;
   }
   return { status: "created", eventTemplateId, eventTemplateVersionId };
+}
+
+export async function startAdminEventTemplate(
+  administrator: AuthenticatedUser,
+) {
+  return await createAdminEventTemplate(
+    {
+      title: "Untitled event template",
+      slug: `draft-event-template-${randomUUID()}`,
+      defaultAdministratorIds: [administrator.id],
+    },
+    administrator,
+  );
+}
+
+function eventItemFromRow(row: {
+  id: string;
+  kind: "session" | "scorm" | "survey" | "resource";
+  title: string;
+  required: boolean;
+  durationMinutes: number | null;
+  learningActivityVersionId: string | null;
+  sessionDefinitionId: string | null;
+  presenterRequired: boolean | null;
+  presenterIds: Array<string>;
+}): AdminEventTemplateItem {
+  if (row.kind === "session")
+    return {
+      id: row.id,
+      kind: "session",
+      title: row.title,
+      required: row.required,
+      durationMinutes: row.durationMinutes ?? 60,
+      presenterRequired: row.presenterRequired ?? true,
+      presenterIds: row.presenterIds,
+    };
+  if (!row.learningActivityVersionId)
+    throw new Error("Event activity item has no learning activity version");
+  if (row.kind === "resource")
+    return {
+      id: row.id,
+      kind: "resource",
+      title: row.title,
+      required: row.required,
+      durationMinutes: null,
+      learningActivityVersionId: row.learningActivityVersionId,
+    };
+  if (row.kind === "scorm")
+    return {
+      id: row.id,
+      kind: "scorm",
+      title: row.title,
+      required: row.required,
+      durationMinutes: row.durationMinutes ?? 1,
+      learningActivityVersionId: row.learningActivityVersionId,
+    };
+  return {
+    id: row.id,
+    kind: "survey",
+    title: row.title,
+    required: row.required,
+    durationMinutes: row.durationMinutes,
+    learningActivityVersionId: row.learningActivityVersionId,
+  };
+}
+
+async function loadEventTemplateDraft(
+  database: Transaction<Database> | ReturnType<typeof getDatabase>,
+  template: { id: string; slug: string; title: string },
+  version: {
+    id: string;
+    summary: string;
+    description: string;
+    hasCompletionCertificate: boolean;
+  },
+): Promise<AdminEventTemplateDraft> {
+  const [sectionRows, presenterRows, administratorRows, regionRows] =
+    await Promise.all([
+      database
+        .selectFrom("event_template_version_section as sections")
+        .leftJoin("event_template_version_item as items", (join) =>
+          join
+            .onRef("items.sectionId", "=", "sections.id")
+            .onRef(
+              "items.eventTemplateVersionId",
+              "=",
+              "sections.eventTemplateVersionId",
+            ),
+        )
+        .leftJoin(
+          "event_template_session_definition as sessions",
+          "sessions.id",
+          "items.sessionDefinitionId",
+        )
+        .select([
+          "sections.id as sectionId",
+          "sections.title as sectionTitle",
+          "sections.description as sectionDescription",
+          "items.id as itemId",
+          "items.kind as itemKind",
+          "items.title as itemTitle",
+          "items.required as itemRequired",
+          "items.durationMinutes",
+          "items.learningActivityVersionId",
+          "items.sessionDefinitionId",
+          "sessions.presenterRequired",
+        ])
+        .where("sections.eventTemplateVersionId", "=", version.id)
+        .orderBy("sections.position")
+        .orderBy("items.position")
+        .execute(),
+      database
+        .selectFrom("event_template_version_presenter_default")
+        .select(["sessionDefinitionId", "userId"])
+        .where("eventTemplateVersionId", "=", version.id)
+        .execute(),
+      database
+        .selectFrom("event_template_version_admin_default")
+        .select("userId")
+        .where("eventTemplateVersionId", "=", version.id)
+        .orderBy("userId")
+        .execute(),
+      database
+        .selectFrom("event_template_version_region as regions")
+        .leftJoin(
+          "event_template_version_coordinator_default as coordinators",
+          (join) =>
+            join
+              .onRef(
+                "coordinators.eventTemplateVersionId",
+                "=",
+                "regions.eventTemplateVersionId",
+              )
+              .onRef("coordinators.regionId", "=", "regions.regionId"),
+        )
+        .select(["regions.regionId", "coordinators.userId"])
+        .where("regions.eventTemplateVersionId", "=", version.id)
+        .orderBy("regions.position")
+        .orderBy("coordinators.userId")
+        .execute(),
+    ]);
+
+  const sections = new Map<
+    string,
+    AdminEventTemplateDraft["sections"][number]
+  >();
+  for (const row of sectionRows) {
+    let section = sections.get(row.sectionId);
+    if (!section) {
+      section = {
+        id: row.sectionId,
+        title: row.sectionTitle,
+        description: row.sectionDescription,
+        items: [],
+      };
+      sections.set(row.sectionId, section);
+    }
+    if (row.itemId && row.itemKind && row.itemTitle)
+      section.items.push(
+        eventItemFromRow({
+          id: row.itemId,
+          kind: row.itemKind,
+          title: row.itemTitle,
+          required: row.itemRequired ?? true,
+          durationMinutes: row.durationMinutes,
+          learningActivityVersionId: row.learningActivityVersionId,
+          sessionDefinitionId: row.sessionDefinitionId,
+          presenterRequired: row.presenterRequired,
+          presenterIds: presenterRows
+            .filter(
+              (presenter) =>
+                presenter.sessionDefinitionId === row.sessionDefinitionId,
+            )
+            .map((presenter) => presenter.userId),
+        }),
+      );
+  }
+  const regions = new Map<string, Array<string>>();
+  for (const row of regionRows) {
+    const coordinators = regions.get(row.regionId) ?? [];
+    if (row.userId) coordinators.push(row.userId);
+    regions.set(row.regionId, coordinators);
+  }
+  return adminEventTemplateDraftSchema.parse({
+    eventTemplateId: template.id,
+    eventTemplateVersionId: version.id,
+    title: template.title,
+    slug: template.slug,
+    summary: version.summary,
+    description: version.description,
+    hasCompletionCertificate: version.hasCompletionCertificate,
+    defaultAdministratorIds: administratorRows.map((row) => row.userId),
+    regions: [...regions].map(([regionId, coordinatorIds]) => ({
+      regionId,
+      coordinatorIds,
+    })),
+    sections: [...sections.values()],
+  });
+}
+
+export async function findAdminEventTemplate(
+  eventTemplateId: string,
+): Promise<AdminEventTemplateDetail | null> {
+  const database = getDatabase();
+  const template = await database
+    .selectFrom("event_template")
+    .select(["id", "slug", "title", "status"])
+    .where("id", "=", eventTemplateId)
+    .executeTakeFirst();
+  if (!template) return null;
+  const versions = await database
+    .selectFrom("event_template_version")
+    .select([
+      "id",
+      "version",
+      "summary",
+      "description",
+      "hasCompletionCertificate",
+      "publishedAt",
+    ])
+    .where("eventTemplateId", "=", eventTemplateId)
+    .orderBy("version", "desc")
+    .execute();
+  const version =
+    versions.find((candidate) => !candidate.publishedAt) ?? versions[0];
+  if (!version) throw new Error("Event template has no version");
+  const [
+    draft,
+    platformAdministrators,
+    users,
+    regions,
+    modules,
+    surveys,
+    resources,
+  ] = await Promise.all([
+    loadEventTemplateDraft(database, template, version),
+    database
+      .selectFrom("platform_admin")
+      .innerJoin("user", "user.id", "platform_admin.userId")
+      .select(["user.id", "user.name", "user.email"])
+      .orderBy("user.name")
+      .execute(),
+    database
+      .selectFrom("user")
+      .select(["id", "name", "email"])
+      .orderBy("name")
+      .orderBy("email")
+      .execute(),
+    database
+      .selectFrom("coordination_region")
+      .select(["id", "name", "code"])
+      .where("status", "=", "active")
+      .orderBy("name")
+      .execute(),
+    database
+      .selectFrom("scorm_package_version")
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "scorm_package_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "scorm_package_version.id",
+        "learning_activity.title",
+        "learning_activity_version.version",
+      ])
+      .where("scorm_package_version.status", "=", "ready")
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity_version.version", "desc")
+      .execute(),
+    database
+      .selectFrom("survey_version")
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "survey_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "survey_version.id",
+        "learning_activity.title",
+        "learning_activity_version.version",
+      ])
+      .where("learning_activity_version.publishedAt", "is not", null)
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity_version.version", "desc")
+      .execute(),
+    database
+      .selectFrom("learning_resource_version")
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "learning_resource_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "learning_resource_version.id",
+        "learning_activity.title",
+        "learning_activity_version.version",
+      ])
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity_version.version", "desc")
+      .execute(),
+  ]);
+  return {
+    template,
+    version: {
+      id: version.id,
+      version: version.version,
+      publishedAt: version.publishedAt?.toISOString() ?? null,
+      editable: !version.publishedAt && template.status !== "archived",
+    },
+    versions: versions.map((candidate) => ({
+      id: candidate.id,
+      version: candidate.version,
+      publishedAt: candidate.publishedAt?.toISOString() ?? null,
+    })),
+    draft,
+    people: { platformAdministrators, users },
+    regions,
+    library: { modules, surveys, resources },
+  };
+}
+
+async function validateEventDraftReferences(
+  transaction: Transaction<Database>,
+  draft: AdminEventTemplateDraft,
+): Promise<boolean> {
+  const administratorIds = new Set(draft.defaultAdministratorIds);
+  const userIds = new Set([
+    ...draft.regions.flatMap((region) => region.coordinatorIds),
+    ...draft.sections.flatMap((section) =>
+      section.items.flatMap((item) =>
+        item.kind === "session" ? item.presenterIds : [],
+      ),
+    ),
+  ]);
+  const activityIds = draft.sections.flatMap((section) =>
+    section.items.flatMap((item) =>
+      item.kind === "session" ? [] : [item.learningActivityVersionId],
+    ),
+  );
+  const regionIds = new Set(draft.regions.map((region) => region.regionId));
+  const [administrators, users, activities, regions] = await Promise.all([
+    transaction
+      .selectFrom("platform_admin")
+      .select("userId")
+      .where("userId", "in", [...administratorIds])
+      .execute(),
+    userIds.size
+      ? transaction
+          .selectFrom("user")
+          .select("id")
+          .where("id", "in", [...userIds])
+          .execute()
+      : [],
+    activityIds.length
+      ? transaction
+          .selectFrom("learning_activity_version")
+          .select("id")
+          .where("id", "in", activityIds)
+          .execute()
+      : [],
+    regionIds.size
+      ? transaction
+          .selectFrom("coordination_region")
+          .select("id")
+          .where("id", "in", [...regionIds])
+          .where("status", "=", "active")
+          .execute()
+      : [],
+  ]);
+  return (
+    new Set(administrators.map((row) => row.userId)).size ===
+      administratorIds.size &&
+    new Set(users.map((row) => row.id)).size === userIds.size &&
+    new Set(activities.map((row) => row.id)).size ===
+      new Set(activityIds).size &&
+    new Set(regions.map((row) => row.id)).size === regionIds.size
+  );
+}
+
+async function replaceEventDraftStructure(
+  transaction: Transaction<Database>,
+  draft: AdminEventTemplateDraft,
+): Promise<void> {
+  await transaction
+    .deleteFrom("event_template_version_item")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
+  await transaction
+    .deleteFrom("event_template_version_section")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
+  await transaction
+    .deleteFrom("event_template_version_presenter_default")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
+  await transaction
+    .deleteFrom("event_template_session_definition")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
+  await transaction
+    .deleteFrom("event_template_version_coordinator_default")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
+  await transaction
+    .deleteFrom("event_template_version_region")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
+  await transaction
+    .deleteFrom("event_template_version_admin_default")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
+
+  await transaction
+    .insertInto("event_template_version_admin_default")
+    .values(
+      draft.defaultAdministratorIds.map((userId) => ({
+        eventTemplateVersionId: draft.eventTemplateVersionId,
+        userId,
+      })),
+    )
+    .execute();
+  for (const [position, region] of draft.regions.entries()) {
+    await transaction
+      .insertInto("event_template_version_region")
+      .values({
+        eventTemplateVersionId: draft.eventTemplateVersionId,
+        regionId: region.regionId,
+        position,
+      })
+      .execute();
+    await transaction
+      .insertInto("event_template_version_coordinator_default")
+      .values(
+        region.coordinatorIds.map((userId) => ({
+          eventTemplateVersionId: draft.eventTemplateVersionId,
+          regionId: region.regionId,
+          userId,
+        })),
+      )
+      .execute();
+  }
+  let sessionPosition = 0;
+  for (const [sectionPosition, section] of draft.sections.entries()) {
+    await transaction
+      .insertInto("event_template_version_section")
+      .values({
+        id: section.id,
+        eventTemplateVersionId: draft.eventTemplateVersionId,
+        position: sectionPosition,
+        title: section.title,
+        description: section.description,
+      })
+      .execute();
+    for (const [itemPosition, item] of section.items.entries()) {
+      const sessionDefinitionId =
+        item.kind === "session"
+          ? `event_session_definition_${randomUUID()}`
+          : null;
+      if (item.kind === "session" && sessionDefinitionId) {
+        await transaction
+          .insertInto("event_template_session_definition")
+          .values({
+            id: sessionDefinitionId,
+            eventTemplateVersionId: draft.eventTemplateVersionId,
+            position: sessionPosition++,
+            title: item.title,
+            durationMinutes: item.durationMinutes,
+            presenterRequired: item.presenterRequired,
+          })
+          .execute();
+        if (item.presenterIds.length)
+          await transaction
+            .insertInto("event_template_version_presenter_default")
+            .values(
+              item.presenterIds.map((userId) => ({
+                eventTemplateVersionId: draft.eventTemplateVersionId,
+                sessionDefinitionId,
+                userId,
+                scopeKey: sessionDefinitionId,
+              })),
+            )
+            .execute();
+      }
+      await transaction
+        .insertInto("event_template_version_item")
+        .values({
+          id: item.id,
+          eventTemplateVersionId: draft.eventTemplateVersionId,
+          sectionId: section.id,
+          position: itemPosition,
+          kind: item.kind,
+          title: item.title,
+          required: item.required,
+          durationMinutes: item.durationMinutes,
+          learningActivityVersionId:
+            item.kind === "session" ? null : item.learningActivityVersionId,
+          sessionDefinitionId,
+        })
+        .execute();
+    }
+  }
+}
+
+export async function saveAdminEventTemplateDraft(
+  draft: AdminEventTemplateDraft,
+  administrator: AuthenticatedUser,
+): Promise<"saved" | "not-found" | "conflict" | "slug-in-use"> {
+  let result: "saved" | "not-found" | "conflict" | "slug-in-use";
+  try {
+    result = await getDatabase()
+      .transaction()
+      .execute(async (transaction) => {
+        const version = await transaction
+          .selectFrom("event_template_version")
+          .innerJoin(
+            "event_template",
+            "event_template.id",
+            "event_template_version.eventTemplateId",
+          )
+          .select([
+            "event_template_version.publishedAt",
+            "event_template.status",
+            "event_template.slug",
+          ])
+          .where("event_template_version.id", "=", draft.eventTemplateVersionId)
+          .where("event_template.id", "=", draft.eventTemplateId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!version) return "not-found" as const;
+        if (version.publishedAt || version.status === "archived")
+          return "conflict" as const;
+        if (!(await validateEventDraftReferences(transaction, draft)))
+          return "conflict" as const;
+        const slugOwner = await transaction
+          .selectFrom("event_template")
+          .select("id")
+          .where("slug", "=", draft.slug)
+          .where("id", "!=", draft.eventTemplateId)
+          .executeTakeFirst();
+        if (slugOwner) return "slug-in-use" as const;
+        await transaction
+          .updateTable("event_template")
+          .set({ title: draft.title, slug: draft.slug, updatedAt: new Date() })
+          .where("id", "=", draft.eventTemplateId)
+          .executeTakeFirstOrThrow();
+        await transaction
+          .updateTable("event_template_version")
+          .set({
+            summary: draft.summary,
+            description: draft.description,
+            hasCompletionCertificate: draft.hasCompletionCertificate,
+          })
+          .where("id", "=", draft.eventTemplateVersionId)
+          .executeTakeFirstOrThrow();
+        await replaceEventDraftStructure(transaction, draft);
+        return "saved" as const;
+      });
+  } catch (error) {
+    if (isUniqueViolation(error)) result = "slug-in-use";
+    else throw error;
+  }
+  if (result === "saved")
+    logServerEvent({
+      level: "info",
+      event: "event_template.draft_saved",
+      fields: {
+        actorUserId: administrator.id,
+        entityType: "event_template",
+        entityId: draft.eventTemplateId,
+      },
+    });
+  return result;
+}
+
+export async function createAdminEventTemplateVersion(
+  eventTemplateId: string,
+  administrator: AuthenticatedUser,
+): Promise<
+  | { status: "created"; eventTemplateVersionId: string }
+  | { status: "not-found" | "conflict" }
+> {
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const template = await transaction
+        .selectFrom("event_template")
+        .select(["id", "slug", "title", "status"])
+        .where("id", "=", eventTemplateId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!template) return { status: "not-found" } as const;
+      if (template.status === "archived")
+        return { status: "conflict" } as const;
+      const versions = await transaction
+        .selectFrom("event_template_version")
+        .select([
+          "id",
+          "version",
+          "summary",
+          "description",
+          "hasCompletionCertificate",
+          "publishedAt",
+        ])
+        .where("eventTemplateId", "=", eventTemplateId)
+        .orderBy("version", "desc")
+        .execute();
+      if (versions.some((version) => !version.publishedAt))
+        return { status: "conflict" } as const;
+      const source = versions[0];
+      if (!source) return { status: "not-found" } as const;
+      const eventTemplateVersionId = `event_template_version_${randomUUID()}`;
+      await transaction
+        .insertInto("event_template_version")
+        .values({
+          id: eventTemplateVersionId,
+          eventTemplateId,
+          version: source.version + 1,
+          summary: source.summary,
+          description: source.description,
+          hasCompletionCertificate: source.hasCompletionCertificate,
+          publishedAt: null,
+        })
+        .execute();
+      const sourceDraft = await loadEventTemplateDraft(
+        transaction,
+        template,
+        source,
+      );
+      const draft: AdminEventTemplateDraft = {
+        ...sourceDraft,
+        eventTemplateVersionId,
+        sections: sourceDraft.sections.map((section) => ({
+          ...section,
+          id: `event_section_${randomUUID()}`,
+          items: section.items.map((item) => ({
+            ...item,
+            id: `event_item_${randomUUID()}`,
+          })),
+        })),
+      };
+      await replaceEventDraftStructure(transaction, draft);
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "event_template.version_created",
+        subjectType: "event_template_version",
+        subjectId: eventTemplateVersionId,
+        aggregateId: eventTemplateId,
+        metadata: { sourceVersionId: source.id, version: source.version + 1 },
+      });
+      return { status: "created", eventTemplateVersionId } as const;
+    });
 }
 
 export async function publishAdminEventTemplateVersion(
@@ -246,46 +950,85 @@ export async function publishAdminEventTemplateVersion(
           "event_template_version.version",
           "event_template_version.publishedAt",
           "event_template.status",
+          "event_template.slug",
+          "event_template.title",
         ])
         .where("event_template_version.id", "=", eventTemplateVersionId)
         .where("event_template.id", "=", eventTemplateId)
         .forUpdate()
         .executeTakeFirst();
       if (!version) return "not-found" as const;
-      if (version.publishedAt || version.status === "archived")
+      if (
+        version.publishedAt ||
+        version.status === "archived" ||
+        version.title === "Untitled event template" ||
+        version.slug.startsWith("draft-event-template-")
+      )
         return "conflict" as const;
-      const [administratorCoverage, presenterCoverage] = await Promise.all([
-        transaction
-          .selectFrom("event_template_version_admin_default as defaults")
-          .leftJoin(
-            "platform_admin",
-            "platform_admin.userId",
-            "defaults.userId",
-          )
-          .select([
-            sql<number>`count(*)::integer`.as("configured"),
-            sql<number>`count(platform_admin."userId")::integer`.as("active"),
-          ])
-          .where("defaults.eventTemplateVersionId", "=", eventTemplateVersionId)
-          .executeTakeFirstOrThrow(),
-        transaction
-          .selectFrom("event_template_session_definition as sessions")
-          .select([
-            sql<number>`count(*) filter (where sessions."presenterRequired")::integer`.as(
-              "required",
-            ),
-            sql<number>`count(*) filter (
+      const [administratorCoverage, presenterCoverage, structure] =
+        await Promise.all([
+          transaction
+            .selectFrom("event_template_version_admin_default as defaults")
+            .leftJoin(
+              "platform_admin",
+              "platform_admin.userId",
+              "defaults.userId",
+            )
+            .select([
+              sql<number>`count(*)::integer`.as("configured"),
+              sql<number>`count(platform_admin."userId")::integer`.as("active"),
+            ])
+            .where(
+              "defaults.eventTemplateVersionId",
+              "=",
+              eventTemplateVersionId,
+            )
+            .executeTakeFirstOrThrow(),
+          transaction
+            .selectFrom("event_template_session_definition as sessions")
+            .select([
+              sql<number>`count(*) filter (where sessions."presenterRequired")::integer`.as(
+                "required",
+              ),
+              sql<number>`count(*) filter (
               where sessions."presenterRequired" and exists (
                 select 1 from event_template_version_presenter_default presenters
                 where presenters."eventTemplateVersionId" = sessions."eventTemplateVersionId"
                   and presenters."sessionDefinitionId" = sessions.id
               )
             )::integer`.as("covered"),
-          ])
-          .where("sessions.eventTemplateVersionId", "=", eventTemplateVersionId)
-          .executeTakeFirstOrThrow(),
-      ]);
+            ])
+            .where(
+              "sessions.eventTemplateVersionId",
+              "=",
+              eventTemplateVersionId,
+            )
+            .executeTakeFirstOrThrow(),
+          transaction
+            .selectFrom("event_template_version_section as sections")
+            .leftJoin(
+              "event_template_version_item as items",
+              "items.sectionId",
+              "sections.id",
+            )
+            .select([
+              sql<number>`count(distinct sections.id)::integer`.as("sections"),
+              sql<number>`count(items.id)::integer`.as("items"),
+              sql<number>`count(items.id) filter (where items.kind = 'session')::integer`.as(
+                "sessions",
+              ),
+            ])
+            .where(
+              "sections.eventTemplateVersionId",
+              "=",
+              eventTemplateVersionId,
+            )
+            .executeTakeFirstOrThrow(),
+        ]);
       if (
+        structure.sections === 0 ||
+        structure.items === 0 ||
+        structure.sessions === 0 ||
         administratorCoverage.configured === 0 ||
         administratorCoverage.configured !== administratorCoverage.active ||
         presenterCoverage.required !== presenterCoverage.covered
@@ -404,15 +1147,16 @@ export async function createAdminEventOccurrence(
       if (
         configuredAdminDefaults.length === 0 ||
         activeAdminDefaults.length !== configuredAdminDefaults.length ||
-        sessionDefinitions.length !== 1
+        sessionDefinitions.length === 0
       )
         return { status: "conflict" } as const;
-      const requiredSession = sessionDefinitions[0];
-      if (!requiredSession) return { status: "conflict" } as const;
       if (
-        requiredSession.presenterRequired &&
-        !presenterDefaults.some(
-          (presenter) => presenter.sessionDefinitionId === requiredSession.id,
+        sessionDefinitions.some(
+          (session) =>
+            session.presenterRequired &&
+            !presenterDefaults.some(
+              (presenter) => presenter.sessionDefinitionId === session.id,
+            ),
         )
       )
         return { status: "conflict" } as const;
@@ -433,6 +1177,12 @@ export async function createAdminEventOccurrence(
 
       const startsAt = new Date(input.startsAt);
       const endsAt = new Date(input.endsAt);
+      const totalSessionMinutes = sessionDefinitions.reduce(
+        (total, session) => total + session.durationMinutes,
+        0,
+      );
+      if (endsAt.getTime() - startsAt.getTime() < totalSessionMinutes * 60_000)
+        return { status: "conflict" } as const;
       const now = new Date();
       await transaction
         .insertInto("event_occurrence")
@@ -485,39 +1235,49 @@ export async function createAdminEventOccurrence(
             endReason: null,
           })
           .execute();
-      const sessionId = `event_session_${randomUUID()}`;
-      await transaction
-        .insertInto("event_session")
-        .values({
-          id: sessionId,
-          eventOccurrenceId,
-          sessionDefinitionId: requiredSession.id,
-          position: 0,
-          title: requiredSession.title,
-          startsAt,
-          endsAt,
-          presenterRequired: requiredSession.presenterRequired,
-          venueName: optionalText(input.venueName),
-          venueAddress: optionalText(input.venueAddress),
-          virtualJoinUrl: optionalText(input.virtualJoinUrl),
-        })
-        .execute();
-      for (const presenter of presenterDefaults)
+      let sessionStartsAt = startsAt;
+      for (const sessionDefinition of sessionDefinitions) {
+        const sessionId = `event_session_${randomUUID()}`;
+        const sessionEndsAt = new Date(
+          sessionStartsAt.getTime() +
+            sessionDefinition.durationMinutes * 60_000,
+        );
         await transaction
-          .insertInto("event_presenter_assignment")
+          .insertInto("event_session")
           .values({
-            id: `event_presenter_assignment_${randomUUID()}`,
+            id: sessionId,
             eventOccurrenceId,
-            eventSessionId: presenter.sessionDefinitionId ? sessionId : null,
-            userId: presenter.userId,
-            scopeKey: presenter.sessionDefinitionId ? sessionId : "occurrence",
-            source: "template_default",
-            assignedByUserId: administrator.id,
-            assignedAt: now,
-            endedAt: null,
-            endReason: null,
+            sessionDefinitionId: sessionDefinition.id,
+            position: sessionDefinition.position,
+            title: sessionDefinition.title,
+            startsAt: sessionStartsAt,
+            endsAt: sessionEndsAt,
+            presenterRequired: sessionDefinition.presenterRequired,
+            venueName: optionalText(input.venueName),
+            venueAddress: optionalText(input.venueAddress),
+            virtualJoinUrl: optionalText(input.virtualJoinUrl),
           })
           .execute();
+        for (const presenter of presenterDefaults.filter(
+          (candidate) => candidate.sessionDefinitionId === sessionDefinition.id,
+        ))
+          await transaction
+            .insertInto("event_presenter_assignment")
+            .values({
+              id: `event_presenter_assignment_${randomUUID()}`,
+              eventOccurrenceId,
+              eventSessionId: sessionId,
+              userId: presenter.userId,
+              scopeKey: sessionId,
+              source: "template_default",
+              assignedByUserId: administrator.id,
+              assignedAt: now,
+              endedAt: null,
+              endReason: null,
+            })
+            .execute();
+        sessionStartsAt = sessionEndsAt;
+      }
       for (const region of regions) {
         const eventOccurrenceRegionId = `event_occurrence_region_${randomUUID()}`;
         await transaction
@@ -556,6 +1316,118 @@ export async function createAdminEventOccurrence(
         createdAt: now,
       });
       return { status: "created", eventOccurrenceId } as const;
+    });
+}
+
+export async function updateAdminEventOccurrence(
+  eventOccurrenceId: string,
+  input: AdminEventOccurrenceCreateInput,
+  administrator: AuthenticatedUser,
+): Promise<"updated" | "not-found" | "conflict"> {
+  if (!hasValidTimezone(input.timezone)) return "conflict";
+  const domains = normalizeEventDomains(input.domains);
+  if (!domains) return "conflict";
+
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .select([
+          "eventTemplateVersionId",
+          "startsAt",
+          "confirmedCount",
+          "status",
+        ])
+        .where("id", "=", eventOccurrenceId)
+        .executeTakeFirst();
+      if (!occurrence) return "not-found" as const;
+      if (
+        occurrence.eventTemplateVersionId !== input.eventTemplateVersionId ||
+        occurrence.status === "archived" ||
+        occurrence.status === "completed" ||
+        input.capacity < occurrence.confirmedCount
+      )
+        return "conflict" as const;
+
+      const sessions = await transaction
+        .selectFrom("event_session")
+        .select(["id", "startsAt", "endsAt"])
+        .where("eventOccurrenceId", "=", eventOccurrenceId)
+        .execute();
+      const startsAt = new Date(input.startsAt);
+      const endsAt = new Date(input.endsAt);
+      const sessionMinutes = sessions.reduce(
+        (total, session) =>
+          total +
+          (session.endsAt.getTime() - session.startsAt.getTime()) / 60_000,
+        0,
+      );
+      if (endsAt.getTime() - startsAt.getTime() < sessionMinutes * 60_000)
+        return "conflict" as const;
+
+      const now = new Date();
+      await transaction
+        .updateTable("event_occurrence")
+        .set({
+          title: input.title,
+          deliveryMode: input.deliveryMode,
+          registrationMode: input.registrationMode,
+          approvalMode: input.approvalMode,
+          timezone: input.timezone,
+          startsAt,
+          endsAt,
+          registrationOpensAt: optionalDate(input.registrationOpensAt),
+          registrationClosesAt: optionalDate(input.registrationClosesAt),
+          coordinatorLockAt: optionalDate(input.coordinatorLockAt),
+          capacity: input.capacity,
+          venueName: optionalText(input.venueName),
+          venueAddress: optionalText(input.venueAddress),
+          virtualJoinUrl: optionalText(input.virtualJoinUrl),
+          updatedAt: now,
+        })
+        .where("id", "=", eventOccurrenceId)
+        .execute();
+
+      const startDelta = startsAt.getTime() - occurrence.startsAt.getTime();
+      for (const session of sessions)
+        await transaction
+          .updateTable("event_session")
+          .set({
+            startsAt: new Date(session.startsAt.getTime() + startDelta),
+            endsAt: new Date(session.endsAt.getTime() + startDelta),
+            venueName: optionalText(input.venueName),
+            venueAddress: optionalText(input.venueAddress),
+            virtualJoinUrl: optionalText(input.virtualJoinUrl),
+          })
+          .where("id", "=", session.id)
+          .execute();
+
+      await transaction
+        .deleteFrom("event_occurrence_domain")
+        .where("eventOccurrenceId", "=", eventOccurrenceId)
+        .execute();
+      if (domains.length)
+        await transaction
+          .insertInto("event_occurrence_domain")
+          .values(
+            domains.map((domain) => ({
+              eventOccurrenceId,
+              domain,
+              createdAt: now,
+            })),
+          )
+          .execute();
+
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "event_occurrence.updated",
+        subjectType: "event_occurrence",
+        subjectId: eventOccurrenceId,
+        metadata: { eventTemplateVersionId: input.eventTemplateVersionId },
+        createdAt: now,
+      });
+      return "updated" as const;
     });
 }
 
@@ -615,12 +1487,8 @@ export async function publishAdminEventOccurrence(
         .where("event_occurrence.id", "=", eventOccurrenceId)
         .executeTakeFirstOrThrow();
       const locationInvalid =
-        ((occurrence.deliveryMode === "in_person" ||
-          occurrence.deliveryMode === "hybrid") &&
-          !occurrence.venueName) ||
-        ((occurrence.deliveryMode === "virtual" ||
-          occurrence.deliveryMode === "hybrid") &&
-          !occurrence.virtualJoinUrl);
+        (occurrence.deliveryMode === "in_person" && !occurrence.venueName) ||
+        (occurrence.deliveryMode === "virtual" && !occurrence.virtualJoinUrl);
       if (
         coverage.admins === 0 ||
         coverage.sessions === 0 ||

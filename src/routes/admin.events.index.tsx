@@ -13,10 +13,12 @@ import {
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { lazy, Suspense, useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
+import type { AdminEventWorkspace } from "#/features/admin-event/admin-event.schema";
+import { formatLocalDateTime } from "#/features/shared/local-date";
 import {
   getAdminEventWorkspace,
   publishAdminEventOccurrence,
-  publishAdminEventTemplate,
+  startAdminEventTemplate,
 } from "#/server/functions/admin-event";
 import classes from "./admin.events.module.css";
 
@@ -24,12 +26,6 @@ const AdminEventOccurrenceDialog = lazy(async () => {
   const module =
     await import("#/features/admin-event/AdminEventOccurrenceDialog");
   return { default: module.AdminEventOccurrenceDialog };
-});
-
-const AdminEventTemplateDialog = lazy(async () => {
-  const module =
-    await import("#/features/admin-event/AdminEventTemplateDialog");
-  return { default: module.AdminEventTemplateDialog };
 });
 
 export const Route = createFileRoute("/admin/events/")({
@@ -47,11 +43,7 @@ export const Route = createFileRoute("/admin/events/")({
 });
 
 function formatEventDate(value: string, timezone: string): string {
-  return new Date(value).toLocaleString("en-AU", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: timezone,
-  });
+  return formatLocalDateTime(value, { timeZone: timezone });
 }
 
 function readable(value: string): string {
@@ -61,9 +53,12 @@ function readable(value: string): string {
 function AdminEventsPage() {
   const result = Route.useLoaderData();
   const router = useRouter();
-  const [templateDialogOpen, setTemplateDialogOpen] = useState(false);
   const [occurrenceDialogOpen, setOccurrenceDialogOpen] = useState(false);
+  const [editingOccurrence, setEditingOccurrence] = useState<
+    AdminEventWorkspace["occurrences"][number] | null
+  >(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (result.status === "forbidden") return <AdminAccessDenied />;
   const workspace = result.data;
@@ -71,30 +66,26 @@ function AdminEventsPage() {
   async function refresh(closeDialogs = false) {
     await router.invalidate();
     if (closeDialogs) {
-      setTemplateDialogOpen(false);
       setOccurrenceDialogOpen(false);
+      setEditingOccurrence(null);
     }
   }
 
-  async function publishTemplate(
-    eventTemplateId: string,
-    eventTemplateVersionId: string,
-  ) {
-    setProcessingId(eventTemplateVersionId);
+  async function startTemplate() {
+    setCreatingTemplate(true);
     setError(null);
     try {
-      const outcome = await publishAdminEventTemplate({
-        data: { eventTemplateId, eventTemplateVersionId },
-      });
-      if (outcome.status !== "ready") {
-        setError(
-          "The template cannot be published until every required administrator, region and presenter scope has coverage.",
-        );
+      const result = await startAdminEventTemplate();
+      if (result.status !== "ready" || !result.data.eventTemplateId) {
+        setError("The draft event template could not be started.");
         return;
       }
-      await refresh();
+      await router.navigate({
+        to: "/admin/events/$eventTemplateId",
+        params: { eventTemplateId: result.data.eventTemplateId },
+      });
     } finally {
-      setProcessingId(null);
+      setCreatingTemplate(false);
     }
   }
 
@@ -127,14 +118,15 @@ function AdminEventsPage() {
           <Title order={1}>Events</Title>
           <Text c="dimmed" mt="xs" maw={760}>
             Create immutable event templates, then schedule exact-version
-            in-person, virtual or hybrid occurrences.
+            in-person or virtual occurrences.
           </Text>
         </div>
         <Group>
           <Button
             variant="light"
+            loading={creatingTemplate}
             onClick={() => {
-              setTemplateDialogOpen(true);
+              void startTemplate();
             }}
           >
             Create template
@@ -142,6 +134,7 @@ function AdminEventsPage() {
           <Button
             disabled={workspace.publishedVersions.length === 0}
             onClick={() => {
+              setEditingOccurrence(null);
               setOccurrenceDialogOpen(true);
             }}
           >
@@ -193,23 +186,19 @@ function AdminEventsPage() {
                       {template.occurrenceCount} occurrence
                       {template.occurrenceCount === 1 ? "" : "s"}
                     </Text>
-                    {template.draftVersionId ? (
-                      <Button
-                        variant="light"
-                        loading={processingId === template.draftVersionId}
-                        onClick={() => {
-                          const draftVersionId = template.draftVersionId;
-                          if (draftVersionId)
-                            void publishTemplate(template.id, draftVersionId);
-                        }}
-                      >
-                        Publish version {template.latestVersion}
-                      </Button>
-                    ) : (
-                      <Text size="sm" c="dimmed">
-                        Published version {template.publishedVersion}
-                      </Text>
-                    )}
+                    <Button
+                      variant="light"
+                      onClick={() => {
+                        void router.navigate({
+                          to: "/admin/events/$eventTemplateId",
+                          params: { eventTemplateId: template.id },
+                        });
+                      }}
+                    >
+                      {template.draftVersionId
+                        ? `Edit version ${String(template.latestVersion)}`
+                        : "Open template"}
+                    </Button>
                   </Stack>
                 </Paper>
               ))}
@@ -276,17 +265,26 @@ function AdminEventsPage() {
                       {occurrence.assignedAdminCount} assigned administrator
                       {occurrence.assignedAdminCount === 1 ? "" : "s"}
                     </Text>
-                    {occurrence.status === "draft" ? (
+                    <Group grow wrap="wrap">
                       <Button
                         variant="light"
-                        loading={processingId === occurrence.id}
                         onClick={() => {
-                          void publishOccurrence(occurrence.id);
+                          setEditingOccurrence(occurrence);
                         }}
                       >
-                        Publish occurrence
+                        Open instance
                       </Button>
-                    ) : null}
+                      {occurrence.status === "draft" ? (
+                        <Button
+                          loading={processingId === occurrence.id}
+                          onClick={() => {
+                            void publishOccurrence(occurrence.id);
+                          }}
+                        >
+                          Publish occurrence
+                        </Button>
+                      ) : null}
+                    </Group>
                   </Stack>
                 </Paper>
               ))}
@@ -302,23 +300,15 @@ function AdminEventsPage() {
           </Center>
         }
       >
-        {templateDialogOpen ? (
-          <AdminEventTemplateDialog
-            onClose={() => {
-              setTemplateDialogOpen(false);
-            }}
-            onCreated={async () => {
-              await refresh(true);
-            }}
-          />
-        ) : null}
-        {occurrenceDialogOpen ? (
+        {occurrenceDialogOpen || editingOccurrence ? (
           <AdminEventOccurrenceDialog
             publishedVersions={workspace.publishedVersions}
+            {...(editingOccurrence ? { occurrence: editingOccurrence } : {})}
             onClose={() => {
               setOccurrenceDialogOpen(false);
+              setEditingOccurrence(null);
             }}
-            onCreated={async () => {
+            onSaved={async () => {
               await refresh(true);
             }}
           />

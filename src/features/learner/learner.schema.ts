@@ -1,4 +1,35 @@
+import { z } from "#/validation/zod";
+
 type EnrollmentState = "active" | "completed" | "expired" | "cancelled";
+
+export const learnerEventRegistrationSchema = z.object({
+  eventOccurrenceId: z
+    .string()
+    .check(z.trim(), z.minLength(1), z.maxLength(200)),
+});
+
+type LearnerEventRegistrationStatus =
+  | "submitted"
+  | "coordinator_approved"
+  | "coordinator_declined"
+  | "selected"
+  | "waitlisted"
+  | "not_selected"
+  | "withdrawn"
+  | "cancelled";
+
+export interface LearnerEvent {
+  eventOccurrenceId: string;
+  title: string;
+  eventTemplateTitle: string;
+  deliveryMode: "in_person" | "virtual";
+  timezone: string;
+  startsAt: string;
+  endsAt: string;
+  registrationStatus: LearnerEventRegistrationStatus | null;
+  canRegister: boolean;
+  registrationUnavailableReason: "not_open" | "closed" | "full" | null;
+}
 
 export interface LearnerCourse {
   enrollmentId: string;
@@ -32,4 +63,5 @@ export interface LearnerDashboard {
   };
   courses: Array<LearnerCourse>;
   availableCourses: Array<AvailableCourse>;
+  events: Array<LearnerEvent>;
 }

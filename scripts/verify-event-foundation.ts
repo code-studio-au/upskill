@@ -6,6 +6,8 @@ import {
   createAdminEventTemplate,
   publishAdminEventOccurrence,
   publishAdminEventTemplateVersion,
+  saveAdminEventTemplateDraft,
+  updateAdminEventOccurrence,
 } from "#/server/admin/admin-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
@@ -167,18 +169,49 @@ try {
     {
       title: "Verification workshop",
       slug: `verification-workshop-${suffix}`,
-      summary: "A versioned Event Template verification fixture.",
-      description:
-        "Verifies exact-version occurrence provenance and durable staff attribution.",
-      sessionTitle: "Workshop session",
-      sessionDurationMinutes: 120,
-      hasCompletionCertificate: true,
+      defaultAdministratorIds: [administrator.id],
     },
     administrator,
   );
   assert.equal(createdTemplate.status, "created");
   eventTemplateId = createdTemplate.eventTemplateId;
   eventTemplateVersionId = createdTemplate.eventTemplateVersionId;
+  assert.equal(
+    await saveAdminEventTemplateDraft(
+      {
+        eventTemplateId,
+        eventTemplateVersionId,
+        title: "Verification workshop",
+        slug: `verification-workshop-${suffix}`,
+        summary: "A versioned Event Template verification fixture.",
+        description:
+          "Verifies exact-version occurrence provenance and durable staff attribution.",
+        hasCompletionCertificate: true,
+        defaultAdministratorIds: [administrator.id],
+        regions: [],
+        sections: [
+          {
+            id: `event_section_${suffix}`,
+            title: "Event",
+            description: "The event session.",
+            items: [
+              {
+                id: `event_item_${suffix}`,
+                kind: "session",
+                title: "Workshop session",
+                required: true,
+                durationMinutes: 120,
+                presenterRequired: true,
+                presenterIds: [administrator.id],
+              },
+            ],
+          },
+        ],
+      },
+      administrator,
+    ),
+    "saved",
+  );
   assert.equal(
     await publishAdminEventTemplateVersion(
       eventTemplateId,
@@ -207,7 +240,7 @@ try {
     {
       eventTemplateVersionId,
       title: "Verification workshop · Sydney",
-      deliveryMode: "hybrid",
+      deliveryMode: "in_person",
       registrationMode: "required_restricted",
       approvalMode: "manual",
       timezone: "Australia/Sydney",
@@ -219,13 +252,40 @@ try {
       capacity: 2,
       venueName: "Verification Centre",
       venueAddress: "1 Test Street, Sydney NSW",
-      virtualJoinUrl: "https://meet.example.com/verification",
+      virtualJoinUrl: "",
       domains: "example.com, health.example.org",
     },
     administrator,
   );
   assert.equal(createdOccurrence.status, "created");
   eventOccurrenceId = createdOccurrence.eventOccurrenceId;
+  const rescheduledStartsAt = new Date(startsAt.getTime() + 60 * 60 * 1000);
+  const rescheduledEndsAt = new Date(endsAt.getTime() + 60 * 60 * 1000);
+  assert.equal(
+    await updateAdminEventOccurrence(
+      eventOccurrenceId,
+      {
+        eventTemplateVersionId,
+        title: "Verification workshop · Rescheduled",
+        deliveryMode: "in_person",
+        registrationMode: "required_restricted",
+        approvalMode: "manual",
+        timezone: "Australia/Sydney",
+        startsAt: rescheduledStartsAt.toISOString(),
+        endsAt: rescheduledEndsAt.toISOString(),
+        registrationOpensAt: registrationOpensAt.toISOString(),
+        registrationClosesAt: registrationClosesAt.toISOString(),
+        coordinatorLockAt: coordinatorLockAt.toISOString(),
+        capacity: 3,
+        venueName: "Updated Verification Centre",
+        venueAddress: "2 Test Street, Sydney NSW",
+        virtualJoinUrl: "",
+        domains: "health.example.org",
+      },
+      administrator,
+    ),
+    "updated",
+  );
   await database
     .deleteFrom("platform_admin")
     .where("userId", "=", administrator.id)
@@ -262,9 +322,9 @@ try {
   assert.deepEqual(occurrence, {
     eventTemplateVersionId,
     status: "published",
-    deliveryMode: "hybrid",
+    deliveryMode: "in_person",
     registrationMode: "required_restricted",
-    capacity: 2,
+    capacity: 3,
     confirmedCount: 0,
   });
   assert.deepEqual(
@@ -274,7 +334,7 @@ try {
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .orderBy("domain")
       .execute(),
-    [{ domain: "example.com" }, { domain: "health.example.org" }],
+    [{ domain: "health.example.org" }],
   );
   const session = await database
     .selectFrom("event_session")
@@ -282,8 +342,11 @@ try {
     .where("eventOccurrenceId", "=", eventOccurrenceId)
     .executeTakeFirstOrThrow();
   assert.equal(session.title, "Workshop session");
-  assert.equal(session.startsAt.toISOString(), startsAt.toISOString());
-  assert.equal(session.endsAt.toISOString(), endsAt.toISOString());
+  assert.equal(
+    session.startsAt.toISOString(),
+    rescheduledStartsAt.toISOString(),
+  );
+  assert.equal(session.endsAt.toISOString(), rescheduledEndsAt.toISOString());
   assert.equal(
     await database
       .selectFrom("event_admin_assignment")
@@ -370,7 +433,7 @@ try {
   await assert.rejects(
     database
       .updateTable("event_occurrence")
-      .set({ confirmedCount: 3 })
+      .set({ confirmedCount: 4 })
       .where("id", "=", eventOccurrenceId)
       .execute(),
     /event_occurrence_capacity_ck/u,

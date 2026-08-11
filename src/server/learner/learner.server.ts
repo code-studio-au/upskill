@@ -5,6 +5,7 @@ import type {
   AvailableCourse,
   LearnerCourse,
   LearnerDashboard,
+  LearnerEvent,
 } from "#/features/learner/learner.schema";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import { getDatabase } from "#/server/db/database.server";
@@ -130,6 +131,103 @@ export async function findLearnerDashboard(
     .where("userId", "=", user.id)
     .executeTakeFirst();
 
+  const eventRows = await getDatabase()
+    .selectFrom("event_occurrence")
+    .innerJoin(
+      "event_template_version",
+      "event_template_version.id",
+      "event_occurrence.eventTemplateVersionId",
+    )
+    .innerJoin(
+      "event_template",
+      "event_template.id",
+      "event_template_version.eventTemplateId",
+    )
+    .select([
+      "event_occurrence.id as eventOccurrenceId",
+      "event_occurrence.title",
+      "event_template.title as eventTemplateTitle",
+      "event_occurrence.deliveryMode",
+      "event_occurrence.registrationMode",
+      "event_occurrence.approvalMode",
+      "event_occurrence.timezone",
+      "event_occurrence.startsAt",
+      "event_occurrence.endsAt",
+      "event_occurrence.registrationOpensAt",
+      "event_occurrence.registrationClosesAt",
+      "event_occurrence.capacity",
+      "event_occurrence.confirmedCount",
+    ])
+    .where("event_occurrence.status", "=", "published")
+    .where("event_occurrence.registrationMode", "!=", "open_entry")
+    .where("event_occurrence.endsAt", ">", now)
+    .orderBy("event_occurrence.startsAt")
+    .execute();
+  const eventIds = eventRows.map((event) => event.eventOccurrenceId);
+  const [eventDomains, eventRegistrations] = eventIds.length
+    ? await Promise.all([
+        getDatabase()
+          .selectFrom("event_occurrence_domain")
+          .select(["eventOccurrenceId", "domain"])
+          .where("eventOccurrenceId", "in", eventIds)
+          .execute(),
+        getDatabase()
+          .selectFrom("event_registration")
+          .select(["eventOccurrenceId", "status"])
+          .where("eventOccurrenceId", "in", eventIds)
+          .where("userId", "=", user.id)
+          .execute(),
+      ])
+    : [[], []];
+  const registrationByEvent = new Map(
+    eventRegistrations.map((registration) => [
+      registration.eventOccurrenceId,
+      registration.status,
+    ]),
+  );
+  const events: Array<LearnerEvent> = eventRows.flatMap((event) => {
+    const registrationStatus =
+      registrationByEvent.get(event.eventOccurrenceId) ?? null;
+    const eligible =
+      event.registrationMode === "required_unrestricted" ||
+      (user.emailVerified &&
+        domain !== null &&
+        eventDomains.some(
+          (candidate) =>
+            candidate.eventOccurrenceId === event.eventOccurrenceId &&
+            candidate.domain === domain,
+        ));
+    if (!eligible && !registrationStatus) return [];
+    const notOpen =
+      event.registrationOpensAt !== null && event.registrationOpensAt > now;
+    const closed =
+      event.registrationClosesAt === null || event.registrationClosesAt <= now;
+    const full =
+      event.approvalMode === "automatic" &&
+      event.confirmedCount >= event.capacity;
+    return [
+      {
+        eventOccurrenceId: event.eventOccurrenceId,
+        title: event.title,
+        eventTemplateTitle: event.eventTemplateTitle,
+        deliveryMode: event.deliveryMode,
+        timezone: event.timezone,
+        startsAt: event.startsAt.toISOString(),
+        endsAt: event.endsAt.toISOString(),
+        registrationStatus,
+        canRegister:
+          !registrationStatus && eligible && !notOpen && !closed && !full,
+        registrationUnavailableReason: notOpen
+          ? "not_open"
+          : closed
+            ? "closed"
+            : full
+              ? "full"
+              : null,
+      },
+    ];
+  });
+
   return {
     user: {
       id: user.id,
@@ -139,5 +237,6 @@ export async function findLearnerDashboard(
     },
     courses,
     availableCourses,
+    events,
   };
 }

@@ -131,10 +131,8 @@ export interface AdminAccessGrantDirectory {
     enrollmentDurationDays: number;
     domains: Array<string>;
     expiresAt: string | null;
-    expiresAtLabel: string | null;
     revokedAt: string | null;
     createdAt: string;
-    createdAtLabel: string;
     redemptions: Array<{
       enrollmentId: string;
       learnerId: string;

@@ -1,4 +1,5 @@
 import { Badge } from "#/features/shared/Badge";
+import { formatLocalDate } from "#/features/shared/local-date";
 import { Button, Container, Paper, Stack, Text, Title } from "@mantine/core";
 import { MantineProgress } from "#/features/shared/MantineProgress";
 import {
@@ -91,14 +92,14 @@ function LearnerWorkspacePage() {
                 <Text size="sm" c="dimmed">
                   Enrolled
                 </Text>
-                <Text fw={600}>{workspace.enrolledOn}</Text>
+                <Text fw={600}>{formatLocalDate(workspace.enrolledAt)}</Text>
               </div>
-              {workspace.expiresOn ? (
+              {workspace.expiresAt ? (
                 <div>
                   <Text size="sm" c="dimmed">
                     Access until
                   </Text>
-                  <Text fw={600}>{workspace.expiresOn}</Text>
+                  <Text fw={600}>{formatLocalDate(workspace.expiresAt)}</Text>
                 </div>
               ) : null}
               <Button component={Link} to="/dashboard" variant="light">

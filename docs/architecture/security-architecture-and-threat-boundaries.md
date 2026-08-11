@@ -421,7 +421,7 @@ production/auth/payment/event milestones.
 - late-invitation identity binding, expiry, single use and no-cutoff-only-bypass
   tests;
 - open-entry, required-unrestricted and required-restricted Event tests across
-  face-to-face, virtual and hybrid delivery;
+  face-to-face or virtual delivery;
 - exact normalised matching against verified learner email domains, including
   explicit subdomain behaviour and non-enumerating rejection responses;
 - platform-administrator restriction-override authorisation, structured audit,

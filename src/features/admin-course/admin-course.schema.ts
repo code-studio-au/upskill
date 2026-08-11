@@ -49,7 +49,7 @@ export const adminCourseEnrollmentRemoveSchema = z.object({
   enrollmentId: identifierSchema,
 });
 
-export const adminCourseCreateSchema = z.object({
+const adminCourseCreateSchema = z.object({
   title: boundedText(160),
   slug: z
     .string()
@@ -220,11 +220,9 @@ export interface AdminCourseDetail {
       courseVersion: number;
       state: "active" | "completed" | "expired" | "removed";
       enrolledAt: string;
-      enrolledAtLabel: string;
       completedAt: string | null;
       expiresAt: string | null;
       removedAt: string | null;
-      statusDateLabel: string | null;
     }>;
   };
   draft: AdminCourseDraft;
