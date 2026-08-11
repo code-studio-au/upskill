@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; implementation pending.
+Accepted and implemented.
 
 ## Context
 
@@ -14,9 +14,9 @@ available to anyone who obtains a database snapshot, while randomized
 authenticated encryption alone cannot provide indexed lookup from an arbitrary
 submitted code.
 
-The current implementation stores canonical plaintext codes and uses a
-normalized PostgreSQL expression index. That remains the executable truth until
-the migration described here is delivered.
+The previous pre-production implementation stored canonical plaintext codes and
+used a normalized PostgreSQL expression index. It was replaced without a
+compatibility path before any durable environment or real user data existed.
 
 ## Decision
 
@@ -33,9 +33,18 @@ submitted code before applying any grant policy. This avoids a separately
 managed HMAC lookup key while preventing a database-only disclosure from
 revealing the complete credential.
 
-The authenticated-encryption key remains outside PostgreSQL under the
-application secret-management boundary. Persist a key version with the
-ciphertext so controlled rotation remains possible.
+The implementation uses Node's built-in AES-256-GCM with a fresh random 96-bit
+nonce per encryption. Additional authenticated data binds the envelope to its
+grant ID, lookup ID and envelope version, preventing a valid ciphertext from
+being substituted onto another grant. The complete nonce, ciphertext and
+128-bit authentication tag are stored in one versioned `v1` envelope.
+
+The 32-byte authenticated-encryption key remains outside PostgreSQL under the
+application secret-management boundary. Each deployed environment receives one
+dedicated AWS Secrets Manager value, encrypted at rest through KMS and readable
+only by the application instance role. Development and test use an explicitly
+local key; staging and production reject that fallback. The envelope version
+provides a controlled rotation path without implementing a premature key ring.
 
 The intended record contains:
 
@@ -60,15 +69,16 @@ queries never decrypt codes in bulk.
 
 ## Migration and rollout
 
-Because Upskill is pre-production and its data is disposable, replace/reissue
-current codes in the reset baseline rather than retain a dual-read compatibility
-path. Introduce the encrypted columns, unique lookup identifier and versioned
-encryption secret before removing plaintext. Verify lookup, comparison and
-authorized recovery; new writes must never fall back to plaintext.
+Because Upskill was pre-production and its data was disposable, the reset
+baseline replaced/reissued existing codes rather than retaining a dual-read
+compatibility path. The executable schema has a unique public lookup identifier
+and one encrypted envelope; it has no plaintext or HMAC-digest code column. New
+writes cannot fall back to plaintext.
 
-If key rotation is required, new writes use the active version while reads may
-temporarily accept prior versions. Re-encryption is explicit, observable and
-restart-safe.
+If key rotation is required, add a new envelope/key version, deploy a temporary
+reader for both versions, re-encrypt explicitly with fresh nonces, verify the
+rewrite, then retire the old reader and secret. Re-encryption must be observable
+and restart-safe.
 
 ## Consequences
 

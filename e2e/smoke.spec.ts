@@ -804,7 +804,7 @@ test("platform administrators can inspect learner progress", async ({
   const resourceVersionId = "e2e_resource_library_version";
   const accessGrantLabel = "E2E organisation access";
   const accessOrganizationName = "E2E Access Organisation";
-  const accessCode = "E2E-ACCESS-2027";
+  const accessCodeBase = "E2E-ACCESS-2027";
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
@@ -988,7 +988,11 @@ test("platform administrators can inspect learner progress", async ({
         "Access grant created. Administrators can retrieve this code again later.",
       ),
     ).toBeVisible();
-    await expect(page.locator("code")).toHaveText(accessCode);
+    const issuedCodeElement = page.locator("code");
+    await expect(issuedCodeElement).toHaveText(
+      /^E2E-ACCESS-2027-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{10}$/u,
+    );
+    const accessCode = await issuedCodeElement.innerText();
     const grantCard = page.getByRole("article").filter({
       has: page.getByRole("heading", { name: accessGrantLabel }),
     });
@@ -997,14 +1001,19 @@ test("platform administrators can inspect learner progress", async ({
       grantCard.getByText("Restricted to e2e.example.com"),
     ).toBeVisible();
     const storedGrant = await authoringDatabase.query<{
-      accessCode: string | null;
+      accessCodeLookupId: string | null;
+      encryptedAccessCode: string | null;
       quantity: number;
       revokedAt: Date | null;
     }>(
-      `select "accessCode", quantity, "revokedAt" from access_grant where label = $1`,
+      `select "accessCodeLookupId", "encryptedAccessCode", quantity, "revokedAt" from access_grant where label = $1`,
       [accessGrantLabel],
     );
-    expect(storedGrant.rows[0]?.accessCode).toBe(accessCode);
+    expect(storedGrant.rows[0]?.accessCodeLookupId).toBe(accessCode.slice(-10));
+    expect(storedGrant.rows[0]?.encryptedAccessCode).toMatch(/^v1\./u);
+    expect(storedGrant.rows[0]?.encryptedAccessCode).not.toContain(
+      accessCodeBase,
+    );
     expect(storedGrant.rows[0]?.quantity).toBe(3);
     expect(storedGrant.rows[0]?.revokedAt).toBeNull();
     await page.getByRole("button", { name: "Hide code" }).click();
@@ -1018,12 +1027,16 @@ test("platform administrators can inspect learner progress", async ({
     await capacityDialog.getByRole("button", { name: "Save capacity" }).click();
     await expect(grantCard.getByText("0 of 5")).toBeVisible();
     const expandedGrant = await authoringDatabase.query<{
-      accessCode: string | null;
+      encryptedAccessCode: string | null;
       quantity: number;
-    }>(`select "accessCode", quantity from access_grant where label = $1`, [
-      accessGrantLabel,
-    ]);
-    expect(expandedGrant.rows[0]).toEqual({ accessCode, quantity: 5 });
+    }>(
+      `select "encryptedAccessCode", quantity from access_grant where label = $1`,
+      [accessGrantLabel],
+    );
+    expect(expandedGrant.rows[0]).toEqual({
+      encryptedAccessCode: storedGrant.rows[0]?.encryptedAccessCode,
+      quantity: 5,
+    });
     await grantCard.getByRole("button", { name: "Revoke code" }).click();
     const revocationDialog = page.getByRole("dialog", {
       name: "Revoke access code?",
@@ -1262,7 +1275,7 @@ test("verified learners see entitlements and can redeem access", async ({
   await page.getByRole("button", { name: "Apply access code" }).click();
   await expect(page.getByText("Code not accepted")).toBeVisible();
 
-  await code.fill("EXAMPLE-LEARN-2026");
+  await code.fill("EXAMPLE-LEARN-2026-EXAMP7E26X");
   await page.getByRole("button", { name: "Apply access code" }).click();
   await expect(
     page.getByText(/Access code applied|Already enrolled/),

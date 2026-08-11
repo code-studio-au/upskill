@@ -72,7 +72,8 @@ deterministic local and browser-test data; they are never run by production
 deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD`; it creates
 verified `learner@example.com` and
 `redeemer@example.com` accounts, the platform administrator
-`admin@example.com`, and the local code `EXAMPLE-LEARN-2026`. All three local
+`admin@example.com`, and the local code
+`EXAMPLE-LEARN-2026-EXAMP7E26X`. All three local
 accounts use `SEED_LEARNER_PASSWORD`; administration starts at `/admin`.
 Platform administrators manage quarantined SCORM uploads and package versions at
 `/admin/modules`. Browser uploads stream through a bounded same-origin route;
@@ -95,13 +96,12 @@ capacity-limited codes for an exact published version with an enrolment duration
 optional expiry and optional verified-email domains. Administrators choose a
 memorable code, can retrieve it later, and can increase or otherwise adjust its
 capacity without replacing it; capacity cannot be reduced below places already
-redeemed. The canonical code is currently stored as plaintext, with a normalized
-PostgreSQL expression index providing lookup. The accepted pre-production target
-encrypts the recoverable code and embeds a generated public lookup ID for an
-ordinary indexed candidate lookup and full-code comparison; see ADR 0019. It
-does not require a separate HMAC lookup secret. Code retrieval and capacity
-changes are audited. Revocation blocks discovery and future redemption while
-retaining existing learner enrolments and audit history.
+redeemed. Upskill appends a generated public lookup ID, stores the complete code
+in an AES-256-GCM envelope and uses the ID for an ordinary indexed candidate
+lookup before full-code comparison; see ADR 0019. It does not require a separate
+HMAC lookup secret. Code retrieval and capacity changes are audited. Revocation
+blocks discovery and future redemption while retaining existing learner
+enrolments and audit history.
 SCORM, surveys and resources share stable Learning Activity identities and a
 common Learning Activity Version envelope, with validated type-specific content
 tables keyed by the same version identifier. Course items carry one exact
@@ -153,11 +153,10 @@ See the [architecture specification](docs/architecture.md), broader
 Before the first AWS release, populate the application configuration secret
 output by the CDK application stack with the real application/learning origins
 and Stripe keys. EC2 combines that application secret with the RDS secret in a
-private systemd environment file on boot and at every atomic deployment. The
-access-code encryption key required by ADR 0019 must be added to this external
-secret boundary when that pending migration is implemented; it does not exist in
-the current runtime. The public lookup ID is stored in PostgreSQL and requires no
-separate secret.
+private systemd environment file on boot and at every atomic deployment. A
+dedicated versioned Secrets Manager value supplies each environment's access-code
+encryption key and is readable only by the application instance role. The public
+lookup ID is stored in PostgreSQL and requires no separate secret.
 Set the corresponding GitHub environment's `AWS_DEPLOY_ROLE_ARN` and
 `ARTIFACT_BUCKET` secrets from the deployment-identity and storage stack
 outputs.

@@ -80,7 +80,7 @@ try {
     );
 
   const expectedIndexes = [
-    "access_grant_access_code_normalized_uq",
+    "access_grant_code_lookup_id_uq",
     "access_grant_domain_lookup_idx",
     "access_grant_admin_lookup_idx",
     "audit_event_action_created_idx",
@@ -112,15 +112,11 @@ try {
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
   const accessCodeIndex = indexResult.rows.find(
-    (index) => index.indexname === "access_grant_access_code_normalized_uq",
+    (index) => index.indexname === "access_grant_code_lookup_id_uq",
   );
-  if (
-    !accessCodeIndex?.indexdef.includes(
-      "upper(replace(\"accessCode\", '-'::text, ''::text))",
-    )
-  )
+  if (!accessCodeIndex?.indexdef.includes('"accessCodeLookupId"'))
     throw new Error(
-      "Access-code unique index must normalize case and presentation separators",
+      "Access-code unique index must use the public lookup identifier",
     );
   const ingestionColumns = await sql<{
     column_name: string;
@@ -182,15 +178,18 @@ try {
   const actualAccessGrantColumns = new Set(
     accessGrantColumns.rows.map((row) => row.column_name),
   );
-  const missingAccessGrantColumns = ["accessCode"].filter(
-    (column) => !actualAccessGrantColumns.has(column),
-  );
+  const missingAccessGrantColumns = [
+    "accessCodeLookupId",
+    "encryptedAccessCode",
+  ].filter((column) => !actualAccessGrantColumns.has(column));
   if (missingAccessGrantColumns.length > 0)
     throw new Error(
       `Missing access-grant columns: ${missingAccessGrantColumns.join(", ")}`,
     );
   if (actualAccessGrantColumns.has("accessCodeDigest"))
     throw new Error("Legacy access-code HMAC digest column must be removed");
+  if (actualAccessGrantColumns.has("accessCode"))
+    throw new Error("Plaintext access-code column must be removed");
 
   const auditVerificationId = "verify_audit_append_only";
   const auditVerificationActorId = "verify_audit_append_only_actor";

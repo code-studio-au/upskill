@@ -12,8 +12,12 @@ import type {
 import { normalizeAdminAccessDomains } from "#/features/admin-access/admin-access.schema";
 import {
   formatAccessCode,
-  normalizeAccessCode,
+  issueAccessCode,
 } from "#/server/access/access-code.server";
+import {
+  decryptAccessCode,
+  encryptAccessCode,
+} from "#/server/access/access-code-encryption.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
@@ -89,7 +93,7 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
         "course.title as courseTitle",
         "course_version.version as courseVersion",
       ])
-      .where("access_grant.accessCode", "is not", null)
+      .where("access_grant.encryptedAccessCode", "is not", null)
       .orderBy("access_grant.createdAt", "desc")
       .limit(DIRECTORY_LIMIT)
       .execute(),
@@ -177,7 +181,7 @@ type CreateOutcome =
   | { status: "not-found"; entity: "course-version" }
   | {
       status: "conflict";
-      reason: "code_already_in_use" | "expiry_not_future";
+      reason: "expiry_not_future";
     };
 
 export async function createAdminAccessGrant(
@@ -196,9 +200,6 @@ export async function createAdminAccessGrant(
   const accessCode = formatAccessCode(input.accessCode);
   if (!accessCode)
     throw new Error("Validated administrator access code became invalid");
-  const normalizedAccessCode = normalizeAccessCode(accessCode);
-  if (!normalizedAccessCode)
-    throw new Error("Formatted access code was invalid");
 
   return await getDatabase()
     .transaction()
@@ -217,20 +218,25 @@ export async function createAdminAccessGrant(
         .executeTakeFirst();
       if (!target) return { status: "not-found", entity: "course-version" };
 
-      await sql`select pg_advisory_xact_lock(
-        hashtextextended(${`access-code:${normalizedAccessCode}`}, 0)
-      )`.execute(transaction);
-      const duplicateCode = await transaction
-        .selectFrom("access_grant")
-        .select("id")
-        .where(
-          sql<string>`upper(replace("accessCode", '-', ''))`,
-          "=",
-          normalizedAccessCode,
-        )
-        .executeTakeFirst();
-      if (duplicateCode)
-        return { status: "conflict", reason: "code_already_in_use" };
+      let issuedCode: ReturnType<typeof issueAccessCode> = null;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const candidate = issueAccessCode(accessCode);
+        if (!candidate) throw new Error("Access-code issuance failed");
+        await sql`select pg_advisory_xact_lock(
+          hashtextextended(${`access-code-lookup:${candidate.lookupId}`}, 0)
+        )`.execute(transaction);
+        const duplicateLookup = await transaction
+          .selectFrom("access_grant")
+          .select("id")
+          .where("accessCodeLookupId", "=", candidate.lookupId)
+          .executeTakeFirst();
+        if (!duplicateLookup) {
+          issuedCode = candidate;
+          break;
+        }
+      }
+      if (!issuedCode)
+        throw new Error("Unable to allocate a unique access-code lookup ID");
 
       const organizationName = input.organizationName.trim();
       const organizationLock = organizationName.toLocaleLowerCase("en-AU");
@@ -258,6 +264,11 @@ export async function createAdminAccessGrant(
       }
 
       const accessGrantId = `access_grant_${randomUUID()}`;
+      const encryptedAccessCode = encryptAccessCode({
+        accessGrantId,
+        lookupId: issuedCode.lookupId,
+        accessCode: issuedCode.accessCode,
+      });
       await transaction
         .insertInto("access_grant")
         .values({
@@ -265,7 +276,8 @@ export async function createAdminAccessGrant(
           organizationId: organization.id,
           orderId: null,
           courseVersionId: target.id,
-          accessCode,
+          accessCodeLookupId: issuedCode.lookupId,
+          encryptedAccessCode,
           label: input.label.trim(),
           createdByUserId: administrator.id,
           enrollmentDurationDays: input.enrollmentDurationDays,
@@ -303,7 +315,11 @@ export async function createAdminAccessGrant(
         },
         createdAt: now,
       });
-      return { status: "created", accessGrantId, accessCode };
+      return {
+        status: "created",
+        accessGrantId,
+        accessCode: issuedCode.accessCode,
+      };
     });
 }
 
@@ -320,12 +336,24 @@ export async function revealAdminAccessGrantCode(
     .execute(async (transaction) => {
       const grant = await transaction
         .selectFrom("access_grant")
-        .select(["id", "accessCode", "courseVersionId", "organizationId"])
+        .select([
+          "id",
+          "accessCodeLookupId",
+          "encryptedAccessCode",
+          "courseVersionId",
+          "organizationId",
+        ])
         .where("id", "=", input.accessGrantId)
-        .where("accessCode", "is not", null)
+        .where("encryptedAccessCode", "is not", null)
         .executeTakeFirst();
       if (!grant) return { status: "not-found", entity: "access-grant" };
-      if (!grant.accessCode) throw new Error("Selected access code was null");
+      if (!grant.accessCodeLookupId || !grant.encryptedAccessCode)
+        throw new Error("Selected access-code envelope was incomplete");
+      const accessCode = decryptAccessCode({
+        accessGrantId: grant.id,
+        lookupId: grant.accessCodeLookupId,
+        encryptedAccessCode: grant.encryptedAccessCode,
+      });
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "access_grant.administrator_code_revealed",
@@ -339,7 +367,7 @@ export async function revealAdminAccessGrantCode(
       return {
         status: "ready",
         accessGrantId: grant.id,
-        accessCode: grant.accessCode,
+        accessCode,
       };
     });
 }
@@ -366,7 +394,7 @@ export async function updateAdminAccessGrantCapacity(
           "redeemed",
         ])
         .where("id", "=", input.accessGrantId)
-        .where("accessCode", "is not", null)
+        .where("encryptedAccessCode", "is not", null)
         .forUpdate()
         .executeTakeFirst();
       if (!grant) return { status: "not-found", entity: "access-grant" };
@@ -411,7 +439,7 @@ export async function revokeAdminAccessGrant(
         .selectFrom("access_grant")
         .select(["id", "courseVersionId", "organizationId", "revokedAt"])
         .where("id", "=", input.accessGrantId)
-        .where("accessCode", "is not", null)
+        .where("encryptedAccessCode", "is not", null)
         .forUpdate()
         .executeTakeFirst();
       if (!grant) return { status: "not-found", entity: "access-grant" };

@@ -1,12 +1,15 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
-import { sql } from "kysely";
 import type { AccessCodeRedemptionResult } from "#/features/access/access-code.schema";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
-import { normalizeAccessCode } from "./access-code.server";
+import { encryptedAccessCodeMatches } from "./access-code-encryption.server";
+import {
+  extractAccessCodeLookupId,
+  normalizeAccessCode,
+} from "./access-code.server";
 
 function emailDomain(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -24,6 +27,8 @@ export async function redeemAccessCode(
 ): Promise<AccessCodeRedemptionResult> {
   const normalizedCode = normalizeAccessCode(code);
   if (!normalizedCode) return { status: "invalid" };
+  const lookupId = extractAccessCodeLookupId(code);
+  if (!lookupId) return { status: "invalid" };
 
   return await getDatabase()
     .transaction()
@@ -39,16 +44,25 @@ export async function redeemAccessCode(
           "expiresAt",
           "revokedAt",
           "enrollmentDurationDays",
+          "accessCodeLookupId",
+          "encryptedAccessCode",
         ])
-        .where(
-          sql<string>`upper(replace("accessCode", '-', ''))`,
-          "=",
-          normalizedCode,
-        )
+        .where("accessCodeLookupId", "=", lookupId)
         .forUpdate()
         .executeTakeFirst();
 
       if (!grant) return { status: "invalid" };
+      if (
+        !grant.accessCodeLookupId ||
+        !grant.encryptedAccessCode ||
+        !encryptedAccessCodeMatches({
+          accessGrantId: grant.id,
+          lookupId: grant.accessCodeLookupId,
+          encryptedAccessCode: grant.encryptedAccessCode,
+          submittedAccessCode: normalizedCode,
+        })
+      )
+        return { status: "invalid" };
 
       const course = await transaction
         .selectFrom("course_version")

@@ -162,8 +162,7 @@ export type AdminAccessGrantMutationResult =
   | { status: "not-found"; entity: "access-grant" | "course-version" }
   | {
       status: "conflict";
-      reason:
-        "capacity_below_redeemed" | "code_already_in_use" | "expiry_not_future";
+      reason: "capacity_below_redeemed" | "expiry_not_future";
     };
 
 export type AdminAccessGrantRevealResult =

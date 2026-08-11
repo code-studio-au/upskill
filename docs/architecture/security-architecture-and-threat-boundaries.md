@@ -34,14 +34,15 @@ disclosure.
 Better Auth sessions, server-side ownership/administrator checks, Stripe webhook
 verification, isolated SCORM delivery, validated uploads, private object storage,
 strict application CSP, structured logging, durable audit evidence and
-idempotent queue consumers are implemented. Access codes are currently
-recoverable plaintext in PostgreSQL, protected by authorization, audit,
-eligibility, capacity, expiry and revocation controls.
+idempotent queue consumers are implemented. Recoverable access codes are stored
+as authenticated ciphertext with an external per-environment key, indexed by a
+non-secret lookup segment and protected by authorization, audit, eligibility,
+capacity, expiry and revocation controls.
 
 ### Target Product
 
-The accepted target adds encrypted recoverable access codes, distributed auth
-abuse protection, complete deployment verification, production metrics/alerts,
+The accepted target adds distributed auth abuse protection, complete deployment
+verification, production metrics/alerts,
 grant/contract-scoped Access Owner authorization, Events-scoped authorization
 and the security boundaries required by enterprise contracts and notifications.
 
@@ -220,20 +221,15 @@ risk as formats broaden beyond PDF.
 
 Access codes are credentials. Threats include database disclosure,
 guessing, logging, over-broad admin retrieval, shared-code leakage, and
-replay after revocation. The current product uses canonical plaintext with a
-normalized PostgreSQL lookup index; authorization, audited on-demand retrieval,
-eligibility, capacity, expiry and revocation limit its use but do not protect a
-database snapshot.
-
-[ADR 0019](../adr/0019-encrypted-recoverable-access-codes.md) accepts the Target
-Product design: embed a generated non-secret lookup ID in the human-readable
-code, use it for an ordinary indexed grant lookup, then authenticated-decrypt
-that one candidate and compare the complete submitted code. Versioned encryption
-key material remains under the external secret-management boundary; no separate
-HMAC lookup key exists. Add high entropy and redemption rate limiting as policy
-requires. Neither current plaintext nor target ciphertext or key material
-belongs in generic logs, reports, queue payloads or audit metadata. The public
-lookup ID never proves possession.
+replay after revocation. The current product embeds a generated non-secret lookup
+ID in each human-readable code, uses it for an ordinary indexed grant lookup,
+then AES-256-GCM-decrypts that one candidate and compares the complete submitted
+code. The authenticated envelope is bound to its grant and lookup IDs. Versioned
+encryption key material remains under the external secret-management boundary;
+no separate HMAC lookup key exists. Add redemption rate limiting as policy
+requires. Neither plaintext, ciphertext nor key material belongs in generic
+logs, reports, queue payloads or audit metadata. The public lookup ID never
+proves possession.
 
 ## Enterprise Shared Codes
 
@@ -342,9 +338,9 @@ no credential leakage to logs or referrers.
   and normal eligibility/capacity checks after authentication.
 - **Malicious SCORM:** quarantine/validation plus separate origin/no
   primary cookie.
-- **Database dump leaked:** current plaintext codes are exposed until ADR 0019 is
-  implemented; the target uses encrypted codes with an external key, private
-  object storage and minimal sensitive persistence.
+- **Database dump leaked:** access-code ciphertext and public lookup IDs do not
+  disclose complete codes without the separately managed environment key;
+  private object storage and minimal sensitive persistence constrain other data.
 - **Stripe replay:** signature verification + locked idempotent
   reconciliation.
 - **Duplicate queue message:** strict schema + idempotent consumer.
@@ -408,7 +404,6 @@ production/auth/payment/event milestones.
 ### Immediate / pre-production
 
 - distributed auth abuse protection;
-- implement the keyed lookup plus authenticated encryption accepted by ADR 0019;
 - deployment verification/release identity;
 - production observability/alerts;
 - verify GitHub/AWS least privilege and secret externalisation;
@@ -481,7 +476,6 @@ Product Architecture Review.
 Upskill already has strong security architecture in its explicit server
 boundaries, immutable records, transactional fulfilment, SCORM origin
 isolation, private storage, outbox/idempotency, and audit model. The
-highest-value hardening is distributed abuse protection,
-cryptographically protected recoverable access codes, verified
-deployment integrity, richer observability, and maintaining least
+highest-value hardening is distributed abuse protection, verified deployment
+integrity, richer observability, and maintaining least
 privilege as Events and enterprise access expand.

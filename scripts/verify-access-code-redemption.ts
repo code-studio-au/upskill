@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import { withAuditMaintenance } from "./audit-maintenance";
+import { encryptAccessCode } from "#/server/access/access-code-encryption.server";
+import { issueAccessCode } from "#/server/access/access-code.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -44,6 +46,28 @@ const database = new Kysely<Database>({
     pool: new Pool({ connectionString: databaseUrl }),
   }),
 });
+
+function protectedCode(
+  accessGrantId: string,
+  base: string,
+  lookupId: string,
+): {
+  accessCode: string;
+  accessCodeLookupId: string;
+  encryptedAccessCode: string;
+} {
+  const issued = issueAccessCode(base, lookupId);
+  if (!issued) throw new Error("Access-code verification fixture was invalid");
+  return {
+    accessCode: issued.accessCode,
+    accessCodeLookupId: issued.lookupId,
+    encryptedAccessCode: encryptAccessCode({
+      accessGrantId,
+      lookupId: issued.lookupId,
+      accessCode: issued.accessCode,
+    }),
+  };
+}
 
 async function cleanup(): Promise<void> {
   await withAuditMaintenance(database, async (database) => {
@@ -118,6 +142,21 @@ try {
       })),
     )
     .execute();
+  const capacityCode = protectedCode(
+    ids.capacityGrant,
+    "VERIFY-CAPACITY-2026",
+    "CAPAC7TY26",
+  );
+  const restrictedCode = protectedCode(
+    ids.restrictedGrant,
+    "VERIFY-DOMAIN-2026",
+    "D9MA7N26XX",
+  );
+  const expiredCode = protectedCode(
+    ids.expiredGrant,
+    "VERIFY-EXPIRED-2026",
+    "EXP7R3D26X",
+  );
   await database
     .insertInto("course")
     .values({
@@ -145,7 +184,8 @@ try {
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCode: "VERIFY-CAPACITY-2026",
+        accessCodeLookupId: capacityCode.accessCodeLookupId,
+        encryptedAccessCode: capacityCode.encryptedAccessCode,
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
@@ -156,7 +196,8 @@ try {
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCode: "VERIFY-DOMAIN-2026",
+        accessCodeLookupId: restrictedCode.accessCodeLookupId,
+        encryptedAccessCode: restrictedCode.encryptedAccessCode,
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
@@ -167,7 +208,8 @@ try {
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCode: "VERIFY-EXPIRED-2026",
+        accessCodeLookupId: expiredCode.accessCodeLookupId,
+        encryptedAccessCode: expiredCode.encryptedAccessCode,
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
@@ -186,8 +228,11 @@ try {
   const { redeemAccessCode } =
     await import("#/server/access/redeem-access-code.server");
   const concurrentResults = await Promise.all([
-    redeemAccessCode("verify capacity 2026", users.first),
-    redeemAccessCode("VERIFYCAPACITY2026", users.second),
+    redeemAccessCode(
+      capacityCode.accessCode.replaceAll("-", " ").toLocaleLowerCase("en-AU"),
+      users.first,
+    ),
+    redeemAccessCode(capacityCode.accessCode.replaceAll("-", ""), users.second),
   ]);
   assert.deepEqual(concurrentResults.map((result) => result.status).sort(), [
     "enrolled",
@@ -196,15 +241,16 @@ try {
   const winner =
     concurrentResults[0].status === "enrolled" ? users.first : users.second;
   assert.equal(
-    (await redeemAccessCode("verify-capacity-2026", winner)).status,
+    (await redeemAccessCode(capacityCode.accessCode, winner)).status,
     "already-enrolled",
   );
   assert.equal(
-    (await redeemAccessCode("VERIFY-DOMAIN-2026", users.unverified)).status,
+    (await redeemAccessCode(restrictedCode.accessCode, users.unverified))
+      .status,
     "invalid",
   );
   assert.equal(
-    (await redeemAccessCode("VERIFY-EXPIRED-2026", users.unverified)).status,
+    (await redeemAccessCode(expiredCode.accessCode, users.unverified)).status,
     "invalid",
   );
 

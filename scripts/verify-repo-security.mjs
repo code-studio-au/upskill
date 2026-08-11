@@ -147,6 +147,16 @@ if (!applicationStack.includes("SQS_QUEUE_URL: props.workQueue.queueUrl"))
   failures.push("The deployed worker must receive its CDK-managed queue URL");
 if (!applicationStack.includes('UPSKILL_TRUST_PROXY: "true"'))
   failures.push("The loopback-only nginx deployment must preserve client IPs");
+for (const requiredAccessCodeBoundary of [
+  '"AccessCodeEncryptionKey"',
+  "accessCodeEncryptionSecret.grantRead(role)",
+  "ACCESS_CODE_ENCRYPTION_KEY",
+]) {
+  if (!applicationStack.includes(requiredAccessCodeBoundary))
+    failures.push(
+      `The deployed access-code encryption boundary is missing: ${requiredAccessCodeBoundary}`,
+    );
+}
 for (const relative of [
   ".env.example",
   ".github/workflows/ci.yml",

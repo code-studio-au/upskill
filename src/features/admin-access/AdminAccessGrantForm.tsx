@@ -56,11 +56,7 @@ export function AdminAccessGrantForm({
         return;
       }
       if (response.status === "conflict") {
-        setError(
-          response.reason === "code_already_in_use"
-            ? "That access code is already in use. Choose another memorable code."
-            : "The access-code expiry must be in the future.",
-        );
+        setError("The access-code expiry must be in the future.");
         return;
       }
       if (response.status !== "ready" || !response.data.accessCode) {
@@ -191,7 +187,7 @@ export function AdminAccessGrantForm({
                 {(field) => (
                   <MantineTextInput
                     label="Access code"
-                    description="Use a memorable organisation or cohort code. Letters, numbers, spaces and hyphens are accepted."
+                    description="Use a memorable organisation or cohort code. A short unique lookup suffix will be appended when the grant is created."
                     placeholder="EXAMPLE-HEALTH-2027"
                     autoCapitalize="characters"
                     autoComplete="off"

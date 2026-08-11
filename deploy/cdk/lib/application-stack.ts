@@ -77,6 +77,18 @@ export class ApplicationStack extends Stack {
         excludePunctuation: true,
       },
     });
+    const accessCodeEncryptionSecret = new Secret(
+      this,
+      "AccessCodeEncryptionKey",
+      {
+        secretName: `upskill/${props.config.name}/access-code/v1`,
+        description: "AES-256-GCM key material for recoverable access codes",
+        generateSecretString: {
+          passwordLength: 43,
+          excludePunctuation: true,
+        },
+      },
+    );
     props.artifactBucket.grantRead(role);
     props.learningBucket.grantReadWrite(role);
     props.privateBucket.grantReadWrite(role);
@@ -84,6 +96,7 @@ export class ApplicationStack extends Stack {
     props.workQueue.grantConsumeMessages(role);
     props.workQueue.grantSendMessages(role);
     configurationSecret.grantRead(role);
+    accessCodeEncryptionSecret.grantRead(role);
     role.addToPolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
@@ -103,10 +116,12 @@ export class ApplicationStack extends Stack {
 set -euo pipefail
 application_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${configurationSecret.secretArn}' --query SecretString --output text)
 database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${props.databaseSecretArn}' --query SecretString --output text)
+access_code_encryption_key=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${accessCodeEncryptionSecret.secretArn}' --query SecretString --output text)
 environment_tmp=$(mktemp)
 jq -r 'to_entries[] | "\\(.key)=\\(.value|tostring|@json)"' <<< "$application_json" > "$environment_tmp"
 database_url=$(jq -r '"postgresql://\\(.username|@uri):\\(.password|@uri)@\\(.host):\\(.port)/\\(.dbname)"' <<< "$database_json")
 jq -Rn --arg value "$database_url" '"DATABASE_URL=\\($value|@json)"' >> "$environment_tmp"
+jq -Rn --arg value "$access_code_encryption_key" '"ACCESS_CODE_ENCRYPTION_KEY=\\($value|@json)"' >> "$environment_tmp"
 install -o ec2-user -g ec2-user -m 0600 "$environment_tmp" /opt/upskill/shared/upskill.env
 rm -f "$environment_tmp"
 UPSKILL_ENV`,
@@ -179,6 +194,11 @@ UPSKILL_ENV`,
       value: configurationSecret.secretArn,
       description:
         "Replace the placeholder origins and Stripe values before the first deployment",
+    });
+    new CfnOutput(this, "AccessCodeEncryptionSecretArn", {
+      value: accessCodeEncryptionSecret.secretArn,
+      description:
+        "Versioned application key for encrypted recoverable access codes",
     });
   }
 }

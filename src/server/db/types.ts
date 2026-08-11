@@ -290,7 +290,8 @@ interface AccessGrantTable {
   organizationId: string | null;
   orderId: string | null;
   courseVersionId: string;
-  accessCode: Generated<string | null>;
+  accessCodeLookupId: Generated<string | null>;
+  encryptedAccessCode: Generated<string | null>;
   label: Generated<string | null>;
   createdByUserId: Generated<string | null>;
   enrollmentDurationDays: number;

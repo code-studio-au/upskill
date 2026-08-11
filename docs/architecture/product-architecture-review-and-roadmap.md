@@ -91,33 +91,33 @@ verifiers, and CDK verification.
 
 ## Current Capability Assessment
 
-| Capability                         | Current maturity                             | Direction                                                                  |
-| ---------------------------------- | -------------------------------------------- | -------------------------------------------------------------------------- |
-| Public course catalogue            | Strong                                       | Continue incremental UX/product growth                                     |
-| Individual course checkout         | Strong                                       | Preserve transaction and idempotency model                                 |
-| Learner enrolment/workspace        | Common activity-version foundation           | Extend the model to Events and attendance                                  |
-| SCORM delivery                     | Strong                                       | Preserve isolation and immutable versions                                  |
-| Surveys                            | Strong foundation                            | Reuse in courses and target Events                                         |
-| Resources                          | Strong foundation                            | Broaden beyond PDF when required                                           |
-| Certificates                       | On-demand rendering implemented              | Reuse the common completion-eligibility boundary                           |
-| Organisation access codes          | Strong lifecycle; storage transition pending | Implement ADR 0019, then evolve toward explicit entitlements/contracts     |
-| Customer Access Owner portal       | Target design                                | Add scoped invitations, utilisation views and eligible capacity extensions |
-| Enterprise blanket access          | Partial concept                              | Add a first-class contract/coverage model                                  |
-| Course administration              | Strong foundation                            | Add authoring workflow maturity as needed                                  |
-| Learner administration             | Strong foundation                            | Add richer support tooling over time                                       |
-| Events                             | Product requirement and major gap            | Build as a first-class target domain                                       |
-| Coordinator workflows              | Missing                                      | Add resource-scoped event operations                                       |
-| Presenter workflows                | Missing                                      | Add a narrow attendance-focused mode                                       |
-| Attendance                         | Missing                                      | Add a durable evidence model                                               |
-| Authenticated user onboarding      | Accepted target                              | Add Survey-backed version assignment, privacy-scoped response and gating   |
-| Open-entry guest check-in          | Target design                                | Guard virtual links and create provisional-user/check-in evidence          |
-| Passwordless prerequisite recovery | Target design                                | Add SMS/email OTP, task sessions and scoped facilitated Survey fallback    |
-| Staged Event release               | Target design                                | Add final registration lock-in and time-anchored Section availability      |
-| Regional Event selection           | Target design                                | Add regional review/lock, cross-region selection and late invitations      |
-| Automated email/notifications      | Accepted target                              | Add Email Designer, Section plans, occurrence overrides and delivery       |
-| Reporting/visual analytics         | Basic read boundaries                        | Add filtered charts/tables; project only when justified                    |
-| Global support/impersonation       | Future possibility                           | Add carefully with audit safeguards                                        |
-| Operational observability          | Partial                                      | Treat as a production-hardening priority                                   |
+| Capability                         | Current maturity                   | Direction                                                                  |
+| ---------------------------------- | ---------------------------------- | -------------------------------------------------------------------------- |
+| Public course catalogue            | Strong                             | Continue incremental UX/product growth                                     |
+| Individual course checkout         | Strong                             | Preserve transaction and idempotency model                                 |
+| Learner enrolment/workspace        | Common activity-version foundation | Extend the model to Events and attendance                                  |
+| SCORM delivery                     | Strong                             | Preserve isolation and immutable versions                                  |
+| Surveys                            | Strong foundation                  | Reuse in courses and target Events                                         |
+| Resources                          | Strong foundation                  | Broaden beyond PDF when required                                           |
+| Certificates                       | On-demand rendering implemented    | Reuse the common completion-eligibility boundary                           |
+| Organisation access codes          | Strong encrypted lifecycle         | Evolve toward explicit entitlements/contracts                              |
+| Customer Access Owner portal       | Target design                      | Add scoped invitations, utilisation views and eligible capacity extensions |
+| Enterprise blanket access          | Partial concept                    | Add a first-class contract/coverage model                                  |
+| Course administration              | Strong foundation                  | Add authoring workflow maturity as needed                                  |
+| Learner administration             | Strong foundation                  | Add richer support tooling over time                                       |
+| Events                             | Product requirement and major gap  | Build as a first-class target domain                                       |
+| Coordinator workflows              | Missing                            | Add resource-scoped event operations                                       |
+| Presenter workflows                | Missing                            | Add a narrow attendance-focused mode                                       |
+| Attendance                         | Missing                            | Add a durable evidence model                                               |
+| Authenticated user onboarding      | Accepted target                    | Add Survey-backed version assignment, privacy-scoped response and gating   |
+| Open-entry guest check-in          | Target design                      | Guard virtual links and create provisional-user/check-in evidence          |
+| Passwordless prerequisite recovery | Target design                      | Add SMS/email OTP, task sessions and scoped facilitated Survey fallback    |
+| Staged Event release               | Target design                      | Add final registration lock-in and time-anchored Section availability      |
+| Regional Event selection           | Target design                      | Add regional review/lock, cross-region selection and late invitations      |
+| Automated email/notifications      | Accepted target                    | Add Email Designer, Section plans, occurrence overrides and delivery       |
+| Reporting/visual analytics         | Basic read boundaries              | Add filtered charts/tables; project only when justified                    |
+| Global support/impersonation       | Future possibility                 | Add carefully with audit safeguards                                        |
+| Operational observability          | Partial                            | Treat as a production-hardening priority                                   |
 
 ## Priority 0/1 --- Production Reliability
 
@@ -157,23 +157,20 @@ event-task sessions under [ADR 0024](../adr/0024-event-prerequisite-recovery-and
 
 **Benefit:** consistent abuse protection across horizontal scaling.
 
-### Access-code protection
+### Access-code protection — delivered
 
-Human-readable access codes are intentionally retrievable. Plain
-database storage means a database-only disclosure exposes active codes.
-
-[ADR 0019](../adr/0019-encrypted-recoverable-access-codes.md) accepts this target
-model; implementation is pending:
+Human-readable access codes remain intentionally retrievable. ADR 0019 is
+implemented:
 
 ```text
 submitted code -> embedded public lookup ID -> indexed PostgreSQL row
 selected ciphertext -> authenticated decryption -> full-code comparison
-encryption key material -> KMS / external key boundary
+encryption key material -> Secrets Manager / KMS boundary
 ```
 
-**Benefit:** authorised recovery remains possible while reducing database-only
-compromise impact. The roadmap item is delivery of the accepted decision, not a
-competing future option.
+Authorised repeated recovery remains possible while reducing database-only
+compromise impact. Preserve this boundary as grants evolve into explicit
+entitlements and Access Owner views.
 
 ### Operational observability
 
@@ -542,7 +539,6 @@ without understanding why.
 
 - deployment verification;
 - distributed rate limiting;
-- access-code encryption/lookup hardening;
 - operational metrics/alerts;
 - release/readiness visibility;
 - failure-injection coverage.
@@ -643,8 +639,8 @@ are mature patterns.
 
 ### Security boundaries --- Strong with hardening items
 
-SCORM isolation and server-only boundaries are excellent. Distributed
-auth abuse protection and access-code storage deserve production
+SCORM isolation, encrypted recoverable access codes and server-only boundaries
+are strong. Distributed auth abuse protection still deserves production
 hardening.
 
 ### Operational maturity --- Growing

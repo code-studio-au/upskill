@@ -45,6 +45,8 @@ capabilities.
   administrator action.
 - Organisation-aware, capacity-limited access grants with optional domain
   eligibility, expiry and revocation.
+- AES-256-GCM encrypted, individually recoverable human-readable access codes
+  with indexed public lookup identifiers and audited administrator retrieval.
 - Versioned SCORM, surveys and private PDF resources arranged in course
   sections.
 - Evidence-derived progress, completion, administrator corrections and
@@ -81,7 +83,6 @@ capabilities.
 - Complete filtered or all-authorized Course/Event CSV exports covering
   enrolment/participation summaries, progress, Section completion, activity
   state and Event Attendance through explicit versioned datasets.
-- Encrypted, recoverable access codes as accepted by ADR 0019.
 
 ### Future Possibilities
 
@@ -677,13 +678,12 @@ review include:
     target-instance deployment results;
 2.  distributed authentication abuse/rate limiting rather than
     process-local counters alone;
-3.  implement the keyed lookup plus encrypted recovery accepted by ADR 0019;
-4.  operational metrics/alerts for outbox, queue, DLQ, worker,
+3.  operational metrics/alerts for outbox, queue, DLQ, worker,
     certificate rendering, SCORM, database, and HTTP health;
-5.  explicit readiness/version visibility for deployments;
-6.  failure/concurrency testing around payment, enrolment, event
+4.  explicit readiness/version visibility for deployments;
+5.  failure/concurrency testing around payment, enrolment, event
     capacity, outbox, and workers; and
-7.  continued alignment between security documentation and the actual
+6.  continued alignment between security documentation and the actual
     implementation.
 
 ## Documentation Handbook
