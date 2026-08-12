@@ -1,5 +1,18 @@
 .page {
-  padding-block: clamp(2rem, 6vw, 4.5rem);
+  max-width: 96rem;
+  padding-block: clamp(1rem, 2.5vw, 2rem);
+  padding-inline: clamp(1rem, 2.5vw, 2rem);
+}
+
+.adminShell {
+  display: grid;
+  grid-template-columns: 14rem minmax(0, 1fr);
+  gap: clamp(1rem, 2.5vw, 2rem);
+  align-items: start;
+}
+
+.adminContent {
+  min-width: 0;
 }
 
 .heading {
@@ -32,7 +45,7 @@
 }
 
 .statValue {
-  font-size: clamp(1.5rem, 3vw, 2.25rem);
+  font-size: clamp(1.35rem, 2.5vw, 1.8rem);
   font-weight: 800;
   line-height: 1.1;
 }
@@ -58,25 +71,6 @@
   gap: var(--mantine-spacing-sm);
 }
 
-.detailGrid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--mantine-spacing-md);
-}
-
-.moduleDetailList {
-  display: grid;
-  gap: var(--mantine-spacing-md);
-}
-
-.auditList {
-  display: grid;
-  gap: var(--mantine-spacing-sm);
-  padding: 0;
-  margin: 0;
-  list-style: none;
-}
-
 .metric {
   padding: var(--mantine-spacing-sm);
   border-radius: var(--mantine-radius-md);
@@ -93,6 +87,10 @@
 }
 
 @media (max-width: 62em) {
+  .adminShell {
+    grid-template-columns: 1fr;
+  }
+
   .statsGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -111,18 +109,10 @@
 
 @media (max-width: 36em) {
   .statsGrid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .searchForm {
-    grid-template-columns: 1fr;
-  }
-
-  .metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .detailGrid {
     grid-template-columns: 1fr;
   }
 }

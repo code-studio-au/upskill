@@ -1,5 +1,13 @@
 import { Badge } from "#/features/shared/Badge";
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import {
   createFileRoute,
   Link,
@@ -55,7 +63,7 @@ function AdminCoursesPage() {
 
   const courses = result.data;
   return (
-    <Stack gap="xl">
+    <Stack gap="lg">
       <Group justify="space-between" align="end" wrap="wrap">
         <div>
           <Text c="indigo.7" fw={700}>
@@ -84,8 +92,8 @@ function AdminCoursesPage() {
       ) : (
         <div className={classes.courseGrid}>
           {courses.map((course) => (
-            <Paper key={course.id} withBorder radius="lg" p="lg">
-              <Stack gap="md">
+            <Paper key={course.id} withBorder radius="lg" p="md">
+              <Stack gap="sm">
                 <Group justify="space-between" align="start">
                   <div>
                     <Title order={2} size="h3">

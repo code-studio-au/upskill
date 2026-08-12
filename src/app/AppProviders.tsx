@@ -1,4 +1,4 @@
-import { createTheme, MantineProvider } from "@mantine/core";
+import { createTheme, MantineProvider } from "#/features/shared/mantine";
 import { useHydrated, useRouter } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 

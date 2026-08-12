@@ -125,8 +125,4 @@
     align-items: stretch;
     flex-direction: column;
   }
-
-  .metrics {
-    grid-template-columns: 1fr;
-  }
 }

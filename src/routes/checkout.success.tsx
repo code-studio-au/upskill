@@ -3,12 +3,11 @@ import {
   Button,
   Container,
   Group,
-  Loader,
   Paper,
   Stack,
   Text,
   Title,
-} from "@mantine/core";
+} from "#/features/shared/mantine";
 import {
   createFileRoute,
   Link,
@@ -20,6 +19,7 @@ import { useEffect, useState } from "react";
 import { checkoutSessionSearchSchema } from "#/features/checkout/checkout.schema";
 import { getCourseCheckoutStatus } from "#/server/functions/checkout";
 import classes from "./checkout.success.module.css";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 
 export const Route = createFileRoute("/checkout/success")({
   validateSearch: checkoutSessionSearchSchema,
@@ -100,7 +100,7 @@ function CheckoutSuccessPage() {
           ) : isPending ? (
             <Alert color="blue" title="Awaiting confirmation" role="status">
               <Group gap="sm" wrap="nowrap">
-                <Loader size="sm" aria-hidden="true" />
+                <LoadingSpinner />
                 <Text>
                   Stripe has returned you to Upskill, but the signed payment
                   confirmation has not arrived yet. This page updates

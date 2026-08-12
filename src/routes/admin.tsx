@@ -1,4 +1,4 @@
-import { Container, Stack } from "@mantine/core";
+import { Container } from "#/features/shared/mantine";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { AdminNavigation } from "#/features/admin/AdminNavigation";
 import classes from "./admin.module.css";
@@ -10,11 +10,13 @@ export const Route = createFileRoute("/admin")({
 
 function AdminLayout() {
   return (
-    <Container size="xl" className={classes.page}>
-      <Stack gap="xl">
+    <Container fluid className={classes.page}>
+      <div className={classes.adminShell}>
         <AdminNavigation />
-        <Outlet />
-      </Stack>
+        <div className={classes.adminContent}>
+          <Outlet />
+        </div>
+      </div>
     </Container>
   );
 }

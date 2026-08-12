@@ -5,15 +5,14 @@ import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import {
   Alert,
   Button,
-  Divider,
   Group,
   Paper,
   Stack,
   Text,
   Title,
-} from "@mantine/core";
+} from "#/features/shared/mantine";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState, type SetStateAction } from "react";
 import {
   createAdminEventVersion,
@@ -27,6 +26,7 @@ import {
   type AdminEventTemplateItem,
 } from "./admin-event.schema";
 import classes from "./AdminEventTemplateEditor.module.css";
+import { PageTabs } from "#/features/shared/PageTabs";
 
 function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
   const destination = index + direction;
@@ -49,9 +49,13 @@ export function AdminEventTemplateEditor({
   detail: AdminEventTemplateDetail;
   onChanged: () => Promise<void>;
 }) {
+  const navigate = useNavigate({ from: "/admin/events/$eventTemplateId" });
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editorView, setEditorView] = useState<
+    "details" | "program" | "staffing"
+  >("details");
   const intent = useRef<"save" | "publish">("save");
   const form = useForm({
     defaultValues: { draft: detail.draft },
@@ -204,7 +208,16 @@ export function AdminEventTemplateEditor({
     <Stack gap="xl">
       <Group justify="space-between" align="end" wrap="wrap">
         <div>
-          <Button component={Link} to="/admin/events" variant="subtle" px={0}>
+          <Button
+            variant="subtle"
+            px={0}
+            onClick={() => {
+              void navigate({
+                to: "/admin/events",
+                search: { view: "templates" },
+              });
+            }}
+          >
             Back to events
           </Button>
           <Group gap="sm">
@@ -252,53 +265,69 @@ export function AdminEventTemplateEditor({
       {error ? <Alert color="red">{error}</Alert> : null}
       {message ? <Alert color="green">{message}</Alert> : null}
 
-      <div className={classes.grid}>
-        <Stack gap="lg">
-          <Paper withBorder radius="lg" p="lg">
-            <Stack gap="md">
-              <Title order={2}>Template details</Title>
-              <MantineTextInput
-                label="Title"
-                value={draft.title}
-                disabled={!detail.version.editable}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setDraft((current) => ({ ...current, title: value }));
-                }}
-              />
-              <MantineTextInput
-                label="Summary"
-                value={draft.summary}
-                disabled={!detail.version.editable}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setDraft((current) => ({ ...current, summary: value }));
-                }}
-              />
-              <MantineTextInput
-                component="textarea"
-                label="Description"
-                value={draft.description}
-                disabled={!detail.version.editable}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setDraft((current) => ({ ...current, description: value }));
-                }}
-              />
-              <MantineCheckbox
-                label="Offer a completion certificate"
-                checked={draft.hasCompletionCertificate}
-                disabled={!detail.version.editable}
-                onChange={(checked) => {
-                  setDraft((current) => ({
-                    ...current,
-                    hasCompletionCertificate: checked,
-                  }));
-                }}
-              />
-            </Stack>
-          </Paper>
+      <PageTabs
+        label="Event template workspace"
+        value={editorView}
+        tabs={[
+          { value: "details", label: "Details" },
+          {
+            value: "program",
+            label: `Program (${String(draft.sections.length)})`,
+          },
+          { value: "staffing", label: "Staffing and regions" },
+        ]}
+        onChange={setEditorView}
+      />
 
+      {editorView === "details" ? (
+        <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
+          <Stack gap="md">
+            <Title order={2}>Template details</Title>
+            <MantineTextInput
+              label="Title"
+              value={draft.title}
+              disabled={!detail.version.editable}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setDraft((current) => ({ ...current, title: value }));
+              }}
+            />
+            <MantineTextInput
+              label="Summary"
+              value={draft.summary}
+              disabled={!detail.version.editable}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setDraft((current) => ({ ...current, summary: value }));
+              }}
+            />
+            <MantineTextInput
+              component="textarea"
+              label="Description"
+              value={draft.description}
+              disabled={!detail.version.editable}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
+                setDraft((current) => ({ ...current, description: value }));
+              }}
+            />
+            <MantineCheckbox
+              label="Offer a completion certificate"
+              checked={draft.hasCompletionCertificate}
+              disabled={!detail.version.editable}
+              onChange={(checked) => {
+                setDraft((current) => ({
+                  ...current,
+                  hasCompletionCertificate: checked,
+                }));
+              }}
+            />
+          </Stack>
+        </Paper>
+      ) : null}
+
+      {editorView === "program" ? (
+        <Stack gap="lg">
           <Group justify="space-between">
             <div>
               <Title order={2}>Sections and activities</Title>
@@ -336,7 +365,12 @@ export function AdminEventTemplateEditor({
             </Alert>
           ) : null}
           {draft.sections.map((section, sectionIndex) => (
-            <Paper key={section.id} withBorder radius="lg" p="lg">
+            <Paper
+              key={section.id}
+              withBorder
+              radius="lg"
+              p={{ base: "md", sm: "lg" }}
+            >
               <Stack gap="md">
                 <Group justify="space-between" align="start">
                   <Stack gap="xs" className={classes.grow}>
@@ -595,9 +629,11 @@ export function AdminEventTemplateEditor({
             </Paper>
           ))}
         </Stack>
+      ) : null}
 
+      {editorView === "staffing" ? (
         <Stack gap="lg">
-          <Paper withBorder radius="lg" p="lg">
+          <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
             <Stack gap="sm">
               <Title order={2}>Default administrators</Title>
               <Text size="sm" c="dimmed">
@@ -625,7 +661,7 @@ export function AdminEventTemplateEditor({
             </Stack>
           </Paper>
 
-          <Paper withBorder radius="lg" p="lg">
+          <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
             <Stack gap="md">
               <Title order={2}>Regions and coordinators</Title>
               <Text size="sm" c="dimmed">
@@ -683,7 +719,7 @@ export function AdminEventTemplateEditor({
                         }}
                       />
                     ))}
-                    <Divider />
+                    <hr className={classes.divider} />
                   </Stack>
                 );
               })}
@@ -721,7 +757,7 @@ export function AdminEventTemplateEditor({
             </Stack>
           </Paper>
         </Stack>
-      </div>
+      ) : null}
     </Stack>
   );
 }
@@ -743,7 +779,7 @@ function ActivityAdder({
   const [reference, setReference] = useState("");
   return (
     <Stack gap="xs">
-      <Divider />
+      <hr className={classes.divider} />
       <Group align="end" grow>
         <MantineNativeSelect
           label="Activity type"

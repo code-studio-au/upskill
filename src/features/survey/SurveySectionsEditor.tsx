@@ -1,4 +1,12 @@
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { useState } from "react";
 import { SurveyQuestionEditor } from "./SurveyQuestionEditor";
 import type {
@@ -89,7 +97,7 @@ export function SurveySectionsEditor({
           key={section.id}
           withBorder
           radius="lg"
-          p="lg"
+          p={{ base: "md", sm: "lg" }}
           data-survey-section
         >
           <Stack gap="lg">

@@ -7,7 +7,7 @@ import {
   Stack,
   Text,
   Title,
-} from "@mantine/core";
+} from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import {
   createFileRoute,
@@ -144,9 +144,14 @@ function LearnerSurveyPage() {
     return (
       <Container size="sm" py="xl">
         <Stack gap="lg">
-          <Alert color="green" title="Survey completed">
-            Your response was submitted. This course item is complete.
-          </Alert>
+          <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
+            <Stack gap="xs" role="status">
+              <Title order={1}>Survey completed</Title>
+              <Text c="dimmed">
+                Your response was submitted. This course item is complete.
+              </Text>
+            </Stack>
+          </Paper>
           <Link
             to="/learn/$enrollmentId"
             params={{ enrollmentId: survey.enrollmentId }}
@@ -163,10 +168,13 @@ function LearnerSurveyPage() {
   if (!step)
     return (
       <Container size="sm" py="xl">
-        <Alert color="red" title="Survey unavailable">
-          This survey does not contain any items. Return to the course and try
-          again later.
-        </Alert>
+        <Stack gap="md">
+          <Title order={1}>Survey unavailable</Title>
+          <Alert color="red">
+            This survey does not contain any items. Return to the course and try
+            again later.
+          </Alert>
+        </Stack>
       </Container>
     );
 

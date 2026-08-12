@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Paper, Stack, Title } from "@mantine/core";
+import { Alert, Button, Group, Stack } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { useState } from "react";
@@ -90,91 +90,84 @@ export function AdminScormUploadPanel({
   });
 
   return (
-    <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-      <form
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void uploadForm.handleSubmit();
-        }}
-      >
-        <Stack gap="md">
-          <Title order={2} size="h3">
-            Upload module package
-          </Title>
-          <div className={classes.uploadGrid}>
-            <MantineNativeSelect
-              label="Upload as"
-              value={effectivePackageId}
-              onChange={(event) => {
-                const selectedId = event.currentTarget.value;
-                setPackageId(selectedId);
-                const selected = packages.find(
-                  (item) => item.id === selectedId,
-                );
-                uploadForm.setFieldValue("title", selected?.title ?? "");
-              }}
-              data={[
-                { value: "", label: "New module" },
-                ...packages.map((item) => ({
-                  value: item.id,
-                  label: `New version of ${item.title}`,
-                })),
-              ]}
-            />
-            <uploadForm.Field name="title">
-              {(field) => (
-                <MantineTextInput
-                  label="Module name"
-                  name={field.name}
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => {
-                    field.handleChange(event.currentTarget.value);
-                  }}
-                  maxLength={200}
-                  withAsterisk
-                  disabled={Boolean(effectivePackageId)}
-                  error={firstFormError(field.state.meta.errors)}
-                />
-              )}
-            </uploadForm.Field>
-            <uploadForm.Field name="archive">
-              {(field) => (
-                <MantineFilePicker
-                  label="SCORM ZIP"
-                  description="Maximum 250 MB. Archives are quarantined before extraction."
-                  placeholder="Choose a ZIP file"
-                  value={field.state.value}
-                  onChange={field.handleChange}
-                  accept=".zip,application/zip"
-                  required
-                  error={firstFormError(field.state.meta.errors)}
-                />
-              )}
-            </uploadForm.Field>
-          </div>
-          {notice ? (
-            <Alert color={notice.color} title="Upload status">
-              {notice.message}
-            </Alert>
-          ) : null}
-          <Group justify="flex-end">
-            <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
-              {(isSubmitting) => (
-                <Button
-                  type="submit"
-                  loading={isSubmitting}
-                  disabled={isSubmitting}
-                >
-                  Upload and validate
-                </Button>
-              )}
-            </uploadForm.Subscribe>
-          </Group>
-        </Stack>
-      </form>
-    </Paper>
+    <form
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void uploadForm.handleSubmit();
+      }}
+    >
+      <Stack gap="md">
+        <div className={classes.uploadGrid}>
+          <MantineNativeSelect
+            label="Upload as"
+            value={effectivePackageId}
+            onChange={(event) => {
+              const selectedId = event.currentTarget.value;
+              setPackageId(selectedId);
+              const selected = packages.find((item) => item.id === selectedId);
+              uploadForm.setFieldValue("title", selected?.title ?? "");
+            }}
+            data={[
+              { value: "", label: "New module" },
+              ...packages.map((item) => ({
+                value: item.id,
+                label: `New version of ${item.title}`,
+              })),
+            ]}
+          />
+          <uploadForm.Field name="title">
+            {(field) => (
+              <MantineTextInput
+                label="Module name"
+                name={field.name}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  field.handleChange(event.currentTarget.value);
+                }}
+                maxLength={200}
+                withAsterisk
+                disabled={Boolean(effectivePackageId)}
+                error={firstFormError(field.state.meta.errors)}
+              />
+            )}
+          </uploadForm.Field>
+          <uploadForm.Field name="archive">
+            {(field) => (
+              <MantineFilePicker
+                label="SCORM ZIP"
+                description="Maximum 250 MB. Archives are quarantined before extraction."
+                placeholder="Choose a ZIP file"
+                value={field.state.value}
+                onChange={field.handleChange}
+                accept=".zip,application/zip"
+                required
+                error={firstFormError(field.state.meta.errors)}
+              />
+            )}
+          </uploadForm.Field>
+        </div>
+        {notice ? (
+          <Alert color={notice.color} title="Upload status">
+            {notice.message}
+          </Alert>
+        ) : null}
+        <Group justify="flex-end">
+          <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
+            {(isSubmitting) => (
+              <Button
+                type="submit"
+                loading={isSubmitting}
+                disabled={isSubmitting}
+              >
+                Upload and validate
+              </Button>
+            )}
+          </uploadForm.Subscribe>
+        </Group>
+      </Stack>
+    </form>
   );
 }

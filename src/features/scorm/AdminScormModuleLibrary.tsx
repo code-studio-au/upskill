@@ -1,5 +1,13 @@
 import { Badge } from "#/features/shared/Badge";
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { useState } from "react";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import {
@@ -198,10 +206,10 @@ export function AdminScormModuleLibrary({
                 component="article"
                 withBorder
                 radius="lg"
-                p="lg"
+                p="md"
                 key={item.id}
               >
-                <Stack gap="md">
+                <Stack gap="sm">
                   <Title order={3}>{item.title}</Title>
                   <ol className={classes.versionList}>
                     {item.versions.map((version) => (

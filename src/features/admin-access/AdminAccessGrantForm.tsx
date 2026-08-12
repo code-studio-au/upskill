@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { Alert, Button, Group, Stack, Text } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
@@ -14,8 +14,10 @@ import classes from "./AdminAccessGrantManager.module.css";
 
 export function AdminAccessGrantForm({
   targets,
+  onDone,
 }: {
   targets: AdminAccessGrantDirectory["targets"];
+  onDone?: () => void;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -120,10 +122,10 @@ export function AdminAccessGrantForm({
                 type="button"
                 variant="default"
                 onClick={() => {
-                  setIssuedCode(null);
+                  onDone?.();
                 }}
               >
-                Hide code
+                Done
               </Button>
             </Group>
             {copyState === "failed" ? (
@@ -135,146 +137,123 @@ export function AdminAccessGrantForm({
         </Alert>
       ) : null}
 
-      <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void grantForm.handleSubmit();
-          }}
-        >
-          <Stack gap="lg">
-            <div>
-              <Title order={2} size="h3">
-                Create access grant
-              </Title>
-              <Text c="dimmed" size="sm" mt="xs">
-                Learners retain their enrolment if this code is later revoked.
-              </Text>
-            </div>
-            <div className={classes.formGrid}>
-              <grantForm.Field name="label">
-                {(field) => (
-                  <MantineTextInput
-                    label="Grant label"
-                    placeholder="2027 graduate intake"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </grantForm.Field>
-              <grantForm.Field name="organizationName">
-                {(field) => (
-                  <MantineTextInput
-                    label="Organisation"
-                    placeholder="Example Health"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </grantForm.Field>
-              <grantForm.Field name="accessCode">
-                {(field) => (
-                  <MantineTextInput
-                    label="Access code"
-                    description="Use a memorable organisation or cohort code. A short unique lookup suffix will be appended when the grant is created."
-                    placeholder="EXAMPLE-HEALTH-2027"
-                    autoCapitalize="characters"
-                    autoComplete="off"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </grantForm.Field>
-              <grantForm.Field name="courseVersionId">
-                {(field) => (
-                  <MantineNativeSelect
-                    label="Published course version"
-                    data={targetOptions}
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    disabled={!canCreate}
-                    required
-                  />
-                )}
-              </grantForm.Field>
-              <grantForm.Field name="quantity">
-                {(field) => (
-                  <MantineTextInput
-                    label="Available enrolments"
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    max={100_000}
-                    value={String(field.state.value)}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(Number(event.currentTarget.value));
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </grantForm.Field>
-              <grantForm.Field name="enrollmentDurationDays">
-                {(field) => (
-                  <MantineTextInput
-                    label="Learner access duration (days)"
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    max={3650}
-                    value={String(field.state.value)}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(Number(event.currentTarget.value));
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </grantForm.Field>
-              <grantForm.Field name="expiresOn">
-                {(field) => (
-                  <MantineTextInput
-                    label="Code expiry date (optional, UTC)"
-                    type="date"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                  />
-                )}
-              </grantForm.Field>
-            </div>
-            <grantForm.Field name="domains">
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void grantForm.handleSubmit();
+        }}
+      >
+        <Stack gap="md">
+          <Text c="dimmed" size="sm">
+            Learners retain their enrolment if this code is later revoked.
+          </Text>
+          <div className={classes.formGrid}>
+            <grantForm.Field name="label">
               {(field) => (
                 <MantineTextInput
-                  component="textarea"
-                  label="Permitted email domains (optional)"
-                  description="Separate domains with commas or new lines. Leave blank to allow any verified learner."
-                  placeholder="example.com, staff.example.org"
+                  label="Grant label"
+                  placeholder="2027 graduate intake"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                  error={firstFormError(field.state.meta.errors)}
+                  required
+                />
+              )}
+            </grantForm.Field>
+            <grantForm.Field name="organizationName">
+              {(field) => (
+                <MantineTextInput
+                  label="Organisation"
+                  placeholder="Example Health"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                  error={firstFormError(field.state.meta.errors)}
+                  required
+                />
+              )}
+            </grantForm.Field>
+            <grantForm.Field name="accessCode">
+              {(field) => (
+                <MantineTextInput
+                  label="Access code"
+                  description="Use a memorable organisation or cohort code. A short unique lookup suffix will be appended when the grant is created."
+                  placeholder="EXAMPLE-HEALTH-2027"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                  error={firstFormError(field.state.meta.errors)}
+                  required
+                />
+              )}
+            </grantForm.Field>
+            <grantForm.Field name="courseVersionId">
+              {(field) => (
+                <MantineNativeSelect
+                  label="Published course version"
+                  data={targetOptions}
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                  error={firstFormError(field.state.meta.errors)}
+                  disabled={!canCreate}
+                  required
+                />
+              )}
+            </grantForm.Field>
+            <grantForm.Field name="quantity">
+              {(field) => (
+                <MantineTextInput
+                  label="Available enrolments"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={100_000}
+                  value={String(field.state.value)}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(Number(event.currentTarget.value));
+                  }}
+                  error={firstFormError(field.state.meta.errors)}
+                  required
+                />
+              )}
+            </grantForm.Field>
+            <grantForm.Field name="enrollmentDurationDays">
+              {(field) => (
+                <MantineTextInput
+                  label="Learner access duration (days)"
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  max={3650}
+                  value={String(field.state.value)}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(Number(event.currentTarget.value));
+                  }}
+                  error={firstFormError(field.state.meta.errors)}
+                  required
+                />
+              )}
+            </grantForm.Field>
+            <grantForm.Field name="expiresOn">
+              {(field) => (
+                <MantineTextInput
+                  label="Code expiry date (optional, UTC)"
+                  type="date"
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(event) => {
@@ -284,27 +263,43 @@ export function AdminAccessGrantForm({
                 />
               )}
             </grantForm.Field>
-            {!canCreate ? (
-              <Alert color="orange">
-                Publish a course version before issuing access.
-              </Alert>
-            ) : null}
-            <grantForm.Subscribe selector={(state) => state.isSubmitting}>
-              {(isSubmitting) => (
-                <Group justify="flex-end">
-                  <Button
-                    type="submit"
-                    loading={isSubmitting}
-                    disabled={!canCreate || isSubmitting}
-                  >
-                    Create access grant
-                  </Button>
-                </Group>
-              )}
-            </grantForm.Subscribe>
-          </Stack>
-        </form>
-      </Paper>
+          </div>
+          <grantForm.Field name="domains">
+            {(field) => (
+              <MantineTextInput
+                component="textarea"
+                label="Permitted email domains (optional)"
+                description="Separate domains with commas or new lines. Leave blank to allow any verified learner."
+                placeholder="example.com, staff.example.org"
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  field.handleChange(event.currentTarget.value);
+                }}
+                error={firstFormError(field.state.meta.errors)}
+              />
+            )}
+          </grantForm.Field>
+          {!canCreate ? (
+            <Alert color="orange">
+              Publish a course version before issuing access.
+            </Alert>
+          ) : null}
+          <grantForm.Subscribe selector={(state) => state.isSubmitting}>
+            {(isSubmitting) => (
+              <Group justify="flex-end">
+                <Button
+                  type="submit"
+                  loading={isSubmitting}
+                  disabled={!canCreate || isSubmitting}
+                >
+                  Create access grant
+                </Button>
+              </Group>
+            )}
+          </grantForm.Subscribe>
+        </Stack>
+      </form>
     </Stack>
   );
 }

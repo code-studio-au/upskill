@@ -1,8 +1,12 @@
-import { Button } from "@mantine/core";
+import { Button } from "#/features/shared/mantine";
 
 import { useState } from "react";
 
-export function SignOutButton() {
+export function SignOutButton({
+  className,
+}: {
+  className?: string | undefined;
+}) {
   const [pending, setPending] = useState(false);
 
   async function signOut(): Promise<void> {
@@ -22,6 +26,8 @@ export function SignOutButton() {
   return (
     <Button
       variant="default"
+      size="sm"
+      className={className}
       loading={pending}
       onClick={() => {
         void signOut();

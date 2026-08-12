@@ -1,5 +1,13 @@
 import { Badge } from "#/features/shared/Badge";
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { useState } from "react";
@@ -24,7 +32,10 @@ function fileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function ResourceUpload({ resources, onChanged }: AdminResourceLibraryProps) {
+export function AdminResourceUpload({
+  resources,
+  onChanged,
+}: AdminResourceLibraryProps) {
   const [resourceId, setResourceId] = useState("");
   const [notice, setNotice] = useState<string>();
   const selected = resources.find((resource) => resource.id === resourceId);
@@ -70,112 +81,107 @@ function ResourceUpload({ resources, onChanged }: AdminResourceLibraryProps) {
   });
 
   return (
-    <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-      <form
-        noValidate
-        onSubmit={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void uploadForm.handleSubmit();
-        }}
-      >
-        <Stack gap="md">
-          <Title order={2} size="h3">
-            Upload PDF resource
-          </Title>
-          <div className={classes.uploadGrid}>
-            <MantineNativeSelect
-              label="Upload as"
-              value={selected?.id ?? ""}
-              onChange={(event) => {
-                const next = resources.find(
-                  (resource) => resource.id === event.currentTarget.value,
-                );
-                setResourceId(next?.id ?? "");
-                uploadForm.setFieldValue("title", next?.title ?? "");
-              }}
-              data={[
-                { value: "", label: "New resource" },
-                ...resources.map((resource) => ({
-                  value: resource.id,
-                  label: `New version of ${resource.title}`,
-                })),
-              ]}
-            />
-            <uploadForm.Field name="title">
-              {(field) => (
-                <MantineTextInput
-                  label="Resource title"
-                  name={field.name}
-                  value={field.state.value}
-                  disabled={Boolean(selected)}
-                  required
-                  maxLength={200}
-                  error={firstFormError(field.state.meta.errors)}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => {
-                    field.handleChange(event.currentTarget.value);
-                  }}
-                />
-              )}
-            </uploadForm.Field>
-            <uploadForm.Field name="description">
-              {(field) => (
-                <MantineTextInput
-                  label="Version description"
-                  name={field.name}
-                  description="Optional notes about this document version."
-                  value={field.state.value}
-                  maxLength={2_000}
-                  error={firstFormError(field.state.meta.errors)}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => {
-                    field.handleChange(event.currentTarget.value);
-                  }}
-                />
-              )}
-            </uploadForm.Field>
-            <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
-              {(isSubmitting) => (
-                <uploadForm.Field name="document">
-                  {(field) => (
-                    <MantineFilePicker
-                      label="PDF document"
-                      placeholder="Choose a PDF"
-                      description="Maximum 25 MB. Documents remain private."
-                      accept=".pdf,application/pdf"
-                      required
-                      value={field.state.value}
-                      error={firstFormError(field.state.meta.errors)}
-                      disabled={isSubmitting}
-                      onChange={field.handleChange}
-                    />
-                  )}
-                </uploadForm.Field>
-              )}
-            </uploadForm.Subscribe>
-          </div>
-          {notice ? (
-            <Alert color={notice.includes("could not") ? "red" : "green"}>
-              {notice}
-            </Alert>
-          ) : null}
-          <Group justify="flex-end">
-            <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
-              {(isSubmitting) => (
-                <Button
-                  type="submit"
-                  loading={isSubmitting}
-                  disabled={isSubmitting}
-                >
-                  Upload resource
-                </Button>
-              )}
-            </uploadForm.Subscribe>
-          </Group>
-        </Stack>
-      </form>
-    </Paper>
+    <form
+      noValidate
+      onSubmit={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void uploadForm.handleSubmit();
+      }}
+    >
+      <Stack gap="md">
+        <div className={classes.uploadGrid}>
+          <MantineNativeSelect
+            label="Upload as"
+            value={selected?.id ?? ""}
+            onChange={(event) => {
+              const next = resources.find(
+                (resource) => resource.id === event.currentTarget.value,
+              );
+              setResourceId(next?.id ?? "");
+              uploadForm.setFieldValue("title", next?.title ?? "");
+            }}
+            data={[
+              { value: "", label: "New resource" },
+              ...resources.map((resource) => ({
+                value: resource.id,
+                label: `New version of ${resource.title}`,
+              })),
+            ]}
+          />
+          <uploadForm.Field name="title">
+            {(field) => (
+              <MantineTextInput
+                label="Resource title"
+                name={field.name}
+                value={field.state.value}
+                disabled={Boolean(selected)}
+                required
+                maxLength={200}
+                error={firstFormError(field.state.meta.errors)}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  field.handleChange(event.currentTarget.value);
+                }}
+              />
+            )}
+          </uploadForm.Field>
+          <uploadForm.Field name="description">
+            {(field) => (
+              <MantineTextInput
+                label="Version description"
+                name={field.name}
+                description="Optional notes about this document version."
+                value={field.state.value}
+                maxLength={2_000}
+                error={firstFormError(field.state.meta.errors)}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  field.handleChange(event.currentTarget.value);
+                }}
+              />
+            )}
+          </uploadForm.Field>
+          <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
+            {(isSubmitting) => (
+              <uploadForm.Field name="document">
+                {(field) => (
+                  <MantineFilePicker
+                    label="PDF document"
+                    placeholder="Choose a PDF"
+                    description="Maximum 25 MB. Documents remain private."
+                    accept=".pdf,application/pdf"
+                    required
+                    value={field.state.value}
+                    error={firstFormError(field.state.meta.errors)}
+                    disabled={isSubmitting}
+                    onChange={field.handleChange}
+                  />
+                )}
+              </uploadForm.Field>
+            )}
+          </uploadForm.Subscribe>
+        </div>
+        {notice ? (
+          <Alert color={notice.includes("could not") ? "red" : "green"}>
+            {notice}
+          </Alert>
+        ) : null}
+        <Group justify="flex-end">
+          <uploadForm.Subscribe selector={(state) => state.isSubmitting}>
+            {(isSubmitting) => (
+              <Button
+                type="submit"
+                loading={isSubmitting}
+                disabled={isSubmitting}
+              >
+                Upload resource
+              </Button>
+            )}
+          </uploadForm.Subscribe>
+        </Group>
+      </Stack>
+    </form>
   );
 }
 
@@ -222,8 +228,7 @@ export function AdminResourceLibrary(props: AdminResourceLibraryProps) {
   }
 
   return (
-    <Stack gap="xl">
-      <ResourceUpload {...props} />
+    <Stack gap="lg">
       <section aria-labelledby="resource-library-heading">
         <Stack gap="md">
           <div>
@@ -247,10 +252,10 @@ export function AdminResourceLibrary(props: AdminResourceLibraryProps) {
                   component="article"
                   withBorder
                   radius="lg"
-                  p="lg"
+                  p="md"
                   key={resource.id}
                 >
-                  <Stack gap="md">
+                  <Stack gap="sm">
                     <Title order={3}>{resource.title}</Title>
                     <ol className={classes.versionList}>
                       {resource.versions.map((version) => (

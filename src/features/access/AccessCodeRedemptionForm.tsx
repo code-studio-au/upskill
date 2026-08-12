@@ -1,4 +1,4 @@
-import { Alert, Button, Paper, Stack, Text, Title } from "@mantine/core";
+import { Alert, Button, Stack, Text } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { useState, useSyncExternalStore } from "react";
@@ -79,68 +79,61 @@ export function AccessCodeRedemptionForm() {
   });
 
   return (
-    <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-      <Stack gap="md">
-        <div>
-          <Title order={2}>Have an access code?</Title>
-          <Text c="dimmed" mt={4}>
-            Enter the code supplied by your organisation to add the course to
-            your learning area.
-          </Text>
+    <Stack gap="md">
+      <Text c="dimmed">
+        Enter the code supplied by your organisation to add the course to your
+        learning area.
+      </Text>
+      {message ? (
+        <Alert color={message.color} title={message.title} role="status">
+          {message.body}
+        </Alert>
+      ) : null}
+      <form
+        method="post"
+        action="/dashboard"
+        onSubmit={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          void codeForm.handleSubmit();
+        }}
+      >
+        <div className={classes.controls}>
+          <codeForm.Field name="code">
+            {(field) => (
+              <MantineTextInput
+                label="Access code"
+                name={field.name}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => {
+                  field.handleChange(event.currentTarget.value);
+                }}
+                autoComplete="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                withAsterisk
+                error={firstFormError(field.state.meta.errors)}
+                classNames={{ input: classes.codeInput }}
+              />
+            )}
+          </codeForm.Field>
+          <codeForm.Subscribe
+            selector={(state) => [state.canSubmit, state.isSubmitting] as const}
+          >
+            {([canSubmit, isSubmitting]) => (
+              <Button
+                type="submit"
+                loading={isSubmitting}
+                disabled={!hydrated || !canSubmit}
+                className={classes.submit}
+              >
+                Apply access code
+              </Button>
+            )}
+          </codeForm.Subscribe>
         </div>
-        {message ? (
-          <Alert color={message.color} title={message.title} role="status">
-            {message.body}
-          </Alert>
-        ) : null}
-        <form
-          method="post"
-          action="/dashboard"
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void codeForm.handleSubmit();
-          }}
-        >
-          <div className={classes.controls}>
-            <codeForm.Field name="code">
-              {(field) => (
-                <MantineTextInput
-                  label="Access code"
-                  name={field.name}
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => {
-                    field.handleChange(event.currentTarget.value);
-                  }}
-                  autoComplete="off"
-                  autoCapitalize="characters"
-                  spellCheck={false}
-                  withAsterisk
-                  error={firstFormError(field.state.meta.errors)}
-                  classNames={{ input: classes.codeInput }}
-                />
-              )}
-            </codeForm.Field>
-            <codeForm.Subscribe
-              selector={(state) =>
-                [state.canSubmit, state.isSubmitting] as const
-              }
-            >
-              {([canSubmit, isSubmitting]) => (
-                <Button
-                  type="submit"
-                  loading={isSubmitting}
-                  disabled={!hydrated || !canSubmit}
-                  className={classes.submit}
-                >
-                  Apply access code
-                </Button>
-              )}
-            </codeForm.Subscribe>
-          </div>
-        </form>
-      </Stack>
-    </Paper>
+      </form>
+    </Stack>
   );
 }

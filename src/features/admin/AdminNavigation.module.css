@@ -1,0 +1,136 @@
+.desktop {
+  position: sticky;
+  top: 5rem;
+  display: grid;
+  gap: 1.35rem;
+  align-self: start;
+  padding: 1rem;
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-white);
+}
+
+.heading {
+  display: grid;
+  gap: 0.1rem;
+  padding: 0 0.45rem;
+}
+
+.eyebrow,
+.groupLabel {
+  color: var(--mantine-color-gray-6);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.heading strong {
+  font-size: var(--mantine-font-size-lg);
+}
+
+.group {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.groupLabel {
+  padding-inline: 0.55rem;
+}
+
+.links {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.link {
+  display: flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--mantine-radius-md);
+  color: var(--mantine-color-gray-7);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.link::before {
+  width: 0.4rem;
+  height: 0.4rem;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--mantine-color-gray-4);
+  content: "";
+}
+
+.link:hover {
+  color: var(--mantine-color-indigo-8);
+  background: var(--mantine-color-gray-0);
+}
+
+.link[data-active] {
+  color: var(--mantine-color-indigo-9);
+  background: var(--mantine-color-indigo-0);
+}
+
+.link[data-active]::before {
+  background: var(--mantine-color-indigo-6);
+}
+
+.chevron {
+  color: var(--mantine-color-gray-6);
+  font-size: 0.75rem;
+}
+
+.mobile {
+  display: none;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-white);
+}
+
+.mobile summary {
+  display: flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mobile summary::-webkit-details-marker {
+  display: none;
+}
+
+.mobile summary span {
+  display: grid;
+}
+
+.mobile summary small {
+  color: var(--mantine-color-indigo-7);
+  font-weight: 700;
+}
+
+.mobile nav {
+  display: grid;
+  gap: 1rem;
+  padding: 0 0.65rem 0.75rem;
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.mobile .group:first-child {
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 62em) {
+  .desktop {
+    display: none;
+  }
+
+  .mobile {
+    display: block;
+  }
+}

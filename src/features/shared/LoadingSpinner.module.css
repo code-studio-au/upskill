@@ -1,0 +1,25 @@
+.status {
+  display: inline-grid;
+  place-items: center;
+}
+
+.spinner {
+  width: 1.1rem;
+  height: 1.1rem;
+  border: 0.14rem solid var(--mantine-color-indigo-2);
+  border-top-color: var(--mantine-color-indigo-7);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

@@ -13,3 +13,7 @@
   max-height: calc(100dvh - 2 * var(--mantine-spacing-md));
   overflow-y: auto;
 }
+
+.dialog[data-size="lg"] {
+  width: min(100%, 48rem);
+}
