@@ -1,10 +1,18 @@
 import { Badge } from "#/features/shared/Badge";
-import { Alert, Button, Group, Paper, Stack, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Title,
+} from "#/features/shared/mantine";
 import { useForm, useStore } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
+import { PageTabs } from "#/features/shared/PageTabs";
 import { SurveySectionsEditor } from "./SurveySectionsEditor";
 import {
   adminSurveyDraftSchema,
@@ -26,6 +34,9 @@ export function AdminSurveyEditor({
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editorView, setEditorView] = useState<"details" | "questions">(
+    "details",
+  );
   const submitIntent = useRef<"save" | "publish">("save");
   const editable = detail.version.editable;
   const surveyForm = useForm({
@@ -151,51 +162,73 @@ export function AdminSurveyEditor({
         }}
       </surveyForm.Subscribe>
 
-      <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-        <Stack gap="md">
-          <Title order={2}>Survey details</Title>
-          <surveyForm.Field name="title">
-            {(field) => (
-              <MantineTextInput
-                label="Title"
-                name={field.name}
-                value={field.state.value}
-                disabled={!editable}
-                error={firstFormError(field.state.meta.errors)}
-                onBlur={field.handleBlur}
-                onChange={(event) => {
-                  field.handleChange(event.currentTarget.value);
-                }}
-                required
-              />
-            )}
-          </surveyForm.Field>
-          <surveyForm.Field name="description">
-            {(field) => (
-              <MantineTextInput
-                component="textarea"
-                label="Introduction"
-                name={field.name}
-                value={field.state.value}
-                disabled={!editable}
-                error={firstFormError(field.state.meta.errors)}
-                onBlur={field.handleBlur}
-                onChange={(event) => {
-                  field.handleChange(event.currentTarget.value);
-                }}
-              />
-            )}
-          </surveyForm.Field>
-        </Stack>
-      </Paper>
-
-      <SurveySectionsEditor
-        editable={editable}
-        sections={sections}
-        onChange={(sections) => {
-          surveyForm.setFieldValue("sections", sections);
-        }}
+      <PageTabs
+        label="Survey workspace"
+        value={editorView}
+        tabs={[
+          { value: "details", label: "Details" },
+          {
+            value: "questions",
+            label: `Questions (${String(
+              sections.reduce(
+                (total, section) => total + section.items.length,
+                0,
+              ),
+            )})`,
+          },
+        ]}
+        onChange={setEditorView}
       />
+
+      {editorView === "details" ? (
+        <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
+          <Stack gap="md">
+            <Title order={2}>Survey details</Title>
+            <surveyForm.Field name="title">
+              {(field) => (
+                <MantineTextInput
+                  label="Title"
+                  name={field.name}
+                  value={field.state.value}
+                  disabled={!editable}
+                  error={firstFormError(field.state.meta.errors)}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                  required
+                />
+              )}
+            </surveyForm.Field>
+            <surveyForm.Field name="description">
+              {(field) => (
+                <MantineTextInput
+                  component="textarea"
+                  label="Introduction"
+                  name={field.name}
+                  value={field.state.value}
+                  disabled={!editable}
+                  error={firstFormError(field.state.meta.errors)}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                />
+              )}
+            </surveyForm.Field>
+          </Stack>
+        </Paper>
+      ) : null}
+
+      {editorView === "questions" ? (
+        <SurveySectionsEditor
+          editable={editable}
+          sections={sections}
+          onChange={(sections) => {
+            surveyForm.setFieldValue("sections", sections);
+          }}
+        />
+      ) : null}
     </Stack>
   );
 }

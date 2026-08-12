@@ -1,11 +1,11 @@
 .section {
-  padding-block: clamp(2.5rem, 7vw, 5rem);
+  padding-block: clamp(1.5rem, 4vw, 3rem);
 }
 
 .filters {
   display: grid;
   gap: var(--mantine-spacing-md);
-  padding: var(--mantine-spacing-lg);
+  padding: var(--mantine-spacing-md);
   border: 1px solid var(--mantine-color-gray-3);
   border-radius: var(--mantine-radius-lg);
   background: var(--mantine-color-white);
@@ -13,7 +13,7 @@
 
 .grid {
   display: grid;
-  gap: var(--mantine-spacing-lg);
+  gap: var(--mantine-spacing-md);
 }
 
 @media (min-width: 48em) {

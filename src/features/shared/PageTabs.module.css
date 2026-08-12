@@ -1,0 +1,37 @@
+.tabs {
+  display: flex;
+  max-width: 100%;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  overflow-x: auto;
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.tab {
+  display: inline-flex;
+  min-height: 2.25rem;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.4rem 0.75rem;
+  border: 0;
+  border-radius: calc(var(--mantine-radius-md) - 0.15rem);
+  color: var(--mantine-color-gray-7);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 650;
+}
+
+.tab:hover {
+  color: var(--mantine-color-indigo-8);
+}
+
+.tab[data-active] {
+  color: var(--mantine-color-gray-9);
+  background: var(--mantine-color-white);
+  box-shadow: var(--mantine-shadow-xs);
+}

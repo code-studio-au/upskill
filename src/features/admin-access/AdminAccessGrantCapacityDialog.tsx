@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Stack, Text } from "@mantine/core";
+import { Alert, Button, Group, Stack, Text } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { useState } from "react";
 import { AppDialog } from "#/features/shared/AppDialog";

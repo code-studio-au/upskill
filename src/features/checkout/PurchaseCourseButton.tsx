@@ -1,4 +1,4 @@
-import { Alert, Button, Stack } from "@mantine/core";
+import { Alert, Button, Stack } from "#/features/shared/mantine";
 import { Link } from "@tanstack/react-router";
 import { useState, useSyncExternalStore } from "react";
 import { startCourseCheckout } from "#/server/functions/checkout";

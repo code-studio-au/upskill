@@ -1,5 +1,12 @@
 import { Badge } from "#/features/shared/Badge";
-import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import {
   createFileRoute,
   Link,
@@ -49,7 +56,7 @@ function AdminLearnersPage() {
   const directory = result.data;
 
   return (
-    <Stack gap="xl">
+    <Stack gap="lg">
       <div className={classes.heading}>
         <Text c="indigo.7" fw={700}>
           Learner support
@@ -111,11 +118,11 @@ function AdminLearnersPage() {
             <Paper
               withBorder
               radius="lg"
-              p="lg"
+              p="md"
               className={classes.learnerCard}
               key={learner.id}
             >
-              <Stack gap="md" h="100%">
+              <Stack gap="sm" h="100%">
                 <div className={classes.learnerHeader}>
                   <div>
                     <Title order={2} size="h3">

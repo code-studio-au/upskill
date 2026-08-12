@@ -3,12 +3,11 @@ import {
   Alert,
   Button,
   Group,
-  Loader,
   Paper,
   Stack,
   Text,
   Title,
-} from "@mantine/core";
+} from "#/features/shared/mantine";
 import { useForm, useStore } from "@tanstack/react-form";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
@@ -44,6 +43,8 @@ import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { firstFormError } from "#/features/shared/form-errors";
 import { createFriendlySlug } from "#/features/shared/friendly-slug";
+import { PageTabs } from "#/features/shared/PageTabs";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import classes from "./AdminCourseEditor.module.css";
 
 const AdminCourseRoster = lazy(async () => {
@@ -84,6 +85,9 @@ export function AdminCourseEditor({
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editorView, setEditorView] = useState<
+    "details" | "program" | "learners" | "settings"
+  >("details");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [itemSectionId, setItemSectionId] = useState<string | null>(null);
   const [itemKind, setItemKind] = useState<ItemKind>("scorm");
@@ -305,7 +309,8 @@ export function AdminCourseEditor({
           </Group>
         </div>
         <Group>
-          {editable ? (
+          {editable &&
+          (editorView === "details" || editorView === "program") ? (
             <courseForm.Subscribe selector={(state) => state.isSubmitting}>
               {(isSubmitting) => (
                 <>
@@ -333,7 +338,7 @@ export function AdminCourseEditor({
                 </>
               )}
             </courseForm.Subscribe>
-          ) : detail.course.status !== "archived" ? (
+          ) : !editable && detail.course.status !== "archived" ? (
             <Button
               loading={pending === "new-version"}
               onClick={() => {
@@ -380,416 +385,449 @@ export function AdminCourseEditor({
         }}
       </courseForm.Subscribe>
 
-      <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-        <Stack gap="md">
-          <Title order={2}>Course details</Title>
-          <MantineTextInput
-            label="Title"
-            value={draft.title}
-            disabled={!editable}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setDraft((current) => ({
-                ...current,
-                title: value,
-                slug: autoSlug.current
-                  ? createFriendlySlug(value)
-                  : current.slug,
-              }));
-            }}
-            required
-          />
-          <MantineTextInput
-            label="Friendly URL"
-            description="Used in the public course URL. It must be unique."
-            value={draft.slug}
-            disabled={!editable}
-            onChange={(event) => {
-              autoSlug.current = false;
-              const value = event.currentTarget.value;
-              setDraft((current) => ({ ...current, slug: value }));
-            }}
-            required
-          />
-          <MantineTextInput
-            component="textarea"
-            label="Summary"
-            value={draft.summary}
-            disabled={!editable}
-            classNames={{ input: classes.textArea }}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setDraft((current) => ({
-                ...current,
-                summary: value,
-              }));
-            }}
-            required
-          />
-          <MantineTextInput
-            component="textarea"
-            label="Description"
-            value={draft.description}
-            disabled={!editable}
-            classNames={{ input: classes.textAreaTall }}
-            onChange={(event) => {
-              const value = event.currentTarget.value;
-              setDraft((current) => ({
-                ...current,
-                description: value,
-              }));
-            }}
-            required
-          />
-          <div className={classes.threeColumns}>
-            <MantineNativeSelect
-              label="Topic"
-              value={draft.topic}
-              disabled={!editable}
-              data={[
-                { value: "leadership", label: "Leadership" },
-                { value: "safety", label: "Safety" },
-                { value: "technology", label: "Technology" },
-              ]}
-              onChange={(event) => {
-                const value = event.currentTarget
-                  .value as AdminCourseDraft["topic"];
-                setDraft((current) => ({
-                  ...current,
-                  topic: value,
-                }));
-              }}
-            />
+      <PageTabs
+        label="Course workspace"
+        value={editorView}
+        tabs={[
+          { value: "details", label: "Details" },
+          {
+            value: "program",
+            label: `Program (${String(draft.sections.length)})`,
+          },
+          {
+            value: "learners",
+            label: `Learners (${String(detail.course.enrollmentCount)})`,
+          },
+          { value: "settings", label: "Settings" },
+        ]}
+        onChange={setEditorView}
+      />
+
+      {editorView === "details" ? (
+        <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
+          <Stack gap="md">
+            <Title order={2}>Course details</Title>
             <MantineTextInput
-              label="Duration (minutes)"
-              type="number"
-              inputMode="numeric"
-              min={1}
-              value={String(draft.durationMinutes)}
+              label="Title"
+              value={draft.title}
               disabled={!editable}
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 setDraft((current) => ({
                   ...current,
-                  durationMinutes: numericValue(value),
+                  title: value,
+                  slug: autoSlug.current
+                    ? createFriendlySlug(value)
+                    : current.slug,
                 }));
               }}
+              required
             />
             <MantineTextInput
-              label="Price (AUD)"
-              type="number"
-              inputMode="decimal"
-              min={0}
-              step="0.01"
-              value={String(draft.priceCents / 100)}
+              label="Friendly URL"
+              description="Used in the public course URL. It must be unique."
+              value={draft.slug}
               disabled={!editable}
+              onChange={(event) => {
+                autoSlug.current = false;
+                const value = event.currentTarget.value;
+                setDraft((current) => ({ ...current, slug: value }));
+              }}
+              required
+            />
+            <MantineTextInput
+              component="textarea"
+              label="Summary"
+              value={draft.summary}
+              disabled={!editable}
+              classNames={{ input: classes.textArea }}
               onChange={(event) => {
                 const value = event.currentTarget.value;
                 setDraft((current) => ({
                   ...current,
-                  priceCents: Math.round(numericValue(value) * 100),
+                  summary: value,
                 }));
               }}
+              required
             />
-          </div>
-          <Group>
-            <MantineCheckbox
-              label="List in public catalogue"
-              checked={draft.listInStore}
+            <MantineTextInput
+              component="textarea"
+              label="Description"
+              value={draft.description}
               disabled={!editable}
-              onChange={(checked) => {
+              classNames={{ input: classes.textAreaTall }}
+              onChange={(event) => {
+                const value = event.currentTarget.value;
                 setDraft((current) => ({
                   ...current,
-                  listInStore: checked,
+                  description: value,
                 }));
               }}
+              required
             />
-            <MantineCheckbox
-              label="Featured"
-              checked={draft.featured}
-              disabled={!editable}
-              onChange={(checked) => {
-                setDraft((current) => ({
-                  ...current,
-                  featured: checked,
-                }));
-              }}
-            />
-            <MantineCheckbox
-              label="Completion certificate"
-              checked={draft.hasCompletionCertificate}
-              disabled={!editable}
-              onChange={(checked) => {
-                setDraft((current) => ({
-                  ...current,
-                  hasCompletionCertificate: checked,
-                }));
-              }}
-            />
-          </Group>
-        </Stack>
-      </Paper>
-
-      <Stack gap="md">
-        <Group justify="space-between">
-          <div>
-            <Title order={2}>Sections and items</Title>
-            <Text c="dimmed">
-              Section progress is derived from completion of its required items.
-            </Text>
-          </div>
-          {editable ? (
-            <Button
-              variant="light"
-              onClick={() => {
-                setDraft((current) => ({
-                  ...current,
-                  sections: [
-                    ...current.sections,
-                    {
-                      id: `section_${crypto.randomUUID()}`,
-                      title: `Section ${String(current.sections.length + 1)}`,
-                      description: "",
-                      items: [],
-                    },
-                  ],
-                }));
-              }}
-            >
-              Add section
-            </Button>
-          ) : null}
-        </Group>
-
-        {draft.sections.length === 0 ? (
-          <Alert title="No sections">
-            Add a section to organise the course.
-          </Alert>
-        ) : null}
-        {draft.sections.map((section, sectionIndex) => (
-          <Paper key={section.id} withBorder radius="lg" p="lg">
-            <Stack gap="md">
-              <Group justify="space-between" align="start" wrap="wrap">
-                <div className={classes.sectionFields}>
-                  <MantineTextInput
-                    label={`Section ${String(sectionIndex + 1)} title`}
-                    value={section.title}
-                    disabled={!editable}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      updateSection(section.id, (current) => ({
-                        ...current,
-                        title: value,
-                      }));
-                    }}
-                  />
-                  <MantineTextInput
-                    component="textarea"
-                    label="Description"
-                    value={section.description}
-                    disabled={!editable}
-                    classNames={{ input: classes.textArea }}
-                    onChange={(event) => {
-                      const value = event.currentTarget.value;
-                      updateSection(section.id, (current) => ({
-                        ...current,
-                        description: value,
-                      }));
-                    }}
-                  />
-                </div>
-                {editable ? (
-                  <Group gap="xs">
-                    <Button
-                      size="xs"
-                      variant="default"
-                      disabled={sectionIndex === 0}
-                      onClick={() => {
-                        setDraft((current) => ({
-                          ...current,
-                          sections: move(current.sections, sectionIndex, -1),
-                        }));
-                      }}
-                    >
-                      Up
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="default"
-                      disabled={sectionIndex === draft.sections.length - 1}
-                      onClick={() => {
-                        setDraft((current) => ({
-                          ...current,
-                          sections: move(current.sections, sectionIndex, 1),
-                        }));
-                      }}
-                    >
-                      Down
-                    </Button>
-                    <Button
-                      size="xs"
-                      color="red"
-                      variant="subtle"
-                      onClick={() => {
-                        setConfirmation({
-                          action: "delete-section",
-                          sectionId: section.id,
-                        });
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </Group>
-                ) : null}
-              </Group>
-
-              <Stack gap="xs">
-                {section.items.map((item, itemIndex) => (
-                  <Paper
-                    key={item.id}
-                    withBorder
-                    radius="md"
-                    p="sm"
-                    className={classes.item}
-                  >
-                    <div>
-                      <Text fw={600}>{item.title}</Text>
-                      <Text size="xs" c="dimmed" tt="capitalize">
-                        {item.kind} · {item.required ? "Required" : "Optional"}
-                        {item.durationMinutes
-                          ? ` · ${String(item.durationMinutes)} min`
-                          : ""}
-                      </Text>
-                    </div>
-                    {editable ? (
-                      <Group gap="xs">
-                        <Button
-                          size="compact-xs"
-                          variant="default"
-                          disabled={itemIndex === 0}
-                          onClick={() => {
-                            updateSection(section.id, (current) => ({
-                              ...current,
-                              items: move(current.items, itemIndex, -1),
-                            }));
-                          }}
-                        >
-                          Up
-                        </Button>
-                        <Button
-                          size="compact-xs"
-                          variant="default"
-                          disabled={itemIndex === section.items.length - 1}
-                          onClick={() => {
-                            updateSection(section.id, (current) => ({
-                              ...current,
-                              items: move(current.items, itemIndex, 1),
-                            }));
-                          }}
-                        >
-                          Down
-                        </Button>
-                        <Button
-                          size="compact-xs"
-                          color="red"
-                          variant="subtle"
-                          onClick={() => {
-                            setConfirmation({
-                              action: "delete-item",
-                              sectionId: section.id,
-                              itemId: item.id,
-                            });
-                          }}
-                        >
-                          Remove
-                        </Button>
-                      </Group>
-                    ) : null}
-                  </Paper>
-                ))}
-                {editable ? (
-                  <Group>
-                    <Button
-                      size="xs"
-                      variant="light"
-                      onClick={() => {
-                        setItemSectionId(section.id);
-                        setItemKind("scorm");
-                        setItemReference(null);
-                      }}
-                    >
-                      Add item
-                    </Button>
-                    <Button
-                      size="xs"
-                      variant="default"
-                      onClick={() => {
-                        setResourceSectionId(section.id);
-                        resourceForm.reset();
-                      }}
-                    >
-                      Upload PDF
-                    </Button>
-                  </Group>
-                ) : null}
-              </Stack>
-            </Stack>
-          </Paper>
-        ))}
-      </Stack>
-
-      <Suspense
-        fallback={
-          <Paper withBorder radius="lg" p="lg">
-            <Group gap="sm">
-              <Loader size="sm" />
-              <Text>Loading learner roster...</Text>
+            <div className={classes.threeColumns}>
+              <MantineNativeSelect
+                label="Topic"
+                value={draft.topic}
+                disabled={!editable}
+                data={[
+                  { value: "leadership", label: "Leadership" },
+                  { value: "safety", label: "Safety" },
+                  { value: "technology", label: "Technology" },
+                ]}
+                onChange={(event) => {
+                  const value = event.currentTarget
+                    .value as AdminCourseDraft["topic"];
+                  setDraft((current) => ({
+                    ...current,
+                    topic: value,
+                  }));
+                }}
+              />
+              <MantineTextInput
+                label="Duration (minutes)"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                value={String(draft.durationMinutes)}
+                disabled={!editable}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setDraft((current) => ({
+                    ...current,
+                    durationMinutes: numericValue(value),
+                  }));
+                }}
+              />
+              <MantineTextInput
+                label="Price (AUD)"
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.01"
+                value={String(draft.priceCents / 100)}
+                disabled={!editable}
+                onChange={(event) => {
+                  const value = event.currentTarget.value;
+                  setDraft((current) => ({
+                    ...current,
+                    priceCents: Math.round(numericValue(value) * 100),
+                  }));
+                }}
+              />
+            </div>
+            <Group>
+              <MantineCheckbox
+                label="List in public catalogue"
+                checked={draft.listInStore}
+                disabled={!editable}
+                onChange={(checked) => {
+                  setDraft((current) => ({
+                    ...current,
+                    listInStore: checked,
+                  }));
+                }}
+              />
+              <MantineCheckbox
+                label="Featured"
+                checked={draft.featured}
+                disabled={!editable}
+                onChange={(checked) => {
+                  setDraft((current) => ({
+                    ...current,
+                    featured: checked,
+                  }));
+                }}
+              />
+              <MantineCheckbox
+                label="Completion certificate"
+                checked={draft.hasCompletionCertificate}
+                disabled={!editable}
+                onChange={(checked) => {
+                  setDraft((current) => ({
+                    ...current,
+                    hasCompletionCertificate: checked,
+                  }));
+                }}
+              />
             </Group>
-          </Paper>
-        }
-      >
-        <AdminCourseRoster detail={detail} onChanged={onChanged} />
-      </Suspense>
+          </Stack>
+        </Paper>
+      ) : null}
 
-      <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
+      {editorView === "program" ? (
         <Stack gap="md">
-          <Title order={2}>Course lifecycle</Title>
-          <Text c="dimmed">
-            {detail.course.enrollmentCount} enrolments and{" "}
-            {detail.course.commerceReferenceCount} commerce references retain
-            immutable version history.
-          </Text>
-          <Group>
-            {detail.course.status !== "archived" ? (
+          <Group justify="space-between">
+            <div>
+              <Title order={2}>Sections and items</Title>
+              <Text c="dimmed">
+                Section progress is derived from completion of its required
+                items.
+              </Text>
+            </div>
+            {editable ? (
               <Button
-                color="orange"
                 variant="light"
                 onClick={() => {
-                  setConfirmation({ action: "archive" });
+                  setDraft((current) => ({
+                    ...current,
+                    sections: [
+                      ...current.sections,
+                      {
+                        id: `section_${crypto.randomUUID()}`,
+                        title: `Section ${String(current.sections.length + 1)}`,
+                        description: "",
+                        items: [],
+                      },
+                    ],
+                  }));
                 }}
               >
-                Archive course
+                Add section
               </Button>
-            ) : (
-              <Button
-                color="red"
-                disabled={!detail.course.canDelete}
-                onClick={() => {
-                  setConfirmation({ action: "delete-course" });
-                }}
-              >
-                Permanently delete
-              </Button>
-            )}
+            ) : null}
           </Group>
-          {detail.course.status === "archived" && !detail.course.canDelete ? (
-            <Text size="sm" c="dimmed">
-              Archived courses with enrolment or commerce history are retained
-              and cannot be permanently deleted.
-            </Text>
+
+          {draft.sections.length === 0 ? (
+            <Alert title="No sections">
+              Add a section to organise the course.
+            </Alert>
           ) : null}
+          {draft.sections.map((section, sectionIndex) => (
+            <Paper
+              key={section.id}
+              withBorder
+              radius="lg"
+              p={{ base: "md", sm: "lg" }}
+            >
+              <Stack gap="md">
+                <Group justify="space-between" align="start" wrap="wrap">
+                  <div className={classes.sectionFields}>
+                    <MantineTextInput
+                      label={`Section ${String(sectionIndex + 1)} title`}
+                      value={section.title}
+                      disabled={!editable}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        updateSection(section.id, (current) => ({
+                          ...current,
+                          title: value,
+                        }));
+                      }}
+                    />
+                    <MantineTextInput
+                      component="textarea"
+                      label="Description"
+                      value={section.description}
+                      disabled={!editable}
+                      classNames={{ input: classes.textArea }}
+                      onChange={(event) => {
+                        const value = event.currentTarget.value;
+                        updateSection(section.id, (current) => ({
+                          ...current,
+                          description: value,
+                        }));
+                      }}
+                    />
+                  </div>
+                  {editable ? (
+                    <Group gap="xs">
+                      <Button
+                        size="xs"
+                        variant="default"
+                        disabled={sectionIndex === 0}
+                        onClick={() => {
+                          setDraft((current) => ({
+                            ...current,
+                            sections: move(current.sections, sectionIndex, -1),
+                          }));
+                        }}
+                      >
+                        Up
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="default"
+                        disabled={sectionIndex === draft.sections.length - 1}
+                        onClick={() => {
+                          setDraft((current) => ({
+                            ...current,
+                            sections: move(current.sections, sectionIndex, 1),
+                          }));
+                        }}
+                      >
+                        Down
+                      </Button>
+                      <Button
+                        size="xs"
+                        color="red"
+                        variant="subtle"
+                        onClick={() => {
+                          setConfirmation({
+                            action: "delete-section",
+                            sectionId: section.id,
+                          });
+                        }}
+                      >
+                        Remove
+                      </Button>
+                    </Group>
+                  ) : null}
+                </Group>
+
+                <Stack gap="xs">
+                  {section.items.map((item, itemIndex) => (
+                    <Paper
+                      key={item.id}
+                      withBorder
+                      radius="md"
+                      p="sm"
+                      className={classes.item}
+                    >
+                      <div>
+                        <Text fw={600}>{item.title}</Text>
+                        <Text size="xs" c="dimmed" tt="capitalize">
+                          {item.kind} ·{" "}
+                          {item.required ? "Required" : "Optional"}
+                          {item.durationMinutes
+                            ? ` · ${String(item.durationMinutes)} min`
+                            : ""}
+                        </Text>
+                      </div>
+                      {editable ? (
+                        <Group gap="xs">
+                          <Button
+                            size="compact-xs"
+                            variant="default"
+                            disabled={itemIndex === 0}
+                            onClick={() => {
+                              updateSection(section.id, (current) => ({
+                                ...current,
+                                items: move(current.items, itemIndex, -1),
+                              }));
+                            }}
+                          >
+                            Up
+                          </Button>
+                          <Button
+                            size="compact-xs"
+                            variant="default"
+                            disabled={itemIndex === section.items.length - 1}
+                            onClick={() => {
+                              updateSection(section.id, (current) => ({
+                                ...current,
+                                items: move(current.items, itemIndex, 1),
+                              }));
+                            }}
+                          >
+                            Down
+                          </Button>
+                          <Button
+                            size="compact-xs"
+                            color="red"
+                            variant="subtle"
+                            onClick={() => {
+                              setConfirmation({
+                                action: "delete-item",
+                                sectionId: section.id,
+                                itemId: item.id,
+                              });
+                            }}
+                          >
+                            Remove
+                          </Button>
+                        </Group>
+                      ) : null}
+                    </Paper>
+                  ))}
+                  {editable ? (
+                    <Group>
+                      <Button
+                        size="xs"
+                        variant="light"
+                        onClick={() => {
+                          setItemSectionId(section.id);
+                          setItemKind("scorm");
+                          setItemReference(null);
+                        }}
+                      >
+                        Add item
+                      </Button>
+                      <Button
+                        size="xs"
+                        variant="default"
+                        onClick={() => {
+                          setResourceSectionId(section.id);
+                          resourceForm.reset();
+                        }}
+                      >
+                        Upload PDF
+                      </Button>
+                    </Group>
+                  ) : null}
+                </Stack>
+              </Stack>
+            </Paper>
+          ))}
         </Stack>
-      </Paper>
+      ) : null}
+
+      {editorView === "learners" ? (
+        <Suspense
+          fallback={
+            <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
+              <Group gap="sm">
+                <LoadingSpinner />
+                <Text>Loading learner roster...</Text>
+              </Group>
+            </Paper>
+          }
+        >
+          <AdminCourseRoster detail={detail} onChanged={onChanged} />
+        </Suspense>
+      ) : null}
+
+      {editorView === "settings" ? (
+        <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
+          <Stack gap="md">
+            <Title order={2}>Course lifecycle</Title>
+            <Text c="dimmed">
+              {detail.course.enrollmentCount} enrolments and{" "}
+              {detail.course.commerceReferenceCount} commerce references retain
+              immutable version history.
+            </Text>
+            <Group>
+              {detail.course.status !== "archived" ? (
+                <Button
+                  color="red"
+                  variant="light"
+                  onClick={() => {
+                    setConfirmation({ action: "archive" });
+                  }}
+                >
+                  Archive course
+                </Button>
+              ) : (
+                <Button
+                  color="red"
+                  disabled={!detail.course.canDelete}
+                  onClick={() => {
+                    setConfirmation({ action: "delete-course" });
+                  }}
+                >
+                  Permanently delete
+                </Button>
+              )}
+            </Group>
+            {detail.course.status === "archived" && !detail.course.canDelete ? (
+              <Text size="sm" c="dimmed">
+                Archived courses with enrolment or commerce history are retained
+                and cannot be permanently deleted.
+              </Text>
+            ) : null}
+          </Stack>
+        </Paper>
+      ) : null}
 
       {itemSectionId !== null ? (
         <AppDialog

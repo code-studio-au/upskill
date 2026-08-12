@@ -1,20 +1,26 @@
-import "@mantine/core/styles.css";
+import "@mantine/core/styles/baseline.css";
+import "@mantine/core/styles/default-css-variables.css";
+import "@mantine/core/styles/global.css";
+import "@mantine/core/styles/Button.css";
+import "@mantine/core/styles/Loader.css";
 import "#/styles/global.css";
 
-import { Button, Container, Group, Text } from "@mantine/core";
+import { Container, Group, Text } from "#/features/shared/mantine";
 import {
   HeadContent,
-  Link,
   Scripts,
   createRootRoute,
   useRouter,
 } from "@tanstack/react-router";
 import { AppProviders } from "#/app/AppProviders";
+import { AppHeader } from "#/app/AppHeader";
 import classes from "#/app/AppShell.module.css";
 import { NotFoundPage } from "#/app/NotFoundPage";
 import { RootOutlet } from "#/app/RootOutlet";
+import { getAppShellSession } from "#/server/functions/app-shell";
 
 export const Route = createRootRoute({
+  loader: () => getAppShellSession(),
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -34,6 +40,7 @@ export const Route = createRootRoute({
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const session = Route.useLoaderData();
   const nonce = router.options.ssr?.nonce;
 
   return (
@@ -46,34 +53,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         <AppProviders>
-          <header className={classes.header}>
-            <Container size="lg" className={classes.headerInner}>
-              <Link to="/" className={classes.brand} aria-label="Upskill home">
-                Upskill
-              </Link>
-              <nav className={classes.nav} aria-label="Primary navigation">
-                <Button
-                  component={Link}
-                  to="/courses"
-                  variant="subtle"
-                  className={classes.navLink}
-                >
-                  Courses
-                </Button>
-                <Button
-                  component={Link}
-                  to="/dashboard"
-                  variant="subtle"
-                  className={classes.navLink}
-                >
-                  My learning
-                </Button>
-              </nav>
-            </Container>
-          </header>
+          <AppHeader session={session} />
           <main className={classes.main}>{children}</main>
           <footer className={classes.footer}>
-            <Container size="lg">
+            <Container size="xl">
               <Group justify="space-between">
                 <Text size="sm">Upskill learning platform</Text>
                 <Text size="sm" c="dimmed">

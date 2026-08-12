@@ -445,10 +445,10 @@ test("server-rendered navigation and actions stay visible before hydration", asy
     "light",
   );
   await expect(
-    page.getByRole("link", { name: "Courses", exact: true }),
+    page.getByRole("link", { name: "Browse learning", exact: true }),
   ).toBeVisible();
   await expect(
-    page.getByRole("link", { name: "My learning", exact: true }),
+    page.getByRole("link", { name: "Sign in", exact: true }),
   ).toBeVisible();
   const exploreCourses = page.getByRole("link", { name: "Explore courses" });
   await expect(exploreCourses).toBeVisible();
@@ -459,7 +459,7 @@ test("server-rendered navigation and actions stay visible before hydration", asy
 
   await page.goto("/courses");
   await expect(
-    page.getByRole("link", { name: "My learning", exact: true }),
+    page.getByRole("link", { name: "Sign in", exact: true }),
   ).toBeVisible();
 
   await page.goto("/login");
@@ -849,6 +849,7 @@ test("learners can end their authenticated session", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 
+  await page.locator("header details summary").click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/$/);
   await page.goto("/dashboard");
@@ -890,6 +891,13 @@ test("platform administrators can inspect learner progress", async ({
   const eventTemplateTitle = "E2E virtual workshop";
   const eventOccurrenceTitle = "E2E virtual workshop · August";
   const eventSlug = "e2e-virtual-workshop-august";
+  async function openAdminPage(name: string): Promise<void> {
+    const menu = page.locator('details[aria-label="Administration menu"]');
+    if (!(await menu.evaluate((element: HTMLDetailsElement) => element.open))) {
+      await menu.locator("summary").click();
+    }
+    await menu.getByRole("link", { name, exact: true }).click();
+  }
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
@@ -903,10 +911,7 @@ test("platform administrators can inspect learner progress", async ({
       accessOrganizationName,
     );
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
-    await page
-      .getByRole("main")
-      .getByRole("link", { name: "Courses", exact: true })
-      .click();
+    await openAdminPage("Courses");
     await expect(
       page.getByRole("heading", { name: "Courses", exact: true }),
     ).toBeVisible();
@@ -918,6 +923,7 @@ test("platform administrators can inspect learner progress", async ({
     await page.goto(
       `/admin/courses/${encodeURIComponent(rosterCourseId ?? "")}`,
     );
+    await page.getByRole("button", { name: /Learners/u }).click();
     await expect(
       page.getByRole("heading", { name: "Learner roster" }),
     ).toBeVisible();
@@ -948,6 +954,7 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page.getByLabel("Title")).toHaveValue(
       "E2E edited course draft",
     );
+    await page.getByRole("button", { name: "Program (0)" }).click();
     await page.getByRole("button", { name: "Add section" }).click();
     await page.getByLabel("Section 1 title").fill("E2E edited section title");
     await expect(page.getByLabel("Section 1 title")).toHaveValue(
@@ -956,10 +963,7 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
 
-    await page
-      .getByRole("main")
-      .getByRole("link", { name: "Surveys", exact: true })
-      .click();
+    await openAdminPage("Surveys");
     await expect(
       page.getByRole("heading", { name: "Surveys", exact: true }),
     ).toBeVisible();
@@ -967,6 +971,7 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByLabel("Survey title").fill(surveyTitles[0] ?? "");
     await page.getByRole("button", { name: "Create draft" }).click();
     await page.getByLabel("Title").fill(surveyTitles[1] ?? "");
+    await page.getByRole("button", { name: /Questions/u }).click();
     await page.getByRole("button", { name: "Add single choice" }).click();
     await page.getByLabel("Question 1").fill("Was this survey useful?");
     await page.getByLabel("Option 1").fill("Yes");
@@ -1027,18 +1032,17 @@ test("platform administrators can inspect learner progress", async ({
         "4".repeat(64),
       ],
     );
-    await page
-      .getByRole("main")
-      .getByRole("link", { name: "Resources", exact: true })
-      .click();
+    await openAdminPage("PDF resources");
     await expect(
       page.getByRole("heading", { name: "PDF resources" }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "Upload PDF" }).click();
     await page.getByRole("button", { name: "Upload resource" }).click();
     await expect(page.getByText("Enter a resource title.")).toBeVisible();
     await page.getByLabel("Resource title").fill("Missing document");
     await page.getByRole("button", { name: "Upload resource" }).click();
     await expect(page.getByText("Choose a PDF document.")).toBeVisible();
+    await page.getByRole("button", { name: "Close dialog" }).click();
     const resourceCard = page.getByRole("article").filter({
       has: page.getByRole("heading", { name: resourceTitle }),
     });
@@ -1053,13 +1057,11 @@ test("platform administrators can inspect learner progress", async ({
       .click();
     await expect(resourceCard).toHaveCount(0);
 
-    await page
-      .getByRole("main")
-      .getByRole("link", { name: "Access", exact: true })
-      .click();
+    await openAdminPage("Access grants");
     await expect(
       page.getByRole("heading", { name: "Access grants", exact: true }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "Create grant" }).click();
     await page.getByLabel("Grant label").fill(accessGrantLabel);
     await page.getByLabel("Organisation").fill(accessOrganizationName);
     await page.getByLabel("Access code").fill("E2E Access 2027");
@@ -1102,7 +1104,7 @@ test("platform administrators can inspect learner progress", async ({
     );
     expect(storedGrant.rows[0]?.quantity).toBe(3);
     expect(storedGrant.rows[0]?.revokedAt).toBeNull();
-    await page.getByRole("button", { name: "Hide code" }).click();
+    await page.getByRole("button", { name: "Done" }).click();
     await grantCard.getByRole("button", { name: "Show code" }).click();
     await expect(grantCard.locator("code")).toHaveText(accessCode);
     await grantCard.getByRole("button", { name: "Manage capacity" }).click();
@@ -1137,13 +1139,11 @@ test("platform administrators can inspect learner progress", async ({
     ]);
     expect(revokedGrant.rows[0]?.revokedAt).not.toBeNull();
 
-    await page
-      .getByRole("main")
-      .getByRole("link", { name: "Events", exact: true })
-      .click();
+    await openAdminPage("Events");
     await expect(
       page.getByRole("heading", { name: "Events", exact: true }),
     ).toBeVisible();
+    await page.getByRole("button", { name: /Templates/u }).click();
     await page.getByRole("button", { name: "Create template" }).click();
     await expect(page).toHaveURL(/\/admin\/events\/event_template_/u);
     await expect(
@@ -1159,23 +1159,24 @@ test("platform administrators can inspect learner progress", async ({
     await page
       .getByLabel("Description")
       .fill("Exercises exact-version Event Occurrence scheduling.");
+    await page.getByRole("button", { name: "Program (0)" }).click();
     await page.getByRole("button", { name: "Add section" }).click();
     await page.getByLabel("Section title").fill("Event session");
     await page.getByRole("button", { name: "Add event session" }).click();
     await page.getByLabel("Display title").fill("Live workshop");
     await page.getByLabel("Duration (minutes)").fill("90");
-    await page
-      .getByLabel("Avery Administrator · admin@example.com")
-      .first()
-      .check();
+    await page.getByLabel("Avery Administrator · admin@example.com").check();
+    await page.getByRole("button", { name: "Staffing and regions" }).click();
+    await page.getByLabel("Avery Administrator · admin@example.com").check();
     await page.getByRole("button", { name: "Save and publish" }).click();
     await expect(
       page.getByRole("button", { name: "Create new version" }),
     ).toBeVisible();
-    await page.getByRole("link", { name: "Back to events" }).click();
+    await page.getByRole("button", { name: "Back to events" }).click();
     await expect(
       page.getByRole("heading", { name: eventTemplateTitle }),
     ).toBeVisible();
+    await page.getByRole("button", { name: /Event instances/u }).click();
     await page.getByRole("button", { name: "Schedule occurrence" }).click();
     const occurrenceDialog = page.getByRole("dialog", {
       name: "Schedule event occurrence",
@@ -1253,7 +1254,7 @@ test("platform administrators can inspect learner progress", async ({
     await authoringDatabase.end();
   }
 
-  await page.getByRole("link", { name: "Learners" }).click();
+  await openAdminPage("Learners");
   await expect(
     page.getByRole("heading", { name: "Learners", exact: true }),
   ).toBeVisible();
@@ -1288,14 +1289,6 @@ test("platform administrators can inspect learner progress", async ({
   await expect(
     page.getByRole("heading", { name: "Overall course completion" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("heading", { name: "Module progress" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      "Corrections never alter the learner's original SCORM attempts.",
-    ),
-  ).toBeVisible();
   await expect(page.getByText("Latest administrator correction")).toHaveCount(
     0,
   );
@@ -1309,6 +1302,20 @@ test("platform administrators can inspect learner progress", async ({
   await expect(correctionDialog).toBeVisible();
   await correctionDialog.getByRole("button", { name: "Cancel" }).click();
   await expect(correctionDialog).toHaveCount(0);
+  await page.getByRole("button", { name: /Modules/u }).click();
+  await expect(
+    page.getByRole("heading", { name: "Module progress" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(
+      "Corrections never alter the learner's original SCORM attempts.",
+    ),
+  ).toBeVisible();
+  await expect(page.getByLabel(/Reason for marking/)).toHaveCount(0);
+  await page.getByRole("button", { name: /Corrections/u }).click();
+  await expect(
+    page.getByRole("heading", { name: "Correction history" }),
+  ).toBeVisible();
   await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
 
   const database = new Client({ connectionString: process.env.DATABASE_URL });
@@ -1343,17 +1350,16 @@ test("platform administrators can inspect learner progress", async ({
         document.documentElement.dataset.cspViolation = event.violatedDirective;
       });
     });
-    await page.getByRole("link", { name: "Modules" }).click();
+    await openAdminPage("SCORM modules");
     await expect(
       page.getByRole("heading", { name: "SCORM modules" }),
     ).toBeVisible();
-    await expect(
-      page.getByRole("heading", { name: "Upload module package" }),
-    ).toBeVisible();
+    await page.getByRole("button", { name: "Upload module" }).click();
     await expect(page.getByLabel("SCORM ZIP")).toBeVisible();
     await page.getByRole("button", { name: "Upload and validate" }).click();
     await expect(page.getByText("Enter a module name.")).toBeVisible();
     await expect(page.getByText("Choose a SCORM ZIP to upload.")).toBeVisible();
+    await page.getByRole("button", { name: "Close dialog" }).click();
     const moduleCard = page.getByRole("article").filter({
       has: page.getByRole("heading", {
         name: "Automatic verification status",
@@ -1454,7 +1460,8 @@ test("verified learners see entitlements and can redeem access", async ({
     await expect(page.getByText("Eligible for example.com")).toBeVisible();
   }
 
-  const code = page.getByLabel("Access code");
+  const code = page.getByRole("textbox", { name: "Access code *" });
+  await page.getByRole("button", { name: "Redeem access code" }).click();
   await page.getByRole("button", { name: "Apply access code" }).click();
   await expect(page.getByText("Enter the complete access code.")).toBeVisible();
   await code.fill("NOT-A-REAL-CODE");
@@ -1475,6 +1482,7 @@ test("verified learners see entitlements and can redeem access", async ({
   await expect(
     page.getByRole("heading", { name: "Psychological safety at work" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Close dialog", exact: true }).click();
 
   await page.getByRole("link", { name: "Continue course" }).first().click();
   await expect(page).toHaveURL(/\/learn\/[A-Za-z0-9_-]+$/);

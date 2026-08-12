@@ -4,15 +4,8 @@ import {
   Group,
   Stack,
   Text,
-  ThemeIcon,
   Title,
-} from "@mantine/core";
-import {
-  IconArrowRight,
-  IconAward,
-  IconDeviceMobile,
-  IconShieldCheck,
-} from "@tabler/icons-react";
+} from "#/features/shared/mantine";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { CourseCard } from "#/features/catalog/CourseCard";
 import { getFeaturedCourses } from "#/server/functions/catalog";
@@ -47,7 +40,7 @@ function HomePage() {
                 component={Link}
                 to="/courses"
                 size="lg"
-                rightSection={<IconArrowRight size={18} />}
+                rightSection={<span aria-hidden="true">→</span>}
               >
                 Explore courses
               </Button>
@@ -55,21 +48,27 @@ function HomePage() {
           </Stack>
           <Stack className={classes.featurePanel} gap="xl">
             <Group wrap="nowrap">
-              <ThemeIcon size="xl" radius="xl" variant="light">
-                <IconDeviceMobile size={24} />
-              </ThemeIcon>
+              <span className={classes.featureBadge}>
+                <span className={classes.featureIcon} aria-hidden="true">
+                  ↗
+                </span>
+              </span>
               <Text fw={700}>Learn on any screen</Text>
             </Group>
             <Group wrap="nowrap">
-              <ThemeIcon size="xl" radius="xl" variant="light">
-                <IconShieldCheck size={24} />
-              </ThemeIcon>
+              <span className={classes.featureBadge}>
+                <span className={classes.featureIcon} aria-hidden="true">
+                  ✓
+                </span>
+              </span>
               <Text fw={700}>Private and secure</Text>
             </Group>
             <Group wrap="nowrap">
-              <ThemeIcon size="xl" radius="xl" variant="light">
-                <IconAward size={24} />
-              </ThemeIcon>
+              <span className={classes.featureBadge}>
+                <span className={classes.featureIcon} aria-hidden="true">
+                  ★
+                </span>
+              </span>
               <Text fw={700}>Verified certificates</Text>
             </Group>
           </Stack>

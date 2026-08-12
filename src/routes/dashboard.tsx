@@ -1,21 +1,20 @@
 import { Badge } from "#/features/shared/Badge";
 import {
   Button,
-  Center,
   Container,
   Group,
-  Loader,
   Paper,
   Stack,
   Text,
   Title,
-} from "@mantine/core";
+} from "#/features/shared/mantine";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useState } from "react";
 import { AccessCodeRedemptionForm } from "#/features/access/AccessCodeRedemptionForm";
-import { SignOutButton } from "#/features/auth/SignOutButton";
 import { LearnerCertificateAction } from "#/features/learner/LearnerCertificateAction";
 import { formatLocalDate } from "#/features/shared/local-date";
+import { AppDialog } from "#/features/shared/AppDialog";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import type { LearnerCourse } from "#/features/learner/learner.schema";
 import { getLearnerDashboard } from "#/server/functions/learner";
 import classes from "./dashboard.module.css";
@@ -48,6 +47,7 @@ function statusLabel(course: LearnerCourse): string {
 
 function DashboardPage() {
   const dashboard = Route.useLoaderData();
+  const [accessCodeOpen, setAccessCodeOpen] = useState(false);
   const current = dashboard.courses.filter(
     (course) => course.state === "active" || course.state === "completed",
   );
@@ -57,7 +57,7 @@ function DashboardPage() {
 
   return (
     <Container size="lg" className={classes.section}>
-      <Stack gap={40}>
+      <Stack gap="xl">
         <div className={classes.heading}>
           <div>
             <Text c="indigo.7" fw={700}>
@@ -68,26 +68,29 @@ function DashboardPage() {
               Welcome back, {dashboard.user.name}.
             </Text>
           </div>
-          <Group gap="sm">
-            {dashboard.user.isPlatformAdministrator ? (
-              <Button component={Link} to="/admin" variant="light">
-                Administration
-              </Button>
-            ) : null}
-            <SignOutButton />
-          </Group>
+          <Button
+            variant="light"
+            onClick={() => {
+              setAccessCodeOpen(true);
+            }}
+          >
+            Redeem access code
+          </Button>
         </div>
 
-        <AccessCodeRedemptionForm />
+        {accessCodeOpen ? (
+          <AppDialog
+            title="Redeem an access code"
+            onClose={() => {
+              setAccessCodeOpen(false);
+            }}
+          >
+            <AccessCodeRedemptionForm />
+          </AppDialog>
+        ) : null}
 
         {dashboard.events.length > 0 ? (
-          <Suspense
-            fallback={
-              <Center role="status" aria-label="Loading events">
-                <Loader size="sm" />
-              </Center>
-            }
-          >
+          <Suspense fallback={<LoadingSpinner label="Loading events" />}>
             <LearnerEventSection events={dashboard.events} />
           </Suspense>
         ) : null}
@@ -110,7 +113,7 @@ function DashboardPage() {
                   <Paper
                     withBorder
                     radius="lg"
-                    p="lg"
+                    p="md"
                     className={classes.courseCard}
                     key={course.slug}
                   >
@@ -172,7 +175,7 @@ function CourseSection({
               <Paper
                 withBorder
                 radius="lg"
-                p="lg"
+                p="md"
                 className={classes.courseCard}
                 key={course.enrollmentId}
               >

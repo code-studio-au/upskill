@@ -1,4 +1,4 @@
-import { Paper, Stack, Title } from "@mantine/core";
+import { Button, Group, Paper, Stack, Title } from "#/features/shared/mantine";
 import {
   type ReactNode,
   useEffect,
@@ -13,6 +13,7 @@ interface AppDialogProps {
   closeDisabled?: boolean;
   descriptionId?: string;
   onClose: () => void;
+  size?: "md" | "lg";
   title: string;
 }
 
@@ -30,6 +31,7 @@ export function AppDialog({
   closeDisabled = false,
   descriptionId,
   onClose,
+  size = "md",
   title,
 }: AppDialogProps) {
   const titleId = useId();
@@ -88,11 +90,25 @@ export function AppDialog({
         p={{ base: "lg", sm: "xl" }}
         shadow="xl"
         className={classes.dialog}
+        data-size={size}
       >
         <Stack gap="md">
-          <Title order={2} size="h3" id={titleId}>
-            {title}
-          </Title>
+          <Group justify="space-between" align="start" wrap="nowrap">
+            <Title order={2} size="h3" id={titleId}>
+              {title}
+            </Title>
+            <Button
+              type="button"
+              variant="subtle"
+              color="gray"
+              size="compact-sm"
+              aria-label="Close dialog"
+              disabled={closeDisabled}
+              onClick={onClose}
+            >
+              Close
+            </Button>
+          </Group>
           {children}
         </Stack>
       </Paper>

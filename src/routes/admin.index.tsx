@@ -1,4 +1,4 @@
-import { Paper, Stack, Text, Title } from "@mantine/core";
+import { Paper, Stack, Text, Title } from "#/features/shared/mantine";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { getAdminOverview } from "#/server/functions/admin";
@@ -39,7 +39,7 @@ function AdminPage() {
   ];
 
   return (
-    <Stack gap="xl">
+    <Stack gap="lg">
       <div className={classes.heading}>
         <Text c="indigo.7" fw={700}>
           System overview
@@ -59,7 +59,7 @@ function AdminPage() {
               <Paper
                 withBorder
                 radius="lg"
-                p="lg"
+                p="md"
                 className={classes.stat}
                 key={stat.label}
               >

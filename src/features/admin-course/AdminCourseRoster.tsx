@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Stack, Text } from "@mantine/core";
+import { Alert, Button, Group, Stack, Text } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
 import { formatLocalDate } from "#/features/shared/local-date";

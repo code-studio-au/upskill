@@ -1,5 +1,12 @@
 import { Badge } from "#/features/shared/Badge";
-import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { Link } from "@tanstack/react-router";
 import type { CourseSummary } from "./catalog.schema";
 import classes from "./CourseCard.module.css";
@@ -9,22 +16,28 @@ const audCurrencyFormatter = new Intl.NumberFormat("en-AU", {
   currency: "AUD",
 });
 
-export function CourseCard({ course }: { course: CourseSummary }) {
+export function CourseCard({
+  course,
+  headingOrder = 3,
+}: {
+  course: CourseSummary;
+  headingOrder?: 2 | 3;
+}) {
   const standardPrice = audCurrencyFormatter.format(course.priceCents / 100);
   const currentPrice = audCurrencyFormatter.format(
     (course.salePriceCents ?? course.priceCents) / 100,
   );
 
   return (
-    <Paper withBorder p="lg" radius="lg" className={classes.card}>
-      <Stack gap="md" h="100%">
+    <Paper withBorder p="md" radius="lg" className={classes.card}>
+      <Stack gap="sm" h="100%">
         <Group justify="space-between" align="flex-start">
           <Badge variant="light">{course.topic}</Badge>
           <Text size="sm" c="dimmed">
             {course.durationMinutes} min
           </Text>
         </Group>
-        <Title order={3}>{course.title}</Title>
+        <Title order={headingOrder}>{course.title}</Title>
         <Text c="dimmed" className={classes.summary}>
           {course.summary}
         </Text>

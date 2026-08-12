@@ -1,4 +1,4 @@
-import { Button, Group, Stack, Text } from "@mantine/core";
+import { Button, Group, Stack, Text } from "#/features/shared/mantine";
 import { useId } from "react";
 import classes from "./MantineFilePicker.module.css";
 

@@ -1,13 +1,12 @@
 import { Badge } from "#/features/shared/Badge";
 import {
   Container,
-  Divider,
   Group,
   Paper,
   Stack,
   Text,
   Title,
-} from "@mantine/core";
+} from "#/features/shared/mantine";
 import { createFileRoute, notFound } from "@tanstack/react-router";
 import { PurchaseCourseButton } from "#/features/checkout/PurchaseCourseButton";
 import { getCourse } from "#/server/functions/catalog";
@@ -78,7 +77,7 @@ function CourseDetail() {
             </Stack>
           </section>
 
-          <Divider />
+          <hr className={classes.divider} />
 
           <section aria-labelledby="course-modules-heading">
             <Stack gap="md">

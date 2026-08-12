@@ -1,6 +1,6 @@
 .hero {
   overflow: hidden;
-  padding-block: clamp(4rem, 12vw, 8rem);
+  padding-block: clamp(3rem, 8vw, 6rem);
   background:
     radial-gradient(
       circle at 85% 15%,
@@ -17,7 +17,7 @@
 .heroGrid {
   display: grid;
   align-items: center;
-  gap: clamp(2rem, 7vw, 6rem);
+  gap: clamp(2rem, 5vw, 4rem);
 }
 
 .eyebrow {
@@ -27,7 +27,7 @@
 
 .title {
   max-width: 13ch;
-  font-size: clamp(2.5rem, 8vw, 5.5rem);
+  font-size: clamp(2.5rem, 7vw, 4.75rem);
   line-height: 0.98;
 }
 
@@ -38,18 +38,34 @@
 .featurePanel {
   border: 1px solid var(--mantine-color-indigo-2);
   border-radius: var(--mantine-radius-xl);
-  padding: clamp(1.5rem, 5vw, 3rem);
+  padding: clamp(1.25rem, 4vw, 2.25rem);
   background: var(--mantine-color-white);
   box-shadow: var(--mantine-shadow-xl);
 }
 
+.featureBadge {
+  display: grid;
+  width: 3rem;
+  height: 3rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--mantine-color-indigo-7);
+  background: var(--mantine-color-indigo-0);
+}
+
+.featureIcon {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
 .courses {
-  padding-block: clamp(3rem, 8vw, 6rem);
+  padding-block: clamp(2.25rem, 6vw, 4.5rem);
 }
 
 .cardGrid {
   display: grid;
-  gap: var(--mantine-spacing-lg);
+  gap: var(--mantine-spacing-md);
 }
 
 @media (min-width: 48em) {

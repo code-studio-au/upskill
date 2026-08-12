@@ -1,4 +1,4 @@
-import { Button, Group, Text } from "@mantine/core";
+import { Button, Group, Text } from "#/features/shared/mantine";
 import { useId } from "react";
 import { AppDialog } from "./AppDialog";
 

@@ -1,4 +1,12 @@
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { Badge } from "#/features/shared/Badge";

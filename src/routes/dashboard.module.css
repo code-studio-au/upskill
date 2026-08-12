@@ -1,5 +1,5 @@
 .section {
-  padding-block: clamp(2.5rem, 7vw, 5rem);
+  padding-block: clamp(1.5rem, 4vw, 3rem);
 }
 
 .heading {
@@ -11,7 +11,7 @@
 
 .grid {
   display: grid;
-  gap: var(--mantine-spacing-lg);
+  gap: var(--mantine-spacing-md);
 }
 
 .courseCard {
@@ -29,7 +29,7 @@
 }
 
 .empty {
-  padding: var(--mantine-spacing-xl);
+  padding: var(--mantine-spacing-lg);
   border: 1px dashed var(--mantine-color-gray-4);
   border-radius: var(--mantine-radius-lg);
   background: var(--mantine-color-white);

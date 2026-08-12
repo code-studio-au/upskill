@@ -1,4 +1,4 @@
-import { Text } from "@mantine/core";
+import { Text } from "#/features/shared/mantine";
 import classes from "./MantineCheckbox.module.css";
 
 export function MantineCheckbox({

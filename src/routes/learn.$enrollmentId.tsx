@@ -1,6 +1,13 @@
 import { Badge } from "#/features/shared/Badge";
 import { formatLocalDate } from "#/features/shared/local-date";
-import { Button, Container, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Container,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { MantineProgress } from "#/features/shared/MantineProgress";
 import {
   createFileRoute,

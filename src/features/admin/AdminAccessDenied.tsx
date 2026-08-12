@@ -1,4 +1,4 @@
-import { Button, Paper, Stack, Text, Title } from "@mantine/core";
+import { Button, Paper, Stack, Text, Title } from "#/features/shared/mantine";
 import { Link } from "@tanstack/react-router";
 
 export function AdminAccessDenied() {

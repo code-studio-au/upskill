@@ -1,41 +1,107 @@
-import { Button, Group, Text } from "@mantine/core";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouterState } from "@tanstack/react-router";
+import classes from "./AdminNavigation.module.css";
+
+interface NavigationItem {
+  label: string;
+  to:
+    | "/admin"
+    | "/admin/learners"
+    | "/admin/courses"
+    | "/admin/events"
+    | "/admin/modules"
+    | "/admin/surveys"
+    | "/admin/resources"
+    | "/admin/access";
+}
+
+const groups: Array<{ label: string; items: Array<NavigationItem> }> = [
+  {
+    label: "Workspace",
+    items: [
+      { label: "Overview", to: "/admin" },
+      { label: "Learners", to: "/admin/learners" },
+      { label: "Events", to: "/admin/events" },
+      { label: "Access grants", to: "/admin/access" },
+    ],
+  },
+  {
+    label: "Learning content",
+    items: [
+      { label: "Courses", to: "/admin/courses" },
+      { label: "SCORM modules", to: "/admin/modules" },
+      { label: "Surveys", to: "/admin/surveys" },
+      {
+        label: "PDF resources",
+        to: "/admin/resources",
+      },
+    ],
+  },
+];
+
+function isActive(pathname: string, to: NavigationItem["to"]): boolean {
+  return to === "/admin"
+    ? pathname === "/admin" || pathname === "/admin/"
+    : pathname === to || pathname.startsWith(`${to}/`);
+}
+
+function NavigationLinks({ pathname }: { pathname: string }) {
+  return groups.map((group) => (
+    <div className={classes.group} key={group.label}>
+      <span className={classes.groupLabel}>{group.label}</span>
+      <div className={classes.links}>
+        {group.items.map((item) => {
+          const active = isActive(pathname, item.to);
+          return (
+            <Link
+              className={classes.link}
+              data-active={active || undefined}
+              aria-current={active ? "page" : undefined}
+              key={item.to}
+              to={item.to}
+            >
+              <span>{item.label}</span>
+            </Link>
+          );
+        })}
+      </div>
+    </div>
+  ));
+}
 
 export function AdminNavigation() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const current = groups
+    .flatMap((group) => group.items)
+    .find((item) => isActive(pathname, item.to));
   return (
-    <Group justify="space-between" align="center" gap="md" wrap="wrap">
-      <Text fw={800} c="indigo.8">
-        Upskill administration
-      </Text>
-      <Group gap="xs">
-        <Button component={Link} to="/admin" variant="subtle">
-          Overview
-        </Button>
-        <Button component={Link} to="/admin/learners" variant="subtle">
-          Learners
-        </Button>
-        <Button component={Link} to="/admin/modules" variant="subtle">
-          Modules
-        </Button>
-        <Button component={Link} to="/admin/courses" variant="subtle">
-          Courses
-        </Button>
-        <Button component={Link} to="/admin/events" variant="subtle">
-          Events
-        </Button>
-        <Button component={Link} to="/admin/access" variant="subtle">
-          Access
-        </Button>
-        <Button component={Link} to="/admin/surveys" variant="subtle">
-          Surveys
-        </Button>
-        <Button component={Link} to="/admin/resources" variant="subtle">
-          Resources
-        </Button>
-        <Button component={Link} to="/dashboard" variant="light">
-          Learner view
-        </Button>
-      </Group>
-    </Group>
+    <>
+      <aside className={classes.desktop} aria-label="Administration navigation">
+        <div className={classes.heading}>
+          <span className={classes.eyebrow}>Administration</span>
+          <strong>Workspace</strong>
+        </div>
+        <NavigationLinks pathname={pathname} />
+      </aside>
+      <details
+        className={classes.mobile}
+        key={pathname}
+        aria-label="Administration menu"
+      >
+        <summary>
+          <span>
+            <small>Administration</small>
+            <strong>{current?.label ?? "Menu"}</strong>
+          </span>
+          <span className={classes.chevron} aria-hidden="true">
+            ▾
+          </span>
+        </summary>
+        <nav aria-label="Administration navigation">
+          <NavigationLinks pathname={pathname} />
+        </nav>
+      </details>
+    </>
   );
 }

@@ -1,4 +1,4 @@
-import { Button, Container, Text, Title } from "@mantine/core";
+import { Button, Container, Text, Title } from "#/features/shared/mantine";
 import { Link } from "@tanstack/react-router";
 
 export function NotFoundPage() {

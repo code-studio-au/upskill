@@ -1,4 +1,11 @@
-import { Alert, Button, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
 import { Badge } from "#/features/shared/Badge";
@@ -176,7 +183,7 @@ function GrantCard({
     }
   }
   return (
-    <Paper component="article" withBorder radius="lg" p="lg">
+    <Paper component="article" withBorder radius="lg" p="md">
       <Stack gap="md">
         <div className={classes.cardHeader}>
           <div className={classes.identity}>

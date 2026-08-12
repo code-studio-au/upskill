@@ -1,4 +1,11 @@
-import { Button, Container, Group, Stack, Text, Title } from "@mantine/core";
+import {
+  Button,
+  Container,
+  Group,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import {
   createFileRoute,
@@ -114,7 +121,7 @@ function CourseCatalog() {
         {courses.length > 0 ? (
           <div className={classes.grid}>
             {courses.map((course) => (
-              <CourseCard course={course} key={course.slug} />
+              <CourseCard course={course} headingOrder={2} key={course.slug} />
             ))}
           </div>
         ) : (

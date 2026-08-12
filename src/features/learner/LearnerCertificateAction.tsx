@@ -1,4 +1,4 @@
-import { Button } from "@mantine/core";
+import { Button } from "#/features/shared/mantine";
 import type { LearnerCourse } from "./learner.schema";
 
 export function LearnerCertificateAction({

@@ -1,4 +1,4 @@
-import { Button, Stack, Text } from "@mantine/core";
+import { Button, Stack, Text } from "#/features/shared/mantine";
 import { useState } from "react";
 import {
   adminProgressOverrideInputSchema,
@@ -116,7 +116,7 @@ export function ProgressOverrideControls({
       <Stack gap="sm">
         <Button
           type="button"
-          color={targetState === "incomplete" ? "orange" : "indigo"}
+          color={targetState === "incomplete" ? "red" : "indigo"}
           variant="light"
           disabled={pending}
           onClick={reviewCorrection}
@@ -133,7 +133,7 @@ export function ProgressOverrideControls({
         <ConfirmationDialog
           title="Confirm progress correction"
           description={`Mark this ${subject} ${targetState}? The administrator, time and state change will be retained in the audit history.`}
-          confirmColor={targetState === "incomplete" ? "orange" : "indigo"}
+          confirmColor={targetState === "incomplete" ? "red" : "indigo"}
           confirmLabel={`Mark ${subject} ${targetState}`}
           pending={pending}
           onCancel={() => {

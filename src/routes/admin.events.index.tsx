@@ -2,15 +2,18 @@ import { Badge } from "#/features/shared/Badge";
 import {
   Alert,
   Button,
-  Center,
   Group,
-  Loader,
   Paper,
   Stack,
   Text,
   Title,
-} from "@mantine/core";
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+} from "#/features/shared/mantine";
+import {
+  createFileRoute,
+  redirect,
+  useNavigate,
+  useRouter,
+} from "@tanstack/react-router";
 import { lazy, Suspense, useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import type { AdminEventWorkspace } from "#/features/admin-event/admin-event.schema";
@@ -21,6 +24,13 @@ import {
   startAdminEventTemplate,
 } from "#/server/functions/admin-event";
 import classes from "./admin.events.module.css";
+import { PageTabs } from "#/features/shared/PageTabs";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
+import { z } from "#/validation/zod";
+
+const adminEventsSearchSchema = z.object({
+  view: z.catch(z.enum(["occurrences", "templates"]), "occurrences"),
+});
 
 const AdminEventOccurrenceDialog = lazy(async () => {
   const module =
@@ -29,6 +39,7 @@ const AdminEventOccurrenceDialog = lazy(async () => {
 });
 
 export const Route = createFileRoute("/admin/events/")({
+  validateSearch: adminEventsSearchSchema,
   ssr: false,
   loader: async () => {
     const result = await getAdminEventWorkspace();
@@ -52,6 +63,8 @@ function readable(value: string): string {
 
 function AdminEventsPage() {
   const result = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
   const router = useRouter();
   const [occurrenceDialogOpen, setOccurrenceDialogOpen] = useState(false);
   const [editingOccurrence, setEditingOccurrence] = useState<
@@ -109,7 +122,7 @@ function AdminEventsPage() {
   }
 
   return (
-    <Stack gap="xl">
+    <Stack gap="lg">
       <Group justify="space-between" align="end" wrap="wrap">
         <div>
           <Text c="indigo.7" fw={700}>
@@ -121,16 +134,14 @@ function AdminEventsPage() {
             in-person or virtual occurrences.
           </Text>
         </div>
-        <Group>
+        {search.view === "templates" ? (
           <Button
-            variant="light"
             loading={creatingTemplate}
-            onClick={() => {
-              void startTemplate();
-            }}
+            onClick={() => void startTemplate()}
           >
             Create template
           </Button>
+        ) : (
           <Button
             disabled={workspace.publishedVersions.length === 0}
             onClick={() => {
@@ -140,172 +151,195 @@ function AdminEventsPage() {
           >
             Schedule occurrence
           </Button>
-        </Group>
+        )}
       </Group>
 
       {error ? <Alert color="red">{error}</Alert> : null}
 
-      <section aria-labelledby="event-templates-heading">
-        <Stack gap="md">
-          <div>
-            <Title order={2} id="event-templates-heading">
-              Event templates
-            </Title>
-            <Text c="dimmed" size="sm">
-              Published versions remain stable for every occurrence created from
-              them.
-            </Text>
-          </div>
-          {workspace.templates.length === 0 ? (
-            <Alert title="No event templates">
-              Create the first reusable event template.
-            </Alert>
-          ) : (
-            <div className={classes.cardGrid}>
-              {workspace.templates.map((template) => (
-                <Paper key={template.id} withBorder radius="lg" p="lg">
-                  <Stack gap="md">
-                    <Group justify="space-between" align="start" wrap="nowrap">
-                      <div>
-                        <Title order={3}>{template.title}</Title>
-                      </div>
-                      <Badge
-                        color={
-                          template.status === "published" ? "green" : "gray"
-                        }
-                        variant="light"
-                      >
-                        {template.status}
-                      </Badge>
-                    </Group>
-                    <Text size="sm">
-                      Latest version {template.latestVersion} ·{" "}
-                      {template.occurrenceCount} occurrence
-                      {template.occurrenceCount === 1 ? "" : "s"}
-                    </Text>
-                    <Button
-                      variant="light"
-                      onClick={() => {
-                        void router.navigate({
-                          to: "/admin/events/$eventTemplateId",
-                          params: { eventTemplateId: template.id },
-                        });
-                      }}
-                    >
-                      {template.draftVersionId
-                        ? `Edit version ${String(template.latestVersion)}`
-                        : "Open template"}
-                    </Button>
-                  </Stack>
-                </Paper>
-              ))}
-            </div>
-          )}
-        </Stack>
-      </section>
+      <PageTabs
+        label="Event workspace"
+        value={search.view}
+        tabs={[
+          {
+            value: "occurrences",
+            label: `Event instances (${String(workspace.occurrences.length)})`,
+          },
+          {
+            value: "templates",
+            label: `Templates (${String(workspace.templates.length)})`,
+          },
+        ]}
+        onChange={(view) => void navigate({ search: { view } })}
+      />
 
-      <section aria-labelledby="event-occurrences-heading">
-        <Stack gap="md">
-          <div>
-            <Title order={2} id="event-occurrences-heading">
-              Scheduled occurrences
-            </Title>
-            <Text c="dimmed" size="sm">
-              Each occurrence is pinned to one exact template version and owns
-              its schedule, capacity, registration policy and staff snapshots.
-            </Text>
-          </div>
-          {workspace.occurrences.length === 0 ? (
-            <Alert title="No occurrences scheduled">
-              Publish a template, then schedule its first occurrence.
-            </Alert>
-          ) : (
-            <div className={classes.cardGrid}>
-              {workspace.occurrences.map((occurrence) => (
-                <Paper
-                  component="article"
-                  key={occurrence.id}
-                  withBorder
-                  radius="lg"
-                  p="lg"
-                >
-                  <Stack gap="sm">
-                    <Group justify="space-between" align="start" wrap="nowrap">
-                      <div>
-                        <Title order={3}>{occurrence.title}</Title>
-                        <Text size="sm" c="dimmed">
-                          {occurrence.eventTemplateTitle} · Version{" "}
-                          {occurrence.templateVersion}
-                        </Text>
-                        <Text size="sm" c="dimmed">
-                          /events/{occurrence.slug}
-                        </Text>
-                      </div>
-                      <Badge
-                        color={
-                          occurrence.status === "published" ? "green" : "gray"
-                        }
-                        variant="light"
+      {search.view === "templates" ? (
+        <section aria-labelledby="event-templates-heading">
+          <Stack gap="md">
+            <div>
+              <Title order={2} id="event-templates-heading">
+                Event templates
+              </Title>
+              <Text c="dimmed" size="sm">
+                Published versions remain stable for every occurrence created
+                from them.
+              </Text>
+            </div>
+            {workspace.templates.length === 0 ? (
+              <Alert title="No event templates">
+                Create the first reusable event template.
+              </Alert>
+            ) : (
+              <div className={classes.cardGrid}>
+                {workspace.templates.map((template) => (
+                  <Paper key={template.id} withBorder radius="lg" p="md">
+                    <Stack gap="md">
+                      <Group
+                        justify="space-between"
+                        align="start"
+                        wrap="nowrap"
                       >
-                        {occurrence.status}
-                      </Badge>
-                    </Group>
-                    <Text size="sm">
-                      {formatEventDate(
-                        occurrence.startsAt,
-                        occurrence.timezone,
-                      )}
-                      {" – "}
-                      {formatEventDate(occurrence.endsAt, occurrence.timezone)}
-                      {" · "}
-                      {occurrence.timezone}
-                    </Text>
-                    <Text size="sm" c="dimmed">
-                      {readable(occurrence.deliveryMode)} ·{" "}
-                      {readable(occurrence.registrationMode)} · capacity{" "}
-                      {occurrence.confirmedCount}/{occurrence.capacity}
-                    </Text>
-                    <Text size="sm" c="dimmed">
-                      {occurrence.sessionCount} session
-                      {occurrence.sessionCount === 1 ? "" : "s"} ·{" "}
-                      {occurrence.assignedAdminCount} assigned administrator
-                      {occurrence.assignedAdminCount === 1 ? "" : "s"}
-                    </Text>
-                    <Group grow wrap="wrap">
+                        <div>
+                          <Title order={3}>{template.title}</Title>
+                        </div>
+                        <Badge
+                          color={
+                            template.status === "published" ? "green" : "gray"
+                          }
+                          variant="light"
+                        >
+                          {template.status}
+                        </Badge>
+                      </Group>
+                      <Text size="sm">
+                        Latest version {template.latestVersion} ·{" "}
+                        {template.occurrenceCount} occurrence
+                        {template.occurrenceCount === 1 ? "" : "s"}
+                      </Text>
                       <Button
                         variant="light"
                         onClick={() => {
-                          setEditingOccurrence(occurrence);
+                          void router.navigate({
+                            to: "/admin/events/$eventTemplateId",
+                            params: { eventTemplateId: template.id },
+                          });
                         }}
                       >
-                        Open instance
+                        {template.draftVersionId
+                          ? `Edit version ${String(template.latestVersion)}`
+                          : "Open template"}
                       </Button>
-                      {occurrence.status === "draft" ? (
+                    </Stack>
+                  </Paper>
+                ))}
+              </div>
+            )}
+          </Stack>
+        </section>
+      ) : (
+        <section aria-labelledby="event-occurrences-heading">
+          <Stack gap="md">
+            <div>
+              <Title order={2} id="event-occurrences-heading">
+                Scheduled occurrences
+              </Title>
+              <Text c="dimmed" size="sm">
+                Each occurrence is pinned to one exact template version and owns
+                its schedule, capacity, registration policy and staff snapshots.
+              </Text>
+            </div>
+            {workspace.occurrences.length === 0 ? (
+              <Alert title="No occurrences scheduled">
+                Publish a template, then schedule its first occurrence.
+              </Alert>
+            ) : (
+              <div className={classes.cardGrid}>
+                {workspace.occurrences.map((occurrence) => (
+                  <Paper
+                    component="article"
+                    key={occurrence.id}
+                    withBorder
+                    radius="lg"
+                    p="md"
+                  >
+                    <Stack gap="sm">
+                      <Group
+                        justify="space-between"
+                        align="start"
+                        wrap="nowrap"
+                      >
+                        <div>
+                          <Title order={3}>{occurrence.title}</Title>
+                          <Text size="sm" c="dimmed">
+                            {occurrence.eventTemplateTitle} · Version{" "}
+                            {occurrence.templateVersion}
+                          </Text>
+                          <Text size="sm" c="dimmed">
+                            /events/{occurrence.slug}
+                          </Text>
+                        </div>
+                        <Badge
+                          color={
+                            occurrence.status === "published" ? "green" : "gray"
+                          }
+                          variant="light"
+                        >
+                          {occurrence.status}
+                        </Badge>
+                      </Group>
+                      <Text size="sm">
+                        {formatEventDate(
+                          occurrence.startsAt,
+                          occurrence.timezone,
+                        )}
+                        {" – "}
+                        {formatEventDate(
+                          occurrence.endsAt,
+                          occurrence.timezone,
+                        )}
+                        {" · "}
+                        {occurrence.timezone}
+                      </Text>
+                      <Text size="sm" c="dimmed">
+                        {readable(occurrence.deliveryMode)} ·{" "}
+                        {readable(occurrence.registrationMode)} · capacity{" "}
+                        {occurrence.confirmedCount}/{occurrence.capacity}
+                      </Text>
+                      <Text size="sm" c="dimmed">
+                        {occurrence.sessionCount} session
+                        {occurrence.sessionCount === 1 ? "" : "s"} ·{" "}
+                        {occurrence.assignedAdminCount} assigned administrator
+                        {occurrence.assignedAdminCount === 1 ? "" : "s"}
+                      </Text>
+                      <Group grow wrap="wrap">
                         <Button
-                          loading={processingId === occurrence.id}
+                          variant="light"
                           onClick={() => {
-                            void publishOccurrence(occurrence.id);
+                            setEditingOccurrence(occurrence);
                           }}
                         >
-                          Publish occurrence
+                          Open instance
                         </Button>
-                      ) : null}
-                    </Group>
-                  </Stack>
-                </Paper>
-              ))}
-            </div>
-          )}
-        </Stack>
-      </section>
+                        {occurrence.status === "draft" ? (
+                          <Button
+                            loading={processingId === occurrence.id}
+                            onClick={() => {
+                              void publishOccurrence(occurrence.id);
+                            }}
+                          >
+                            Publish occurrence
+                          </Button>
+                        ) : null}
+                      </Group>
+                    </Stack>
+                  </Paper>
+                ))}
+              </div>
+            )}
+          </Stack>
+        </section>
+      )}
 
-      <Suspense
-        fallback={
-          <Center role="status" aria-label="Loading event editor">
-            <Loader size="sm" />
-          </Center>
-        }
-      >
+      <Suspense fallback={<LoadingSpinner label="Loading event editor" />}>
         {occurrenceDialogOpen || editingOccurrence ? (
           <AdminEventOccurrenceDialog
             publishedVersions={workspace.publishedVersions}

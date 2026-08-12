@@ -1,5 +1,13 @@
 import { Badge } from "#/features/shared/Badge";
-import { Alert, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import {
+  Alert,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import {
   createFileRoute,
@@ -12,7 +20,6 @@ import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
-import { CourseVersionUsageList } from "#/features/admin-course/CourseVersionUsageList";
 import { adminSurveyCreateSchema } from "#/features/survey/survey.schema";
 import {
   createAdminSurvey,
@@ -59,7 +66,7 @@ function AdminSurveysPage() {
   if (result.status === "forbidden") return <AdminAccessDenied />;
 
   return (
-    <Stack gap="xl">
+    <Stack gap="lg">
       <Group justify="space-between" align="end" wrap="wrap">
         <div>
           <Text c="indigo.7" fw={700}>
@@ -86,7 +93,7 @@ function AdminSurveysPage() {
       ) : (
         <Stack gap="md">
           {result.data.map((survey) => (
-            <Paper key={survey.id} withBorder radius="lg" p="lg">
+            <Paper key={survey.id} withBorder radius="lg" p="md">
               <Group justify="space-between" align="center" wrap="wrap">
                 <div>
                   <Group gap="sm">
@@ -101,13 +108,6 @@ function AdminSurveysPage() {
                     {survey.publishedVersions} published versions · Latest v
                     {survey.latestVersion}
                   </Text>
-                  {survey.versions.map((version) => (
-                    <CourseVersionUsageList
-                      key={version.id}
-                      contentVersion={version.version}
-                      usages={version.courseUsages}
-                    />
-                  ))}
                 </div>
                 <Link
                   to="/admin/surveys/$surveyId"
