@@ -122,6 +122,8 @@ export interface AdminEventOccurrenceOperations {
     lockedAt: string | null;
     effectivelyLocked: boolean;
     registrationCount: number;
+    selectedCount: number;
+    affectedActiveCount: number;
     coordinators: Array<EventPerson>;
   }>;
   sessions: Array<{
@@ -140,6 +142,7 @@ export interface AdminEventOccurrenceOperations {
   }>;
   administrators: Array<EventPerson>;
   availableUsers: Array<EventPerson>;
+  availableRegions: Array<{ id: string; name: string; code: string }>;
   reschedules: Array<{
     id: string;
     registrationWindowPolicy: "keep" | "replace_future" | "reopen";

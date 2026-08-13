@@ -49,6 +49,7 @@ const presenter: AuthenticatedUser = {
   emailVerified: true,
 };
 const coordinationRegionId = `coordination_region_${suffix}`;
+const addedCoordinationRegionId = `coordination_region_added_${suffix}`;
 let eventTemplateId: string | null = null;
 let eventTemplateVersionId: string | null = null;
 let eventOccurrenceId: string | null = null;
@@ -228,7 +229,7 @@ async function cleanup(): Promise<void> {
     .execute();
   await database
     .deleteFrom("coordination_region")
-    .where("id", "=", coordinationRegionId)
+    .where("id", "in", [coordinationRegionId, addedCoordinationRegionId])
     .execute();
 }
 
@@ -261,13 +262,22 @@ try {
     .execute();
   await database
     .insertInto("coordination_region")
-    .values({
-      id: coordinationRegionId,
-      parentId: null,
-      code: `VERIFY-${suffix}`,
-      name: "Verification region",
-      status: "active",
-    })
+    .values([
+      {
+        id: coordinationRegionId,
+        parentId: null,
+        code: `VERIFY-${suffix}`,
+        name: "Verification region",
+        status: "active",
+      },
+      {
+        id: addedCoordinationRegionId,
+        parentId: null,
+        code: `VERIFY-ADDED-${suffix}`,
+        name: "Added verification region",
+        status: "active",
+      },
+    ])
     .execute();
   await database
     .insertInto("platform_admin")
@@ -522,6 +532,42 @@ try {
   const reopenedAt = new Date(Date.now() - 60 * 60 * 1000);
   const reopenedClosesAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
   const reopenedLockAt = new Date(Date.now() + 96 * 60 * 60 * 1000);
+  const regionalExpansion = {
+    regions: [
+      {
+        regionId: coordinationRegionId,
+        coordinatorIds: [coordinator.id],
+      },
+      {
+        regionId: addedCoordinationRegionId,
+        coordinatorIds: [administrator.id],
+      },
+    ],
+    retirements: [],
+  };
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      eventOccurrenceId,
+      {
+        occurrence: {
+          ...occurrenceInput,
+          title: "Verification workshop · Invalid regional expansion",
+          slug: `verification-workshop-invalid-expansion-${suffix}`,
+          startsAt: finalStartsAt.toISOString(),
+          endsAt: finalEndsAt.toISOString(),
+          capacity: 3,
+          venueName: "Updated Verification Centre",
+          venueAddress: "2 Test Street, Sydney NSW",
+          domains: "health.example.org",
+        },
+        registrationWindowPolicy: "keep",
+        regionsConfirmed: true,
+        regionalCoverage: regionalExpansion,
+      },
+      administrator,
+    ),
+    "invalid-window-policy",
+  );
   assert.equal(
     await rescheduleAdminEventOccurrence(
       eventOccurrenceId,
@@ -542,6 +588,7 @@ try {
         },
         registrationWindowPolicy: "reopen",
         regionsConfirmed: true,
+        regionalCoverage: regionalExpansion,
       },
       administrator,
     ),
@@ -553,6 +600,22 @@ try {
     .where("eventOccurrenceId", "=", eventOccurrenceId)
     .executeTakeFirstOrThrow();
   assert.equal(reschedule.registrationWindowPolicy, "reopen");
+  const addedOccurrenceRegion = await database
+    .selectFrom("event_occurrence_region")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("regionId", "=", addedCoordinationRegionId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence_reschedule_region")
+      .select("coverageAction")
+      .where("eventOccurrenceRescheduleId", "=", reschedule.id)
+      .where("eventOccurrenceRegionId", "=", addedOccurrenceRegion.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.coverageAction),
+    "added",
+  );
   assert.deepEqual(
     await database
       .selectFrom("event_region_review_round")
@@ -624,8 +687,8 @@ try {
     [
       {
         registrationWindowPolicy: "reopen",
-        regionCount: 1,
-        coordinatorCount: 1,
+        regionCount: 2,
+        coordinatorCount: 2,
       },
     ],
   );
@@ -724,7 +787,7 @@ try {
       id: registrationId,
       eventOccurrenceId,
       userId: administrator.id,
-      eventOccurrenceRegionId: null,
+      eventOccurrenceRegionId: occurrenceRegion.id,
       reviewRoundId: null,
       nameSnapshot: administrator.name,
       emailSnapshot: administrator.email,
@@ -738,6 +801,11 @@ try {
       finalDecidedByUserId: administrator.id,
       lockedInAt: new Date(),
     })
+    .execute();
+  await database
+    .updateTable("event_occurrence")
+    .set({ confirmedCount: 1 })
+    .where("id", "=", eventOccurrenceId)
     .execute();
   await database
     .insertInto("event_participation")
@@ -784,6 +852,109 @@ try {
     /event_occurrence_capacity_ck/u,
   );
 
+  const coverageRevisionStartsAt = new Date(
+    finalStartsAt.getTime() + 24 * 60 * 60 * 1000,
+  );
+  const coverageRevisionEndsAt = new Date(
+    finalEndsAt.getTime() + 24 * 60 * 60 * 1000,
+  );
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      eventOccurrenceId,
+      {
+        occurrence: {
+          ...occurrenceInput,
+          title: "Verification workshop · Coverage revised",
+          slug: `verification-workshop-coverage-revised-${suffix}`,
+          startsAt: coverageRevisionStartsAt.toISOString(),
+          endsAt: coverageRevisionEndsAt.toISOString(),
+          capacity: 3,
+          venueName: "Updated Verification Centre",
+          venueAddress: "2 Test Street, Sydney NSW",
+          domains: "health.example.org",
+        },
+        registrationWindowPolicy: "keep",
+        regionsConfirmed: true,
+        regionalCoverage: {
+          regions: [
+            {
+              regionId: addedCoordinationRegionId,
+              coordinatorIds: [administrator.id],
+            },
+          ],
+          retirements: [
+            {
+              regionId: coordinationRegionId,
+              disposition: "cancel_registrations",
+            },
+          ],
+        },
+      },
+      administrator,
+    ),
+    "rescheduled",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_occurrence")
+      .select(["confirmedCount", "startsAt"])
+      .where("id", "=", eventOccurrenceId)
+      .executeTakeFirstOrThrow()
+      .then((row) => ({
+        confirmedCount: row.confirmedCount,
+        startsAt: row.startsAt.toISOString(),
+      })),
+    {
+      confirmedCount: 0,
+      startsAt: coverageRevisionStartsAt.toISOString(),
+    },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_registration")
+      .select("status")
+      .where("id", "=", registrationId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.status),
+    "cancelled",
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_occurrence_region")
+      .select("retiredAt")
+      .where("id", "=", occurrenceRegion.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.retiredAt),
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence_reschedule_region")
+      .innerJoin(
+        "event_occurrence_reschedule",
+        "event_occurrence_reschedule.id",
+        "event_occurrence_reschedule_region.eventOccurrenceRescheduleId",
+      )
+      .select("registrationDisposition")
+      .where(
+        "event_occurrence_reschedule.eventOccurrenceId",
+        "=",
+        eventOccurrenceId,
+      )
+      .where("coverageAction", "=", "retired")
+      .executeTakeFirstOrThrow()
+      .then((row) => row.registrationDisposition),
+    "cancel_registrations",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_attendance")
+      .select("state")
+      .where("eventParticipationId", "=", participationId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "attended",
+  );
+
   await database
     .deleteFrom("platform_admin")
     .where("userId", "=", administrator.id)
@@ -799,7 +970,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, learner withdrawal, retained registration transitions, attendance evidence and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, learner withdrawal, retained registration transitions, attendance evidence and capacity constraints",
   );
 } finally {
   await cleanup();

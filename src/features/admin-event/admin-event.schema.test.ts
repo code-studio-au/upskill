@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   adminEventOccurrenceCreateSchema,
   adminEventOccurrenceFormSchema,
+  adminEventOccurrenceRescheduleFormSchema,
   adminEventTemplateCreateSchema,
   normalizeEventDomains,
 } from "./admin-event.schema";
@@ -123,5 +124,42 @@ describe("event administration schemas", () => {
         defaultAdministratorIds: ["admin_1"],
       }).success,
     ).toBe(true);
+  });
+
+  it("requires confirmed, uniquely owned regional reschedule coverage", () => {
+    const validReschedule = {
+      eventOccurrenceId: "event_occurrence_1",
+      occurrence: validOccurrenceForm,
+      registrationWindowPolicy: "reopen" as const,
+      regionsConfirmed: true as const,
+      regionalCoverage: {
+        regions: [{ regionId: "region_1", coordinatorIds: ["coordinator_1"] }],
+        retirements: [
+          { regionId: "region_2", disposition: "future_only" as const },
+        ],
+      },
+    };
+    expect(
+      adminEventOccurrenceRescheduleFormSchema.safeParse(validReschedule)
+        .success,
+    ).toBe(true);
+    expect(
+      adminEventOccurrenceRescheduleFormSchema.safeParse({
+        ...validReschedule,
+        regionsConfirmed: false,
+      }).success,
+    ).toBe(false);
+    expect(
+      adminEventOccurrenceRescheduleFormSchema.safeParse({
+        ...validReschedule,
+        regionalCoverage: {
+          regions: [
+            { regionId: "region_1", coordinatorIds: ["coordinator_1"] },
+            { regionId: "region_1", coordinatorIds: ["coordinator_2"] },
+          ],
+          retirements: [],
+        },
+      }).success,
+    ).toBe(false);
   });
 });

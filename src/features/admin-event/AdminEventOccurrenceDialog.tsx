@@ -1,6 +1,6 @@
 import { Alert, Button, Group, Stack, Text } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
@@ -11,6 +11,8 @@ import { createFriendlySlug } from "#/features/shared/friendly-slug";
 import {
   adminEventOccurrenceFormSchema,
   type AdminEventOccurrenceFormInput,
+  type AdminEventOccurrenceRegionalCoverageInput,
+  type AdminEventOccurrenceRegionalCoverageOptions,
   type AdminEventWorkspace,
 } from "./admin-event.schema";
 import {
@@ -19,6 +21,11 @@ import {
   updateAdminEventOccurrence,
 } from "#/server/functions/admin-event";
 import classes from "./AdminEventOccurrenceDialog.module.css";
+
+const AdminEventRegionalCoverageEditor = lazy(async () => {
+  const module = await import("./AdminEventRegionalCoverageEditor");
+  return { default: module.AdminEventRegionalCoverageEditor };
+});
 
 const defaultTimezone =
   Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Sydney";
@@ -36,11 +43,13 @@ function initialSchedule() {
 export function AdminEventOccurrenceDialog({
   publishedVersions,
   occurrence,
+  regionalCoverage,
   onClose,
   onSaved,
 }: {
   publishedVersions: AdminEventWorkspace["publishedVersions"];
   occurrence?: AdminEventWorkspace["occurrences"][number];
+  regionalCoverage?: AdminEventOccurrenceRegionalCoverageOptions;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
@@ -49,6 +58,15 @@ export function AdminEventOccurrenceDialog({
     "keep" | "replace_future" | "reopen"
   >("keep");
   const [regionsConfirmed, setRegionsConfirmed] = useState(false);
+  const [regionalCoverageInput, setRegionalCoverageInput] =
+    useState<AdminEventOccurrenceRegionalCoverageInput>({
+      regions:
+        regionalCoverage?.currentRegions.map((region) => ({
+          regionId: region.regionId,
+          coordinatorIds: region.coordinatorIds,
+        })) ?? [],
+      retirements: [],
+    });
   const schedule = initialSchedule();
   const initialTime = (value: string) =>
     value ? formatDateTimeLocalInput(value, occurrence?.timezone ?? "UTC") : "";
@@ -100,7 +118,10 @@ export function AdminEventOccurrenceDialog({
       const parsed = adminEventOccurrenceFormSchema.safeParse(value);
       if (!parsed.success) return;
       setError(null);
-      if (occurrence?.status === "published" && !regionsConfirmed) {
+      if (
+        occurrence?.status === "published" &&
+        (!regionsConfirmed || !regionalCoverage)
+      ) {
         setError(
           "Review and confirm the event's active regional coverage before rescheduling.",
         );
@@ -114,6 +135,7 @@ export function AdminEventOccurrenceDialog({
                 occurrence: parsed.data,
                 registrationWindowPolicy,
                 regionsConfirmed: true,
+                regionalCoverage: regionalCoverageInput,
               },
             })
           : await updateAdminEventOccurrence({
@@ -489,6 +511,25 @@ export function AdminEventOccurrenceDialog({
                   <Text size="xs" c="dimmed">
                     Moving the event dates never reopens registration by itself.
                   </Text>
+                  {regionalCoverage ? (
+                    <Suspense
+                      fallback={<Text size="sm">Loading regions…</Text>}
+                    >
+                      <AdminEventRegionalCoverageEditor
+                        options={regionalCoverage}
+                        value={regionalCoverageInput}
+                        onChange={(value) => {
+                          setRegionalCoverageInput(value);
+                          setRegionsConfirmed(false);
+                        }}
+                      />
+                    </Suspense>
+                  ) : (
+                    <Alert color="red">
+                      Regional coverage could not be loaded. Close this dialog
+                      and reopen the event instance.
+                    </Alert>
+                  )}
                   <MantineCheckbox
                     checked={regionsConfirmed}
                     onChange={setRegionsConfirmed}

@@ -228,6 +228,7 @@ export const rescheduleAdminEventOccurrence = createServerFn({ method: "POST" })
         occurrence,
         registrationWindowPolicy: data.registrationWindowPolicy,
         regionsConfirmed: data.regionsConfirmed,
+        regionalCoverage: data.regionalCoverage,
       },
       request.user,
     );

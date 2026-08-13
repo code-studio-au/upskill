@@ -45,8 +45,11 @@ activities, completion, and certification.
   replaces future registration deadlines, or reopens registration into a new
   retained regional review round. The command snapshots current region and
   Coordinator coverage and exposes retained schedule history to administrators.
-  Adding or retiring regions during that review, open-entry guest check-in,
-  staged Event learning and automated communications remain target workflows.
+  Administrators can add regions with named Coordinators or retire regions after
+  reviewing affected active/confirmed counts, while explicitly preserving
+  existing registrations or cancelling active registrations and releasing
+  confirmed capacity. Open-entry guest check-in, staged Event learning and
+  automated communications remain target workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
   capacity-safe registration, attendance and blended learning. Every in-person
@@ -106,10 +109,12 @@ and the administrator operations workspace supports review, selection and
 attendance. Published-occurrence schedule edits use the explicit reschedule
 policy boundary; prior schedules, covered regions and active Coordinator
 assignments are retained, locked review rounds are not rewritten, and reopening
-creates another review round. Reschedule-time region additions, retirement and
-affected-registration disposition are not implemented yet. Public
-promotion/registration pages, open-entry check-in and the full staged learner
-Event workspace should not be described as implemented yet.
+creates another review round. The same workflow supports region addition,
+Coordinator reassignment and region retirement with an affected-registration
+preview and a future-only or cancel-active disposition. Cancellation retains
+participation and Attendance evidence. Public promotion/registration pages,
+open-entry check-in and the full staged learner Event workspace should not be
+described as implemented yet.
 
 ## Domain Philosophy
 

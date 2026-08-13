@@ -110,6 +110,7 @@ export async function findAdminEventOccurrenceOperations(
     occurrenceDomains,
     transitionRows,
     rescheduleRows,
+    availableRegionRows,
   ] = await Promise.all([
     database
       .selectFrom("event_registration as registration")
@@ -294,6 +295,12 @@ export async function findAdminEventOccurrenceOperations(
       .where("reschedule.eventOccurrenceId", "=", eventOccurrenceId)
       .orderBy("reschedule.createdAt", "desc")
       .execute(),
+    database
+      .selectFrom("coordination_region")
+      .select(["id", "name", "code"])
+      .where("status", "=", "active")
+      .orderBy("name")
+      .execute(),
   ]);
 
   const now = new Date();
@@ -359,6 +366,16 @@ export async function findAdminEventOccurrenceOperations(
         registrationCount: registrationRows.filter(
           (row) => row.regionId === region.id,
         ).length,
+        selectedCount: registrationRows.filter(
+          (row) => row.regionId === region.id && row.status === "selected",
+        ).length,
+        affectedActiveCount: registrationRows.filter(
+          (row) =>
+            row.regionId === region.id &&
+            !(["cancelled", "withdrawn", "not_selected"] as const).includes(
+              row.status as never,
+            ),
+        ).length,
         coordinators: coordinatorRows
           .filter((row) => row.eventOccurrenceRegionId === region.id)
           .map(({ id, name, email }) => ({ id, name, email })),
@@ -389,6 +406,7 @@ export async function findAdminEventOccurrenceOperations(
     })),
     administrators: adminRows,
     availableUsers: userRows,
+    availableRegions: availableRegionRows,
     reschedules: rescheduleRows.map((reschedule) => ({
       ...reschedule,
       previousStartsAt: reschedule.previousStartsAt.toISOString(),

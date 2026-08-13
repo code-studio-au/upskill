@@ -55,6 +55,8 @@ const cssBrotliBytes = css.reduce(
   0,
 );
 const largestJs = Math.max(0, ...js.map(size));
+const conditionalJavaScriptBudgets =
+  budgets.conditionalJavaScriptGzipBytes ?? {};
 
 const manifestFiles = files(path.join(root, "dist/server/assets")).filter(
   (file) => path.basename(file).startsWith("_tanstack-start-manifest_v-"),
@@ -77,6 +79,25 @@ const rootCssSet = new Set(rootCss);
 let largestRouteJavaScript = { route: "", bytes: 0 };
 let largestRouteCss = { route: "", bytes: 0 };
 const failures = [];
+
+for (const [chunkName, budget] of Object.entries(
+  conditionalJavaScriptBudgets,
+)) {
+  const matchingAssets = js.filter((file) =>
+    path.basename(file).startsWith(`${chunkName}-`),
+  );
+  if (matchingAssets.length !== 1) {
+    failures.push(
+      `Expected one conditional JavaScript chunk for ${chunkName}, found ${String(matchingAssets.length)}`,
+    );
+    continue;
+  }
+  const bytes = gzipSize(matchingAssets[0]);
+  if (bytes > budget)
+    failures.push(
+      `Conditional chunk ${chunkName} gzip ${bytes} > explicit ${budget}`,
+    );
+}
 
 for (const asset of [...js, ...css]) {
   const source = fs.readFileSync(asset);

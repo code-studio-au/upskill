@@ -721,6 +721,20 @@ function EventInstanceOperationsPage() {
                 workspace.occurrence.registrationClosesAt ?? "",
               coordinatorLockAt: workspace.occurrence.coordinatorLockAt ?? "",
             }}
+            regionalCoverage={{
+              availableRegions: workspace.availableRegions,
+              availableUsers: workspace.availableUsers,
+              currentRegions: workspace.regions.map((region) => ({
+                regionId: region.regionId,
+                name: region.name,
+                code: region.code,
+                coordinatorIds: region.coordinators.map(
+                  (coordinator) => coordinator.id,
+                ),
+                selectedCount: region.selectedCount,
+                affectedActiveCount: region.affectedActiveCount,
+              })),
+            }}
             onClose={() => {
               setConfigurationOpen(false);
             }}

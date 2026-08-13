@@ -489,6 +489,8 @@ interface EventOccurrenceRescheduleTable {
 interface EventOccurrenceRescheduleRegionTable {
   eventOccurrenceRescheduleId: string;
   eventOccurrenceRegionId: string;
+  coverageAction: "retained" | "added" | "retired";
+  registrationDisposition: "future_only" | "cancel_registrations" | null;
 }
 
 interface EventOccurrenceRescheduleRegionCoordinatorTable {
