@@ -100,15 +100,22 @@ export async function registerLearnerForEvent(
         occurrence.approvalMode === "manual" &&
         occurrence.coordinatorLockAt
       ) {
+        if (occurrence.coordinatorLockAt <= now)
+          return { status: "unavailable" } as const;
         await sql`select pg_advisory_xact_lock(hashtext(${eventOccurrenceRegionId}))`.execute(
           transaction,
         );
         const existingRound = await transaction
           .selectFrom("event_region_review_round")
-          .select(["id"])
+          .select(["id", "coordinatorLockAt", "lockedAt"])
           .where("eventOccurrenceRegionId", "=", eventOccurrenceRegionId)
           .orderBy("round", "desc")
           .executeTakeFirst();
+        if (
+          existingRound &&
+          (existingRound.lockedAt || existingRound.coordinatorLockAt <= now)
+        )
+          return { status: "unavailable" } as const;
         reviewRoundId =
           existingRound?.id ?? `event_region_review_round_${randomUUID()}`;
         if (!existingRound)
@@ -222,6 +229,13 @@ export async function withdrawLearnerEventRegistration(
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .select(["status", "endsAt"])
+        .where("id", "=", eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!occurrence) return "not-found" as const;
       const registration = await transaction
         .selectFrom("event_registration")
         .selectAll()
@@ -230,13 +244,15 @@ export async function withdrawLearnerEventRegistration(
         .forUpdate()
         .executeTakeFirst();
       if (!registration) return "not-found" as const;
+      const now = new Date();
+      if (occurrence.status !== "published" || occurrence.endsAt <= now)
+        return "unavailable" as const;
       if (
         (["withdrawn", "cancelled", "not_selected"] as const).includes(
           registration.status as never,
         )
       )
         return "unavailable" as const;
-      const now = new Date();
       if (registration.status === "selected")
         await transaction
           .updateTable("event_occurrence")

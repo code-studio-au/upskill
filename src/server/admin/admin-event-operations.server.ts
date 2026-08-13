@@ -634,6 +634,8 @@ export async function decideAdminEventFinalRegistration(
         .forUpdate()
         .executeTakeFirst();
       if (!occurrence || !registration) return "not-found" as const;
+      if (occurrence.status !== "published")
+        return "invalid-transition" as const;
       const wasSelected = registration.status === "selected";
       if (decision === "selected" && !wasSelected) {
         const eligible = registration.reviewRoundId

@@ -106,6 +106,8 @@ function EventInstanceOperationsPage() {
   const [priorities, setPriorities] = useState<Record<string, string>>({});
   if (result.status === "forbidden") return <AdminAccessDenied />;
   const workspace = result.data;
+  const registrationMutationsAvailable =
+    workspace.occurrence.status === "published";
 
   async function action(
     id: string,
@@ -156,15 +158,19 @@ function EventInstanceOperationsPage() {
           </Text>
         </div>
         <Group gap="sm">
-          <Button
-            variant="light"
-            onClick={() => {
-              setConfigurationOpen(true);
-            }}
-          >
-            Edit schedule & policy
-          </Button>
-          {workspace.occurrence.registrationMode !== "open_entry" ? (
+          {workspace.occurrence.status === "draft" ||
+          registrationMutationsAvailable ? (
+            <Button
+              variant="light"
+              onClick={() => {
+                setConfigurationOpen(true);
+              }}
+            >
+              Edit schedule & policy
+            </Button>
+          ) : null}
+          {registrationMutationsAvailable &&
+          workspace.occurrence.registrationMode !== "open_entry" ? (
             <Button
               onClick={() => {
                 setAddOpen(true);
@@ -271,7 +277,8 @@ function EventInstanceOperationsPage() {
                       .map((person) => person.name)
                       .join(", ") || "No coordinators assigned"}
                   </Text>
-                  {!region.effectivelyLocked ? (
+                  {registrationMutationsAvailable &&
+                  !region.effectivelyLocked ? (
                     <Button
                       variant="light"
                       loading={processingId === `lock-${region.id}`}
@@ -418,7 +425,9 @@ function EventInstanceOperationsPage() {
                             String(registration.coordinatorPriority ?? "")
                           }
                           classNames={{ input: classes.inlineField }}
-                          disabled={reviewLocked}
+                          disabled={
+                            !registrationMutationsAvailable || reviewLocked
+                          }
                           onChange={(event) => {
                             const value = event.currentTarget.value;
                             setPriorities((current) => ({
@@ -434,7 +443,9 @@ function EventInstanceOperationsPage() {
                             size="xs"
                             variant="light"
                             disabled={
-                              !registration.reviewRoundId || reviewLocked
+                              !registrationMutationsAvailable ||
+                              !registration.reviewRoundId ||
+                              reviewLocked
                             }
                             loading={
                               processingId === `approve-${registration.id}`
@@ -461,7 +472,9 @@ function EventInstanceOperationsPage() {
                             variant="subtle"
                             color="red"
                             disabled={
-                              !registration.reviewRoundId || reviewLocked
+                              !registrationMutationsAvailable ||
+                              !registration.reviewRoundId ||
+                              reviewLocked
                             }
                             loading={
                               processingId === `decline-${registration.id}`
@@ -484,49 +497,51 @@ function EventInstanceOperationsPage() {
                         </Group>
                       </td>
                       <td>
-                        <Group gap="xs" wrap="nowrap">
-                          {(
-                            [
-                              "selected",
-                              "waitlisted",
-                              "not_selected",
-                              "cancelled",
-                            ] as const
-                          ).map((decision) => (
-                            <Button
-                              key={decision}
-                              size="xs"
-                              variant={
-                                decision === "selected" ? "filled" : "subtle"
-                              }
-                              {...(decision === "cancelled"
-                                ? { color: "red" as const }
-                                : {})}
-                              loading={
-                                processingId ===
-                                `${decision}-${registration.id}`
-                              }
-                              onClick={() =>
-                                void action(
-                                  `${decision}-${registration.id}`,
-                                  () =>
-                                    decideAdminEventFinalRegistration({
-                                      data: {
-                                        eventOccurrenceId:
-                                          workspace.occurrence.id,
-                                        registrationId: registration.id,
-                                        decision,
-                                      },
-                                    }),
-                                )
-                              }
-                            >
-                              {decision === "selected"
-                                ? "Confirm"
-                                : decision.replaceAll("_", " ")}
-                            </Button>
-                          ))}
-                        </Group>
+                        {registrationMutationsAvailable ? (
+                          <Group gap="xs" wrap="nowrap">
+                            {(
+                              [
+                                "selected",
+                                "waitlisted",
+                                "not_selected",
+                                "cancelled",
+                              ] as const
+                            ).map((decision) => (
+                              <Button
+                                key={decision}
+                                size="xs"
+                                variant={
+                                  decision === "selected" ? "filled" : "subtle"
+                                }
+                                {...(decision === "cancelled"
+                                  ? { color: "red" as const }
+                                  : {})}
+                                loading={
+                                  processingId ===
+                                  `${decision}-${registration.id}`
+                                }
+                                onClick={() =>
+                                  void action(
+                                    `${decision}-${registration.id}`,
+                                    () =>
+                                      decideAdminEventFinalRegistration({
+                                        data: {
+                                          eventOccurrenceId:
+                                            workspace.occurrence.id,
+                                          registrationId: registration.id,
+                                          decision,
+                                        },
+                                      }),
+                                  )
+                                }
+                              >
+                                {decision === "selected"
+                                  ? "Confirm"
+                                  : decision.replaceAll("_", " ")}
+                              </Button>
+                            ))}
+                          </Group>
+                        ) : null}
                       </td>
                     </tr>
                   );

@@ -14,13 +14,18 @@ import {
   addAdminEventRegistration,
   decideAdminEventFinalRegistration,
   findAdminEventOccurrenceOperations,
+  lockAdminEventRegion,
   recordAdminEventAttendance,
+  transitionAdminEventOccurrence,
 } from "#/server/admin/admin-event-operations.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
 import { findEventOperationsWorkspace } from "#/server/events/event-operations.server";
-import { withdrawLearnerEventRegistration } from "#/server/learner/learner-event.server";
+import {
+  registerLearnerForEvent,
+  withdrawLearnerEventRegistration,
+} from "#/server/learner/learner-event.server";
 
 const database = getDatabase();
 const suffix = randomUUID();
@@ -661,6 +666,22 @@ try {
       endsAt: finalEndsAt.toISOString(),
     },
   );
+  assert.equal(
+    await lockAdminEventRegion(
+      eventOccurrenceId,
+      occurrenceRegion.id,
+      administrator,
+    ),
+    "locked",
+  );
+  assert.deepEqual(
+    await registerLearnerForEvent(
+      eventOccurrenceId,
+      occurrenceRegion.id,
+      learner,
+    ),
+    { status: "unavailable" },
+  );
 
   assert.equal(
     await addAdminEventRegistration(
@@ -954,6 +975,69 @@ try {
       .then((row) => row.state),
     "attended",
   );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", learnerRegistration.id)
+    .execute();
+  await database
+    .updateTable("event_occurrence")
+    .set({
+      confirmedCount: 1,
+      registrationOpensAt: new Date(Date.now() - 5 * 60 * 1000),
+      registrationClosesAt: new Date(Date.now() - 4 * 60 * 1000),
+      coordinatorLockAt: new Date(Date.now() - 3 * 60 * 1000),
+      startsAt: new Date(Date.now() - 2 * 60 * 1000),
+      endsAt: new Date(Date.now() - 60 * 1000),
+    })
+    .where("id", "=", eventOccurrenceId)
+    .execute();
+  assert.equal(
+    await withdrawLearnerEventRegistration(eventOccurrenceId, learner),
+    "unavailable",
+  );
+  assert.equal(
+    await transitionAdminEventOccurrence(
+      eventOccurrenceId,
+      "completed",
+      administrator,
+    ),
+    "updated",
+  );
+  assert.equal(
+    await decideAdminEventFinalRegistration(
+      eventOccurrenceId,
+      learnerRegistration.id,
+      "waitlisted",
+      administrator,
+    ),
+    "invalid-transition",
+  );
+  assert.equal(
+    await withdrawLearnerEventRegistration(eventOccurrenceId, learner),
+    "unavailable",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_occurrence")
+      .innerJoin(
+        "event_registration",
+        "event_registration.eventOccurrenceId",
+        "event_occurrence.id",
+      )
+      .select([
+        "event_occurrence.status as occurrenceStatus",
+        "event_occurrence.confirmedCount",
+        "event_registration.status as registrationStatus",
+      ])
+      .where("event_registration.id", "=", learnerRegistration.id)
+      .executeTakeFirstOrThrow(),
+    {
+      occurrenceStatus: "completed",
+      confirmedCount: 1,
+      registrationStatus: "selected",
+    },
+  );
 
   await database
     .deleteFrom("platform_admin")
@@ -970,7 +1054,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, learner withdrawal, retained registration transitions, attendance evidence and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence and capacity constraints",
   );
 } finally {
   await cleanup();
