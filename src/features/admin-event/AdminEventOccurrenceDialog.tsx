@@ -1,8 +1,9 @@
 import { Alert, Button, Group, Stack, Text } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
+import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
 import { formatDateTimeLocalInput } from "#/features/shared/local-date";
@@ -10,13 +11,21 @@ import { createFriendlySlug } from "#/features/shared/friendly-slug";
 import {
   adminEventOccurrenceFormSchema,
   type AdminEventOccurrenceFormInput,
+  type AdminEventOccurrenceRegionalCoverageInput,
+  type AdminEventOccurrenceRegionalCoverageOptions,
   type AdminEventWorkspace,
 } from "./admin-event.schema";
 import {
   createAdminEventOccurrence,
+  rescheduleAdminEventOccurrence,
   updateAdminEventOccurrence,
 } from "#/server/functions/admin-event";
 import classes from "./AdminEventOccurrenceDialog.module.css";
+
+const AdminEventRegionalCoverageEditor = lazy(async () => {
+  const module = await import("./AdminEventRegionalCoverageEditor");
+  return { default: module.AdminEventRegionalCoverageEditor };
+});
 
 const defaultTimezone =
   Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Sydney";
@@ -34,15 +43,30 @@ function initialSchedule() {
 export function AdminEventOccurrenceDialog({
   publishedVersions,
   occurrence,
+  regionalCoverage,
   onClose,
   onSaved,
 }: {
   publishedVersions: AdminEventWorkspace["publishedVersions"];
   occurrence?: AdminEventWorkspace["occurrences"][number];
+  regionalCoverage?: AdminEventOccurrenceRegionalCoverageOptions;
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
   const [error, setError] = useState<string | null>(null);
+  const [registrationWindowPolicy, setRegistrationWindowPolicy] = useState<
+    "keep" | "replace_future" | "reopen"
+  >("keep");
+  const [regionsConfirmed, setRegionsConfirmed] = useState(false);
+  const [regionalCoverageInput, setRegionalCoverageInput] =
+    useState<AdminEventOccurrenceRegionalCoverageInput>({
+      regions:
+        regionalCoverage?.currentRegions.map((region) => ({
+          regionId: region.regionId,
+          coordinatorIds: region.coordinatorIds,
+        })) ?? [],
+      retirements: [],
+    });
   const schedule = initialSchedule();
   const initialTime = (value: string) =>
     value ? formatDateTimeLocalInput(value, occurrence?.timezone ?? "UTC") : "";
@@ -94,21 +118,46 @@ export function AdminEventOccurrenceDialog({
       const parsed = adminEventOccurrenceFormSchema.safeParse(value);
       if (!parsed.success) return;
       setError(null);
+      if (
+        occurrence?.status === "published" &&
+        (!regionsConfirmed || !regionalCoverage)
+      ) {
+        setError(
+          "Review and confirm the event's active regional coverage before rescheduling.",
+        );
+        return;
+      }
       const result = occurrence
-        ? await updateAdminEventOccurrence({
-            data: {
-              eventOccurrenceId: occurrence.id,
-              occurrence: parsed.data,
-            },
-          })
+        ? occurrence.status === "published"
+          ? await rescheduleAdminEventOccurrence({
+              data: {
+                eventOccurrenceId: occurrence.id,
+                occurrence: parsed.data,
+                registrationWindowPolicy,
+                regionsConfirmed: true,
+                regionalCoverage: regionalCoverageInput,
+              },
+            })
+          : await updateAdminEventOccurrence({
+              data: {
+                eventOccurrenceId: occurrence.id,
+                occurrence: parsed.data,
+              },
+            })
         : await createAdminEventOccurrence({ data: parsed.data });
       if (result.status !== "ready") {
         setError(
           result.status === "conflict" && result.reason === "slug_in_use"
             ? "That friendly URL is already used by another event instance. Choose a unique value."
-            : result.status === "conflict"
-              ? "The occurrence could not be saved with this configuration."
-              : "The occurrence could not be saved.",
+            : result.status === "conflict" &&
+                result.reason === "registration_window_policy_invalid"
+              ? "The selected registration-window policy is not valid for the current deadlines and review state."
+              : result.status === "conflict" &&
+                  result.reason === "regions_not_confirmed"
+                ? "Regional coverage changed or is incomplete. Review and confirm every active region before rescheduling."
+                : result.status === "conflict"
+                  ? "The occurrence could not be saved with this configuration."
+                  : "The occurrence could not be saved.",
         );
         return;
       }
@@ -121,7 +170,11 @@ export function AdminEventOccurrenceDialog({
       {(isSubmitting) => (
         <AppDialog
           title={
-            occurrence ? "Edit event occurrence" : "Schedule event occurrence"
+            occurrence?.status === "published"
+              ? "Reschedule event occurrence"
+              : occurrence
+                ? "Edit event occurrence"
+                : "Schedule event occurrence"
           }
           closeDisabled={isSubmitting}
           onClose={onClose}
@@ -137,7 +190,9 @@ export function AdminEventOccurrenceDialog({
               {error ? <Alert color="red">{error}</Alert> : null}
               <Text size="sm" c="dimmed">
                 {occurrence
-                  ? "Update this event instance without changing its pinned template version."
+                  ? occurrence.status === "published"
+                    ? "Reschedule this published instance without rewriting its prior registration decisions or locked review rounds."
+                    : "Update this event instance without changing its pinned template version."
                   : "The occurrence will stay draft until its schedule, owners, presenters and registration policy pass publication checks."}
               </Text>
               <form.Field name="eventTemplateVersionId">
@@ -235,6 +290,7 @@ export function AdminEventOccurrenceDialog({
                         },
                       ]}
                       value={field.state.value}
+                      disabled={occurrence?.status === "published"}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
                         const value = event.currentTarget
@@ -263,7 +319,10 @@ export function AdminEventOccurrenceDialog({
                             { value: "manual", label: "Manual" },
                           ]}
                           value={field.state.value}
-                          disabled={registrationMode === "open_entry"}
+                          disabled={
+                            registrationMode === "open_entry" ||
+                            occurrence?.status === "published"
+                          }
                           onBlur={field.handleBlur}
                           onChange={(event) => {
                             field.handleChange(
@@ -423,6 +482,61 @@ export function AdminEventOccurrenceDialog({
               <Text fw={700} size="sm">
                 Registration timetable
               </Text>
+              {occurrence?.status === "published" ? (
+                <Stack gap="sm">
+                  <MantineNativeSelect
+                    label="Registration-window policy"
+                    value={registrationWindowPolicy}
+                    data={[
+                      {
+                        value: "keep",
+                        label: "Keep existing registration deadlines",
+                      },
+                      {
+                        value: "replace_future",
+                        label: "Replace still-future deadlines",
+                      },
+                      {
+                        value: "reopen",
+                        label: "Reopen registration with new review rounds",
+                      },
+                    ]}
+                    onChange={(event) => {
+                      setRegistrationWindowPolicy(
+                        event.currentTarget
+                          .value as typeof registrationWindowPolicy,
+                      );
+                    }}
+                  />
+                  <Text size="xs" c="dimmed">
+                    Moving the event dates never reopens registration by itself.
+                  </Text>
+                  {regionalCoverage ? (
+                    <Suspense
+                      fallback={<Text size="sm">Loading regions…</Text>}
+                    >
+                      <AdminEventRegionalCoverageEditor
+                        options={regionalCoverage}
+                        value={regionalCoverageInput}
+                        onChange={(value) => {
+                          setRegionalCoverageInput(value);
+                          setRegionsConfirmed(false);
+                        }}
+                      />
+                    </Suspense>
+                  ) : (
+                    <Alert color="red">
+                      Regional coverage could not be loaded. Close this dialog
+                      and reopen the event instance.
+                    </Alert>
+                  )}
+                  <MantineCheckbox
+                    checked={regionsConfirmed}
+                    onChange={setRegionsConfirmed}
+                    label="I have reviewed the active regions and confirmed that each still has coordinator coverage"
+                  />
+                </Stack>
+              ) : null}
               <div className={classes.scheduleGrid}>
                 {(
                   [
@@ -437,6 +551,10 @@ export function AdminEventOccurrenceDialog({
                         type="datetime-local"
                         label={label}
                         value={field.state.value}
+                        disabled={
+                          occurrence?.status === "published" &&
+                          registrationWindowPolicy === "keep"
+                        }
                         onBlur={field.handleBlur}
                         onChange={(event) => {
                           field.handleChange(event.currentTarget.value);
@@ -457,7 +575,11 @@ export function AdminEventOccurrenceDialog({
                   Cancel
                 </Button>
                 <Button type="submit" loading={isSubmitting}>
-                  {occurrence ? "Save changes" : "Create draft occurrence"}
+                  {occurrence?.status === "published"
+                    ? "Confirm reschedule"
+                    : occurrence
+                      ? "Save changes"
+                      : "Create draft occurrence"}
                 </Button>
               </Group>
             </Stack>

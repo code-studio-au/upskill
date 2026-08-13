@@ -461,6 +461,42 @@ interface EventRegionReviewRoundTable {
   lockedAt: Timestamp | null;
   lockedByUserId: string | null;
   lockSource: "manual" | "deadline" | "administrator" | null;
+  eventOccurrenceRescheduleId: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+}
+
+interface EventOccurrenceRescheduleTable {
+  id: string;
+  eventOccurrenceId: string;
+  registrationWindowPolicy: "keep" | "replace_future" | "reopen";
+  previousStartsAt: Timestamp;
+  previousEndsAt: Timestamp;
+  previousRegistrationOpensAt: Timestamp | null;
+  previousRegistrationClosesAt: Timestamp | null;
+  previousCoordinatorLockAt: Timestamp | null;
+  nextStartsAt: Timestamp;
+  nextEndsAt: Timestamp;
+  nextRegistrationOpensAt: Timestamp | null;
+  nextRegistrationClosesAt: Timestamp | null;
+  nextCoordinatorLockAt: Timestamp | null;
+  actorUserId: string;
+  createdAt: Timestamp;
+}
+
+interface EventOccurrenceRescheduleRegionTable {
+  eventOccurrenceRescheduleId: string;
+  eventOccurrenceRegionId: string;
+  coverageAction: "retained" | "added" | "retired";
+  registrationDisposition: "future_only" | "cancel_registrations" | null;
+}
+
+interface EventOccurrenceRescheduleRegionCoordinatorTable {
+  eventOccurrenceRescheduleId: string;
+  eventOccurrenceRegionId: string;
+  userId: string;
 }
 
 interface EventRegistrationTable {
@@ -490,6 +526,18 @@ interface EventRegistrationTable {
   finalDecidedAt: Timestamp | null;
   finalDecidedByUserId: string | null;
   lockedInAt: Timestamp | null;
+}
+
+interface EventRegistrationTransitionTable {
+  id: string;
+  eventRegistrationId: string;
+  fromStatus: EventRegistrationTable["status"] | null;
+  toStatus: EventRegistrationTable["status"];
+  source:
+    "learner" | "automatic" | "coordinator" | "administrator" | "deadline";
+  actorUserId: string | null;
+  priority: number | null;
+  occurredAt: Timestamp;
 }
 
 interface EventParticipationTable {
@@ -587,7 +635,15 @@ export type AuditEventAction =
   | "event_occurrence.created"
   | "event_occurrence.updated"
   | "event_occurrence.published"
+  | "event_occurrence.lifecycle_changed"
+  | "event_occurrence.rescheduled"
+  | "event_attendance.recorded"
+  | "event_region_review.locked"
+  | "event_registration.administrator_added"
+  | "event_registration.coordinator_reviewed"
+  | "event_registration.final_decided"
   | "event_registration.submitted"
+  | "event_registration.withdrawn"
   | "event_template.created"
   | "event_template.version_created"
   | "event_template.version_published"
@@ -640,10 +696,14 @@ export interface Database {
   event_occurrence: EventOccurrenceTable;
   event_occurrence_domain: EventOccurrenceDomainTable;
   event_occurrence_region: EventOccurrenceRegionTable;
+  event_occurrence_reschedule: EventOccurrenceRescheduleTable;
+  event_occurrence_reschedule_region: EventOccurrenceRescheduleRegionTable;
+  event_occurrence_reschedule_region_coordinator: EventOccurrenceRescheduleRegionCoordinatorTable;
   event_participation: EventParticipationTable;
   event_presenter_assignment: EventPresenterAssignmentTable;
   event_region_review_round: EventRegionReviewRoundTable;
   event_registration: EventRegistrationTable;
+  event_registration_transition: EventRegistrationTransitionTable;
   event_session: EventSessionTable;
   event_template: EventTemplateTable;
   event_template_session_definition: EventTemplateSessionDefinitionTable;

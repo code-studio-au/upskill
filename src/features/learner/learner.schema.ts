@@ -6,6 +6,9 @@ export const learnerEventRegistrationSchema = z.object({
   eventOccurrenceId: z
     .string()
     .check(z.trim(), z.minLength(1), z.maxLength(200)),
+  eventOccurrenceRegionId: z.optional(
+    z.nullable(z.string().check(z.trim(), z.minLength(1), z.maxLength(255))),
+  ),
 });
 
 type LearnerEventRegistrationStatus =
@@ -30,6 +33,7 @@ export interface LearnerEvent {
   registrationStatus: LearnerEventRegistrationStatus | null;
   canRegister: boolean;
   registrationUnavailableReason: "not_open" | "closed" | "full" | null;
+  regions: Array<{ id: string; name: string }>;
 }
 
 export interface LearnerCourse {

@@ -49,6 +49,11 @@ export function AppHeader({ session }: { session: AppShellSession }) {
               Administration
             </Link>
           ) : null}
+          {user?.hasAssignedEventOperations ? (
+            <Link to="/event-operations" className={classes.headerLink}>
+              Event operations
+            </Link>
+          ) : null}
         </nav>
 
         {user ? (
@@ -84,6 +89,11 @@ export function AppHeader({ session }: { session: AppShellSession }) {
                 {user.isPlatformAdministrator ? (
                   <Link to="/admin" className={classes.menuLink}>
                     Administration
+                  </Link>
+                ) : null}
+                {user.hasAssignedEventOperations ? (
+                  <Link to="/event-operations" className={classes.menuLink}>
+                    Event operations
                   </Link>
                 ) : null}
               </div>

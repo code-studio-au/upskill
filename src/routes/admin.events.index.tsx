@@ -314,11 +314,25 @@ function AdminEventsPage() {
                         <Button
                           variant="light"
                           onClick={() => {
-                            setEditingOccurrence(occurrence);
+                            void router.navigate({
+                              to: "/admin/events/instances/$eventOccurrenceId",
+                              params: { eventOccurrenceId: occurrence.id },
+                              search: { view: "overview" },
+                            });
                           }}
                         >
                           Open instance
                         </Button>
+                        {occurrence.status === "draft" ? (
+                          <Button
+                            variant="subtle"
+                            onClick={() => {
+                              setEditingOccurrence(occurrence);
+                            }}
+                          >
+                            Edit configuration
+                          </Button>
+                        ) : null}
                         {occurrence.status === "draft" ? (
                           <Button
                             loading={processingId === occurrence.id}

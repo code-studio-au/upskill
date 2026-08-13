@@ -555,6 +555,12 @@ without understanding why.
 - multi-owner standard-admin Event responsibility plus multi-Coordinator regional
   and Presenter assignments, including revocation/replacement workflows;
 - registration selection and attendance-taking workflows.
+- explicit published-occurrence rescheduling with retained schedules,
+  keep/replace/reopen window policy, responsibility snapshots and new review
+  rounds after a lock (implemented);
+- reschedule-time region addition, Coordinator reassignment and regional
+  retirement with affected-registration preview, future-only preservation or
+  active-registration cancellation and confirmed-capacity release (implemented).
 
 ### Phase C --- Blended event learning
 

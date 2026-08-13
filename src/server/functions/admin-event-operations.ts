@@ -1,0 +1,143 @@
+import { createServerFn } from "@tanstack/react-start";
+import {
+  adminEventAddRegistrationSchema,
+  adminEventAttendanceSchema,
+  adminEventCoordinatorDecisionSchema,
+  adminEventFinalDecisionSchema,
+  adminEventLifecycleSchema,
+  adminEventOccurrenceOperationsParamsSchema,
+  adminEventRegionLockSchema,
+  type AdminEventOperationsMutationResult,
+  type AdminEventOperationsResult,
+} from "#/features/admin-event/admin-event-operations.schema";
+
+async function administratorRequest() {
+  const { getAdministratorRequest } =
+    await import("#/server/admin/admin-access.server");
+  return await getAdministratorRequest();
+}
+
+export const getAdminEventOccurrenceOperations = createServerFn({
+  method: "GET",
+})
+  .validator(adminEventOccurrenceOperationsParamsSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { findAdminEventOccurrenceOperations } =
+      await import("#/server/admin/admin-event-operations.server");
+    const detail = await findAdminEventOccurrenceOperations(
+      data.eventOccurrenceId,
+    );
+    return detail ? { status: "ready", data: detail } : { status: "not-found" };
+  });
+
+export const decideAdminEventCoordinatorRegistration = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventCoordinatorDecisionSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { decideAdminEventCoordinatorRegistration: decide } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await decide(data, request.user);
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "region-locked")
+      return { status: "conflict", reason: "region_locked" };
+    if (outcome === "invalid-transition")
+      return { status: "conflict", reason: "invalid_transition" };
+    return { status: "ready" };
+  });
+
+export const lockAdminEventRegion = createServerFn({ method: "POST" })
+  .validator(adminEventRegionLockSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { lockAdminEventRegion: lock } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await lock(
+      data.eventOccurrenceId,
+      data.eventOccurrenceRegionId,
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "invalid-transition")
+      return { status: "conflict", reason: "invalid_transition" };
+    return { status: "ready" };
+  });
+
+export const decideAdminEventFinalRegistration = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventFinalDecisionSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { decideAdminEventFinalRegistration: decide } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await decide(
+      data.eventOccurrenceId,
+      data.registrationId,
+      data.decision,
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "capacity-full")
+      return { status: "conflict", reason: "capacity_full" };
+    if (outcome === "domain-override-required")
+      return { status: "conflict", reason: "domain_override_required" };
+    if (outcome === "invalid-transition")
+      return { status: "conflict", reason: "invalid_transition" };
+    return { status: "ready" };
+  });
+
+export const addAdminEventRegistration = createServerFn({ method: "POST" })
+  .validator(adminEventAddRegistrationSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { addAdminEventRegistration: add } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await add(data, request.user);
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "unavailable")
+      return { status: "conflict", reason: "registration_unavailable" };
+    if (outcome === "override-required")
+      return { status: "conflict", reason: "domain_override_required" };
+    if (outcome === "duplicate")
+      return { status: "conflict", reason: "duplicate_registration" };
+    return { status: "ready" };
+  });
+
+export const recordAdminEventAttendance = createServerFn({ method: "POST" })
+  .validator(adminEventAttendanceSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { recordAdminEventAttendance: record } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await record(data, request.user);
+    if (outcome === "not-found")
+      return { status: "conflict", reason: "attendance_unavailable" };
+    return { status: "ready" };
+  });
+
+export const transitionAdminEventOccurrence = createServerFn({ method: "POST" })
+  .validator(adminEventLifecycleSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { transitionAdminEventOccurrence: transition } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await transition(
+      data.eventOccurrenceId,
+      data.target,
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "invalid-transition")
+      return { status: "conflict", reason: "invalid_transition" };
+    return { status: "ready" };
+  });

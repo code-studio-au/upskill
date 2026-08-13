@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DashboardRouteImport } from './routes/dashboard'
+import { Route as EventOperationsRouteImport } from './routes/event-operations'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccessRouteImport } from './routes/admin.access'
@@ -21,6 +22,8 @@ import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as CheckoutSuccessRouteImport } from './routes/checkout.success'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
+import { Route as EventOperationsIndexRouteImport } from './routes/event-operations.index'
+import { Route as EventOperationsEventOccurrenceIdRouteImport } from './routes/event-operations.$eventOccurrenceId'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
 import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
 import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
@@ -36,6 +39,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
+import { Route as AdminEventsInstancesEventOccurrenceIdRouteImport } from './routes/admin.events.instances.$eventOccurrenceId'
 import { Route as ApiLearningCertificatesEnrollmentIdRouteImport } from './routes/api.learning.certificates.$enrollmentId'
 import { Route as ApiLearningResourcesResourceVersionIdRouteImport } from './routes/api.learning.resources.$resourceVersionId'
 import { Route as ApiScormAttemptsAttemptIdRouteImport } from './routes/api.scorm.attempts.$attemptId'
@@ -56,6 +60,11 @@ const AdminRoute = AdminRouteImport.update({
 const DashboardRoute = DashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EventOperationsRoute = EventOperationsRouteImport.update({
+  id: '/event-operations',
+  path: '/event-operations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -103,6 +112,17 @@ const CoursesSlugRoute = CoursesSlugRouteImport.update({
   path: '/courses/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EventOperationsIndexRoute = EventOperationsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => EventOperationsRoute,
+} as any)
+const EventOperationsEventOccurrenceIdRoute =
+  EventOperationsEventOccurrenceIdRouteImport.update({
+    id: '/$eventOccurrenceId',
+    path: '/$eventOccurrenceId',
+    getParentRoute: () => EventOperationsRoute,
+  } as any)
 const LearnEnrollmentIdRoute = LearnEnrollmentIdRouteImport.update({
   id: '/learn/$enrollmentId',
   path: '/learn/$enrollmentId',
@@ -179,6 +199,12 @@ const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
   path: '/api/stripe/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminEventsInstancesEventOccurrenceIdRoute =
+  AdminEventsInstancesEventOccurrenceIdRouteImport.update({
+    id: '/events/instances/$eventOccurrenceId',
+    path: '/events/instances/$eventOccurrenceId',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const ApiLearningCertificatesEnrollmentIdRoute =
   ApiLearningCertificatesEnrollmentIdRouteImport.update({
     id: '/api/learning/certificates/$enrollmentId',
@@ -220,6 +246,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
+  '/event-operations': typeof EventOperationsRouteWithChildren
   '/login': typeof LoginRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
@@ -227,9 +254,11 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
+  '/event-operations/': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
@@ -244,6 +273,7 @@ export interface FileRoutesByFullPath {
   '/admin/events/': typeof AdminEventsIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
+  '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
@@ -261,9 +291,11 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/admin': typeof AdminIndexRoute
   '/courses': typeof CoursesIndexRoute
+  '/event-operations': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
@@ -278,6 +310,7 @@ export interface FileRoutesByTo {
   '/admin/events': typeof AdminEventsIndexRoute
   '/admin/learners': typeof AdminLearnersIndexRoute
   '/admin/surveys': typeof AdminSurveysIndexRoute
+  '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
@@ -290,6 +323,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
+  '/event-operations': typeof EventOperationsRouteWithChildren
   '/login': typeof LoginRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
@@ -297,9 +331,11 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
+  '/event-operations/': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
@@ -314,6 +350,7 @@ export interface FileRoutesById {
   '/admin/events/': typeof AdminEventsIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
+  '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
@@ -327,6 +364,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/dashboard'
+    | '/event-operations'
     | '/login'
     | '/admin/access'
     | '/admin/modules'
@@ -334,9 +372,11 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
+    | '/event-operations/$eventOccurrenceId'
     | '/learn/$enrollmentId'
     | '/admin/'
     | '/courses/'
+    | '/event-operations/'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
@@ -351,6 +391,7 @@ export interface FileRouteTypes {
     | '/admin/events/'
     | '/admin/learners/'
     | '/admin/surveys/'
+    | '/admin/events/instances/$eventOccurrenceId'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
@@ -368,9 +409,11 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
+    | '/event-operations/$eventOccurrenceId'
     | '/learn/$enrollmentId'
     | '/admin'
     | '/courses'
+    | '/event-operations'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
@@ -385,6 +428,7 @@ export interface FileRouteTypes {
     | '/admin/events'
     | '/admin/learners'
     | '/admin/surveys'
+    | '/admin/events/instances/$eventOccurrenceId'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
@@ -396,6 +440,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin'
     | '/dashboard'
+    | '/event-operations'
     | '/login'
     | '/admin/access'
     | '/admin/modules'
@@ -403,9 +448,11 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
+    | '/event-operations/$eventOccurrenceId'
     | '/learn/$enrollmentId'
     | '/admin/'
     | '/courses/'
+    | '/event-operations/'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
     | '/admin/learners/$userId'
@@ -420,6 +467,7 @@ export interface FileRouteTypes {
     | '/admin/events/'
     | '/admin/learners/'
     | '/admin/surveys/'
+    | '/admin/events/instances/$eventOccurrenceId'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
@@ -432,6 +480,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRouteWithChildren
   DashboardRoute: typeof DashboardRoute
+  EventOperationsRoute: typeof EventOperationsRouteWithChildren
   LoginRoute: typeof LoginRoute
   ApiHealthRoute: typeof ApiHealthRoute
   CheckoutSuccessRoute: typeof CheckoutSuccessRoute
@@ -471,6 +520,13 @@ declare module '@tanstack/react-router' {
       path: '/dashboard'
       fullPath: '/dashboard'
       preLoaderRoute: typeof DashboardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/event-operations': {
+      id: '/event-operations'
+      path: '/event-operations'
+      fullPath: '/event-operations'
+      preLoaderRoute: typeof EventOperationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -535,6 +591,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/courses/$slug'
       preLoaderRoute: typeof CoursesSlugRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/event-operations/': {
+      id: '/event-operations/'
+      path: '/'
+      fullPath: '/event-operations/'
+      preLoaderRoute: typeof EventOperationsIndexRouteImport
+      parentRoute: typeof EventOperationsRoute
+    }
+    '/event-operations/$eventOccurrenceId': {
+      id: '/event-operations/$eventOccurrenceId'
+      path: '/$eventOccurrenceId'
+      fullPath: '/event-operations/$eventOccurrenceId'
+      preLoaderRoute: typeof EventOperationsEventOccurrenceIdRouteImport
+      parentRoute: typeof EventOperationsRoute
     }
     '/learn/$enrollmentId': {
       id: '/learn/$enrollmentId'
@@ -641,6 +711,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStripeWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/events/instances/$eventOccurrenceId': {
+      id: '/admin/events/instances/$eventOccurrenceId'
+      path: '/events/instances/$eventOccurrenceId'
+      fullPath: '/admin/events/instances/$eventOccurrenceId'
+      preLoaderRoute: typeof AdminEventsInstancesEventOccurrenceIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/api/learning/certificates/$enrollmentId': {
       id: '/api/learning/certificates/$enrollmentId'
       path: '/api/learning/certificates/$enrollmentId'
@@ -699,6 +776,7 @@ interface AdminRouteChildren {
   AdminEventsIndexRoute: typeof AdminEventsIndexRoute
   AdminLearnersIndexRoute: typeof AdminLearnersIndexRoute
   AdminSurveysIndexRoute: typeof AdminSurveysIndexRoute
+  AdminEventsInstancesEventOccurrenceIdRoute: typeof AdminEventsInstancesEventOccurrenceIdRoute
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
 
@@ -715,11 +793,27 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminEventsIndexRoute: AdminEventsIndexRoute,
   AdminLearnersIndexRoute: AdminLearnersIndexRoute,
   AdminSurveysIndexRoute: AdminSurveysIndexRoute,
+  AdminEventsInstancesEventOccurrenceIdRoute:
+    AdminEventsInstancesEventOccurrenceIdRoute,
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute:
     AdminLearnersUserIdEnrollmentsEnrollmentIdRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
+
+interface EventOperationsRouteChildren {
+  EventOperationsEventOccurrenceIdRoute: typeof EventOperationsEventOccurrenceIdRoute
+  EventOperationsIndexRoute: typeof EventOperationsIndexRoute
+}
+
+const EventOperationsRouteChildren: EventOperationsRouteChildren = {
+  EventOperationsEventOccurrenceIdRoute: EventOperationsEventOccurrenceIdRoute,
+  EventOperationsIndexRoute: EventOperationsIndexRoute,
+}
+
+const EventOperationsRouteWithChildren = EventOperationsRoute._addFileChildren(
+  EventOperationsRouteChildren,
+)
 
 interface ApiScormAttemptsAttemptIdRouteChildren {
   ApiScormAttemptsAttemptIdContentSplatRoute: typeof ApiScormAttemptsAttemptIdContentSplatRoute
@@ -740,6 +834,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRouteWithChildren,
   DashboardRoute: DashboardRoute,
+  EventOperationsRoute: EventOperationsRouteWithChildren,
   LoginRoute: LoginRoute,
   ApiHealthRoute: ApiHealthRoute,
   CheckoutSuccessRoute: CheckoutSuccessRoute,

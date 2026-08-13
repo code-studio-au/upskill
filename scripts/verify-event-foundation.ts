@@ -6,11 +6,26 @@ import {
   createAdminEventTemplate,
   publishAdminEventOccurrence,
   publishAdminEventTemplateVersion,
+  rescheduleAdminEventOccurrence,
   saveAdminEventTemplateDraft,
   updateAdminEventOccurrence,
 } from "#/server/admin/admin-event.server";
+import {
+  addAdminEventRegistration,
+  decideAdminEventFinalRegistration,
+  findAdminEventOccurrenceOperations,
+  lockAdminEventRegion,
+  recordAdminEventAttendance,
+  transitionAdminEventOccurrence,
+} from "#/server/admin/admin-event-operations.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
+import { findEventOperationsWorkspace } from "#/server/events/event-operations.server";
+import {
+  registerLearnerForEvent,
+  withdrawLearnerEventRegistration,
+} from "#/server/learner/learner-event.server";
 
 const database = getDatabase();
 const suffix = randomUUID();
@@ -20,12 +35,37 @@ const administrator: AuthenticatedUser = {
   email: `verify-event-${suffix}@example.com`,
   emailVerified: true,
 };
+const learner: AuthenticatedUser = {
+  id: `verify_event_learner_${suffix}`,
+  name: "Event learner",
+  email: `verify-event-${suffix}@health.example.org`,
+  emailVerified: true,
+};
+const coordinator: AuthenticatedUser = {
+  id: `verify_event_coordinator_${suffix}`,
+  name: "Event coordinator",
+  email: `verify-event-coordinator-${suffix}@example.com`,
+  emailVerified: true,
+};
+const presenter: AuthenticatedUser = {
+  id: `verify_event_presenter_${suffix}`,
+  name: "Event presenter",
+  email: `verify-event-presenter-${suffix}@example.com`,
+  emailVerified: true,
+};
+const coordinationRegionId = `coordination_region_${suffix}`;
+const addedCoordinationRegionId = `coordination_region_added_${suffix}`;
 let eventTemplateId: string | null = null;
 let eventTemplateVersionId: string | null = null;
 let eventOccurrenceId: string | null = null;
 
 async function cleanup(): Promise<void> {
   if (eventOccurrenceId) {
+    const rescheduleIds = await database
+      .selectFrom("event_occurrence_reschedule")
+      .select("id")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .execute();
     const participationIds = await database
       .selectFrom("event_participation")
       .select("id")
@@ -44,6 +84,20 @@ async function cleanup(): Promise<void> {
       .deleteFrom("event_participation")
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .execute();
+    const registrationIds = await database
+      .selectFrom("event_registration")
+      .select("id")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .execute();
+    if (registrationIds.length)
+      await database
+        .deleteFrom("event_registration_transition")
+        .where(
+          "eventRegistrationId",
+          "in",
+          registrationIds.map((registration) => registration.id),
+        )
+        .execute();
     await database
       .deleteFrom("event_registration")
       .where("eventOccurrenceId", "=", eventOccurrenceId)
@@ -66,6 +120,21 @@ async function cleanup(): Promise<void> {
       await database
         .deleteFrom("event_region_review_round")
         .where("eventOccurrenceRegionId", "in", ids)
+        .execute();
+    }
+    if (rescheduleIds.length) {
+      const ids = rescheduleIds.map((row) => row.id);
+      await database
+        .deleteFrom("event_occurrence_reschedule_region_coordinator")
+        .where("eventOccurrenceRescheduleId", "in", ids)
+        .execute();
+      await database
+        .deleteFrom("event_occurrence_reschedule_region")
+        .where("eventOccurrenceRescheduleId", "in", ids)
+        .execute();
+      await database
+        .deleteFrom("event_occurrence_reschedule")
+        .where("id", "in", ids)
         .execute();
     }
     await database
@@ -133,11 +202,21 @@ async function cleanup(): Promise<void> {
     );
     await transaction
       .deleteFrom("audit_event")
-      .where("subjectId", "in", [
-        ...(eventTemplateId ? [eventTemplateId] : []),
-        ...(eventTemplateVersionId ? [eventTemplateVersionId] : []),
-        ...(eventOccurrenceId ? [eventOccurrenceId] : []),
-      ])
+      .where((expression) =>
+        expression.or([
+          expression("subjectId", "in", [
+            ...(eventTemplateId ? [eventTemplateId] : []),
+            ...(eventTemplateVersionId ? [eventTemplateVersionId] : []),
+            ...(eventOccurrenceId ? [eventOccurrenceId] : []),
+          ]),
+          expression("actorUserId", "in", [
+            administrator.id,
+            learner.id,
+            coordinator.id,
+            presenter.id,
+          ]),
+        ]),
+      )
       .execute();
   });
   await database
@@ -147,6 +226,15 @@ async function cleanup(): Promise<void> {
   await database
     .deleteFrom("user")
     .where("id", "=", administrator.id)
+    .execute();
+  await database.deleteFrom("user").where("id", "=", learner.id).execute();
+  await database
+    .deleteFrom("user")
+    .where("id", "in", [coordinator.id, presenter.id])
+    .execute();
+  await database
+    .deleteFrom("coordination_region")
+    .where("id", "in", [coordinationRegionId, addedCoordinationRegionId])
     .execute();
 }
 
@@ -161,8 +249,53 @@ try {
     })
     .execute();
   await database
+    .insertInto("user")
+    .values([
+      {
+        id: coordinator.id,
+        name: coordinator.name,
+        email: coordinator.email,
+        emailVerified: true,
+      },
+      {
+        id: presenter.id,
+        name: presenter.name,
+        email: presenter.email,
+        emailVerified: true,
+      },
+    ])
+    .execute();
+  await database
+    .insertInto("coordination_region")
+    .values([
+      {
+        id: coordinationRegionId,
+        parentId: null,
+        code: `VERIFY-${suffix}`,
+        name: "Verification region",
+        status: "active",
+      },
+      {
+        id: addedCoordinationRegionId,
+        parentId: null,
+        code: `VERIFY-ADDED-${suffix}`,
+        name: "Added verification region",
+        status: "active",
+      },
+    ])
+    .execute();
+  await database
     .insertInto("platform_admin")
     .values({ userId: administrator.id, grantedByUserId: null })
+    .execute();
+  await database
+    .insertInto("user")
+    .values({
+      id: learner.id,
+      name: learner.name,
+      email: learner.email,
+      emailVerified: true,
+    })
     .execute();
 
   const createdTemplate = await createAdminEventTemplate(
@@ -186,7 +319,12 @@ try {
           "Verifies exact-version occurrence provenance and durable staff attribution.",
         hasCompletionCertificate: true,
         defaultAdministratorIds: [administrator.id],
-        regions: [],
+        regions: [
+          {
+            regionId: coordinationRegionId,
+            coordinatorIds: [coordinator.id],
+          },
+        ],
         sections: [
           {
             id: `event_section_${suffix}`,
@@ -200,7 +338,7 @@ try {
                 required: true,
                 durationMinutes: 120,
                 presenterRequired: true,
-                presenterIds: [administrator.id],
+                presenterIds: [presenter.id],
               },
             ],
           },
@@ -296,6 +434,10 @@ try {
     .where("userId", "=", administrator.id)
     .execute();
   assert.equal(
+    await getEventOperationsAccess(administrator, eventOccurrenceId),
+    null,
+  );
+  assert.equal(
     await publishAdminEventOccurrence(eventOccurrenceId, administrator),
     "conflict",
   );
@@ -348,6 +490,12 @@ try {
     .select(["id", "title", "startsAt", "endsAt"])
     .where("eventOccurrenceId", "=", eventOccurrenceId)
     .executeTakeFirstOrThrow();
+  const occurrenceRegion = await database
+    .selectFrom("event_occurrence_region")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("regionId", "=", coordinationRegionId)
+    .executeTakeFirstOrThrow();
   assert.equal(session.title, "Workshop session");
   assert.equal(
     session.startsAt.toISOString(),
@@ -365,16 +513,291 @@ try {
       .then((row) => row.count),
     1,
   );
+
+  const lockedAt = new Date();
+  await database
+    .insertInto("event_region_review_round")
+    .values({
+      id: `event_region_review_round_initial_${suffix}`,
+      eventOccurrenceRegionId: occurrenceRegion.id,
+      round: 1,
+      registrationClosesAt,
+      coordinatorLockAt,
+      lockedAt,
+      lockedByUserId: administrator.id,
+      lockSource: "administrator",
+    })
+    .execute();
+  const finalStartsAt = new Date(
+    rescheduledStartsAt.getTime() + 24 * 60 * 60 * 1000,
+  );
+  const finalEndsAt = new Date(
+    rescheduledEndsAt.getTime() + 24 * 60 * 60 * 1000,
+  );
+  const reopenedAt = new Date(Date.now() - 60 * 60 * 1000);
+  const reopenedClosesAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+  const reopenedLockAt = new Date(Date.now() + 96 * 60 * 60 * 1000);
+  const regionalExpansion = {
+    regions: [
+      {
+        regionId: coordinationRegionId,
+        coordinatorIds: [coordinator.id],
+      },
+      {
+        regionId: addedCoordinationRegionId,
+        coordinatorIds: [administrator.id],
+      },
+    ],
+    retirements: [],
+  };
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      eventOccurrenceId,
+      {
+        occurrence: {
+          ...occurrenceInput,
+          title: "Verification workshop · Invalid regional expansion",
+          slug: `verification-workshop-invalid-expansion-${suffix}`,
+          startsAt: finalStartsAt.toISOString(),
+          endsAt: finalEndsAt.toISOString(),
+          capacity: 3,
+          venueName: "Updated Verification Centre",
+          venueAddress: "2 Test Street, Sydney NSW",
+          domains: "health.example.org",
+        },
+        registrationWindowPolicy: "keep",
+        regionsConfirmed: true,
+        regionalCoverage: regionalExpansion,
+      },
+      administrator,
+    ),
+    "invalid-window-policy",
+  );
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      eventOccurrenceId,
+      {
+        occurrence: {
+          ...occurrenceInput,
+          title: "Verification workshop · Reopened",
+          slug: `verification-workshop-reopened-${suffix}`,
+          startsAt: finalStartsAt.toISOString(),
+          endsAt: finalEndsAt.toISOString(),
+          registrationOpensAt: reopenedAt.toISOString(),
+          registrationClosesAt: reopenedClosesAt.toISOString(),
+          coordinatorLockAt: reopenedLockAt.toISOString(),
+          capacity: 3,
+          venueName: "Updated Verification Centre",
+          venueAddress: "2 Test Street, Sydney NSW",
+          domains: "health.example.org",
+        },
+        registrationWindowPolicy: "reopen",
+        regionsConfirmed: true,
+        regionalCoverage: regionalExpansion,
+      },
+      administrator,
+    ),
+    "rescheduled",
+  );
+  const reschedule = await database
+    .selectFrom("event_occurrence_reschedule")
+    .select(["id", "registrationWindowPolicy"])
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(reschedule.registrationWindowPolicy, "reopen");
+  const addedOccurrenceRegion = await database
+    .selectFrom("event_occurrence_region")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("regionId", "=", addedCoordinationRegionId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence_reschedule_region")
+      .select("coverageAction")
+      .where("eventOccurrenceRescheduleId", "=", reschedule.id)
+      .where("eventOccurrenceRegionId", "=", addedOccurrenceRegion.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.coverageAction),
+    "added",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_region_review_round")
+      .select(["round", "lockedAt", "eventOccurrenceRescheduleId"])
+      .where("eventOccurrenceRegionId", "=", occurrenceRegion.id)
+      .orderBy("round")
+      .execute(),
+    [
+      {
+        round: 1,
+        lockedAt,
+        eventOccurrenceRescheduleId: null,
+      },
+      {
+        round: 2,
+        lockedAt: null,
+        eventOccurrenceRescheduleId: reschedule.id,
+      },
+    ],
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence_reschedule_region_coordinator")
+      .select("userId")
+      .where("eventOccurrenceRescheduleId", "=", reschedule.id)
+      .where("eventOccurrenceRegionId", "=", occurrenceRegion.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.userId),
+    coordinator.id,
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_session")
+      .select(["startsAt", "endsAt"])
+      .where("id", "=", session.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => ({
+        startsAt: row.startsAt.toISOString(),
+        endsAt: row.endsAt.toISOString(),
+      })),
+    {
+      startsAt: finalStartsAt.toISOString(),
+      endsAt: finalEndsAt.toISOString(),
+    },
+  );
+  assert.equal(
+    await lockAdminEventRegion(
+      eventOccurrenceId,
+      occurrenceRegion.id,
+      administrator,
+    ),
+    "locked",
+  );
+  assert.deepEqual(
+    await registerLearnerForEvent(
+      eventOccurrenceId,
+      occurrenceRegion.id,
+      learner,
+    ),
+    { status: "unavailable" },
+  );
+
+  assert.equal(
+    await addAdminEventRegistration(
+      {
+        eventOccurrenceId,
+        userId: learner.id,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: false,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const operations =
+    await findAdminEventOccurrenceOperations(eventOccurrenceId);
+  assert.ok(operations);
+  assert.equal(operations.metrics.total, 1);
+  assert.deepEqual(
+    operations.reschedules.map((entry) => ({
+      registrationWindowPolicy: entry.registrationWindowPolicy,
+      regionCount: entry.regionCount,
+      coordinatorCount: entry.coordinatorCount,
+    })),
+    [
+      {
+        registrationWindowPolicy: "reopen",
+        regionCount: 2,
+        coordinatorCount: 2,
+      },
+    ],
+  );
+  const learnerRegistration = operations.registrations[0];
+  assert.ok(learnerRegistration);
+  assert.equal(learnerRegistration.status, "submitted");
+  assert.equal(learnerRegistration.eligibilitySource, "verified_domain");
+  assert.equal(
+    await decideAdminEventFinalRegistration(
+      eventOccurrenceId,
+      learnerRegistration.id,
+      "selected",
+      administrator,
+    ),
+    "updated",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence")
+      .select("confirmedCount")
+      .where("id", "=", eventOccurrenceId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.confirmedCount),
+    1,
+  );
+  assert.equal(
+    await withdrawLearnerEventRegistration(eventOccurrenceId, learner),
+    "withdrawn",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_registration_transition")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventRegistrationId", "=", learnerRegistration.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    3,
+  );
   assert.equal(
     await database
       .selectFrom("event_presenter_assignment")
       .select(sql<number>`count(*)::integer`.as("count"))
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .where("eventSessionId", "=", session.id)
-      .where("userId", "=", administrator.id)
+      .where("userId", "=", presenter.id)
       .executeTakeFirstOrThrow()
       .then((row) => row.count),
     1,
+  );
+  const coordinatorAccess = await getEventOperationsAccess(
+    coordinator,
+    eventOccurrenceId,
+  );
+  assert.ok(coordinatorAccess);
+  assert.deepEqual(coordinatorAccess.coordinatorRegionIds, [
+    occurrenceRegion.id,
+  ]);
+  assert.deepEqual(coordinatorAccess.presenterSessionIds, []);
+  const coordinatorWorkspace = await findEventOperationsWorkspace(
+    eventOccurrenceId,
+    coordinatorAccess,
+  );
+  assert.ok(coordinatorWorkspace);
+  assert.deepEqual(
+    coordinatorWorkspace.regions.map((region) => region.id),
+    [occurrenceRegion.id],
+  );
+  assert.equal(coordinatorWorkspace.access.canReviewRegistrations, true);
+  const presenterAccess = await getEventOperationsAccess(
+    presenter,
+    eventOccurrenceId,
+  );
+  assert.ok(presenterAccess);
+  assert.deepEqual(presenterAccess.presenterSessionIds, [session.id]);
+  const presenterWorkspace = await findEventOperationsWorkspace(
+    eventOccurrenceId,
+    presenterAccess,
+  );
+  assert.ok(presenterWorkspace);
+  assert.equal(presenterWorkspace.access.canViewRegistrations, false);
+  assert.deepEqual(presenterWorkspace.registrations, []);
+  assert.deepEqual(
+    presenterWorkspace.sessions.map((assignedSession) => assignedSession.id),
+    [session.id],
+  );
+  assert.equal(
+    await getEventOperationsAccess(learner, eventOccurrenceId),
+    null,
   );
 
   const registrationId = `event_registration_${suffix}`;
@@ -385,7 +808,7 @@ try {
       id: registrationId,
       eventOccurrenceId,
       userId: administrator.id,
-      eventOccurrenceRegionId: null,
+      eventOccurrenceRegionId: occurrenceRegion.id,
       reviewRoundId: null,
       nameSnapshot: administrator.name,
       emailSnapshot: administrator.email,
@@ -399,6 +822,11 @@ try {
       finalDecidedByUserId: administrator.id,
       lockedInAt: new Date(),
     })
+    .execute();
+  await database
+    .updateTable("event_occurrence")
+    .set({ confirmedCount: 1 })
+    .where("id", "=", eventOccurrenceId)
     .execute();
   await database
     .insertInto("event_participation")
@@ -415,19 +843,18 @@ try {
       checkedInAt: null,
     })
     .execute();
-  const recordedAt = new Date();
-  await database
-    .insertInto("event_attendance")
-    .values({
-      eventParticipationId: participationId,
-      eventSessionId: session.id,
-      state: "attended",
-      source: "administrator",
-      recordedByUserId: administrator.id,
-      recordedAt,
-      updatedAt: recordedAt,
-    })
-    .execute();
+  assert.equal(
+    await recordAdminEventAttendance(
+      {
+        eventOccurrenceId,
+        eventParticipationId: participationId,
+        eventSessionId: session.id,
+        state: "attended",
+      },
+      administrator,
+    ),
+    "recorded",
+  );
   assert.equal(
     await database
       .selectFrom("event_attendance")
@@ -446,6 +873,172 @@ try {
     /event_occurrence_capacity_ck/u,
   );
 
+  const coverageRevisionStartsAt = new Date(
+    finalStartsAt.getTime() + 24 * 60 * 60 * 1000,
+  );
+  const coverageRevisionEndsAt = new Date(
+    finalEndsAt.getTime() + 24 * 60 * 60 * 1000,
+  );
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      eventOccurrenceId,
+      {
+        occurrence: {
+          ...occurrenceInput,
+          title: "Verification workshop · Coverage revised",
+          slug: `verification-workshop-coverage-revised-${suffix}`,
+          startsAt: coverageRevisionStartsAt.toISOString(),
+          endsAt: coverageRevisionEndsAt.toISOString(),
+          capacity: 3,
+          venueName: "Updated Verification Centre",
+          venueAddress: "2 Test Street, Sydney NSW",
+          domains: "health.example.org",
+        },
+        registrationWindowPolicy: "keep",
+        regionsConfirmed: true,
+        regionalCoverage: {
+          regions: [
+            {
+              regionId: addedCoordinationRegionId,
+              coordinatorIds: [administrator.id],
+            },
+          ],
+          retirements: [
+            {
+              regionId: coordinationRegionId,
+              disposition: "cancel_registrations",
+            },
+          ],
+        },
+      },
+      administrator,
+    ),
+    "rescheduled",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_occurrence")
+      .select(["confirmedCount", "startsAt"])
+      .where("id", "=", eventOccurrenceId)
+      .executeTakeFirstOrThrow()
+      .then((row) => ({
+        confirmedCount: row.confirmedCount,
+        startsAt: row.startsAt.toISOString(),
+      })),
+    {
+      confirmedCount: 0,
+      startsAt: coverageRevisionStartsAt.toISOString(),
+    },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_registration")
+      .select("status")
+      .where("id", "=", registrationId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.status),
+    "cancelled",
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_occurrence_region")
+      .select("retiredAt")
+      .where("id", "=", occurrenceRegion.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.retiredAt),
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence_reschedule_region")
+      .innerJoin(
+        "event_occurrence_reschedule",
+        "event_occurrence_reschedule.id",
+        "event_occurrence_reschedule_region.eventOccurrenceRescheduleId",
+      )
+      .select("registrationDisposition")
+      .where(
+        "event_occurrence_reschedule.eventOccurrenceId",
+        "=",
+        eventOccurrenceId,
+      )
+      .where("coverageAction", "=", "retired")
+      .executeTakeFirstOrThrow()
+      .then((row) => row.registrationDisposition),
+    "cancel_registrations",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_attendance")
+      .select("state")
+      .where("eventParticipationId", "=", participationId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "attended",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", learnerRegistration.id)
+    .execute();
+  await database
+    .updateTable("event_occurrence")
+    .set({
+      confirmedCount: 1,
+      registrationOpensAt: new Date(Date.now() - 5 * 60 * 1000),
+      registrationClosesAt: new Date(Date.now() - 4 * 60 * 1000),
+      coordinatorLockAt: new Date(Date.now() - 3 * 60 * 1000),
+      startsAt: new Date(Date.now() - 2 * 60 * 1000),
+      endsAt: new Date(Date.now() - 60 * 1000),
+    })
+    .where("id", "=", eventOccurrenceId)
+    .execute();
+  assert.equal(
+    await withdrawLearnerEventRegistration(eventOccurrenceId, learner),
+    "unavailable",
+  );
+  assert.equal(
+    await transitionAdminEventOccurrence(
+      eventOccurrenceId,
+      "completed",
+      administrator,
+    ),
+    "updated",
+  );
+  assert.equal(
+    await decideAdminEventFinalRegistration(
+      eventOccurrenceId,
+      learnerRegistration.id,
+      "waitlisted",
+      administrator,
+    ),
+    "invalid-transition",
+  );
+  assert.equal(
+    await withdrawLearnerEventRegistration(eventOccurrenceId, learner),
+    "unavailable",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_occurrence")
+      .innerJoin(
+        "event_registration",
+        "event_registration.eventOccurrenceId",
+        "event_occurrence.id",
+      )
+      .select([
+        "event_occurrence.status as occurrenceStatus",
+        "event_occurrence.confirmedCount",
+        "event_registration.status as registrationStatus",
+      ])
+      .where("event_registration.id", "=", learnerRegistration.id)
+      .executeTakeFirstOrThrow(),
+    {
+      occurrenceStatus: "completed",
+      confirmedCount: 1,
+      registrationStatus: "selected",
+    },
+  );
+
   await database
     .deleteFrom("platform_admin")
     .where("userId", "=", administrator.id)
@@ -461,7 +1054,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, current administrator-role publication coverage, staff/session snapshots, restricted domains, registration/participation separation, attendance evidence and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence and capacity constraints",
   );
 } finally {
   await cleanup();

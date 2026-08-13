@@ -32,8 +32,24 @@ activities, completion, and certification.
   administrators, author multi-session and blended-learning content, configure
   regional Coordinator and session Presenter defaults, publish immutable
   versions, create successor versions, and schedule and publish occurrences.
-  Registration, attendance, regional review and learner Event workflows remain
-  schema foundations rather than complete product workflows.
+  The first Event Instance operations workspace now supports authenticated
+  learner registration and withdrawal, region selection, administrator-added
+  registrations with explicit restricted-domain override, retained registration
+  transitions, regional review and list locking, capacity-safe final selection,
+  waitlisting and cancellation, attendance recording, and occurrence lifecycle
+  transitions. A separate assigned-events workspace now resolves active Event
+  Administrator, occurrence-region Coordinator and occurrence/Session Presenter
+  assignments; its reads and mutations are constrained to the exact assigned
+  regions and Sessions instead of exposing the broader Administration area. A
+  published occurrence is rescheduled through an explicit command that keeps or
+  replaces future registration deadlines, or reopens registration into a new
+  retained regional review round. The command snapshots current region and
+  Coordinator coverage and exposes retained schedule history to administrators.
+  Administrators can add regions with named Coordinators or retire regions after
+  reviewing affected active/confirmed counts, while explicitly preserving
+  existing registrations or cancelling active registrations and releasing
+  confirmed capacity. Open-entry guest check-in, staged Event learning and
+  automated communications remain target workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
   capacity-safe registration, attendance and blended learning. Every in-person
@@ -87,9 +103,18 @@ Template creation intentionally creates no implicit Session. The version
 designer requires explicit instance administrators and supports ordered titled
 Sections containing Sessions, SCORM, Surveys and PDF resources, with regional
 Coordinator and session Presenter defaults. Published versions are read-only;
-an administrator creates a cloned successor version before changing them. No
-public registration, check-in, attendance-taking or learner Event workspace
-should be described as implemented yet.
+an administrator creates a cloned successor version before changing them.
+Authenticated registration-required Events are surfaced on the learner dashboard
+and the administrator operations workspace supports review, selection and
+attendance. Published-occurrence schedule edits use the explicit reschedule
+policy boundary; prior schedules, covered regions and active Coordinator
+assignments are retained, locked review rounds are not rewritten, and reopening
+creates another review round. The same workflow supports region addition,
+Coordinator reassignment and region retirement with an affected-registration
+preview and a future-only or cancel-active disposition. Cancellation retains
+participation and Attendance evidence. Public promotion/registration pages,
+open-entry check-in and the full staged learner Event workspace should not be
+described as implemented yet.
 
 ## Domain Philosophy
 
@@ -893,10 +918,11 @@ transactional queries demonstrate real pressure.
 
 ### Phase 2 --- Scoped operations
 
-- One-or-more occurrence-and-region Coordinator assignments and dashboard.
-- Assigned-administrator consolidated selection dashboard.
-- One-or-more Presenter assignments per presenter-required scope and
-  attendance-focused view.
+- Extend the first assigned-events dashboard with progress warnings, QR
+  presentation/recovery, filtered exports and assignment lifecycle alerts.
+- Assigned-administrator consolidated final-selection controls in the focused
+  workspace (the current full final-selection controls remain in Administration).
+- Presenter printable/minimal attendance export and time-windowed QR actions.
 - Administrator/Coordinator/Presenter revoke, replacement, attention and
   successor-Template workflows.
 - Attendance evidence and corrections.

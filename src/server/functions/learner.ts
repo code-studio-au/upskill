@@ -41,7 +41,27 @@ export const registerLearnerEvent = createServerFn({ method: "POST" })
     if (!user) return { status: "unauthenticated" } as const;
     const { registerLearnerForEvent } =
       await import("#/server/learner/learner-event.server");
-    return await registerLearnerForEvent(data.eventOccurrenceId, user);
+    return await registerLearnerForEvent(
+      data.eventOccurrenceId,
+      data.eventOccurrenceRegionId ?? null,
+      user,
+    );
+  });
+
+export const withdrawLearnerEvent = createServerFn({ method: "POST" })
+  .validator(learnerEventRegistrationSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" } as const;
+    const { withdrawLearnerEventRegistration } =
+      await import("#/server/learner/learner-event.server");
+    return {
+      status: await withdrawLearnerEventRegistration(
+        data.eventOccurrenceId,
+        user,
+      ),
+    } as const;
   });
 
 export const getLearnerWorkspace = createServerFn({ method: "GET" })

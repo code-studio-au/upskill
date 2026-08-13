@@ -1330,8 +1330,7 @@ export async function updateAdminEventOccurrence(
       if (!occurrence) return "not-found" as const;
       if (
         occurrence.eventTemplateVersionId !== input.eventTemplateVersionId ||
-        occurrence.status === "archived" ||
-        occurrence.status === "completed" ||
+        occurrence.status !== "draft" ||
         input.capacity < occurrence.confirmedCount
       )
         return "conflict" as const;
@@ -1415,6 +1414,603 @@ export async function updateAdminEventOccurrence(
         createdAt: now,
       });
       return "updated" as const;
+    });
+}
+
+export async function rescheduleAdminEventOccurrence(
+  eventOccurrenceId: string,
+  input: {
+    occurrence: AdminEventOccurrenceCreateInput;
+    registrationWindowPolicy: "keep" | "replace_future" | "reopen";
+    regionsConfirmed: true;
+    regionalCoverage: {
+      regions: Array<{ regionId: string; coordinatorIds: Array<string> }>;
+      retirements: Array<{
+        regionId: string;
+        disposition: "future_only" | "cancel_registrations";
+      }>;
+    };
+  },
+  administrator: AuthenticatedUser,
+): Promise<
+  | "rescheduled"
+  | "not-found"
+  | "conflict"
+  | "slug-in-use"
+  | "invalid-window-policy"
+  | "regions-not-confirmed"
+> {
+  const next = input.occurrence;
+  if (!hasValidTimezone(next.timezone)) return "conflict";
+  const domains = normalizeEventDomains(next.domains);
+  if (!domains) return "conflict";
+
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(hashtext(${eventOccurrenceId}))`.execute(
+        transaction,
+      );
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .selectAll()
+        .where("id", "=", eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!occurrence) return "not-found" as const;
+      if (
+        occurrence.status !== "published" ||
+        occurrence.eventTemplateVersionId !== next.eventTemplateVersionId ||
+        occurrence.registrationMode !== next.registrationMode ||
+        occurrence.approvalMode !== next.approvalMode ||
+        next.capacity < occurrence.confirmedCount
+      )
+        return "conflict" as const;
+
+      await sql`select pg_advisory_xact_lock(hashtext(${next.slug}))`.execute(
+        transaction,
+      );
+      const slugOwner = await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("slug", "=", next.slug)
+        .where("id", "!=", eventOccurrenceId)
+        .executeTakeFirst();
+      if (slugOwner) return "slug-in-use" as const;
+
+      const [sessions, occurrenceRegions, coordinatorRows, finalDecision] =
+        await Promise.all([
+          transaction
+            .selectFrom("event_session")
+            .select(["id", "startsAt", "endsAt"])
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .execute(),
+          transaction
+            .selectFrom("event_occurrence_region")
+            .select(["id", "regionId", "position", "retiredAt"])
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .execute(),
+          transaction
+            .selectFrom("event_coordinator_assignment as assignment")
+            .innerJoin(
+              "event_occurrence_region as region",
+              "region.id",
+              "assignment.eventOccurrenceRegionId",
+            )
+            .select(["assignment.eventOccurrenceRegionId", "assignment.userId"])
+            .where("region.eventOccurrenceId", "=", eventOccurrenceId)
+            .where("assignment.endedAt", "is", null)
+            .execute(),
+          transaction
+            .selectFrom("event_registration")
+            .select("id")
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .where("finalDecidedAt", "is not", null)
+            .executeTakeFirst(),
+        ]);
+      const activeRegions = occurrenceRegions.filter(
+        (region) => !region.retiredAt,
+      );
+      const desiredRegionIds = new Set(
+        input.regionalCoverage.regions.map((region) => region.regionId),
+      );
+      const removedRegions = activeRegions.filter(
+        (region) => !desiredRegionIds.has(region.regionId),
+      );
+      const addedRegions = input.regionalCoverage.regions.filter(
+        (desired) =>
+          !activeRegions.some((region) => region.regionId === desired.regionId),
+      );
+      const retirementByRegion = new Map(
+        input.regionalCoverage.retirements.map((retirement) => [
+          retirement.regionId,
+          retirement.disposition,
+        ]),
+      );
+      if (
+        removedRegions.some(
+          (region) => !retirementByRegion.has(region.regionId),
+        ) ||
+        [...retirementByRegion.keys()].some(
+          (regionId) =>
+            !removedRegions.some((region) => region.regionId === regionId),
+        )
+      )
+        return "regions-not-confirmed" as const;
+      if (
+        addedRegions.length > 0 &&
+        occurrence.registrationMode !== "open_entry" &&
+        input.registrationWindowPolicy !== "reopen"
+      )
+        return "invalid-window-policy" as const;
+      const desiredCoordinatorIds = [
+        ...new Set(
+          input.regionalCoverage.regions.flatMap(
+            (region) => region.coordinatorIds,
+          ),
+        ),
+      ];
+      const [validRegions, validCoordinators] = await Promise.all([
+        input.regionalCoverage.regions.length
+          ? transaction
+              .selectFrom("coordination_region")
+              .select("id")
+              .where(
+                "id",
+                "in",
+                input.regionalCoverage.regions.map((region) => region.regionId),
+              )
+              .where("status", "=", "active")
+              .execute()
+          : [],
+        desiredCoordinatorIds.length
+          ? transaction
+              .selectFrom("user")
+              .select("id")
+              .where("id", "in", desiredCoordinatorIds)
+              .execute()
+          : [],
+      ]);
+      if (
+        input.regionalCoverage.regions.some(
+          (region) => region.coordinatorIds.length === 0,
+        ) ||
+        validRegions.length !== input.regionalCoverage.regions.length ||
+        validCoordinators.length !== desiredCoordinatorIds.length
+      )
+        return "regions-not-confirmed" as const;
+
+      const nextStartsAt = new Date(next.startsAt);
+      const nextEndsAt = new Date(next.endsAt);
+      const sessionMinutes = sessions.reduce(
+        (total, session) =>
+          total +
+          (session.endsAt.getTime() - session.startsAt.getTime()) / 60_000,
+        0,
+      );
+      if (
+        nextEndsAt <= nextStartsAt ||
+        nextEndsAt.getTime() - nextStartsAt.getTime() < sessionMinutes * 60_000
+      )
+        return "conflict" as const;
+
+      const submittedOpensAt = optionalDate(next.registrationOpensAt);
+      const submittedClosesAt = optionalDate(next.registrationClosesAt);
+      const submittedLockAt = optionalDate(next.coordinatorLockAt);
+      const now = new Date();
+      let nextOpensAt = occurrence.registrationOpensAt;
+      let nextClosesAt = occurrence.registrationClosesAt;
+      let nextLockAt = occurrence.coordinatorLockAt;
+
+      if (input.registrationWindowPolicy === "replace_future") {
+        const futureWindows = [
+          [occurrence.registrationOpensAt, submittedOpensAt],
+          [occurrence.registrationClosesAt, submittedClosesAt],
+          [occurrence.coordinatorLockAt, submittedLockAt],
+        ] as const;
+        const futureWindowCount = futureWindows.filter(
+          ([current]) => current && current > now,
+        ).length;
+        if (
+          futureWindowCount === 0 ||
+          futureWindows.some(
+            ([current, proposed]) => current && current > now && !proposed,
+          )
+        )
+          return "invalid-window-policy" as const;
+        const replace = (current: Date | null, proposed: Date | null) =>
+          current && current > now ? proposed : current;
+        nextOpensAt = replace(occurrence.registrationOpensAt, submittedOpensAt);
+        nextClosesAt = replace(
+          occurrence.registrationClosesAt,
+          submittedClosesAt,
+        );
+        nextLockAt = replace(occurrence.coordinatorLockAt, submittedLockAt);
+      } else if (input.registrationWindowPolicy === "reopen") {
+        if (
+          occurrence.registrationMode === "open_entry" ||
+          !submittedOpensAt ||
+          !submittedClosesAt ||
+          submittedClosesAt <= now ||
+          submittedClosesAt <= submittedOpensAt ||
+          (input.regionalCoverage.regions.length > 0 &&
+            (!submittedLockAt || submittedLockAt < submittedClosesAt))
+        )
+          return "invalid-window-policy" as const;
+        nextOpensAt = submittedOpensAt;
+        nextClosesAt = submittedClosesAt;
+        nextLockAt = submittedLockAt;
+      }
+
+      if (nextOpensAt && nextClosesAt && nextClosesAt <= nextOpensAt)
+        return "invalid-window-policy" as const;
+      if (nextClosesAt && nextLockAt && nextLockAt < nextClosesAt)
+        return "invalid-window-policy" as const;
+
+      const rescheduleId = `event_occurrence_reschedule_${randomUUID()}`;
+      await transaction
+        .insertInto("event_occurrence_reschedule")
+        .values({
+          id: rescheduleId,
+          eventOccurrenceId,
+          registrationWindowPolicy: input.registrationWindowPolicy,
+          previousStartsAt: occurrence.startsAt,
+          previousEndsAt: occurrence.endsAt,
+          previousRegistrationOpensAt: occurrence.registrationOpensAt,
+          previousRegistrationClosesAt: occurrence.registrationClosesAt,
+          previousCoordinatorLockAt: occurrence.coordinatorLockAt,
+          nextStartsAt,
+          nextEndsAt,
+          nextRegistrationOpensAt: nextOpensAt,
+          nextRegistrationClosesAt: nextClosesAt,
+          nextCoordinatorLockAt: nextLockAt,
+          actorUserId: administrator.id,
+          createdAt: now,
+        })
+        .execute();
+
+      const nextActiveRegions: Array<{ id: string; regionId: string }> = [];
+      let nextPosition = occurrenceRegions.reduce(
+        (maximum, region) => Math.max(maximum, region.position),
+        -1,
+      );
+      const occurrenceRegionByRegionId = new Map(
+        occurrenceRegions.map((region) => [region.regionId, region]),
+      );
+      const coordinatorIdsByOccurrenceRegion = new Map<string, Array<string>>();
+      for (const coordinator of coordinatorRows) {
+        const ids =
+          coordinatorIdsByOccurrenceRegion.get(
+            coordinator.eventOccurrenceRegionId,
+          ) ?? [];
+        ids.push(coordinator.userId);
+        coordinatorIdsByOccurrenceRegion.set(
+          coordinator.eventOccurrenceRegionId,
+          ids,
+        );
+      }
+      let releasedConfirmedCount = 0;
+      let cancelledRegistrationCount = 0;
+      for (const region of removedRegions) {
+        const disposition = retirementByRegion.get(region.regionId);
+        if (!disposition) return "regions-not-confirmed" as const;
+        await transaction
+          .updateTable("event_occurrence_region")
+          .set({ retiredAt: now })
+          .where("id", "=", region.id)
+          .execute();
+        await transaction
+          .updateTable("event_coordinator_assignment")
+          .set({
+            endedAt: now,
+            endReason: "assignment_ended",
+          })
+          .where("eventOccurrenceRegionId", "=", region.id)
+          .where("endedAt", "is", null)
+          .execute();
+        await transaction
+          .insertInto("event_occurrence_reschedule_region")
+          .values({
+            eventOccurrenceRescheduleId: rescheduleId,
+            eventOccurrenceRegionId: region.id,
+            coverageAction: "retired",
+            registrationDisposition: disposition,
+          })
+          .execute();
+        const retiringCoordinatorIds =
+          coordinatorIdsByOccurrenceRegion.get(region.id) ?? [];
+        if (retiringCoordinatorIds.length)
+          await transaction
+            .insertInto("event_occurrence_reschedule_region_coordinator")
+            .values(
+              retiringCoordinatorIds.map((userId) => ({
+                eventOccurrenceRescheduleId: rescheduleId,
+                eventOccurrenceRegionId: region.id,
+                userId,
+              })),
+            )
+            .execute();
+        if (disposition === "cancel_registrations") {
+          const registrations = await transaction
+            .selectFrom("event_registration")
+            .select(["id", "status", "coordinatorPriority"])
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .where("eventOccurrenceRegionId", "=", region.id)
+            .where("status", "not in", [
+              "cancelled",
+              "withdrawn",
+              "not_selected",
+            ])
+            .execute();
+          releasedConfirmedCount += registrations.filter(
+            (registration) => registration.status === "selected",
+          ).length;
+          cancelledRegistrationCount += registrations.length;
+          for (const registration of registrations) {
+            await transaction
+              .updateTable("event_registration")
+              .set({
+                status: "cancelled",
+                finalDecidedAt: now,
+                finalDecidedByUserId: administrator.id,
+                lockedInAt: null,
+              })
+              .where("id", "=", registration.id)
+              .execute();
+            await transaction
+              .insertInto("event_registration_transition")
+              .values({
+                id: `event_registration_transition_${randomUUID()}`,
+                eventRegistrationId: registration.id,
+                fromStatus: registration.status,
+                toStatus: "cancelled",
+                source: "administrator",
+                actorUserId: administrator.id,
+                priority: registration.coordinatorPriority,
+                occurredAt: now,
+              })
+              .execute();
+          }
+        }
+      }
+
+      for (const desired of input.regionalCoverage.regions) {
+        const existing = occurrenceRegionByRegionId.get(desired.regionId);
+        const wasActive = Boolean(existing && !existing.retiredAt);
+        const eventOccurrenceRegionId =
+          existing?.id ?? `event_occurrence_region_${randomUUID()}`;
+        if (!existing) {
+          nextPosition += 1;
+          await transaction
+            .insertInto("event_occurrence_region")
+            .values({
+              id: eventOccurrenceRegionId,
+              eventOccurrenceId,
+              regionId: desired.regionId,
+              position: nextPosition,
+              retiredAt: null,
+            })
+            .execute();
+        } else if (existing.retiredAt)
+          await transaction
+            .updateTable("event_occurrence_region")
+            .set({ retiredAt: null })
+            .where("id", "=", existing.id)
+            .execute();
+
+        const currentCoordinatorIds =
+          coordinatorIdsByOccurrenceRegion.get(eventOccurrenceRegionId) ?? [];
+        const desiredCoordinatorIds = new Set(desired.coordinatorIds);
+        const removedCoordinatorIds = currentCoordinatorIds.filter(
+          (userId) => !desiredCoordinatorIds.has(userId),
+        );
+        if (removedCoordinatorIds.length)
+          await transaction
+            .updateTable("event_coordinator_assignment")
+            .set({ endedAt: now, endReason: "replaced" })
+            .where("eventOccurrenceRegionId", "=", eventOccurrenceRegionId)
+            .where("userId", "in", removedCoordinatorIds)
+            .where("endedAt", "is", null)
+            .execute();
+        const currentCoordinatorIdSet = new Set(currentCoordinatorIds);
+        const addedCoordinatorIds = desired.coordinatorIds.filter(
+          (userId) => !currentCoordinatorIdSet.has(userId),
+        );
+        if (addedCoordinatorIds.length)
+          await transaction
+            .insertInto("event_coordinator_assignment")
+            .values(
+              addedCoordinatorIds.map((userId) => ({
+                id: `event_coordinator_assignment_${randomUUID()}`,
+                eventOccurrenceRegionId,
+                userId,
+                source: wasActive
+                  ? ("replacement" as const)
+                  : ("occurrence_local" as const),
+                assignedByUserId: administrator.id,
+                assignedAt: now,
+                endedAt: null,
+                endReason: null,
+              })),
+            )
+            .execute();
+        await transaction
+          .insertInto("event_occurrence_reschedule_region")
+          .values({
+            eventOccurrenceRescheduleId: rescheduleId,
+            eventOccurrenceRegionId,
+            coverageAction: wasActive ? "retained" : "added",
+            registrationDisposition: null,
+          })
+          .execute();
+        await transaction
+          .insertInto("event_occurrence_reschedule_region_coordinator")
+          .values(
+            desired.coordinatorIds.map((userId) => ({
+              eventOccurrenceRescheduleId: rescheduleId,
+              eventOccurrenceRegionId,
+              userId,
+            })),
+          )
+          .execute();
+        nextActiveRegions.push({
+          id: eventOccurrenceRegionId,
+          regionId: desired.regionId,
+        });
+      }
+
+      if (
+        nextActiveRegions.length > 0 &&
+        input.registrationWindowPolicy === "replace_future" &&
+        nextClosesAt &&
+        nextLockAt
+      )
+        await transaction
+          .updateTable("event_region_review_round")
+          .set({
+            registrationClosesAt: nextClosesAt,
+            coordinatorLockAt: nextLockAt,
+            eventOccurrenceRescheduleId: rescheduleId,
+          })
+          .where(
+            "eventOccurrenceRegionId",
+            "in",
+            nextActiveRegions.map((row) => row.id),
+          )
+          .where("lockedAt", "is", null)
+          .execute();
+
+      if (
+        input.registrationWindowPolicy === "reopen" &&
+        nextClosesAt &&
+        nextLockAt
+      ) {
+        const latestRounds = nextActiveRegions.length
+          ? await transaction
+              .selectFrom("event_region_review_round")
+              .select([
+                "eventOccurrenceRegionId",
+                "round",
+                "lockedAt",
+                "coordinatorLockAt",
+              ])
+              .where(
+                "eventOccurrenceRegionId",
+                "in",
+                nextActiveRegions.map((row) => row.id),
+              )
+              .orderBy("round", "desc")
+              .execute()
+          : [];
+        const latestByRegion = new Map<string, (typeof latestRounds)[number]>();
+        for (const round of latestRounds)
+          if (!latestByRegion.has(round.eventOccurrenceRegionId))
+            latestByRegion.set(round.eventOccurrenceRegionId, round);
+        for (const region of nextActiveRegions) {
+          const latest = latestByRegion.get(region.id);
+          const boundaryReached =
+            Boolean(finalDecision) ||
+            Boolean(latest?.lockedAt) ||
+            Boolean(latest && latest.coordinatorLockAt <= now);
+          if (latest && !boundaryReached)
+            await transaction
+              .updateTable("event_region_review_round")
+              .set({
+                registrationClosesAt: nextClosesAt,
+                coordinatorLockAt: nextLockAt,
+                eventOccurrenceRescheduleId: rescheduleId,
+              })
+              .where("eventOccurrenceRegionId", "=", region.id)
+              .where("round", "=", latest.round)
+              .execute();
+          else
+            await transaction
+              .insertInto("event_region_review_round")
+              .values({
+                id: `event_region_review_round_${randomUUID()}`,
+                eventOccurrenceRegionId: region.id,
+                round: (latest?.round ?? 0) + 1,
+                registrationClosesAt: nextClosesAt,
+                coordinatorLockAt: nextLockAt,
+                lockedAt: null,
+                lockedByUserId: null,
+                lockSource: null,
+                eventOccurrenceRescheduleId: rescheduleId,
+              })
+              .execute();
+        }
+      }
+
+      await transaction
+        .updateTable("event_occurrence")
+        .set({
+          title: next.title,
+          slug: next.slug,
+          deliveryMode: next.deliveryMode,
+          registrationMode: next.registrationMode,
+          approvalMode: next.approvalMode,
+          timezone: next.timezone,
+          startsAt: nextStartsAt,
+          endsAt: nextEndsAt,
+          registrationOpensAt: nextOpensAt,
+          registrationClosesAt: nextClosesAt,
+          coordinatorLockAt: nextLockAt,
+          capacity: next.capacity,
+          venueName: optionalText(next.venueName),
+          venueAddress: optionalText(next.venueAddress),
+          virtualJoinUrl: optionalText(next.virtualJoinUrl),
+          confirmedCount: occurrence.confirmedCount - releasedConfirmedCount,
+          updatedAt: now,
+        })
+        .where("id", "=", eventOccurrenceId)
+        .execute();
+
+      const startDelta = nextStartsAt.getTime() - occurrence.startsAt.getTime();
+      for (const session of sessions)
+        await transaction
+          .updateTable("event_session")
+          .set({
+            startsAt: new Date(session.startsAt.getTime() + startDelta),
+            endsAt: new Date(session.endsAt.getTime() + startDelta),
+            venueName: optionalText(next.venueName),
+            venueAddress: optionalText(next.venueAddress),
+            virtualJoinUrl: optionalText(next.virtualJoinUrl),
+          })
+          .where("id", "=", session.id)
+          .execute();
+
+      await transaction
+        .deleteFrom("event_occurrence_domain")
+        .where("eventOccurrenceId", "=", eventOccurrenceId)
+        .execute();
+      if (domains.length)
+        await transaction
+          .insertInto("event_occurrence_domain")
+          .values(
+            domains.map((domain) => ({
+              eventOccurrenceId,
+              domain,
+              createdAt: now,
+            })),
+          )
+          .execute();
+
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "event_occurrence.rescheduled",
+        subjectType: "event_occurrence_reschedule",
+        subjectId: rescheduleId,
+        aggregateId: eventOccurrenceId,
+        metadata: {
+          registrationWindowPolicy: input.registrationWindowPolicy,
+          activeRegionCount: nextActiveRegions.length,
+          addedRegionCount: addedRegions.length,
+          retiredRegionCount: removedRegions.length,
+          cancelledRegistrationCount,
+        },
+        createdAt: now,
+      });
+      return "rescheduled" as const;
     });
 }
 

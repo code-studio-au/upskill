@@ -328,6 +328,17 @@ and `Administration`. If also assigned as a presenter, `My Presenting`
 becomes available without weakening or combining the underlying
 permission model.
 
+The current application implements this boundary as `Event operations`:
+authenticated users with an active occurrence administrator, occurrence-region
+Coordinator, or occurrence/Session Presenter assignment can open a focused
+assigned-events list. Coordinators see and act only on registrations in their
+regions; Presenters see and record attendance only in their Sessions (or their
+explicit whole-occurrence scope). Platform Administrators retain broader
+occurrence access; active occurrence assignments determine their focused event
+list but do not preserve authority if the underlying administrator role is
+revoked. Server-side assignment checks are repeated for every mutation, so
+navigation visibility is not relied upon as authority.
+
 ## Permission Evaluation
 
 A sensitive server request should:

@@ -165,7 +165,7 @@ export async function findLearnerDashboard(
     .orderBy("event_occurrence.startsAt")
     .execute();
   const eventIds = eventRows.map((event) => event.eventOccurrenceId);
-  const [eventDomains, eventRegistrations] = eventIds.length
+  const [eventDomains, eventRegistrations, eventRegions] = eventIds.length
     ? await Promise.all([
         getDatabase()
           .selectFrom("event_occurrence_domain")
@@ -178,8 +178,24 @@ export async function findLearnerDashboard(
           .where("eventOccurrenceId", "in", eventIds)
           .where("userId", "=", user.id)
           .execute(),
+        getDatabase()
+          .selectFrom("event_occurrence_region as occurrence_region")
+          .innerJoin(
+            "coordination_region as region",
+            "region.id",
+            "occurrence_region.regionId",
+          )
+          .select([
+            "occurrence_region.eventOccurrenceId",
+            "occurrence_region.id",
+            "region.name",
+          ])
+          .where("occurrence_region.eventOccurrenceId", "in", eventIds)
+          .where("occurrence_region.retiredAt", "is", null)
+          .orderBy("occurrence_region.position")
+          .execute(),
       ])
-    : [[], []];
+    : [[], [], []];
   const registrationByEvent = new Map(
     eventRegistrations.map((registration) => [
       registration.eventOccurrenceId,
@@ -226,6 +242,11 @@ export async function findLearnerDashboard(
             : full
               ? "full"
               : null,
+        regions: eventRegions
+          .filter(
+            (region) => region.eventOccurrenceId === event.eventOccurrenceId,
+          )
+          .map((region) => ({ id: region.id, name: region.name })),
       },
     ];
   });

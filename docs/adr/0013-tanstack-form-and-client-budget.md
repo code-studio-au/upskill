@@ -54,6 +54,15 @@ The corresponding total JavaScript caps therefore ratchet by 20 KB raw and 5
 KB Brotli. Root preload, largest-asset and per-route incremental caps remain
 unchanged.
 
+The Event rescheduling regional-coverage editor is loaded only after an
+administrator opens the already conditional occurrence editor. Region addition,
+multi-Coordinator reassignment, affected-registration preview and explicit
+retirement disposition increased the measured all-route build by 5,719 raw
+JavaScript bytes and 1,992 Brotli bytes. The aggregate caps therefore ratchet by
+6 KB raw and 2 KB Brotli. A separate 1.5 KB gzip cap now names and constrains the
+`AdminEventRegionalCoverageEditor` conditional chunk; root preload,
+largest-asset and route-incremental caps remain unchanged.
+
 ## Consequences
 
 Validation, dirty/touched state and loading behavior now have one consistent
