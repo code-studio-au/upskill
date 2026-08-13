@@ -109,6 +109,7 @@ export async function findAdminEventOccurrenceOperations(
     attendanceRows,
     occurrenceDomains,
     transitionRows,
+    rescheduleRows,
   ] = await Promise.all([
     database
       .selectFrom("event_registration as registration")
@@ -267,6 +268,32 @@ export async function findAdminEventOccurrenceOperations(
       .orderBy("transition.occurredAt", "desc")
       .limit(500)
       .execute(),
+    database
+      .selectFrom("event_occurrence_reschedule as reschedule")
+      .innerJoin("user as actor", "actor.id", "reschedule.actorUserId")
+      .select([
+        "reschedule.id",
+        "reschedule.registrationWindowPolicy",
+        "reschedule.previousStartsAt",
+        "reschedule.previousEndsAt",
+        "reschedule.nextStartsAt",
+        "reschedule.nextEndsAt",
+        "actor.name as actorName",
+        "reschedule.createdAt",
+        sql<number>`(select count(*)::integer
+          from event_occurrence_reschedule_region regions
+          where regions."eventOccurrenceRescheduleId" = reschedule.id)`.as(
+          "regionCount",
+        ),
+        sql<number>`(select count(*)::integer
+          from event_occurrence_reschedule_region_coordinator coordinators
+          where coordinators."eventOccurrenceRescheduleId" = reschedule.id)`.as(
+          "coordinatorCount",
+        ),
+      ])
+      .where("reschedule.eventOccurrenceId", "=", eventOccurrenceId)
+      .orderBy("reschedule.createdAt", "desc")
+      .execute(),
   ]);
 
   const now = new Date();
@@ -362,6 +389,14 @@ export async function findAdminEventOccurrenceOperations(
     })),
     administrators: adminRows,
     availableUsers: userRows,
+    reschedules: rescheduleRows.map((reschedule) => ({
+      ...reschedule,
+      previousStartsAt: reschedule.previousStartsAt.toISOString(),
+      previousEndsAt: reschedule.previousEndsAt.toISOString(),
+      nextStartsAt: reschedule.nextStartsAt.toISOString(),
+      nextEndsAt: reschedule.nextEndsAt.toISOString(),
+      createdAt: reschedule.createdAt.toISOString(),
+    })),
     activity: transitionRows.map((transition) => ({
       ...transition,
       occurredAt: transition.occurredAt.toISOString(),

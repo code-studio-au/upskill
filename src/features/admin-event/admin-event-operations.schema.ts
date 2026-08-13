@@ -140,6 +140,18 @@ export interface AdminEventOccurrenceOperations {
   }>;
   administrators: Array<EventPerson>;
   availableUsers: Array<EventPerson>;
+  reschedules: Array<{
+    id: string;
+    registrationWindowPolicy: "keep" | "replace_future" | "reopen";
+    previousStartsAt: string;
+    previousEndsAt: string;
+    nextStartsAt: string;
+    nextEndsAt: string;
+    actorName: string;
+    createdAt: string;
+    regionCount: number;
+    coordinatorCount: number;
+  }>;
   activity: Array<{
     id: string;
     registrationId: string;

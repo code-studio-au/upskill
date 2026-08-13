@@ -6,6 +6,7 @@ import {
   createAdminEventTemplate,
   publishAdminEventOccurrence,
   publishAdminEventTemplateVersion,
+  rescheduleAdminEventOccurrence,
   saveAdminEventTemplateDraft,
   updateAdminEventOccurrence,
 } from "#/server/admin/admin-event.server";
@@ -54,6 +55,11 @@ let eventOccurrenceId: string | null = null;
 
 async function cleanup(): Promise<void> {
   if (eventOccurrenceId) {
+    const rescheduleIds = await database
+      .selectFrom("event_occurrence_reschedule")
+      .select("id")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .execute();
     const participationIds = await database
       .selectFrom("event_participation")
       .select("id")
@@ -108,6 +114,21 @@ async function cleanup(): Promise<void> {
       await database
         .deleteFrom("event_region_review_round")
         .where("eventOccurrenceRegionId", "in", ids)
+        .execute();
+    }
+    if (rescheduleIds.length) {
+      const ids = rescheduleIds.map((row) => row.id);
+      await database
+        .deleteFrom("event_occurrence_reschedule_region_coordinator")
+        .where("eventOccurrenceRescheduleId", "in", ids)
+        .execute();
+      await database
+        .deleteFrom("event_occurrence_reschedule_region")
+        .where("eventOccurrenceRescheduleId", "in", ids)
+        .execute();
+      await database
+        .deleteFrom("event_occurrence_reschedule")
+        .where("id", "in", ids)
         .execute();
     }
     await database
@@ -478,6 +499,106 @@ try {
     1,
   );
 
+  const lockedAt = new Date();
+  await database
+    .insertInto("event_region_review_round")
+    .values({
+      id: `event_region_review_round_initial_${suffix}`,
+      eventOccurrenceRegionId: occurrenceRegion.id,
+      round: 1,
+      registrationClosesAt,
+      coordinatorLockAt,
+      lockedAt,
+      lockedByUserId: administrator.id,
+      lockSource: "administrator",
+    })
+    .execute();
+  const finalStartsAt = new Date(
+    rescheduledStartsAt.getTime() + 24 * 60 * 60 * 1000,
+  );
+  const finalEndsAt = new Date(
+    rescheduledEndsAt.getTime() + 24 * 60 * 60 * 1000,
+  );
+  const reopenedAt = new Date(Date.now() - 60 * 60 * 1000);
+  const reopenedClosesAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
+  const reopenedLockAt = new Date(Date.now() + 96 * 60 * 60 * 1000);
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      eventOccurrenceId,
+      {
+        occurrence: {
+          ...occurrenceInput,
+          title: "Verification workshop · Reopened",
+          slug: `verification-workshop-reopened-${suffix}`,
+          startsAt: finalStartsAt.toISOString(),
+          endsAt: finalEndsAt.toISOString(),
+          registrationOpensAt: reopenedAt.toISOString(),
+          registrationClosesAt: reopenedClosesAt.toISOString(),
+          coordinatorLockAt: reopenedLockAt.toISOString(),
+          capacity: 3,
+          venueName: "Updated Verification Centre",
+          venueAddress: "2 Test Street, Sydney NSW",
+          domains: "health.example.org",
+        },
+        registrationWindowPolicy: "reopen",
+        regionsConfirmed: true,
+      },
+      administrator,
+    ),
+    "rescheduled",
+  );
+  const reschedule = await database
+    .selectFrom("event_occurrence_reschedule")
+    .select(["id", "registrationWindowPolicy"])
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(reschedule.registrationWindowPolicy, "reopen");
+  assert.deepEqual(
+    await database
+      .selectFrom("event_region_review_round")
+      .select(["round", "lockedAt", "eventOccurrenceRescheduleId"])
+      .where("eventOccurrenceRegionId", "=", occurrenceRegion.id)
+      .orderBy("round")
+      .execute(),
+    [
+      {
+        round: 1,
+        lockedAt,
+        eventOccurrenceRescheduleId: null,
+      },
+      {
+        round: 2,
+        lockedAt: null,
+        eventOccurrenceRescheduleId: reschedule.id,
+      },
+    ],
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence_reschedule_region_coordinator")
+      .select("userId")
+      .where("eventOccurrenceRescheduleId", "=", reschedule.id)
+      .where("eventOccurrenceRegionId", "=", occurrenceRegion.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.userId),
+    coordinator.id,
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_session")
+      .select(["startsAt", "endsAt"])
+      .where("id", "=", session.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => ({
+        startsAt: row.startsAt.toISOString(),
+        endsAt: row.endsAt.toISOString(),
+      })),
+    {
+      startsAt: finalStartsAt.toISOString(),
+      endsAt: finalEndsAt.toISOString(),
+    },
+  );
+
   assert.equal(
     await addAdminEventRegistration(
       {
@@ -494,6 +615,20 @@ try {
     await findAdminEventOccurrenceOperations(eventOccurrenceId);
   assert.ok(operations);
   assert.equal(operations.metrics.total, 1);
+  assert.deepEqual(
+    operations.reschedules.map((entry) => ({
+      registrationWindowPolicy: entry.registrationWindowPolicy,
+      regionCount: entry.regionCount,
+      coordinatorCount: entry.coordinatorCount,
+    })),
+    [
+      {
+        registrationWindowPolicy: "reopen",
+        regionCount: 1,
+        coordinatorCount: 1,
+      },
+    ],
+  );
   const learnerRegistration = operations.registrations[0];
   assert.ok(learnerRegistration);
   assert.equal(learnerRegistration.status, "submitted");
@@ -664,7 +799,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, learner withdrawal, retained registration transitions, attendance evidence and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, learner withdrawal, retained registration transitions, attendance evidence and capacity constraints",
   );
 } finally {
   await cleanup();

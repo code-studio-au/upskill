@@ -461,6 +461,40 @@ interface EventRegionReviewRoundTable {
   lockedAt: Timestamp | null;
   lockedByUserId: string | null;
   lockSource: "manual" | "deadline" | "administrator" | null;
+  eventOccurrenceRescheduleId: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+}
+
+interface EventOccurrenceRescheduleTable {
+  id: string;
+  eventOccurrenceId: string;
+  registrationWindowPolicy: "keep" | "replace_future" | "reopen";
+  previousStartsAt: Timestamp;
+  previousEndsAt: Timestamp;
+  previousRegistrationOpensAt: Timestamp | null;
+  previousRegistrationClosesAt: Timestamp | null;
+  previousCoordinatorLockAt: Timestamp | null;
+  nextStartsAt: Timestamp;
+  nextEndsAt: Timestamp;
+  nextRegistrationOpensAt: Timestamp | null;
+  nextRegistrationClosesAt: Timestamp | null;
+  nextCoordinatorLockAt: Timestamp | null;
+  actorUserId: string;
+  createdAt: Timestamp;
+}
+
+interface EventOccurrenceRescheduleRegionTable {
+  eventOccurrenceRescheduleId: string;
+  eventOccurrenceRegionId: string;
+}
+
+interface EventOccurrenceRescheduleRegionCoordinatorTable {
+  eventOccurrenceRescheduleId: string;
+  eventOccurrenceRegionId: string;
+  userId: string;
 }
 
 interface EventRegistrationTable {
@@ -600,6 +634,7 @@ export type AuditEventAction =
   | "event_occurrence.updated"
   | "event_occurrence.published"
   | "event_occurrence.lifecycle_changed"
+  | "event_occurrence.rescheduled"
   | "event_attendance.recorded"
   | "event_region_review.locked"
   | "event_registration.administrator_added"
@@ -659,6 +694,9 @@ export interface Database {
   event_occurrence: EventOccurrenceTable;
   event_occurrence_domain: EventOccurrenceDomainTable;
   event_occurrence_region: EventOccurrenceRegionTable;
+  event_occurrence_reschedule: EventOccurrenceRescheduleTable;
+  event_occurrence_reschedule_region: EventOccurrenceRescheduleRegionTable;
+  event_occurrence_reschedule_region_coordinator: EventOccurrenceRescheduleRegionCoordinatorTable;
   event_participation: EventParticipationTable;
   event_presenter_assignment: EventPresenterAssignmentTable;
   event_region_review_round: EventRegionReviewRoundTable;

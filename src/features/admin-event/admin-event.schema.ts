@@ -377,6 +377,15 @@ export const adminEventOccurrenceUpdateFormSchema = z.object({
   occurrence: adminEventOccurrenceFormSchema,
 });
 
+export const adminEventOccurrenceRescheduleFormSchema = z.object({
+  eventOccurrenceId: identifierSchema,
+  occurrence: adminEventOccurrenceFormSchema,
+  registrationWindowPolicy: z.enum(["keep", "replace_future", "reopen"]),
+  regionsConfirmed: z.literal(true, {
+    error: "Confirm the event's regional coverage before rescheduling.",
+  }),
+});
+
 function eventOccurrenceFormCandidate(
   input: AdminEventOccurrenceFormInput,
 ): Record<string, unknown> {
@@ -502,6 +511,7 @@ export type AdminEventMutationResult =
         | "template-published"
         | "occurrence-created"
         | "occurrence-updated"
+        | "occurrence-rescheduled"
         | "occurrence-published";
       eventTemplateId?: string;
       eventTemplateVersionId?: string;
@@ -513,6 +523,8 @@ export type AdminEventMutationResult =
       reason:
         | "slug_in_use"
         | "template_not_publishable"
+        | "registration_window_policy_invalid"
+        | "regions_not_confirmed"
         | "occurrence_not_publishable";
     };
 

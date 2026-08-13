@@ -40,9 +40,13 @@ activities, completion, and certification.
   transitions. A separate assigned-events workspace now resolves active Event
   Administrator, occurrence-region Coordinator and occurrence/Session Presenter
   assignments; its reads and mutations are constrained to the exact assigned
-  regions and Sessions instead of exposing the broader Administration area.
-  Open-entry guest check-in, staged Event learning, rescheduling rounds and
-  automated communications remain target workflows.
+  regions and Sessions instead of exposing the broader Administration area. A
+  published occurrence is rescheduled through an explicit command that keeps or
+  replaces future registration deadlines, or reopens registration into a new
+  retained regional review round. The command snapshots current region and
+  Coordinator coverage and exposes retained schedule history to administrators.
+  Adding or retiring regions during that review, open-entry guest check-in,
+  staged Event learning and automated communications remain target workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
   capacity-safe registration, attendance and blended learning. Every in-person
@@ -99,8 +103,13 @@ Coordinator and session Presenter defaults. Published versions are read-only;
 an administrator creates a cloned successor version before changing them.
 Authenticated registration-required Events are surfaced on the learner dashboard
 and the administrator operations workspace supports review, selection and
-attendance. Public promotion/registration pages, open-entry check-in and the
-full staged learner Event workspace should not be described as implemented yet.
+attendance. Published-occurrence schedule edits use the explicit reschedule
+policy boundary; prior schedules, covered regions and active Coordinator
+assignments are retained, locked review rounds are not rewritten, and reopening
+creates another review round. Reschedule-time region additions, retirement and
+affected-registration disposition are not implemented yet. Public
+promotion/registration pages, open-entry check-in and the full staged learner
+Event workspace should not be described as implemented yet.
 
 ## Domain Philosophy
 

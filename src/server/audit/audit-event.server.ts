@@ -21,6 +21,7 @@ export const durableAuditActions = [
   "event_occurrence.updated",
   "event_occurrence.published",
   "event_occurrence.lifecycle_changed",
+  "event_occurrence.rescheduled",
   "event_attendance.recorded",
   "event_region_review.locked",
   "event_registration.administrator_added",

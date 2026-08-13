@@ -337,6 +337,31 @@ function EventInstanceOperationsPage() {
               </Group>
             </Stack>
           </Paper>
+          {workspace.reschedules.length ? (
+            <Paper withBorder radius="lg" p="md">
+              <Stack gap="xs">
+                <Title order={2}>Reschedule history</Title>
+                {workspace.reschedules.map((reschedule) => (
+                  <Text size="sm" key={reschedule.id}>
+                    {formatLocalDateTime(reschedule.createdAt, {
+                      timeZone: workspace.occurrence.timezone,
+                    })}
+                    : {reschedule.registrationWindowPolicy.replaceAll("_", " ")}{" "}
+                    ·{" "}
+                    {formatLocalDateTime(reschedule.previousStartsAt, {
+                      timeZone: workspace.occurrence.timezone,
+                    })}{" "}
+                    →{" "}
+                    {formatLocalDateTime(reschedule.nextStartsAt, {
+                      timeZone: workspace.occurrence.timezone,
+                    })}{" "}
+                    · {reschedule.actorName} · {reschedule.regionCount} regions
+                    · {reschedule.coordinatorCount} coordinators
+                  </Text>
+                ))}
+              </Stack>
+            </Paper>
+          ) : null}
         </Stack>
       ) : null}
 

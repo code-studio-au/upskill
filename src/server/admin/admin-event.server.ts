@@ -1330,8 +1330,7 @@ export async function updateAdminEventOccurrence(
       if (!occurrence) return "not-found" as const;
       if (
         occurrence.eventTemplateVersionId !== input.eventTemplateVersionId ||
-        occurrence.status === "archived" ||
-        occurrence.status === "completed" ||
+        occurrence.status !== "draft" ||
         input.capacity < occurrence.confirmedCount
       )
         return "conflict" as const;
@@ -1415,6 +1414,366 @@ export async function updateAdminEventOccurrence(
         createdAt: now,
       });
       return "updated" as const;
+    });
+}
+
+export async function rescheduleAdminEventOccurrence(
+  eventOccurrenceId: string,
+  input: {
+    occurrence: AdminEventOccurrenceCreateInput;
+    registrationWindowPolicy: "keep" | "replace_future" | "reopen";
+    regionsConfirmed: true;
+  },
+  administrator: AuthenticatedUser,
+): Promise<
+  | "rescheduled"
+  | "not-found"
+  | "conflict"
+  | "slug-in-use"
+  | "invalid-window-policy"
+  | "regions-not-confirmed"
+> {
+  const next = input.occurrence;
+  if (!hasValidTimezone(next.timezone)) return "conflict";
+  const domains = normalizeEventDomains(next.domains);
+  if (!domains) return "conflict";
+
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(hashtext(${eventOccurrenceId}))`.execute(
+        transaction,
+      );
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .selectAll()
+        .where("id", "=", eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!occurrence) return "not-found" as const;
+      if (
+        occurrence.status !== "published" ||
+        occurrence.eventTemplateVersionId !== next.eventTemplateVersionId ||
+        occurrence.registrationMode !== next.registrationMode ||
+        occurrence.approvalMode !== next.approvalMode ||
+        next.capacity < occurrence.confirmedCount
+      )
+        return "conflict" as const;
+
+      await sql`select pg_advisory_xact_lock(hashtext(${next.slug}))`.execute(
+        transaction,
+      );
+      const slugOwner = await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("slug", "=", next.slug)
+        .where("id", "!=", eventOccurrenceId)
+        .executeTakeFirst();
+      if (slugOwner) return "slug-in-use" as const;
+
+      const [sessions, activeRegions, coordinatorRows, finalDecision] =
+        await Promise.all([
+          transaction
+            .selectFrom("event_session")
+            .select(["id", "startsAt", "endsAt"])
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .execute(),
+          transaction
+            .selectFrom("event_occurrence_region")
+            .select("id")
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .where("retiredAt", "is", null)
+            .execute(),
+          transaction
+            .selectFrom("event_coordinator_assignment as assignment")
+            .innerJoin(
+              "event_occurrence_region as region",
+              "region.id",
+              "assignment.eventOccurrenceRegionId",
+            )
+            .select(["assignment.eventOccurrenceRegionId", "assignment.userId"])
+            .where("region.eventOccurrenceId", "=", eventOccurrenceId)
+            .where("region.retiredAt", "is", null)
+            .where("assignment.endedAt", "is", null)
+            .execute(),
+          transaction
+            .selectFrom("event_registration")
+            .select("id")
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .where("finalDecidedAt", "is not", null)
+            .executeTakeFirst(),
+        ]);
+      if (
+        activeRegions.some(
+          (region) =>
+            !coordinatorRows.some(
+              (coordinator) =>
+                coordinator.eventOccurrenceRegionId === region.id,
+            ),
+        )
+      )
+        return "regions-not-confirmed" as const;
+
+      const nextStartsAt = new Date(next.startsAt);
+      const nextEndsAt = new Date(next.endsAt);
+      const sessionMinutes = sessions.reduce(
+        (total, session) =>
+          total +
+          (session.endsAt.getTime() - session.startsAt.getTime()) / 60_000,
+        0,
+      );
+      if (
+        nextEndsAt <= nextStartsAt ||
+        nextEndsAt.getTime() - nextStartsAt.getTime() < sessionMinutes * 60_000
+      )
+        return "conflict" as const;
+
+      const submittedOpensAt = optionalDate(next.registrationOpensAt);
+      const submittedClosesAt = optionalDate(next.registrationClosesAt);
+      const submittedLockAt = optionalDate(next.coordinatorLockAt);
+      const now = new Date();
+      let nextOpensAt = occurrence.registrationOpensAt;
+      let nextClosesAt = occurrence.registrationClosesAt;
+      let nextLockAt = occurrence.coordinatorLockAt;
+
+      if (input.registrationWindowPolicy === "replace_future") {
+        const futureWindows = [
+          [occurrence.registrationOpensAt, submittedOpensAt],
+          [occurrence.registrationClosesAt, submittedClosesAt],
+          [occurrence.coordinatorLockAt, submittedLockAt],
+        ] as const;
+        const futureWindowCount = futureWindows.filter(
+          ([current]) => current && current > now,
+        ).length;
+        if (
+          futureWindowCount === 0 ||
+          futureWindows.some(
+            ([current, proposed]) => current && current > now && !proposed,
+          )
+        )
+          return "invalid-window-policy" as const;
+        const replace = (current: Date | null, proposed: Date | null) =>
+          current && current > now ? proposed : current;
+        nextOpensAt = replace(occurrence.registrationOpensAt, submittedOpensAt);
+        nextClosesAt = replace(
+          occurrence.registrationClosesAt,
+          submittedClosesAt,
+        );
+        nextLockAt = replace(occurrence.coordinatorLockAt, submittedLockAt);
+      } else if (input.registrationWindowPolicy === "reopen") {
+        if (
+          occurrence.registrationMode === "open_entry" ||
+          !submittedOpensAt ||
+          !submittedClosesAt ||
+          submittedClosesAt <= now ||
+          submittedClosesAt <= submittedOpensAt ||
+          (activeRegions.length > 0 &&
+            (!submittedLockAt || submittedLockAt < submittedClosesAt))
+        )
+          return "invalid-window-policy" as const;
+        nextOpensAt = submittedOpensAt;
+        nextClosesAt = submittedClosesAt;
+        nextLockAt = submittedLockAt;
+      }
+
+      if (nextOpensAt && nextClosesAt && nextClosesAt <= nextOpensAt)
+        return "invalid-window-policy" as const;
+      if (nextClosesAt && nextLockAt && nextLockAt < nextClosesAt)
+        return "invalid-window-policy" as const;
+
+      const rescheduleId = `event_occurrence_reschedule_${randomUUID()}`;
+      await transaction
+        .insertInto("event_occurrence_reschedule")
+        .values({
+          id: rescheduleId,
+          eventOccurrenceId,
+          registrationWindowPolicy: input.registrationWindowPolicy,
+          previousStartsAt: occurrence.startsAt,
+          previousEndsAt: occurrence.endsAt,
+          previousRegistrationOpensAt: occurrence.registrationOpensAt,
+          previousRegistrationClosesAt: occurrence.registrationClosesAt,
+          previousCoordinatorLockAt: occurrence.coordinatorLockAt,
+          nextStartsAt,
+          nextEndsAt,
+          nextRegistrationOpensAt: nextOpensAt,
+          nextRegistrationClosesAt: nextClosesAt,
+          nextCoordinatorLockAt: nextLockAt,
+          actorUserId: administrator.id,
+          createdAt: now,
+        })
+        .execute();
+      if (activeRegions.length) {
+        await transaction
+          .insertInto("event_occurrence_reschedule_region")
+          .values(
+            activeRegions.map((region) => ({
+              eventOccurrenceRescheduleId: rescheduleId,
+              eventOccurrenceRegionId: region.id,
+            })),
+          )
+          .execute();
+        await transaction
+          .insertInto("event_occurrence_reschedule_region_coordinator")
+          .values(
+            coordinatorRows.map((coordinator) => ({
+              eventOccurrenceRescheduleId: rescheduleId,
+              eventOccurrenceRegionId: coordinator.eventOccurrenceRegionId,
+              userId: coordinator.userId,
+            })),
+          )
+          .execute();
+      }
+
+      if (
+        activeRegions.length > 0 &&
+        input.registrationWindowPolicy === "replace_future" &&
+        nextClosesAt &&
+        nextLockAt
+      )
+        await transaction
+          .updateTable("event_region_review_round")
+          .set({
+            registrationClosesAt: nextClosesAt,
+            coordinatorLockAt: nextLockAt,
+            eventOccurrenceRescheduleId: rescheduleId,
+          })
+          .where(
+            "eventOccurrenceRegionId",
+            "in",
+            activeRegions.map((row) => row.id),
+          )
+          .where("lockedAt", "is", null)
+          .execute();
+
+      if (
+        input.registrationWindowPolicy === "reopen" &&
+        nextClosesAt &&
+        nextLockAt
+      ) {
+        const latestRounds = activeRegions.length
+          ? await transaction
+              .selectFrom("event_region_review_round")
+              .select([
+                "eventOccurrenceRegionId",
+                "round",
+                "lockedAt",
+                "coordinatorLockAt",
+              ])
+              .where(
+                "eventOccurrenceRegionId",
+                "in",
+                activeRegions.map((row) => row.id),
+              )
+              .orderBy("round", "desc")
+              .execute()
+          : [];
+        const latestByRegion = new Map<string, (typeof latestRounds)[number]>();
+        for (const round of latestRounds)
+          if (!latestByRegion.has(round.eventOccurrenceRegionId))
+            latestByRegion.set(round.eventOccurrenceRegionId, round);
+        const boundaryReached =
+          Boolean(finalDecision) ||
+          [...latestByRegion.values()].some(
+            (round) =>
+              Boolean(round.lockedAt) || round.coordinatorLockAt <= now,
+          );
+        for (const region of activeRegions) {
+          const latest = latestByRegion.get(region.id);
+          if (latest && !boundaryReached && !latest.lockedAt)
+            await transaction
+              .updateTable("event_region_review_round")
+              .set({
+                registrationClosesAt: nextClosesAt,
+                coordinatorLockAt: nextLockAt,
+                eventOccurrenceRescheduleId: rescheduleId,
+              })
+              .where("eventOccurrenceRegionId", "=", region.id)
+              .where("round", "=", latest.round)
+              .execute();
+          else
+            await transaction
+              .insertInto("event_region_review_round")
+              .values({
+                id: `event_region_review_round_${randomUUID()}`,
+                eventOccurrenceRegionId: region.id,
+                round: (latest?.round ?? 0) + 1,
+                registrationClosesAt: nextClosesAt,
+                coordinatorLockAt: nextLockAt,
+                lockedAt: null,
+                lockedByUserId: null,
+                lockSource: null,
+                eventOccurrenceRescheduleId: rescheduleId,
+              })
+              .execute();
+        }
+      }
+
+      await transaction
+        .updateTable("event_occurrence")
+        .set({
+          title: next.title,
+          slug: next.slug,
+          deliveryMode: next.deliveryMode,
+          registrationMode: next.registrationMode,
+          approvalMode: next.approvalMode,
+          timezone: next.timezone,
+          startsAt: nextStartsAt,
+          endsAt: nextEndsAt,
+          registrationOpensAt: nextOpensAt,
+          registrationClosesAt: nextClosesAt,
+          coordinatorLockAt: nextLockAt,
+          capacity: next.capacity,
+          venueName: optionalText(next.venueName),
+          venueAddress: optionalText(next.venueAddress),
+          virtualJoinUrl: optionalText(next.virtualJoinUrl),
+          updatedAt: now,
+        })
+        .where("id", "=", eventOccurrenceId)
+        .execute();
+
+      const startDelta = nextStartsAt.getTime() - occurrence.startsAt.getTime();
+      for (const session of sessions)
+        await transaction
+          .updateTable("event_session")
+          .set({
+            startsAt: new Date(session.startsAt.getTime() + startDelta),
+            endsAt: new Date(session.endsAt.getTime() + startDelta),
+            venueName: optionalText(next.venueName),
+            venueAddress: optionalText(next.venueAddress),
+            virtualJoinUrl: optionalText(next.virtualJoinUrl),
+          })
+          .where("id", "=", session.id)
+          .execute();
+
+      await transaction
+        .deleteFrom("event_occurrence_domain")
+        .where("eventOccurrenceId", "=", eventOccurrenceId)
+        .execute();
+      if (domains.length)
+        await transaction
+          .insertInto("event_occurrence_domain")
+          .values(
+            domains.map((domain) => ({
+              eventOccurrenceId,
+              domain,
+              createdAt: now,
+            })),
+          )
+          .execute();
+
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "event_occurrence.rescheduled",
+        subjectType: "event_occurrence_reschedule",
+        subjectId: rescheduleId,
+        aggregateId: eventOccurrenceId,
+        metadata: {
+          registrationWindowPolicy: input.registrationWindowPolicy,
+          activeRegionCount: activeRegions.length,
+        },
+        createdAt: now,
+      });
+      return "rescheduled" as const;
     });
 }
 

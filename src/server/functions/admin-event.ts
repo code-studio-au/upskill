@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   adminEventOccurrenceFormSchema,
   adminEventOccurrenceParamsSchema,
+  adminEventOccurrenceRescheduleFormSchema,
   adminEventOccurrenceUpdateFormSchema,
   adminEventTemplateDraftSchema,
   adminEventTemplateParamsSchema,
@@ -199,6 +200,53 @@ export const updateAdminEventOccurrence = createServerFn({ method: "POST" })
       status: "ready",
       data: {
         outcome: "occurrence-updated",
+        eventOccurrenceId: data.eventOccurrenceId,
+      },
+    };
+  });
+
+export const rescheduleAdminEventOccurrence = createServerFn({ method: "POST" })
+  .validator(adminEventOccurrenceRescheduleFormSchema)
+  .handler(async ({ data }): Promise<AdminEventMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const [
+      { rescheduleAdminEventOccurrence: rescheduleOccurrence },
+      { convertAdminEventOccurrenceForm },
+    ] = await Promise.all([
+      import("#/server/admin/admin-event.server"),
+      import("#/server/admin/event-timezone.server"),
+    ]);
+    const occurrence = convertAdminEventOccurrenceForm(data.occurrence);
+    if (!occurrence)
+      return { status: "conflict", reason: "occurrence_not_publishable" };
+    const outcome = await rescheduleOccurrence(
+      data.eventOccurrenceId,
+      {
+        occurrence,
+        registrationWindowPolicy: data.registrationWindowPolicy,
+        regionsConfirmed: data.regionsConfirmed,
+      },
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "slug-in-use")
+      return { status: "conflict", reason: "slug_in_use" };
+    if (outcome === "invalid-window-policy")
+      return {
+        status: "conflict",
+        reason: "registration_window_policy_invalid",
+      };
+    if (outcome === "regions-not-confirmed")
+      return { status: "conflict", reason: "regions_not_confirmed" };
+    if (outcome === "conflict")
+      return { status: "conflict", reason: "occurrence_not_publishable" };
+    return {
+      status: "ready",
+      data: {
+        outcome: "occurrence-rescheduled",
         eventOccurrenceId: data.eventOccurrenceId,
       },
     };
