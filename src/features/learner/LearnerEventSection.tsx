@@ -12,7 +12,11 @@ import { useState } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import type { LearnerEvent } from "./learner.schema";
-import { registerLearnerEvent } from "#/server/functions/learner";
+import {
+  registerLearnerEvent,
+  withdrawLearnerEvent,
+} from "#/server/functions/learner";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 
 function statusLabel(event: LearnerEvent): string {
   if (!event.registrationStatus) return "Registration available";
@@ -46,13 +50,19 @@ export function LearnerEventSection({
   const router = useRouter();
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedRegions, setSelectedRegions] = useState<
+    Record<string, string>
+  >({});
 
-  async function register(eventOccurrenceId: string) {
+  async function register(eventOccurrenceId: string, regionId: string | null) {
     setProcessingId(eventOccurrenceId);
     setError(null);
     try {
       const result = await registerLearnerEvent({
-        data: { eventOccurrenceId },
+        data: {
+          eventOccurrenceId,
+          eventOccurrenceRegionId: regionId,
+        },
       });
       if (
         result.status === "registered" ||
@@ -66,6 +76,23 @@ export function LearnerEventSection({
           ? "Your verified email address is not eligible for this event."
           : "Registration is not currently available for this event.",
       );
+    } finally {
+      setProcessingId(null);
+    }
+  }
+
+  async function withdraw(eventOccurrenceId: string) {
+    setProcessingId(eventOccurrenceId);
+    setError(null);
+    try {
+      const result = await withdrawLearnerEvent({
+        data: { eventOccurrenceId, eventOccurrenceRegionId: null },
+      });
+      if (result.status === "withdrawn") {
+        await router.invalidate();
+        return;
+      }
+      setError("This registration can no longer be withdrawn online.");
     } finally {
       setProcessingId(null);
     }
@@ -117,14 +144,61 @@ export function LearnerEventSection({
                 {event.timezone}
               </Text>
               {!event.registrationStatus ? (
+                <Stack gap="xs">
+                  {event.regions.length > 0 ? (
+                    <MantineNativeSelect
+                      label="Your region"
+                      value={selectedRegions[event.eventOccurrenceId] ?? ""}
+                      data={[
+                        {
+                          value: "",
+                          label: "Select your region",
+                          disabled: true,
+                        },
+                        ...event.regions.map((region) => ({
+                          value: region.id,
+                          label: region.name,
+                        })),
+                      ]}
+                      onChange={(change) => {
+                        const value = change.currentTarget.value;
+                        setSelectedRegions((current) => ({
+                          ...current,
+                          [event.eventOccurrenceId]: value,
+                        }));
+                      }}
+                      required
+                    />
+                  ) : null}
+                  <Button
+                    disabled={
+                      !event.canRegister ||
+                      (event.regions.length > 0 &&
+                        !selectedRegions[event.eventOccurrenceId])
+                    }
+                    loading={processingId === event.eventOccurrenceId}
+                    onClick={() => {
+                      void register(
+                        event.eventOccurrenceId,
+                        selectedRegions[event.eventOccurrenceId] || null,
+                      );
+                    }}
+                  >
+                    {unavailableLabel(event)}
+                  </Button>
+                </Stack>
+              ) : event.registrationStatus !== "withdrawn" &&
+                event.registrationStatus !== "cancelled" &&
+                event.registrationStatus !== "not_selected" ? (
                 <Button
-                  disabled={!event.canRegister}
+                  variant="subtle"
+                  color="red"
                   loading={processingId === event.eventOccurrenceId}
                   onClick={() => {
-                    void register(event.eventOccurrenceId);
+                    void withdraw(event.eventOccurrenceId);
                   }}
                 >
-                  {unavailableLabel(event)}
+                  Withdraw registration
                 </Button>
               ) : null}
             </Stack>

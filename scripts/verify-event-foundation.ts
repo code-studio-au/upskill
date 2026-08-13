@@ -9,8 +9,15 @@ import {
   saveAdminEventTemplateDraft,
   updateAdminEventOccurrence,
 } from "#/server/admin/admin-event.server";
+import {
+  addAdminEventRegistration,
+  decideAdminEventFinalRegistration,
+  findAdminEventOccurrenceOperations,
+  recordAdminEventAttendance,
+} from "#/server/admin/admin-event-operations.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { withdrawLearnerEventRegistration } from "#/server/learner/learner-event.server";
 
 const database = getDatabase();
 const suffix = randomUUID();
@@ -18,6 +25,12 @@ const administrator: AuthenticatedUser = {
   id: `verify_event_admin_${suffix}`,
   name: "Event verifier",
   email: `verify-event-${suffix}@example.com`,
+  emailVerified: true,
+};
+const learner: AuthenticatedUser = {
+  id: `verify_event_learner_${suffix}`,
+  name: "Event learner",
+  email: `verify-event-${suffix}@health.example.org`,
   emailVerified: true,
 };
 let eventTemplateId: string | null = null;
@@ -44,6 +57,20 @@ async function cleanup(): Promise<void> {
       .deleteFrom("event_participation")
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .execute();
+    const registrationIds = await database
+      .selectFrom("event_registration")
+      .select("id")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .execute();
+    if (registrationIds.length)
+      await database
+        .deleteFrom("event_registration_transition")
+        .where(
+          "eventRegistrationId",
+          "in",
+          registrationIds.map((registration) => registration.id),
+        )
+        .execute();
     await database
       .deleteFrom("event_registration")
       .where("eventOccurrenceId", "=", eventOccurrenceId)
@@ -133,11 +160,16 @@ async function cleanup(): Promise<void> {
     );
     await transaction
       .deleteFrom("audit_event")
-      .where("subjectId", "in", [
-        ...(eventTemplateId ? [eventTemplateId] : []),
-        ...(eventTemplateVersionId ? [eventTemplateVersionId] : []),
-        ...(eventOccurrenceId ? [eventOccurrenceId] : []),
-      ])
+      .where((expression) =>
+        expression.or([
+          expression("subjectId", "in", [
+            ...(eventTemplateId ? [eventTemplateId] : []),
+            ...(eventTemplateVersionId ? [eventTemplateVersionId] : []),
+            ...(eventOccurrenceId ? [eventOccurrenceId] : []),
+          ]),
+          expression("actorUserId", "in", [administrator.id, learner.id]),
+        ]),
+      )
       .execute();
   });
   await database
@@ -148,6 +180,7 @@ async function cleanup(): Promise<void> {
     .deleteFrom("user")
     .where("id", "=", administrator.id)
     .execute();
+  await database.deleteFrom("user").where("id", "=", learner.id).execute();
 }
 
 try {
@@ -163,6 +196,15 @@ try {
   await database
     .insertInto("platform_admin")
     .values({ userId: administrator.id, grantedByUserId: null })
+    .execute();
+  await database
+    .insertInto("user")
+    .values({
+      id: learner.id,
+      name: learner.name,
+      email: learner.email,
+      emailVerified: true,
+    })
     .execute();
 
   const createdTemplate = await createAdminEventTemplate(
@@ -365,6 +407,58 @@ try {
       .then((row) => row.count),
     1,
   );
+
+  assert.equal(
+    await addAdminEventRegistration(
+      {
+        eventOccurrenceId,
+        userId: learner.id,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: false,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const operations =
+    await findAdminEventOccurrenceOperations(eventOccurrenceId);
+  assert.ok(operations);
+  assert.equal(operations.metrics.total, 1);
+  const learnerRegistration = operations.registrations[0];
+  assert.ok(learnerRegistration);
+  assert.equal(learnerRegistration.status, "submitted");
+  assert.equal(learnerRegistration.eligibilitySource, "verified_domain");
+  assert.equal(
+    await decideAdminEventFinalRegistration(
+      eventOccurrenceId,
+      learnerRegistration.id,
+      "selected",
+      administrator,
+    ),
+    "updated",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence")
+      .select("confirmedCount")
+      .where("id", "=", eventOccurrenceId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.confirmedCount),
+    1,
+  );
+  assert.equal(
+    await withdrawLearnerEventRegistration(eventOccurrenceId, learner),
+    "withdrawn",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_registration_transition")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventRegistrationId", "=", learnerRegistration.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    3,
+  );
   assert.equal(
     await database
       .selectFrom("event_presenter_assignment")
@@ -415,19 +509,18 @@ try {
       checkedInAt: null,
     })
     .execute();
-  const recordedAt = new Date();
-  await database
-    .insertInto("event_attendance")
-    .values({
-      eventParticipationId: participationId,
-      eventSessionId: session.id,
-      state: "attended",
-      source: "administrator",
-      recordedByUserId: administrator.id,
-      recordedAt,
-      updatedAt: recordedAt,
-    })
-    .execute();
+  assert.equal(
+    await recordAdminEventAttendance(
+      {
+        eventOccurrenceId,
+        eventParticipationId: participationId,
+        eventSessionId: session.id,
+        state: "attended",
+      },
+      administrator,
+    ),
+    "recorded",
+  );
   assert.equal(
     await database
       .selectFrom("event_attendance")
@@ -461,7 +554,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, current administrator-role publication coverage, staff/session snapshots, restricted domains, registration/participation separation, attendance evidence and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, staff/session snapshots, restricted-domain administrator addition, capacity-safe final selection, learner withdrawal, retained registration transitions, attendance evidence and capacity constraints",
   );
 } finally {
   await cleanup();

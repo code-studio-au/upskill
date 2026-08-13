@@ -492,6 +492,18 @@ interface EventRegistrationTable {
   lockedInAt: Timestamp | null;
 }
 
+interface EventRegistrationTransitionTable {
+  id: string;
+  eventRegistrationId: string;
+  fromStatus: EventRegistrationTable["status"] | null;
+  toStatus: EventRegistrationTable["status"];
+  source:
+    "learner" | "automatic" | "coordinator" | "administrator" | "deadline";
+  actorUserId: string | null;
+  priority: number | null;
+  occurredAt: Timestamp;
+}
+
 interface EventParticipationTable {
   id: string;
   eventOccurrenceId: string;
@@ -587,7 +599,14 @@ export type AuditEventAction =
   | "event_occurrence.created"
   | "event_occurrence.updated"
   | "event_occurrence.published"
+  | "event_occurrence.lifecycle_changed"
+  | "event_attendance.recorded"
+  | "event_region_review.locked"
+  | "event_registration.administrator_added"
+  | "event_registration.coordinator_reviewed"
+  | "event_registration.final_decided"
   | "event_registration.submitted"
+  | "event_registration.withdrawn"
   | "event_template.created"
   | "event_template.version_created"
   | "event_template.version_published"
@@ -644,6 +663,7 @@ export interface Database {
   event_presenter_assignment: EventPresenterAssignmentTable;
   event_region_review_round: EventRegionReviewRoundTable;
   event_registration: EventRegistrationTable;
+  event_registration_transition: EventRegistrationTransitionTable;
   event_session: EventSessionTable;
   event_template: EventTemplateTable;
   event_template_session_definition: EventTemplateSessionDefinitionTable;

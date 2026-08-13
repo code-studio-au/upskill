@@ -32,8 +32,14 @@ activities, completion, and certification.
   administrators, author multi-session and blended-learning content, configure
   regional Coordinator and session Presenter defaults, publish immutable
   versions, create successor versions, and schedule and publish occurrences.
-  Registration, attendance, regional review and learner Event workflows remain
-  schema foundations rather than complete product workflows.
+  The first Event Instance operations workspace now supports authenticated
+  learner registration and withdrawal, region selection, administrator-added
+  registrations with explicit restricted-domain override, retained registration
+  transitions, regional review and list locking, capacity-safe final selection,
+  waitlisting and cancellation, attendance recording, and occurrence lifecycle
+  transitions. Open-entry guest check-in, scoped Coordinator/Presenter portals,
+  staged Event learning, rescheduling rounds and automated communications remain
+  target workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
   capacity-safe registration, attendance and blended learning. Every in-person
@@ -87,9 +93,11 @@ Template creation intentionally creates no implicit Session. The version
 designer requires explicit instance administrators and supports ordered titled
 Sections containing Sessions, SCORM, Surveys and PDF resources, with regional
 Coordinator and session Presenter defaults. Published versions are read-only;
-an administrator creates a cloned successor version before changing them. No
-public registration, check-in, attendance-taking or learner Event workspace
-should be described as implemented yet.
+an administrator creates a cloned successor version before changing them.
+Authenticated registration-required Events are surfaced on the learner dashboard
+and the administrator operations workspace supports review, selection and
+attendance. Public promotion/registration pages, open-entry check-in and the
+full staged learner Event workspace should not be described as implemented yet.
 
 ## Domain Philosophy
 
