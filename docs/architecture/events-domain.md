@@ -37,9 +37,12 @@ activities, completion, and certification.
   registrations with explicit restricted-domain override, retained registration
   transitions, regional review and list locking, capacity-safe final selection,
   waitlisting and cancellation, attendance recording, and occurrence lifecycle
-  transitions. Open-entry guest check-in, scoped Coordinator/Presenter portals,
-  staged Event learning, rescheduling rounds and automated communications remain
-  target workflows.
+  transitions. A separate assigned-events workspace now resolves active Event
+  Administrator, occurrence-region Coordinator and occurrence/Session Presenter
+  assignments; its reads and mutations are constrained to the exact assigned
+  regions and Sessions instead of exposing the broader Administration area.
+  Open-entry guest check-in, staged Event learning, rescheduling rounds and
+  automated communications remain target workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
   capacity-safe registration, attendance and blended learning. Every in-person
@@ -901,10 +904,11 @@ transactional queries demonstrate real pressure.
 
 ### Phase 2 --- Scoped operations
 
-- One-or-more occurrence-and-region Coordinator assignments and dashboard.
-- Assigned-administrator consolidated selection dashboard.
-- One-or-more Presenter assignments per presenter-required scope and
-  attendance-focused view.
+- Extend the first assigned-events dashboard with progress warnings, QR
+  presentation/recovery, filtered exports and assignment lifecycle alerts.
+- Assigned-administrator consolidated final-selection controls in the focused
+  workspace (the current full final-selection controls remain in Administration).
+- Presenter printable/minimal attendance export and time-windowed QR actions.
 - Administrator/Coordinator/Presenter revoke, replacement, attention and
   successor-Template workflows.
 - Attendance evidence and corrections.

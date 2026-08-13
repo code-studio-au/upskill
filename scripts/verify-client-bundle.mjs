@@ -110,6 +110,11 @@ for (const [route, entry] of Object.entries(routes)) {
   const routeCss = (entry.css ?? []).filter((asset) => !rootCssSet.has(asset));
   const routeJavaScriptBytes = sumUniqueAssets(routeJavaScript, gzipSize);
   const routeCssBytes = sumUniqueAssets(routeCss, gzipSize);
+  const routeBudget = budgets.routeJavaScriptGzipBytes?.[route];
+  if (routeBudget !== undefined && routeJavaScriptBytes > routeBudget)
+    failures.push(
+      `Route ${route} incremental JS gzip ${routeJavaScriptBytes} > explicit ${routeBudget}`,
+    );
   if (routeJavaScriptBytes > largestRouteJavaScript.bytes)
     largestRouteJavaScript = { route, bytes: routeJavaScriptBytes };
   if (routeCssBytes > largestRouteCss.bytes)

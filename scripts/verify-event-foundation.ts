@@ -17,6 +17,8 @@ import {
 } from "#/server/admin/admin-event-operations.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
+import { findEventOperationsWorkspace } from "#/server/events/event-operations.server";
 import { withdrawLearnerEventRegistration } from "#/server/learner/learner-event.server";
 
 const database = getDatabase();
@@ -33,6 +35,19 @@ const learner: AuthenticatedUser = {
   email: `verify-event-${suffix}@health.example.org`,
   emailVerified: true,
 };
+const coordinator: AuthenticatedUser = {
+  id: `verify_event_coordinator_${suffix}`,
+  name: "Event coordinator",
+  email: `verify-event-coordinator-${suffix}@example.com`,
+  emailVerified: true,
+};
+const presenter: AuthenticatedUser = {
+  id: `verify_event_presenter_${suffix}`,
+  name: "Event presenter",
+  email: `verify-event-presenter-${suffix}@example.com`,
+  emailVerified: true,
+};
+const coordinationRegionId = `coordination_region_${suffix}`;
 let eventTemplateId: string | null = null;
 let eventTemplateVersionId: string | null = null;
 let eventOccurrenceId: string | null = null;
@@ -167,7 +182,12 @@ async function cleanup(): Promise<void> {
             ...(eventTemplateVersionId ? [eventTemplateVersionId] : []),
             ...(eventOccurrenceId ? [eventOccurrenceId] : []),
           ]),
-          expression("actorUserId", "in", [administrator.id, learner.id]),
+          expression("actorUserId", "in", [
+            administrator.id,
+            learner.id,
+            coordinator.id,
+            presenter.id,
+          ]),
         ]),
       )
       .execute();
@@ -181,6 +201,14 @@ async function cleanup(): Promise<void> {
     .where("id", "=", administrator.id)
     .execute();
   await database.deleteFrom("user").where("id", "=", learner.id).execute();
+  await database
+    .deleteFrom("user")
+    .where("id", "in", [coordinator.id, presenter.id])
+    .execute();
+  await database
+    .deleteFrom("coordination_region")
+    .where("id", "=", coordinationRegionId)
+    .execute();
 }
 
 try {
@@ -191,6 +219,33 @@ try {
       name: administrator.name,
       email: administrator.email,
       emailVerified: true,
+    })
+    .execute();
+  await database
+    .insertInto("user")
+    .values([
+      {
+        id: coordinator.id,
+        name: coordinator.name,
+        email: coordinator.email,
+        emailVerified: true,
+      },
+      {
+        id: presenter.id,
+        name: presenter.name,
+        email: presenter.email,
+        emailVerified: true,
+      },
+    ])
+    .execute();
+  await database
+    .insertInto("coordination_region")
+    .values({
+      id: coordinationRegionId,
+      parentId: null,
+      code: `VERIFY-${suffix}`,
+      name: "Verification region",
+      status: "active",
     })
     .execute();
   await database
@@ -228,7 +283,12 @@ try {
           "Verifies exact-version occurrence provenance and durable staff attribution.",
         hasCompletionCertificate: true,
         defaultAdministratorIds: [administrator.id],
-        regions: [],
+        regions: [
+          {
+            regionId: coordinationRegionId,
+            coordinatorIds: [coordinator.id],
+          },
+        ],
         sections: [
           {
             id: `event_section_${suffix}`,
@@ -242,7 +302,7 @@ try {
                 required: true,
                 durationMinutes: 120,
                 presenterRequired: true,
-                presenterIds: [administrator.id],
+                presenterIds: [presenter.id],
               },
             ],
           },
@@ -338,6 +398,10 @@ try {
     .where("userId", "=", administrator.id)
     .execute();
   assert.equal(
+    await getEventOperationsAccess(administrator, eventOccurrenceId),
+    null,
+  );
+  assert.equal(
     await publishAdminEventOccurrence(eventOccurrenceId, administrator),
     "conflict",
   );
@@ -389,6 +453,12 @@ try {
     .selectFrom("event_session")
     .select(["id", "title", "startsAt", "endsAt"])
     .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  const occurrenceRegion = await database
+    .selectFrom("event_occurrence_region")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("regionId", "=", coordinationRegionId)
     .executeTakeFirstOrThrow();
   assert.equal(session.title, "Workshop session");
   assert.equal(
@@ -465,10 +535,50 @@ try {
       .select(sql<number>`count(*)::integer`.as("count"))
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .where("eventSessionId", "=", session.id)
-      .where("userId", "=", administrator.id)
+      .where("userId", "=", presenter.id)
       .executeTakeFirstOrThrow()
       .then((row) => row.count),
     1,
+  );
+  const coordinatorAccess = await getEventOperationsAccess(
+    coordinator,
+    eventOccurrenceId,
+  );
+  assert.ok(coordinatorAccess);
+  assert.deepEqual(coordinatorAccess.coordinatorRegionIds, [
+    occurrenceRegion.id,
+  ]);
+  assert.deepEqual(coordinatorAccess.presenterSessionIds, []);
+  const coordinatorWorkspace = await findEventOperationsWorkspace(
+    eventOccurrenceId,
+    coordinatorAccess,
+  );
+  assert.ok(coordinatorWorkspace);
+  assert.deepEqual(
+    coordinatorWorkspace.regions.map((region) => region.id),
+    [occurrenceRegion.id],
+  );
+  assert.equal(coordinatorWorkspace.access.canReviewRegistrations, true);
+  const presenterAccess = await getEventOperationsAccess(
+    presenter,
+    eventOccurrenceId,
+  );
+  assert.ok(presenterAccess);
+  assert.deepEqual(presenterAccess.presenterSessionIds, [session.id]);
+  const presenterWorkspace = await findEventOperationsWorkspace(
+    eventOccurrenceId,
+    presenterAccess,
+  );
+  assert.ok(presenterWorkspace);
+  assert.equal(presenterWorkspace.access.canViewRegistrations, false);
+  assert.deepEqual(presenterWorkspace.registrations, []);
+  assert.deepEqual(
+    presenterWorkspace.sessions.map((assignedSession) => assignedSession.id),
+    [session.id],
+  );
+  assert.equal(
+    await getEventOperationsAccess(learner, eventOccurrenceId),
+    null,
   );
 
   const registrationId = `event_registration_${suffix}`;
@@ -554,7 +664,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, staff/session snapshots, restricted-domain administrator addition, capacity-safe final selection, learner withdrawal, retained registration transitions, attendance evidence and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, learner withdrawal, retained registration transitions, attendance evidence and capacity constraints",
   );
 } finally {
   await cleanup();

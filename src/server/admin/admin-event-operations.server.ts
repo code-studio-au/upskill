@@ -377,6 +377,7 @@ export async function recordAdminEventAttendance(
     state: "not_recorded" | "checked_in" | "attended" | "absent";
   },
   actor: AuthenticatedUser,
+  source: "coordinator" | "presenter" | "administrator" = "administrator",
 ) {
   return await getDatabase()
     .transaction()
@@ -401,7 +402,7 @@ export async function recordAdminEventAttendance(
           eventParticipationId: input.eventParticipationId,
           eventSessionId: input.eventSessionId,
           state: input.state,
-          source: "administrator",
+          source,
           recordedByUserId: actor.id,
           recordedAt: now,
           updatedAt: now,
@@ -411,7 +412,7 @@ export async function recordAdminEventAttendance(
             .columns(["eventParticipationId", "eventSessionId"])
             .doUpdateSet({
               state: input.state,
-              source: "administrator",
+              source,
               recordedByUserId: actor.id,
               updatedAt: now,
             }),
@@ -423,7 +424,7 @@ export async function recordAdminEventAttendance(
         subjectType: "event_attendance",
         subjectId: `${input.eventParticipationId}:${input.eventSessionId}`,
         aggregateId: input.eventOccurrenceId,
-        metadata: { state: input.state },
+        metadata: { state: input.state, source },
         createdAt: now,
       });
       return "recorded" as const;
@@ -510,6 +511,7 @@ export async function lockAdminEventRegion(
   eventOccurrenceId: string,
   eventOccurrenceRegionId: string,
   actor: AuthenticatedUser,
+  source: "manual" | "administrator" = "administrator",
 ) {
   return await getDatabase()
     .transaction()
@@ -540,7 +542,7 @@ export async function lockAdminEventRegion(
         .set({
           lockedAt: now,
           lockedByUserId: actor.id,
-          lockSource: "administrator",
+          lockSource: source,
         })
         .where("id", "=", review.id)
         .execute();

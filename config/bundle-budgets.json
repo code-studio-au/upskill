@@ -1,11 +1,15 @@
 {
-  "clientJavaScriptBytes": 660000,
+  "clientJavaScriptBytes": 676000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 191000,
+  "clientJavaScriptBrotliBytes": 196000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
   "rootCssGzipBytes": 46080,
   "routeIncrementalJavaScriptGzipBytes": 32768,
-  "routeIncrementalCssGzipBytes": 12288
+  "routeIncrementalCssGzipBytes": 12288,
+  "routeJavaScriptGzipBytes": {
+    "/event-operations/": 8192,
+    "/event-operations/$eventOccurrenceId": 8192
+  }
 }
