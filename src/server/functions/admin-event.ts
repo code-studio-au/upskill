@@ -11,6 +11,7 @@ import {
   adminEventStaffEligibilityParamsSchema,
   adminEventTemplateDraftSchema,
   adminEventTemplateParamsSchema,
+  adminEventTemplateSelectionSchema,
   adminEventTemplateVersionParamsSchema,
   type AdminEventMutationResult,
   type AdminEventPersonOption,
@@ -120,7 +121,13 @@ export const revokeAdminEventStaffEligibility = createServerFn({
     const { revokeAdminEventStaffEligibility: revokeEligibility } =
       await import("#/server/admin/admin-event.server");
     const outcome = await revokeEligibility(data.eligibilityId, request.user);
-    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome.status === "not-found") return { status: "not-found" };
+    if (outcome.status === "conflict")
+      return {
+        status: "conflict",
+        reason: "coordinator_coverage_required",
+        coordinatorCoverage: outcome.coordinatorCoverage,
+      };
     return {
       status: "ready",
       data: {
@@ -150,7 +157,7 @@ export const searchAdminEventStaffCandidates = createServerFn({ method: "GET" })
   );
 
 export const getAdminEventTemplate = createServerFn({ method: "GET" })
-  .validator(adminEventTemplateParamsSchema)
+  .validator(adminEventTemplateSelectionSchema)
   .handler(async ({ data }): Promise<AdminEventTemplateDetailResult> => {
     const { getAdministratorRequest } =
       await import("#/server/admin/admin-access.server");
@@ -158,7 +165,10 @@ export const getAdminEventTemplate = createServerFn({ method: "GET" })
     if (request.status !== "ready") return request;
     const { findAdminEventTemplate } =
       await import("#/server/admin/admin-event.server");
-    const detail = await findAdminEventTemplate(data.eventTemplateId);
+    const detail = await findAdminEventTemplate(
+      data.eventTemplateId,
+      data.eventTemplateVersionId,
+    );
     return detail ? { status: "ready", data: detail } : { status: "not-found" };
   });
 
@@ -257,6 +267,36 @@ export const createAdminEventVersion = createServerFn({ method: "POST" })
         outcome: "template-version-created",
         eventTemplateId: data.eventTemplateId,
         eventTemplateVersionId: outcome.eventTemplateVersionId,
+      },
+    };
+  });
+
+export const deleteAdminEventVersion = createServerFn({ method: "POST" })
+  .validator(adminEventTemplateVersionParamsSchema)
+  .handler(async ({ data }): Promise<AdminEventMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { deleteAdminEventTemplateVersion } =
+      await import("#/server/admin/admin-event.server");
+    const outcome = await deleteAdminEventTemplateVersion(
+      data.eventTemplateId,
+      data.eventTemplateVersionId,
+      request.user,
+    );
+    if (outcome.status === "not-found") return { status: "not-found" };
+    if (outcome.status === "conflict")
+      return { status: "conflict", reason: "template_version_not_deletable" };
+    return {
+      status: "ready",
+      data: {
+        outcome:
+          "templateDeleted" in outcome && outcome.templateDeleted
+            ? "template-deleted"
+            : "template-version-deleted",
+        eventTemplateId: data.eventTemplateId,
+        eventTemplateVersionId: data.eventTemplateVersionId,
       },
     };
   });

@@ -32,6 +32,9 @@ import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.in
 import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
 import { Route as AdminEventsIndexRouteImport } from './routes/admin.events.index'
 import { Route as AdminEventsEventTemplateIdRouteImport } from './routes/admin.events.$eventTemplateId'
+import { Route as AdminEventsScheduledRouteImport } from './routes/admin.events.scheduled'
+import { Route as AdminEventsSettingsRouteImport } from './routes/admin.events.settings'
+import { Route as AdminEventsTemplatesRouteImport } from './routes/admin.events.templates'
 import { Route as AdminLearnersIndexRouteImport } from './routes/admin.learners.index'
 import { Route as AdminLearnersUserIdRouteImport } from './routes/admin.learners.$userId'
 import { Route as AdminSurveysIndexRouteImport } from './routes/admin.surveys.index'
@@ -43,6 +46,7 @@ import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 import { Route as AdminEventsInstancesEventOccurrenceIdRouteImport } from './routes/admin.events.instances.$eventOccurrenceId'
+import { Route as AdminEventsInstancesNewRouteImport } from './routes/admin.events.instances_.new'
 import { Route as ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport } from './routes/api.event-operations.$eventOccurrenceId.progress[.]csv'
 import { Route as ApiEventSurveysPublicReferenceQrDotsvgRouteImport } from './routes/api.event-surveys.$publicReference.qr[.]svg'
 import { Route as ApiLearningCertificatesEnrollmentIdRouteImport } from './routes/api.learning.certificates.$enrollmentId'
@@ -174,6 +178,21 @@ const AdminEventsEventTemplateIdRoute =
     path: '/events/$eventTemplateId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminEventsScheduledRoute = AdminEventsScheduledRouteImport.update({
+  id: '/events/scheduled',
+  path: '/events/scheduled',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminEventsSettingsRoute = AdminEventsSettingsRouteImport.update({
+  id: '/events/settings',
+  path: '/events/settings',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminEventsTemplatesRoute = AdminEventsTemplatesRouteImport.update({
+  id: '/events/templates',
+  path: '/events/templates',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminLearnersIndexRoute = AdminLearnersIndexRouteImport.update({
   id: '/learners/',
   path: '/learners/',
@@ -230,6 +249,11 @@ const AdminEventsInstancesEventOccurrenceIdRoute =
     path: '/events/instances/$eventOccurrenceId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminEventsInstancesNewRoute = AdminEventsInstancesNewRouteImport.update({
+  id: '/events/instances_/new',
+  path: '/events/instances/new',
+  getParentRoute: () => AdminRoute,
+} as any)
 const ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute =
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport.update({
     id: '/api/event-operations/$eventOccurrenceId/progress.csv',
@@ -321,6 +345,9 @@ export interface FileRoutesByFullPath {
   '/event-operations/': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
+  '/admin/events/scheduled': typeof AdminEventsScheduledRoute
+  '/admin/events/settings': typeof AdminEventsSettingsRoute
+  '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -334,6 +361,7 @@ export interface FileRoutesByFullPath {
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/admin/events/instances/new': typeof AdminEventsInstancesNewRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -366,6 +394,9 @@ export interface FileRoutesByTo {
   '/event-operations': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
+  '/admin/events/scheduled': typeof AdminEventsScheduledRoute
+  '/admin/events/settings': typeof AdminEventsSettingsRoute
+  '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -379,6 +410,7 @@ export interface FileRoutesByTo {
   '/admin/learners': typeof AdminLearnersIndexRoute
   '/admin/surveys': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/admin/events/instances/new': typeof AdminEventsInstancesNewRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -414,6 +446,9 @@ export interface FileRoutesById {
   '/event-operations/': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
+  '/admin/events/scheduled': typeof AdminEventsScheduledRoute
+  '/admin/events/settings': typeof AdminEventsSettingsRoute
+  '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -427,6 +462,7 @@ export interface FileRoutesById {
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/admin/events/instances_/new': typeof AdminEventsInstancesNewRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -463,6 +499,9 @@ export interface FileRouteTypes {
     | '/event-operations/'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
+    | '/admin/events/scheduled'
+    | '/admin/events/settings'
+    | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -476,6 +515,7 @@ export interface FileRouteTypes {
     | '/admin/learners/'
     | '/admin/surveys/'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/admin/events/instances/new'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -508,6 +548,9 @@ export interface FileRouteTypes {
     | '/event-operations'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
+    | '/admin/events/scheduled'
+    | '/admin/events/settings'
+    | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -521,6 +564,7 @@ export interface FileRouteTypes {
     | '/admin/learners'
     | '/admin/surveys'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/admin/events/instances/new'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -555,6 +599,9 @@ export interface FileRouteTypes {
     | '/event-operations/'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
+    | '/admin/events/scheduled'
+    | '/admin/events/settings'
+    | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -568,6 +615,7 @@ export interface FileRouteTypes {
     | '/admin/learners/'
     | '/admin/surveys/'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/admin/events/instances_/new'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -774,6 +822,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminEventsEventTemplateIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/events/scheduled': {
+      id: '/admin/events/scheduled'
+      path: '/events/scheduled'
+      fullPath: '/admin/events/scheduled'
+      preLoaderRoute: typeof AdminEventsScheduledRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/events/settings': {
+      id: '/admin/events/settings'
+      path: '/events/settings'
+      fullPath: '/admin/events/settings'
+      preLoaderRoute: typeof AdminEventsSettingsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/events/templates': {
+      id: '/admin/events/templates'
+      path: '/events/templates'
+      fullPath: '/admin/events/templates'
+      preLoaderRoute: typeof AdminEventsTemplatesRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/learners/': {
       id: '/admin/learners/'
       path: '/learners'
@@ -849,6 +918,13 @@ declare module '@tanstack/react-router' {
       path: '/events/instances/$eventOccurrenceId'
       fullPath: '/admin/events/instances/$eventOccurrenceId'
       preLoaderRoute: typeof AdminEventsInstancesEventOccurrenceIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/events/instances_/new': {
+      id: '/admin/events/instances_/new'
+      path: '/events/instances/new'
+      fullPath: '/admin/events/instances/new'
+      preLoaderRoute: typeof AdminEventsInstancesNewRouteImport
       parentRoute: typeof AdminRoute
     }
     '/api/event-operations/$eventOccurrenceId/progress.csv': {
@@ -938,6 +1014,9 @@ interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
   AdminEventsEventTemplateIdRoute: typeof AdminEventsEventTemplateIdRoute
+  AdminEventsScheduledRoute: typeof AdminEventsScheduledRoute
+  AdminEventsSettingsRoute: typeof AdminEventsSettingsRoute
+  AdminEventsTemplatesRoute: typeof AdminEventsTemplatesRoute
   AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
   AdminSurveysSurveyIdRoute: typeof AdminSurveysSurveyIdRoute
   AdminCoursesIndexRoute: typeof AdminCoursesIndexRoute
@@ -945,6 +1024,7 @@ interface AdminRouteChildren {
   AdminLearnersIndexRoute: typeof AdminLearnersIndexRoute
   AdminSurveysIndexRoute: typeof AdminSurveysIndexRoute
   AdminEventsInstancesEventOccurrenceIdRoute: typeof AdminEventsInstancesEventOccurrenceIdRoute
+  AdminEventsInstancesNewRoute: typeof AdminEventsInstancesNewRoute
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
 
@@ -955,6 +1035,9 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
   AdminEventsEventTemplateIdRoute: AdminEventsEventTemplateIdRoute,
+  AdminEventsScheduledRoute: AdminEventsScheduledRoute,
+  AdminEventsSettingsRoute: AdminEventsSettingsRoute,
+  AdminEventsTemplatesRoute: AdminEventsTemplatesRoute,
   AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,
   AdminSurveysSurveyIdRoute: AdminSurveysSurveyIdRoute,
   AdminCoursesIndexRoute: AdminCoursesIndexRoute,
@@ -963,6 +1046,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminSurveysIndexRoute: AdminSurveysIndexRoute,
   AdminEventsInstancesEventOccurrenceIdRoute:
     AdminEventsInstancesEventOccurrenceIdRoute,
+  AdminEventsInstancesNewRoute: AdminEventsInstancesNewRoute,
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute:
     AdminLearnersUserIdEnrollmentsEnrollmentIdRoute,
 }

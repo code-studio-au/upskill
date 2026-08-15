@@ -18,6 +18,11 @@ const validOccurrence = {
   registrationMode: "required_restricted" as const,
   approvalMode: "manual" as const,
   timezone: "Australia/Sydney",
+  localStartsAt: "2027-08-21T09:00:00",
+  localEndsAt: "2027-08-21T15:00:00",
+  localRegistrationOpensAt: "2027-06-01T10:00:00",
+  localRegistrationClosesAt: "2027-08-10T10:00:00",
+  localCoordinatorLockAt: "2027-08-12T10:00:00",
   startsAt: "2027-08-20T23:00:00.000Z",
   endsAt: "2027-08-21T05:00:00.000Z",
   registrationOpensAt: "2027-06-01T00:00:00.000Z",
@@ -101,6 +106,15 @@ describe("event administration schemas", () => {
       adminEventOccurrenceFormSchema.safeParse({
         ...validOccurrenceForm,
         startsAt: "not-a-date",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects unsupported event timezones", () => {
+    expect(
+      adminEventOccurrenceFormSchema.safeParse({
+        ...validOccurrenceForm,
+        timezone: "Definitely/Not-A-Timezone",
       }).success,
     ).toBe(false);
   });

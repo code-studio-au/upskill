@@ -1,0 +1,44 @@
+.formGrid {
+  display: grid;
+  grid-template-columns:
+    minmax(14rem, 2fr) minmax(10rem, 1fr) minmax(12rem, 1fr)
+    auto;
+  gap: var(--mantine-spacing-md);
+  align-items: end;
+}
+
+.emailField {
+  min-width: 0;
+}
+
+.responsibilityField {
+  min-width: 0;
+}
+
+.submit {
+  white-space: nowrap;
+}
+
+@media (max-width: 64rem) {
+  .formGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .emailField {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 36rem) {
+  .formGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .emailField {
+    grid-column: auto;
+  }
+
+  .submit {
+    width: 100%;
+  }
+}

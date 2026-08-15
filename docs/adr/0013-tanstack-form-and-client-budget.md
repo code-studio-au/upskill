@@ -45,14 +45,23 @@ increased the complete all-route output by 16,793 bytes of JavaScript and 2,161
 bytes of CSS. Total caps therefore ratchet by 17 KB and 2 KB. Root preload,
 largest-asset and per-route caps remain unchanged.
 
-The first-class Event foundation keeps `/admin/events` route-scoped and loads
-its Template and occurrence authoring dialogs only when opened. This reduced
-the parent route chunk from 17.45 KB to 7.12 KB, with separate 3.22 KB and 6.59
-KB conditional chunks. The complete all-route build nevertheless gained the
-new product workflow and measured 620,840 bytes raw and 180,414 bytes Brotli.
-The corresponding total JavaScript caps therefore ratchet by 20 KB raw and 5
-KB Brotli. Root preload, largest-asset and per-route incremental caps remain
-unchanged.
+The first-class Event foundation initially kept `/admin/events` route-scoped and
+loaded its Template and occurrence authoring dialogs only when opened. This
+reduced the parent route chunk from 17.45 KB to 7.12 KB, with separate 3.22 KB
+and 6.59 KB conditional chunks. The complete all-route build nevertheless
+gained the new product workflow and measured 620,840 bytes raw and 180,414
+bytes Brotli. The corresponding total JavaScript caps therefore ratcheted by 20
+KB raw and 5 KB Brotli. Root preload, largest-asset and per-route incremental
+caps remained unchanged.
+
+The later administration navigation pass split that tabbed workspace into
+route-scoped Event Templates and Scheduled Events pages plus a dedicated Event
+Settings page beneath `/admin/events`. Event Template and scheduled-instance
+authoring now have distinct URLs and client chunks; the `/admin/events`
+compatibility entry redirects to Scheduled Events. Event Settings retains
+conditional boundaries around its Staff and Regions panels. Direct links from
+instances to their exact template versions remain available, and the editors
+remain outside the root application preload.
 
 The Event rescheduling regional-coverage editor is loaded only after an
 administrator opens the already conditional occurrence editor. Region addition,
@@ -99,6 +108,82 @@ enter the public or root preload boundary. The complete all-route build measures
 Staff roster chunk measures 32.15 KB gzip. Its explicit cap therefore ratchets
 to 34 KB, and aggregate caps to 803 KB raw and 233 KB Brotli. Root preload,
 largest-asset and per-route limits remain unchanged.
+
+Event occurrence scheduling now has a dedicated route/view instead of a large
+modal, and template staffing reuses one searchable, eligibility-bounded picker
+for administrators, Presenters and regional Coordinators. Registration review
+rows use one compact decision control rather than four stacked actions. After
+removing a heavier menu implementation, consolidating occurrence configuration
+into its existing route and simplifying the shared picker, the complete
+all-route build measures 866,722 raw JavaScript bytes and 252,278 Brotli bytes.
+The aggregate caps therefore ratchet by 2 KB raw and 2 KB Brotli. Named 4 KB
+and 1 KB gzip caps constrain the occurrence editor and eligible-staff picker;
+root preload, largest-asset and per-route limits remain unchanged.
+
+The assigned-event Progress table derives per-participant attendance from the
+already-authorised session attendance read model without another query or
+client entry point. Aggregate Progress and Attendance summary cards were later
+removed so the tab begins with its filters and participant table. The compact
+attendance detail remains inside the existing conditional Progress chunk.
+
+Coordinator eligibility revocation now performs a transactional active-instance
+coverage check and returns affected occurrence-regions when a sole Coordinator
+must first be replaced. The administrator guidance remains inside the existing
+conditional Event Staff roster chunk. The complete all-route build measures
+870,328 raw JavaScript bytes and 253,160 Brotli bytes, increases of 1,168 and
+342 bytes respectively. Aggregate caps therefore ratchet by 2 KB raw and 1 KB
+Brotli; the existing Staff roster conditional ceiling and all root, route,
+largest-asset and CSS limits remain unchanged.
+
+Separating Event Templates and Scheduled Events into independent routes adds
+explicit navigation and route-manifest entries while keeping Event Staff and
+Regions behind conditional imports on a compact Event Settings route. The
+complete all-route build measures 872,656 raw JavaScript bytes and 254,347
+Brotli bytes. Aggregate caps therefore ratchet by 1 KB raw and 1 KB Brotli;
+root preload, route-incremental, largest-asset, CSS and named conditional limits
+remain unchanged.
+
+The Event Staff responsibility field uses Mantine `NativeSelect` instead of
+application-composed toggle buttons. Because the component reuses the Input
+styles already loaded by the staff autocomplete and remains inside the lazy
+Staff panel, the measured all-route build is 873,390 raw JavaScript bytes and
+254,592 Brotli bytes. The raw aggregate cap therefore ratchets by 1 KB; Brotli,
+root preload, route-incremental, CSS and named conditional limits remain
+unchanged.
+
+The event staff autocompletes also load Mantine's `ScrollArea` stylesheet at
+their conditional component boundaries. This prevents inactive native-looking
+horizontal and vertical tracks from appearing in the options popover while
+retaining vertical scrolling when a result list actually overflows. The
+measured all-route build is 873,414 raw JavaScript bytes, 254,609 Brotli
+JavaScript bytes, 94,768 raw CSS bytes and 20,438 Brotli CSS bytes. All existing
+JavaScript, CSS, root, route and named conditional limits remain unchanged.
+
+Removing the aggregate Progress and Attendance summary cards, together with
+their unused count derivation, reduces the complete all-route build to 871,684
+raw JavaScript bytes and the conditional Progress chunk to 2.42 KB gzip. The
+raw aggregate cap therefore ratchets down by 2 KB and the Progress conditional
+cap returns from 3 KB to 2.5 KB gzip. Other limits remain unchanged.
+
+The Schedule New Event page now presents the existing occurrence form as four
+responsive, task-focused cards for identity, dates, delivery and registration.
+It keeps edit and reschedule behaviour in the existing lazy occurrence-editor
+boundary; open-entry events omit registration-only controls and required
+registration reveals them in place. The complete all-route build measures
+875,501 raw JavaScript bytes, 254,996 Brotli JavaScript bytes, 97,097 raw CSS
+bytes and 20,915 Brotli CSS bytes. The raw aggregate cap therefore ratchets by
+4 KB and the named occurrence-editor cap from 4 KB to 5 KB gzip. Root preload,
+route-incremental, Brotli, CSS and all other named limits remain unchanged.
+
+Event scheduling now derives a city-searchable `Event timezone` catalogue from
+the runtime's supported IANA timezones and keeps the persisted canonical
+identifier. A lightweight, styled datalist avoids shipping a static timezone
+dataset or making the scheduling route depend on Mantine's much larger rich
+combobox and scroll-area runtime. The complete all-route build measures 876,793
+raw JavaScript bytes and 255,605 Brotli JavaScript bytes. The aggregate raw and
+Brotli caps therefore each ratchet by 1 KB, and the named occurrence-editor cap
+from 5 KB to 5.25 KB gzip. Root preload, route-incremental, largest-asset, CSS
+and all other named conditional limits remain unchanged.
 
 ## Consequences
 

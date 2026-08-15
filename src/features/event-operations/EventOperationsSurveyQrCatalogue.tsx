@@ -4,7 +4,6 @@ import type {
   EventSurveyQrCatalogueItem,
 } from "./event-operations.schema";
 import { Badge } from "#/features/shared/Badge";
-import { formatLocalDateTime } from "#/features/shared/local-date";
 import {
   Alert,
   Button,
@@ -23,38 +22,22 @@ const phaseLabels: Record<EventSurveyQrCatalogueItem["phase"], string> = {
   follow_up: "Follow-up",
 };
 
-function offsetDescription(minutes: number): string {
-  if (minutes === 0) return "at the release anchor";
-  const absolute = Math.abs(minutes);
-  const quantity =
-    absolute % 1_440 === 0
-      ? `${String(absolute / 1_440)} day${absolute === 1_440 ? "" : "s"}`
-      : absolute % 60 === 0
-        ? `${String(absolute / 60)} hour${absolute === 60 ? "" : "s"}`
-        : `${String(absolute)} minute${absolute === 1 ? "" : "s"}`;
-  return `${quantity} ${minutes < 0 ? "before" : "after"} the release anchor`;
-}
+const releaseAnchorLabels: Record<
+  EventSurveyQrCatalogueItem["releaseAnchor"],
+  string
+> = {
+  participation_created: "participant confirmation",
+  occurrence_start: "event start",
+  occurrence_end: "event end",
+  final_session_end: "final session end",
+};
 
-function availabilityDescription(
-  entry: EventSurveyQrCatalogueItem,
-  workspace: EventOperationsWorkspace,
-): string {
-  if (entry.releaseAnchor === "participation_created")
-    return entry.releaseOffsetMinutes === 0
-      ? "Available when each participant is confirmed"
-      : `Available ${offsetDescription(entry.releaseOffsetMinutes).replace("the release anchor", "each participant is confirmed")}`;
-  const anchor =
-    entry.releaseAnchor === "occurrence_start"
-      ? workspace.occurrence.startsAt
-      : entry.releaseAnchor === "occurrence_end"
-        ? workspace.occurrence.endsAt
-        : (workspace.sessions.at(-1)?.endsAt ?? workspace.occurrence.endsAt);
-  const releaseAt = new Date(
-    new Date(anchor).getTime() + entry.releaseOffsetMinutes * 60_000,
-  ).toISOString();
-  return `Available from ${formatLocalDateTime(releaseAt, {
-    timeZone: workspace.occurrence.timezone,
-  })}`;
+function availabilityDescription(entry: EventSurveyQrCatalogueItem): string {
+  const anchor = releaseAnchorLabels[entry.releaseAnchor];
+  const amount = entry.releaseOffsetAmount;
+  if (amount === 0) return `Available at ${anchor}`;
+  const absolute = Math.abs(amount);
+  return `Available ${String(absolute)} ${entry.releaseOffsetUnit}${absolute === 1 ? "" : "s"} ${amount < 0 ? "before" : "after"} ${anchor}`;
 }
 
 export function EventOperationsSurveyQrCatalogue({
@@ -103,7 +86,7 @@ export function EventOperationsSurveyQrCatalogue({
                     {phaseLabels[entry.phase]}
                   </Text>
                   <Text size="sm" c="dimmed">
-                    {availabilityDescription(entry, workspace)}
+                    {availabilityDescription(entry)}
                   </Text>
                 </div>
                 <Text size="xs" c="dimmed" className={classes.qrPath}>

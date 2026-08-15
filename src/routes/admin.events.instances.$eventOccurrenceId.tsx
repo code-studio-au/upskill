@@ -41,21 +41,27 @@ import classes from "./admin.events.instances.$eventOccurrenceId.module.css";
 
 const searchSchema = z.object({
   view: z.catch(
-    z.enum(["overview", "registrations", "staffing", "activity"]),
+    z.enum([
+      "overview",
+      "registrations",
+      "staffing",
+      "activity",
+      "configuration",
+    ]),
     "overview",
   ),
-});
-
-const AdminEventOccurrenceDialog = lazy(async () => {
-  const module =
-    await import("#/features/admin-event/AdminEventOccurrenceDialog");
-  return { default: module.AdminEventOccurrenceDialog };
 });
 
 const AdminEventRegistrationTable = lazy(async () => {
   const module =
     await import("#/features/admin-event/AdminEventRegistrationTable");
   return { default: module.AdminEventRegistrationTable };
+});
+
+const AdminEventOccurrenceEditor = lazy(async () => {
+  const module =
+    await import("#/features/admin-event/AdminEventOccurrenceEditor");
+  return { default: module.AdminEventOccurrenceEditor };
 });
 
 const AdminEventActivityTable = lazy(async () => {
@@ -95,7 +101,6 @@ function EventInstanceOperationsPage() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
-  const [configurationOpen, setConfigurationOpen] = useState(false);
   const [lifecycleTarget, setLifecycleTarget] = useState<
     "cancelled" | "completed" | "archived" | null
   >(null);
@@ -142,6 +147,60 @@ function EventInstanceOperationsPage() {
   const registrationMutationsAvailable =
     workspace.occurrence.status === "published";
 
+  if (search.view === "configuration")
+    return (
+      <Suspense fallback={<LoadingSpinner label="Loading event editor" />}>
+        <AdminEventOccurrenceEditor
+          publishedVersions={[
+            {
+              eventTemplateId: workspace.occurrence.eventTemplateId,
+              eventTemplateVersionId:
+                workspace.occurrence.eventTemplateVersionId,
+              title: workspace.occurrence.templateTitle,
+              version: workspace.occurrence.templateVersion,
+            },
+          ]}
+          occurrence={{
+            ...workspace.occurrence,
+            eventTemplateTitle: workspace.occurrence.templateTitle,
+            templateVersion: workspace.occurrence.templateVersion,
+            registrationOpensAt: workspace.occurrence.registrationOpensAt ?? "",
+            registrationClosesAt:
+              workspace.occurrence.registrationClosesAt ?? "",
+            coordinatorLockAt: workspace.occurrence.coordinatorLockAt ?? "",
+            localRegistrationOpensAt:
+              workspace.occurrence.localRegistrationOpensAt ?? "",
+            localRegistrationClosesAt:
+              workspace.occurrence.localRegistrationClosesAt ?? "",
+            localCoordinatorLockAt:
+              workspace.occurrence.localCoordinatorLockAt ?? "",
+          }}
+          regionalCoverage={{
+            availableRegions: workspace.availableRegions,
+            availableCoordinators: workspace.availableCoordinators,
+            availableUsers: workspace.availableUsers,
+            currentRegions: workspace.regions.map((region) => ({
+              regionId: region.regionId,
+              name: region.name,
+              code: region.code,
+              coordinatorIds: region.coordinators.map(
+                (coordinator) => coordinator.id,
+              ),
+              selectedCount: region.selectedCount,
+              affectedActiveCount: region.affectedActiveCount,
+            })),
+          }}
+          onCancel={() => {
+            void navigate({ search: { view: "overview" }, replace: true });
+          }}
+          onSaved={async () => {
+            await router.invalidate();
+            await navigate({ search: { view: "overview" }, replace: true });
+          }}
+        />
+      </Suspense>
+    );
+
   return (
     <Stack gap="lg">
       <Group justify="space-between" align="end" wrap="wrap">
@@ -161,7 +220,9 @@ function EventInstanceOperationsPage() {
             <Button
               variant="light"
               onClick={() => {
-                setConfigurationOpen(true);
+                void navigate({
+                  search: { view: "configuration" },
+                });
               }}
             >
               Edit schedule & policy
@@ -517,53 +578,6 @@ function EventInstanceOperationsPage() {
           }
         />
       ) : null}
-      <Suspense fallback={<LoadingSpinner label="Loading event editor" />}>
-        {configurationOpen ? (
-          <AdminEventOccurrenceDialog
-            publishedVersions={[
-              {
-                eventTemplateId: workspace.occurrence.eventTemplateId,
-                eventTemplateVersionId:
-                  workspace.occurrence.eventTemplateVersionId,
-                title: workspace.occurrence.templateTitle,
-                version: workspace.occurrence.templateVersion,
-              },
-            ]}
-            occurrence={{
-              ...workspace.occurrence,
-              eventTemplateTitle: workspace.occurrence.templateTitle,
-              templateVersion: workspace.occurrence.templateVersion,
-              registrationOpensAt:
-                workspace.occurrence.registrationOpensAt ?? "",
-              registrationClosesAt:
-                workspace.occurrence.registrationClosesAt ?? "",
-              coordinatorLockAt: workspace.occurrence.coordinatorLockAt ?? "",
-            }}
-            regionalCoverage={{
-              availableRegions: workspace.availableRegions,
-              availableCoordinators: workspace.availableCoordinators,
-              availableUsers: workspace.availableUsers,
-              currentRegions: workspace.regions.map((region) => ({
-                regionId: region.regionId,
-                name: region.name,
-                code: region.code,
-                coordinatorIds: region.coordinators.map(
-                  (coordinator) => coordinator.id,
-                ),
-                selectedCount: region.selectedCount,
-                affectedActiveCount: region.affectedActiveCount,
-              })),
-            }}
-            onClose={() => {
-              setConfigurationOpen(false);
-            }}
-            onSaved={async () => {
-              setConfigurationOpen(false);
-              await router.invalidate();
-            }}
-          />
-        ) : null}
-      </Suspense>
       {lifecycleTarget ? (
         <ConfirmationDialog
           title={`${lifecycleTarget === "cancelled" ? "Cancel" : lifecycleTarget === "completed" ? "Complete" : "Archive"} event instance?`}

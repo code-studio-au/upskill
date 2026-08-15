@@ -225,6 +225,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("registrationMode", "text", (column) => column.notNull())
     .addColumn("approvalMode", "text", (column) => column.notNull())
     .addColumn("timezone", "text", (column) => column.notNull())
+    .addColumn("localStartsAt", "text", (column) => column.notNull())
+    .addColumn("localEndsAt", "text", (column) => column.notNull())
+    .addColumn("localRegistrationOpensAt", "text")
+    .addColumn("localRegistrationClosesAt", "text")
+    .addColumn("localCoordinatorLockAt", "text")
     .addColumn("startsAt", "timestamptz", (column) => column.notNull())
     .addColumn("endsAt", "timestamptz", (column) => column.notNull())
     .addColumn("registrationOpensAt", "timestamptz")
@@ -277,6 +282,14 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       sql`"endsAt" > "startsAt"
         and ("registrationOpensAt" is null or "registrationClosesAt" is null or "registrationClosesAt" > "registrationOpensAt")
         and ("coordinatorLockAt" is null or "registrationClosesAt" is null or "coordinatorLockAt" >= "registrationClosesAt")`,
+    )
+    .addCheckConstraint(
+      "event_occurrence_local_schedule_ck",
+      sql`"localStartsAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+        and "localEndsAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+        and ("localRegistrationOpensAt" is null or "localRegistrationOpensAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')
+        and ("localRegistrationClosesAt" is null or "localRegistrationClosesAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')
+        and ("localCoordinatorLockAt" is null or "localCoordinatorLockAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')`,
     )
     .addCheckConstraint(
       "event_occurrence_capacity_ck",
@@ -358,6 +371,8 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     )
     .addColumn("position", "integer", (column) => column.notNull())
     .addColumn("title", "text", (column) => column.notNull())
+    .addColumn("localStartsAt", "text", (column) => column.notNull())
+    .addColumn("localEndsAt", "text", (column) => column.notNull())
     .addColumn("startsAt", "timestamptz", (column) => column.notNull())
     .addColumn("endsAt", "timestamptz", (column) => column.notNull())
     .addColumn("presenterRequired", "boolean", (column) => column.notNull())
@@ -375,6 +390,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addCheckConstraint(
       "event_session_schedule_ck",
       sql`position >= 0 and "endsAt" > "startsAt"`,
+    )
+    .addCheckConstraint(
+      "event_session_local_schedule_ck",
+      sql`"localStartsAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+        and "localEndsAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'`,
     )
     .execute();
 

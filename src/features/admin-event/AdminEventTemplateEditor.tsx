@@ -16,6 +16,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useRef, useState, type SetStateAction } from "react";
 import {
   createAdminEventVersion,
+  deleteAdminEventVersion,
   publishAdminEventTemplate,
   saveAdminEventTemplate,
 } from "#/server/functions/admin-event";
@@ -27,6 +28,8 @@ import {
 } from "./admin-event.schema";
 import classes from "./AdminEventTemplateEditor.module.css";
 import { PageTabs } from "#/features/shared/PageTabs";
+import { EligibleStaffPicker } from "./EligibleStaffPicker";
+import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 
 function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
   const destination = index + direction;
@@ -34,12 +37,6 @@ function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
   const next = [...values];
   [next[index], next[destination]] = [next[destination] as T, next[index] as T];
   return next;
-}
-
-function toggle(values: Array<string>, id: string, checked: boolean) {
-  return checked
-    ? [...new Set([...values, id])]
-    : values.filter((value) => value !== id);
 }
 
 export function AdminEventTemplateEditor({
@@ -53,6 +50,7 @@ export function AdminEventTemplateEditor({
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [editorView, setEditorView] = useState<
     "details" | "program" | "staffing"
   >("details");
@@ -198,7 +196,45 @@ export function AdminEventTemplateEditor({
         setError("A successor version could not be created.");
         return;
       }
-      await onChanged();
+      if (result.data.eventTemplateVersionId)
+        await navigate({
+          search: { version: result.data.eventTemplateVersionId },
+        });
+    } finally {
+      setPending(null);
+    }
+  }
+
+  async function deleteDraftVersion() {
+    setPending("delete");
+    setError(null);
+    try {
+      const result = await deleteAdminEventVersion({
+        data: {
+          eventTemplateId: detail.template.id,
+          eventTemplateVersionId: detail.version.id,
+        },
+      });
+      if (result.status !== "ready") {
+        setError(
+          "This draft cannot be deleted because it is published or already used by an event instance.",
+        );
+        return;
+      }
+      setDeleteOpen(false);
+      if (result.data.outcome === "template-deleted") {
+        await navigate({
+          to: "/admin/events/templates",
+        });
+        return;
+      }
+      const fallback = detail.versions.find(
+        (version) => version.id !== detail.version.id,
+      );
+      await navigate({
+        search: { version: fallback?.id },
+        replace: true,
+      });
     } finally {
       setPending(null);
     }
@@ -213,17 +249,29 @@ export function AdminEventTemplateEditor({
             px={0}
             onClick={() => {
               void navigate({
-                to: "/admin/events",
-                search: { view: "templates" },
+                to: "/admin/events/templates",
               });
             }}
           >
-            Back to events
+            Back to event templates
           </Button>
           <Group gap="sm">
             <Title order={1}>{detail.template.title}</Title>
             <Badge variant="light">Version {detail.version.version}</Badge>
           </Group>
+          <MantineNativeSelect
+            label="Template version"
+            value={detail.version.id}
+            data={detail.versions.map((version) => ({
+              value: version.id,
+              label: `Version ${String(version.version)} · ${version.publishedAt ? "Published" : "Draft"}`,
+            }))}
+            onChange={(event) => {
+              void navigate({
+                search: { version: event.currentTarget.value },
+              });
+            }}
+          />
           <Text c="dimmed">
             {detail.version.editable
               ? "Complete the title, then design the reusable sections, activities and staffing defaults for this version."
@@ -232,6 +280,16 @@ export function AdminEventTemplateEditor({
         </div>
         {detail.version.editable ? (
           <Group>
+            <Button
+              color="red"
+              variant="subtle"
+              disabled={pending !== null}
+              onClick={() => {
+                setDeleteOpen(true);
+              }}
+            >
+              Delete draft
+            </Button>
             <Button
               variant="default"
               loading={pending === "save"}
@@ -252,7 +310,7 @@ export function AdminEventTemplateEditor({
               Save and publish
             </Button>
           </Group>
-        ) : (
+        ) : detail.versions.some((version) => !version.publishedAt) ? null : (
           <Button
             loading={pending === "version"}
             onClick={() => void createVersion()}
@@ -264,6 +322,23 @@ export function AdminEventTemplateEditor({
 
       {error ? <Alert color="red">{error}</Alert> : null}
       {message ? <Alert color="green">{message}</Alert> : null}
+
+      {deleteOpen ? (
+        <ConfirmationDialog
+          title="Delete draft version?"
+          description={
+            detail.versions.length === 1
+              ? "This is the template's only version, so the unused template will also be deleted. This cannot be undone."
+              : `Version ${String(detail.version.version)} and its draft content will be permanently deleted. Published versions are unchanged.`
+          }
+          confirmLabel="Delete draft"
+          pending={pending === "delete"}
+          onCancel={() => {
+            setDeleteOpen(false);
+          }}
+          onConfirm={() => void deleteDraftVersion()}
+        />
+      ) : null}
 
       <PageTabs
         label="Event template workspace"
@@ -349,7 +424,8 @@ export function AdminEventTemplateEditor({
                         description: "",
                         phase: "pre_event",
                         releaseAnchor: "participation_created",
-                        releaseOffsetMinutes: 0,
+                        releaseOffsetAmount: 0,
+                        releaseOffsetUnit: "minute",
                         items: [],
                       },
                     ],
@@ -448,17 +524,37 @@ export function AdminEventTemplateEditor({
                       />
                       <MantineTextInput
                         type="number"
-                        label="Offset (minutes)"
+                        label="Offset amount"
                         description="Use a negative value to release before the anchor."
-                        value={String(section.releaseOffsetMinutes)}
+                        value={String(section.releaseOffsetAmount)}
                         disabled={!detail.version.editable}
                         onChange={(event) => {
-                          const releaseOffsetMinutes = Number(
+                          const releaseOffsetAmount = Number(
                             event.currentTarget.value,
                           );
                           updateSection(section.id, (current) => ({
                             ...current,
-                            releaseOffsetMinutes,
+                            releaseOffsetAmount,
+                          }));
+                        }}
+                      />
+                      <MantineNativeSelect
+                        label="Offset unit"
+                        value={section.releaseOffsetUnit}
+                        disabled={!detail.version.editable}
+                        data={[
+                          { value: "minute", label: "Minutes (elapsed)" },
+                          { value: "hour", label: "Hours (elapsed)" },
+                          { value: "day", label: "Calendar days" },
+                          { value: "week", label: "Calendar weeks" },
+                          { value: "month", label: "Calendar months" },
+                        ]}
+                        onChange={(event) => {
+                          const releaseOffsetUnit = event.currentTarget
+                            .value as typeof section.releaseOffsetUnit;
+                          updateSection(section.id, (current) => ({
+                            ...current,
+                            releaseOffsetUnit,
                           }));
                         }}
                       />
@@ -637,7 +733,7 @@ export function AdminEventTemplateEditor({
                           <Text fw={600} size="sm">
                             Default presenters
                           </Text>
-                          <StaffPicker
+                          <EligibleStaffPicker
                             label="Presenter"
                             candidates={detail.people.presenters}
                             people={detail.people.users}
@@ -697,24 +793,20 @@ export function AdminEventTemplateEditor({
                 These active platform administrators are copied to each
                 occurrence.
               </Text>
-              {detail.people.platformAdministrators.map((person) => (
-                <MantineCheckbox
-                  key={person.id}
-                  label={`${person.name} · ${person.email}`}
-                  checked={draft.defaultAdministratorIds.includes(person.id)}
-                  disabled={!detail.version.editable}
-                  onChange={(checked) => {
-                    setDraft((current) => ({
-                      ...current,
-                      defaultAdministratorIds: toggle(
-                        current.defaultAdministratorIds,
-                        person.id,
-                        checked,
-                      ),
-                    }));
-                  }}
-                />
-              ))}
+              <EligibleStaffPicker
+                label="Administrator"
+                candidates={detail.people.platformAdministrators}
+                people={detail.people.users}
+                selectedIds={draft.defaultAdministratorIds}
+                minimumSelected={1}
+                disabled={!detail.version.editable}
+                onChange={(defaultAdministratorIds) => {
+                  setDraft((current) => ({
+                    ...current,
+                    defaultAdministratorIds,
+                  }));
+                }}
+              />
             </Stack>
           </Paper>
 
@@ -758,7 +850,7 @@ export function AdminEventTemplateEditor({
                         </Button>
                       ) : null}
                     </Group>
-                    <StaffPicker
+                    <EligibleStaffPicker
                       label="Coordinator"
                       candidates={detail.people.coordinators.filter(
                         (coordinator) =>
@@ -766,6 +858,7 @@ export function AdminEventTemplateEditor({
                       )}
                       people={detail.people.users}
                       selectedIds={region.coordinatorIds}
+                      minimumSelected={1}
                       disabled={!detail.version.editable}
                       onChange={(coordinatorIds) => {
                         setDraft((current) => ({
@@ -816,108 +909,6 @@ export function AdminEventTemplateEditor({
             </Stack>
           </Paper>
         </Stack>
-      ) : null}
-    </Stack>
-  );
-}
-
-function StaffPicker({
-  label,
-  candidates,
-  people,
-  selectedIds,
-  disabled,
-  onChange,
-}: {
-  label: "Presenter" | "Coordinator";
-  candidates: Array<{ id: string; name: string; email: string }>;
-  people: Array<{ id: string; name: string; email: string }>;
-  selectedIds: Array<string>;
-  disabled: boolean;
-  onChange: (selectedIds: Array<string>) => void;
-}) {
-  const [candidateId, setCandidateId] = useState("");
-  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
-  const available = candidates.filter(
-    (candidate) => !selectedIds.includes(candidate.id),
-  );
-
-  return (
-    <Stack gap="xs">
-      {selectedIds.length ? (
-        selectedIds.map((personId) => {
-          const person = people.find((candidate) => candidate.id === personId);
-          const eligible = candidateIds.has(personId);
-          return (
-            <Paper withBorder radius="md" p="sm" key={personId}>
-              <Group justify="space-between" align="center" wrap="wrap">
-                <div>
-                  <Text fw={600}>{person?.name ?? "Unknown user"}</Text>
-                  <Text c="dimmed" size="xs">
-                    {person?.email ?? personId}
-                  </Text>
-                  {!eligible ? (
-                    <Text c="red.7" size="xs" fw={600}>
-                      No longer eligible for new assignments
-                    </Text>
-                  ) : null}
-                </div>
-                {!disabled ? (
-                  <Button
-                    size="xs"
-                    color="red"
-                    variant="subtle"
-                    onClick={() => {
-                      onChange(selectedIds.filter((id) => id !== personId));
-                    }}
-                  >
-                    Remove
-                  </Button>
-                ) : null}
-              </Group>
-            </Paper>
-          );
-        })
-      ) : (
-        <Text c="dimmed" size="sm">
-          No {label.toLocaleLowerCase("en-AU")} assigned.
-        </Text>
-      )}
-      {!disabled ? (
-        <Group align="end" wrap="wrap" grow>
-          <MantineNativeSelect
-            label={`Add ${label.toLocaleLowerCase("en-AU")}`}
-            value={candidateId}
-            disabled={available.length === 0}
-            data={[
-              {
-                value: "",
-                label: available.length
-                  ? `Select ${label.toLocaleLowerCase("en-AU")}`
-                  : `No eligible ${label.toLocaleLowerCase("en-AU")}s available`,
-                disabled: true,
-              },
-              ...available.map((candidate) => ({
-                value: candidate.id,
-                label: `${candidate.name} · ${candidate.email}`,
-              })),
-            ]}
-            onChange={(event) => {
-              setCandidateId(event.currentTarget.value);
-            }}
-          />
-          <Button
-            variant="light"
-            disabled={!candidateId}
-            onClick={() => {
-              if (!candidateId) return;
-              onChange([...selectedIds, candidateId]);
-              setCandidateId("");
-            }}
-          >
-            Add
-          </Button>
-        </Group>
       ) : null}
     </Stack>
   );

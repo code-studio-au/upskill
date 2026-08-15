@@ -194,6 +194,48 @@ try {
     )
   )
     throw new Error("Event occurrences must own a required public URL slug");
+  for (const columnName of ["localStartsAt", "localEndsAt"]) {
+    if (
+      !eventOccurrenceColumns.rows.some(
+        (column) =>
+          column.column_name === columnName && column.is_nullable === "NO",
+      )
+    )
+      throw new Error(
+        `Event occurrences must retain required local schedule field ${columnName}`,
+      );
+  }
+  const eventTimeConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_occurrence_local_schedule_ck',
+          'event_session_local_schedule_ck',
+          'event_reschedule_local_schedule_ck',
+          'event_template_section_release_ck'
+        )`.execute(db);
+  assert.equal(
+    eventTimeConstraints.rows.length,
+    4,
+    "Event local-time and release-duration constraints must exist",
+  );
+  const releaseColumns = await sql<{
+    column_name: string;
+  }>`select column_name from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'event_template_version_section'`.execute(db);
+  const releaseColumnNames = new Set(
+    releaseColumns.rows.map((column) => column.column_name),
+  );
+  if (
+    !releaseColumnNames.has("releaseOffsetAmount") ||
+    !releaseColumnNames.has("releaseOffsetUnit") ||
+    releaseColumnNames.has("releaseOffsetMinutes")
+  )
+    throw new Error(
+      "Event section releases must use explicit offset amounts and units",
+    );
   const accessCodeIndex = indexResult.rows.find(
     (index) => index.indexname === "access_grant_code_lookup_id_uq",
   );

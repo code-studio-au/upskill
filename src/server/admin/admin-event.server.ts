@@ -14,29 +14,53 @@ import {
   type AdminEventTemplateItem,
   type AdminEventWorkspace,
 } from "#/features/admin-event/admin-event.schema";
+import {
+  ianaTimeZoneSchema,
+  instantIsoSchema,
+  type IsoDuration,
+} from "#/features/shared/time.schema";
+import { isIanaTimeZone } from "#/features/shared/iana-timezone";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { ensureEventSurveyAccessRecords } from "#/server/events/event-survey-access.server";
 import { logServerEvent } from "#/server/logging/server-logger";
+import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.server";
+import {
+  addElapsedDuration,
+  dateToInstant,
+  instantToDate,
+  instantToLocalDateTime,
+} from "#/server/time/time.server";
 
 function optionalDate(value: string): Date | null {
-  return value ? new Date(value) : null;
+  return value ? instantToDate(instantIsoSchema.parse(value)) : null;
+}
+
+function requiredDate(value: string): Date {
+  return instantToDate(instantIsoSchema.parse(value));
+}
+
+function addElapsedMinutes(value: Date, minutes: number): Date {
+  return instantToDate(
+    addElapsedDuration(
+      dateToInstant(value),
+      `PT${String(minutes)}M` as IsoDuration,
+    ),
+  );
+}
+
+function localDateTimeFor(value: Date, timezone: string): string {
+  return instantToLocalDateTime(
+    dateToInstant(value),
+    ianaTimeZoneSchema.parse(timezone),
+  );
 }
 
 function optionalText(value: string): string | null {
   const trimmed = value.trim();
   return trimmed || null;
-}
-
-function hasValidTimezone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-AU", { timeZone: timezone }).format();
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
@@ -86,6 +110,11 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         "event_occurrence.registrationMode",
         "event_occurrence.approvalMode",
         "event_occurrence.timezone",
+        "event_occurrence.localStartsAt",
+        "event_occurrence.localEndsAt",
+        "event_occurrence.localRegistrationOpensAt",
+        "event_occurrence.localRegistrationClosesAt",
+        "event_occurrence.localCoordinatorLockAt",
         "event_occurrence.startsAt",
         "event_occurrence.endsAt",
         "event_occurrence.registrationOpensAt",
@@ -106,7 +135,7 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
             and event_admin_assignment."endedAt" is null
         )`.as("assignedAdminCount"),
       ])
-      .orderBy("event_occurrence.startsAt", "desc")
+      .orderBy("event_occurrence.startsAt", "asc")
       .execute(),
     database
       .selectFrom("event_occurrence_domain")
@@ -232,6 +261,9 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
       registrationClosesAt:
         occurrence.registrationClosesAt?.toISOString() ?? "",
       coordinatorLockAt: occurrence.coordinatorLockAt?.toISOString() ?? "",
+      localRegistrationOpensAt: occurrence.localRegistrationOpensAt ?? "",
+      localRegistrationClosesAt: occurrence.localRegistrationClosesAt ?? "",
+      localCoordinatorLockAt: occurrence.localCoordinatorLockAt ?? "",
       venueName: occurrence.venueName ?? "",
       venueAddress: occurrence.venueAddress ?? "",
       virtualJoinUrl: occurrence.virtualJoinUrl ?? "",
@@ -354,7 +386,23 @@ export async function findAdminEventStaffCandidates(input: {
 export async function revokeAdminEventStaffEligibility(
   eligibilityId: string,
   administrator: AuthenticatedUser,
-): Promise<"revoked" | "not-found"> {
+): Promise<
+  | { status: "revoked"; endedAssignmentCount: number }
+  | { status: "not-found" }
+  | {
+      status: "conflict";
+      coordinatorCoverage: Array<{
+        eventOccurrenceId: string;
+        eventOccurrenceRegionId: string;
+        occurrenceTitle: string;
+        occurrenceStatus: "draft" | "published";
+        occurrenceStartsAt: string;
+        occurrenceTimezone: string;
+        regionName: string;
+        regionCode: string;
+      }>;
+    }
+> {
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
@@ -365,8 +413,85 @@ export async function revokeAdminEventStaffEligibility(
         .where("revokedAt", "is", null)
         .forUpdate()
         .executeTakeFirst();
-      if (!grant) return "not-found" as const;
+      if (!grant) return { status: "not-found" } as const;
+      const coordinatorAssignments =
+        grant.responsibility === "coordinator" && grant.regionId
+          ? await transaction
+              .selectFrom("event_coordinator_assignment as assignment")
+              .innerJoin(
+                "event_occurrence_region as occurrenceRegion",
+                "occurrenceRegion.id",
+                "assignment.eventOccurrenceRegionId",
+              )
+              .innerJoin(
+                "event_occurrence as occurrence",
+                "occurrence.id",
+                "occurrenceRegion.eventOccurrenceId",
+              )
+              .innerJoin(
+                "coordination_region as region",
+                "region.id",
+                "occurrenceRegion.regionId",
+              )
+              .select([
+                "assignment.id as assignmentId",
+                "occurrenceRegion.id as eventOccurrenceRegionId",
+                "occurrenceRegion.retiredAt",
+                "occurrence.id as eventOccurrenceId",
+                "occurrence.title as occurrenceTitle",
+                "occurrence.status as occurrenceStatus",
+                "occurrence.startsAt as occurrenceStartsAt",
+                "occurrence.timezone as occurrenceTimezone",
+                "region.name as regionName",
+                "region.code as regionCode",
+                sql<number>`(select count(*)::integer
+                  from event_coordinator_assignment other
+                  where other."eventOccurrenceRegionId" = "occurrenceRegion".id
+                    and other."userId" <> ${grant.userId}
+                    and other."endedAt" is null)`.as("otherCoordinatorCount"),
+              ])
+              .where("assignment.userId", "=", grant.userId)
+              .where("assignment.endedAt", "is", null)
+              .where("occurrenceRegion.regionId", "=", grant.regionId)
+              .orderBy("occurrence.startsAt", "asc")
+              .orderBy("occurrence.id", "asc")
+              .forUpdate(["assignment", "occurrenceRegion"])
+              .execute()
+          : [];
+      const coordinatorCoverage = coordinatorAssignments.flatMap(
+        (assignment) =>
+          !assignment.retiredAt &&
+          (assignment.occurrenceStatus === "draft" ||
+            assignment.occurrenceStatus === "published") &&
+          assignment.otherCoordinatorCount === 0
+            ? [
+                {
+                  eventOccurrenceId: assignment.eventOccurrenceId,
+                  eventOccurrenceRegionId: assignment.eventOccurrenceRegionId,
+                  occurrenceTitle: assignment.occurrenceTitle,
+                  occurrenceStatus: assignment.occurrenceStatus,
+                  occurrenceStartsAt:
+                    assignment.occurrenceStartsAt.toISOString(),
+                  occurrenceTimezone: assignment.occurrenceTimezone,
+                  regionName: assignment.regionName,
+                  regionCode: assignment.regionCode,
+                },
+              ]
+            : [],
+      );
+      if (coordinatorCoverage.length)
+        return { status: "conflict", coordinatorCoverage } as const;
       const revokedAt = new Date();
+      if (coordinatorAssignments.length)
+        await transaction
+          .updateTable("event_coordinator_assignment")
+          .set({ endedAt: revokedAt, endReason: "assignment_ended" })
+          .where(
+            "id",
+            "in",
+            coordinatorAssignments.map((assignment) => assignment.assignmentId),
+          )
+          .execute();
       await transaction
         .updateTable("event_staff_eligibility")
         .set({
@@ -384,10 +509,14 @@ export async function revokeAdminEventStaffEligibility(
           purpose: "template_selection",
           responsibility: grant.responsibility,
           regionId: grant.regionId,
+          endedActiveAssignmentCount: coordinatorAssignments.length,
         },
         createdAt: revokedAt,
       });
-      return "revoked" as const;
+      return {
+        status: "revoked",
+        endedAssignmentCount: coordinatorAssignments.length,
+      } as const;
     });
 }
 
@@ -687,7 +816,8 @@ async function loadEventTemplateDraft(
           "sections.description as sectionDescription",
           "sections.phase as sectionPhase",
           "sections.releaseAnchor as sectionReleaseAnchor",
-          "sections.releaseOffsetMinutes as sectionReleaseOffsetMinutes",
+          "sections.releaseOffsetAmount as sectionReleaseOffsetAmount",
+          "sections.releaseOffsetUnit as sectionReleaseOffsetUnit",
           "items.id as itemId",
           "items.kind as itemKind",
           "items.title as itemTitle",
@@ -745,7 +875,8 @@ async function loadEventTemplateDraft(
         description: row.sectionDescription,
         phase: row.sectionPhase,
         releaseAnchor: row.sectionReleaseAnchor,
-        releaseOffsetMinutes: row.sectionReleaseOffsetMinutes,
+        releaseOffsetAmount: row.sectionReleaseOffsetAmount,
+        releaseOffsetUnit: row.sectionReleaseOffsetUnit,
         items: [],
       };
       sections.set(row.sectionId, section);
@@ -794,6 +925,7 @@ async function loadEventTemplateDraft(
 
 export async function findAdminEventTemplate(
   eventTemplateId: string,
+  eventTemplateVersionId?: string,
 ): Promise<AdminEventTemplateDetail | null> {
   const database = getDatabase();
   const template = await database
@@ -815,12 +947,14 @@ export async function findAdminEventTemplate(
     .where("eventTemplateId", "=", eventTemplateId)
     .orderBy("version", "desc")
     .execute();
-  const version =
-    versions.find((candidate) => !candidate.publishedAt) ?? versions[0];
-  if (!version) throw new Error("Event template has no version");
+  const version = eventTemplateVersionId
+    ? versions.find((candidate) => candidate.id === eventTemplateVersionId)
+    : (versions.find((candidate) => !candidate.publishedAt) ?? versions[0]);
+  if (!version) return null;
   const draft = await loadEventTemplateDraft(database, template, version);
   const referencedStaffIds = [
     ...new Set([
+      ...draft.defaultAdministratorIds,
       ...draft.regions.flatMap((region) => region.coordinatorIds),
       ...draft.sections.flatMap((section) =>
         section.items.flatMap((item) =>
@@ -1148,7 +1282,8 @@ async function replaceEventDraftStructure(
         description: section.description,
         phase: section.phase,
         releaseAnchor: section.releaseAnchor,
-        releaseOffsetMinutes: section.releaseOffsetMinutes,
+        releaseOffsetAmount: section.releaseOffsetAmount,
+        releaseOffsetUnit: section.releaseOffsetUnit,
       })
       .execute();
     for (const [itemPosition, item] of section.items.entries()) {
@@ -1334,6 +1469,66 @@ export async function createAdminEventTemplateVersion(
     });
 }
 
+export async function deleteAdminEventTemplateVersion(
+  eventTemplateId: string,
+  eventTemplateVersionId: string,
+  administrator: AuthenticatedUser,
+): Promise<
+  | { status: "deleted"; templateDeleted: boolean }
+  | { status: "not-found" | "conflict" }
+> {
+  const outcome = await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const version = await transaction
+        .selectFrom("event_template_version")
+        .select(["id", "eventTemplateId", "publishedAt"])
+        .where("id", "=", eventTemplateVersionId)
+        .where("eventTemplateId", "=", eventTemplateId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!version) return { status: "not-found" } as const;
+      if (version.publishedAt) return { status: "conflict" } as const;
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+        .executeTakeFirst();
+      if (occurrence) return { status: "conflict" } as const;
+      await transaction
+        .deleteFrom("event_template_version")
+        .where("id", "=", eventTemplateVersionId)
+        .executeTakeFirstOrThrow();
+      const remaining = await transaction
+        .selectFrom("event_template_version")
+        .select("id")
+        .where("eventTemplateId", "=", eventTemplateId)
+        .executeTakeFirst();
+      if (!remaining)
+        await transaction
+          .deleteFrom("event_template")
+          .where("id", "=", eventTemplateId)
+          .executeTakeFirstOrThrow();
+      return { status: "deleted", templateDeleted: !remaining } as const;
+    });
+  if (outcome.status === "deleted")
+    logServerEvent({
+      level: "info",
+      event: "event_template.draft_deleted",
+      fields: {
+        actorUserId: administrator.id,
+        entityType: outcome.templateDeleted
+          ? "event_template"
+          : "event_template_version",
+        entityId: outcome.templateDeleted
+          ? eventTemplateId
+          : eventTemplateVersionId,
+        aggregateId: eventTemplateId,
+      },
+    });
+  return outcome;
+}
+
 export async function publishAdminEventTemplateVersion(
   eventTemplateId: string,
   eventTemplateVersionId: string,
@@ -1503,7 +1698,8 @@ export async function createAdminEventOccurrence(
   | { status: "conflict" }
   | { status: "slug-in-use" }
 > {
-  if (!hasValidTimezone(input.timezone)) return { status: "conflict" };
+  if (!isIanaTimeZone(input.timezone) || !isAdminEventScheduleConsistent(input))
+    return { status: "conflict" };
   const domains = normalizeEventDomains(input.domains);
   if (!domains) return { status: "conflict" };
   const eventOccurrenceId = `event_occurrence_${randomUUID()}`;
@@ -1638,8 +1834,8 @@ export async function createAdminEventOccurrence(
       )
         return { status: "conflict" } as const;
 
-      const startsAt = new Date(input.startsAt);
-      const endsAt = new Date(input.endsAt);
+      const startsAt = requiredDate(input.startsAt);
+      const endsAt = requiredDate(input.endsAt);
       const totalSessionMinutes = sessionDefinitions.reduce(
         (total, session) => total + session.durationMinutes,
         0,
@@ -1659,6 +1855,15 @@ export async function createAdminEventOccurrence(
           registrationMode: input.registrationMode,
           approvalMode: input.approvalMode,
           timezone: input.timezone,
+          localStartsAt: input.localStartsAt,
+          localEndsAt: input.localEndsAt,
+          localRegistrationOpensAt: optionalText(
+            input.localRegistrationOpensAt,
+          ),
+          localRegistrationClosesAt: optionalText(
+            input.localRegistrationClosesAt,
+          ),
+          localCoordinatorLockAt: optionalText(input.localCoordinatorLockAt),
           startsAt,
           endsAt,
           registrationOpensAt: optionalDate(input.registrationOpensAt),
@@ -1708,9 +1913,9 @@ export async function createAdminEventOccurrence(
       let sessionStartsAt = startsAt;
       for (const sessionDefinition of sessionDefinitions) {
         const sessionId = `event_session_${randomUUID()}`;
-        const sessionEndsAt = new Date(
-          sessionStartsAt.getTime() +
-            sessionDefinition.durationMinutes * 60_000,
+        const sessionEndsAt = addElapsedMinutes(
+          sessionStartsAt,
+          sessionDefinition.durationMinutes,
         );
         await transaction
           .insertInto("event_session")
@@ -1722,6 +1927,8 @@ export async function createAdminEventOccurrence(
             title: sessionDefinition.title,
             startsAt: sessionStartsAt,
             endsAt: sessionEndsAt,
+            localStartsAt: localDateTimeFor(sessionStartsAt, input.timezone),
+            localEndsAt: localDateTimeFor(sessionEndsAt, input.timezone),
             presenterRequired: sessionDefinition.presenterRequired,
             venueName: optionalText(input.venueName),
             venueAddress: optionalText(input.venueAddress),
@@ -1794,7 +2001,8 @@ export async function updateAdminEventOccurrence(
   input: AdminEventOccurrenceCreateInput,
   administrator: AuthenticatedUser,
 ): Promise<"updated" | "not-found" | "conflict" | "slug-in-use"> {
-  if (!hasValidTimezone(input.timezone)) return "conflict";
+  if (!isIanaTimeZone(input.timezone) || !isAdminEventScheduleConsistent(input))
+    return "conflict";
   const domains = normalizeEventDomains(input.domains);
   if (!domains) return "conflict";
 
@@ -1834,8 +2042,8 @@ export async function updateAdminEventOccurrence(
         .select(["id", "startsAt", "endsAt"])
         .where("eventOccurrenceId", "=", eventOccurrenceId)
         .execute();
-      const startsAt = new Date(input.startsAt);
-      const endsAt = new Date(input.endsAt);
+      const startsAt = requiredDate(input.startsAt);
+      const endsAt = requiredDate(input.endsAt);
       const sessionMinutes = sessions.reduce(
         (total, session) =>
           total +
@@ -1855,6 +2063,15 @@ export async function updateAdminEventOccurrence(
           registrationMode: input.registrationMode,
           approvalMode: input.approvalMode,
           timezone: input.timezone,
+          localStartsAt: input.localStartsAt,
+          localEndsAt: input.localEndsAt,
+          localRegistrationOpensAt: optionalText(
+            input.localRegistrationOpensAt,
+          ),
+          localRegistrationClosesAt: optionalText(
+            input.localRegistrationClosesAt,
+          ),
+          localCoordinatorLockAt: optionalText(input.localCoordinatorLockAt),
           startsAt,
           endsAt,
           registrationOpensAt: optionalDate(input.registrationOpensAt),
@@ -1869,19 +2086,36 @@ export async function updateAdminEventOccurrence(
         .where("id", "=", eventOccurrenceId)
         .execute();
 
-      const startDelta = startsAt.getTime() - occurrence.startsAt.getTime();
-      for (const session of sessions)
+      for (const session of sessions) {
+        const startOffsetMinutes =
+          (session.startsAt.getTime() - occurrence.startsAt.getTime()) / 60_000;
+        const durationMinutes =
+          (session.endsAt.getTime() - session.startsAt.getTime()) / 60_000;
+        const nextSessionStartsAt = addElapsedMinutes(
+          startsAt,
+          startOffsetMinutes,
+        );
+        const nextSessionEndsAt = addElapsedMinutes(
+          nextSessionStartsAt,
+          durationMinutes,
+        );
         await transaction
           .updateTable("event_session")
           .set({
-            startsAt: new Date(session.startsAt.getTime() + startDelta),
-            endsAt: new Date(session.endsAt.getTime() + startDelta),
+            startsAt: nextSessionStartsAt,
+            endsAt: nextSessionEndsAt,
+            localStartsAt: localDateTimeFor(
+              nextSessionStartsAt,
+              input.timezone,
+            ),
+            localEndsAt: localDateTimeFor(nextSessionEndsAt, input.timezone),
             venueName: optionalText(input.venueName),
             venueAddress: optionalText(input.venueAddress),
             virtualJoinUrl: optionalText(input.virtualJoinUrl),
           })
           .where("id", "=", session.id)
           .execute();
+      }
 
       await transaction
         .deleteFrom("event_occurrence_domain")
@@ -1935,7 +2169,8 @@ export async function rescheduleAdminEventOccurrence(
   | "regions-not-confirmed"
 > {
   const next = input.occurrence;
-  if (!hasValidTimezone(next.timezone)) return "conflict";
+  if (!isIanaTimeZone(next.timezone) || !isAdminEventScheduleConsistent(next))
+    return "conflict";
   const domains = normalizeEventDomains(next.domains);
   if (!domains) return "conflict";
 
@@ -2090,8 +2325,8 @@ export async function rescheduleAdminEventOccurrence(
       )
         return "regions-not-confirmed" as const;
 
-      const nextStartsAt = new Date(next.startsAt);
-      const nextEndsAt = new Date(next.endsAt);
+      const nextStartsAt = requiredDate(next.startsAt);
+      const nextEndsAt = requiredDate(next.endsAt);
       const sessionMinutes = sessions.reduce(
         (total, session) =>
           total +
@@ -2111,6 +2346,9 @@ export async function rescheduleAdminEventOccurrence(
       let nextOpensAt = occurrence.registrationOpensAt;
       let nextClosesAt = occurrence.registrationClosesAt;
       let nextLockAt = occurrence.coordinatorLockAt;
+      let nextLocalOpensAt = occurrence.localRegistrationOpensAt;
+      let nextLocalClosesAt = occurrence.localRegistrationClosesAt;
+      let nextLocalLockAt = occurrence.localCoordinatorLockAt;
 
       if (input.registrationWindowPolicy === "replace_future") {
         const futureWindows = [
@@ -2128,14 +2366,27 @@ export async function rescheduleAdminEventOccurrence(
           )
         )
           return "invalid-window-policy" as const;
-        const replace = (current: Date | null, proposed: Date | null) =>
-          current && current > now ? proposed : current;
-        nextOpensAt = replace(occurrence.registrationOpensAt, submittedOpensAt);
-        nextClosesAt = replace(
-          occurrence.registrationClosesAt,
-          submittedClosesAt,
-        );
-        nextLockAt = replace(occurrence.coordinatorLockAt, submittedLockAt);
+        if (
+          occurrence.registrationOpensAt &&
+          occurrence.registrationOpensAt > now
+        ) {
+          nextOpensAt = submittedOpensAt;
+          nextLocalOpensAt = optionalText(next.localRegistrationOpensAt);
+        }
+        if (
+          occurrence.registrationClosesAt &&
+          occurrence.registrationClosesAt > now
+        ) {
+          nextClosesAt = submittedClosesAt;
+          nextLocalClosesAt = optionalText(next.localRegistrationClosesAt);
+        }
+        if (
+          occurrence.coordinatorLockAt &&
+          occurrence.coordinatorLockAt > now
+        ) {
+          nextLockAt = submittedLockAt;
+          nextLocalLockAt = optionalText(next.localCoordinatorLockAt);
+        }
       } else if (input.registrationWindowPolicy === "reopen") {
         if (
           occurrence.registrationMode === "open_entry" ||
@@ -2150,6 +2401,9 @@ export async function rescheduleAdminEventOccurrence(
         nextOpensAt = submittedOpensAt;
         nextClosesAt = submittedClosesAt;
         nextLockAt = submittedLockAt;
+        nextLocalOpensAt = optionalText(next.localRegistrationOpensAt);
+        nextLocalClosesAt = optionalText(next.localRegistrationClosesAt);
+        nextLocalLockAt = optionalText(next.localCoordinatorLockAt);
       }
 
       if (nextOpensAt && nextClosesAt && nextClosesAt <= nextOpensAt)
@@ -2164,11 +2418,24 @@ export async function rescheduleAdminEventOccurrence(
           id: rescheduleId,
           eventOccurrenceId,
           registrationWindowPolicy: input.registrationWindowPolicy,
+          previousTimezone: occurrence.timezone,
+          previousLocalStartsAt: occurrence.localStartsAt,
+          previousLocalEndsAt: occurrence.localEndsAt,
+          previousLocalRegistrationOpensAt: occurrence.localRegistrationOpensAt,
+          previousLocalRegistrationClosesAt:
+            occurrence.localRegistrationClosesAt,
+          previousLocalCoordinatorLockAt: occurrence.localCoordinatorLockAt,
           previousStartsAt: occurrence.startsAt,
           previousEndsAt: occurrence.endsAt,
           previousRegistrationOpensAt: occurrence.registrationOpensAt,
           previousRegistrationClosesAt: occurrence.registrationClosesAt,
           previousCoordinatorLockAt: occurrence.coordinatorLockAt,
+          nextTimezone: next.timezone,
+          nextLocalStartsAt: next.localStartsAt,
+          nextLocalEndsAt: next.localEndsAt,
+          nextLocalRegistrationOpensAt: nextLocalOpensAt,
+          nextLocalRegistrationClosesAt: nextLocalClosesAt,
+          nextLocalCoordinatorLockAt: nextLocalLockAt,
           nextStartsAt,
           nextEndsAt,
           nextRegistrationOpensAt: nextOpensAt,
@@ -2460,6 +2727,11 @@ export async function rescheduleAdminEventOccurrence(
           registrationMode: next.registrationMode,
           approvalMode: next.approvalMode,
           timezone: next.timezone,
+          localStartsAt: next.localStartsAt,
+          localEndsAt: next.localEndsAt,
+          localRegistrationOpensAt: nextLocalOpensAt,
+          localRegistrationClosesAt: nextLocalClosesAt,
+          localCoordinatorLockAt: nextLocalLockAt,
           startsAt: nextStartsAt,
           endsAt: nextEndsAt,
           registrationOpensAt: nextOpensAt,
@@ -2475,19 +2747,33 @@ export async function rescheduleAdminEventOccurrence(
         .where("id", "=", eventOccurrenceId)
         .execute();
 
-      const startDelta = nextStartsAt.getTime() - occurrence.startsAt.getTime();
-      for (const session of sessions)
+      for (const session of sessions) {
+        const startOffsetMinutes =
+          (session.startsAt.getTime() - occurrence.startsAt.getTime()) / 60_000;
+        const durationMinutes =
+          (session.endsAt.getTime() - session.startsAt.getTime()) / 60_000;
+        const nextSessionStartsAt = addElapsedMinutes(
+          nextStartsAt,
+          startOffsetMinutes,
+        );
+        const nextSessionEndsAt = addElapsedMinutes(
+          nextSessionStartsAt,
+          durationMinutes,
+        );
         await transaction
           .updateTable("event_session")
           .set({
-            startsAt: new Date(session.startsAt.getTime() + startDelta),
-            endsAt: new Date(session.endsAt.getTime() + startDelta),
+            startsAt: nextSessionStartsAt,
+            endsAt: nextSessionEndsAt,
+            localStartsAt: localDateTimeFor(nextSessionStartsAt, next.timezone),
+            localEndsAt: localDateTimeFor(nextSessionEndsAt, next.timezone),
             venueName: optionalText(next.venueName),
             venueAddress: optionalText(next.venueAddress),
             virtualJoinUrl: optionalText(next.virtualJoinUrl),
           })
           .where("id", "=", session.id)
           .execute();
+      }
 
       await transaction
         .deleteFrom("event_occurrence_domain")

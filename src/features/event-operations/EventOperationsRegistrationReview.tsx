@@ -1,7 +1,8 @@
 import { Badge } from "#/features/shared/Badge";
+import { CompactActionSelect } from "#/features/shared/CompactActionSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
-import { Alert, Button, Group, Text } from "#/features/shared/mantine";
+import { Alert, Text } from "#/features/shared/mantine";
 import {
   createColumnHelper,
   tableFeatures,
@@ -113,55 +114,43 @@ export function EventOperationsRegistrationReview({
           cell: ({ row }) => {
             const registration = row.original;
             return (
-              <Group gap="sm" wrap="wrap">
-                <Button
-                  size="sm"
-                  variant="light"
-                  disabled={
-                    !registration.reviewRoundId || registration.reviewLocked
-                  }
-                  loading={processingId === `approve-${registration.id}`}
-                  onClick={() =>
-                    void action(`approve-${registration.id}`, () =>
-                      decideEventCoordinatorRegistration({
-                        data: {
-                          eventOccurrenceId: workspace.occurrence.id,
-                          registrationId: registration.id,
-                          decision: "coordinator_approved",
-                          priority: priorities[registration.id]
-                            ? Number(priorities[registration.id])
-                            : registration.coordinatorPriority,
-                        },
-                      }),
-                    )
-                  }
-                >
-                  Approve
-                </Button>
-                <Button
-                  size="sm"
-                  variant="subtle"
-                  color="red"
-                  disabled={
-                    !registration.reviewRoundId || registration.reviewLocked
-                  }
-                  loading={processingId === `decline-${registration.id}`}
-                  onClick={() =>
-                    void action(`decline-${registration.id}`, () =>
-                      decideEventCoordinatorRegistration({
-                        data: {
-                          eventOccurrenceId: workspace.occurrence.id,
-                          registrationId: registration.id,
-                          decision: "coordinator_declined",
-                          priority: null,
-                        },
-                      }),
-                    )
-                  }
-                >
-                  Decline
-                </Button>
-              </Group>
+              <CompactActionSelect
+                label="Review"
+                ariaLabel={`Review registration for ${registration.name}`}
+                disabled={
+                  !registration.reviewRoundId || registration.reviewLocked
+                }
+                loading={
+                  processingId === `approve-${registration.id}` ||
+                  processingId === `decline-${registration.id}`
+                }
+                items={[
+                  { value: "coordinator_approved", label: "Approve" },
+                  {
+                    value: "coordinator_declined",
+                    label: "Decline",
+                  },
+                ]}
+                onSelect={(decision) => {
+                  const actionId =
+                    decision === "coordinator_approved" ? "approve" : "decline";
+                  void action(`${actionId}-${registration.id}`, () =>
+                    decideEventCoordinatorRegistration({
+                      data: {
+                        eventOccurrenceId: workspace.occurrence.id,
+                        registrationId: registration.id,
+                        decision,
+                        priority:
+                          decision === "coordinator_approved"
+                            ? priorities[registration.id]
+                              ? Number(priorities[registration.id])
+                              : registration.coordinatorPriority
+                            : null,
+                      },
+                    }),
+                  );
+                }}
+              />
             );
           },
         }),

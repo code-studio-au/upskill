@@ -55,11 +55,23 @@ export async function up(db: Kysely<unknown>) {
       column.notNull().references("event_occurrence.id").onDelete("restrict"),
     )
     .addColumn("registrationWindowPolicy", "text", (column) => column.notNull())
+    .addColumn("previousTimezone", "text", (column) => column.notNull())
+    .addColumn("previousLocalStartsAt", "text", (column) => column.notNull())
+    .addColumn("previousLocalEndsAt", "text", (column) => column.notNull())
+    .addColumn("previousLocalRegistrationOpensAt", "text")
+    .addColumn("previousLocalRegistrationClosesAt", "text")
+    .addColumn("previousLocalCoordinatorLockAt", "text")
     .addColumn("previousStartsAt", "timestamptz", (column) => column.notNull())
     .addColumn("previousEndsAt", "timestamptz", (column) => column.notNull())
     .addColumn("previousRegistrationOpensAt", "timestamptz")
     .addColumn("previousRegistrationClosesAt", "timestamptz")
     .addColumn("previousCoordinatorLockAt", "timestamptz")
+    .addColumn("nextTimezone", "text", (column) => column.notNull())
+    .addColumn("nextLocalStartsAt", "text", (column) => column.notNull())
+    .addColumn("nextLocalEndsAt", "text", (column) => column.notNull())
+    .addColumn("nextLocalRegistrationOpensAt", "text")
+    .addColumn("nextLocalRegistrationClosesAt", "text")
+    .addColumn("nextLocalCoordinatorLockAt", "text")
     .addColumn("nextStartsAt", "timestamptz", (column) => column.notNull())
     .addColumn("nextEndsAt", "timestamptz", (column) => column.notNull())
     .addColumn("nextRegistrationOpensAt", "timestamptz")
@@ -78,6 +90,19 @@ export async function up(db: Kysely<unknown>) {
     .addCheckConstraint(
       "event_occurrence_reschedule_schedule_ck",
       sql`"nextEndsAt" > "nextStartsAt"`,
+    )
+    .addCheckConstraint(
+      "event_reschedule_local_schedule_ck",
+      sql`"previousLocalStartsAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+        and "previousLocalEndsAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+        and "nextLocalStartsAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+        and "nextLocalEndsAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$'
+        and ("previousLocalRegistrationOpensAt" is null or "previousLocalRegistrationOpensAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')
+        and ("previousLocalRegistrationClosesAt" is null or "previousLocalRegistrationClosesAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')
+        and ("previousLocalCoordinatorLockAt" is null or "previousLocalCoordinatorLockAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')
+        and ("nextLocalRegistrationOpensAt" is null or "nextLocalRegistrationOpensAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')
+        and ("nextLocalRegistrationClosesAt" is null or "nextLocalRegistrationClosesAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')
+        and ("nextLocalCoordinatorLockAt" is null or "nextLocalCoordinatorLockAt" ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}$')`,
     )
     .execute();
 

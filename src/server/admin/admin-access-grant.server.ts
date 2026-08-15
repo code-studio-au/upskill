@@ -20,7 +20,9 @@ import {
 } from "#/server/access/access-code-encryption.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
+import { localDateIsoSchema } from "#/features/shared/time.schema";
 import { getDatabase } from "#/server/db/database.server";
+import { instantToDate, utcEndOfDate } from "#/server/time/time.server";
 
 const DIRECTORY_LIMIT = 100;
 const REDEMPTIONS_PER_GRANT = 20;
@@ -180,10 +182,10 @@ export async function createAdminAccessGrant(
   administrator: AuthenticatedUser,
 ): Promise<CreateOutcome> {
   const expiresAt = input.expiresOn
-    ? new Date(`${input.expiresOn}T23:59:59.999Z`)
+    ? instantToDate(utcEndOfDate(localDateIsoSchema.parse(input.expiresOn)))
     : null;
   const now = new Date();
-  if (expiresAt && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= now))
+  if (expiresAt && expiresAt <= now)
     return { status: "conflict", reason: "expiry_not_future" };
   const domainRestrictions = normalizeAdminAccessDomains(input.domains);
   if (!domainRestrictions)

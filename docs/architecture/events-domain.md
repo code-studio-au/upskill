@@ -265,7 +265,12 @@ granted independently for each operational region. Eligibility does not grant
 runtime access. Runtime Coordinator authority still requires an active
 occurrence-and-region assignment, and runtime Presenter authority still
 requires an active occurrence/session assignment. Ending eligibility prevents
-new default selections without erasing historical versions or assignments.
+new default selections without erasing historical versions or assignments. A
+Coordinator eligibility revocation is rejected while that User is the sole
+active Coordinator for any draft or published occurrence-region. After an
+eligible replacement is assigned, revocation closes the outgoing User's active
+assignments while retaining their dated historical snapshots. Completed,
+cancelled and archived instances do not block revocation.
 
 ### Registration region snapshot
 
@@ -632,6 +637,13 @@ Pre-Event access after final administrator confirmation; each Session releases f
 own schedule; Post-Event work may release a configured number of hours before the
 relevant/final Session ends; and Follow-up work releases after a configured
 duration such as one calendar month.
+
+Every occurrence and Session retains the authored local wall-clock value, its
+IANA timezone and the exact UTC instant used for authorization. Ambiguous or
+nonexistent daylight-saving values are rejected for administrator correction.
+Release offsets distinguish elapsed minutes/hours from calendar
+days/weeks/months in the occurrence timezone; see
+[ADR 0032](../adr/0032-typed-time-model.md).
 
 Open-entry participation releases Pre-Event work and the currently joinable
 Session immediately when the soft account/participation is created. Future

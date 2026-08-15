@@ -133,7 +133,8 @@ export async function findEventSurveyQrCatalogue(
           "section.title as sectionTitle",
           "section.phase",
           "section.releaseAnchor",
-          "section.releaseOffsetMinutes",
+          "section.releaseOffsetAmount",
+          "section.releaseOffsetUnit",
         ])
         .where("access.eventOccurrenceId", "=", eventOccurrenceId)
         .where("access.revokedAt", "is", null)

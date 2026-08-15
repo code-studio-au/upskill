@@ -10,9 +10,10 @@ import type {
 } from "./admin-event-operations.schema";
 import classes from "./AdminEventRegistrationTable.module.css";
 import { Badge } from "#/features/shared/Badge";
+import { CompactActionSelect } from "#/features/shared/CompactActionSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
-import { Button, Group, Text } from "#/features/shared/mantine";
+import { Text } from "#/features/shared/mantine";
 import {
   decideAdminEventCoordinatorRegistration,
   decideAdminEventFinalRegistration,
@@ -127,60 +128,46 @@ export function AdminEventRegistrationTable({
           header: "Coordinator review",
           cell: ({ row }) => {
             const registration = row.original;
+            const disabled =
+              !mutationsAvailable ||
+              !registration.reviewRoundId ||
+              registration.reviewLocked;
             return (
-              <Group gap="xs" wrap="wrap">
-                <Button
-                  size="xs"
-                  variant="light"
-                  disabled={
-                    !mutationsAvailable ||
-                    !registration.reviewRoundId ||
-                    registration.reviewLocked
-                  }
-                  loading={processingId === `approve-${registration.id}`}
-                  onClick={() =>
-                    void action(`approve-${registration.id}`, () =>
-                      decideAdminEventCoordinatorRegistration({
-                        data: {
-                          eventOccurrenceId: workspace.occurrence.id,
-                          registrationId: registration.id,
-                          decision: "coordinator_approved",
-                          priority: priorities[registration.id]
-                            ? Number(priorities[registration.id])
-                            : registration.coordinatorPriority,
-                        },
-                      }),
-                    )
-                  }
-                >
-                  Approve
-                </Button>
-                <Button
-                  size="xs"
-                  variant="subtle"
-                  color="red"
-                  disabled={
-                    !mutationsAvailable ||
-                    !registration.reviewRoundId ||
-                    registration.reviewLocked
-                  }
-                  loading={processingId === `decline-${registration.id}`}
-                  onClick={() =>
-                    void action(`decline-${registration.id}`, () =>
-                      decideAdminEventCoordinatorRegistration({
-                        data: {
-                          eventOccurrenceId: workspace.occurrence.id,
-                          registrationId: registration.id,
-                          decision: "coordinator_declined",
-                          priority: null,
-                        },
-                      }),
-                    )
-                  }
-                >
-                  Decline
-                </Button>
-              </Group>
+              <CompactActionSelect
+                label="Review"
+                ariaLabel={`Coordinator review for ${registration.name}`}
+                disabled={disabled}
+                loading={
+                  processingId === `approve-${registration.id}` ||
+                  processingId === `decline-${registration.id}`
+                }
+                items={[
+                  { value: "coordinator_approved", label: "Approve" },
+                  {
+                    value: "coordinator_declined",
+                    label: "Decline",
+                  },
+                ]}
+                onSelect={(decision) => {
+                  const actionId =
+                    decision === "coordinator_approved" ? "approve" : "decline";
+                  void action(`${actionId}-${registration.id}`, () =>
+                    decideAdminEventCoordinatorRegistration({
+                      data: {
+                        eventOccurrenceId: workspace.occurrence.id,
+                        registrationId: registration.id,
+                        decision,
+                        priority:
+                          decision === "coordinator_approved"
+                            ? priorities[registration.id]
+                              ? Number(priorities[registration.id])
+                              : registration.coordinatorPriority
+                            : null,
+                      },
+                    }),
+                  );
+                }}
+              />
             );
           },
         }),
@@ -191,41 +178,36 @@ export function AdminEventRegistrationTable({
             const registration = row.original;
             if (!mutationsAvailable) return null;
             return (
-              <Group gap="xs" wrap="wrap">
-                {(
-                  [
-                    "selected",
-                    "waitlisted",
-                    "not_selected",
-                    "cancelled",
-                  ] as const
-                ).map((decision) => (
-                  <Button
-                    key={decision}
-                    size="xs"
-                    variant={decision === "selected" ? "filled" : "subtle"}
-                    {...(decision === "cancelled"
-                      ? { color: "red" as const }
-                      : {})}
-                    loading={processingId === `${decision}-${registration.id}`}
-                    onClick={() =>
-                      void action(`${decision}-${registration.id}`, () =>
-                        decideAdminEventFinalRegistration({
-                          data: {
-                            eventOccurrenceId: workspace.occurrence.id,
-                            registrationId: registration.id,
-                            decision,
-                          },
-                        }),
-                      )
-                    }
-                  >
-                    {decision === "selected"
-                      ? "Confirm"
-                      : decision.replaceAll("_", " ")}
-                  </Button>
-                ))}
-              </Group>
+              <CompactActionSelect
+                label="Decide"
+                ariaLabel={`Final decision for ${registration.name}`}
+                loading={[
+                  "selected",
+                  "waitlisted",
+                  "not_selected",
+                  "cancelled",
+                ].some(
+                  (decision) =>
+                    processingId === `${decision}-${registration.id}`,
+                )}
+                items={[
+                  { value: "selected", label: "Confirm place" },
+                  { value: "waitlisted", label: "Move to waitlist" },
+                  { value: "not_selected", label: "Not selected" },
+                  { value: "cancelled", label: "Cancel" },
+                ]}
+                onSelect={(decision) => {
+                  void action(`${decision}-${registration.id}`, () =>
+                    decideAdminEventFinalRegistration({
+                      data: {
+                        eventOccurrenceId: workspace.occurrence.id,
+                        registrationId: registration.id,
+                        decision,
+                      },
+                    }),
+                  );
+                }}
+              />
             );
           },
         }),

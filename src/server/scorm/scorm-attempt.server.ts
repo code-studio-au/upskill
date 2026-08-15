@@ -18,6 +18,7 @@ import {
   calculateEventSectionReleaseAt,
   ensureEventSectionReleased,
 } from "#/server/learning/event-section-release.server";
+import { addElapsedMilliseconds } from "#/server/time/time.server";
 
 const LAUNCH_TOKEN_LIFETIME_MS = 5 * 60 * 1_000;
 const ATTEMPT_SESSION_LIFETIME_MS = 8 * 60 * 60 * 1_000;
@@ -194,7 +195,7 @@ export async function createScormLaunch(
         .values({
           digest: digestScormToken(token),
           attemptId: attempt.id,
-          expiresAt: new Date(now.getTime() + LAUNCH_TOKEN_LIFETIME_MS),
+          expiresAt: addElapsedMilliseconds(now, LAUNCH_TOKEN_LIFETIME_MS),
           consumedAt: null,
           createdAt: now,
         })
@@ -262,10 +263,12 @@ export async function createEventScormLaunch(
           "occurrence.status as occurrenceStatus",
           "occurrence.startsAt",
           "occurrence.endsAt",
+          "occurrence.timezone",
           "item.id as eventTemplateVersionItemId",
           "section.id as eventTemplateVersionSectionId",
           "section.releaseAnchor",
-          "section.releaseOffsetMinutes",
+          "section.releaseOffsetAmount",
+          "section.releaseOffsetUnit",
           "package.id as packageVersionId",
           "package.status as packageStatus",
         ])
@@ -293,7 +296,9 @@ export async function createEventScormLaunch(
           eventTemplateVersionSectionId: item.eventTemplateVersionSectionId,
           calculatedReleaseAt: calculateEventSectionReleaseAt({
             releaseAnchor: item.releaseAnchor,
-            releaseOffsetMinutes: item.releaseOffsetMinutes,
+            releaseOffsetAmount: item.releaseOffsetAmount,
+            releaseOffsetUnit: item.releaseOffsetUnit,
+            timezone: item.timezone,
             participationCreatedAt: item.participationCreatedAt,
             occurrenceStartsAt: item.startsAt,
             occurrenceEndsAt: item.endsAt,
@@ -371,7 +376,7 @@ export async function createEventScormLaunch(
         .values({
           digest: digestScormToken(token),
           attemptId: attempt.id,
-          expiresAt: new Date(now.getTime() + LAUNCH_TOKEN_LIFETIME_MS),
+          expiresAt: addElapsedMilliseconds(now, LAUNCH_TOKEN_LIFETIME_MS),
           consumedAt: null,
           createdAt: now,
         })
@@ -447,8 +452,9 @@ export async function exchangeScormLaunchToken(
       }
 
       const sessionToken = opaqueToken();
-      const maximumSessionExpiry = new Date(
-        now.getTime() + ATTEMPT_SESSION_LIFETIME_MS,
+      const maximumSessionExpiry = addElapsedMilliseconds(
+        now,
+        ATTEMPT_SESSION_LIFETIME_MS,
       );
       const sessionExpiresAt =
         launch.enrollmentExpiresAt &&

@@ -28,6 +28,8 @@ import {
   type EventOperationsWorkspace,
   type EventSectionProgressState,
 } from "./event-operations.schema";
+import { indexEventAttendanceByParticipant } from "./participant-attendance";
+import { ParticipantAttendanceSummary } from "./ParticipantAttendanceSummary";
 import { filterEventParticipantProgress } from "./event-progress";
 import classes from "./EventOperations.module.css";
 
@@ -74,6 +76,10 @@ export function EventOperationsProgress({
         title: section.title,
       })) ?? [],
     [workspace.participantProgress],
+  );
+  const attendanceByParticipant = useMemo(
+    () => indexEventAttendanceByParticipant(workspace.sessions),
+    [workspace.sessions],
   );
   const columns = useMemo(
     () =>
@@ -122,6 +128,19 @@ export function EventOperationsProgress({
             </Text>
           ),
         }),
+        progressColumn.display({
+          id: "attendance",
+          header: "Attendance",
+          cell: ({ row }) => (
+            <ParticipantAttendanceSummary
+              attendance={
+                attendanceByParticipant.get(
+                  row.original.eventParticipationId,
+                ) ?? []
+              }
+            />
+          ),
+        }),
         ...sectionDefinitions.map((definition) =>
           progressColumn.display({
             id: `section-${definition.id}`,
@@ -167,7 +186,7 @@ export function EventOperationsProgress({
           }),
         ),
       ]),
-    [sectionDefinitions],
+    [attendanceByParticipant, sectionDefinitions],
   );
   const table = useTable({
     features: progressTableFeatures,
@@ -183,22 +202,6 @@ export function EventOperationsProgress({
 
   return (
     <Stack gap="lg">
-      <div className={classes.metricGrid}>
-        {[
-          ["Participants", workspace.participantProgress.length],
-          ["Completed", workspace.metrics.completed],
-          ["Up to date", workspace.metrics.upToDate],
-          ["Pre-work attention", workspace.metrics.preWorkAttention],
-        ].map(([label, value]) => (
-          <Paper withBorder radius="lg" p="md" key={label}>
-            <Text c="dimmed" size="sm">
-              {label}
-            </Text>
-            <Text className={classes.metricValue}>{value}</Text>
-          </Paper>
-        ))}
-      </div>
-
       <Paper withBorder radius="lg" p="md">
         <form
           key={`${filters.q}:${filters.state}`}

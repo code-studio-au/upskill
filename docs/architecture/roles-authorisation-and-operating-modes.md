@@ -231,6 +231,14 @@ Versions. A User may be eligible in multiple regions. Roster eligibility grants
 no Event or participant access; that authority begins only with an active
 occurrence-and-region Coordinator assignment.
 
+Revoking Coordinator roster eligibility checks every draft or published Event
+Instance where that User has an active assignment for the same region. If the
+User is the sole active Coordinator for any such occurrence-region, revocation
+is blocked and the administrator is directed to add an eligible replacement to
+each affected instance first. Once coverage is safe, revocation closes the
+User's active assignments. Completed, cancelled and archived instances never
+block revocation; their dated assignment records remain as historical snapshots.
+
 Ending/revoking a Coordinator assignment or disabling its User immediately
 removes future access without removing historical actions. Other assigned
 Coordinators continue. A sole-Coordinator impact requires a replacement; until
@@ -302,9 +310,10 @@ and records Coordinator eligibility per Coordination Region without exposing the
 entire User directory in each editor. Only occurrence/session Presenter and
 occurrence/region Coordinator assignments grant the narrow operating access
 described above. Removing roster eligibility blocks new defaults and future
-instance creation from an invalid default, but it does not erase historical
-Template Versions or assignments and does not silently end an already-active
-scoped assignment.
+instance creation from an invalid default. Coordinator eligibility revocation
+also closes current scoped assignments only after the sole-Coordinator coverage
+guard passes. It never erases historical Template Versions, assignment rows or
+attributed actions.
 
 Ending/revoking a Presenter assignment or disabling its User immediately removes
 future access while retaining the historical assignment and individually

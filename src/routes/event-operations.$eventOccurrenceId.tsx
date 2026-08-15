@@ -216,7 +216,10 @@ function EventOperationsPage() {
             workspace={workspace}
             filters={{ q: search.q, state: search.state }}
             onFiltersChange={(filters) =>
-              void navigate({ search: { view: "progress", ...filters } })
+              void navigate({
+                search: { view: "progress", ...filters },
+                resetScroll: false,
+              })
             }
           />
         ) : null}

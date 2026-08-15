@@ -76,6 +76,11 @@ export interface AdminEventOccurrenceOperations {
       "open_entry" | "required_unrestricted" | "required_restricted";
     approvalMode: "automatic" | "manual";
     timezone: string;
+    localStartsAt: string;
+    localEndsAt: string;
+    localRegistrationOpensAt: string | null;
+    localRegistrationClosesAt: string | null;
+    localCoordinatorLockAt: string | null;
     startsAt: string;
     endsAt: string;
     registrationOpensAt: string | null;

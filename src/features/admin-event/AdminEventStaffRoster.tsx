@@ -1,11 +1,18 @@
+import "@mantine/core/styles/Combobox.css";
+import "@mantine/core/styles/Input.css";
+import "@mantine/core/styles/Popover.css";
+import "@mantine/core/styles/ScrollArea.css";
+
 import { useForm } from "@tanstack/react-form";
-import { Autocomplete, Loader } from "@mantine/core";
+import { Autocomplete, Loader, NativeSelect } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import {
   adminEventStaffEligibilityGrantSchema,
+  type AdminEventCoordinatorCoverageImpact,
   type AdminEventWorkspace,
 } from "./admin-event.schema";
 import { firstFormError } from "#/features/shared/form-errors";
+import { formatLocalDateTime } from "#/features/shared/local-date";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import {
   Alert,
@@ -21,6 +28,7 @@ import {
   revokeAdminEventStaffEligibility,
   searchAdminEventStaffCandidates,
 } from "#/server/functions/admin-event";
+import classes from "./AdminEventStaffRoster.module.css";
 
 export function AdminEventStaffRoster({
   coordinators,
@@ -36,6 +44,9 @@ export function AdminEventStaffRoster({
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [coverageImpact, setCoverageImpact] = useState<
+    Array<AdminEventCoordinatorCoverageImpact>
+  >([]);
   const [emailQuery, setEmailQuery] = useState("");
   const [responsibility, setResponsibility] = useState<
     "presenter" | "coordinator"
@@ -116,16 +127,24 @@ export function AdminEventStaffRoster({
     setRevokingId(eligibilityId);
     setError(null);
     setMessage(null);
+    setCoverageImpact([]);
     try {
       const result = await revokeAdminEventStaffEligibility({
         data: { eligibilityId },
       });
+      if (
+        result.status === "conflict" &&
+        result.reason === "coordinator_coverage_required"
+      ) {
+        setCoverageImpact(result.coordinatorCoverage ?? []);
+        return;
+      }
       if (result.status !== "ready") {
         setError("Staff eligibility could not be removed.");
         return;
       }
       setMessage(
-        "Eligibility removed from future template selection. Existing assignments and history are unchanged.",
+        "Eligibility removed from future selection. Historical assignments remain recorded.",
       );
       await onChanged();
     } finally {
@@ -153,6 +172,48 @@ export function AdminEventStaffRoster({
           {error}
         </Alert>
       ) : null}
+      {coverageImpact.length ? (
+        <Alert
+          color="red"
+          role="alert"
+          title="Replacement coordinator required"
+        >
+          <Stack gap="sm">
+            <Text size="sm">
+              This person is the only active coordinator for the following
+              operational Event Instance regions. Add another eligible
+              coordinator to each region before removing this eligibility.
+            </Text>
+            {coverageImpact.map((impact) => (
+              <Paper
+                withBorder
+                radius="md"
+                p="sm"
+                key={impact.eventOccurrenceRegionId}
+              >
+                <Group justify="space-between" align="center" wrap="wrap">
+                  <div>
+                    <Text fw={700}>{impact.occurrenceTitle}</Text>
+                    <Text c="dimmed" size="sm">
+                      {impact.regionName} · {impact.regionCode} ·{" "}
+                      {formatLocalDateTime(impact.occurrenceStartsAt, {
+                        timeZone: impact.occurrenceTimezone,
+                      })}
+                    </Text>
+                  </div>
+                  <Button
+                    component="a"
+                    href={`/admin/events/instances/${encodeURIComponent(impact.eventOccurrenceId)}?view=configuration`}
+                    variant="light"
+                  >
+                    Configure coordinators
+                  </Button>
+                </Group>
+              </Paper>
+            ))}
+          </Stack>
+        </Alert>
+      ) : null}
       <Paper withBorder radius="lg" p="md">
         <form
           onSubmit={(event) => {
@@ -162,17 +223,16 @@ export function AdminEventStaffRoster({
           }}
         >
           <Stack gap="md">
-            <Group align="end" wrap="wrap" grow>
+            <div className={classes.formGrid}>
               <form.Field name="email">
                 {(field) => (
                   <Autocomplete
+                    className={classes.emailField}
                     label="User email"
                     description={
                       responsibility === "coordinator" && regionId === null
                         ? "Select a region, then search by name or email."
-                        : searching
-                          ? "Searching users…"
-                          : "Start typing a name or email, then choose a matching account."
+                        : undefined
                     }
                     type="email"
                     autoComplete="off"
@@ -215,19 +275,24 @@ export function AdminEventStaffRoster({
               </form.Field>
               <form.Field name="responsibility">
                 {(field) => (
-                  <MantineNativeSelect
+                  <NativeSelect
+                    className={classes.responsibilityField}
                     label="Responsibility"
                     value={field.state.value}
                     data={[
                       { value: "presenter", label: "Presenter" },
                       { value: "coordinator", label: "Coordinator" },
                     ]}
+                    onBlur={() => {
+                      field.handleBlur();
+                    }}
                     onChange={(event) => {
-                      const responsibility = event.currentTarget.value as
-                        "presenter" | "coordinator";
-                      field.handleChange(responsibility);
+                      const value = event.currentTarget.value;
+                      if (value !== "presenter" && value !== "coordinator")
+                        return;
+                      field.handleChange(value);
                       form.setFieldValue("regionId", null);
-                      setResponsibility(responsibility);
+                      setResponsibility(value);
                       setRegionId(null);
                       setSuggestions([]);
                       setSearching(false);
@@ -274,22 +339,23 @@ export function AdminEventStaffRoster({
                   ) : null
                 }
               </form.Subscribe>
-            </Group>
-            <form.Subscribe
-              selector={(state) =>
-                [state.canSubmit, state.isSubmitting] as const
-              }
-            >
-              {([canSubmit, isSubmitting]) => (
-                <Button
-                  type="submit"
-                  loading={isSubmitting}
-                  disabled={!canSubmit}
-                >
-                  Add eligible staff member
-                </Button>
-              )}
-            </form.Subscribe>
+              <form.Subscribe
+                selector={(state) =>
+                  [state.canSubmit, state.isSubmitting] as const
+                }
+              >
+                {([canSubmit, isSubmitting]) => (
+                  <Button
+                    className={classes.submit}
+                    type="submit"
+                    loading={isSubmitting}
+                    disabled={!canSubmit}
+                  >
+                    Add eligible staff member
+                  </Button>
+                )}
+              </form.Subscribe>
+            </div>
           </Stack>
         </form>
       </Paper>
@@ -342,7 +408,13 @@ function StaffList({
         <Title order={3}>{title}</Title>
         {entries.length ? (
           entries.map((entry) => (
-            <Paper withBorder radius="md" p="md" key={entry.eligibilityId}>
+            <Paper
+              component="article"
+              withBorder
+              radius="md"
+              p="md"
+              key={entry.eligibilityId}
+            >
               <Group justify="space-between" align="center" wrap="wrap">
                 <div>
                   <Text fw={700}>{entry.name}</Text>

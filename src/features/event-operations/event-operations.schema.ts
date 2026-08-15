@@ -50,6 +50,8 @@ export type EventParticipantProgressState =
   "not_started" | "in_progress" | "up_to_date" | "completed";
 export type EventSectionProgressState =
   "locked" | "not_started" | "in_progress" | "completed";
+export type EventAttendanceState =
+  "not_recorded" | "checked_in" | "attended" | "absent";
 
 export interface EventParticipantProgress {
   eventParticipationId: string;
@@ -153,7 +155,7 @@ export interface EventOperationsWorkspace {
       eventParticipationId: string;
       name: string;
       email: string;
-      state: "not_recorded" | "checked_in" | "attended" | "absent";
+      state: EventAttendanceState;
     }>;
   }>;
   participantProgress: Array<EventParticipantProgress>;
@@ -171,7 +173,8 @@ export interface EventSurveyQrCatalogueItem {
     | "occurrence_start"
     | "occurrence_end"
     | "final_session_end";
-  releaseOffsetMinutes: number;
+  releaseOffsetAmount: number;
+  releaseOffsetUnit: "minute" | "hour" | "day" | "week" | "month";
   status: "preview" | "active" | "disabled";
 }
 

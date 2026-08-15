@@ -8,13 +8,27 @@ import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { AdminEventTemplateEditor } from "#/features/admin-event/AdminEventTemplateEditor";
 import { adminEventTemplateParamsSchema } from "#/features/admin-event/admin-event.schema";
 import { getAdminEventTemplate } from "#/server/functions/admin-event";
+import { z } from "#/validation/zod";
+
+const searchSchema = z.object({
+  version: z.optional(
+    z.string().check(z.trim(), z.minLength(1), z.maxLength(255)),
+  ),
+});
 
 export const Route = createFileRoute("/admin/events/$eventTemplateId")({
+  validateSearch: searchSchema,
+  loaderDeps: ({ search }) => ({ version: search.version }),
   ssr: false,
-  loader: async ({ params }) => {
+  loader: async ({ params, deps }) => {
     const parsed = adminEventTemplateParamsSchema.safeParse(params);
     if (!parsed.success) throw notFound();
-    const result = await getAdminEventTemplate({ data: parsed.data });
+    const result = await getAdminEventTemplate({
+      data: {
+        ...parsed.data,
+        ...(deps.version ? { eventTemplateVersionId: deps.version } : {}),
+      },
+    });
     if (result.status === "unauthenticated")
       throw redirect({
         to: "/login",

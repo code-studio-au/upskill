@@ -1,7 +1,18 @@
 import "@tanstack/react-start/server-only";
 
 import type { Kysely, Transaction } from "kysely";
+import {
+  ianaTimeZoneSchema,
+  type EventReleaseOffsetUnit,
+  type IsoDuration,
+} from "#/features/shared/time.schema";
 import type { Database } from "#/server/db/types";
+import {
+  addElapsedDuration,
+  addZonedDuration,
+  dateToInstant,
+  instantToDate,
+} from "#/server/time/time.server";
 
 export type EventSectionReleaseAnchor =
   | "participation_created"
@@ -11,7 +22,9 @@ export type EventSectionReleaseAnchor =
 
 export function calculateEventSectionReleaseAt(input: {
   releaseAnchor: EventSectionReleaseAnchor;
-  releaseOffsetMinutes: number;
+  releaseOffsetAmount: number;
+  releaseOffsetUnit: EventReleaseOffsetUnit;
+  timezone: string;
   participationCreatedAt: Date;
   occurrenceStartsAt: Date;
   occurrenceEndsAt: Date;
@@ -25,7 +38,27 @@ export function calculateEventSectionReleaseAt(input: {
         : input.releaseAnchor === "occurrence_end"
           ? input.occurrenceEndsAt
           : input.finalSessionEndsAt;
-  return new Date(anchor.getTime() + input.releaseOffsetMinutes * 60_000);
+  const timezone = ianaTimeZoneSchema.parse(input.timezone);
+  const sign = input.releaseOffsetAmount < 0 ? "-" : "";
+  const amount = Math.abs(input.releaseOffsetAmount);
+  const quantity = String(amount);
+  const duration = `${sign}${
+    input.releaseOffsetUnit === "minute"
+      ? `PT${quantity}M`
+      : input.releaseOffsetUnit === "hour"
+        ? `PT${quantity}H`
+        : input.releaseOffsetUnit === "day"
+          ? `P${quantity}D`
+          : input.releaseOffsetUnit === "week"
+            ? `P${quantity}W`
+            : `P${quantity}M`
+  }` as IsoDuration;
+  const anchorInstant = dateToInstant(anchor);
+  const releaseInstant =
+    input.releaseOffsetUnit === "minute" || input.releaseOffsetUnit === "hour"
+      ? addElapsedDuration(anchorInstant, duration)
+      : addZonedDuration(anchorInstant, timezone, duration);
+  return instantToDate(releaseInstant);
 }
 
 export async function ensureEventSectionReleased(

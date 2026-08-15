@@ -1,0 +1,171 @@
+.editor {
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+}
+
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-lg);
+  align-items: flex-end;
+}
+
+.headerCopy {
+  max-width: 50rem;
+}
+
+.form {
+  display: grid;
+  gap: var(--mantine-spacing-lg);
+  padding-bottom: var(--mantine-spacing-md);
+}
+
+.sectionHeader {
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  gap: var(--mantine-spacing-sm);
+  align-items: start;
+}
+
+.sectionNumber {
+  display: grid;
+  width: 2.25rem;
+  height: 2.25rem;
+  color: var(--mantine-color-indigo-8);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 800;
+  background: var(--mantine-color-indigo-0);
+  border: 1px solid var(--mantine-color-indigo-2);
+  border-radius: 999px;
+  place-items: center;
+}
+
+.detailsGrid,
+.twoColumnGrid,
+.scheduleSettings,
+.deliveryGrid,
+.locationFields,
+.scheduleGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  align-items: start;
+}
+
+.detailsGrid,
+.twoColumnGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.scheduleSettings,
+.locationFields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.deliveryGrid {
+  grid-template-columns: minmax(11rem, 0.55fr) minmax(0, 1.45fr);
+}
+
+.scheduleGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.fullWidth {
+  grid-column: 1 / -1;
+}
+
+.deliveryDetails,
+.locationFields {
+  min-width: 0;
+}
+
+.registrationTimeline,
+.reschedulePolicy {
+  padding: var(--mantine-spacing-md);
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
+}
+
+.registrationTimeline {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.timelineHeading {
+  max-width: 48rem;
+}
+
+.actionBar {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-lg);
+  align-items: center;
+  padding: var(--mantine-spacing-md);
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  box-shadow: var(--mantine-shadow-xs);
+}
+
+.actionCopy {
+  min-width: 0;
+}
+
+.actions {
+  flex: 0 0 auto;
+}
+
+.detailsGrid > *,
+.twoColumnGrid > *,
+.scheduleSettings > *,
+.deliveryGrid > *,
+.locationFields > *,
+.scheduleGrid > * {
+  min-width: 0;
+}
+
+@media (max-width: 68em) {
+  .scheduleGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 48em) {
+  .detailsGrid,
+  .twoColumnGrid,
+  .deliveryGrid,
+  .scheduleGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .actionBar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--mantine-spacing-sm);
+  }
+
+  .actions > * {
+    flex: 1 1 0;
+  }
+}
+
+@media (max-width: 36em) {
+  .sectionHeader {
+    grid-template-columns: 1.9rem minmax(0, 1fr);
+  }
+
+  .sectionNumber {
+    width: 1.9rem;
+    height: 1.9rem;
+  }
+
+  .scheduleSettings,
+  .locationFields {
+    grid-template-columns: 1fr;
+  }
+
+  .actionCopy {
+    display: none;
+  }
+}

@@ -7,7 +7,9 @@ interface NavigationItem {
     | "/admin"
     | "/admin/learners"
     | "/admin/courses"
-    | "/admin/events"
+    | "/admin/events/templates"
+    | "/admin/events/scheduled"
+    | "/admin/events/settings"
     | "/admin/modules"
     | "/admin/surveys"
     | "/admin/resources"
@@ -20,8 +22,15 @@ const groups: Array<{ label: string; items: Array<NavigationItem> }> = [
     items: [
       { label: "Overview", to: "/admin" },
       { label: "Learners", to: "/admin/learners" },
-      { label: "Events", to: "/admin/events" },
       { label: "Access grants", to: "/admin/access" },
+    ],
+  },
+  {
+    label: "Events",
+    items: [
+      { label: "Event templates", to: "/admin/events/templates" },
+      { label: "Scheduled events", to: "/admin/events/scheduled" },
+      { label: "Event settings", to: "/admin/events/settings" },
     ],
   },
   {
@@ -39,6 +48,19 @@ const groups: Array<{ label: string; items: Array<NavigationItem> }> = [
 ];
 
 function isActive(pathname: string, to: NavigationItem["to"]): boolean {
+  if (to === "/admin/events/templates") {
+    if (pathname === to) return true;
+    const eventChild = pathname.slice("/admin/events/".length).split("/")[0];
+    return (
+      pathname.startsWith("/admin/events/") &&
+      !["instances", "scheduled", "settings", "templates"].includes(
+        eventChild ?? "",
+      )
+    );
+  }
+  if (to === "/admin/events/scheduled") {
+    return pathname === to || pathname.startsWith("/admin/events/instances/");
+  }
   return to === "/admin"
     ? pathname === "/admin" || pathname === "/admin/"
     : pathname === to || pathname.startsWith(`${to}/`);

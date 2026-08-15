@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import type { AdminCourseDraft } from "#/features/admin-course/admin-course.schema";
 import type { AdminEventTemplateDraft } from "#/features/admin-event/admin-event.schema";
+import { ianaTimeZoneSchema } from "#/features/shared/time.schema";
 import {
   parseSurveyVersionContent,
   type AdminSurveyDraft,
@@ -28,6 +29,10 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
 import {
+  dateToInstant,
+  instantToLocalDateTime,
+} from "#/server/time/time.server";
+import {
   ingestScormPackageVersion,
   stageScormPackageArchive,
 } from "#/server/scorm/scorm-package-ingestion.server";
@@ -46,6 +51,9 @@ const hour = 60 * minute;
 const day = 24 * hour;
 const now = new Date();
 now.setSeconds(0, 0);
+const developmentTimezone = ianaTimeZoneSchema.parse("Australia/Sydney");
+const localDevelopmentTime = (value: Date) =>
+  instantToLocalDateTime(dateToInstant(value), developmentTimezone);
 
 const regionGroups = [
   {
@@ -589,6 +597,13 @@ async function createEventOccurrenceFixture(
       registrationMode: "required_unrestricted",
       approvalMode: "manual",
       timezone: "Australia/Sydney",
+      localStartsAt: localDevelopmentTime(input.startsAt),
+      localEndsAt: localDevelopmentTime(input.endsAt),
+      localRegistrationOpensAt: localDevelopmentTime(input.registrationOpensAt),
+      localRegistrationClosesAt: localDevelopmentTime(
+        input.registrationClosesAt,
+      ),
+      localCoordinatorLockAt: localDevelopmentTime(input.coordinatorLockAt),
       startsAt: input.startsAt.toISOString(),
       endsAt: input.endsAt.toISOString(),
       registrationOpensAt: input.registrationOpensAt.toISOString(),
@@ -1118,7 +1133,8 @@ try {
         description: "Complete the preparation before attending the workshop.",
         phase: "pre_event",
         releaseAnchor: "participation_created",
-        releaseOffsetMinutes: 0,
+        releaseOffsetAmount: 0,
+        releaseOffsetUnit: "minute",
         items: [
           {
             id: "event_template_pre_survey",
@@ -1136,7 +1152,8 @@ try {
         description: "Attend the facilitated workshop session.",
         phase: "session",
         releaseAnchor: "occurrence_start",
-        releaseOffsetMinutes: 0,
+        releaseOffsetAmount: 0,
+        releaseOffsetUnit: "minute",
         items: [
           {
             id: "event_template_workshop_session",
@@ -1156,7 +1173,8 @@ try {
           "Reflect on the workshop and identify practical next steps.",
         phase: "post_event",
         releaseAnchor: "final_session_end",
-        releaseOffsetMinutes: -120,
+        releaseOffsetAmount: -2,
+        releaseOffsetUnit: "hour",
         items: [
           {
             id: "event_template_post_survey",

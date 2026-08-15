@@ -19,6 +19,7 @@ async function findEventParticipantProgress(
   eventTemplateVersionId: string,
   occurrenceStartsAt: string,
   occurrenceEndsAt: string,
+  occurrenceTimezone: string,
   access: EventOperationsAccess,
 ): Promise<Array<EventParticipantProgress>> {
   const administrator = canAdministerEvent(access);
@@ -78,7 +79,8 @@ async function findEventParticipantProgress(
           "title",
           "phase",
           "releaseAnchor",
-          "releaseOffsetMinutes",
+          "releaseOffsetAmount",
+          "releaseOffsetUnit",
         ])
         .where("eventTemplateVersionId", "=", eventTemplateVersionId)
         .orderBy("position")
@@ -165,7 +167,9 @@ async function findEventParticipantProgress(
     const projectedSections = sections.map((section) => {
       const releaseAt = calculateEventSectionReleaseAt({
         releaseAnchor: section.releaseAnchor,
-        releaseOffsetMinutes: section.releaseOffsetMinutes,
+        releaseOffsetAmount: section.releaseOffsetAmount,
+        releaseOffsetUnit: section.releaseOffsetUnit,
+        timezone: occurrenceTimezone,
         participationCreatedAt: participant.createdAt,
         occurrenceStartsAt: occurrenceStart,
         occurrenceEndsAt: occurrenceEnd,
@@ -461,6 +465,7 @@ export async function findEventOperationsWorkspace(
           workspace.occurrence.eventTemplateVersionId,
           workspace.occurrence.startsAt,
           workspace.occurrence.endsAt,
+          workspace.occurrence.timezone,
           access,
         )
       : [],
