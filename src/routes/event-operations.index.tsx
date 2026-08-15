@@ -89,7 +89,7 @@ function AssignedEventOperationsPage() {
                 <Link
                   to="/event-operations/$eventOccurrenceId"
                   params={{ eventOccurrenceId: event.id }}
-                  search={{ view: "overview" }}
+                  search={{ view: "overview", q: "", state: "all" }}
                   className={classes.workspaceLink}
                 >
                   <Button component="span" fullWidth>

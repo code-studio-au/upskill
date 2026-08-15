@@ -30,12 +30,23 @@ const EventOperationsAttendance = lazy(async () => {
     await import("#/features/event-operations/EventOperationsAttendance");
   return { default: module.EventOperationsAttendance };
 });
+const EventOperationsProgress = lazy(async () => {
+  const module =
+    await import("#/features/event-operations/EventOperationsProgress");
+  return { default: module.EventOperationsProgress };
+});
 
-type EventOperationsView = "overview" | "registrations" | "attendance";
+type EventOperationsView =
+  "overview" | "registrations" | "progress" | "attendance";
 
 const searchSchema = z.object({
+  q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
+  state: z.catch(
+    z.enum(["all", "not_started", "in_progress", "up_to_date", "completed"]),
+    "all",
+  ),
   view: z.catch(
-    z.enum(["overview", "registrations", "attendance"]),
+    z.enum(["overview", "registrations", "progress", "attendance"]),
     "overview",
   ),
 });
@@ -86,6 +97,14 @@ function EventOperationsPage() {
       : []),
     ...(workspace.sessions.length
       ? [{ value: "attendance" as const, label: "Sessions & attendance" }]
+      : []),
+    ...(workspace.access.canViewProgress
+      ? [
+          {
+            value: "progress" as const,
+            label: `Progress (${String(workspace.participantProgress.length)})`,
+          },
+        ]
       : []),
   ];
   const activeView = tabs.some((tab) => tab.value === search.view)
@@ -142,7 +161,11 @@ function EventOperationsPage() {
         label="Assigned event workspace"
         value={activeView}
         tabs={tabs}
-        onChange={(view) => void navigate({ search: { view } })}
+        onChange={(view) =>
+          void navigate({
+            search: { view, q: search.q, state: search.state },
+          })
+        }
       />
 
       <Suspense fallback={<LoadingSpinner label="Loading event workspace" />}>
@@ -167,6 +190,15 @@ function EventOperationsPage() {
             workspace={workspace}
             processingId={processingId}
             action={action}
+          />
+        ) : null}
+        {activeView === "progress" ? (
+          <EventOperationsProgress
+            workspace={workspace}
+            filters={{ q: search.q, state: search.state }}
+            onFiltersChange={(filters) =>
+              void navigate({ search: { view: "progress", ...filters } })
+            }
           />
         ) : null}
       </Suspense>

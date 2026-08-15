@@ -953,6 +953,9 @@ transactional queries demonstrate real pressure.
 
 - Extend the first assigned-events dashboard with progress warnings, QR
   presentation/recovery, filtered exports and assignment lifecycle alerts.
+  Evidence-derived participant/Section progress, scoped Coordinator visibility
+  and filtered/all-authorized Event Section progress CSV are implemented; QR and
+  assignment-alert work remains.
 - Assigned-administrator consolidated final-selection controls in the focused
   workspace (the current full final-selection controls remain in Administration).
 - Presenter printable/minimal attendance export and time-windowed QR actions.
@@ -975,8 +978,12 @@ transactional queries demonstrate real pressure.
 - Attendance as completion evidence.
 - Event completion and certificate integration.
 
-Participant activity/Section progress projection for Coordinators remains part
-of the scoped operations/reporting work rather than the learner workspace.
+Participant activity/Section progress is an evidence-derived read model in the
+assigned Event operations workspace. Administrators see the whole occurrence,
+Coordinators see only participants in their assigned occurrence regions, and
+Presenters retain an attendance-only view. The UI provides current warnings,
+per-Section/activity inspection and a normalized, formula-safe Event Section
+progress CSV without exposing Survey answers.
 
 ### Phase 4 --- Communications and maturity
 

@@ -564,11 +564,12 @@ without understanding why.
 
 ### Phase C --- Blended event learning
 
-- ordered, titled Event Sections;
-- reusable SCORM/survey/resource activities;
-- coordinator progress views;
-- event completion;
-- certificates.
+- ordered, titled Event Sections (implemented);
+- reusable SCORM/survey/resource activities (implemented);
+- evidence-derived, region-scoped Coordinator progress views and Event Section
+  progress CSV (implemented);
+- event completion (implemented);
+- certificates (implemented).
 
 ### Phase D --- Enterprise access
 

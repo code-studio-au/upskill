@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import type {
   AssignedEventOperationsSummary,
+  EventParticipantProgress,
   EventOperationsWorkspace,
 } from "#/features/event-operations/event-operations.schema";
 import { findAdminEventOccurrenceOperations } from "#/server/admin/admin-event-operations.server";
@@ -10,6 +11,265 @@ import {
   canAdministerEvent,
   type EventOperationsAccess,
 } from "./event-operations-access.server";
+import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
+
+async function findEventParticipantProgress(
+  eventOccurrenceId: string,
+  eventTemplateVersionId: string,
+  occurrenceStartsAt: string,
+  occurrenceEndsAt: string,
+  access: EventOperationsAccess,
+): Promise<Array<EventParticipantProgress>> {
+  const administrator = canAdministerEvent(access);
+  if (!administrator && access.coordinatorRegionIds.length === 0) return [];
+  const database = getDatabase();
+  let participantQuery = database
+    .selectFrom("event_participation as participation")
+    .leftJoin(
+      "event_registration as registration",
+      "registration.id",
+      "participation.registrationId",
+    )
+    .leftJoin(
+      "event_occurrence_region as occurrenceRegion",
+      "occurrenceRegion.id",
+      "registration.eventOccurrenceRegionId",
+    )
+    .leftJoin(
+      "coordination_region as region",
+      "region.id",
+      "occurrenceRegion.regionId",
+    )
+    .select([
+      "participation.id",
+      "participation.nameSnapshot as name",
+      "participation.emailSnapshot as email",
+      "participation.createdAt",
+      "participation.completedAt",
+      "registration.eventOccurrenceRegionId as regionId",
+      "region.name as regionName",
+    ])
+    .where("participation.eventOccurrenceId", "=", eventOccurrenceId)
+    .where((expression) =>
+      expression.or([
+        expression("registration.status", "=", "selected"),
+        expression("participation.mode", "=", "open_entry"),
+      ]),
+    )
+    .orderBy("participation.nameSnapshot")
+    .orderBy("participation.emailSnapshot");
+  if (!administrator)
+    participantQuery = participantQuery.where(
+      "registration.eventOccurrenceRegionId",
+      "in",
+      access.coordinatorRegionIds,
+    );
+  const participants = await participantQuery.execute();
+  if (participants.length === 0) return [];
+  const participantIds = participants.map((participant) => participant.id);
+  const [sections, items, sessions, progress, attendance, releases] =
+    await Promise.all([
+      database
+        .selectFrom("event_template_version_section")
+        .select([
+          "id",
+          "position",
+          "title",
+          "phase",
+          "releaseAnchor",
+          "releaseOffsetMinutes",
+        ])
+        .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+        .orderBy("position")
+        .execute(),
+      database
+        .selectFrom("event_template_version_item")
+        .select([
+          "id",
+          "sectionId",
+          "position",
+          "title",
+          "kind",
+          "required",
+          "sessionDefinitionId",
+        ])
+        .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+        .orderBy("position")
+        .execute(),
+      database
+        .selectFrom("event_session")
+        .select(["id", "sessionDefinitionId", "endsAt"])
+        .where("eventOccurrenceId", "=", eventOccurrenceId)
+        .orderBy("position")
+        .execute(),
+      database
+        .selectFrom("learning_item_progress")
+        .select(["eventParticipationId", "eventTemplateVersionItemId"])
+        .where("eventParticipationId", "in", participantIds)
+        .where("state", "=", "completed")
+        .execute(),
+      database
+        .selectFrom("event_attendance as attendance")
+        .innerJoin(
+          "event_session as session",
+          "session.id",
+          "attendance.eventSessionId",
+        )
+        .select([
+          "attendance.eventParticipationId",
+          "session.sessionDefinitionId",
+          "attendance.state",
+        ])
+        .where("attendance.eventParticipationId", "in", participantIds)
+        .execute(),
+      database
+        .selectFrom("event_section_release")
+        .select(["eventParticipationId", "eventTemplateVersionSectionId"])
+        .where("eventParticipationId", "in", participantIds)
+        .execute(),
+    ]);
+  const occurrenceStart = new Date(occurrenceStartsAt);
+  const occurrenceEnd = new Date(occurrenceEndsAt);
+  const finalSessionEnd = sessions.at(-1)?.endsAt ?? occurrenceEnd;
+  const sessionByDefinition = new Map(
+    sessions.map((session) => [session.sessionDefinitionId, session]),
+  );
+  const completedEvidence = new Set(
+    progress.flatMap((row) =>
+      row.eventParticipationId && row.eventTemplateVersionItemId
+        ? [`${row.eventParticipationId}:${row.eventTemplateVersionItemId}`]
+        : [],
+    ),
+  );
+  const attendanceByParticipantAndDefinition = new Map(
+    attendance.map((row) => [
+      `${row.eventParticipationId}:${row.sessionDefinitionId}`,
+      row.state,
+    ]),
+  );
+  const participantsWithRecordedAttendance = new Set(
+    attendance
+      .filter((row) => row.state !== "not_recorded")
+      .map((row) => row.eventParticipationId),
+  );
+  const releasedSections = new Set(
+    releases.map(
+      (row) =>
+        `${row.eventParticipationId}:${row.eventTemplateVersionSectionId}`,
+    ),
+  );
+  const now = new Date();
+
+  return participants.map((participant) => {
+    const projectedSections = sections.map((section) => {
+      const releaseAt = calculateEventSectionReleaseAt({
+        releaseAnchor: section.releaseAnchor,
+        releaseOffsetMinutes: section.releaseOffsetMinutes,
+        participationCreatedAt: participant.createdAt,
+        occurrenceStartsAt: occurrenceStart,
+        occurrenceEndsAt: occurrenceEnd,
+        finalSessionEndsAt: finalSessionEnd,
+      });
+      const available =
+        releasedSections.has(`${participant.id}:${section.id}`) ||
+        releaseAt <= now;
+      const sectionItems = items
+        .filter((item) => item.sectionId === section.id)
+        .map((item) => {
+          const session = item.sessionDefinitionId
+            ? sessionByDefinition.get(item.sessionDefinitionId)
+            : null;
+          const attendanceState = session
+            ? attendanceByParticipantAndDefinition.get(
+                `${participant.id}:${session.sessionDefinitionId}`,
+              )
+            : null;
+          const completed = session
+            ? attendanceState === "attended"
+            : completedEvidence.has(`${participant.id}:${item.id}`);
+          return {
+            id: item.id,
+            title: item.title,
+            kind: item.kind,
+            required: item.required,
+            state: completed ? ("completed" as const) : ("incomplete" as const),
+          };
+        });
+      const requiredItems = sectionItems.filter((item) => item.required);
+      const targets = requiredItems.length > 0 ? requiredItems : sectionItems;
+      const completedItems = targets.filter(
+        (item) => item.state === "completed",
+      ).length;
+      const complete = targets.length > 0 && completedItems === targets.length;
+      return {
+        id: section.id,
+        title: section.title,
+        phase: section.phase,
+        state: !available
+          ? ("locked" as const)
+          : complete
+            ? ("completed" as const)
+            : completedItems > 0
+              ? ("in_progress" as const)
+              : ("not_started" as const),
+        releaseAt: releaseAt.toISOString(),
+        completedItems,
+        totalItems: targets.length,
+        items: sectionItems,
+      };
+    });
+    const availableSections = projectedSections.filter(
+      (section) => section.state !== "locked",
+    );
+    const completedAvailableItems = availableSections.reduce(
+      (total, section) => total + section.completedItems,
+      0,
+    );
+    const availableItems = availableSections.reduce(
+      (total, section) => total + section.totalItems,
+      0,
+    );
+    const totalItems = projectedSections.reduce(
+      (total, section) => total + section.totalItems,
+      0,
+    );
+    const completed =
+      projectedSections.length > 0 &&
+      projectedSections.every((section) => section.state === "completed");
+    const upToDate =
+      !completed &&
+      availableSections.length > 0 &&
+      availableSections.every((section) => section.state === "completed") &&
+      projectedSections.some((section) => section.state === "locked");
+    const hasEvidence =
+      participantsWithRecordedAttendance.has(participant.id) ||
+      projectedSections.some((section) =>
+        section.items.some((item) => item.state === "completed"),
+      );
+    return {
+      eventParticipationId: participant.id,
+      name: participant.name,
+      email: participant.email,
+      regionId: participant.regionId,
+      regionName: participant.regionName,
+      state: completed
+        ? ("completed" as const)
+        : upToDate
+          ? ("up_to_date" as const)
+          : hasEvidence
+            ? ("in_progress" as const)
+            : ("not_started" as const),
+      completedAt:
+        completed && participant.completedAt
+          ? participant.completedAt.toISOString()
+          : null,
+      completedAvailableItems,
+      availableItems,
+      totalItems,
+      sections: projectedSections,
+    };
+  });
+}
 
 export async function findAssignedEventOperations(
   userId: string,
@@ -152,6 +412,7 @@ export async function findEventOperationsWorkspace(
   const coordinator = coordinatorRegionIds.size > 0;
   const presenter =
     access.presentsWholeOccurrence || assignedSessionIds.size > 0;
+  const canViewProgress = administrator || coordinator;
   const sessions = workspace.sessions
     .filter(
       (session) =>
@@ -191,6 +452,15 @@ export async function findEventOperationsWorkspace(
   if (administrator) roles.push("administrator");
   if (coordinator) roles.push("coordinator");
   if (presenter) roles.push("presenter");
+  const participantProgress = canViewProgress
+    ? await findEventParticipantProgress(
+        eventOccurrenceId,
+        workspace.occurrence.eventTemplateVersionId,
+        workspace.occurrence.startsAt,
+        workspace.occurrence.endsAt,
+        access,
+      )
+    : [];
 
   return {
     occurrence: {
@@ -212,6 +482,7 @@ export async function findEventOperationsWorkspace(
       canReviewRegistrations: administrator || coordinator,
       canViewRegistrations: administrator || coordinator,
       canRecordAttendance: administrator || coordinator || presenter,
+      canViewProgress,
     },
     metrics: {
       registrations: registrations.length,
@@ -223,6 +494,20 @@ export async function findEventOperationsWorkspace(
       ).length,
       confirmed: registrations.filter(
         (registration) => registration.status === "selected",
+      ).length,
+      completed: participantProgress.filter(
+        (participant) => participant.state === "completed",
+      ).length,
+      upToDate: participantProgress.filter(
+        (participant) => participant.state === "up_to_date",
+      ).length,
+      preWorkAttention: participantProgress.filter((participant) =>
+        participant.sections.some(
+          (section) =>
+            section.phase === "pre_event" &&
+            section.state !== "locked" &&
+            section.state !== "completed",
+        ),
       ).length,
     },
     regions: regions.map((region) => ({
@@ -243,5 +528,6 @@ export async function findEventOperationsWorkspace(
       coordinatorPriority: registration.coordinatorPriority,
     })),
     sessions,
+    participantProgress,
   };
 }

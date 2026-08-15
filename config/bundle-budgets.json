@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 852000,
+  "clientJavaScriptBytes": 858000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 247000,
+  "clientJavaScriptBrotliBytes": 250000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
@@ -12,6 +12,7 @@
     "AdminCoordinationRegionDirectory": 2304,
     "AdminEventStaffRoster": 34816,
     "AdminEventRegionalCoverageEditor": 1536,
+    "EventOperationsProgress": 2560,
     "FullscreenScormLauncher": 2048,
     "LearnerEventSection": 2304,
     "LearnerSurveyExperience": 3072,

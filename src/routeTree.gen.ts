@@ -42,6 +42,7 @@ import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 import { Route as AdminEventsInstancesEventOccurrenceIdRouteImport } from './routes/admin.events.instances.$eventOccurrenceId'
+import { Route as ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport } from './routes/api.event-operations.$eventOccurrenceId.progress[.]csv'
 import { Route as ApiLearningCertificatesEnrollmentIdRouteImport } from './routes/api.learning.certificates.$enrollmentId'
 import { Route as ApiLearningEventCertificatesEventParticipationIdRouteImport } from './routes/api.learning.event-certificates.$eventParticipationId'
 import { Route as ApiLearningResourcesResourceVersionIdRouteImport } from './routes/api.learning.resources.$resourceVersionId'
@@ -220,6 +221,12 @@ const AdminEventsInstancesEventOccurrenceIdRoute =
     path: '/events/instances/$eventOccurrenceId',
     getParentRoute: () => AdminRoute,
   } as any)
+const ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute =
+  ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport.update({
+    id: '/api/event-operations/$eventOccurrenceId/progress.csv',
+    path: '/api/event-operations/$eventOccurrenceId/progress.csv',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiLearningCertificatesEnrollmentIdRoute =
   ApiLearningCertificatesEnrollmentIdRouteImport.update({
     id: '/api/learning/certificates/$enrollmentId',
@@ -303,6 +310,7 @@ export interface FileRoutesByFullPath {
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
@@ -344,6 +352,7 @@ export interface FileRoutesByTo {
   '/admin/learners': typeof AdminLearnersIndexRoute
   '/admin/surveys': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
@@ -388,6 +397,7 @@ export interface FileRoutesById {
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
@@ -433,6 +443,7 @@ export interface FileRouteTypes {
     | '/admin/learners/'
     | '/admin/surveys/'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
@@ -474,6 +485,7 @@ export interface FileRouteTypes {
     | '/admin/learners'
     | '/admin/surveys'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
@@ -517,6 +529,7 @@ export interface FileRouteTypes {
     | '/admin/learners/'
     | '/admin/surveys/'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
@@ -546,6 +559,7 @@ export interface RootRouteChildren {
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute: typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   ApiLearningCertificatesEnrollmentIdRoute: typeof ApiLearningCertificatesEnrollmentIdRoute
   ApiLearningEventCertificatesEventParticipationIdRoute: typeof ApiLearningEventCertificatesEventParticipationIdRoute
   ApiLearningResourcesResourceVersionIdRoute: typeof ApiLearningResourcesResourceVersionIdRoute
@@ -787,6 +801,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminEventsInstancesEventOccurrenceIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/event-operations/$eventOccurrenceId/progress.csv': {
+      id: '/api/event-operations/$eventOccurrenceId/progress.csv'
+      path: '/api/event-operations/$eventOccurrenceId/progress.csv'
+      fullPath: '/api/event-operations/$eventOccurrenceId/progress.csv'
+      preLoaderRoute: typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/learning/certificates/$enrollmentId': {
       id: '/api/learning/certificates/$enrollmentId'
       path: '/api/learning/certificates/$enrollmentId'
@@ -932,6 +953,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute:
+    ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute,
   ApiLearningCertificatesEnrollmentIdRoute:
     ApiLearningCertificatesEnrollmentIdRoute,
   ApiLearningEventCertificatesEventParticipationIdRoute:
