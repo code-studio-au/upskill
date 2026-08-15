@@ -1,0 +1,111 @@
+.region {
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-white);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--mantine-color-gray-2);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.table th {
+  color: var(--mantine-color-gray-7);
+  background: var(--mantine-color-gray-0);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.table tbody tr:hover {
+  background: var(--mantine-color-gray-0);
+}
+
+.table td[data-numeric],
+.table th[data-numeric] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.caption {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 48em) {
+  .region {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+  }
+
+  .table,
+  .table tbody {
+    display: block;
+  }
+
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .table tbody {
+    display: grid;
+    gap: var(--mantine-spacing-sm);
+  }
+
+  .table tbody tr {
+    display: grid;
+    overflow: hidden;
+    border: 1px solid var(--mantine-color-gray-3);
+    border-radius: var(--mantine-radius-md);
+    background: var(--mantine-color-white);
+  }
+
+  .table td,
+  .table td[data-numeric] {
+    display: grid;
+    grid-template-columns: minmax(6.5rem, 36%) minmax(0, 1fr);
+    gap: var(--mantine-spacing-sm);
+    align-items: start;
+    padding: 0.65rem 0.75rem;
+    text-align: left;
+  }
+
+  .table td::before {
+    color: var(--mantine-color-gray-6);
+    content: attr(data-label);
+    font-size: var(--mantine-font-size-xs);
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+}

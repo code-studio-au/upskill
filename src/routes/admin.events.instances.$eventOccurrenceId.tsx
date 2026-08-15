@@ -5,20 +5,18 @@ import {
   useNavigate,
   useRouter,
 } from "@tanstack/react-router";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { lazy, Suspense } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import {
   adminEventOccurrenceOperationsParamsSchema,
   type AdminEventOccurrenceOperations,
-  type EventRegistrationStatus,
 } from "#/features/admin-event/admin-event-operations.schema";
 import { Badge } from "#/features/shared/Badge";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
-import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { PageTabs } from "#/features/shared/PageTabs";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
@@ -33,8 +31,6 @@ import {
 } from "#/features/shared/mantine";
 import {
   addAdminEventRegistration,
-  decideAdminEventCoordinatorRegistration,
-  decideAdminEventFinalRegistration,
   getAdminEventOccurrenceOperations,
   lockAdminEventRegion,
   recordAdminEventAttendance,
@@ -54,6 +50,17 @@ const AdminEventOccurrenceDialog = lazy(async () => {
   const module =
     await import("#/features/admin-event/AdminEventOccurrenceDialog");
   return { default: module.AdminEventOccurrenceDialog };
+});
+
+const AdminEventRegistrationTable = lazy(async () => {
+  const module =
+    await import("#/features/admin-event/AdminEventRegistrationTable");
+  return { default: module.AdminEventRegistrationTable };
+});
+
+const AdminEventActivityTable = lazy(async () => {
+  const module = await import("#/features/admin-event/AdminEventActivityTable");
+  return { default: module.AdminEventActivityTable };
 });
 
 export const Route = createFileRoute(
@@ -80,17 +87,6 @@ export const Route = createFileRoute(
   component: EventInstanceOperationsPage,
 });
 
-const statusLabels: Record<EventRegistrationStatus, string> = {
-  submitted: "Submitted",
-  coordinator_approved: "Candidate",
-  coordinator_declined: "Not approved",
-  selected: "Confirmed",
-  waitlisted: "Waitlisted",
-  not_selected: "Not selected",
-  withdrawn: "Withdrawn",
-  cancelled: "Cancelled",
-};
-
 function EventInstanceOperationsPage() {
   const result = Route.useLoaderData();
   const search = Route.useSearch();
@@ -104,45 +100,47 @@ function EventInstanceOperationsPage() {
     "cancelled" | "completed" | "archived" | null
   >(null);
   const [priorities, setPriorities] = useState<Record<string, string>>({});
+  const action = useCallback(
+    async (
+      id: string,
+      operation: () => Promise<{ status: string; reason?: string }>,
+    ) => {
+      setProcessingId(id);
+      setError(null);
+      try {
+        const outcome = await operation();
+        if (outcome.status !== "ready") {
+          const messages: Record<string, string> = {
+            region_locked:
+              "This regional list is locked and can no longer be changed.",
+            capacity_full:
+              "No places remain. Waitlist or remove another confirmed participant first.",
+            invalid_transition:
+              "That decision is not available from the current registration state.",
+            domain_override_required:
+              "This learner does not match the restricted domains. Confirm the explicit override to continue.",
+            duplicate_registration:
+              "This learner already has a registration for this event.",
+            registration_unavailable:
+              "Registrations cannot be added to this event in its current state.",
+          };
+          setError(
+            messages[outcome.reason ?? ""] ??
+              "The event operation could not be completed.",
+          );
+          return;
+        }
+        await router.invalidate();
+      } finally {
+        setProcessingId(null);
+      }
+    },
+    [router],
+  );
   if (result.status === "forbidden") return <AdminAccessDenied />;
   const workspace = result.data;
   const registrationMutationsAvailable =
     workspace.occurrence.status === "published";
-
-  async function action(
-    id: string,
-    operation: () => Promise<{ status: string; reason?: string }>,
-  ) {
-    setProcessingId(id);
-    setError(null);
-    try {
-      const outcome = await operation();
-      if (outcome.status !== "ready") {
-        const messages: Record<string, string> = {
-          region_locked:
-            "This regional list is locked and can no longer be changed.",
-          capacity_full:
-            "No places remain. Waitlist or remove another confirmed participant first.",
-          invalid_transition:
-            "That decision is not available from the current registration state.",
-          domain_override_required:
-            "This learner does not match the restricted domains. Confirm the explicit override to continue.",
-          duplicate_registration:
-            "This learner already has a registration for this event.",
-          registration_unavailable:
-            "Registrations cannot be added to this event in its current state.",
-        };
-        setError(
-          messages[outcome.reason ?? ""] ??
-            "The event operation could not be completed.",
-        );
-        return;
-      }
-      await router.invalidate();
-    } finally {
-      setProcessingId(null);
-    }
-  }
 
   return (
     <Stack gap="lg">
@@ -374,181 +372,16 @@ function EventInstanceOperationsPage() {
 
       {search.view === "registrations" ? (
         workspace.registrations.length ? (
-          <div className={classes.tableWrap}>
-            <table className={classes.table}>
-              <thead>
-                <tr>
-                  <th>Learner</th>
-                  <th>Region</th>
-                  <th>Status</th>
-                  <th>Priority</th>
-                  <th>Coordinator review</th>
-                  <th>Final decision</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workspace.registrations.map((registration) => {
-                  const region = workspace.regions.find(
-                    (candidate) => candidate.id === registration.regionId,
-                  );
-                  const reviewLocked = region?.effectivelyLocked ?? false;
-                  return (
-                    <tr key={registration.id}>
-                      <td>
-                        <Text fw={600}>{registration.name}</Text>
-                        <Text c="dimmed" size="sm">
-                          {registration.email}
-                        </Text>
-                      </td>
-                      <td>
-                        {registration.regionName ?? "Direct / unregional"}
-                      </td>
-                      <td>
-                        <Badge
-                          variant="light"
-                          color={
-                            registration.status === "selected"
-                              ? "green"
-                              : "blue"
-                          }
-                        >
-                          {statusLabels[registration.status]}
-                        </Badge>
-                      </td>
-                      <td>
-                        <MantineTextInput
-                          aria-label={`Priority for ${registration.name}`}
-                          type="number"
-                          min={0}
-                          value={
-                            priorities[registration.id] ??
-                            String(registration.coordinatorPriority ?? "")
-                          }
-                          classNames={{ input: classes.inlineField }}
-                          disabled={
-                            !registrationMutationsAvailable || reviewLocked
-                          }
-                          onChange={(event) => {
-                            const value = event.currentTarget.value;
-                            setPriorities((current) => ({
-                              ...current,
-                              [registration.id]: value,
-                            }));
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <Group gap="xs" wrap="nowrap">
-                          <Button
-                            size="xs"
-                            variant="light"
-                            disabled={
-                              !registrationMutationsAvailable ||
-                              !registration.reviewRoundId ||
-                              reviewLocked
-                            }
-                            loading={
-                              processingId === `approve-${registration.id}`
-                            }
-                            onClick={() =>
-                              void action(`approve-${registration.id}`, () =>
-                                decideAdminEventCoordinatorRegistration({
-                                  data: {
-                                    eventOccurrenceId: workspace.occurrence.id,
-                                    registrationId: registration.id,
-                                    decision: "coordinator_approved",
-                                    priority: priorities[registration.id]
-                                      ? Number(priorities[registration.id])
-                                      : registration.coordinatorPriority,
-                                  },
-                                }),
-                              )
-                            }
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="xs"
-                            variant="subtle"
-                            color="red"
-                            disabled={
-                              !registrationMutationsAvailable ||
-                              !registration.reviewRoundId ||
-                              reviewLocked
-                            }
-                            loading={
-                              processingId === `decline-${registration.id}`
-                            }
-                            onClick={() =>
-                              void action(`decline-${registration.id}`, () =>
-                                decideAdminEventCoordinatorRegistration({
-                                  data: {
-                                    eventOccurrenceId: workspace.occurrence.id,
-                                    registrationId: registration.id,
-                                    decision: "coordinator_declined",
-                                    priority: null,
-                                  },
-                                }),
-                              )
-                            }
-                          >
-                            Decline
-                          </Button>
-                        </Group>
-                      </td>
-                      <td>
-                        {registrationMutationsAvailable ? (
-                          <Group gap="xs" wrap="nowrap">
-                            {(
-                              [
-                                "selected",
-                                "waitlisted",
-                                "not_selected",
-                                "cancelled",
-                              ] as const
-                            ).map((decision) => (
-                              <Button
-                                key={decision}
-                                size="xs"
-                                variant={
-                                  decision === "selected" ? "filled" : "subtle"
-                                }
-                                {...(decision === "cancelled"
-                                  ? { color: "red" as const }
-                                  : {})}
-                                loading={
-                                  processingId ===
-                                  `${decision}-${registration.id}`
-                                }
-                                onClick={() =>
-                                  void action(
-                                    `${decision}-${registration.id}`,
-                                    () =>
-                                      decideAdminEventFinalRegistration({
-                                        data: {
-                                          eventOccurrenceId:
-                                            workspace.occurrence.id,
-                                          registrationId: registration.id,
-                                          decision,
-                                        },
-                                      }),
-                                  )
-                                }
-                              >
-                                {decision === "selected"
-                                  ? "Confirm"
-                                  : decision.replaceAll("_", " ")}
-                              </Button>
-                            ))}
-                          </Group>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <Suspense fallback={<LoadingSpinner label="Loading registrations" />}>
+            <AdminEventRegistrationTable
+              workspace={workspace}
+              priorities={priorities}
+              processingId={processingId}
+              mutationsAvailable={registrationMutationsAvailable}
+              setPriorities={setPriorities}
+              action={action}
+            />
+          </Suspense>
         ) : (
           <Alert title="No registrations">
             Learner registrations will appear here for regional review and final
@@ -652,42 +485,12 @@ function EventInstanceOperationsPage() {
 
       {search.view === "activity" ? (
         workspace.activity.length ? (
-          <div className={classes.tableWrap}>
-            <table className={classes.table}>
-              <thead>
-                <tr>
-                  <th>When</th>
-                  <th>Learner</th>
-                  <th>Transition</th>
-                  <th>Source</th>
-                  <th>Actor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {workspace.activity.map((entry) => (
-                  <tr key={entry.id}>
-                    <td>
-                      {formatLocalDateTime(entry.occurredAt, {
-                        timeZone: workspace.occurrence.timezone,
-                      })}
-                    </td>
-                    <td>{entry.learnerName}</td>
-                    <td>
-                      {entry.fromStatus
-                        ? `${statusLabels[entry.fromStatus]} → `
-                        : ""}
-                      {statusLabels[entry.toStatus]}
-                      {entry.priority === null
-                        ? ""
-                        : ` · priority ${String(entry.priority)}`}
-                    </td>
-                    <td>{entry.source}</td>
-                    <td>{entry.actorName ?? "System"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <Suspense fallback={<LoadingSpinner label="Loading activity" />}>
+            <AdminEventActivityTable
+              activity={workspace.activity}
+              timezone={workspace.occurrence.timezone}
+            />
+          </Suspense>
         ) : (
           <Alert title="No activity yet">
             Registration decisions will appear here as a retained operational
@@ -738,6 +541,7 @@ function EventInstanceOperationsPage() {
             }}
             regionalCoverage={{
               availableRegions: workspace.availableRegions,
+              availableCoordinators: workspace.availableCoordinators,
               availableUsers: workspace.availableUsers,
               currentRegions: workspace.regions.map((region) => ({
                 regionId: region.regionId,

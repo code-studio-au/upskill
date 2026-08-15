@@ -47,10 +47,32 @@ const day = 24 * hour;
 const now = new Date();
 now.setSeconds(0, 0);
 
+const regionGroups = [
+  {
+    id: "region_group_nsw_health",
+    code: "NSW-HEALTH",
+    name: "NSW Health",
+  },
+] as const;
 const regions = [
-  { id: "region_test_north", code: "TEST-NORTH", name: "Test North" },
-  { id: "region_test_central", code: "TEST-CENTRAL", name: "Test Central" },
-  { id: "region_test_south", code: "TEST-SOUTH", name: "Test South" },
+  {
+    id: "region_test_north",
+    code: "TEST-NORTH",
+    name: "Test North",
+    parentId: "region_group_nsw_health",
+  },
+  {
+    id: "region_test_central",
+    code: "TEST-CENTRAL",
+    name: "Test Central",
+    parentId: "region_group_nsw_health",
+  },
+  {
+    id: "region_test_south",
+    code: "TEST-SOUTH",
+    name: "Test South",
+    parentId: "region_group_nsw_health",
+  },
 ] as const;
 
 const learnerRegionIndexes = [0, 0, 0, 0, 1, 1, 1, 2, 2, 2] as const;
@@ -923,11 +945,50 @@ try {
   await database
     .insertInto("coordination_region")
     .values(
-      regions.map((region) => ({
+      regionGroups.map((region) => ({
         ...region,
         parentId: null,
+        kind: "group" as const,
         status: "active" as const,
       })),
+    )
+    .execute();
+  await database
+    .insertInto("coordination_region")
+    .values(
+      regions.map((region) => ({
+        ...region,
+        kind: "operational" as const,
+        status: "active" as const,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("event_staff_eligibility")
+    .values(
+      coordinators.flatMap((coordinator, index) => {
+        const region = requiredAt(regions, index, "Region");
+        return [
+          {
+            id: `staff_eligibility_presenter_${String(index + 1)}`,
+            userId: coordinator.id,
+            responsibility: "presenter" as const,
+            regionId: null,
+            grantedByUserId: administrator.id,
+            revokedByUserId: null,
+            revokedAt: null,
+          },
+          {
+            id: `staff_eligibility_coordinator_${String(index + 1)}`,
+            userId: coordinator.id,
+            responsibility: "coordinator" as const,
+            regionId: region.id,
+            grantedByUserId: administrator.id,
+            revokedByUserId: null,
+            revokedAt: null,
+          },
+        ];
+      }),
     )
     .execute();
 

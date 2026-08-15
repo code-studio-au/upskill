@@ -11,6 +11,7 @@
 html {
   min-width: 20rem;
   background: var(--mantine-color-gray-0);
+  scrollbar-gutter: stable;
 }
 
 body {

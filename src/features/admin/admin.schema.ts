@@ -75,7 +75,7 @@ interface AdminLearnerSummary {
 
 export interface AdminLearnerDirectory {
   learners: Array<AdminLearnerSummary>;
-  pagination: { page: number; pages: number; total: number };
+  pagination: { page: number; pages: number; total: number; pageSize: number };
   query: string;
 }
 

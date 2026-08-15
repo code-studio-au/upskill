@@ -220,10 +220,30 @@ system.
 
 ### Coordination region
 
-A configurable hierarchical area used to allocate operational responsibility,
-such as country, state/territory, NSW Health LHD, district or a customer-defined
-region. An Event Occurrence selects its applicable regions rather than
-hard-coding one jurisdictional scheme.
+A configurable hierarchical directory used to allocate operational
+responsibility. A **region group** is an organisational parent such as New South
+Wales or Victoria; it provides navigation and reporting context but is not
+selected for registration or Coordinator assignment. An **operational region**
+is a selectable leaf such as a NSW Health LHD, Victorian region, district or
+customer-defined service area. Operational regions may belong to a group or be
+ungrouped when no parent taxonomy is useful.
+
+An Event Template selects any combination of operational regions, including
+regions from multiple groups. For example, one Template may cover NSW regions
+A, B and C together with Victorian regions X, Y and Z. Each selected operational
+region has its own one-or-more default Coordinator selections, regional review
+list and occurrence assignment snapshot. Selecting a parent group never
+implicitly selects all current or future children, so adding a new regional
+directory entry cannot silently broaden an already published Template or Event
+Occurrence.
+
+The editable Event Staff roster marks who is eligible for future selection.
+Presenter eligibility is global to the roster; Coordinator eligibility is
+granted independently for each operational region. Eligibility does not grant
+runtime access. Runtime Coordinator authority still requires an active
+occurrence-and-region assignment, and runtime Presenter authority still
+requires an active occurrence/session assignment. Ending eligibility prevents
+new default selections without erasing historical versions or assignments.
 
 ### Registration region snapshot
 
@@ -364,6 +384,12 @@ Large occurrences may divide review across state, national or international
 coordination regions. For example, a NSW Health occurrence may use LHDs; another
 occurrence may use states, countries or customer-defined areas. The taxonomy is
 configurable and may be hierarchical.
+
+Only operational regions participate in registration routing. Groups remain
+stable reporting and navigation labels. A multi-group occurrence presents each
+selected operational region explicitly, takes a point-in-time region snapshot
+on Registration, and limits each Coordinator to the lists for the exact regions
+assigned to them.
 
 A regional approval flow is:
 

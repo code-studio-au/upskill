@@ -77,6 +77,12 @@ continue; the system never restores the revoked role automatically.
 
 ### Coordinator revocation and regional coverage
 
+Coordinator roster eligibility is scoped to one Coordination Region and used
+only to constrain new Template/default selection. The same User may hold
+eligibility for multiple regions. Eligibility is not an authorisation grant;
+runtime access still requires an active occurrence-and-region Coordinator
+assignment.
+
 Each configured Event Instance region similarly supports one or more active
 Coordinator assignments. Revoking/ending one assignment or disabling its User
 removes future scoped access immediately and retains prior actions. Other active
@@ -96,6 +102,15 @@ configured regions lacks valid Coordinator coverage. Historical versions remain
 unchanged and existing drafts must rebase before publication.
 
 ### Presenter revocation and delivery coverage
+
+The editable Event Staff roster is eligibility metadata used only to constrain
+new Template/default selection. Presenter eligibility is unscoped; Coordinator
+eligibility is scoped to a Coordination Region. Neither is a global operating
+role or grants Event access. Runtime authorisation continues to require an
+active occurrence/session Presenter or occurrence/region Coordinator
+assignment. A User removed from the roster remains visible in immutable history,
+while drafts and future instances must replace an ineligible default before
+publication or creation.
 
 Every presenter-required Event Instance/Session supports one or more active
 Presenter assignments. Revoking/ending an assignment or disabling its User

@@ -1165,7 +1165,8 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: "Add event session" }).click();
     await page.getByLabel("Display title").fill("Live workshop");
     await page.getByLabel("Duration (minutes)").fill("90");
-    await page.getByLabel("Avery Administrator · admin@example.com").check();
+    await page.getByLabel("Add presenter").selectOption({ index: 1 });
+    await page.getByRole("button", { name: "Add", exact: true }).click();
     await page.getByRole("button", { name: "Staffing and regions" }).click();
     await page.getByLabel("Avery Administrator · admin@example.com").check();
     await page.getByRole("button", { name: "Save and publish" }).click();
@@ -1277,7 +1278,8 @@ test("platform administrators can inspect learner progress", async ({
       ),
     )
     .toBe("preserved");
-  await page.getByRole("link", { name: "View learner profile" }).click();
+  await expect(page.getByRole("table")).toBeVisible();
+  await page.getByRole("link", { name: "Alex Learner" }).click();
   await expect(
     page.getByRole("heading", { name: "Alex Learner" }),
   ).toBeVisible();

@@ -5,7 +5,9 @@ import { sql, type Transaction } from "kysely";
 import {
   adminEventTemplateDraftSchema,
   normalizeEventDomains,
+  type AdminCoordinationRegionSaveInput,
   type AdminEventOccurrenceCreateInput,
+  type AdminEventPersonOption,
   type AdminEventTemplateCreateInput,
   type AdminEventTemplateDetail,
   type AdminEventTemplateDraft,
@@ -44,6 +46,9 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
     occurrences,
     occurrenceDomains,
     platformAdministrators,
+    presenters,
+    regions,
+    coordinators,
   ] = await Promise.all([
     database
       .selectFrom("event_template")
@@ -114,6 +119,59 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
       .orderBy("user.name")
       .orderBy("user.email")
       .execute(),
+    database
+      .selectFrom("event_staff_eligibility as eligibility")
+      .innerJoin("user", "user.id", "eligibility.userId")
+      .select([
+        "eligibility.id as eligibilityId",
+        "user.id",
+        "user.name",
+        "user.email",
+      ])
+      .where("eligibility.responsibility", "=", "presenter")
+      .where("eligibility.revokedAt", "is", null)
+      .orderBy("user.name")
+      .orderBy("user.email")
+      .execute(),
+    database
+      .selectFrom("coordination_region as region")
+      .leftJoin("coordination_region as parent", "parent.id", "region.parentId")
+      .select([
+        "region.id",
+        "region.name",
+        "region.code",
+        "region.kind",
+        "region.status",
+        "region.parentId",
+        "parent.name as parentName",
+      ])
+      .orderBy("parent.name")
+      .orderBy("region.kind")
+      .orderBy("region.name")
+      .execute(),
+    database
+      .selectFrom("event_staff_eligibility as eligibility")
+      .innerJoin("user", "user.id", "eligibility.userId")
+      .innerJoin(
+        "coordination_region as region",
+        "region.id",
+        "eligibility.regionId",
+      )
+      .select([
+        "eligibility.id as eligibilityId",
+        "user.id",
+        "user.name",
+        "user.email",
+        "region.id as regionId",
+        "region.name as regionName",
+      ])
+      .where("eligibility.responsibility", "=", "coordinator")
+      .where("eligibility.revokedAt", "is", null)
+      .where("region.status", "=", "active")
+      .orderBy("region.name")
+      .orderBy("user.name")
+      .orderBy("user.email")
+      .execute(),
   ]);
 
   const versionsByTemplate = new Map<
@@ -162,6 +220,9 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         : [];
     }),
     platformAdministrators,
+    presenters,
+    coordinators,
+    regions,
     occurrences: occurrences.map((occurrence) => ({
       ...occurrence,
       startsAt: occurrence.startsAt.toISOString(),
@@ -179,6 +240,285 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         .join(", "),
     })),
   };
+}
+
+export async function grantAdminEventStaffEligibility(
+  input: {
+    email: string;
+    responsibility: "presenter" | "coordinator";
+    regionId: string | null;
+  },
+  administrator: AuthenticatedUser,
+): Promise<{ status: "granted" | "unchanged"; eligibilityId: string } | null> {
+  const normalizedEmail = input.email.trim().toLocaleLowerCase("en-AU");
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const user = await transaction
+        .selectFrom("user")
+        .select("id")
+        .where(sql<boolean>`lower("email") = ${normalizedEmail}`)
+        .executeTakeFirst();
+      if (!user) return null;
+      if (input.responsibility === "coordinator") {
+        if (!input.regionId) return null;
+        const region = await transaction
+          .selectFrom("coordination_region")
+          .select(["id", "kind"])
+          .where("id", "=", input.regionId)
+          .where("status", "=", "active")
+          .executeTakeFirst();
+        if (!region || region.kind !== "operational") return null;
+      }
+      const existing = await transaction
+        .selectFrom("event_staff_eligibility")
+        .select("id")
+        .where("userId", "=", user.id)
+        .where("responsibility", "=", input.responsibility)
+        .where("regionId", input.regionId === null ? "is" : "=", input.regionId)
+        .where("revokedAt", "is", null)
+        .executeTakeFirst();
+      if (existing)
+        return {
+          status: "unchanged" as const,
+          eligibilityId: existing.id,
+        };
+      const grantId = `staff_eligibility_${randomUUID()}`;
+      await transaction
+        .insertInto("event_staff_eligibility")
+        .values({
+          id: grantId,
+          userId: user.id,
+          responsibility: input.responsibility,
+          regionId: input.regionId,
+          grantedByUserId: administrator.id,
+          grantedAt: new Date(),
+          revokedByUserId: null,
+          revokedAt: null,
+        })
+        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "event_staff.eligibility_granted",
+        subjectType: "user",
+        subjectId: user.id,
+        metadata: {
+          purpose: "template_selection",
+          responsibility: input.responsibility,
+          regionId: input.regionId,
+        },
+      });
+      return { status: "granted" as const, eligibilityId: grantId };
+    });
+}
+
+export async function findAdminEventStaffCandidates(input: {
+  q: string;
+  responsibility: "presenter" | "coordinator";
+  regionId: string | null;
+}): Promise<Array<AdminEventPersonOption>> {
+  const pattern = `%${input.q
+    .trim()
+    .replaceAll("\\", "\\\\")
+    .replaceAll("%", "\\%")
+    .replaceAll("_", "\\_")}%`;
+  return await getDatabase()
+    .selectFrom("user")
+    .select(["user.id", "user.name", "user.email"])
+    .where((expression) =>
+      expression.or([
+        expression("user.name", "ilike", pattern),
+        expression("user.email", "ilike", pattern),
+      ]),
+    )
+    .where(
+      sql<boolean>`not exists (
+        select 1
+        from event_staff_eligibility eligibility
+        where eligibility."userId" = "user".id
+          and eligibility.responsibility = ${input.responsibility}
+          and eligibility."revokedAt" is null
+          and (
+            (${input.responsibility} = 'presenter' and eligibility."regionId" is null)
+            or eligibility."regionId" = ${input.regionId}
+          )
+      )`,
+    )
+    .orderBy(sql`lower("user".email)`)
+    .orderBy("user.id")
+    .limit(10)
+    .execute();
+}
+
+export async function revokeAdminEventStaffEligibility(
+  eligibilityId: string,
+  administrator: AuthenticatedUser,
+): Promise<"revoked" | "not-found"> {
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const grant = await transaction
+        .selectFrom("event_staff_eligibility")
+        .select(["id", "userId", "responsibility", "regionId"])
+        .where("id", "=", eligibilityId)
+        .where("revokedAt", "is", null)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!grant) return "not-found" as const;
+      const revokedAt = new Date();
+      await transaction
+        .updateTable("event_staff_eligibility")
+        .set({
+          revokedByUserId: administrator.id,
+          revokedAt,
+        })
+        .where("id", "=", grant.id)
+        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "event_staff.eligibility_revoked",
+        subjectType: "user",
+        subjectId: grant.userId,
+        metadata: {
+          purpose: "template_selection",
+          responsibility: grant.responsibility,
+          regionId: grant.regionId,
+        },
+        createdAt: revokedAt,
+      });
+      return "revoked" as const;
+    });
+}
+
+export async function saveAdminCoordinationRegion(
+  input: AdminCoordinationRegionSaveInput,
+  administrator: AuthenticatedUser,
+): Promise<
+  | { status: "created" | "updated"; regionId: string }
+  | { status: "not-found" | "code-in-use" | "conflict" }
+> {
+  const code = input.code.trim().toLocaleUpperCase("en-AU");
+  const name = input.name.trim();
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      if (input.kind === "operational" && input.parentId) {
+        const parent = await transaction
+          .selectFrom("coordination_region")
+          .select(["id", "kind", "status"])
+          .where("id", "=", input.parentId)
+          .executeTakeFirst();
+        if (!parent || parent.kind !== "group" || parent.status !== "active")
+          return { status: "conflict" as const };
+      }
+      const duplicate = await transaction
+        .selectFrom("coordination_region")
+        .select("id")
+        .where(sql<boolean>`lower("code") = lower(${code})`)
+        .$if(input.regionId !== null, (query) =>
+          query.where("id", "!=", input.regionId as string),
+        )
+        .executeTakeFirst();
+      if (duplicate) return { status: "code-in-use" as const };
+
+      if (input.regionId === null) {
+        const regionId = `coordination_region_${randomUUID()}`;
+        await transaction
+          .insertInto("coordination_region")
+          .values({
+            id: regionId,
+            parentId: input.parentId,
+            code,
+            name,
+            kind: input.kind,
+            status: "active",
+          })
+          .execute();
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: administrator.id,
+          action: "coordination_region.created",
+          subjectType: "coordination_region",
+          subjectId: regionId,
+          metadata: { code, kind: input.kind, parentId: input.parentId },
+        });
+        return { status: "created" as const, regionId };
+      }
+
+      const current = await transaction
+        .selectFrom("coordination_region")
+        .select(["id", "kind"])
+        .where("id", "=", input.regionId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!current) return { status: "not-found" as const };
+      if (current.kind !== input.kind) return { status: "conflict" as const };
+      await transaction
+        .updateTable("coordination_region")
+        .set({ code, name, parentId: input.parentId })
+        .where("id", "=", input.regionId)
+        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "coordination_region.updated",
+        subjectType: "coordination_region",
+        subjectId: input.regionId,
+        metadata: { code, kind: input.kind, parentId: input.parentId },
+      });
+      return { status: "updated" as const, regionId: input.regionId };
+    });
+}
+
+export async function setAdminCoordinationRegionStatus(
+  regionId: string,
+  status: "active" | "retired",
+  administrator: AuthenticatedUser,
+): Promise<"updated" | "unchanged" | "not-found" | "conflict"> {
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const region = await transaction
+        .selectFrom("coordination_region")
+        .select(["id", "kind", "parentId", "status"])
+        .where("id", "=", regionId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!region) return "not-found" as const;
+      if (region.status === status) return "unchanged" as const;
+      if (status === "retired" && region.kind === "group") {
+        const activeChild = await transaction
+          .selectFrom("coordination_region")
+          .select("id")
+          .where("parentId", "=", regionId)
+          .where("status", "=", "active")
+          .executeTakeFirst();
+        if (activeChild) return "conflict" as const;
+      }
+      if (status === "active" && region.parentId) {
+        const parent = await transaction
+          .selectFrom("coordination_region")
+          .select(["kind", "status"])
+          .where("id", "=", region.parentId)
+          .executeTakeFirst();
+        if (!parent || parent.kind !== "group" || parent.status !== "active")
+          return "conflict" as const;
+      }
+      await transaction
+        .updateTable("coordination_region")
+        .set({ status })
+        .where("id", "=", regionId)
+        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action:
+          status === "active"
+            ? "coordination_region.reactivated"
+            : "coordination_region.retired",
+        subjectType: "coordination_region",
+        subjectId: regionId,
+        metadata: { kind: region.kind, parentId: region.parentId },
+      });
+      return "updated" as const;
+    });
 }
 
 export async function createAdminEventTemplate(
@@ -471,16 +811,27 @@ export async function findAdminEventTemplate(
   const version =
     versions.find((candidate) => !candidate.publishedAt) ?? versions[0];
   if (!version) throw new Error("Event template has no version");
+  const draft = await loadEventTemplateDraft(database, template, version);
+  const referencedStaffIds = [
+    ...new Set([
+      ...draft.regions.flatMap((region) => region.coordinatorIds),
+      ...draft.sections.flatMap((section) =>
+        section.items.flatMap((item) =>
+          item.kind === "session" ? item.presenterIds : [],
+        ),
+      ),
+    ]),
+  ];
   const [
-    draft,
     platformAdministrators,
+    presenters,
+    coordinators,
     users,
     regions,
     modules,
     surveys,
     resources,
   ] = await Promise.all([
-    loadEventTemplateDraft(database, template, version),
     database
       .selectFrom("platform_admin")
       .innerJoin("user", "user.id", "platform_admin.userId")
@@ -488,16 +839,65 @@ export async function findAdminEventTemplate(
       .orderBy("user.name")
       .execute(),
     database
-      .selectFrom("user")
-      .select(["id", "name", "email"])
-      .orderBy("name")
-      .orderBy("email")
+      .selectFrom("event_staff_eligibility as eligibility")
+      .innerJoin("user", "user.id", "eligibility.userId")
+      .select([
+        "eligibility.id as eligibilityId",
+        "user.id",
+        "user.name",
+        "user.email",
+      ])
+      .where("eligibility.responsibility", "=", "presenter")
+      .where("eligibility.revokedAt", "is", null)
+      .orderBy("user.name")
+      .orderBy("user.email")
       .execute(),
     database
-      .selectFrom("coordination_region")
-      .select(["id", "name", "code"])
-      .where("status", "=", "active")
-      .orderBy("name")
+      .selectFrom("event_staff_eligibility as eligibility")
+      .innerJoin("user", "user.id", "eligibility.userId")
+      .innerJoin(
+        "coordination_region as region",
+        "region.id",
+        "eligibility.regionId",
+      )
+      .select([
+        "eligibility.id as eligibilityId",
+        "user.id",
+        "user.name",
+        "user.email",
+        "region.id as regionId",
+        "region.name as regionName",
+      ])
+      .where("eligibility.responsibility", "=", "coordinator")
+      .where("eligibility.revokedAt", "is", null)
+      .where("region.status", "=", "active")
+      .orderBy("region.name")
+      .orderBy("user.name")
+      .orderBy("user.email")
+      .execute(),
+    referencedStaffIds.length
+      ? database
+          .selectFrom("user")
+          .select(["id", "name", "email"])
+          .where("id", "in", referencedStaffIds)
+          .orderBy("name")
+          .orderBy("email")
+          .execute()
+      : [],
+    database
+      .selectFrom("coordination_region as region")
+      .leftJoin("coordination_region as parent", "parent.id", "region.parentId")
+      .select([
+        "region.id",
+        "region.name",
+        "region.code",
+        "region.parentId",
+        "parent.name as parentName",
+      ])
+      .where("region.status", "=", "active")
+      .where("region.kind", "=", "operational")
+      .orderBy("parent.name")
+      .orderBy("region.name")
       .execute(),
     database
       .selectFrom("scorm_package_version")
@@ -576,7 +976,7 @@ export async function findAdminEventTemplate(
       publishedAt: candidate.publishedAt?.toISOString() ?? null,
     })),
     draft,
-    people: { platformAdministrators, users },
+    people: { platformAdministrators, coordinators, presenters, users },
     regions,
     library: { modules, surveys, resources },
   };
@@ -587,53 +987,80 @@ async function validateEventDraftReferences(
   draft: AdminEventTemplateDraft,
 ): Promise<boolean> {
   const administratorIds = new Set(draft.defaultAdministratorIds);
-  const userIds = new Set([
-    ...draft.regions.flatMap((region) => region.coordinatorIds),
-    ...draft.sections.flatMap((section) =>
+  const coordinatorSelections = draft.regions.flatMap((region) =>
+    region.coordinatorIds.map((userId) => ({
+      regionId: region.regionId,
+      userId,
+    })),
+  );
+  const coordinatorIds = new Set(
+    coordinatorSelections.map((selection) => selection.userId),
+  );
+  const presenterIds = new Set(
+    draft.sections.flatMap((section) =>
       section.items.flatMap((item) =>
         item.kind === "session" ? item.presenterIds : [],
       ),
     ),
-  ]);
+  );
   const activityIds = draft.sections.flatMap((section) =>
     section.items.flatMap((item) =>
       item.kind === "session" ? [] : [item.learningActivityVersionId],
     ),
   );
   const regionIds = new Set(draft.regions.map((region) => region.regionId));
-  const [administrators, users, activities, regions] = await Promise.all([
-    transaction
-      .selectFrom("platform_admin")
-      .select("userId")
-      .where("userId", "in", [...administratorIds])
-      .execute(),
-    userIds.size
-      ? transaction
-          .selectFrom("user")
-          .select("id")
-          .where("id", "in", [...userIds])
-          .execute()
-      : [],
-    activityIds.length
-      ? transaction
-          .selectFrom("learning_activity_version")
-          .select("id")
-          .where("id", "in", activityIds)
-          .execute()
-      : [],
-    regionIds.size
-      ? transaction
-          .selectFrom("coordination_region")
-          .select("id")
-          .where("id", "in", [...regionIds])
-          .where("status", "=", "active")
-          .execute()
-      : [],
-  ]);
+  const [administrators, coordinators, presenters, activities, regions] =
+    await Promise.all([
+      transaction
+        .selectFrom("platform_admin")
+        .select("userId")
+        .where("userId", "in", [...administratorIds])
+        .execute(),
+      coordinatorIds.size
+        ? transaction
+            .selectFrom("event_staff_eligibility")
+            .select(["userId", "regionId"])
+            .where("userId", "in", [...coordinatorIds])
+            .where("responsibility", "=", "coordinator")
+            .where("revokedAt", "is", null)
+            .execute()
+        : [],
+      presenterIds.size
+        ? transaction
+            .selectFrom("event_staff_eligibility")
+            .select("userId")
+            .where("userId", "in", [...presenterIds])
+            .where("responsibility", "=", "presenter")
+            .where("revokedAt", "is", null)
+            .execute()
+        : [],
+      activityIds.length
+        ? transaction
+            .selectFrom("learning_activity_version")
+            .select("id")
+            .where("id", "in", activityIds)
+            .execute()
+        : [],
+      regionIds.size
+        ? transaction
+            .selectFrom("coordination_region")
+            .select("id")
+            .where("id", "in", [...regionIds])
+            .where("status", "=", "active")
+            .execute()
+        : [],
+    ]);
   return (
     new Set(administrators.map((row) => row.userId)).size ===
       administratorIds.size &&
-    new Set(users.map((row) => row.id)).size === userIds.size &&
+    coordinatorSelections.every((selection) =>
+      coordinators.some(
+        (coordinator) =>
+          coordinator.userId === selection.userId &&
+          coordinator.regionId === selection.regionId,
+      ),
+    ) &&
+    new Set(presenters.map((row) => row.userId)).size === presenterIds.size &&
     new Set(activities.map((row) => row.id)).size ===
       new Set(activityIds).size &&
     new Set(regions.map((row) => row.id)).size === regionIds.size
@@ -958,6 +1385,10 @@ export async function publishAdminEventTemplateVersion(
               sql<number>`count(*) filter (
               where sessions."presenterRequired" and exists (
                 select 1 from event_template_version_presenter_default presenters
+                inner join event_staff_eligibility eligibility
+                  on eligibility."userId" = presenters."userId"
+                  and eligibility.responsibility = 'presenter'
+                  and eligibility."revokedAt" is null
                 where presenters."eventTemplateVersionId" = sessions."eventTemplateVersionId"
                   and presenters."sessionDefinitionId" = sessions.id
               )
@@ -1001,17 +1432,33 @@ export async function publishAdminEventTemplateVersion(
         return "conflict" as const;
       const regionCoverage = await transaction
         .selectFrom("event_template_version_region as regions")
+        .innerJoin(
+          "coordination_region as region",
+          "region.id",
+          "regions.regionId",
+        )
         .select([
           sql<number>`count(*)::integer`.as("configured"),
+          sql<number>`count(*) filter (
+            where region.status = 'active' and region.kind = 'operational'
+          )::integer`.as("active"),
           sql<number>`count(*) filter (where exists (
             select 1 from event_template_version_coordinator_default coordinators
+            inner join event_staff_eligibility eligibility
+              on eligibility."userId" = coordinators."userId"
+              and eligibility.responsibility = 'coordinator'
+              and eligibility."regionId" = coordinators."regionId"
+              and eligibility."revokedAt" is null
             where coordinators."eventTemplateVersionId" = regions."eventTemplateVersionId"
               and coordinators."regionId" = regions."regionId"
           ))::integer`.as("covered"),
         ])
         .where("regions.eventTemplateVersionId", "=", eventTemplateVersionId)
         .executeTakeFirstOrThrow();
-      if (regionCoverage.configured !== regionCoverage.covered)
+      if (
+        regionCoverage.configured !== regionCoverage.active ||
+        regionCoverage.configured !== regionCoverage.covered
+      )
         return "conflict" as const;
       const now = new Date();
       await transaction
@@ -1108,13 +1555,33 @@ export async function createAdminEventOccurrence(
           .orderBy("position")
           .execute(),
         transaction
-          .selectFrom("event_template_version_presenter_default")
-          .select(["sessionDefinitionId", "userId", "scopeKey"])
-          .where("eventTemplateVersionId", "=", version.id)
+          .selectFrom("event_template_version_presenter_default as defaults")
+          .innerJoin("event_staff_eligibility as eligibility", (join) =>
+            join
+              .onRef("eligibility.userId", "=", "defaults.userId")
+              .on("eligibility.responsibility", "=", "presenter")
+              .on("eligibility.revokedAt", "is", null),
+          )
+          .select([
+            "defaults.sessionDefinitionId",
+            "defaults.userId",
+            "defaults.scopeKey",
+          ])
+          .where("defaults.eventTemplateVersionId", "=", version.id)
           .execute(),
         transaction
           .selectFrom("event_template_version_region as template_region")
-          .select(["template_region.regionId", "template_region.position"])
+          .innerJoin(
+            "coordination_region as region",
+            "region.id",
+            "template_region.regionId",
+          )
+          .select([
+            "template_region.regionId",
+            "template_region.position",
+            "region.kind",
+            "region.status",
+          ])
           .where("template_region.eventTemplateVersionId", "=", version.id)
           .orderBy("template_region.position")
           .execute(),
@@ -1136,11 +1603,22 @@ export async function createAdminEventOccurrence(
       )
         return { status: "conflict" } as const;
       const coordinatorDefaults = await transaction
-        .selectFrom("event_template_version_coordinator_default")
-        .select(["regionId", "userId"])
-        .where("eventTemplateVersionId", "=", version.id)
+        .selectFrom("event_template_version_coordinator_default as defaults")
+        .innerJoin("event_staff_eligibility as eligibility", (join) =>
+          join
+            .onRef("eligibility.userId", "=", "defaults.userId")
+            .onRef("eligibility.regionId", "=", "defaults.regionId")
+            .on("eligibility.responsibility", "=", "coordinator")
+            .on("eligibility.revokedAt", "is", null),
+        )
+        .select(["defaults.regionId", "defaults.userId"])
+        .where("defaults.eventTemplateVersionId", "=", version.id)
         .execute();
       if (
+        regions.some(
+          (region) =>
+            region.kind !== "operational" || region.status !== "active",
+        ) ||
         regions.some(
           (region) =>
             !coordinatorDefaults.some(
@@ -1550,24 +2028,34 @@ export async function rescheduleAdminEventOccurrence(
           ),
         ),
       ];
-      const [validRegions, validCoordinators] = await Promise.all([
+      const desiredCoordinatorSelections =
+        input.regionalCoverage.regions.flatMap((region) =>
+          region.coordinatorIds.map((userId) => ({
+            regionId: region.regionId,
+            userId,
+          })),
+        );
+      const [validRegions, validCoordinatorEligibility] = await Promise.all([
         input.regionalCoverage.regions.length
           ? transaction
               .selectFrom("coordination_region")
-              .select("id")
+              .select(["id", "kind"])
               .where(
                 "id",
                 "in",
                 input.regionalCoverage.regions.map((region) => region.regionId),
               )
               .where("status", "=", "active")
+              .where("kind", "=", "operational")
               .execute()
           : [],
         desiredCoordinatorIds.length
           ? transaction
-              .selectFrom("user")
-              .select("id")
-              .where("id", "in", desiredCoordinatorIds)
+              .selectFrom("event_staff_eligibility")
+              .select(["userId", "regionId"])
+              .where("userId", "in", desiredCoordinatorIds)
+              .where("responsibility", "=", "coordinator")
+              .where("revokedAt", "is", null)
               .execute()
           : [],
       ]);
@@ -1576,7 +2064,13 @@ export async function rescheduleAdminEventOccurrence(
           (region) => region.coordinatorIds.length === 0,
         ) ||
         validRegions.length !== input.regionalCoverage.regions.length ||
-        validCoordinators.length !== desiredCoordinatorIds.length
+        !desiredCoordinatorSelections.every((selection) =>
+          validCoordinatorEligibility.some(
+            (eligibility) =>
+              eligibility.userId === selection.userId &&
+              eligibility.regionId === selection.regionId,
+          ),
+        )
       )
         return "regions-not-confirmed" as const;
 

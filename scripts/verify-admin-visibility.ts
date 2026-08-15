@@ -320,6 +320,7 @@ try {
 
   const directory = await findAdminLearners({ q: learner.email, page: 1 });
   assert.equal(directory.pagination.total, 1);
+  assert.equal(directory.pagination.pageSize, 20);
   const learnerSummary = directory.learners[0];
   assert.ok(learnerSummary);
   assert.equal(learnerSummary.id, learner.id);

@@ -105,6 +105,7 @@ export async function findAdminEventOccurrenceOperations(
     presenterRows,
     adminRows,
     userRows,
+    availableCoordinatorRows,
     participationRows,
     attendanceRows,
     occurrenceDomains,
@@ -221,6 +222,21 @@ export async function findAdminEventOccurrenceOperations(
       .limit(500)
       .execute(),
     database
+      .selectFrom("event_staff_eligibility as eligibility")
+      .innerJoin("user", "user.id", "eligibility.userId")
+      .innerJoin(
+        "coordination_region as region",
+        "region.id",
+        "eligibility.regionId",
+      )
+      .select(["user.id", "user.name", "user.email", "region.id as regionId"])
+      .where("eligibility.responsibility", "=", "coordinator")
+      .where("eligibility.revokedAt", "is", null)
+      .where("region.status", "=", "active")
+      .where("region.kind", "=", "operational")
+      .orderBy("user.name")
+      .execute(),
+    database
       .selectFrom("event_participation")
       .select(["id", "nameSnapshot as name", "emailSnapshot as email"])
       .where("eventOccurrenceId", "=", eventOccurrenceId)
@@ -296,10 +312,18 @@ export async function findAdminEventOccurrenceOperations(
       .orderBy("reschedule.createdAt", "desc")
       .execute(),
     database
-      .selectFrom("coordination_region")
-      .select(["id", "name", "code"])
-      .where("status", "=", "active")
-      .orderBy("name")
+      .selectFrom("coordination_region as region")
+      .leftJoin("coordination_region as parent", "parent.id", "region.parentId")
+      .select([
+        "region.id",
+        "region.name",
+        "region.code",
+        "parent.name as parentName",
+      ])
+      .where("region.status", "=", "active")
+      .where("region.kind", "=", "operational")
+      .orderBy("parent.name")
+      .orderBy("region.name")
       .execute(),
   ]);
 
@@ -406,6 +430,7 @@ export async function findAdminEventOccurrenceOperations(
     })),
     administrators: adminRows,
     availableUsers: userRows,
+    availableCoordinators: availableCoordinatorRows,
     availableRegions: availableRegionRows,
     reschedules: rescheduleRows.map((reschedule) => ({
       ...reschedule,

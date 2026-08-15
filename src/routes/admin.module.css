@@ -20,7 +20,6 @@
 }
 
 .statsGrid,
-.learnerGrid,
 .enrollmentGrid {
   display: grid;
   gap: var(--mantine-spacing-md);
@@ -30,16 +29,11 @@
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
-.learnerGrid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
 .enrollmentGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .stat,
-.learnerCard,
 .enrollmentCard {
   height: 100%;
 }
@@ -57,7 +51,6 @@
   align-items: end;
 }
 
-.learnerHeader,
 .profileHeader {
   display: flex;
   justify-content: space-between;
@@ -65,25 +58,22 @@
   gap: var(--mantine-spacing-md);
 }
 
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--mantine-spacing-sm);
-}
-
-.metric {
-  padding: var(--mantine-spacing-sm);
-  border-radius: var(--mantine-radius-md);
-  background: var(--mantine-color-gray-0);
-}
-
 .buttonLink {
   text-decoration: none;
 }
 
-.profileLink {
-  margin-top: auto;
+.learnerNameLink {
+  color: var(--mantine-color-indigo-8);
+  font-weight: 700;
   text-decoration: none;
+}
+
+.learnerNameLink:hover {
+  text-decoration: underline;
+}
+
+.pagination {
+  flex-wrap: nowrap;
 }
 
 @media (max-width: 62em) {
@@ -97,7 +87,6 @@
 }
 
 @media (max-width: 48em) {
-  .learnerGrid,
   .enrollmentGrid {
     grid-template-columns: 1fr;
   }

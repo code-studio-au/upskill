@@ -37,3 +37,4 @@ is complete.
 | 0028 | [Versioned Event Templates and resilient staff coverage](0028-versioned-event-templates-and-admin-ownership.md)           | Accepted; foundation and initial authoring implemented  |
 | 0029 | [Survey-backed versioned user onboarding](0029-survey-backed-versioned-user-onboarding.md)                                | Accepted target; implementation pending                 |
 | 0030 | [Standard Survey question types and option authoring](0030-standard-survey-question-types-and-option-authoring.md)        | Accepted target; implementation pending                 |
+| 0031 | [TanStack Table for operational data grids](0031-tanstack-table-operational-data-grids.md)                                | Accepted and initially implemented                      |

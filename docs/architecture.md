@@ -237,6 +237,11 @@ direct local launches replace any client-supplied value with the socket address.
 - TanStack Form and Zod own interactive mutation form state and validation;
   router-backed catalogue filters remain native GET forms. Server and upload
   boundaries parse every payload independently of browser validation.
+- TanStack Table owns growing operational data grids that need server-backed
+  pagination, filtering or row actions. URL search state remains authoritative,
+  and a shared semantic renderer adapts those grids into labelled mobile rows.
+  Ordered content, hierarchy editors and small static summaries remain
+  purpose-built layouts rather than tables.
 - Chromium, Firefox and WebKit critical-path smoke coverage.
 - Transactional append-only audit records with committed structured-log
   projections, sanitized operational/error events, request correlation and
