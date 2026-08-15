@@ -7,6 +7,15 @@ export const eventOperationsParamsSchema = z.object({
   eventOccurrenceId: identifier,
 });
 
+export const eventSurveyQrPresentationParamsSchema = z.object({
+  eventOccurrenceId: identifier,
+  eventSurveyAccessId: identifier,
+});
+
+export const eventSurveyPublicReferenceSchema = z.object({
+  publicReference: z.string().check(z.length(32), z.regex(/^[A-Za-z0-9_-]+$/u)),
+});
+
 export const eventOperationsCoordinatorDecisionSchema = z.object({
   eventOccurrenceId: identifier,
   registrationId: identifier,
@@ -106,6 +115,7 @@ export interface EventOperationsWorkspace {
     canViewRegistrations: boolean;
     canRecordAttendance: boolean;
     canViewProgress: boolean;
+    canViewSurveyQrCatalogue: boolean;
   };
   metrics: {
     registrations: number;
@@ -147,6 +157,29 @@ export interface EventOperationsWorkspace {
     }>;
   }>;
   participantProgress: Array<EventParticipantProgress>;
+  surveyQrCatalogue: Array<EventSurveyQrCatalogueItem>;
+}
+
+export interface EventSurveyQrCatalogueItem {
+  id: string;
+  publicReference: string;
+  title: string;
+  sectionTitle: string;
+  phase: "pre_event" | "session" | "post_event" | "follow_up";
+  releaseAnchor:
+    | "participation_created"
+    | "occurrence_start"
+    | "occurrence_end"
+    | "final_session_end";
+  releaseOffsetMinutes: number;
+  status: "preview" | "active" | "disabled";
+}
+
+export interface EventSurveyQrPresentation {
+  occurrenceId: string;
+  occurrenceTitle: string;
+  timezone: string;
+  access: EventSurveyQrCatalogueItem;
 }
 
 export type AssignedEventOperationsResult =
@@ -168,3 +201,19 @@ export type EventOperationsMutationResult =
       status: "conflict";
       reason: "invalid_transition" | "region_locked" | "attendance_unavailable";
     };
+
+export type EventSurveyQrPresentationResult =
+  | { status: "ready"; data: EventSurveyQrPresentation }
+  | { status: "unauthenticated" }
+  | { status: "forbidden" }
+  | { status: "not-found" };
+
+export type LearnerEventSurveyReferenceResult =
+  | {
+      status: "ready";
+      eventOccurrenceId: string;
+      eventTemplateVersionItemId: string;
+    }
+  | { status: "unauthenticated" }
+  | { status: "unavailable" }
+  | { status: "not-found" };

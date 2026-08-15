@@ -48,6 +48,7 @@ try {
     "event_region_review_round",
     "event_registration",
     "event_section_release",
+    "event_survey_access",
     "event_session",
     "event_template",
     "event_template_session_definition",
@@ -130,6 +131,7 @@ try {
     "event_presenter_eligibility_active_uq",
     "event_coordinator_eligibility_active_uq",
     "coordination_region_code_unique_uq",
+    "event_survey_access_active_item_uq",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -157,6 +159,21 @@ try {
     eventDirectoryConstraints.rows.length,
     4,
     "Event staff and region-directory constraints must exist",
+  );
+  const eventSurveyAccessConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_survey_access_public_reference_uq',
+          'event_survey_access_generation_uq',
+          'event_survey_access_reference_ck',
+          'event_survey_access_policy_ck'
+        )`.execute(db);
+  assert.equal(
+    eventSurveyAccessConstraints.rows.length,
+    4,
+    "Event Survey access identity, rotation and policy constraints must exist",
   );
   const eventTemplateColumns = await sql<{
     column_name: string;

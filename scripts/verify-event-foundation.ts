@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
+import type { AdminSurveyDraft } from "#/features/survey/survey.schema";
 import {
   createAdminEventOccurrence,
   createAdminEventTemplate,
@@ -22,10 +23,19 @@ import {
   recordAdminEventAttendance,
   transitionAdminEventOccurrence,
 } from "#/server/admin/admin-event-operations.server";
+import {
+  createAdminSurvey,
+  publishAdminSurveyVersion,
+  saveAdminSurveyDraft,
+} from "#/server/admin/admin-survey.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
 import { findEventOperationsWorkspace } from "#/server/events/event-operations.server";
+import {
+  findEventSurveyQrCatalogue,
+  resolveLearnerEventSurveyReference,
+} from "#/server/events/event-survey-access.server";
 import {
   registerLearnerForEvent,
   withdrawLearnerEventRegistration,
@@ -66,6 +76,8 @@ let eventTemplateId: string | null = null;
 let eventTemplateVersionId: string | null = null;
 let eventOccurrenceId: string | null = null;
 let coordinationRegionGroupId: string | null = null;
+let eventSurveyId: string | null = null;
+let eventSurveyVersionId: string;
 
 async function cleanup(): Promise<void> {
   if (eventOccurrenceId) {
@@ -242,9 +254,20 @@ async function cleanup(): Promise<void> {
       .deleteFrom("event_template")
       .where("id", "=", eventTemplateId)
       .execute();
+  if (eventSurveyId) {
+    await database
+      .deleteFrom("learning_activity_version")
+      .where("activityId", "=", eventSurveyId)
+      .execute();
+    await database
+      .deleteFrom("learning_activity")
+      .where("id", "=", eventSurveyId)
+      .execute();
+  }
   const aggregateIds = [
     ...(eventTemplateId ? [eventTemplateId] : []),
     ...(eventOccurrenceId ? [eventOccurrenceId] : []),
+    ...(eventSurveyId ? [eventSurveyId] : []),
   ];
   if (aggregateIds.length)
     await database
@@ -483,6 +506,50 @@ try {
     [coordinator.id],
   );
 
+  const createdSurvey = await createAdminSurvey(
+    "Verification event survey",
+    administrator,
+  );
+  eventSurveyId = createdSurvey.surveyId;
+  eventSurveyVersionId = createdSurvey.versionId;
+  const eventSurveyDraft: AdminSurveyDraft = {
+    surveyId: createdSurvey.surveyId,
+    versionId: createdSurvey.versionId,
+    title: "Verification event survey",
+    description: "An exact-version Event Survey QR verification fixture.",
+    sections: [
+      {
+        id: `survey_section_${suffix}`,
+        title: "Event feedback",
+        description: "Verify guarded Event Survey access.",
+        items: [
+          {
+            id: `survey_question_${suffix}`,
+            kind: "single_choice",
+            prompt: "Was this Event useful?",
+            required: true,
+            options: [
+              { id: `survey_yes_${suffix}`, label: "Yes" },
+              { id: `survey_no_${suffix}`, label: "No" },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  assert.equal(
+    await saveAdminSurveyDraft(eventSurveyDraft, administrator),
+    "saved",
+  );
+  assert.equal(
+    await publishAdminSurveyVersion(
+      createdSurvey.surveyId,
+      createdSurvey.versionId,
+      administrator,
+    ),
+    "published",
+  );
+
   const createdTemplate = await createAdminEventTemplate(
     {
       title: "Verification workshop",
@@ -527,6 +594,14 @@ try {
                 durationMinutes: 120,
                 presenterRequired: true,
                 presenterIds: [presenter.id],
+              },
+              {
+                id: `event_survey_item_${suffix}`,
+                kind: "survey",
+                title: "Event feedback",
+                required: false,
+                durationMinutes: 5,
+                learningActivityVersionId: createdSurvey.versionId,
               },
             ],
           },
@@ -585,6 +660,29 @@ try {
   );
   assert.equal(createdOccurrence.status, "created");
   eventOccurrenceId = createdOccurrence.eventOccurrenceId;
+  const eventSurveyAccess = await database
+    .selectFrom("event_survey_access as access")
+    .innerJoin(
+      "event_template_version_item as item",
+      "item.id",
+      "access.eventTemplateVersionItemId",
+    )
+    .select([
+      "access.id",
+      "access.publicReference",
+      "access.generation",
+      "access.accessPolicy",
+      "item.learningActivityVersionId",
+    ])
+    .where("access.eventOccurrenceId", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.match(eventSurveyAccess.publicReference, /^[A-Za-z0-9_-]{32}$/u);
+  assert.equal(eventSurveyAccess.generation, 1);
+  assert.equal(eventSurveyAccess.accessPolicy, "authenticated_participant");
+  assert.equal(
+    eventSurveyAccess.learningActivityVersionId,
+    eventSurveyVersionId,
+  );
   assert.deepEqual(
     await createAdminEventOccurrence(occurrenceInput, administrator),
     { status: "slug-in-use" },
@@ -966,6 +1064,21 @@ try {
     [occurrenceRegion.id],
   );
   assert.equal(coordinatorWorkspace.access.canReviewRegistrations, true);
+  assert.equal(coordinatorWorkspace.access.canViewSurveyQrCatalogue, true);
+  assert.deepEqual(
+    coordinatorWorkspace.surveyQrCatalogue.map((entry) => ({
+      id: entry.id,
+      reference: entry.publicReference,
+      status: entry.status,
+    })),
+    [
+      {
+        id: eventSurveyAccess.id,
+        reference: eventSurveyAccess.publicReference,
+        status: "active",
+      },
+    ],
+  );
   const presenterAccess = await getEventOperationsAccess(
     presenter,
     eventOccurrenceId,
@@ -978,6 +1091,12 @@ try {
   );
   assert.ok(presenterWorkspace);
   assert.equal(presenterWorkspace.access.canViewRegistrations, false);
+  assert.equal(presenterWorkspace.access.canViewSurveyQrCatalogue, true);
+  assert.equal(presenterWorkspace.surveyQrCatalogue.length, 1);
+  assert.deepEqual(
+    await findEventSurveyQrCatalogue(eventOccurrenceId, presenterAccess),
+    presenterWorkspace.surveyQrCatalogue,
+  );
   assert.deepEqual(presenterWorkspace.registrations, []);
   assert.deepEqual(
     presenterWorkspace.sessions.map((assignedSession) => assignedSession.id),
@@ -1052,6 +1171,20 @@ try {
       .then((row) => row.state),
     "attended",
   );
+  assert.deepEqual(
+    await resolveLearnerEventSurveyReference(
+      eventSurveyAccess.publicReference,
+      coordinator,
+    ),
+    { status: "not-found" },
+  );
+  assert.deepEqual(
+    await resolveLearnerEventSurveyReference(
+      eventSurveyAccess.publicReference,
+      administrator,
+    ),
+    { status: "unavailable" },
+  );
   const templateSection = await database
     .selectFrom("event_template_version_section")
     .select("id")
@@ -1065,6 +1198,17 @@ try {
       now: new Date(),
     }),
     true,
+  );
+  assert.deepEqual(
+    await resolveLearnerEventSurveyReference(
+      eventSurveyAccess.publicReference,
+      administrator,
+    ),
+    {
+      status: "ready",
+      eventOccurrenceId,
+      eventTemplateVersionItemId: `event_survey_item_${suffix}`,
+    },
   );
   assert.equal(
     await ensureEventSectionReleased(database, {
@@ -1332,7 +1476,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, occurrence-owned guarded Survey QR access, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
   );
 } finally {
   await cleanup();

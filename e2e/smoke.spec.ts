@@ -926,6 +926,7 @@ test("learners can end their authenticated session", async ({ page }) => {
 test("platform administrators can inspect learner progress", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(60_000);
   test.skip(
     testInfo.project.name !== "chromium-mobile",
     "The complete admin journey runs once; learner authentication remains cross-browser.",
@@ -973,6 +974,7 @@ test("platform administrators can inspect learner progress", async ({
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
     await cleanupResourceFixture(authoringDatabase, resourceTitle, [
       resourceVersionId,
@@ -982,7 +984,6 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
-    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await cleanupEventStaffFixture(authoringDatabase, eventPresenter.id);
     await authoringDatabase.query(
       `insert into "user" (id, name, email, "emailVerified") values ($1, $2, $3, true)`,
@@ -1253,11 +1254,19 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: "Program (0)" }).click();
     await page.getByRole("button", { name: "Add section" }).click();
     await page.getByLabel("Section title").fill("Event session");
+    await page
+      .getByLabel("Release relative to")
+      .selectOption("occurrence_start");
     await page.getByRole("button", { name: "Add event session" }).click();
     await page.getByLabel("Display title").fill("Live workshop");
     await page.getByLabel("Duration (minutes)").fill("90");
     await page.getByLabel("Add presenter").selectOption(eventPresenter.id);
     await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByLabel("Activity type").selectOption("survey");
+    await page
+      .getByLabel("Published activity")
+      .selectOption({ label: `${surveyTitles[0] ?? ""} · v1` });
+    await page.getByRole("button", { name: "Add activity" }).click();
     await page.getByRole("button", { name: "Staffing and regions" }).click();
     await page.getByLabel("Avery Administrator · admin@example.com").check();
     await page.getByRole("button", { name: "Save and publish" }).click();
@@ -1311,12 +1320,14 @@ test("platform administrators can inspect learner progress", async ({
       sessionCount: number;
       administratorCount: number;
       presenterCount: number;
+      surveyAccessCount: number;
     }>(
       `select occurrence.id, occurrence."eventTemplateVersionId", occurrence.slug, occurrence.status,
         occurrence.timezone, occurrence."startsAt",
         (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
         (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
-        (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount"
+        (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount",
+        (select count(*)::integer from event_survey_access where "eventOccurrenceId" = occurrence.id and "revokedAt" is null) as "surveyAccessCount"
        from event_occurrence occurrence where occurrence.title = $1`,
       [eventOccurrenceTitle],
     );
@@ -1328,6 +1339,7 @@ test("platform administrators can inspect learner progress", async ({
       sessionCount: 1,
       administratorCount: 1,
       presenterCount: 1,
+      surveyAccessCount: 1,
     });
     const occurrenceId = storedOccurrence.rows[0]?.id;
     if (!occurrenceId) throw new Error("Expected the E2E Event Occurrence");
@@ -1409,8 +1421,44 @@ test("platform administrators can inspect learner progress", async ({
     expect(progressExport.status()).toBe(200);
     expect(progressExport.headers()["content-type"]).toContain("text/csv");
     expect(await progressExport.text()).toContain(administratorUser.email);
+
+    const surveyAccess = await authoringDatabase.query<{
+      id: string;
+      publicReference: string;
+    }>(
+      `select id, "publicReference" from event_survey_access where "eventOccurrenceId" = $1 and "revokedAt" is null`,
+      [occurrenceId],
+    );
+    const surveyQr = surveyAccess.rows[0];
+    if (!surveyQr) throw new Error("Expected an Event Survey QR access record");
+    expect(surveyQr.publicReference).toMatch(/^[A-Za-z0-9_-]{32}$/u);
+    await page.goto(
+      `/event-operations/${encodeURIComponent(occurrenceId)}?view=survey_qr&q=&state=all`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Survey QR catalogue" }),
+    ).toBeVisible();
+    await expect(page.getByText(surveyTitles[0] ?? "")).toBeVisible();
+    await page.getByRole("link", { name: "Present QR code" }).click();
+    await expect(page).toHaveURL(
+      `/event-operations/${occurrenceId}/survey-qr/${surveyQr.id}`,
+    );
+    await expect(
+      page.getByRole("img", { name: `QR code for ${surveyTitles[0] ?? ""}` }),
+    ).toBeVisible();
+    const qrImage = await page.request.get(
+      `/api/event-surveys/${surveyQr.publicReference}/qr.svg`,
+    );
+    expect(qrImage.status()).toBe(200);
+    expect(qrImage.headers()["content-type"]).toContain("image/svg+xml");
+    expect(await qrImage.text()).toContain("<svg");
+    await page.goto(`/event-surveys/${surveyQr.publicReference}`);
+    await expect(
+      page.getByRole("heading", { name: "This activity is not open yet" }),
+    ).toBeVisible();
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
     await cleanupResourceFixture(authoringDatabase, resourceTitle, [
       resourceVersionId,
@@ -1420,7 +1468,6 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
-    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await cleanupEventStaffFixture(authoringDatabase, eventPresenter.id);
     await authoringDatabase.end();
   }

@@ -44,6 +44,11 @@ async function findEventSurveyAccess(
       "occurrence.id",
       "participation.eventOccurrenceId",
     )
+    .leftJoin(
+      "event_registration as registration",
+      "registration.id",
+      "participation.registrationId",
+    )
     .innerJoin("event_template_version_item as item", (join) =>
       join.onRef(
         "item.eventTemplateVersionId",
@@ -84,6 +89,12 @@ async function findEventSurveyAccess(
       "activityVersion.publishedAt",
     ])
     .where("participation.userId", "=", input.userId)
+    .where((expression) =>
+      expression.or([
+        expression("participation.mode", "=", "open_entry"),
+        expression("registration.status", "=", "selected"),
+      ]),
+    )
     .where("item.id", "=", input.eventTemplateVersionItemId)
     .where("item.kind", "=", "survey");
   if (input.eventParticipationId)

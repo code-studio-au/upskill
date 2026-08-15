@@ -18,6 +18,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import { ensureEventSurveyAccessRecords } from "#/server/events/event-survey-access.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 
 function optionalDate(value: string): Date | null {
@@ -1673,6 +1674,12 @@ export async function createAdminEventOccurrence(
           updatedAt: now,
         })
         .execute();
+      await ensureEventSurveyAccessRecords(
+        transaction,
+        eventOccurrenceId,
+        version.id,
+        now,
+      );
       if (domains.length)
         await transaction
           .insertInto("event_occurrence_domain")

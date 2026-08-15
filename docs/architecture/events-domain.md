@@ -48,8 +48,11 @@ activities, completion, and certification.
   Administrators can add regions with named Coordinators or retire regions after
   reviewing affected active/confirmed counts, while explicitly preserving
   existing registrations or cancelling active registrations and releasing
-  confirmed capacity. Open-entry guest check-in, staged Event learning and
-  automated communications remain target workflows.
+  confirmed capacity. Confirmed participants can now complete released Event
+  learning in a learner workspace, while assigned staff can display the
+  persisted QR catalogue for exact Survey items. Open-entry guest check-in,
+  passwordless/shared-device prerequisite recovery and automated communications
+  remain target workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
   capacity-safe registration, attendance and blended learning. Every in-person
@@ -122,6 +125,18 @@ preview and a future-only or cancel-active disposition. Cancellation retains
 participation and Attendance evidence while revoking the cancelled learner
 workspace. Public promotion/registration pages and open-entry check-in should
 not be described as implemented yet.
+
+Each occurrence also owns a persisted opaque public reference for every exact
+Survey item. Creating an occurrence materializes those records idempotently;
+reading the assigned staff catalogue reconciles older occurrences created before
+that boundary existed. Assigned administrators, regional Coordinators and
+Presenters can display a Survey QR in a participant-free presentation view. The
+same-origin QR image is rendered at request time rather than stored as an object.
+The current landing route preserves the requested destination across sign-in,
+requires a selected or open-entry participant, and rechecks occurrence and
+Section availability before redirecting to the exact Event Survey. OTP,
+shared-device and assisted registered-email recovery are not implemented by this
+slice.
 
 ## Domain Philosophy
 
@@ -664,10 +679,10 @@ decision and risk controls are in
 ### Occurrence Survey QR catalogue
 
 Every Event Occurrence owns a persisted access record for each exact Survey item
-in its Sections. If a Survey item is associated with a specific Session, its QR
-record carries that Session scope; otherwise it remains occurrence-scoped. The
-catalogue groups pre-event, individual-Session and post-event Surveys and retains
-window, policy and rotation/revocation state.
+in its Sections. The current activity model makes these references
+occurrence-scoped; a future explicit Survey-to-Session association will add the
+Session scope rather than infer it from Section position. The catalogue groups
+Surveys by Section/stage and retains policy, generation and revocation state.
 
 Occurrence creation/publication generates the complete set idempotently from the
 exact composed items. Draft changes reconcile draft records; published changes
@@ -676,11 +691,12 @@ Cancellation/archive disables access without making already-attributed Survey
 evidence uninterpretable.
 
 The photographed QR contains an opaque public reference, not an email address or
-raw database identifier. Server resolution supplies the occurrence, optional
-Session, Event item and exact Survey Version. The landing flow then captures the
-submitted email and authentication/fallback method, so the response evidence is
-stored with User, Registration, occurrence, Session, item, Survey Version and
-provenance before completion is accepted.
+raw database identifier. Server resolution supplies the occurrence, Event item
+and exact Survey Version. The implemented landing flow requires an authenticated
+selected/open-entry participant and redirects to the exact version-pinned Survey
+item after release checks. The target recovery flow will additionally capture
+the submitted email and authentication/fallback method, so response evidence can
+retain that provenance before completion is accepted.
 
 Presenters and Coordinators can browse only the QR catalogue within their active
 scope and display an individual QR full screen. Presentation mode shows the
@@ -953,9 +969,10 @@ transactional queries demonstrate real pressure.
 
 - Extend the first assigned-events dashboard with progress warnings, QR
   presentation/recovery, filtered exports and assignment lifecycle alerts.
-  Evidence-derived participant/Section progress, scoped Coordinator visibility
-  and filtered/all-authorized Event Section progress CSV are implemented; QR and
-  assignment-alert work remains.
+  Evidence-derived participant/Section progress, scoped Coordinator visibility,
+  filtered/all-authorized Event Section progress CSV, and an occurrence-owned
+  exact-Survey QR catalogue with participant-free presentation are implemented.
+  Passwordless/shared-device recovery and assignment-alert work remain.
 - Assigned-administrator consolidated final-selection controls in the focused
   workspace (the current full final-selection controls remain in Administration).
 - Presenter printable/minimal attendance export and time-windowed QR actions.

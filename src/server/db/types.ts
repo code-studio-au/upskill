@@ -612,6 +612,17 @@ interface EventSectionReleaseTable {
   releasedAt: Timestamp;
 }
 
+interface EventSurveyAccessTable {
+  id: string;
+  eventOccurrenceId: string;
+  eventTemplateVersionItemId: string;
+  publicReference: string;
+  generation: Generated<number>;
+  accessPolicy: Generated<"authenticated_participant">;
+  createdAt: Timestamp;
+  revokedAt: Timestamp | null;
+}
+
 interface OrderTable {
   id: string;
   purchaserUserId: string | null;
@@ -759,6 +770,7 @@ export interface Database {
   event_registration: EventRegistrationTable;
   event_registration_transition: EventRegistrationTransitionTable;
   event_section_release: EventSectionReleaseTable;
+  event_survey_access: EventSurveyAccessTable;
   event_session: EventSessionTable;
   event_template: EventTemplateTable;
   event_template_session_definition: EventTemplateSessionDefinitionTable;

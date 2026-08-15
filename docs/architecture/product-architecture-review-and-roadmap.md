@@ -91,33 +91,33 @@ verifiers, and CDK verification.
 
 ## Current Capability Assessment
 
-| Capability                         | Current maturity                                  | Direction                                                                  |
-| ---------------------------------- | ------------------------------------------------- | -------------------------------------------------------------------------- |
-| Public course catalogue            | Strong                                            | Continue incremental UX/product growth                                     |
-| Individual course checkout         | Strong                                            | Preserve transaction and idempotency model                                 |
-| Learner enrolment/workspace        | Common activity-version foundation                | Extend the model to Events and attendance                                  |
-| SCORM delivery                     | Strong                                            | Preserve isolation and immutable versions                                  |
-| Surveys                            | Strong foundation                                 | Reuse in courses and target Events                                         |
-| Resources                          | Strong foundation                                 | Broaden beyond PDF when required                                           |
-| Certificates                       | On-demand rendering implemented                   | Reuse the common completion-eligibility boundary                           |
-| Organisation access codes          | Strong encrypted lifecycle                        | Evolve toward explicit entitlements/contracts                              |
-| Customer Access Owner portal       | Target design                                     | Add scoped invitations, utilisation views and eligible capacity extensions |
-| Enterprise blanket access          | Partial concept                                   | Add a first-class contract/coverage model                                  |
-| Course administration              | Strong foundation                                 | Add authoring workflow maturity as needed                                  |
-| Learner administration             | Strong foundation                                 | Add richer support tooling over time                                       |
-| Events                             | Relational foundation and initial admin authoring | Extend into registration, attendance and learner workflows                 |
-| Coordinator workflows              | Missing                                           | Add resource-scoped event operations                                       |
-| Presenter workflows                | Missing                                           | Add a narrow attendance-focused mode                                       |
-| Attendance                         | Missing                                           | Add a durable evidence model                                               |
-| Authenticated user onboarding      | Accepted target                                   | Add Survey-backed version assignment, privacy-scoped response and gating   |
-| Open-entry guest check-in          | Target design                                     | Guard virtual links and create provisional-user/check-in evidence          |
-| Passwordless prerequisite recovery | Target design                                     | Add SMS/email OTP, task sessions and scoped facilitated Survey fallback    |
-| Staged Event release               | Target design                                     | Add final registration lock-in and time-anchored Section availability      |
-| Regional Event selection           | Target design                                     | Add regional review/lock, cross-region selection and late invitations      |
-| Automated email/notifications      | Accepted target                                   | Add Email Designer, Section plans, occurrence overrides and delivery       |
-| Reporting/visual analytics         | Basic read boundaries                             | Add filtered charts/tables; project only when justified                    |
-| Global support/impersonation       | Future possibility                                | Add carefully with audit safeguards                                        |
-| Operational observability          | Partial                                           | Treat as a production-hardening priority                                   |
+| Capability                         | Current maturity                                        | Direction                                                                  |
+| ---------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Public course catalogue            | Strong                                                  | Continue incremental UX/product growth                                     |
+| Individual course checkout         | Strong                                                  | Preserve transaction and idempotency model                                 |
+| Learner enrolment/workspace        | Common activity-version foundation                      | Extend the model to Events and attendance                                  |
+| SCORM delivery                     | Strong                                                  | Preserve isolation and immutable versions                                  |
+| Surveys                            | Strong foundation                                       | Reuse in courses and target Events                                         |
+| Resources                          | Strong foundation                                       | Broaden beyond PDF when required                                           |
+| Certificates                       | On-demand rendering implemented                         | Reuse the common completion-eligibility boundary                           |
+| Organisation access codes          | Strong encrypted lifecycle                              | Evolve toward explicit entitlements/contracts                              |
+| Customer Access Owner portal       | Target design                                           | Add scoped invitations, utilisation views and eligible capacity extensions |
+| Enterprise blanket access          | Partial concept                                         | Add a first-class contract/coverage model                                  |
+| Course administration              | Strong foundation                                       | Add authoring workflow maturity as needed                                  |
+| Learner administration             | Strong foundation                                       | Add richer support tooling over time                                       |
+| Events                             | Authoring, registration and blended-learning foundation | Add open-entry check-in, communications and recovery maturity              |
+| Coordinator workflows              | Region-scoped review, progress and Survey QR operations | Add lifecycle alerts and recovery controls                                 |
+| Presenter workflows                | Session-scoped attendance and Survey QR operations      | Add recovery windows and printable/minimal export                          |
+| Attendance                         | Durable evidence and corrections                        | Add offline/minimal operational export                                     |
+| Authenticated user onboarding      | Accepted target                                         | Add Survey-backed version assignment, privacy-scoped response and gating   |
+| Open-entry guest check-in          | Target design                                           | Guard virtual links and create provisional-user/check-in evidence          |
+| Passwordless prerequisite recovery | Target design                                           | Add SMS/email OTP, task sessions and scoped facilitated Survey fallback    |
+| Staged Event release               | Implemented learner foundation                          | Add notification and open-entry workflow maturity                          |
+| Regional Event selection           | Implemented operational foundation                      | Add assignment alerts and late-invitation UX maturity                      |
+| Automated email/notifications      | Accepted target                                         | Add Email Designer, Section plans, occurrence overrides and delivery       |
+| Reporting/visual analytics         | Basic read boundaries                                   | Add filtered charts/tables; project only when justified                    |
+| Global support/impersonation       | Future possibility                                      | Add carefully with audit safeguards                                        |
+| Operational observability          | Partial                                                 | Treat as a production-hardening priority                                   |
 
 ## Priority 0/1 --- Production Reliability
 
@@ -207,8 +207,9 @@ Implement:
   and distinguish check-in from attendance;
 - exact-prerequisite QR recovery using password/email OTP/SMS OTP first, with
   shared-device task sessions and a last-resort one-survey email-match capability;
-- an Event Occurrence-owned QR catalogue for every contained Survey item,
-  optional Session scope and Presenter full-screen display;
+- an Event Occurrence-owned QR catalogue for every contained Survey item and
+  participant-free staff presentation (implemented occurrence scope; explicit
+  Session binding remains target work);
 - learner-specific, audited platform-administrator override of a domain
   restriction without changing the occurrence allowlist, using the shared
   name/email soft-account provisioning and setup flow;
@@ -568,6 +569,8 @@ without understanding why.
 - reusable SCORM/survey/resource activities (implemented);
 - evidence-derived, region-scoped Coordinator progress views and Event Section
   progress CSV (implemented);
+- persisted exact-Survey QR references, scoped staff catalogue/presentation and
+  authenticated selected-participant resolution (implemented);
 - event completion (implemented);
 - certificates (implemented).
 

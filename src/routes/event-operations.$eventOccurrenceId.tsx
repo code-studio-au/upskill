@@ -35,9 +35,14 @@ const EventOperationsProgress = lazy(async () => {
     await import("#/features/event-operations/EventOperationsProgress");
   return { default: module.EventOperationsProgress };
 });
+const EventOperationsSurveyQrCatalogue = lazy(async () => {
+  const module =
+    await import("#/features/event-operations/EventOperationsSurveyQrCatalogue");
+  return { default: module.EventOperationsSurveyQrCatalogue };
+});
 
 type EventOperationsView =
-  "overview" | "registrations" | "progress" | "attendance";
+  "overview" | "registrations" | "progress" | "attendance" | "survey_qr";
 
 const searchSchema = z.object({
   q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
@@ -46,7 +51,13 @@ const searchSchema = z.object({
     "all",
   ),
   view: z.catch(
-    z.enum(["overview", "registrations", "progress", "attendance"]),
+    z.enum([
+      "overview",
+      "registrations",
+      "progress",
+      "attendance",
+      "survey_qr",
+    ]),
     "overview",
   ),
 });
@@ -103,6 +114,14 @@ function EventOperationsPage() {
           {
             value: "progress" as const,
             label: `Progress (${String(workspace.participantProgress.length)})`,
+          },
+        ]
+      : []),
+    ...(workspace.access.canViewSurveyQrCatalogue
+      ? [
+          {
+            value: "survey_qr" as const,
+            label: `Survey QR codes (${String(workspace.surveyQrCatalogue.length)})`,
           },
         ]
       : []),
@@ -200,6 +219,9 @@ function EventOperationsPage() {
               void navigate({ search: { view: "progress", ...filters } })
             }
           />
+        ) : null}
+        {activeView === "survey_qr" ? (
+          <EventOperationsSurveyQrCatalogue workspace={workspace} />
         ) : null}
       </Suspense>
     </Stack>

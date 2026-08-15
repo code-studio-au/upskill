@@ -12,6 +12,7 @@ import {
   type EventOperationsAccess,
 } from "./event-operations-access.server";
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
+import { findEventSurveyQrCatalogue } from "./event-survey-access.server";
 
 async function findEventParticipantProgress(
   eventOccurrenceId: string,
@@ -413,6 +414,7 @@ export async function findEventOperationsWorkspace(
   const presenter =
     access.presentsWholeOccurrence || assignedSessionIds.size > 0;
   const canViewProgress = administrator || coordinator;
+  const canViewSurveyQrCatalogue = administrator || coordinator || presenter;
   const sessions = workspace.sessions
     .filter(
       (session) =>
@@ -452,15 +454,20 @@ export async function findEventOperationsWorkspace(
   if (administrator) roles.push("administrator");
   if (coordinator) roles.push("coordinator");
   if (presenter) roles.push("presenter");
-  const participantProgress = canViewProgress
-    ? await findEventParticipantProgress(
-        eventOccurrenceId,
-        workspace.occurrence.eventTemplateVersionId,
-        workspace.occurrence.startsAt,
-        workspace.occurrence.endsAt,
-        access,
-      )
-    : [];
+  const [participantProgress, surveyQrCatalogue] = await Promise.all([
+    canViewProgress
+      ? findEventParticipantProgress(
+          eventOccurrenceId,
+          workspace.occurrence.eventTemplateVersionId,
+          workspace.occurrence.startsAt,
+          workspace.occurrence.endsAt,
+          access,
+        )
+      : [],
+    canViewSurveyQrCatalogue
+      ? findEventSurveyQrCatalogue(eventOccurrenceId, access)
+      : [],
+  ]);
 
   return {
     occurrence: {
@@ -483,6 +490,7 @@ export async function findEventOperationsWorkspace(
       canViewRegistrations: administrator || coordinator,
       canRecordAttendance: administrator || coordinator || presenter,
       canViewProgress,
+      canViewSurveyQrCatalogue,
     },
     metrics: {
       registrations: registrations.length,
@@ -529,5 +537,6 @@ export async function findEventOperationsWorkspace(
     })),
     sessions,
     participantProgress,
+    surveyQrCatalogue,
   };
 }

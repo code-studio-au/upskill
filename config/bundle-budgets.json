@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 858000,
+  "clientJavaScriptBytes": 865000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 250000,
+  "clientJavaScriptBrotliBytes": 251000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
@@ -13,6 +13,7 @@
     "AdminEventStaffRoster": 34816,
     "AdminEventRegionalCoverageEditor": 1536,
     "EventOperationsProgress": 2560,
+    "EventOperationsSurveyQrCatalogue": 1536,
     "FullscreenScormLauncher": 2048,
     "LearnerEventSection": 2304,
     "LearnerSurveyExperience": 3072,
@@ -21,6 +22,8 @@
   "routeJavaScriptGzipBytes": {
     "/event-operations/": 8192,
     "/event-operations/$eventOccurrenceId": 8192,
+    "/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId": 1536,
+    "/event-surveys/$publicReference": 768,
     "/my-events": 4096,
     "/my-events/$eventOccurrenceId": 12288,
     "/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId": 16384

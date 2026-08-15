@@ -4,9 +4,11 @@ import {
   eventOperationsCoordinatorDecisionSchema,
   eventOperationsParamsSchema,
   eventOperationsRegionLockSchema,
+  eventSurveyQrPresentationParamsSchema,
   type AssignedEventOperationsResult,
   type EventOperationsMutationResult,
   type EventOperationsResult,
+  type EventSurveyQrPresentationResult,
 } from "#/features/event-operations/event-operations.schema";
 
 export const getAssignedEventOperations = createServerFn({
@@ -35,6 +37,25 @@ export const getEventOperationsWorkspace = createServerFn({ method: "GET" })
     );
     return workspace
       ? { status: "ready", data: workspace }
+      : { status: "not-found" };
+  });
+
+export const getEventSurveyQrPresentation = createServerFn({ method: "GET" })
+  .validator(eventSurveyQrPresentationParamsSchema)
+  .handler(async ({ data }): Promise<EventSurveyQrPresentationResult> => {
+    const { getEventOperationsRequest } =
+      await import("#/server/events/event-operations-access.server");
+    const request = await getEventOperationsRequest(data.eventOccurrenceId);
+    if (request.status !== "ready") return request;
+    const { findEventSurveyQrPresentation } =
+      await import("#/server/events/event-survey-access.server");
+    const presentation = await findEventSurveyQrPresentation(
+      data.eventOccurrenceId,
+      data.eventSurveyAccessId,
+      request.access,
+    );
+    return presentation
+      ? { status: "ready", data: presentation }
       : { status: "not-found" };
   });
 

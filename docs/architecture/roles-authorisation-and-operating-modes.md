@@ -25,10 +25,12 @@ The recommended model separates:
 ## Architecture Horizons
 
 - **Current Product:** learner ownership, explicit platform-administrator
-  assignment, organisation roles and server-authorised administrator commands.
+  assignment, organisation roles, server-authorised administrator commands, and
+  Event Instance administrator, regional Coordinator and occurrence/Session
+  Presenter assignments. Assigned Event staff receive scoped operational reads
+  and actions, including participant-free exact-Survey QR presentation.
 - **Target Product:** named capability vocabulary plus grant/contract Access
-  Owner and regional Coordinator/Presenter assignments, with standard Platform
-  Administrators recorded as shared operational owners of Event Instances.
+  Owner workflows and more mature Event assignment lifecycle/recovery controls.
 - **Future Possibilities:** separated global support capabilities and tightly
   controlled impersonation after dedicated support inspection tools.
 

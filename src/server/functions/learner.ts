@@ -2,6 +2,10 @@ import { createServerFn } from "@tanstack/react-start";
 import { accessCodeInputSchema } from "#/features/access/access-code.schema";
 import { learnerEventRegistrationSchema } from "#/features/learner/learner.schema";
 import { learnerEventWorkspaceInputSchema } from "#/features/learner/learner-event-workspace.schema";
+import {
+  eventSurveyPublicReferenceSchema,
+  type LearnerEventSurveyReferenceResult,
+} from "#/features/event-operations/event-operations.schema";
 import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema";
 import {
   learnerSurveyParamsSchema,
@@ -45,6 +49,17 @@ export const getLearnerEventWorkspace = createServerFn({ method: "GET" })
     const { findLearnerEventWorkspace } =
       await import("#/server/learning/learner-event-workspace.server");
     return await findLearnerEventWorkspace(data.eventOccurrenceId, user);
+  });
+
+export const resolveLearnerEventSurveyQr = createServerFn({ method: "GET" })
+  .validator(eventSurveyPublicReferenceSchema)
+  .handler(async ({ data }): Promise<LearnerEventSurveyReferenceResult> => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" };
+    const { resolveLearnerEventSurveyReference } =
+      await import("#/server/events/event-survey-access.server");
+    return await resolveLearnerEventSurveyReference(data.publicReference, user);
   });
 
 export const redeemLearnerAccessCode = createServerFn({ method: "POST" })

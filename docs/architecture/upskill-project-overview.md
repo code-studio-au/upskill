@@ -57,8 +57,12 @@ capabilities.
   exact-version occurrences, sessions, regions, staff assignment history,
   registration, participation and attendance records. Platform Administrators
   can create a blank Template with explicit default administrators, author and
-  publish multi-session versions, create successor versions, and schedule an occurrence; the
-  broader Event operational and learner workflows remain target work.
+  publish multi-session versions, create successor versions, and schedule an
+  occurrence. Assigned staff have region/session-scoped Event operations,
+  confirmed participants have staged blended-learning workspaces, and each
+  occurrence has a persisted exact-Survey QR catalogue with participant-free
+  presentation and guarded authenticated resolution. Open-entry check-in,
+  passwordless/shared-device recovery and communications remain target work.
 
 ### Target Product
 
