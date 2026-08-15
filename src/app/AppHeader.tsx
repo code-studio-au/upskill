@@ -44,6 +44,11 @@ export function AppHeader({ session }: { session: AppShellSession }) {
               My learning
             </Link>
           ) : null}
+          {user ? (
+            <Link to="/my-events" className={classes.headerLink}>
+              My events
+            </Link>
+          ) : null}
           {user?.isPlatformAdministrator ? (
             <Link to="/admin" className={classes.headerLink}>
               Administration
@@ -85,6 +90,9 @@ export function AppHeader({ session }: { session: AppShellSession }) {
                 </Link>
                 <Link to="/dashboard" className={classes.menuLink}>
                   My learning
+                </Link>
+                <Link to="/my-events" className={classes.menuLink}>
+                  My events
                 </Link>
                 {user.isPlatformAdministrator ? (
                   <Link to="/admin" className={classes.menuLink}>

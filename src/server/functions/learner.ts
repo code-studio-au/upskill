@@ -21,6 +21,18 @@ export const getLearnerDashboard = createServerFn({ method: "GET" }).handler(
   },
 );
 
+export const getLearnerEventsDashboard = createServerFn({
+  method: "GET",
+}).handler(async () => {
+  const { getRequestUser } = await import("#/server/auth/session.server");
+  const user = await getRequestUser();
+  if (!user) return null;
+
+  const { findLearnerEventsDashboard } =
+    await import("#/server/learner/learner.server");
+  return await findLearnerEventsDashboard(user);
+});
+
 export const redeemLearnerAccessCode = createServerFn({ method: "POST" })
   .validator(accessCodeInputSchema)
   .handler(async ({ data }) => {

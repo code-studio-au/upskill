@@ -6,6 +6,7 @@ import type {
   LearnerCourse,
   LearnerDashboard,
   LearnerEvent,
+  LearnerEventsDashboard,
 } from "#/features/learner/learner.schema";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import { getDatabase } from "#/server/db/database.server";
@@ -125,11 +126,22 @@ export async function findLearnerDashboard(
     }
   }
 
-  const administratorAssignment = await getDatabase()
-    .selectFrom("platform_admin")
-    .select("userId")
-    .where("userId", "=", user.id)
-    .executeTakeFirst();
+  return {
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    },
+    courses,
+    availableCourses,
+  };
+}
+
+export async function findLearnerEventsDashboard(
+  user: AuthenticatedUser,
+): Promise<LearnerEventsDashboard> {
+  const now = new Date();
+  const domain = emailDomain(user.email);
 
   const eventRows = await getDatabase()
     .selectFrom("event_occurrence")
@@ -252,14 +264,6 @@ export async function findLearnerDashboard(
   });
 
   return {
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      isPlatformAdministrator: Boolean(administratorAssignment),
-    },
-    courses,
-    availableCourses,
     events,
   };
 }

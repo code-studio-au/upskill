@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 682000,
+  "clientJavaScriptBytes": 687000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 198000,
+  "clientJavaScriptBrotliBytes": 199000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
@@ -9,10 +9,12 @@
   "routeIncrementalJavaScriptGzipBytes": 32768,
   "routeIncrementalCssGzipBytes": 12288,
   "conditionalJavaScriptGzipBytes": {
-    "AdminEventRegionalCoverageEditor": 1536
+    "AdminEventRegionalCoverageEditor": 1536,
+    "LearnerEventSection": 2304
   },
   "routeJavaScriptGzipBytes": {
     "/event-operations/": 8192,
-    "/event-operations/$eventOccurrenceId": 8192
+    "/event-operations/$eventOccurrenceId": 8192,
+    "/my-events": 4096
   }
 }
