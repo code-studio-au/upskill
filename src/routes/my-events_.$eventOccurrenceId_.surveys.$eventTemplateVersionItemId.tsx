@@ -6,32 +6,32 @@ import {
   notFound,
   redirect,
 } from "@tanstack/react-router";
-import { learnerSurveyParamsSchema } from "#/features/survey/survey.schema";
+import { learnerEventSurveyParamsSchema } from "#/features/survey/survey.schema";
 import {
-  advanceLearnerSurveyStep,
-  getLearnerSurvey,
+  advanceLearnerEventSurveyStep,
+  getLearnerEventSurvey,
 } from "#/server/functions/learner";
 
 export const Route = createFileRoute(
-  "/learn/$enrollmentId_/surveys/$courseVersionItemId",
+  "/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId",
 )({
   ssr: "data-only",
   loader: async ({ params }) => {
-    const parsed = learnerSurveyParamsSchema.safeParse(params);
+    const parsed = learnerEventSurveyParamsSchema.safeParse(params);
     if (!parsed.success) throw notFound();
-    const result = await getLearnerSurvey({ data: parsed.data });
+    const result = await getLearnerEventSurvey({ data: parsed.data });
     if (result.status === "unauthenticated")
       throw redirect({
         to: "/login",
         search: {
-          redirect: `/learn/${encodeURIComponent(parsed.data.enrollmentId)}/surveys/${encodeURIComponent(parsed.data.courseVersionItemId)}`,
+          redirect: `/my-events/${encodeURIComponent(parsed.data.eventOccurrenceId)}/surveys/${encodeURIComponent(parsed.data.eventTemplateVersionItemId)}`,
         },
       });
     if (result.status === "not-found") throw notFound();
     if (result.status === "unavailable")
       throw redirect({
-        to: "/learn/$enrollmentId",
-        params: { enrollmentId: parsed.data.enrollmentId },
+        to: "/my-events/$eventOccurrenceId",
+        params: { eventOccurrenceId: parsed.data.eventOccurrenceId },
       });
     return result.data;
   },
@@ -39,35 +39,35 @@ export const Route = createFileRoute(
     meta: [
       {
         title: loaderData
-          ? `${loaderData.content.title} — ${loaderData.courseTitle}`
-          : "Survey — Upskill",
+          ? `${loaderData.content.title} — ${loaderData.eventTitle}`
+          : "Event survey — Upskill",
       },
     ],
   }),
-  component: LearnerCourseSurveyPage,
+  component: LearnerEventSurveyPage,
 });
 
-function LearnerCourseSurveyPage() {
+function LearnerEventSurveyPage() {
   const survey = Route.useLoaderData();
   return (
     <LearnerSurveyExperience
       survey={survey}
-      completionDescription="Your response was submitted. This course item is complete."
+      completionDescription="Your response was submitted and this event activity is complete."
       returnAction={
         <Link
-          to="/learn/$enrollmentId"
-          params={{ enrollmentId: survey.enrollmentId }}
+          to="/my-events/$eventOccurrenceId"
+          params={{ eventOccurrenceId: survey.eventOccurrenceId }}
         >
           <Button component="span" variant="light">
-            Return to course
+            Return to event
           </Button>
         </Link>
       }
       onAdvance={async (itemId, answer) =>
-        await advanceLearnerSurveyStep({
+        await advanceLearnerEventSurveyStep({
           data: {
-            enrollmentId: survey.enrollmentId,
-            courseVersionItemId: survey.courseVersionItemId,
+            eventParticipationId: survey.eventParticipationId,
+            eventTemplateVersionItemId: survey.eventTemplateVersionItemId,
             itemId,
             ...(typeof answer === "undefined" ? {} : { answer }),
           },

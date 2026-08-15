@@ -18,18 +18,22 @@ import { getDatabase } from "#/server/db/database.server";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 
-interface StoredProgress {
+export interface StoredProgress {
   answers: Record<string, SurveyAnswerValue>;
   visitedItemIds: Array<string>;
   currentItemId: string | null;
   completedAt: Date | null;
 }
 
-function flattenedItems(content: SurveyVersionContent): Array<SurveyItem> {
+export function flattenedItems(
+  content: SurveyVersionContent,
+): Array<SurveyItem> {
   return content.sections.flatMap((section) => section.items);
 }
 
-function storedAnswers(value: unknown): Record<string, SurveyAnswerValue> {
+export function storedAnswers(
+  value: unknown,
+): Record<string, SurveyAnswerValue> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   const answers: Record<string, SurveyAnswerValue> = {};
   for (const [questionId, answer] of Object.entries(value)) {
@@ -39,7 +43,7 @@ function storedAnswers(value: unknown): Record<string, SurveyAnswerValue> {
   return answers;
 }
 
-function storedVisited(value: unknown): Array<string> {
+export function storedVisited(value: unknown): Array<string> {
   if (!Array.isArray(value)) return [];
   return [
     ...new Set(
@@ -48,7 +52,7 @@ function storedVisited(value: unknown): Array<string> {
   ];
 }
 
-function deriveProgress(
+export function deriveProgress(
   content: SurveyVersionContent,
   stored: StoredProgress | null,
 ): LearnerSurveyProgress {
@@ -93,7 +97,7 @@ function deriveProgress(
   };
 }
 
-function validateAnswer(
+export function validateAnswer(
   question: SurveyQuestion,
   value: SurveyAnswerValue | undefined,
 ):
@@ -402,8 +406,11 @@ export async function advanceLearnerSurvey(
     await transaction
       .insertInto("survey_progress")
       .values({
+        id: `survey_progress_${randomUUID()}`,
         enrollmentId: input.enrollmentId,
         courseVersionItemId: input.courseVersionItemId,
+        eventParticipationId: null,
+        eventTemplateVersionItemId: null,
         surveyVersionId: row.surveyVersionId,
         answers,
         visitedItemIds: JSON.stringify(visitedItemIds),
@@ -413,13 +420,16 @@ export async function advanceLearnerSurvey(
         completedAt,
       })
       .onConflict((conflict) =>
-        conflict.columns(["enrollmentId", "courseVersionItemId"]).doUpdateSet({
-          answers,
-          visitedItemIds: JSON.stringify(visitedItemIds),
-          currentItemId,
-          updatedAt: now,
-          completedAt,
-        }),
+        conflict
+          .columns(["enrollmentId", "courseVersionItemId"])
+          .where("enrollmentId", "is not", null)
+          .doUpdateSet({
+            answers,
+            visitedItemIds: JSON.stringify(visitedItemIds),
+            currentItemId,
+            updatedAt: now,
+            completedAt,
+          }),
       )
       .execute();
 
@@ -438,6 +448,8 @@ export async function advanceLearnerSurvey(
         id: `survey_response_${randomUUID()}`,
         enrollmentId: input.enrollmentId,
         courseVersionItemId: input.courseVersionItemId,
+        eventParticipationId: null,
+        eventTemplateVersionItemId: null,
         surveyVersionId: row.surveyVersionId,
         answers,
         submittedAt: now,
@@ -446,8 +458,11 @@ export async function advanceLearnerSurvey(
     await transaction
       .insertInto("learning_item_progress")
       .values({
+        id: `learning_progress_${randomUUID()}`,
         enrollmentId: input.enrollmentId,
         courseVersionItemId: input.courseVersionItemId,
+        eventParticipationId: null,
+        eventTemplateVersionItemId: null,
         state: "completed",
         completedAt: now,
         updatedAt: now,
@@ -455,6 +470,7 @@ export async function advanceLearnerSurvey(
       .onConflict((conflict) =>
         conflict
           .columns(["enrollmentId", "courseVersionItemId"])
+          .where("enrollmentId", "is not", null)
           .doUpdateSet({ state: "completed", updatedAt: now }),
       )
       .execute();

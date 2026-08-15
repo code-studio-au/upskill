@@ -238,6 +238,7 @@ try {
   await database
     .insertInto("learning_item_progress")
     .values({
+      id: `learning_progress_${ids.enrollment}_${ids.item}`,
       enrollmentId: ids.enrollment,
       courseVersionItemId: ids.item,
       state: "completed",

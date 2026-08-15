@@ -136,12 +136,12 @@ for (const learningException of [
       `Learning-origin SCORM compatibility policy is missing: ${learningException}`,
     );
 }
-const learnerRoute = fs.readFileSync(
-  path.join(root, "src/routes/learn.$enrollmentId.tsx"),
+const scormLauncher = fs.readFileSync(
+  path.join(root, "src/features/learning/FullscreenScormLauncher.tsx"),
   "utf8",
 );
 if (
-  !learnerRoute.includes(
+  !scormLauncher.includes(
     'sandbox="allow-downloads allow-popups allow-same-origin allow-scripts"',
   )
 )

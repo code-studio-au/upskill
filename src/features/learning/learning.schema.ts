@@ -13,10 +13,18 @@ export const learnerWorkspaceInputSchema = z.object({
   enrollmentId: enrollmentIdSchema,
 });
 
-export const learnerResourceInputSchema = z.object({
-  enrollmentId: enrollmentIdSchema,
-  resourceVersionId: enrollmentIdSchema,
-});
+export const learnerResourceInputSchema = z.union([
+  z.object({
+    enrollmentId: enrollmentIdSchema,
+    resourceVersionId: enrollmentIdSchema,
+  }),
+  z.object({
+    eventParticipationId: enrollmentIdSchema,
+    eventTemplateVersionItemId: enrollmentIdSchema,
+    resourceVersionId: enrollmentIdSchema,
+  }),
+]);
+export type LearnerResourceInput = z.infer<typeof learnerResourceInputSchema>;
 
 export type LearningPhase =
   "pre-learning" | "content" | "post-learning" | "followup";
@@ -41,7 +49,7 @@ export interface LearnerWorkspaceItem {
   resourceVersionId: string | null;
 }
 
-interface LearnerWorkspaceSection {
+export interface LearnerWorkspaceSection {
   id: string;
   position: number;
   title: string;

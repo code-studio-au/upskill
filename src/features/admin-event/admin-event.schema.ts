@@ -193,6 +193,16 @@ const adminEventTemplateSectionSchema = z.object({
   id: identifierSchema,
   title: boundedText(160, "Enter a section title."),
   description: optionalText(2_000),
+  phase: z.enum(["pre_event", "session", "post_event", "follow_up"]),
+  releaseAnchor: z.enum([
+    "participation_created",
+    "occurrence_start",
+    "occurrence_end",
+    "final_session_end",
+  ]),
+  releaseOffsetMinutes: z
+    .number()
+    .check(z.int(), z.minimum(-525_600), z.maximum(525_600)),
   items: z.array(adminEventTemplateItemSchema).check(z.maxLength(200)),
 });
 

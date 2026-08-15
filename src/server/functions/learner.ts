@@ -1,10 +1,13 @@
 import { createServerFn } from "@tanstack/react-start";
 import { accessCodeInputSchema } from "#/features/access/access-code.schema";
 import { learnerEventRegistrationSchema } from "#/features/learner/learner.schema";
+import { learnerEventWorkspaceInputSchema } from "#/features/learner/learner-event-workspace.schema";
 import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema";
 import {
   learnerSurveyParamsSchema,
   learnerSurveyStepSchema,
+  learnerEventSurveyParamsSchema,
+  learnerEventSurveyStepSchema,
   type LearnerSurveyResult,
   type LearnerSurveyStepResult,
 } from "#/features/survey/survey.schema";
@@ -32,6 +35,17 @@ export const getLearnerEventsDashboard = createServerFn({
     await import("#/server/learner/learner.server");
   return await findLearnerEventsDashboard(user);
 });
+
+export const getLearnerEventWorkspace = createServerFn({ method: "GET" })
+  .validator(learnerEventWorkspaceInputSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" } as const;
+    const { findLearnerEventWorkspace } =
+      await import("#/server/learning/learner-event-workspace.server");
+    return await findLearnerEventWorkspace(data.eventOccurrenceId, user);
+  });
 
 export const redeemLearnerAccessCode = createServerFn({ method: "POST" })
   .validator(accessCodeInputSchema)
@@ -115,4 +129,33 @@ export const advanceLearnerSurveyStep = createServerFn({ method: "POST" })
     const { advanceLearnerSurvey } =
       await import("#/server/learning/learner-survey.server");
     return await advanceLearnerSurvey(data, user);
+  });
+
+export const getLearnerEventSurvey = createServerFn({ method: "GET" })
+  .validator(learnerEventSurveyParamsSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" } as const;
+    const { findLearnerEventSurvey } =
+      await import("#/server/learning/learner-event-survey.server");
+    const survey = await findLearnerEventSurvey(
+      data.eventOccurrenceId,
+      data.eventTemplateVersionItemId,
+      user,
+    );
+    if (!survey) return { status: "not-found" } as const;
+    if (survey === "unavailable") return { status: "unavailable" } as const;
+    return { status: "ready", data: survey } as const;
+  });
+
+export const advanceLearnerEventSurveyStep = createServerFn({ method: "POST" })
+  .validator(learnerEventSurveyStepSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" } as const;
+    const { advanceLearnerEventSurvey } =
+      await import("#/server/learning/learner-event-survey.server");
+    return await advanceLearnerEventSurvey(data, user);
   });

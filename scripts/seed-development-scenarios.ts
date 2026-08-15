@@ -411,6 +411,7 @@ async function completeSurveyItem(
   await database
     .insertInto("survey_progress")
     .values({
+      id: `survey_progress_${enrollmentId}_${item.id}`,
       enrollmentId,
       courseVersionItemId: item.id,
       surveyVersionId: item.learningActivityVersionId,
@@ -436,6 +437,7 @@ async function completeSurveyItem(
   await database
     .insertInto("learning_item_progress")
     .values({
+      id: `learning_progress_${enrollmentId}_${item.id}`,
       enrollmentId,
       courseVersionItemId: item.id,
       state: "completed",
@@ -1114,6 +1116,9 @@ try {
         id: "event_template_pre_section",
         title: "Pre-event tasks",
         description: "Complete the preparation before attending the workshop.",
+        phase: "pre_event",
+        releaseAnchor: "participation_created",
+        releaseOffsetMinutes: 0,
         items: [
           {
             id: "event_template_pre_survey",
@@ -1129,6 +1134,9 @@ try {
         id: "event_template_session_section",
         title: "Event workshop",
         description: "Attend the facilitated workshop session.",
+        phase: "session",
+        releaseAnchor: "occurrence_start",
+        releaseOffsetMinutes: 0,
         items: [
           {
             id: "event_template_workshop_session",
@@ -1146,6 +1154,9 @@ try {
         title: "Post-event tasks",
         description:
           "Reflect on the workshop and identify practical next steps.",
+        phase: "post_event",
+        releaseAnchor: "final_session_end",
+        releaseOffsetMinutes: -120,
         items: [
           {
             id: "event_template_post_survey",

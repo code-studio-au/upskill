@@ -8,21 +8,16 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
-import { MantineProgress } from "#/features/shared/MantineProgress";
 import {
   createFileRoute,
   Link,
   notFound,
   redirect,
-  useRouter,
 } from "@tanstack/react-router";
-import { useState } from "react";
-import {
-  learnerWorkspaceInputSchema,
-  type LearnerWorkspaceItem,
-} from "#/features/learning/learning.schema";
+import { LearnerProgramSections } from "#/features/learning/LearnerProgramSections";
+import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema";
 import { getLearnerWorkspace } from "#/server/functions/learner";
-import classes from "./learn.$enrollmentId.module.css";
+import classes from "#/features/learning/LearnerWorkspaceLayout.module.css";
 
 export const Route = createFileRoute("/learn/$enrollmentId")({
   ssr: "data-only",
@@ -124,203 +119,14 @@ function LearnerWorkspacePage() {
               </Text>
             </div>
 
-            {workspace.sections.map((section) => {
-              const progress =
-                section.totalItems === 0
-                  ? 0
-                  : (section.completedItems / section.totalItems) * 100;
-              return (
-                <section
-                  key={section.id}
-                  aria-labelledby={`section-${section.id}`}
-                >
-                  <Stack gap="sm">
-                    <div className={classes.sectionHeading}>
-                      <div>
-                        <Title order={3} id={`section-${section.id}`}>
-                          {section.title}
-                        </Title>
-                        {section.description ? (
-                          <Text c="dimmed" size="sm">
-                            {section.description}
-                          </Text>
-                        ) : null}
-                      </div>
-                      <Badge
-                        color={
-                          section.completionState === "completed"
-                            ? "green"
-                            : "blue"
-                        }
-                        variant="light"
-                      >
-                        {section.completionState === "completed"
-                          ? "Section completed"
-                          : `${String(section.completedItems)} of ${String(section.totalItems)}`}
-                      </Badge>
-                    </div>
-                    <MantineProgress
-                      value={progress}
-                      color={
-                        section.completionState === "completed"
-                          ? "green"
-                          : "indigo"
-                      }
-                      aria-label={`${section.title} progress`}
-                    />
-                    <ol className={classes.moduleList}>
-                      {section.items.map((item) => (
-                        <li className={classes.module} key={item.id}>
-                          <div>
-                            <Text fw={600}>{item.title}</Text>
-                            <Text size="xs" c="dimmed" tt="capitalize">
-                              {item.kind}
-                              {!item.required ? " · Optional" : ""}
-                              {item.durationMinutes
-                                ? ` · ${String(item.durationMinutes)} min`
-                                : ""}
-                            </Text>
-                          </div>
-                          <Badge
-                            color={
-                              item.completionState === "completed"
-                                ? "green"
-                                : "blue"
-                            }
-                            variant="light"
-                            className={classes.moduleStatus}
-                          >
-                            {item.completionState === "completed"
-                              ? "Completed"
-                              : "Not completed"}
-                          </Badge>
-                          <ItemAction
-                            item={item}
-                            enrollmentId={workspace.enrollmentId}
-                          />
-                        </li>
-                      ))}
-                    </ol>
-                  </Stack>
-                </section>
-              );
-            })}
+            <LearnerProgramSections
+              kind="course"
+              enrollmentId={workspace.enrollmentId}
+              sections={workspace.sections}
+            />
           </Stack>
         </div>
       </Stack>
     </Container>
-  );
-}
-
-function ItemAction({
-  item,
-  enrollmentId,
-}: {
-  item: LearnerWorkspaceItem;
-  enrollmentId: string;
-}) {
-  const router = useRouter();
-  const [launchStatus, setLaunchStatus] = useState<0 | 1 | 2>(0);
-  const [launchUrl, setLaunchUrl] = useState<string | null>(null);
-  const refreshSoon = () => {
-    window.setTimeout(() => void router.invalidate(), 750);
-  };
-
-  if (item.kind === "resource" && item.resourceVersionId)
-    return (
-      <Button
-        component="a"
-        href={`/api/learning/resources/${encodeURIComponent(item.resourceVersionId)}?enrollmentId=${encodeURIComponent(enrollmentId)}`}
-        target="_blank"
-        rel="noreferrer"
-        variant="light"
-        size="xs"
-        onClick={refreshSoon}
-      >
-        Open PDF
-      </Button>
-    );
-
-  if (item.kind === "survey")
-    return (
-      <Link
-        to="/learn/$enrollmentId/surveys/$courseVersionItemId"
-        params={{
-          enrollmentId,
-          courseVersionItemId: item.id,
-        }}
-      >
-        <Button component="span" variant="light" size="xs">
-          {item.completionState === "completed"
-            ? "View receipt"
-            : "Complete survey"}
-        </Button>
-      </Link>
-    );
-
-  if (item.kind === "scorm" && item.modulePosition !== null)
-    return (
-      <div className={classes.itemAction}>
-        <Button
-          size="xs"
-          loading={launchStatus === 1}
-          onClick={(event) => {
-            if (launchUrl) return void document.exitFullscreen();
-            const player = event.currentTarget.parentElement;
-            if (!player) return;
-            player.onfullscreenchange = () => {
-              if (!document.fullscreenElement) {
-                setLaunchUrl(null);
-                refreshSoon();
-              }
-            };
-            setLaunchStatus(1);
-            void player
-              .requestFullscreen()
-              .then(() =>
-                fetch("/api/scorm/launches", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    enrollmentId,
-                    modulePosition: item.modulePosition,
-                  }),
-                }),
-              )
-              .then(async (response) => {
-                const result = (await response.json()) as {
-                  launchUrl?: string;
-                };
-                if (!response.ok || !result.launchUrl) throw Error();
-                setLaunchUrl(result.launchUrl);
-                setLaunchStatus(0);
-              })
-              .catch(() => {
-                setLaunchStatus(2);
-              });
-          }}
-        >
-          {launchUrl
-            ? "Click here to exit"
-            : launchStatus === 2
-              ? "Retry"
-              : "Launch"}
-        </Button>
-        {launchUrl ? (
-          <iframe
-            className={classes.playerFrame}
-            src={launchUrl}
-            title={item.title}
-            sandbox="allow-downloads allow-popups allow-same-origin allow-scripts"
-            onLoad={() => void router.invalidate()}
-          />
-        ) : null}
-      </div>
-    );
-
-  return (
-    <Button size="xs" variant="light" disabled>
-      Coming soon
-    </Button>
   );
 }

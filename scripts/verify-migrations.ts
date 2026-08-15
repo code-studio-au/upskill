@@ -47,6 +47,7 @@ try {
     "event_presenter_assignment",
     "event_region_review_round",
     "event_registration",
+    "event_section_release",
     "event_session",
     "event_template",
     "event_template_session_definition",

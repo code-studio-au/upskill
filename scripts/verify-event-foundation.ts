@@ -31,6 +31,8 @@ import {
   withdrawLearnerEventRegistration,
 } from "#/server/learner/learner-event.server";
 import { findLearnerEventsDashboard } from "#/server/learner/learner.server";
+import { ensureEventSectionReleased } from "#/server/learning/event-section-release.server";
+import { findLearnerEventWorkspace } from "#/server/learning/learner-event-workspace.server";
 
 const database = getDatabase();
 const suffix = randomUUID();
@@ -77,6 +79,51 @@ async function cleanup(): Promise<void> {
       .select("id")
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .execute();
+    if (participationIds.length)
+      await database
+        .deleteFrom("event_section_release")
+        .where(
+          "eventParticipationId",
+          "in",
+          participationIds.map((row) => row.id),
+        )
+        .execute();
+    if (participationIds.length)
+      await database
+        .deleteFrom("learning_item_progress")
+        .where(
+          "eventParticipationId",
+          "in",
+          participationIds.map((row) => row.id),
+        )
+        .execute();
+    if (participationIds.length)
+      await database
+        .deleteFrom("survey_response")
+        .where(
+          "eventParticipationId",
+          "in",
+          participationIds.map((row) => row.id),
+        )
+        .execute();
+    if (participationIds.length)
+      await database
+        .deleteFrom("survey_progress")
+        .where(
+          "eventParticipationId",
+          "in",
+          participationIds.map((row) => row.id),
+        )
+        .execute();
+    if (participationIds.length)
+      await database
+        .deleteFrom("scorm_attempt")
+        .where(
+          "eventParticipationId",
+          "in",
+          participationIds.map((row) => row.id),
+        )
+        .execute();
     if (participationIds.length)
       await database
         .deleteFrom("event_attendance")
@@ -468,6 +515,9 @@ try {
             id: `event_section_${suffix}`,
             title: "Event",
             description: "The event session.",
+            phase: "session",
+            releaseAnchor: "occurrence_start",
+            releaseOffsetMinutes: 0,
             items: [
               {
                 id: `event_item_${suffix}`,
@@ -1001,6 +1051,45 @@ try {
       .executeTakeFirstOrThrow()
       .then((row) => row.state),
     "attended",
+  );
+  const templateSection = await database
+    .selectFrom("event_template_version_section")
+    .select("id")
+    .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await ensureEventSectionReleased(database, {
+      eventParticipationId: participationId,
+      eventTemplateVersionSectionId: templateSection.id,
+      calculatedReleaseAt: new Date(Date.now() - 1_000),
+      now: new Date(),
+    }),
+    true,
+  );
+  assert.equal(
+    await ensureEventSectionReleased(database, {
+      eventParticipationId: participationId,
+      eventTemplateVersionSectionId: templateSection.id,
+      calculatedReleaseAt: new Date(Date.now() + 86_400_000),
+      now: new Date(),
+    }),
+    true,
+  );
+  const learnerWorkspace = await findLearnerEventWorkspace(
+    eventOccurrenceId,
+    administrator,
+  );
+  assert.equal(learnerWorkspace.status, "ready");
+  assert.equal(learnerWorkspace.workspace.sections.length, 1);
+  assert.equal(
+    learnerWorkspace.workspace.sections[0]?.completionState,
+    "completed",
+  );
+  assert.equal(learnerWorkspace.workspace.completionState, "completed");
+  assert.equal(learnerWorkspace.workspace.certificateAvailable, true);
+  assert.deepEqual(
+    await findLearnerEventWorkspace(eventOccurrenceId, coordinator),
+    { status: "not-found" },
   );
   await assert.rejects(
     database

@@ -1,0 +1,23 @@
+.page {
+  padding-block: clamp(2rem, 6vw, 4rem);
+}
+
+.layout {
+  display: grid;
+  gap: var(--mantine-spacing-xl);
+}
+
+.summary {
+  align-self: start;
+}
+
+@media (min-width: 60em) {
+  .layout {
+    grid-template-columns: minmax(15rem, 0.7fr) minmax(0, 2fr);
+  }
+
+  .summary {
+    position: sticky;
+    top: var(--mantine-spacing-xl);
+  }
+}
