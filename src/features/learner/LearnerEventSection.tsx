@@ -8,18 +8,53 @@ import {
   Title,
 } from "#/features/shared/mantine";
 import { useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { formatLocalDateTime } from "#/features/shared/local-date";
+import { PageTabs, type PageTab } from "#/features/shared/PageTabs";
 import type { LearnerEvent } from "./learner.schema";
 import {
   registerLearnerEvent,
   withdrawLearnerEvent,
 } from "#/server/functions/learner";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
+import { groupLearnerEvents } from "./learner-event-grouping";
+import classes from "./LearnerEventSection.module.css";
+
+type EventView = "registrations" | "available" | "history";
+
+const viewContent: Record<
+  EventView,
+  { title: string; description: string; empty: string }
+> = {
+  registrations: {
+    title: "My event registrations",
+    description:
+      "Registrations awaiting review, approved registrations and waitlisted events.",
+    empty: "You do not have any active event registrations.",
+  },
+  available: {
+    title: "Available events",
+    description: "Upcoming events you have not registered for.",
+    empty: "There are no other events available to you.",
+  },
+  history: {
+    title: "Registration history",
+    description:
+      "Events you withdrew from, were not selected for, or that were cancelled.",
+    empty: "You do not have any previous registration outcomes.",
+  },
+};
 
 function statusLabel(event: LearnerEvent): string {
-  if (!event.registrationStatus) return "Registration available";
+  if (!event.registrationStatus) {
+    if (event.registrationUnavailableReason === "not_open")
+      return "Registration opens later";
+    if (event.registrationUnavailableReason === "closed")
+      return "Registration closed";
+    if (event.registrationUnavailableReason === "full") return "Event full";
+    return "Registration available";
+  }
   const labels = {
     submitted: "Registration submitted",
     coordinator_approved: "Coordinator approved",
@@ -31,6 +66,24 @@ function statusLabel(event: LearnerEvent): string {
     cancelled: "Cancelled",
   } as const;
   return labels[event.registrationStatus];
+}
+
+function statusColor(event: LearnerEvent): string {
+  if (event.registrationStatus === "selected") return "green";
+  if (event.registrationStatus === "coordinator_approved") return "teal";
+  if (event.registrationStatus === "waitlisted") return "yellow";
+  if (
+    event.registrationStatus === "coordinator_declined" ||
+    event.registrationStatus === "not_selected" ||
+    event.registrationStatus === "withdrawn"
+  )
+    return "red";
+  if (
+    event.registrationStatus === "cancelled" ||
+    (!event.registrationStatus && !event.canRegister)
+  )
+    return "gray";
+  return "blue";
 }
 
 function unavailableLabel(event: LearnerEvent): string {
@@ -53,6 +106,28 @@ export function LearnerEventSection({
   const [selectedRegions, setSelectedRegions] = useState<
     Record<string, string>
   >({});
+  const grouped = groupLearnerEvents(events);
+  const [activeView, setActiveView] = useState<EventView>(() => {
+    if (grouped.registrations.length > 0) return "registrations";
+    if (grouped.available.length > 0) return "available";
+    if (grouped.history.length > 0) return "history";
+    return "registrations";
+  });
+  const tabs: Array<PageTab<EventView>> = [
+    {
+      value: "registrations",
+      label: `My registrations\n(${String(grouped.registrations.length)})`,
+    },
+    {
+      value: "available",
+      label: `Available events\n(${String(grouped.available.length)})`,
+    },
+    {
+      value: "history",
+      label: `History\n(${String(grouped.history.length)})`,
+    },
+  ];
+  const activeEvents = grouped[activeView];
 
   async function register(eventOccurrenceId: string, regionId: string | null) {
     setProcessingId(eventOccurrenceId);
@@ -69,6 +144,7 @@ export function LearnerEventSection({
         result.status === "already-registered"
       ) {
         await router.invalidate();
+        setActiveView("registrations");
         return;
       }
       setError(
@@ -90,6 +166,7 @@ export function LearnerEventSection({
       });
       if (result.status === "withdrawn") {
         await router.invalidate();
+        setActiveView("history");
         return;
       }
       setError("This registration can no longer be withdrawn online.");
@@ -99,112 +176,177 @@ export function LearnerEventSection({
   }
 
   return (
-    <section aria-labelledby="available-events-heading">
-      <Stack gap="md">
-        <div>
-          <Title order={2} id="available-events-heading">
-            Events
-          </Title>
-          <Text c="dimmed">
-            Register for upcoming instructor-led learning and track your
-            approval.
-          </Text>
-        </div>
+    <section aria-label="Event lists">
+      <Stack gap="lg">
         {error ? <Alert color="red">{error}</Alert> : null}
-        {events.map((event) => (
-          <Paper key={event.eventOccurrenceId} withBorder radius="lg" p="lg">
-            <Stack gap="sm">
-              <Group justify="space-between" align="start" wrap="wrap">
-                <div>
-                  <Title order={3}>{event.title}</Title>
-                  <Text size="sm" c="dimmed">
-                    {event.eventTemplateTitle}
-                  </Text>
-                </div>
-                <Badge
-                  color={
-                    event.registrationStatus === "selected" ? "green" : "blue"
-                  }
-                  variant="light"
-                >
-                  {statusLabel(event)}
-                </Badge>
-              </Group>
-              <Text size="sm">
-                {formatLocalDateTime(event.startsAt, {
-                  timeZone: event.timezone,
-                })}
-                {" – "}
-                {formatLocalDateTime(event.endsAt, {
-                  timeZone: event.timezone,
-                })}
-              </Text>
-              <Text size="sm" c="dimmed">
-                {event.deliveryMode === "virtual" ? "Virtual" : "In person"} ·{" "}
-                {event.timezone}
-              </Text>
-              {!event.registrationStatus ? (
-                <Stack gap="xs">
-                  {event.regions.length > 0 ? (
-                    <MantineNativeSelect
-                      label="Your region"
-                      value={selectedRegions[event.eventOccurrenceId] ?? ""}
-                      data={[
-                        {
-                          value: "",
-                          label: "Select your region",
-                          disabled: true,
-                        },
-                        ...event.regions.map((region) => ({
-                          value: region.id,
-                          label: region.name,
-                        })),
-                      ]}
-                      onChange={(change) => {
-                        const value = change.currentTarget.value;
-                        setSelectedRegions((current) => ({
-                          ...current,
-                          [event.eventOccurrenceId]: value,
-                        }));
-                      }}
-                      required
-                    />
-                  ) : null}
-                  <Button
-                    disabled={
-                      !event.canRegister ||
-                      (event.regions.length > 0 &&
-                        !selectedRegions[event.eventOccurrenceId])
-                    }
-                    loading={processingId === event.eventOccurrenceId}
-                    onClick={() => {
-                      void register(
-                        event.eventOccurrenceId,
-                        selectedRegions[event.eventOccurrenceId] || null,
-                      );
-                    }}
-                  >
-                    {unavailableLabel(event)}
-                  </Button>
-                </Stack>
-              ) : event.registrationStatus !== "withdrawn" &&
-                event.registrationStatus !== "cancelled" &&
-                event.registrationStatus !== "not_selected" ? (
-                <Button
-                  variant="subtle"
-                  color="red"
-                  loading={processingId === event.eventOccurrenceId}
-                  onClick={() => {
-                    void withdraw(event.eventOccurrenceId);
-                  }}
-                >
-                  Withdraw registration
-                </Button>
-              ) : null}
-            </Stack>
-          </Paper>
-        ))}
+        <PageTabs
+          className={classes.eventTabs}
+          label="Event lists"
+          value={activeView}
+          tabs={tabs}
+          onChange={setActiveView}
+        />
+        <EventGroup
+          headingId={`${activeView}-events-heading`}
+          title={viewContent[activeView].title}
+          description={viewContent[activeView].description}
+        >
+          {activeEvents.length > 0 ? (
+            activeEvents.map((event) => (
+              <LearnerEventCard
+                key={event.eventOccurrenceId}
+                event={event}
+                processing={processingId === event.eventOccurrenceId}
+                selectedRegion={selectedRegions[event.eventOccurrenceId] ?? ""}
+                onRegionChange={(value) => {
+                  setSelectedRegions((current) => ({
+                    ...current,
+                    [event.eventOccurrenceId]: value,
+                  }));
+                }}
+                onRegister={register}
+                onWithdraw={withdraw}
+              />
+            ))
+          ) : (
+            <Paper withBorder radius="lg" p="md">
+              <Text c="dimmed">{viewContent[activeView].empty}</Text>
+            </Paper>
+          )}
+        </EventGroup>
       </Stack>
     </section>
+  );
+}
+
+function EventGroup({
+  headingId,
+  title,
+  description,
+  children,
+}: {
+  headingId: string;
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
+  return (
+    <section aria-labelledby={headingId}>
+      <Stack gap="md">
+        <div>
+          <Title order={3} id={headingId}>
+            {title}
+          </Title>
+          <Text c="dimmed" size="sm" mt={4}>
+            {description}
+          </Text>
+        </div>
+        {children}
+      </Stack>
+    </section>
+  );
+}
+
+function LearnerEventCard({
+  event,
+  processing,
+  selectedRegion,
+  onRegionChange,
+  onRegister,
+  onWithdraw,
+}: {
+  event: LearnerEvent;
+  processing: boolean;
+  selectedRegion: string;
+  onRegionChange: (value: string) => void;
+  onRegister: (
+    eventOccurrenceId: string,
+    regionId: string | null,
+  ) => Promise<void>;
+  onWithdraw: (eventOccurrenceId: string) => Promise<void>;
+}) {
+  return (
+    <Paper withBorder radius="lg" p="lg">
+      <Stack gap="sm">
+        <Group justify="space-between" align="start" wrap="wrap">
+          <div>
+            <Title order={4}>{event.title}</Title>
+            <Text size="sm" c="dimmed">
+              {event.eventTemplateTitle}
+            </Text>
+          </div>
+          <Badge color={statusColor(event)} variant="light">
+            {statusLabel(event)}
+          </Badge>
+        </Group>
+        <Text size="sm">
+          {formatLocalDateTime(event.startsAt, {
+            timeZone: event.timezone,
+          })}
+          {" – "}
+          {formatLocalDateTime(event.endsAt, {
+            timeZone: event.timezone,
+          })}
+        </Text>
+        <Text size="sm" c="dimmed">
+          {event.deliveryMode === "virtual" ? "Virtual" : "In person"} ·{" "}
+          {event.timezone}
+        </Text>
+        {!event.registrationStatus ? (
+          <Stack gap="xs">
+            {event.canRegister && event.regions.length > 0 ? (
+              <MantineNativeSelect
+                label="Your region"
+                value={selectedRegion}
+                data={[
+                  {
+                    value: "",
+                    label: "Select your region",
+                    disabled: true,
+                  },
+                  ...event.regions.map((region) => ({
+                    value: region.id,
+                    label: region.name,
+                  })),
+                ]}
+                onChange={(change) => {
+                  onRegionChange(change.currentTarget.value);
+                }}
+                required
+              />
+            ) : null}
+            <Button
+              disabled={
+                !event.canRegister ||
+                (event.regions.length > 0 && !selectedRegion)
+              }
+              loading={processing}
+              onClick={() => {
+                void onRegister(
+                  event.eventOccurrenceId,
+                  selectedRegion || null,
+                );
+              }}
+            >
+              {unavailableLabel(event)}
+            </Button>
+          </Stack>
+        ) : event.registrationStatus !== "withdrawn" &&
+          event.registrationStatus !== "cancelled" &&
+          event.registrationStatus !== "not_selected" &&
+          event.registrationStatus !== "coordinator_declined" ? (
+          <Button
+            variant="subtle"
+            color="red"
+            loading={processing}
+            onClick={() => {
+              void onWithdraw(event.eventOccurrenceId);
+            }}
+          >
+            Withdraw registration
+          </Button>
+        ) : null}
+      </Stack>
+    </Paper>
   );
 }

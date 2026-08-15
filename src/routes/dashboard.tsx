@@ -9,20 +9,14 @@ import {
   Title,
 } from "#/features/shared/mantine";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
-import { lazy, Suspense, useState } from "react";
+import { useState } from "react";
 import { AccessCodeRedemptionForm } from "#/features/access/AccessCodeRedemptionForm";
 import { LearnerCertificateAction } from "#/features/learner/LearnerCertificateAction";
 import { formatLocalDate } from "#/features/shared/local-date";
 import { AppDialog } from "#/features/shared/AppDialog";
-import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import type { LearnerCourse } from "#/features/learner/learner.schema";
 import { getLearnerDashboard } from "#/server/functions/learner";
 import classes from "./dashboard.module.css";
-
-const LearnerEventSection = lazy(async () => {
-  const module = await import("#/features/learner/LearnerEventSection");
-  return { default: module.LearnerEventSection };
-});
 
 export const Route = createFileRoute("/dashboard")({
   ssr: "data-only",
@@ -87,12 +81,6 @@ function DashboardPage() {
           >
             <AccessCodeRedemptionForm />
           </AppDialog>
-        ) : null}
-
-        {dashboard.events.length > 0 ? (
-          <Suspense fallback={<LoadingSpinner label="Loading events" />}>
-            <LearnerEventSection events={dashboard.events} />
-          </Suspense>
         ) : null}
 
         <CourseSection title="Continue learning" courses={current} />

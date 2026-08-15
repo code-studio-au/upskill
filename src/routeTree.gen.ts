@@ -14,6 +14,7 @@ import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as EventOperationsRouteImport } from './routes/event-operations'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as MyEventsRouteImport } from './routes/my-events'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccessRouteImport } from './routes/admin.access'
 import { Route as AdminModulesRouteImport } from './routes/admin.modules'
@@ -70,6 +71,11 @@ const EventOperationsRoute = EventOperationsRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MyEventsRoute = MyEventsRouteImport.update({
+  id: '/my-events',
+  path: '/my-events',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
@@ -248,6 +254,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof DashboardRoute
   '/event-operations': typeof EventOperationsRouteWithChildren
   '/login': typeof LoginRoute
+  '/my-events': typeof MyEventsRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/resources': typeof AdminResourcesRoute
@@ -285,6 +292,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
+  '/my-events': typeof MyEventsRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/resources': typeof AdminResourcesRoute
@@ -325,6 +333,7 @@ export interface FileRoutesById {
   '/dashboard': typeof DashboardRoute
   '/event-operations': typeof EventOperationsRouteWithChildren
   '/login': typeof LoginRoute
+  '/my-events': typeof MyEventsRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/resources': typeof AdminResourcesRoute
@@ -366,6 +375,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/event-operations'
     | '/login'
+    | '/my-events'
     | '/admin/access'
     | '/admin/modules'
     | '/admin/resources'
@@ -403,6 +413,7 @@ export interface FileRouteTypes {
     | '/'
     | '/dashboard'
     | '/login'
+    | '/my-events'
     | '/admin/access'
     | '/admin/modules'
     | '/admin/resources'
@@ -442,6 +453,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/event-operations'
     | '/login'
+    | '/my-events'
     | '/admin/access'
     | '/admin/modules'
     | '/admin/resources'
@@ -482,6 +494,7 @@ export interface RootRouteChildren {
   DashboardRoute: typeof DashboardRoute
   EventOperationsRoute: typeof EventOperationsRouteWithChildren
   LoginRoute: typeof LoginRoute
+  MyEventsRoute: typeof MyEventsRoute
   ApiHealthRoute: typeof ApiHealthRoute
   CheckoutSuccessRoute: typeof CheckoutSuccessRoute
   CoursesSlugRoute: typeof CoursesSlugRoute
@@ -534,6 +547,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/my-events': {
+      id: '/my-events'
+      path: '/my-events'
+      fullPath: '/my-events'
+      preLoaderRoute: typeof MyEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/': {
@@ -836,6 +856,7 @@ const rootRouteChildren: RootRouteChildren = {
   DashboardRoute: DashboardRoute,
   EventOperationsRoute: EventOperationsRouteWithChildren,
   LoginRoute: LoginRoute,
+  MyEventsRoute: MyEventsRoute,
   ApiHealthRoute: ApiHealthRoute,
   CheckoutSuccessRoute: CheckoutSuccessRoute,
   CoursesSlugRoute: CoursesSlugRoute,

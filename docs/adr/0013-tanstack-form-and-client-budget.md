@@ -63,6 +63,22 @@ JavaScript bytes and 1,992 Brotli bytes. The aggregate caps therefore ratchet by
 `AdminEventRegionalCoverageEditor` conditional chunk; root preload,
 largest-asset and route-incremental caps remain unchanged.
 
+The learner event list initially remained behind a dashboard-only lazy
+boundary. Separating active registrations, available events and historical
+outcomes into responsive counted tabs increased the measured all-route build by
+2,549 raw JavaScript bytes and 620 Brotli bytes. The aggregate caps therefore
+ratcheted by 3 KB raw and 1 KB Brotli, and the `LearnerEventSection` conditional
+chunk gained an explicit 2.25 KB gzip cap.
+
+My Learning and My Events subsequently became separate data and route
+boundaries. The `/dashboard` route now loads only eLearning and access-grant
+data, while `/my-events` owns event discovery and registration and retains the
+conditional `LearnerEventSection` import. The new route shell increased the
+measured all-route build from 684,406 to 685,571 raw JavaScript bytes without
+requiring a Brotli cap change, so the raw aggregate cap ratchets by 2 KB. A
+stricter 4 KB gzip route cap now constrains `/my-events`; root preload,
+largest-asset and general per-route incremental limits remain unchanged.
+
 ## Consequences
 
 Validation, dirty/touched state and loading behavior now have one consistent

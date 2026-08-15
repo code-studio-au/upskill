@@ -67,7 +67,7 @@ be `info`, `warn`, `error` or `off` for operational events; committed audit
 projections are always emitted. EC2 sends both service streams to journald so a
 future Datadog Agent can collect them without application-level vendor coupling.
 The public catalog reads immutable published course versions from PostgreSQL.
-The two `db:seed:*` commands install
+The catalog and account seed commands install
 deterministic local and browser-test data; they are never run by production
 deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD`; it creates
 verified `learner@example.com` and
@@ -75,6 +75,8 @@ verified `learner@example.com` and
 `admin@example.com`, and the local code
 `EXAMPLE-LEARN-2026-EXAMP7E26X`. All three local
 accounts use `SEED_LEARNER_PASSWORD`; administration starts at `/admin`.
+For the complete multi-region event and eLearning fixture set, including real
+local SCORM archives, see [local development data](docs/local-development-data.md).
 Platform administrators manage quarantined SCORM uploads and package versions at
 `/admin/modules`. Browser uploads stream through a bounded same-origin route;
 they do not require direct MinIO/S3 access or a permissive bucket CORS policy.

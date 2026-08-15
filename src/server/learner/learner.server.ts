@@ -6,6 +6,7 @@ import type {
   LearnerCourse,
   LearnerDashboard,
   LearnerEvent,
+  LearnerEventsDashboard,
 } from "#/features/learner/learner.schema";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import { getDatabase } from "#/server/db/database.server";
@@ -125,13 +126,32 @@ export async function findLearnerDashboard(
     }
   }
 
-  const administratorAssignment = await getDatabase()
-    .selectFrom("platform_admin")
-    .select("userId")
-    .where("userId", "=", user.id)
-    .executeTakeFirst();
+  return {
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    },
+    courses,
+    availableCourses,
+  };
+}
 
-  const eventRows = await getDatabase()
+export async function findLearnerEventsDashboard(
+  user: AuthenticatedUser,
+): Promise<LearnerEventsDashboard> {
+  const now = new Date();
+  const domain = emailDomain(user.email);
+  const eventRegistrations = await getDatabase()
+    .selectFrom("event_registration")
+    .select(["eventOccurrenceId", "status"])
+    .where("userId", "=", user.id)
+    .execute();
+  const registeredEventIds = eventRegistrations.map(
+    (registration) => registration.eventOccurrenceId,
+  );
+
+  let eventQuery = getDatabase()
     .selectFrom("event_occurrence")
     .innerJoin(
       "event_template_version",
@@ -159,24 +179,30 @@ export async function findLearnerDashboard(
       "event_occurrence.capacity",
       "event_occurrence.confirmedCount",
     ])
-    .where("event_occurrence.status", "=", "published")
-    .where("event_occurrence.registrationMode", "!=", "open_entry")
-    .where("event_occurrence.endsAt", ">", now)
-    .orderBy("event_occurrence.startsAt")
-    .execute();
+    .orderBy("event_occurrence.startsAt");
+  eventQuery = registeredEventIds.length
+    ? eventQuery.where((expression) =>
+        expression.or([
+          expression("event_occurrence.id", "in", registeredEventIds),
+          expression.and([
+            expression("event_occurrence.status", "=", "published"),
+            expression("event_occurrence.registrationMode", "!=", "open_entry"),
+            expression("event_occurrence.endsAt", ">", now),
+          ]),
+        ]),
+      )
+    : eventQuery
+        .where("event_occurrence.status", "=", "published")
+        .where("event_occurrence.registrationMode", "!=", "open_entry")
+        .where("event_occurrence.endsAt", ">", now);
+  const eventRows = await eventQuery.execute();
   const eventIds = eventRows.map((event) => event.eventOccurrenceId);
-  const [eventDomains, eventRegistrations, eventRegions] = eventIds.length
+  const [eventDomains, eventRegions] = eventIds.length
     ? await Promise.all([
         getDatabase()
           .selectFrom("event_occurrence_domain")
           .select(["eventOccurrenceId", "domain"])
           .where("eventOccurrenceId", "in", eventIds)
-          .execute(),
-        getDatabase()
-          .selectFrom("event_registration")
-          .select(["eventOccurrenceId", "status"])
-          .where("eventOccurrenceId", "in", eventIds)
-          .where("userId", "=", user.id)
           .execute(),
         getDatabase()
           .selectFrom("event_occurrence_region as occurrence_region")
@@ -195,7 +221,7 @@ export async function findLearnerDashboard(
           .orderBy("occurrence_region.position")
           .execute(),
       ])
-    : [[], [], []];
+    : [[], []];
   const registrationByEvent = new Map(
     eventRegistrations.map((registration) => [
       registration.eventOccurrenceId,
@@ -252,14 +278,6 @@ export async function findLearnerDashboard(
   });
 
   return {
-    user: {
-      id: user.id,
-      name: user.name,
-      email: user.email,
-      isPlatformAdministrator: Boolean(administratorAssignment),
-    },
-    courses,
-    availableCourses,
     events,
   };
 }

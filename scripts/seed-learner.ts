@@ -11,24 +11,55 @@ const password = process.env.SEED_LEARNER_PASSWORD;
 if (!password || password.length < 12)
   throw new Error("SEED_LEARNER_PASSWORD must contain at least 12 characters");
 
-const learner = {
+interface CredentialProfile {
+  id: string;
+  accountId: string;
+  name: string;
+  email: string;
+}
+
+const learner: CredentialProfile = {
   id: "user_local_learner",
   accountId: "account_local_learner",
   name: "Alex Learner",
   email: "learner@example.com",
 };
-const redeemer = {
+const redeemer: CredentialProfile = {
   id: "user_local_redeemer",
   accountId: "account_local_redeemer",
   name: "Riley Redeemer",
   email: "redeemer@example.com",
 };
-const administrator = {
+const administrator: CredentialProfile = {
   id: "user_local_admin",
   accountId: "account_local_admin",
   name: "Avery Administrator",
   email: "admin@example.com",
 };
+const scenarioLearners: Array<CredentialProfile> = Array.from(
+  { length: 10 },
+  (_, index) => {
+    const number = index + 1;
+    return {
+      id: `user_local_learner_${String(number)}`,
+      accountId: `account_local_learner_${String(number)}`,
+      name: `Learner ${String(number)}`,
+      email: `learner${String(number)}@example.com`,
+    };
+  },
+);
+const scenarioCoordinators: Array<CredentialProfile> = Array.from(
+  { length: 3 },
+  (_, index) => {
+    const number = index + 1;
+    return {
+      id: `user_local_coordinator_${String(number)}`,
+      accountId: `account_local_coordinator_${String(number)}`,
+      name: `Coordinator ${String(number)}`,
+      email: `coordinator${String(number)}@example.com`,
+    };
+  },
+);
 const exampleAccessGrantId = "access_grant_example_psychological_safety";
 const exampleIssuedCode = issueAccessCode("EXAMPLE-LEARN-2026", "EXAMP7E26X");
 if (!exampleIssuedCode)
@@ -41,7 +72,7 @@ const exampleEncryptedCode = encryptAccessCode({
 
 async function seedCredentialUser(
   transaction: Transaction<Database>,
-  profile: typeof learner,
+  profile: CredentialProfile,
   passwordHash: string,
 ): Promise<string> {
   await transaction
@@ -113,6 +144,16 @@ try {
       administrator,
       passwordHash,
     );
+    const scenarioLearnerIds = await Promise.all(
+      scenarioLearners.map((profile) =>
+        seedCredentialUser(transaction, profile, passwordHash),
+      ),
+    );
+    await Promise.all(
+      scenarioCoordinators.map((profile) =>
+        seedCredentialUser(transaction, profile, passwordHash),
+      ),
+    );
 
     await transaction
       .insertInto("platform_admin")
@@ -142,6 +183,22 @@ try {
         userId,
         role: "learner",
       })
+      .onConflict((conflict) =>
+        conflict.columns(["organizationId", "userId"]).doUpdateSet({
+          role: "learner",
+        }),
+      )
+      .execute();
+
+    await transaction
+      .insertInto("organization_member")
+      .values(
+        scenarioLearnerIds.map((scenarioLearnerId) => ({
+          organizationId: "organization_example",
+          userId: scenarioLearnerId,
+          role: "learner" as const,
+        })),
+      )
       .onConflict((conflict) =>
         conflict.columns(["organizationId", "userId"]).doUpdateSet({
           role: "learner",
@@ -264,7 +321,7 @@ try {
   });
 
   console.log(
-    `Seeded verified learners ${learner.email} and ${redeemer.email}, plus administrator ${administrator.email}`,
+    `Seeded ${String(scenarioLearners.length)} scenario learners, ${String(scenarioCoordinators.length)} coordinators, compatibility learners ${learner.email} and ${redeemer.email}, plus administrator ${administrator.email}`,
   );
 } finally {
   await database.destroy();

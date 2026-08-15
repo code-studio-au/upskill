@@ -6,18 +6,28 @@ export interface PageTab<Value extends string> {
 }
 
 export function PageTabs<Value extends string>({
+  className,
   label,
   value,
   tabs,
   onChange,
 }: {
+  className?: string | undefined;
   label: string;
   value: Value;
   tabs: Array<PageTab<Value>>;
   onChange: (value: Value) => void;
 }) {
   return (
-    <div className={classes.tabs} role="group" aria-label={label}>
+    <div
+      className={
+        className
+          ? [classes.tabs, className].filter(Boolean).join(" ")
+          : classes.tabs
+      }
+      role="group"
+      aria-label={label}
+    >
       {tabs.map((tab) => (
         <button
           className={classes.tab}

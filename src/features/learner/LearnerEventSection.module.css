@@ -1,0 +1,21 @@
+.eventTabs {
+  white-space: normal;
+}
+
+@media (max-width: 36em) {
+  .eventTabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    overflow-x: visible;
+  }
+
+  .eventTabs > button {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+    padding-inline: 0.35rem;
+    line-height: 1.2;
+    text-align: center;
+    white-space: pre-line;
+  }
+}

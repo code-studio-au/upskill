@@ -26,6 +26,7 @@ import {
   registerLearnerForEvent,
   withdrawLearnerEventRegistration,
 } from "#/server/learner/learner-event.server";
+import { findLearnerEventsDashboard } from "#/server/learner/learner.server";
 
 const database = getDatabase();
 const suffix = randomUUID();
@@ -1037,6 +1038,12 @@ try {
       confirmedCount: 1,
       registrationStatus: "selected",
     },
+  );
+  assert.equal(
+    (await findLearnerEventsDashboard(administrator)).events.find(
+      (event) => event.eventOccurrenceId === eventOccurrenceId,
+    )?.registrationStatus,
+    "cancelled",
   );
 
   await database
