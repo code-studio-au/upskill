@@ -7,6 +7,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 
 function domainFromEmail(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -505,6 +506,11 @@ export async function recordAdminEventAttendance(
         metadata: { state: input.state, source },
         createdAt: now,
       });
+      await completeEventParticipationIfReady(
+        transaction,
+        input.eventParticipationId,
+        now,
+      );
       return "recorded" as const;
     });
 }

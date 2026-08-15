@@ -202,10 +202,22 @@ const learnerSurveyParamsShape = {
 
 export const learnerSurveyParamsSchema = z.object(learnerSurveyParamsShape);
 
+export const learnerEventSurveyParamsSchema = z.object({
+  eventOccurrenceId: identifierSchema,
+  eventTemplateVersionItemId: identifierSchema,
+});
+
 export const surveyAnswerValueSchema = z.union([
   z.string().check(z.maxLength(2_000)),
   z.array(identifierSchema).check(z.maxLength(20)),
 ]);
+
+export const learnerEventSurveyStepSchema = z.object({
+  eventParticipationId: identifierSchema,
+  eventTemplateVersionItemId: identifierSchema,
+  itemId: identifierSchema,
+  answer: z.optional(surveyAnswerValueSchema),
+});
 
 export const learnerSurveyStepSchema = z.object({
   ...learnerSurveyParamsShape,
@@ -220,6 +232,9 @@ export type SurveyVersionContent = z.infer<typeof surveyVersionContentSchema>;
 export type AdminSurveyDraft = z.infer<typeof adminSurveyDraftSchema>;
 export type SurveyAnswerValue = z.infer<typeof surveyAnswerValueSchema>;
 export type LearnerSurveyStep = z.infer<typeof learnerSurveyStepSchema>;
+export type LearnerEventSurveyStep = z.infer<
+  typeof learnerEventSurveyStepSchema
+>;
 
 export interface AdminSurveySummary {
   id: string;
@@ -291,6 +306,18 @@ export interface LearnerSurvey {
   enrollmentId: string;
   courseVersionItemId: string;
   courseTitle: string;
+  sectionTitle: string;
+  surveyVersionId: string;
+  content: SurveyVersionContent;
+  progress: LearnerSurveyProgress;
+  submittedAt: string | null;
+}
+
+export interface LearnerEventSurvey {
+  eventOccurrenceId: string;
+  eventParticipationId: string;
+  eventTemplateVersionItemId: string;
+  eventTitle: string;
   sectionTitle: string;
   surveyVersionId: string;
   content: SurveyVersionContent;

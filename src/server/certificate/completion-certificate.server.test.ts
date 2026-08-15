@@ -10,7 +10,7 @@ describe("completion certificate PDF", () => {
     const bytes = await renderCompletionCertificate({
       completionReference: "COMPLETION-1",
       learnerName: "Zoë 🚀 Learner",
-      courseTitle: "Safe meal support",
+      learningTitle: "Safe meal support",
       completedAt: new Date("2026-08-10T00:00:00.000Z"),
     });
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
@@ -55,7 +55,7 @@ describe("completion certificate PDF", () => {
     const bytes = await renderCompletionCertificate({
       completionReference: "COMPLETION-WITH-LONG-TEXT",
       learnerName,
-      courseTitle,
+      learningTitle: courseTitle,
       completedAt: new Date("2026-08-10T00:00:00.000Z"),
     });
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);

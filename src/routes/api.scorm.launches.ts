@@ -2,7 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { scormLaunchInputSchema } from "#/features/scorm/scorm.schema";
 import { getRequestUser } from "#/server/auth/session.server";
 import { getServerEnv } from "#/server/env.server";
-import { createScormLaunch } from "#/server/scorm/scorm-attempt.server";
+import {
+  createEventScormLaunch,
+  createScormLaunch,
+} from "#/server/scorm/scorm-attempt.server";
 
 const MAX_LAUNCH_BYTES = 1_024;
 const noStoreHeaders = { "Cache-Control": "no-store" };
@@ -63,11 +66,18 @@ export const Route = createFileRoute("/api/scorm/launches")({
             { error: "unauthenticated" },
             { status: 401, headers: noStoreHeaders },
           );
-        const result = await createScormLaunch(
-          input.data.enrollmentId,
-          input.data.modulePosition,
-          user,
-        );
+        const result =
+          "enrollmentId" in input.data
+            ? await createScormLaunch(
+                input.data.enrollmentId,
+                input.data.modulePosition,
+                user,
+              )
+            : await createEventScormLaunch(
+                input.data.eventParticipationId,
+                input.data.eventTemplateVersionItemId,
+                user,
+              );
         return Response.json(result, {
           status:
             result.status === "not-found"

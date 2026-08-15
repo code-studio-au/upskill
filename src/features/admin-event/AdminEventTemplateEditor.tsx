@@ -347,6 +347,9 @@ export function AdminEventTemplateEditor({
                         id: `event_section_${crypto.randomUUID()}`,
                         title: "New section",
                         description: "",
+                        phase: "pre_event",
+                        releaseAnchor: "participation_created",
+                        releaseOffsetMinutes: 0,
                         items: [],
                       },
                     ],
@@ -398,6 +401,68 @@ export function AdminEventTemplateEditor({
                         }));
                       }}
                     />
+                    <Group grow align="start">
+                      <MantineNativeSelect
+                        label="Stage"
+                        value={section.phase}
+                        disabled={!detail.version.editable}
+                        data={[
+                          { value: "pre_event", label: "Pre-event" },
+                          { value: "session", label: "Event session" },
+                          { value: "post_event", label: "Post-event" },
+                          { value: "follow_up", label: "Follow-up" },
+                        ]}
+                        onChange={(event) => {
+                          const phase = event.currentTarget
+                            .value as typeof section.phase;
+                          updateSection(section.id, (current) => ({
+                            ...current,
+                            phase,
+                          }));
+                        }}
+                      />
+                      <MantineNativeSelect
+                        label="Release relative to"
+                        value={section.releaseAnchor}
+                        disabled={!detail.version.editable}
+                        data={[
+                          {
+                            value: "participation_created",
+                            label: "Participation confirmed",
+                          },
+                          { value: "occurrence_start", label: "Event start" },
+                          { value: "occurrence_end", label: "Event end" },
+                          {
+                            value: "final_session_end",
+                            label: "Final session end",
+                          },
+                        ]}
+                        onChange={(event) => {
+                          const releaseAnchor = event.currentTarget
+                            .value as typeof section.releaseAnchor;
+                          updateSection(section.id, (current) => ({
+                            ...current,
+                            releaseAnchor,
+                          }));
+                        }}
+                      />
+                      <MantineTextInput
+                        type="number"
+                        label="Offset (minutes)"
+                        description="Use a negative value to release before the anchor."
+                        value={String(section.releaseOffsetMinutes)}
+                        disabled={!detail.version.editable}
+                        onChange={(event) => {
+                          const releaseOffsetMinutes = Number(
+                            event.currentTarget.value,
+                          );
+                          updateSection(section.id, (current) => ({
+                            ...current,
+                            releaseOffsetMinutes,
+                          }));
+                        }}
+                      />
+                    </Group>
                   </Stack>
                   {detail.version.editable ? (
                     <Stack gap="xs">

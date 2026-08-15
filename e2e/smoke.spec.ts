@@ -186,6 +186,56 @@ async function cleanupEventAuthoringFixture(
       [[eventTemplateId, ...versionIds, ...occurrenceIds]],
     );
     if (occurrenceIds.length > 0) {
+      const participations = await transaction.query<{ id: string }>(
+        `select id from event_participation where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      const participationIds = participations.rows.map(
+        (participation) => participation.id,
+      );
+      if (participationIds.length > 0) {
+        await transaction.query(
+          `delete from learning_item_progress where "eventParticipationId" = any($1::text[])`,
+          [participationIds],
+        );
+        await transaction.query(
+          `delete from survey_progress where "eventParticipationId" = any($1::text[])`,
+          [participationIds],
+        );
+        await transaction.query(
+          `delete from survey_response where "eventParticipationId" = any($1::text[])`,
+          [participationIds],
+        );
+        await transaction.query(
+          `delete from event_section_release where "eventParticipationId" = any($1::text[])`,
+          [participationIds],
+        );
+        await transaction.query(
+          `delete from event_attendance where "eventParticipationId" = any($1::text[])`,
+          [participationIds],
+        );
+        await transaction.query(
+          `delete from event_participation where id = any($1::text[])`,
+          [participationIds],
+        );
+      }
+      const registrations = await transaction.query<{ id: string }>(
+        `select id from event_registration where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      const registrationIds = registrations.rows.map(
+        (registration) => registration.id,
+      );
+      if (registrationIds.length > 0) {
+        await transaction.query(
+          `delete from event_registration_transition where "eventRegistrationId" = any($1::text[])`,
+          [registrationIds],
+        );
+        await transaction.query(
+          `delete from event_registration where id = any($1::text[])`,
+          [registrationIds],
+        );
+      }
       await transaction.query(
         `delete from event_presenter_assignment where "eventOccurrenceId" = any($1::text[])`,
         [occurrenceIds],
@@ -1252,6 +1302,7 @@ test("platform administrators can inspect learner progress", async ({
       occurrenceCard.getByText("published", { exact: true }),
     ).toBeVisible();
     const storedOccurrence = await authoringDatabase.query<{
+      id: string;
       eventTemplateVersionId: string;
       slug: string;
       status: string;
@@ -1261,7 +1312,7 @@ test("platform administrators can inspect learner progress", async ({
       administratorCount: number;
       presenterCount: number;
     }>(
-      `select occurrence."eventTemplateVersionId", occurrence.slug, occurrence.status,
+      `select occurrence.id, occurrence."eventTemplateVersionId", occurrence.slug, occurrence.status,
         occurrence.timezone, occurrence."startsAt",
         (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
         (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
@@ -1278,6 +1329,64 @@ test("platform administrators can inspect learner progress", async ({
       administratorCount: 1,
       presenterCount: 1,
     });
+    const occurrenceId = storedOccurrence.rows[0]?.id;
+    if (!occurrenceId) throw new Error("Expected the E2E Event Occurrence");
+    const administrator = await authoringDatabase.query<{
+      id: string;
+      name: string;
+      email: string;
+    }>(`select id, name, email from "user" where email = 'admin@example.com'`);
+    const administratorUser = administrator.rows[0];
+    if (!administratorUser)
+      throw new Error("Expected the seeded administrator");
+    const registrationId = "e2e_event_learner_registration";
+    const participationId = "e2e_event_learner_participation";
+    await authoringDatabase.query(
+      `insert into event_registration
+        (id, "eventOccurrenceId", "userId", "eventOccurrenceRegionId", "reviewRoundId",
+          "nameSnapshot", "emailSnapshot", source, "eligibilitySource", status,
+          "finalDecidedAt", "finalDecidedByUserId", "lockedInAt")
+       values ($1, $2, $3, null, null, $4, $5, 'administrator_override',
+          'administrator_override', 'selected', now(), $3, now())`,
+      [
+        registrationId,
+        occurrenceId,
+        administratorUser.id,
+        administratorUser.name,
+        administratorUser.email,
+      ],
+    );
+    await authoringDatabase.query(
+      `update event_occurrence set "confirmedCount" = 1 where id = $1`,
+      [occurrenceId],
+    );
+    await authoringDatabase.query(
+      `insert into event_participation
+        (id, "eventOccurrenceId", "userId", "registrationId", mode,
+          "nameSnapshot", "emailSnapshot")
+       values ($1, $2, $3, $4, 'registered', $5, $6)`,
+      [
+        participationId,
+        occurrenceId,
+        administratorUser.id,
+        registrationId,
+        administratorUser.name,
+        administratorUser.email,
+      ],
+    );
+    await page.goto("/my-events");
+    const learnerEvent = page.getByRole("heading", {
+      name: eventOccurrenceTitle,
+    });
+    await expect(learnerEvent).toBeVisible();
+    await page.locator(`a[href="/my-events/${occurrenceId}"]`).click();
+    await expect(page).toHaveURL(`/my-events/${occurrenceId}`);
+    await expect(
+      page.getByRole("heading", { name: eventOccurrenceTitle, level: 1 }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Event program" }),
+    ).toBeVisible();
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const accessAccessibility = await new AxeBuilder({ page }).analyze();
     expect(accessAccessibility.violations).toEqual([]);
@@ -1297,6 +1406,7 @@ test("platform administrators can inspect learner progress", async ({
     await authoringDatabase.end();
   }
 
+  await page.goto("/admin");
   await openAdminPage("Learners");
   await expect(
     page.getByRole("heading", { name: "Learners", exact: true }),

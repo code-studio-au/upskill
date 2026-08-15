@@ -13,6 +13,11 @@ import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
+import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
+import {
+  calculateEventSectionReleaseAt,
+  ensureEventSectionReleased,
+} from "#/server/learning/event-section-release.server";
 
 const LAUNCH_TOKEN_LIFETIME_MS = 5 * 60 * 1_000;
 const ATTEMPT_SESSION_LIFETIME_MS = 8 * 60 * 60 * 1_000;
@@ -35,6 +40,30 @@ function accessAvailable(enrollment: {
     enrollment.status !== "cancelled" &&
     enrollment.status !== "expired" &&
     (!enrollment.expiresAt || enrollment.expiresAt > new Date())
+  );
+}
+
+function attemptContextAvailable(context: {
+  enrollmentId: string | null;
+  enrollmentStatus: string | null;
+  enrollmentExpiresAt: Date | null;
+  removedAt: Date | null;
+  eventParticipationId: string | null;
+  occurrenceStatus: string | null;
+}): boolean {
+  if (context.enrollmentId)
+    return (
+      context.enrollmentStatus !== null &&
+      accessAvailable({
+        status: context.enrollmentStatus,
+        expiresAt: context.enrollmentExpiresAt,
+        removedAt: context.removedAt,
+      })
+    );
+  return Boolean(
+    context.eventParticipationId &&
+    context.occurrenceStatus &&
+    !["cancelled", "archived"].includes(context.occurrenceStatus),
   );
 }
 
@@ -132,6 +161,8 @@ export async function createScormLaunch(
             id: attempt.id,
             enrollmentId: enrollment.id,
             modulePosition,
+            eventParticipationId: null,
+            eventTemplateVersionItemId: null,
             scormPackageVersionId: packageVersion.id,
             attemptNumber: numberRow.lastAttemptNumber + 1,
             status: "not_started",
@@ -191,6 +222,182 @@ export async function createScormLaunch(
   return result;
 }
 
+export async function createEventScormLaunch(
+  eventParticipationId: string,
+  eventTemplateVersionItemId: string,
+  user: AuthenticatedUser,
+): Promise<Exclude<ScormLaunchResult, { status: "unauthenticated" }>> {
+  let launchedAttemptId: string | undefined;
+  const result = await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const item = await transaction
+        .selectFrom("event_participation as participation")
+        .innerJoin(
+          "event_occurrence as occurrence",
+          "occurrence.id",
+          "participation.eventOccurrenceId",
+        )
+        .innerJoin("event_template_version_item as item", (join) =>
+          join.onRef(
+            "item.eventTemplateVersionId",
+            "=",
+            "occurrence.eventTemplateVersionId",
+          ),
+        )
+        .innerJoin(
+          "event_template_version_section as section",
+          "section.id",
+          "item.sectionId",
+        )
+        .innerJoin(
+          "scorm_package_version as package",
+          "package.id",
+          "item.learningActivityVersionId",
+        )
+        .select([
+          "participation.id as eventParticipationId",
+          "participation.createdAt as participationCreatedAt",
+          "occurrence.id as eventOccurrenceId",
+          "occurrence.status as occurrenceStatus",
+          "occurrence.startsAt",
+          "occurrence.endsAt",
+          "item.id as eventTemplateVersionItemId",
+          "section.id as eventTemplateVersionSectionId",
+          "section.releaseAnchor",
+          "section.releaseOffsetMinutes",
+          "package.id as packageVersionId",
+          "package.status as packageStatus",
+        ])
+        .where("participation.id", "=", eventParticipationId)
+        .where("participation.userId", "=", user.id)
+        .where("item.id", "=", eventTemplateVersionItemId)
+        .where("item.kind", "=", "scorm")
+        .forUpdate("participation")
+        .executeTakeFirst();
+      if (!item) return { status: "not-found" } as const;
+      if (
+        item.packageStatus !== "ready" ||
+        ["cancelled", "archived"].includes(item.occurrenceStatus)
+      )
+        return { status: "unavailable" } as const;
+      const finalSession = await transaction
+        .selectFrom("event_session")
+        .select(sql<Date>`coalesce(max("endsAt"), ${item.endsAt})`.as("endsAt"))
+        .where("eventOccurrenceId", "=", item.eventOccurrenceId)
+        .executeTakeFirstOrThrow();
+      const now = new Date();
+      if (
+        !(await ensureEventSectionReleased(transaction, {
+          eventParticipationId,
+          eventTemplateVersionSectionId: item.eventTemplateVersionSectionId,
+          calculatedReleaseAt: calculateEventSectionReleaseAt({
+            releaseAnchor: item.releaseAnchor,
+            releaseOffsetMinutes: item.releaseOffsetMinutes,
+            participationCreatedAt: item.participationCreatedAt,
+            occurrenceStartsAt: item.startsAt,
+            occurrenceEndsAt: item.endsAt,
+            finalSessionEndsAt: finalSession.endsAt,
+          }),
+          now,
+        }))
+      )
+        return { status: "unavailable" } as const;
+
+      let attempt = await transaction
+        .selectFrom("scorm_attempt")
+        .select(["id", "status"])
+        .where("eventParticipationId", "=", eventParticipationId)
+        .where("eventTemplateVersionItemId", "=", eventTemplateVersionItemId)
+        .where("status", "=", "completed")
+        .orderBy("attemptNumber", "desc")
+        .limit(1)
+        .executeTakeFirst();
+      attempt ??= await transaction
+        .selectFrom("scorm_attempt")
+        .select(["id", "status"])
+        .where("eventParticipationId", "=", eventParticipationId)
+        .where("eventTemplateVersionItemId", "=", eventTemplateVersionItemId)
+        .where("status", "in", ["not_started", "in_progress"])
+        .orderBy("attemptNumber", "desc")
+        .limit(1)
+        .executeTakeFirst();
+      if (!attempt) {
+        const numberRow = await transaction
+          .selectFrom("scorm_attempt")
+          .select(
+            sql<number>`coalesce(max("attemptNumber"), 0)::integer`.as(
+              "lastAttemptNumber",
+            ),
+          )
+          .where("eventParticipationId", "=", eventParticipationId)
+          .where("eventTemplateVersionItemId", "=", eventTemplateVersionItemId)
+          .executeTakeFirstOrThrow();
+        attempt = { id: randomUUID(), status: "not_started" };
+        await transaction
+          .insertInto("scorm_attempt")
+          .values({
+            id: attempt.id,
+            enrollmentId: null,
+            modulePosition: null,
+            eventParticipationId,
+            eventTemplateVersionItemId,
+            scormPackageVersionId: item.packageVersionId,
+            attemptNumber: numberRow.lastAttemptNumber + 1,
+            status: "not_started",
+            lessonStatus: "not_attempted",
+            location: "",
+            suspendData: "",
+            scoreRaw: null,
+            scoreMin: null,
+            scoreMax: null,
+            totalTimeSeconds: 0,
+            startedAt: null,
+            lastActivityAt: null,
+            completedAt: null,
+          })
+          .execute();
+      }
+      const token = opaqueToken();
+      await transaction
+        .updateTable("scorm_launch_token")
+        .set({ expiresAt: now })
+        .where("attemptId", "=", attempt.id)
+        .where("consumedAt", "is", null)
+        .where("expiresAt", ">", now)
+        .execute();
+      await transaction
+        .insertInto("scorm_launch_token")
+        .values({
+          digest: digestScormToken(token),
+          attemptId: attempt.id,
+          expiresAt: new Date(now.getTime() + LAUNCH_TOKEN_LIFETIME_MS),
+          consumedAt: null,
+          createdAt: now,
+        })
+        .execute();
+      launchedAttemptId = attempt.id;
+      const launchUrl = new URL(
+        "/api/scorm/launch",
+        getServerEnv().LEARNING_ORIGIN,
+      );
+      launchUrl.searchParams.set("token", token);
+      return { status: "ready", launchUrl: launchUrl.toString() } as const;
+    });
+  if (result.status === "ready" && launchedAttemptId)
+    logServerEvent({
+      level: "info",
+      event: "scorm.attempt_launch_issued",
+      fields: {
+        actorUserId: user.id,
+        entityType: "scorm_attempt",
+        entityId: launchedAttemptId,
+        eventParticipationId,
+      },
+    });
+  return result;
+}
+
 export interface ScormLaunchExchange {
   attemptId: string;
   sessionToken: string;
@@ -211,14 +418,21 @@ export async function exchangeScormLaunchToken(
           "scorm_attempt.id",
           "scorm_launch_token.attemptId",
         )
-        .innerJoin("enrollment", "enrollment.id", "scorm_attempt.enrollmentId")
+        .innerJoin(
+          "scorm_attempt_context as context",
+          "context.attemptId",
+          "scorm_attempt.id",
+        )
         .select([
           "scorm_launch_token.attemptId",
           "scorm_launch_token.expiresAt as launchExpiresAt",
           "scorm_launch_token.consumedAt",
-          "enrollment.status as enrollmentStatus",
-          "enrollment.expiresAt as enrollmentExpiresAt",
-          "enrollment.removedAt",
+          "context.enrollmentId",
+          "context.enrollmentStatus",
+          "context.enrollmentExpiresAt",
+          "context.removedAt",
+          "context.eventParticipationId",
+          "context.occurrenceStatus",
         ])
         .where("scorm_launch_token.digest", "=", digestScormToken(token))
         .forUpdate("scorm_launch_token")
@@ -227,11 +441,7 @@ export async function exchangeScormLaunchToken(
         !launch ||
         launch.consumedAt ||
         launch.launchExpiresAt <= now ||
-        !accessAvailable({
-          status: launch.enrollmentStatus,
-          expiresAt: launch.enrollmentExpiresAt,
-          removedAt: launch.removedAt,
-        })
+        !attemptContextAvailable(launch)
       ) {
         return null;
       }
@@ -283,18 +493,17 @@ export async function exchangeScormLaunchToken(
 function sessionIsAvailable(session: {
   expiresAt: Date;
   revokedAt: Date | null;
-  enrollmentStatus: string;
+  enrollmentId: string | null;
+  enrollmentStatus: string | null;
   enrollmentExpiresAt: Date | null;
   removedAt: Date | null;
+  eventParticipationId: string | null;
+  occurrenceStatus: string | null;
 }): boolean {
   return (
     !session.revokedAt &&
     session.expiresAt > new Date() &&
-    accessAvailable({
-      status: session.enrollmentStatus,
-      expiresAt: session.enrollmentExpiresAt,
-      removedAt: session.removedAt,
-    })
+    attemptContextAvailable(session)
   );
 }
 
@@ -327,8 +536,12 @@ export async function findAuthorizedScormPlayer(
       "scorm_attempt.id",
       "scorm_attempt_session.attemptId",
     )
-    .innerJoin("enrollment", "enrollment.id", "scorm_attempt.enrollmentId")
-    .innerJoin("user", "user.id", "enrollment.userId")
+    .innerJoin(
+      "scorm_attempt_context as context",
+      "context.attemptId",
+      "scorm_attempt.id",
+    )
+    .innerJoin("user", "user.id", "context.userId")
     .innerJoin(
       "scorm_package_version",
       "scorm_package_version.id",
@@ -337,9 +550,12 @@ export async function findAuthorizedScormPlayer(
     .select([
       "scorm_attempt_session.expiresAt",
       "scorm_attempt_session.revokedAt",
-      "enrollment.status as enrollmentStatus",
-      "enrollment.expiresAt as enrollmentExpiresAt",
-      "enrollment.removedAt",
+      "context.enrollmentId",
+      "context.enrollmentStatus",
+      "context.enrollmentExpiresAt",
+      "context.removedAt",
+      "context.eventParticipationId",
+      "context.occurrenceStatus",
       "scorm_attempt.id as attemptId",
       "scorm_attempt.lessonStatus",
       "scorm_attempt.location",
@@ -392,13 +608,20 @@ export async function authorizeScormAttemptSession(
       "scorm_attempt.id",
       "scorm_attempt_session.attemptId",
     )
-    .innerJoin("enrollment", "enrollment.id", "scorm_attempt.enrollmentId")
+    .innerJoin(
+      "scorm_attempt_context as context",
+      "context.attemptId",
+      "scorm_attempt.id",
+    )
     .select([
       "scorm_attempt_session.expiresAt",
       "scorm_attempt_session.revokedAt",
-      "enrollment.status as enrollmentStatus",
-      "enrollment.expiresAt as enrollmentExpiresAt",
-      "enrollment.removedAt",
+      "context.enrollmentId",
+      "context.enrollmentStatus",
+      "context.enrollmentExpiresAt",
+      "context.removedAt",
+      "context.eventParticipationId",
+      "context.occurrenceStatus",
     ])
     .where("scorm_attempt_session.digest", "=", digestScormToken(sessionToken))
     .where("scorm_attempt_session.attemptId", "=", attemptId)
@@ -422,16 +645,22 @@ export async function recordScormProgress(
           "scorm_attempt.id",
           "scorm_attempt_session.attemptId",
         )
-        .innerJoin("enrollment", "enrollment.id", "scorm_attempt.enrollmentId")
+        .innerJoin(
+          "scorm_attempt_context as context",
+          "context.attemptId",
+          "scorm_attempt.id",
+        )
         .select([
           "scorm_attempt_session.expiresAt",
           "scorm_attempt_session.revokedAt",
-          "scorm_attempt.enrollmentId",
+          "context.enrollmentId",
+          "context.eventParticipationId",
+          "scorm_attempt.eventTemplateVersionItemId",
           "scorm_attempt.status as attemptStatus",
-          "enrollment.courseVersionId",
-          "enrollment.status as enrollmentStatus",
-          "enrollment.expiresAt as enrollmentExpiresAt",
-          "enrollment.removedAt",
+          "context.enrollmentStatus",
+          "context.enrollmentExpiresAt",
+          "context.removedAt",
+          "context.occurrenceStatus",
         ])
         .where(
           "scorm_attempt_session.digest",
@@ -439,7 +668,7 @@ export async function recordScormProgress(
           digestScormToken(sessionToken),
         )
         .where("scorm_attempt_session.attemptId", "=", attemptId)
-        .forUpdate()
+        .forUpdate("scorm_attempt_session")
         .executeTakeFirst();
       if (!session || !sessionIsAvailable(session)) return "unauthorized";
       const completed =
@@ -469,15 +698,50 @@ export async function recordScormProgress(
         .where("id", "=", attemptId)
         .executeTakeFirstOrThrow();
       if (completed) {
-        await completeEnrollmentIfReady(
-          transaction,
-          {
-            enrollmentId: session.enrollmentId,
-            courseVersionId: session.courseVersionId,
-            source: "scorm",
-          },
-          now,
-        );
+        if (session.enrollmentId) {
+          const enrollment = await transaction
+            .selectFrom("enrollment")
+            .select("courseVersionId")
+            .where("id", "=", session.enrollmentId)
+            .executeTakeFirstOrThrow();
+          await completeEnrollmentIfReady(
+            transaction,
+            {
+              enrollmentId: session.enrollmentId,
+              courseVersionId: enrollment.courseVersionId,
+              source: "scorm",
+            },
+            now,
+          );
+        } else if (
+          session.eventParticipationId &&
+          session.eventTemplateVersionItemId
+        ) {
+          await transaction
+            .insertInto("learning_item_progress")
+            .values({
+              id: `learning_progress_${randomUUID()}`,
+              enrollmentId: null,
+              courseVersionItemId: null,
+              eventParticipationId: session.eventParticipationId,
+              eventTemplateVersionItemId: session.eventTemplateVersionItemId,
+              state: "completed",
+              completedAt: now,
+              updatedAt: now,
+            })
+            .onConflict((conflict) =>
+              conflict
+                .columns(["eventParticipationId", "eventTemplateVersionItemId"])
+                .where("eventParticipationId", "is not", null)
+                .doUpdateSet({ state: "completed", updatedAt: now }),
+            )
+            .execute();
+          await completeEventParticipationIfReady(
+            transaction,
+            session.eventParticipationId,
+            now,
+          );
+        }
       }
       return completed ? "completed" : "updated";
     });

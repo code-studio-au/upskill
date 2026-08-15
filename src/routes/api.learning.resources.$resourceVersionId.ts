@@ -15,6 +15,10 @@ export const Route = createFileRoute(
         const input = learnerResourceInputSchema.safeParse({
           resourceVersionId: params.resourceVersionId,
           enrollmentId: url.searchParams.get("enrollmentId"),
+          eventParticipationId: url.searchParams.get("eventParticipationId"),
+          eventTemplateVersionItemId: url.searchParams.get(
+            "eventTemplateVersionItemId",
+          ),
         });
         if (!input.success)
           return Response.json(
@@ -27,11 +31,7 @@ export const Route = createFileRoute(
             { error: "unauthenticated" },
             { status: 401, headers: noStoreHeaders },
           );
-        const resource = await getLearnerPdfResource(
-          input.data.enrollmentId,
-          input.data.resourceVersionId,
-          user,
-        );
+        const resource = await getLearnerPdfResource(input.data, user);
         if (resource.status !== "ready")
           return Response.json(
             { error: resource.status },

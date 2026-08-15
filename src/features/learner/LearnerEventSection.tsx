@@ -7,7 +7,7 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
-import { useRouter } from "@tanstack/react-router";
+import { Link, useRouter } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { formatLocalDateTime } from "#/features/shared/local-date";
@@ -292,6 +292,14 @@ function LearnerEventCard({
           {event.deliveryMode === "virtual" ? "Virtual" : "In person"} ·{" "}
           {event.timezone}
         </Text>
+        {event.registrationStatus === "selected" ? (
+          <Link
+            to="/my-events/$eventOccurrenceId"
+            params={{ eventOccurrenceId: event.eventOccurrenceId }}
+          >
+            <Button component="span">Open event</Button>
+          </Link>
+        ) : null}
         {!event.registrationStatus ? (
           <Stack gap="xs">
             {event.canRegister && event.regions.length > 0 ? (

@@ -684,6 +684,9 @@ async function loadEventTemplateDraft(
           "sections.id as sectionId",
           "sections.title as sectionTitle",
           "sections.description as sectionDescription",
+          "sections.phase as sectionPhase",
+          "sections.releaseAnchor as sectionReleaseAnchor",
+          "sections.releaseOffsetMinutes as sectionReleaseOffsetMinutes",
           "items.id as itemId",
           "items.kind as itemKind",
           "items.title as itemTitle",
@@ -739,6 +742,9 @@ async function loadEventTemplateDraft(
         id: row.sectionId,
         title: row.sectionTitle,
         description: row.sectionDescription,
+        phase: row.sectionPhase,
+        releaseAnchor: row.sectionReleaseAnchor,
+        releaseOffsetMinutes: row.sectionReleaseOffsetMinutes,
         items: [],
       };
       sections.set(row.sectionId, section);
@@ -1139,6 +1145,9 @@ async function replaceEventDraftStructure(
         position: sectionPosition,
         title: section.title,
         description: section.description,
+        phase: section.phase,
+        releaseAnchor: section.releaseAnchor,
+        releaseOffsetMinutes: section.releaseOffsetMinutes,
       })
       .execute();
     for (const [itemPosition, item] of section.items.entries()) {

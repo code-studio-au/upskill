@@ -60,7 +60,7 @@ export async function getLearnerCompletionCertificate(
       bytes: await renderCompletionCertificate({
         completionReference,
         learnerName: completion.learnerName,
-        courseTitle: content.title,
+        learningTitle: content.title,
         completedAt: completion.completedAt,
       }),
       displayName: safeFilename(content.title),
@@ -71,6 +71,65 @@ export async function getLearnerCompletionCertificate(
       event: "certificate.render_failed",
       error,
       fields: { entityType: "enrollment", entityId: enrollmentId },
+    });
+    return { status: "unavailable" };
+  }
+}
+
+export async function getLearnerEventCompletionCertificate(
+  eventParticipationId: string,
+  user: AuthenticatedUser,
+): Promise<LearnerCertificateResult> {
+  const completion = await getDatabase()
+    .selectFrom("event_participation as participation")
+    .innerJoin("user", "user.id", "participation.userId")
+    .innerJoin(
+      "event_occurrence as occurrence",
+      "occurrence.id",
+      "participation.eventOccurrenceId",
+    )
+    .innerJoin(
+      "event_template_version as version",
+      "version.id",
+      "occurrence.eventTemplateVersionId",
+    )
+    .select([
+      "participation.completedAt",
+      "occurrence.title",
+      "version.hasCompletionCertificate",
+      "user.name as learnerName",
+    ])
+    .where("participation.id", "=", eventParticipationId)
+    .where("participation.userId", "=", user.id)
+    .where("participation.completedAt", "is not", null)
+    .executeTakeFirst();
+  if (!completion?.completedAt || !completion.hasCompletionCertificate)
+    return { status: "not-found" };
+  const completionReference = createHash("sha256")
+    .update(`${eventParticipationId}:${completion.completedAt.toISOString()}`)
+    .digest("hex")
+    .slice(0, 24)
+    .toUpperCase();
+  try {
+    return {
+      status: "generated",
+      bytes: await renderCompletionCertificate({
+        completionReference,
+        learnerName: completion.learnerName,
+        learningTitle: completion.title,
+        completedAt: completion.completedAt,
+      }),
+      displayName: safeFilename(completion.title),
+    };
+  } catch (error) {
+    logServerEvent({
+      level: "error",
+      event: "certificate.render_failed",
+      error,
+      fields: {
+        entityType: "event_participation",
+        entityId: eventParticipationId,
+      },
     });
     return { status: "unavailable" };
   }

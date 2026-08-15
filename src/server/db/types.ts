@@ -151,16 +151,21 @@ interface SurveyVersionTable {
 
 interface SurveyResponseTable {
   id: string;
-  enrollmentId: string;
-  courseVersionItemId: string;
+  enrollmentId: string | null;
+  courseVersionItemId: string | null;
+  eventParticipationId: Generated<string | null>;
+  eventTemplateVersionItemId: Generated<string | null>;
   surveyVersionId: string;
   answers: Json;
   submittedAt: Timestamp;
 }
 
 interface SurveyProgressTable {
-  enrollmentId: string;
-  courseVersionItemId: string;
+  id: string;
+  enrollmentId: string | null;
+  courseVersionItemId: string | null;
+  eventParticipationId: Generated<string | null>;
+  eventTemplateVersionItemId: Generated<string | null>;
   surveyVersionId: string;
   answers: Json;
   visitedItemIds: Json;
@@ -213,8 +218,10 @@ interface EnrollmentTable {
 
 interface ScormAttemptTable {
   id: string;
-  enrollmentId: string;
-  modulePosition: number;
+  enrollmentId: string | null;
+  modulePosition: number | null;
+  eventParticipationId: Generated<string | null>;
+  eventTemplateVersionItemId: Generated<string | null>;
   scormPackageVersionId: string;
   attemptNumber: number;
   status: "not_started" | "in_progress" | "completed" | "abandoned";
@@ -254,6 +261,17 @@ interface ScormAttemptSessionTable {
   createdAt: Timestamp;
 }
 
+interface ScormAttemptContextTable {
+  attemptId: string;
+  userId: string;
+  enrollmentId: string | null;
+  enrollmentStatus: EnrollmentTable["status"] | null;
+  enrollmentExpiresAt: Date | null;
+  removedAt: Date | null;
+  eventParticipationId: string | null;
+  occurrenceStatus: EventOccurrenceTable["status"] | null;
+}
+
 interface LearningProgressOverrideTable {
   id: string;
   sequence: Generated<number>;
@@ -267,8 +285,11 @@ interface LearningProgressOverrideTable {
 }
 
 interface LearningItemProgressTable {
-  enrollmentId: string;
-  courseVersionItemId: string;
+  id: string;
+  enrollmentId: string | null;
+  courseVersionItemId: string | null;
+  eventParticipationId: Generated<string | null>;
+  eventTemplateVersionItemId: Generated<string | null>;
   state: "completed";
   completedAt: Timestamp;
   updatedAt: Timestamp;
@@ -346,6 +367,13 @@ interface EventTemplateVersionSectionTable {
   position: number;
   title: string;
   description: string;
+  phase: "pre_event" | "session" | "post_event" | "follow_up";
+  releaseAnchor:
+    | "participation_created"
+    | "occurrence_start"
+    | "occurrence_end"
+    | "final_session_end";
+  releaseOffsetMinutes: number;
   createdAt: Timestamp;
 }
 
@@ -563,6 +591,7 @@ interface EventParticipationTable {
   detailsSubmittedAt: Timestamp | null;
   joinDisclosedAt: Timestamp | null;
   checkedInAt: Timestamp | null;
+  completedAt: OptionalTimestamp;
   createdAt: Timestamp;
 }
 
@@ -575,6 +604,12 @@ interface EventAttendanceTable {
   recordedByUserId: string | null;
   recordedAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+interface EventSectionReleaseTable {
+  eventParticipationId: string;
+  eventTemplateVersionSectionId: string;
+  releasedAt: Timestamp;
 }
 
 interface OrderTable {
@@ -723,6 +758,7 @@ export interface Database {
   event_region_review_round: EventRegionReviewRoundTable;
   event_registration: EventRegistrationTable;
   event_registration_transition: EventRegistrationTransitionTable;
+  event_section_release: EventSectionReleaseTable;
   event_session: EventSessionTable;
   event_template: EventTemplateTable;
   event_template_session_definition: EventTemplateSessionDefinitionTable;
@@ -746,6 +782,7 @@ export interface Database {
   outbox_event: OutboxEventTable;
   session: SessionTable;
   scorm_attempt: ScormAttemptTable;
+  scorm_attempt_context: ScormAttemptContextTable;
   scorm_attempt_session: ScormAttemptSessionTable;
   scorm_launch_token: ScormLaunchTokenTable;
   scorm_package_version: ScormPackageVersionTable;

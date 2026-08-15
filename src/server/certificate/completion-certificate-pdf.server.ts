@@ -150,12 +150,12 @@ function drawFittedCentredText(
 export async function renderCompletionCertificate(input: {
   completionReference: string;
   learnerName: string;
-  courseTitle: string;
+  learningTitle: string;
   completedAt: Date;
 }): Promise<Uint8Array> {
   const document = await PDFDocument.create();
-  document.setTitle(`Completion certificate - ${input.courseTitle}`);
-  document.setSubject("Course completion certificate");
+  document.setTitle(`Completion certificate - ${input.learningTitle}`);
+  document.setSubject("Learning completion certificate");
   document.setCreator("Upskill");
   const page = document.addPage([841.89, 595.28]);
   const [regular, bold] = await Promise.all([
@@ -197,7 +197,7 @@ export async function renderCompletionCertificate(input: {
   drawFittedCentredText(page, regular, "completed", 258, {
     preferredSize: 16,
   });
-  drawFittedCentredText(page, bold, input.courseTitle, 218, {
+  drawFittedCentredText(page, bold, input.learningTitle, 218, {
     preferredSize: 24,
     minimumSize: 14,
     maxLines: 3,

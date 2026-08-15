@@ -106,15 +106,22 @@ Coordinator and session Presenter defaults. Published versions are read-only;
 an administrator creates a cloned successor version before changing them.
 Authenticated registration-required Events are surfaced on the learner dashboard
 and the administrator operations workspace supports review, selection and
-attendance. Published-occurrence schedule edits use the explicit reschedule
+attendance. Confirmed participants can open a version-pinned Event workspace
+showing schedule/location details, explicitly released or locked Sections,
+Sessions, SCORM, Surveys and PDF resources. Evidence tables accept exactly one
+Course Enrolment or Event Participation owner; required activity and Attendance
+evidence rolls up through Sections to Event completion, with authenticated
+on-demand certificates where configured. A persisted first-release record means
+a later reschedule cannot relock a Section that was already available.
+Published-occurrence schedule edits use the explicit reschedule
 policy boundary; prior schedules, covered regions and active Coordinator
 assignments are retained, locked review rounds are not rewritten, and reopening
 creates another review round. The same workflow supports region addition,
 Coordinator reassignment and region retirement with an affected-registration
 preview and a future-only or cancel-active disposition. Cancellation retains
-participation and Attendance evidence. Public promotion/registration pages,
-open-entry check-in and the full staged learner Event workspace should not be
-described as implemented yet.
+participation and Attendance evidence while revoking the cancelled learner
+workspace. Public promotion/registration pages and open-entry check-in should
+not be described as implemented yet.
 
 ## Domain Philosophy
 
@@ -958,16 +965,18 @@ transactional queries demonstrate real pressure.
 - Shared-device event-task sessions and audited one-survey assisted fallback.
 - Server-side resource-scoped authorisation tests.
 
-### Phase 3 --- Blended learning
+### Implemented blended-learning foundation
 
 - Ordered, titled Event Sections for pre-event, live-event and post-event
   learning.
 - Time-anchored Section release rules for Sessions, early Post-Event work and
   delayed Follow-ups, including open-entry late-join behaviour.
 - Reuse SCORM, surveys, and resources as activities.
-- Participant progress projection for coordinators.
 - Attendance as completion evidence.
 - Event completion and certificate integration.
+
+Participant activity/Section progress projection for Coordinators remains part
+of the scoped operations/reporting work rather than the learner workspace.
 
 ### Phase 4 --- Communications and maturity
 

@@ -9,10 +9,16 @@ const internalIdSchema = z
     z.regex(/^[A-Za-z0-9_-]+$/),
   );
 
-export const scormLaunchInputSchema = z.object({
-  enrollmentId: internalIdSchema,
-  modulePosition: z.number().check(z.int(), z.minimum(0), z.maximum(10_000)),
-});
+export const scormLaunchInputSchema = z.union([
+  z.object({
+    enrollmentId: internalIdSchema,
+    modulePosition: z.number().check(z.int(), z.minimum(0), z.maximum(10_000)),
+  }),
+  z.object({
+    eventParticipationId: internalIdSchema,
+    eventTemplateVersionItemId: internalIdSchema,
+  }),
+]);
 
 export const scormAttemptParamsSchema = z.object({
   attemptId: internalIdSchema,
