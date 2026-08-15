@@ -146,7 +146,16 @@ queue fixtures.
 pnpm run verify:app
 pnpm run verify:cdk
 pnpm run verify:db:gate
+pnpm run test:e2e
 ```
+
+Every browser-test command creates a uniquely named PostgreSQL database on the
+configured localhost server, migrates and seeds it, runs against fresh local
+origins on unoccupied ports, and drops the database even when the suite fails.
+Playwright never reuses a running development server. Browser tests therefore do
+not create, update or clean fixtures in the normal local `upskill` database. The
+complete `verify:db:gate` uses the same disposable-database boundary for its
+database integration verifiers.
 
 See the [architecture specification](docs/architecture.md), broader
 [architecture handbook](docs/architecture/README.md) and

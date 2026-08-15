@@ -73,6 +73,42 @@ if (!packageJson.scripts.build.includes("vite.worker.config.ts"))
   failures.push("Production builds must include the asynchronous worker");
 if (packageJson.scripts.dev !== "node scripts/start-development.mjs")
   failures.push("Local development must start the web app and worker together");
+const disposablePostgres = fs.readFileSync(
+  path.join(root, "scripts/disposable-postgres.mjs"),
+  "utf8",
+);
+for (const scriptName of [
+  "test:e2e",
+  "test:e2e:core",
+  "test:e2e:scorm",
+  "test:e2e:admin",
+  "test:e2e:https",
+])
+  if (!packageJson.scripts[scriptName]?.includes("run-browser-tests.mjs"))
+    failures.push(
+      `${scriptName} must use the disposable browser-test database`,
+    );
+for (const boundary of [
+  "Disposable test databases require a PostgreSQL server on localhost",
+  "create database",
+  "pg_terminate_backend",
+  "drop database",
+])
+  if (!disposablePostgres.includes(boundary))
+    failures.push(`Disposable PostgreSQL boundary is missing: ${boundary}`);
+if (
+  packageJson.scripts["verify:db:gate"] !==
+  "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs"
+)
+  failures.push(
+    "The database verification gate must use a disposable database",
+  );
+const playwrightConfig = fs.readFileSync(
+  path.join(root, "playwright.config.ts"),
+  "utf8",
+);
+if (!playwrightConfig.includes("reuseExistingServer: false"))
+  failures.push("Playwright must never reuse a developer server");
 const developmentLauncher = fs.readFileSync(
   path.join(root, "scripts/start-development.mjs"),
   "utf8",
