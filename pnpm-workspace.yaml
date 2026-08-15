@@ -10,3 +10,6 @@ allowBuilds:
   "@parcel/watcher": true
   esbuild: true
   lightningcss: true
+
+overrides:
+  "nanoid@<3.3.18": 3.3.18

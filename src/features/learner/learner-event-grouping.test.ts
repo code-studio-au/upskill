@@ -33,11 +33,11 @@ describe("groupLearnerEvents", () => {
       event("closed", null, "closed"),
       event("opens-later", null, "not_open"),
       event("approved", "coordinator_approved"),
-      event("withdrawn", "withdrawn"),
+      event("withdrawn", "withdrawn", "closed"),
       event("selected", "selected"),
       event("not-selected", "not_selected"),
       event("waitlisted", "waitlisted"),
-      event("cancelled", "cancelled"),
+      event("cancelled", "cancelled", "closed"),
     ]);
 
     expect(grouped.registrations.map((item) => item.eventOccurrenceId)).toEqual(
