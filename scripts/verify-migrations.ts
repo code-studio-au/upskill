@@ -48,6 +48,7 @@ try {
     "event_region_review_round",
     "event_registration",
     "event_section_release",
+    "event_survey_access",
     "event_session",
     "event_template",
     "event_template_session_definition",
@@ -130,6 +131,7 @@ try {
     "event_presenter_eligibility_active_uq",
     "event_coordinator_eligibility_active_uq",
     "coordination_region_code_unique_uq",
+    "event_survey_access_active_item_uq",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -158,6 +160,21 @@ try {
     4,
     "Event staff and region-directory constraints must exist",
   );
+  const eventSurveyAccessConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_survey_access_public_reference_uq',
+          'event_survey_access_generation_uq',
+          'event_survey_access_reference_ck',
+          'event_survey_access_policy_ck'
+        )`.execute(db);
+  assert.equal(
+    eventSurveyAccessConstraints.rows.length,
+    4,
+    "Event Survey access identity, rotation and policy constraints must exist",
+  );
   const eventTemplateColumns = await sql<{
     column_name: string;
   }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'event_template'`.execute(
@@ -177,6 +194,48 @@ try {
     )
   )
     throw new Error("Event occurrences must own a required public URL slug");
+  for (const columnName of ["localStartsAt", "localEndsAt"]) {
+    if (
+      !eventOccurrenceColumns.rows.some(
+        (column) =>
+          column.column_name === columnName && column.is_nullable === "NO",
+      )
+    )
+      throw new Error(
+        `Event occurrences must retain required local schedule field ${columnName}`,
+      );
+  }
+  const eventTimeConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_occurrence_local_schedule_ck',
+          'event_session_local_schedule_ck',
+          'event_reschedule_local_schedule_ck',
+          'event_template_section_release_ck'
+        )`.execute(db);
+  assert.equal(
+    eventTimeConstraints.rows.length,
+    4,
+    "Event local-time and release-duration constraints must exist",
+  );
+  const releaseColumns = await sql<{
+    column_name: string;
+  }>`select column_name from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'event_template_version_section'`.execute(db);
+  const releaseColumnNames = new Set(
+    releaseColumns.rows.map((column) => column.column_name),
+  );
+  if (
+    !releaseColumnNames.has("releaseOffsetAmount") ||
+    !releaseColumnNames.has("releaseOffsetUnit") ||
+    releaseColumnNames.has("releaseOffsetMinutes")
+  )
+    throw new Error(
+      "Event section releases must use explicit offset amounts and units",
+    );
   const accessCodeIndex = indexResult.rows.find(
     (index) => index.indexname === "access_grant_code_lookup_id_uq",
   );

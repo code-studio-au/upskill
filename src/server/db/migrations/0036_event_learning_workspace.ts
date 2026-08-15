@@ -13,8 +13,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     .addColumn("releaseAnchor", "text", (column) =>
       column.notNull().defaultTo("participation_created"),
     )
-    .addColumn("releaseOffsetMinutes", "integer", (column) =>
+    .addColumn("releaseOffsetAmount", "integer", (column) =>
       column.notNull().defaultTo(0),
+    )
+    .addColumn("releaseOffsetUnit", "text", (column) =>
+      column.notNull().defaultTo("minute"),
     )
     .execute();
   await sql`alter table event_template_version_section
@@ -23,7 +26,13 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       and "releaseAnchor" in (
         'participation_created', 'occurrence_start', 'occurrence_end', 'final_session_end'
       )
-      and "releaseOffsetMinutes" between -525600 and 525600
+      and (
+        ("releaseOffsetUnit" = 'minute' and "releaseOffsetAmount" between -5256000 and 5256000)
+        or ("releaseOffsetUnit" = 'hour' and "releaseOffsetAmount" between -87600 and 87600)
+        or ("releaseOffsetUnit" = 'day' and "releaseOffsetAmount" between -3650 and 3650)
+        or ("releaseOffsetUnit" = 'week' and "releaseOffsetAmount" between -520 and 520)
+        or ("releaseOffsetUnit" = 'month' and "releaseOffsetAmount" between -120 and 120)
+      )
     )`.execute(db);
 
   await sql`alter table learning_item_progress
@@ -222,7 +231,8 @@ export async function down(db: Kysely<unknown>): Promise<void> {
     drop constraint event_template_section_release_ck`.execute(db);
   await db.schema
     .alterTable("event_template_version_section")
-    .dropColumn("releaseOffsetMinutes")
+    .dropColumn("releaseOffsetUnit")
+    .dropColumn("releaseOffsetAmount")
     .dropColumn("releaseAnchor")
     .dropColumn("phase")
     .execute();

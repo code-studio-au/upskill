@@ -5,6 +5,7 @@ import type { AccessCodeRedemptionResult } from "#/features/access/access-code.s
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
+import { addElapsedDays } from "#/server/time/time.server";
 import { encryptedAccessCodeMatches } from "./access-code-encryption.server";
 import {
   extractAccessCodeLookupId,
@@ -15,10 +16,6 @@ function emailDomain(email: string): string | null {
   const separator = email.lastIndexOf("@");
   if (separator <= 0 || separator === email.length - 1) return null;
   return email.slice(separator + 1).toLocaleLowerCase("en-AU");
-}
-
-function addUtcDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * 24 * 60 * 60 * 1_000);
 }
 
 export async function redeemAccessCode(
@@ -122,7 +119,7 @@ export async function redeemAccessCode(
           status: "active",
           enrolledAt: now,
           completedAt: null,
-          expiresAt: addUtcDays(now, grant.enrollmentDurationDays),
+          expiresAt: addElapsedDays(now, grant.enrollmentDurationDays),
           removedAt: null,
         })
         .execute();

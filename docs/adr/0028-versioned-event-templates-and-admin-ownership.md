@@ -88,6 +88,15 @@ Coordinator assignments. Revoking/ending one assignment or disabling its User
 removes future scoped access immediately and retains prior actions. Other active
 Coordinators continue using the same regional list.
 
+Revoking a User's region-specific Coordinator roster eligibility is a guarded
+operation. It locks and checks that User's assignments for draft and published
+instances. Revocation is rejected with the affected occurrence-regions when the
+User is their sole active Coordinator; an administrator must assign an eligible
+replacement before retrying. A successful revocation closes the outgoing
+User's active assignments. Completed, cancelled and archived instances are not
+coverage blockers, and their assignment rows remain as dated historical
+snapshots rather than being deleted.
+
 If the User was the region's sole Coordinator, the impact workflow adds a
 selected eligible replacement. Without one, it flags
 `coordinator_attention_required`, alerts the instance's assigned standard

@@ -38,3 +38,4 @@ is complete.
 | 0029 | [Survey-backed versioned user onboarding](0029-survey-backed-versioned-user-onboarding.md)                                | Accepted target; implementation pending                 |
 | 0030 | [Standard Survey question types and option authoring](0030-standard-survey-question-types-and-option-authoring.md)        | Accepted target; implementation pending                 |
 | 0031 | [TanStack Table for operational data grids](0031-tanstack-table-operational-data-grids.md)                                | Accepted and initially implemented                      |
+| 0032 | [Typed instants, local schedules and duration semantics](0032-typed-time-model.md)                                        | Accepted and implemented                                |

@@ -240,6 +240,27 @@ async function cleanupEventAuthoringFixture(
         `delete from event_presenter_assignment where "eventOccurrenceId" = any($1::text[])`,
         [occurrenceIds],
       );
+      const occurrenceRegions = await transaction.query<{ id: string }>(
+        `select id from event_occurrence_region where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      const occurrenceRegionIds = occurrenceRegions.rows.map(
+        (region) => region.id,
+      );
+      if (occurrenceRegionIds.length > 0) {
+        await transaction.query(
+          `delete from event_coordinator_assignment where "eventOccurrenceRegionId" = any($1::text[])`,
+          [occurrenceRegionIds],
+        );
+        await transaction.query(
+          `delete from event_region_review_round where "eventOccurrenceRegionId" = any($1::text[])`,
+          [occurrenceRegionIds],
+        );
+        await transaction.query(
+          `delete from event_occurrence_region where id = any($1::text[])`,
+          [occurrenceRegionIds],
+        );
+      }
       await transaction.query(
         `delete from event_admin_assignment where "eventOccurrenceId" = any($1::text[])`,
         [occurrenceIds],
@@ -926,6 +947,7 @@ test("learners can end their authenticated session", async ({ page }) => {
 test("platform administrators can inspect learner progress", async ({
   page,
 }, testInfo) => {
+  test.setTimeout(60_000);
   test.skip(
     testInfo.project.name !== "chromium-mobile",
     "The complete admin journey runs once; learner authentication remains cross-browser.",
@@ -958,6 +980,9 @@ test("platform administrators can inspect learner progress", async ({
   const eventTemplateTitle = "E2E virtual workshop";
   const eventOccurrenceTitle = "E2E virtual workshop · August";
   const eventSlug = "e2e-virtual-workshop-august";
+  const eventRegionId = "e2e_event_region";
+  const eventOccurrenceRegionId = "e2e_event_occurrence_region";
+  const eventCoordinatorEligibilityId = "e2e_event_coordinator_eligibility";
   const eventPresenter = {
     id: "e2e_event_presenter",
     name: "E2E Event Presenter",
@@ -973,6 +998,7 @@ test("platform administrators can inspect learner progress", async ({
   await authoringDatabase.connect();
   try {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
     await cleanupResourceFixture(authoringDatabase, resourceTitle, [
       resourceVersionId,
@@ -982,8 +1008,11 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
-    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await cleanupEventStaffFixture(authoringDatabase, eventPresenter.id);
+    await authoringDatabase.query(
+      `delete from coordination_region where id = $1`,
+      [eventRegionId],
+    );
     await authoringDatabase.query(
       `insert into "user" (id, name, email, "emailVerified") values ($1, $2, $3, true)`,
       [eventPresenter.id, eventPresenter.name, eventPresenter.email],
@@ -1216,11 +1245,17 @@ test("platform administrators can inspect learner progress", async ({
     ]);
     expect(revokedGrant.rows[0]?.revokedAt).not.toBeNull();
 
-    await openAdminPage("Events");
+    await openAdminPage("Event settings");
     await expect(
-      page.getByRole("heading", { name: "Events", exact: true }),
+      page.getByRole("heading", { name: "Event settings", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: /Event staff/u }).click();
+    await expect(
+      page.getByRole("heading", { name: "Eligible event staff", exact: true }),
+    ).toBeVisible();
+    await page.getByLabel("Responsibility").selectOption("coordinator");
+    await expect(page.getByLabel("Region")).toBeVisible();
+    await page.getByLabel("Responsibility").selectOption("presenter");
+    await expect(page.getByLabel("Region")).toHaveCount(0);
     await page
       .getByRole("combobox", { name: "User email" })
       .fill(eventPresenter.email);
@@ -1234,7 +1269,7 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByText("Presenter added to the eligible roster."),
     ).toBeVisible();
-    await page.getByRole("button", { name: /Templates/u }).click();
+    await openAdminPage("Event templates");
     await page.getByRole("button", { name: "Create template" }).click();
     await expect(page).toHaveURL(/\/admin\/events\/event_template_/u);
     await expect(
@@ -1253,41 +1288,69 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: "Program (0)" }).click();
     await page.getByRole("button", { name: "Add section" }).click();
     await page.getByLabel("Section title").fill("Event session");
+    await page
+      .getByLabel("Release relative to")
+      .selectOption("occurrence_start");
     await page.getByRole("button", { name: "Add event session" }).click();
     await page.getByLabel("Display title").fill("Live workshop");
     await page.getByLabel("Duration (minutes)").fill("90");
-    await page.getByLabel("Add presenter").selectOption(eventPresenter.id);
+    await page
+      .getByRole("combobox", { name: "Add presenter" })
+      .fill(eventPresenter.email);
+    await page
+      .getByRole("option", { name: new RegExp(eventPresenter.email, "u") })
+      .click();
     await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByLabel("Activity type").selectOption("survey");
+    await page
+      .getByLabel("Published activity")
+      .selectOption({ label: `${surveyTitles[0] ?? ""} · v1` });
+    await page.getByRole("button", { name: "Add activity" }).click();
     await page.getByRole("button", { name: "Staffing and regions" }).click();
-    await page.getByLabel("Avery Administrator · admin@example.com").check();
+    await expect(
+      page.getByRole("combobox", { name: "Add administrator" }),
+    ).toBeDisabled();
     await page.getByRole("button", { name: "Save and publish" }).click();
     await expect(
       page.getByRole("button", { name: "Create new version" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Back to events" }).click();
+    await page.getByRole("button", { name: "Create new version" }).click();
+    await page
+      .getByLabel("Template version")
+      .selectOption({ label: "Version 1 · Published" });
+    await expect(
+      page.getByText("This published version is immutable", { exact: false }),
+    ).toBeVisible();
+    await page
+      .getByLabel("Template version")
+      .selectOption({ label: "Version 2 · Draft" });
+    await page.getByRole("button", { name: "Delete draft" }).click();
+    await page
+      .getByRole("dialog", { name: "Delete draft version?" })
+      .getByRole("button", { name: "Delete draft" })
+      .click();
+    await expect(page.getByLabel("Template version")).toHaveValue(
+      /event_template_version_/u,
+    );
+    await page.getByRole("button", { name: "Back to event templates" }).click();
     await expect(
       page.getByRole("heading", { name: eventTemplateTitle }),
     ).toBeVisible();
-    await page.getByRole("button", { name: /Event instances/u }).click();
-    await page.getByRole("button", { name: "Schedule occurrence" }).click();
-    const occurrenceDialog = page.getByRole("dialog", {
-      name: "Schedule event occurrence",
-    });
-    await occurrenceDialog
-      .getByLabel("Occurrence title")
-      .fill(eventOccurrenceTitle);
-    await expect(occurrenceDialog.getByLabel("Friendly URL")).toHaveValue(
-      eventSlug,
-    );
-    await occurrenceDialog.getByLabel("IANA timezone").fill("Australia/Sydney");
-    await occurrenceDialog.getByLabel("Starts").fill("2027-08-21T09:00");
-    await occurrenceDialog.getByLabel("Ends").fill("2027-08-21T10:30");
-    await occurrenceDialog
+    await openAdminPage("Scheduled events");
+    await page.getByRole("link", { name: "Schedule event" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Schedule new event" }),
+    ).toBeVisible();
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    await page.getByLabel("Event title").fill(eventOccurrenceTitle);
+    await expect(page.getByLabel("Friendly URL")).toHaveValue(eventSlug);
+    await page.getByLabel("Event timezone").fill("Sydney — Australia");
+    await page.getByLabel("Starts").fill("2027-08-21T09:00");
+    await page.getByLabel("Ends").fill("2027-08-21T10:30");
+    await page
       .getByLabel("Protected virtual meeting URL")
       .fill("https://meet.example.com/e2e-workshop");
-    await occurrenceDialog
-      .getByRole("button", { name: "Create draft occurrence" })
-      .click();
+    await page.getByRole("button", { name: "Create draft event" }).click();
     const occurrenceHeading = page.getByRole("heading", {
       name: eventOccurrenceTitle,
     });
@@ -1295,9 +1358,7 @@ test("platform administrators can inspect learner progress", async ({
     const occurrenceCard = page.getByRole("article").filter({
       has: occurrenceHeading,
     });
-    await occurrenceCard
-      .getByRole("button", { name: "Publish occurrence" })
-      .click();
+    await occurrenceCard.getByRole("button", { name: "Publish event" }).click();
     await expect(
       occurrenceCard.getByText("published", { exact: true }),
     ).toBeVisible();
@@ -1311,12 +1372,14 @@ test("platform administrators can inspect learner progress", async ({
       sessionCount: number;
       administratorCount: number;
       presenterCount: number;
+      surveyAccessCount: number;
     }>(
       `select occurrence.id, occurrence."eventTemplateVersionId", occurrence.slug, occurrence.status,
         occurrence.timezone, occurrence."startsAt",
         (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
         (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
-        (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount"
+        (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount",
+        (select count(*)::integer from event_survey_access where "eventOccurrenceId" = occurrence.id and "revokedAt" is null) as "surveyAccessCount"
        from event_occurrence occurrence where occurrence.title = $1`,
       [eventOccurrenceTitle],
     );
@@ -1328,6 +1391,7 @@ test("platform administrators can inspect learner progress", async ({
       sessionCount: 1,
       administratorCount: 1,
       presenterCount: 1,
+      surveyAccessCount: 1,
     });
     const occurrenceId = storedOccurrence.rows[0]?.id;
     if (!occurrenceId) throw new Error("Expected the E2E Event Occurrence");
@@ -1339,6 +1403,51 @@ test("platform administrators can inspect learner progress", async ({
     const administratorUser = administrator.rows[0];
     if (!administratorUser)
       throw new Error("Expected the seeded administrator");
+    await authoringDatabase.query(
+      `insert into coordination_region (id, code, name, kind, status)
+       values ($1, 'E2E-REGION', 'E2E Region', 'operational', 'active')`,
+      [eventRegionId],
+    );
+    await authoringDatabase.query(
+      `insert into event_staff_eligibility
+        (id, "userId", responsibility, "regionId", "grantedByUserId", "grantedAt")
+       values ($1, $2, 'coordinator', $3, $4, now())`,
+      [
+        eventCoordinatorEligibilityId,
+        eventPresenter.id,
+        eventRegionId,
+        administratorUser.id,
+      ],
+    );
+    await authoringDatabase.query(
+      `insert into event_occurrence_region
+        (id, "eventOccurrenceId", "regionId", position)
+       values ($1, $2, $3, 1)`,
+      [eventOccurrenceRegionId, occurrenceId, eventRegionId],
+    );
+    await authoringDatabase.query(
+      `insert into event_coordinator_assignment
+        (id, "eventOccurrenceRegionId", "userId", source, "assignedByUserId", "assignedAt")
+       values ('e2e_event_coordinator_assignment', $1, $2, 'occurrence_local', $3, now())`,
+      [eventOccurrenceRegionId, eventPresenter.id, administratorUser.id],
+    );
+    await page.goto("/admin/events/settings?view=staff");
+    const assignedCoordinatorCard = page.getByRole("article").filter({
+      hasText: `${eventPresenter.email} · E2E Region`,
+    });
+    await assignedCoordinatorCard
+      .getByRole("button", { name: "Remove eligibility" })
+      .click();
+    const coordinatorCoverageAlert = page.getByRole("alert").filter({
+      hasText: "Replacement coordinator required",
+    });
+    await expect(coordinatorCoverageAlert).toBeVisible();
+    await expect(coordinatorCoverageAlert).toContainText(eventOccurrenceTitle);
+    await expect(
+      coordinatorCoverageAlert.getByRole("link", {
+        name: "Configure coordinators",
+      }),
+    ).toBeVisible();
     const registrationId = "e2e_event_learner_registration";
     const participationId = "e2e_event_learner_participation";
     await authoringDatabase.query(
@@ -1374,6 +1483,19 @@ test("platform administrators can inspect learner progress", async ({
         administratorUser.email,
       ],
     );
+    const occurrenceSession = await authoringDatabase.query<{ id: string }>(
+      `select id from event_session where "eventOccurrenceId" = $1 order by position limit 1`,
+      [occurrenceId],
+    );
+    const occurrenceSessionId = occurrenceSession.rows[0]?.id;
+    if (!occurrenceSessionId) throw new Error("Expected the E2E Event Session");
+    await authoringDatabase.query(
+      `insert into event_attendance
+        ("eventParticipationId", "eventSessionId", state, source,
+          "recordedByUserId", "recordedAt", "updatedAt")
+       values ($1, $2, 'attended', 'administrator', $3, now(), now())`,
+      [participationId, occurrenceSessionId, administratorUser.id],
+    );
     await page.goto("/my-events");
     const learnerEvent = page.getByRole("heading", {
       name: eventOccurrenceTitle,
@@ -1400,17 +1522,74 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Participant progress" }),
     ).toBeVisible();
+    await expect(page.getByText("1/1 attended")).toBeVisible();
     await expect(page.getByRole("table")).toContainText(
       administratorUser.email,
     );
+    const progressSearch = page.getByLabel("Search participants");
+    const applyProgressFilters = page.getByRole("button", {
+      name: "Apply filters",
+    });
+    await progressSearch.fill(administratorUser.email);
+    await applyProgressFilters.scrollIntoViewIfNeeded();
+    const searchScrollPosition = await page.evaluate(() => window.scrollY);
+    await applyProgressFilters.click();
+    await expect(progressSearch).toHaveValue(administratorUser.email);
+    expect(await page.evaluate(() => window.scrollY)).toBe(
+      searchScrollPosition,
+    );
+    const clearProgressSearch = page.getByRole("button", {
+      name: `Clear search filter: ${administratorUser.email}`,
+    });
+    await clearProgressSearch.scrollIntoViewIfNeeded();
+    const clearScrollPosition = await page.evaluate(() => window.scrollY);
+    await clearProgressSearch.click();
+    await expect(progressSearch).toHaveValue("");
+    expect(await page.evaluate(() => window.scrollY)).toBe(clearScrollPosition);
     const progressExport = await page.request.get(
       `/api/event-operations/${encodeURIComponent(occurrenceId)}/progress.csv?q=&state=all`,
     );
     expect(progressExport.status()).toBe(200);
     expect(progressExport.headers()["content-type"]).toContain("text/csv");
     expect(await progressExport.text()).toContain(administratorUser.email);
+
+    const surveyAccess = await authoringDatabase.query<{
+      id: string;
+      publicReference: string;
+    }>(
+      `select id, "publicReference" from event_survey_access where "eventOccurrenceId" = $1 and "revokedAt" is null`,
+      [occurrenceId],
+    );
+    const surveyQr = surveyAccess.rows[0];
+    if (!surveyQr) throw new Error("Expected an Event Survey QR access record");
+    expect(surveyQr.publicReference).toMatch(/^[A-Za-z0-9_-]{32}$/u);
+    await page.goto(
+      `/event-operations/${encodeURIComponent(occurrenceId)}?view=survey_qr&q=&state=all`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Survey QR catalogue" }),
+    ).toBeVisible();
+    await expect(page.getByText(surveyTitles[0] ?? "")).toBeVisible();
+    await page.getByRole("link", { name: "Present QR code" }).click();
+    await expect(page).toHaveURL(
+      `/event-operations/${occurrenceId}/survey-qr/${surveyQr.id}`,
+    );
+    await expect(
+      page.getByRole("img", { name: `QR code for ${surveyTitles[0] ?? ""}` }),
+    ).toBeVisible();
+    const qrImage = await page.request.get(
+      `/api/event-surveys/${surveyQr.publicReference}/qr.svg`,
+    );
+    expect(qrImage.status()).toBe(200);
+    expect(qrImage.headers()["content-type"]).toContain("image/svg+xml");
+    expect(await qrImage.text()).toContain("<svg");
+    await page.goto(`/event-surveys/${surveyQr.publicReference}`);
+    await expect(
+      page.getByRole("heading", { name: "This activity is not open yet" }),
+    ).toBeVisible();
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
+    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);
     await cleanupResourceFixture(authoringDatabase, resourceTitle, [
       resourceVersionId,
@@ -1420,8 +1599,11 @@ test("platform administrators can inspect learner progress", async ({
       accessGrantLabel,
       accessOrganizationName,
     );
-    await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
     await cleanupEventStaffFixture(authoringDatabase, eventPresenter.id);
+    await authoringDatabase.query(
+      `delete from coordination_region where id = $1`,
+      [eventRegionId],
+    );
     await authoringDatabase.end();
   }
 

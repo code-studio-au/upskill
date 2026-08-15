@@ -5,79 +5,94 @@ import {
   type AdminEventOccurrenceCreateInput,
   type AdminEventOccurrenceFormInput,
 } from "#/features/admin-event/admin-event.schema";
-
-const formatterOptions: Intl.DateTimeFormatOptions = {
-  calendar: "gregory",
-  numberingSystem: "latn",
-  hourCycle: "h23",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  minute: "2-digit",
-  second: "2-digit",
-};
-
-function timezoneEpoch(instant: Date, timezone: string): number | null {
-  try {
-    const parts = Object.fromEntries(
-      new Intl.DateTimeFormat("en-CA", {
-        ...formatterOptions,
-        timeZone: timezone,
-      })
-        .formatToParts(instant)
-        .map(({ type, value }) => [type, value]),
-    );
-    return Date.UTC(
-      Number(parts.year),
-      Number(parts.month) - 1,
-      Number(parts.day),
-      Number(parts.hour),
-      Number(parts.minute),
-      Number(parts.second),
-    );
-  } catch {
-    return null;
-  }
-}
+import {
+  ianaTimeZoneSchema,
+  localDateTimeIsoSchema,
+} from "#/features/shared/time.schema";
+import { resolveZonedDateTime } from "#/server/time/time.server";
 
 export function wallClockDateTimeToIso(
   value: string,
   timezone: string,
 ): string | null {
   const normalized = value.length === 16 ? `${value}:00` : value;
-  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/u.test(normalized)) return null;
-  const requested = new Date(`${normalized}Z`);
-  if (
-    Number.isNaN(requested.getTime()) ||
-    requested.toISOString().slice(0, 19) !== normalized
-  )
-    return null;
-  let instant = requested.getTime();
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const represented = timezoneEpoch(new Date(instant), timezone);
-    if (represented === null) return null;
-    instant += requested.getTime() - represented;
-  }
-  return timezoneEpoch(new Date(instant), timezone) === requested.getTime()
-    ? new Date(instant).toISOString()
-    : null;
+  const parsedLocal = localDateTimeIsoSchema.safeParse(normalized);
+  const parsedTimezone = ianaTimeZoneSchema.safeParse(timezone);
+  if (!parsedLocal.success || !parsedTimezone.success) return null;
+  return (
+    resolveZonedDateTime(parsedLocal.data, parsedTimezone.data, "reject")
+      ?.instant ?? null
+  );
 }
 
 export function convertAdminEventOccurrenceForm(
   input: AdminEventOccurrenceFormInput,
 ): AdminEventOccurrenceCreateInput | null {
-  const convert = (value: string) =>
-    value ? wallClockDateTimeToIso(value, input.timezone) : "";
+  const parsedTimezone = ianaTimeZoneSchema.safeParse(input.timezone);
+  if (!parsedTimezone.success) return null;
+  const convert = (value: string) => {
+    if (!value) return { instant: "", localDateTime: "" } as const;
+    const normalized = value.length === 16 ? `${value}:00` : value;
+    const parsedLocal = localDateTimeIsoSchema.safeParse(normalized);
+    if (!parsedLocal.success) return null;
+    return resolveZonedDateTime(
+      parsedLocal.data,
+      parsedTimezone.data,
+      "reject",
+    );
+  };
+  const startsAt = convert(input.startsAt);
+  const endsAt = convert(input.endsAt);
+  const registrationOpensAt = convert(input.registrationOpensAt);
+  const registrationClosesAt = convert(input.registrationClosesAt);
+  const coordinatorLockAt = convert(input.coordinatorLockAt);
+  if (
+    !startsAt ||
+    !endsAt ||
+    !registrationOpensAt ||
+    !registrationClosesAt ||
+    !coordinatorLockAt
+  )
+    return null;
   const candidate = {
     ...input,
-    startsAt: convert(input.startsAt),
-    endsAt: convert(input.endsAt),
-    registrationOpensAt: convert(input.registrationOpensAt),
-    registrationClosesAt: convert(input.registrationClosesAt),
-    coordinatorLockAt: convert(input.coordinatorLockAt),
+    timezone: parsedTimezone.data,
+    startsAt: startsAt.instant,
+    localStartsAt: startsAt.localDateTime,
+    endsAt: endsAt.instant,
+    localEndsAt: endsAt.localDateTime,
+    registrationOpensAt: registrationOpensAt.instant,
+    localRegistrationOpensAt: registrationOpensAt.localDateTime,
+    registrationClosesAt: registrationClosesAt.instant,
+    localRegistrationClosesAt: registrationClosesAt.localDateTime,
+    coordinatorLockAt: coordinatorLockAt.instant,
+    localCoordinatorLockAt: coordinatorLockAt.localDateTime,
   };
-  if (Object.values(candidate).some((value) => value === null)) return null;
   const parsed = adminEventOccurrenceCreateSchema.safeParse(candidate);
-  return parsed.success ? parsed.data : null;
+  return parsed.success
+    ? {
+        ...parsed.data,
+        localStartsAt: startsAt.localDateTime,
+        localEndsAt: endsAt.localDateTime,
+        localRegistrationOpensAt: registrationOpensAt.localDateTime,
+        localRegistrationClosesAt: registrationClosesAt.localDateTime,
+        localCoordinatorLockAt: coordinatorLockAt.localDateTime,
+      }
+    : null;
+}
+
+export function isAdminEventScheduleConsistent(
+  input: AdminEventOccurrenceCreateInput,
+): boolean {
+  const pairs = [
+    [input.localStartsAt, input.startsAt],
+    [input.localEndsAt, input.endsAt],
+    [input.localRegistrationOpensAt, input.registrationOpensAt],
+    [input.localRegistrationClosesAt, input.registrationClosesAt],
+    [input.localCoordinatorLockAt, input.coordinatorLockAt],
+  ] as const;
+  return pairs.every(([localDateTime, instant]) => {
+    if (!localDateTime || !instant) return !localDateTime && !instant;
+    return wallClockDateTimeToIso(localDateTime, input.timezone) === instant;
+  });
 }

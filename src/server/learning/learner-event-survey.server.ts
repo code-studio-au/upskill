@@ -44,6 +44,11 @@ async function findEventSurveyAccess(
       "occurrence.id",
       "participation.eventOccurrenceId",
     )
+    .leftJoin(
+      "event_registration as registration",
+      "registration.id",
+      "participation.registrationId",
+    )
     .innerJoin("event_template_version_item as item", (join) =>
       join.onRef(
         "item.eventTemplateVersionId",
@@ -73,17 +78,25 @@ async function findEventSurveyAccess(
       "occurrence.title as eventTitle",
       "occurrence.startsAt",
       "occurrence.endsAt",
+      "occurrence.timezone",
       "occurrence.status as occurrenceStatus",
       "section.title as sectionTitle",
       "section.id as eventTemplateVersionSectionId",
       "section.releaseAnchor",
-      "section.releaseOffsetMinutes",
+      "section.releaseOffsetAmount",
+      "section.releaseOffsetUnit",
       "item.id as eventTemplateVersionItemId",
       "survey.id as surveyVersionId",
       "survey.content",
       "activityVersion.publishedAt",
     ])
     .where("participation.userId", "=", input.userId)
+    .where((expression) =>
+      expression.or([
+        expression("participation.mode", "=", "open_entry"),
+        expression("registration.status", "=", "selected"),
+      ]),
+    )
     .where("item.id", "=", input.eventTemplateVersionItemId)
     .where("item.kind", "=", "survey");
   if (input.eventParticipationId)
@@ -105,7 +118,9 @@ async function findEventSurveyAccess(
     .executeTakeFirst();
   const releaseAt = calculateEventSectionReleaseAt({
     releaseAnchor: row.releaseAnchor,
-    releaseOffsetMinutes: row.releaseOffsetMinutes,
+    releaseOffsetAmount: row.releaseOffsetAmount,
+    releaseOffsetUnit: row.releaseOffsetUnit,
+    timezone: row.timezone,
     participationCreatedAt: row.participationCreatedAt,
     occurrenceStartsAt: row.startsAt,
     occurrenceEndsAt: row.endsAt,

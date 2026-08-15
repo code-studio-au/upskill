@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
+import type { AdminSurveyDraft } from "#/features/survey/survey.schema";
+import { ianaTimeZoneSchema } from "#/features/shared/time.schema";
 import {
   createAdminEventOccurrence,
   createAdminEventTemplate,
@@ -22,10 +24,19 @@ import {
   recordAdminEventAttendance,
   transitionAdminEventOccurrence,
 } from "#/server/admin/admin-event-operations.server";
+import {
+  createAdminSurvey,
+  publishAdminSurveyVersion,
+  saveAdminSurveyDraft,
+} from "#/server/admin/admin-survey.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
 import { findEventOperationsWorkspace } from "#/server/events/event-operations.server";
+import {
+  findEventSurveyQrCatalogue,
+  resolveLearnerEventSurveyReference,
+} from "#/server/events/event-survey-access.server";
 import {
   registerLearnerForEvent,
   withdrawLearnerEventRegistration,
@@ -33,8 +44,19 @@ import {
 import { findLearnerEventsDashboard } from "#/server/learner/learner.server";
 import { ensureEventSectionReleased } from "#/server/learning/event-section-release.server";
 import { findLearnerEventWorkspace } from "#/server/learning/learner-event-workspace.server";
+import {
+  dateToInstant,
+  instantToLocalDateTime,
+} from "#/server/time/time.server";
 
 const database = getDatabase();
+const verificationTimezone = ianaTimeZoneSchema.parse("Australia/Sydney");
+const localVerificationTime = (value: Date) =>
+  instantToLocalDateTime(dateToInstant(value), verificationTimezone);
+const minutePrecision = (value: Date) => {
+  value.setSeconds(0, 0);
+  return value;
+};
 const suffix = randomUUID();
 const administrator: AuthenticatedUser = {
   id: `verify_event_admin_${suffix}`,
@@ -66,6 +88,8 @@ let eventTemplateId: string | null = null;
 let eventTemplateVersionId: string | null = null;
 let eventOccurrenceId: string | null = null;
 let coordinationRegionGroupId: string | null = null;
+let eventSurveyId: string | null = null;
+let eventSurveyVersionId: string;
 
 async function cleanup(): Promise<void> {
   if (eventOccurrenceId) {
@@ -242,9 +266,20 @@ async function cleanup(): Promise<void> {
       .deleteFrom("event_template")
       .where("id", "=", eventTemplateId)
       .execute();
+  if (eventSurveyId) {
+    await database
+      .deleteFrom("learning_activity_version")
+      .where("activityId", "=", eventSurveyId)
+      .execute();
+    await database
+      .deleteFrom("learning_activity")
+      .where("id", "=", eventSurveyId)
+      .execute();
+  }
   const aggregateIds = [
     ...(eventTemplateId ? [eventTemplateId] : []),
     ...(eventOccurrenceId ? [eventOccurrenceId] : []),
+    ...(eventSurveyId ? [eventSurveyId] : []),
   ];
   if (aggregateIds.length)
     await database
@@ -387,19 +422,16 @@ try {
     { status: "updated", regionId: coordinationRegionId },
   );
 
-  assert.equal(
-    (
-      await grantAdminEventStaffEligibility(
-        {
-          email: coordinator.email,
-          responsibility: "coordinator",
-          regionId: coordinationRegionId,
-        },
-        administrator,
-      )
-    )?.status,
-    "granted",
+  const coordinatorEligibility = await grantAdminEventStaffEligibility(
+    {
+      email: coordinator.email,
+      responsibility: "coordinator",
+      regionId: coordinationRegionId,
+    },
+    administrator,
   );
+  assert.ok(coordinatorEligibility);
+  assert.equal(coordinatorEligibility.status, "granted");
   assert.equal(
     (
       await grantAdminEventStaffEligibility(
@@ -435,12 +467,12 @@ try {
     administrator,
   );
   assert.ok(temporaryEligibility);
-  assert.equal(
+  assert.deepEqual(
     await revokeAdminEventStaffEligibility(
       temporaryEligibility.eligibilityId,
       administrator,
     ),
-    "revoked",
+    { status: "revoked", endedAssignmentCount: 0 },
   );
   assert.equal(
     (
@@ -483,6 +515,50 @@ try {
     [coordinator.id],
   );
 
+  const createdSurvey = await createAdminSurvey(
+    "Verification event survey",
+    administrator,
+  );
+  eventSurveyId = createdSurvey.surveyId;
+  eventSurveyVersionId = createdSurvey.versionId;
+  const eventSurveyDraft: AdminSurveyDraft = {
+    surveyId: createdSurvey.surveyId,
+    versionId: createdSurvey.versionId,
+    title: "Verification event survey",
+    description: "An exact-version Event Survey QR verification fixture.",
+    sections: [
+      {
+        id: `survey_section_${suffix}`,
+        title: "Event feedback",
+        description: "Verify guarded Event Survey access.",
+        items: [
+          {
+            id: `survey_question_${suffix}`,
+            kind: "single_choice",
+            prompt: "Was this Event useful?",
+            required: true,
+            options: [
+              { id: `survey_yes_${suffix}`, label: "Yes" },
+              { id: `survey_no_${suffix}`, label: "No" },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  assert.equal(
+    await saveAdminSurveyDraft(eventSurveyDraft, administrator),
+    "saved",
+  );
+  assert.equal(
+    await publishAdminSurveyVersion(
+      createdSurvey.surveyId,
+      createdSurvey.versionId,
+      administrator,
+    ),
+    "published",
+  );
+
   const createdTemplate = await createAdminEventTemplate(
     {
       title: "Verification workshop",
@@ -517,7 +593,8 @@ try {
             description: "The event session.",
             phase: "session",
             releaseAnchor: "occurrence_start",
-            releaseOffsetMinutes: 0,
+            releaseOffsetAmount: 0,
+            releaseOffsetUnit: "minute",
             items: [
               {
                 id: `event_item_${suffix}`,
@@ -527,6 +604,14 @@ try {
                 durationMinutes: 120,
                 presenterRequired: true,
                 presenterIds: [presenter.id],
+              },
+              {
+                id: `event_survey_item_${suffix}`,
+                kind: "survey",
+                title: "Event feedback",
+                required: false,
+                durationMinutes: 5,
+                learningActivityVersionId: createdSurvey.versionId,
               },
             ],
           },
@@ -553,9 +638,11 @@ try {
     "conflict",
   );
 
-  const startsAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const startsAt = minutePrecision(
+    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
+  );
   const endsAt = new Date(startsAt.getTime() + 2 * 60 * 60 * 1000);
-  const registrationOpensAt = new Date();
+  const registrationOpensAt = minutePrecision(new Date());
   const registrationClosesAt = new Date(
     startsAt.getTime() - 48 * 60 * 60 * 1000,
   );
@@ -568,6 +655,11 @@ try {
     registrationMode: "required_restricted" as const,
     approvalMode: "manual" as const,
     timezone: "Australia/Sydney",
+    localStartsAt: localVerificationTime(startsAt),
+    localEndsAt: localVerificationTime(endsAt),
+    localRegistrationOpensAt: localVerificationTime(registrationOpensAt),
+    localRegistrationClosesAt: localVerificationTime(registrationClosesAt),
+    localCoordinatorLockAt: localVerificationTime(coordinatorLockAt),
     startsAt: startsAt.toISOString(),
     endsAt: endsAt.toISOString(),
     registrationOpensAt: registrationOpensAt.toISOString(),
@@ -585,6 +677,29 @@ try {
   );
   assert.equal(createdOccurrence.status, "created");
   eventOccurrenceId = createdOccurrence.eventOccurrenceId;
+  const eventSurveyAccess = await database
+    .selectFrom("event_survey_access as access")
+    .innerJoin(
+      "event_template_version_item as item",
+      "item.id",
+      "access.eventTemplateVersionItemId",
+    )
+    .select([
+      "access.id",
+      "access.publicReference",
+      "access.generation",
+      "access.accessPolicy",
+      "item.learningActivityVersionId",
+    ])
+    .where("access.eventOccurrenceId", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.match(eventSurveyAccess.publicReference, /^[A-Za-z0-9_-]{32}$/u);
+  assert.equal(eventSurveyAccess.generation, 1);
+  assert.equal(eventSurveyAccess.accessPolicy, "authenticated_participant");
+  assert.equal(
+    eventSurveyAccess.learningActivityVersionId,
+    eventSurveyVersionId,
+  );
   assert.deepEqual(
     await createAdminEventOccurrence(occurrenceInput, administrator),
     { status: "slug-in-use" },
@@ -602,6 +717,11 @@ try {
         registrationMode: "required_restricted",
         approvalMode: "manual",
         timezone: "Australia/Sydney",
+        localStartsAt: localVerificationTime(rescheduledStartsAt),
+        localEndsAt: localVerificationTime(rescheduledEndsAt),
+        localRegistrationOpensAt: localVerificationTime(registrationOpensAt),
+        localRegistrationClosesAt: localVerificationTime(registrationClosesAt),
+        localCoordinatorLockAt: localVerificationTime(coordinatorLockAt),
         startsAt: rescheduledStartsAt.toISOString(),
         endsAt: rescheduledEndsAt.toISOString(),
         registrationOpensAt: registrationOpensAt.toISOString(),
@@ -684,6 +804,23 @@ try {
     .where("eventOccurrenceId", "=", eventOccurrenceId)
     .where("regionId", "=", coordinationRegionId)
     .executeTakeFirstOrThrow();
+  const blockedCoordinatorRevocation = await revokeAdminEventStaffEligibility(
+    coordinatorEligibility.eligibilityId,
+    administrator,
+  );
+  assert.equal(blockedCoordinatorRevocation.status, "conflict");
+  assert.deepEqual(blockedCoordinatorRevocation.coordinatorCoverage, [
+    {
+      eventOccurrenceId,
+      eventOccurrenceRegionId: occurrenceRegion.id,
+      occurrenceTitle: "Verification workshop · Rescheduled",
+      occurrenceStatus: "published",
+      occurrenceStartsAt: rescheduledStartsAt.toISOString(),
+      occurrenceTimezone: "Australia/Sydney",
+      regionName: "Verification region",
+      regionCode: `VERIFY-${suffix}`.toLocaleUpperCase("en-AU"),
+    },
+  ]);
   assert.equal(session.title, "Workshop session");
   assert.equal(
     session.startsAt.toISOString(),
@@ -722,9 +859,13 @@ try {
   const finalEndsAt = new Date(
     rescheduledEndsAt.getTime() + 24 * 60 * 60 * 1000,
   );
-  const reopenedAt = new Date(Date.now() - 60 * 60 * 1000);
-  const reopenedClosesAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
-  const reopenedLockAt = new Date(Date.now() + 96 * 60 * 60 * 1000);
+  const reopenedAt = minutePrecision(new Date(Date.now() - 60 * 60 * 1000));
+  const reopenedClosesAt = minutePrecision(
+    new Date(Date.now() + 72 * 60 * 60 * 1000),
+  );
+  const reopenedLockAt = minutePrecision(
+    new Date(Date.now() + 96 * 60 * 60 * 1000),
+  );
   const regionalExpansion = {
     regions: [
       {
@@ -748,6 +889,8 @@ try {
           slug: `verification-workshop-invalid-expansion-${suffix}`,
           startsAt: finalStartsAt.toISOString(),
           endsAt: finalEndsAt.toISOString(),
+          localStartsAt: localVerificationTime(finalStartsAt),
+          localEndsAt: localVerificationTime(finalEndsAt),
           capacity: 3,
           venueName: "Updated Verification Centre",
           venueAddress: "2 Test Street, Sydney NSW",
@@ -771,9 +914,14 @@ try {
           slug: `verification-workshop-reopened-${suffix}`,
           startsAt: finalStartsAt.toISOString(),
           endsAt: finalEndsAt.toISOString(),
+          localStartsAt: localVerificationTime(finalStartsAt),
+          localEndsAt: localVerificationTime(finalEndsAt),
           registrationOpensAt: reopenedAt.toISOString(),
           registrationClosesAt: reopenedClosesAt.toISOString(),
           coordinatorLockAt: reopenedLockAt.toISOString(),
+          localRegistrationOpensAt: localVerificationTime(reopenedAt),
+          localRegistrationClosesAt: localVerificationTime(reopenedClosesAt),
+          localCoordinatorLockAt: localVerificationTime(reopenedLockAt),
           capacity: 3,
           venueName: "Updated Verification Centre",
           venueAddress: "2 Test Street, Sydney NSW",
@@ -966,6 +1114,21 @@ try {
     [occurrenceRegion.id],
   );
   assert.equal(coordinatorWorkspace.access.canReviewRegistrations, true);
+  assert.equal(coordinatorWorkspace.access.canViewSurveyQrCatalogue, true);
+  assert.deepEqual(
+    coordinatorWorkspace.surveyQrCatalogue.map((entry) => ({
+      id: entry.id,
+      reference: entry.publicReference,
+      status: entry.status,
+    })),
+    [
+      {
+        id: eventSurveyAccess.id,
+        reference: eventSurveyAccess.publicReference,
+        status: "active",
+      },
+    ],
+  );
   const presenterAccess = await getEventOperationsAccess(
     presenter,
     eventOccurrenceId,
@@ -978,6 +1141,12 @@ try {
   );
   assert.ok(presenterWorkspace);
   assert.equal(presenterWorkspace.access.canViewRegistrations, false);
+  assert.equal(presenterWorkspace.access.canViewSurveyQrCatalogue, true);
+  assert.equal(presenterWorkspace.surveyQrCatalogue.length, 1);
+  assert.deepEqual(
+    await findEventSurveyQrCatalogue(eventOccurrenceId, presenterAccess),
+    presenterWorkspace.surveyQrCatalogue,
+  );
   assert.deepEqual(presenterWorkspace.registrations, []);
   assert.deepEqual(
     presenterWorkspace.sessions.map((assignedSession) => assignedSession.id),
@@ -1052,6 +1221,20 @@ try {
       .then((row) => row.state),
     "attended",
   );
+  assert.deepEqual(
+    await resolveLearnerEventSurveyReference(
+      eventSurveyAccess.publicReference,
+      coordinator,
+    ),
+    { status: "not-found" },
+  );
+  assert.deepEqual(
+    await resolveLearnerEventSurveyReference(
+      eventSurveyAccess.publicReference,
+      administrator,
+    ),
+    { status: "unavailable" },
+  );
   const templateSection = await database
     .selectFrom("event_template_version_section")
     .select("id")
@@ -1065,6 +1248,17 @@ try {
       now: new Date(),
     }),
     true,
+  );
+  assert.deepEqual(
+    await resolveLearnerEventSurveyReference(
+      eventSurveyAccess.publicReference,
+      administrator,
+    ),
+    {
+      status: "ready",
+      eventOccurrenceId,
+      eventTemplateVersionItemId: `event_survey_item_${suffix}`,
+    },
   );
   assert.equal(
     await ensureEventSectionReleased(database, {
@@ -1161,6 +1355,8 @@ try {
           slug: `verification-workshop-coverage-revised-${suffix}`,
           startsAt: coverageRevisionStartsAt.toISOString(),
           endsAt: coverageRevisionEndsAt.toISOString(),
+          localStartsAt: localVerificationTime(coverageRevisionStartsAt),
+          localEndsAt: localVerificationTime(coverageRevisionEndsAt),
           capacity: 3,
           venueName: "Updated Verification Centre",
           venueAddress: "2 Test Street, Sydney NSW",
@@ -1317,6 +1513,30 @@ try {
     "cancelled",
   );
 
+  const historicalCoordinatorRevocation =
+    await revokeAdminEventStaffEligibility(
+      coordinatorEligibility.eligibilityId,
+      administrator,
+    );
+  assert.equal(historicalCoordinatorRevocation.status, "revoked");
+  assert.ok(
+    await database
+      .selectFrom("event_staff_eligibility")
+      .select("revokedAt")
+      .where("id", "=", coordinatorEligibility.eligibilityId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.revokedAt),
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_coordinator_assignment")
+      .select("endedAt")
+      .where("eventOccurrenceRegionId", "=", occurrenceRegion.id)
+      .where("userId", "=", coordinator.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.endedAt),
+  );
+
   await database
     .deleteFrom("platform_admin")
     .where("userId", "=", administrator.id)
@@ -1332,7 +1552,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, coverage-safe Coordinator eligibility revocation, staff/session snapshots, scoped coordinator and presenter operations, occurrence-owned guarded Survey QR access, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
   );
 } finally {
   await cleanup();

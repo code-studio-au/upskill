@@ -335,7 +335,10 @@ logic.
 ### Database integration tests
 
 Transactions, constraints, row locks, authorisation queries, immutable
-versioning, idempotency, and concurrency.
+versioning, idempotency, and concurrency. The complete database gate owns a
+uniquely named, migrated localhost PostgreSQL database and drops it in a
+`finally` boundary instead of creating verification fixtures in the normal
+development database.
 
 ### Worker/integration tests
 
@@ -345,7 +348,12 @@ and external adapter boundaries.
 ### Browser/E2E tests
 
 Critical user journeys and security boundaries that require the complete
-browser/server interaction.
+browser/server interaction. Each invocation owns a uniquely named, migrated and
+seeded localhost PostgreSQL database and new application origins. Cleanup drops
+the complete test database in a `finally` boundary, including after a failed
+journey. Playwright must not reuse a developer server because that can route UI
+mutations to the normal local database even when the test process uses a
+different connection string.
 
 Do not attempt to prove every database invariant through Playwright.
 

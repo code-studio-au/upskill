@@ -115,7 +115,8 @@ nobody therefore submits an empty approved list.
 After a regional list is locked, its Coordinators cannot edit it. Before final
 attendee confirmation, an assigned Event Instance Administrator may use an explicit audited
 reopen/correction command when operationally necessary. Deadline and display
-logic use the occurrence timezone with an explicit daylight-saving policy.
+logic use the occurrence timezone with the reject-on-ambiguity
+daylight-saving policy defined by [ADR 0032](0032-typed-time-model.md).
 
 ### Rescheduling and registration windows
 

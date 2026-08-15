@@ -25,12 +25,16 @@ import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
 import { Route as EventOperationsIndexRouteImport } from './routes/event-operations.index'
 import { Route as EventOperationsEventOccurrenceIdRouteImport } from './routes/event-operations.$eventOccurrenceId'
+import { Route as EventSurveysPublicReferenceRouteImport } from './routes/event-surveys.$publicReference'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
 import { Route as MyEventsEventOccurrenceIdRouteImport } from './routes/my-events_.$eventOccurrenceId'
 import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
 import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
 import { Route as AdminEventsIndexRouteImport } from './routes/admin.events.index'
 import { Route as AdminEventsEventTemplateIdRouteImport } from './routes/admin.events.$eventTemplateId'
+import { Route as AdminEventsScheduledRouteImport } from './routes/admin.events.scheduled'
+import { Route as AdminEventsSettingsRouteImport } from './routes/admin.events.settings'
+import { Route as AdminEventsTemplatesRouteImport } from './routes/admin.events.templates'
 import { Route as AdminLearnersIndexRouteImport } from './routes/admin.learners.index'
 import { Route as AdminLearnersUserIdRouteImport } from './routes/admin.learners.$userId'
 import { Route as AdminSurveysIndexRouteImport } from './routes/admin.surveys.index'
@@ -42,11 +46,14 @@ import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 import { Route as AdminEventsInstancesEventOccurrenceIdRouteImport } from './routes/admin.events.instances.$eventOccurrenceId'
+import { Route as AdminEventsInstancesNewRouteImport } from './routes/admin.events.instances_.new'
 import { Route as ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport } from './routes/api.event-operations.$eventOccurrenceId.progress[.]csv'
+import { Route as ApiEventSurveysPublicReferenceQrDotsvgRouteImport } from './routes/api.event-surveys.$publicReference.qr[.]svg'
 import { Route as ApiLearningCertificatesEnrollmentIdRouteImport } from './routes/api.learning.certificates.$enrollmentId'
 import { Route as ApiLearningEventCertificatesEventParticipationIdRouteImport } from './routes/api.learning.event-certificates.$eventParticipationId'
 import { Route as ApiLearningResourcesResourceVersionIdRouteImport } from './routes/api.learning.resources.$resourceVersionId'
 import { Route as ApiScormAttemptsAttemptIdRouteImport } from './routes/api.scorm.attempts.$attemptId'
+import { Route as EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRouteImport } from './routes/event-operations.$eventOccurrenceId_.survey-qr.$eventSurveyAccessId'
 import { Route as LearnEnrollmentIdSurveysCourseVersionItemIdRouteImport } from './routes/learn.$enrollmentId_.surveys.$courseVersionItemId'
 import { Route as MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRouteImport } from './routes/my-events_.$eventOccurrenceId_.surveys.$eventTemplateVersionItemId'
 import { Route as AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport } from './routes/admin.learners.$userId_.enrollments.$enrollmentId'
@@ -133,6 +140,12 @@ const EventOperationsEventOccurrenceIdRoute =
     path: '/$eventOccurrenceId',
     getParentRoute: () => EventOperationsRoute,
   } as any)
+const EventSurveysPublicReferenceRoute =
+  EventSurveysPublicReferenceRouteImport.update({
+    id: '/event-surveys/$publicReference',
+    path: '/event-surveys/$publicReference',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const LearnEnrollmentIdRoute = LearnEnrollmentIdRouteImport.update({
   id: '/learn/$enrollmentId',
   path: '/learn/$enrollmentId',
@@ -165,6 +178,21 @@ const AdminEventsEventTemplateIdRoute =
     path: '/events/$eventTemplateId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminEventsScheduledRoute = AdminEventsScheduledRouteImport.update({
+  id: '/events/scheduled',
+  path: '/events/scheduled',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminEventsSettingsRoute = AdminEventsSettingsRouteImport.update({
+  id: '/events/settings',
+  path: '/events/settings',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminEventsTemplatesRoute = AdminEventsTemplatesRouteImport.update({
+  id: '/events/templates',
+  path: '/events/templates',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminLearnersIndexRoute = AdminLearnersIndexRouteImport.update({
   id: '/learners/',
   path: '/learners/',
@@ -221,10 +249,21 @@ const AdminEventsInstancesEventOccurrenceIdRoute =
     path: '/events/instances/$eventOccurrenceId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminEventsInstancesNewRoute = AdminEventsInstancesNewRouteImport.update({
+  id: '/events/instances_/new',
+  path: '/events/instances/new',
+  getParentRoute: () => AdminRoute,
+} as any)
 const ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute =
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport.update({
     id: '/api/event-operations/$eventOccurrenceId/progress.csv',
     path: '/api/event-operations/$eventOccurrenceId/progress.csv',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiEventSurveysPublicReferenceQrDotsvgRoute =
+  ApiEventSurveysPublicReferenceQrDotsvgRouteImport.update({
+    id: '/api/event-surveys/$publicReference/qr.svg',
+    path: '/api/event-surveys/$publicReference/qr.svg',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiLearningCertificatesEnrollmentIdRoute =
@@ -251,6 +290,14 @@ const ApiScormAttemptsAttemptIdRoute =
     path: '/api/scorm/attempts/$attemptId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute =
+  EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRouteImport.update(
+    {
+      id: '/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId',
+      path: '/$eventOccurrenceId/survey-qr/$eventSurveyAccessId',
+      getParentRoute: () => EventOperationsRoute,
+    } as any,
+  )
 const LearnEnrollmentIdSurveysCourseVersionItemIdRoute =
   LearnEnrollmentIdSurveysCourseVersionItemIdRouteImport.update({
     id: '/learn/$enrollmentId_/surveys/$courseVersionItemId',
@@ -290,6 +337,7 @@ export interface FileRoutesByFullPath {
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
+  '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
   '/admin/': typeof AdminIndexRoute
@@ -297,6 +345,9 @@ export interface FileRoutesByFullPath {
   '/event-operations/': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
+  '/admin/events/scheduled': typeof AdminEventsScheduledRoute
+  '/admin/events/settings': typeof AdminEventsSettingsRoute
+  '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -310,11 +361,14 @@ export interface FileRoutesByFullPath {
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/admin/events/instances/new': typeof AdminEventsInstancesNewRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
+  '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
@@ -332,6 +386,7 @@ export interface FileRoutesByTo {
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
+  '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
   '/admin': typeof AdminIndexRoute
@@ -339,6 +394,9 @@ export interface FileRoutesByTo {
   '/event-operations': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
+  '/admin/events/scheduled': typeof AdminEventsScheduledRoute
+  '/admin/events/settings': typeof AdminEventsSettingsRoute
+  '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -352,11 +410,14 @@ export interface FileRoutesByTo {
   '/admin/learners': typeof AdminLearnersIndexRoute
   '/admin/surveys': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/admin/events/instances/new': typeof AdminEventsInstancesNewRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
+  '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
@@ -377,6 +438,7 @@ export interface FileRoutesById {
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
+  '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events_/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
   '/admin/': typeof AdminIndexRoute
@@ -384,6 +446,9 @@ export interface FileRoutesById {
   '/event-operations/': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
+  '/admin/events/scheduled': typeof AdminEventsScheduledRoute
+  '/admin/events/settings': typeof AdminEventsSettingsRoute
+  '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
   '/api/admin/resources': typeof ApiAdminResourcesRoute
@@ -397,11 +462,14 @@ export interface FileRoutesById {
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
+  '/admin/events/instances_/new': typeof AdminEventsInstancesNewRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
+  '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId_/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId_/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
@@ -423,6 +491,7 @@ export interface FileRouteTypes {
     | '/checkout/success'
     | '/courses/$slug'
     | '/event-operations/$eventOccurrenceId'
+    | '/event-surveys/$publicReference'
     | '/learn/$enrollmentId'
     | '/my-events/$eventOccurrenceId'
     | '/admin/'
@@ -430,6 +499,9 @@ export interface FileRouteTypes {
     | '/event-operations/'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
+    | '/admin/events/scheduled'
+    | '/admin/events/settings'
+    | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -443,11 +515,14 @@ export interface FileRouteTypes {
     | '/admin/learners/'
     | '/admin/surveys/'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/admin/events/instances/new'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
+    | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
@@ -465,6 +540,7 @@ export interface FileRouteTypes {
     | '/checkout/success'
     | '/courses/$slug'
     | '/event-operations/$eventOccurrenceId'
+    | '/event-surveys/$publicReference'
     | '/learn/$enrollmentId'
     | '/my-events/$eventOccurrenceId'
     | '/admin'
@@ -472,6 +548,9 @@ export interface FileRouteTypes {
     | '/event-operations'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
+    | '/admin/events/scheduled'
+    | '/admin/events/settings'
+    | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -485,11 +564,14 @@ export interface FileRouteTypes {
     | '/admin/learners'
     | '/admin/surveys'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/admin/events/instances/new'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
+    | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
@@ -509,6 +591,7 @@ export interface FileRouteTypes {
     | '/checkout/success'
     | '/courses/$slug'
     | '/event-operations/$eventOccurrenceId'
+    | '/event-surveys/$publicReference'
     | '/learn/$enrollmentId'
     | '/my-events_/$eventOccurrenceId'
     | '/admin/'
@@ -516,6 +599,9 @@ export interface FileRouteTypes {
     | '/event-operations/'
     | '/admin/courses/$courseId'
     | '/admin/events/$eventTemplateId'
+    | '/admin/events/scheduled'
+    | '/admin/events/settings'
+    | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
     | '/api/admin/resources'
@@ -529,11 +615,14 @@ export interface FileRouteTypes {
     | '/admin/learners/'
     | '/admin/surveys/'
     | '/admin/events/instances/$eventOccurrenceId'
+    | '/admin/events/instances_/new'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
+    | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId_/surveys/$courseVersionItemId'
     | '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId_/enrollments/$enrollmentId'
@@ -550,6 +639,7 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   CheckoutSuccessRoute: typeof CheckoutSuccessRoute
   CoursesSlugRoute: typeof CoursesSlugRoute
+  EventSurveysPublicReferenceRoute: typeof EventSurveysPublicReferenceRoute
   LearnEnrollmentIdRoute: typeof LearnEnrollmentIdRoute
   MyEventsEventOccurrenceIdRoute: typeof MyEventsEventOccurrenceIdRoute
   CoursesIndexRoute: typeof CoursesIndexRoute
@@ -560,6 +650,7 @@ export interface RootRouteChildren {
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute: typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
+  ApiEventSurveysPublicReferenceQrDotsvgRoute: typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   ApiLearningCertificatesEnrollmentIdRoute: typeof ApiLearningCertificatesEnrollmentIdRoute
   ApiLearningEventCertificatesEventParticipationIdRoute: typeof ApiLearningEventCertificatesEventParticipationIdRoute
   ApiLearningResourcesResourceVersionIdRoute: typeof ApiLearningResourcesResourceVersionIdRoute
@@ -682,6 +773,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EventOperationsEventOccurrenceIdRouteImport
       parentRoute: typeof EventOperationsRoute
     }
+    '/event-surveys/$publicReference': {
+      id: '/event-surveys/$publicReference'
+      path: '/event-surveys/$publicReference'
+      fullPath: '/event-surveys/$publicReference'
+      preLoaderRoute: typeof EventSurveysPublicReferenceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/learn/$enrollmentId': {
       id: '/learn/$enrollmentId'
       path: '/learn/$enrollmentId'
@@ -722,6 +820,27 @@ declare module '@tanstack/react-router' {
       path: '/events/$eventTemplateId'
       fullPath: '/admin/events/$eventTemplateId'
       preLoaderRoute: typeof AdminEventsEventTemplateIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/events/scheduled': {
+      id: '/admin/events/scheduled'
+      path: '/events/scheduled'
+      fullPath: '/admin/events/scheduled'
+      preLoaderRoute: typeof AdminEventsScheduledRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/events/settings': {
+      id: '/admin/events/settings'
+      path: '/events/settings'
+      fullPath: '/admin/events/settings'
+      preLoaderRoute: typeof AdminEventsSettingsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/events/templates': {
+      id: '/admin/events/templates'
+      path: '/events/templates'
+      fullPath: '/admin/events/templates'
+      preLoaderRoute: typeof AdminEventsTemplatesRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/learners/': {
@@ -801,11 +920,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminEventsInstancesEventOccurrenceIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/events/instances_/new': {
+      id: '/admin/events/instances_/new'
+      path: '/events/instances/new'
+      fullPath: '/admin/events/instances/new'
+      preLoaderRoute: typeof AdminEventsInstancesNewRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/api/event-operations/$eventOccurrenceId/progress.csv': {
       id: '/api/event-operations/$eventOccurrenceId/progress.csv'
       path: '/api/event-operations/$eventOccurrenceId/progress.csv'
       fullPath: '/api/event-operations/$eventOccurrenceId/progress.csv'
       preLoaderRoute: typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/event-surveys/$publicReference/qr.svg': {
+      id: '/api/event-surveys/$publicReference/qr.svg'
+      path: '/api/event-surveys/$publicReference/qr.svg'
+      fullPath: '/api/event-surveys/$publicReference/qr.svg'
+      preLoaderRoute: typeof ApiEventSurveysPublicReferenceQrDotsvgRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/learning/certificates/$enrollmentId': {
@@ -835,6 +968,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/scorm/attempts/$attemptId'
       preLoaderRoute: typeof ApiScormAttemptsAttemptIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId': {
+      id: '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId'
+      path: '/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
+      fullPath: '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
+      preLoaderRoute: typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRouteImport
+      parentRoute: typeof EventOperationsRoute
     }
     '/learn/$enrollmentId_/surveys/$courseVersionItemId': {
       id: '/learn/$enrollmentId_/surveys/$courseVersionItemId'
@@ -874,6 +1014,9 @@ interface AdminRouteChildren {
   AdminIndexRoute: typeof AdminIndexRoute
   AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
   AdminEventsEventTemplateIdRoute: typeof AdminEventsEventTemplateIdRoute
+  AdminEventsScheduledRoute: typeof AdminEventsScheduledRoute
+  AdminEventsSettingsRoute: typeof AdminEventsSettingsRoute
+  AdminEventsTemplatesRoute: typeof AdminEventsTemplatesRoute
   AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
   AdminSurveysSurveyIdRoute: typeof AdminSurveysSurveyIdRoute
   AdminCoursesIndexRoute: typeof AdminCoursesIndexRoute
@@ -881,6 +1024,7 @@ interface AdminRouteChildren {
   AdminLearnersIndexRoute: typeof AdminLearnersIndexRoute
   AdminSurveysIndexRoute: typeof AdminSurveysIndexRoute
   AdminEventsInstancesEventOccurrenceIdRoute: typeof AdminEventsInstancesEventOccurrenceIdRoute
+  AdminEventsInstancesNewRoute: typeof AdminEventsInstancesNewRoute
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
 }
 
@@ -891,6 +1035,9 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminIndexRoute: AdminIndexRoute,
   AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
   AdminEventsEventTemplateIdRoute: AdminEventsEventTemplateIdRoute,
+  AdminEventsScheduledRoute: AdminEventsScheduledRoute,
+  AdminEventsSettingsRoute: AdminEventsSettingsRoute,
+  AdminEventsTemplatesRoute: AdminEventsTemplatesRoute,
   AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,
   AdminSurveysSurveyIdRoute: AdminSurveysSurveyIdRoute,
   AdminCoursesIndexRoute: AdminCoursesIndexRoute,
@@ -899,6 +1046,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminSurveysIndexRoute: AdminSurveysIndexRoute,
   AdminEventsInstancesEventOccurrenceIdRoute:
     AdminEventsInstancesEventOccurrenceIdRoute,
+  AdminEventsInstancesNewRoute: AdminEventsInstancesNewRoute,
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute:
     AdminLearnersUserIdEnrollmentsEnrollmentIdRoute,
 }
@@ -908,11 +1056,14 @@ const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)
 interface EventOperationsRouteChildren {
   EventOperationsEventOccurrenceIdRoute: typeof EventOperationsEventOccurrenceIdRoute
   EventOperationsIndexRoute: typeof EventOperationsIndexRoute
+  EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute: typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
 }
 
 const EventOperationsRouteChildren: EventOperationsRouteChildren = {
   EventOperationsEventOccurrenceIdRoute: EventOperationsEventOccurrenceIdRoute,
   EventOperationsIndexRoute: EventOperationsIndexRoute,
+  EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute:
+    EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute,
 }
 
 const EventOperationsRouteWithChildren = EventOperationsRoute._addFileChildren(
@@ -944,6 +1095,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   CheckoutSuccessRoute: CheckoutSuccessRoute,
   CoursesSlugRoute: CoursesSlugRoute,
+  EventSurveysPublicReferenceRoute: EventSurveysPublicReferenceRoute,
   LearnEnrollmentIdRoute: LearnEnrollmentIdRoute,
   MyEventsEventOccurrenceIdRoute: MyEventsEventOccurrenceIdRoute,
   CoursesIndexRoute: CoursesIndexRoute,
@@ -955,6 +1107,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute:
     ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute,
+  ApiEventSurveysPublicReferenceQrDotsvgRoute:
+    ApiEventSurveysPublicReferenceQrDotsvgRoute,
   ApiLearningCertificatesEnrollmentIdRoute:
     ApiLearningCertificatesEnrollmentIdRoute,
   ApiLearningEventCertificatesEventParticipationIdRoute:

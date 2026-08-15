@@ -128,6 +128,11 @@ notifications with retained change provenance. It never relocks a Section for a
 participant who already legitimately accessed or completed it unless an explicit
 administrator correction policy is invoked.
 
+Release definitions store an amount and explicit unit. Minutes/hours mean
+elapsed time; days/weeks/months mean calendar time in the occurrence timezone.
+The local schedule, timezone and resolved exact instant follow
+[ADR 0032](0032-typed-time-model.md).
+
 Registration windows are not implicitly derived from the new Session dates. The
 reschedule command explicitly keeps, replaces or reopens registration and the
 Coordinator lock deadline under

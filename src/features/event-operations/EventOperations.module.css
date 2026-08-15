@@ -61,6 +61,20 @@
   margin: 0.5rem 0 0;
 }
 
+.qrCatalogueGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+
+.qrPath {
+  overflow-wrap: anywhere;
+}
+
+.qrPresentationLink {
+  margin-top: auto;
+}
+
 @media (max-width: 48rem) {
   .eventGrid,
   .summaryGrid,

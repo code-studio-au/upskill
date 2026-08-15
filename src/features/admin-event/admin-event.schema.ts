@@ -1,4 +1,5 @@
 import { z } from "#/validation/zod";
+import { isIanaTimeZone } from "#/features/shared/iana-timezone";
 
 const identifierSchema = z
   .string()
@@ -13,9 +14,15 @@ const boundedText = (maximum: number, message: string) =>
 const optionalText = (maximum: number) =>
   z.string().check(z.trim(), z.maxLength(maximum));
 const absoluteUrl = z.union([z.literal(""), z.url("Enter a valid URL.")]);
-const dateTime = z.iso.datetime({ offset: true });
+const dateTime = z.iso
+  .datetime({ offset: true })
+  .check(z.regex(/Z$/u, "Use a canonical UTC instant."));
 const domainPattern =
   /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/u;
+
+const eventTimezone = boundedText(100, "Select an event timezone.").check(
+  z.refine(isIanaTimeZone, "Select a supported event timezone."),
+);
 
 export function normalizeEventDomains(value: string): Array<string> | null {
   const domains = [
@@ -53,6 +60,11 @@ export const adminEventTemplateVersionParamsSchema = z.object({
 
 export const adminEventTemplateParamsSchema = z.object({
   eventTemplateId: identifierSchema,
+});
+
+export const adminEventTemplateSelectionSchema = z.object({
+  eventTemplateId: identifierSchema,
+  eventTemplateVersionId: z.optional(identifierSchema),
 });
 
 export const adminEventStaffEligibilityGrantSchema = z
@@ -189,22 +201,39 @@ const adminEventTemplateItemSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-const adminEventTemplateSectionSchema = z.object({
-  id: identifierSchema,
-  title: boundedText(160, "Enter a section title."),
-  description: optionalText(2_000),
-  phase: z.enum(["pre_event", "session", "post_event", "follow_up"]),
-  releaseAnchor: z.enum([
-    "participation_created",
-    "occurrence_start",
-    "occurrence_end",
-    "final_session_end",
-  ]),
-  releaseOffsetMinutes: z
-    .number()
-    .check(z.int(), z.minimum(-525_600), z.maximum(525_600)),
-  items: z.array(adminEventTemplateItemSchema).check(z.maxLength(200)),
-});
+const adminEventTemplateSectionSchema = z
+  .object({
+    id: identifierSchema,
+    title: boundedText(160, "Enter a section title."),
+    description: optionalText(2_000),
+    phase: z.enum(["pre_event", "session", "post_event", "follow_up"]),
+    releaseAnchor: z.enum([
+      "participation_created",
+      "occurrence_start",
+      "occurrence_end",
+      "final_session_end",
+    ]),
+    releaseOffsetAmount: z.number().check(z.int()),
+    releaseOffsetUnit: z.enum(["minute", "hour", "day", "week", "month"]),
+    items: z.array(adminEventTemplateItemSchema).check(z.maxLength(200)),
+  })
+  .check(
+    z.superRefine((section, context) => {
+      const maximum = {
+        minute: 5_256_000,
+        hour: 87_600,
+        day: 3_650,
+        week: 520,
+        month: 120,
+      }[section.releaseOffsetUnit];
+      if (Math.abs(section.releaseOffsetAmount) > maximum)
+        context.addIssue({
+          code: "custom",
+          path: ["releaseOffsetAmount"],
+          message: "Keep the release offset within ten years.",
+        });
+    }),
+  );
 
 const adminEventTemplateRegionSchema = z.object({
   regionId: identifierSchema,
@@ -336,7 +365,7 @@ export const adminEventOccurrenceCreateSchema = z
       "required_restricted",
     ]),
     approvalMode: z.enum(["automatic", "manual"]),
-    timezone: boundedText(100, "Enter a timezone."),
+    timezone: eventTimezone,
     startsAt: dateTime,
     endsAt: dateTime,
     registrationOpensAt: z.union([z.literal(""), dateTime]),
@@ -447,7 +476,13 @@ export const adminEventOccurrenceCreateSchema = z
 
 export type AdminEventOccurrenceCreateInput = z.infer<
   typeof adminEventOccurrenceCreateSchema
->;
+> & {
+  localStartsAt: string;
+  localEndsAt: string;
+  localRegistrationOpensAt: string;
+  localRegistrationClosesAt: string;
+  localCoordinatorLockAt: string;
+};
 export type AdminEventOccurrenceFormInput = Omit<
   AdminEventOccurrenceCreateInput,
   | "startsAt"
@@ -455,6 +490,11 @@ export type AdminEventOccurrenceFormInput = Omit<
   | "registrationOpensAt"
   | "registrationClosesAt"
   | "coordinatorLockAt"
+  | "localStartsAt"
+  | "localEndsAt"
+  | "localRegistrationOpensAt"
+  | "localRegistrationClosesAt"
+  | "localCoordinatorLockAt"
 > & {
   startsAt: string;
   endsAt: string;
@@ -589,6 +629,17 @@ export interface AdminEventPersonOption {
   email: string;
 }
 
+export interface AdminEventCoordinatorCoverageImpact {
+  eventOccurrenceId: string;
+  eventOccurrenceRegionId: string;
+  occurrenceTitle: string;
+  occurrenceStatus: "draft" | "published";
+  occurrenceStartsAt: string;
+  occurrenceTimezone: string;
+  regionName: string;
+  regionCode: string;
+}
+
 interface AdminEventPresenterOption extends AdminEventPersonOption {
   eligibilityId: string;
 }
@@ -680,6 +731,11 @@ export interface AdminEventWorkspace {
       "open_entry" | "required_unrestricted" | "required_restricted";
     approvalMode: "automatic" | "manual";
     timezone: string;
+    localStartsAt: string;
+    localEndsAt: string;
+    localRegistrationOpensAt: string;
+    localRegistrationClosesAt: string;
+    localCoordinatorLockAt: string;
     startsAt: string;
     endsAt: string;
     registrationOpensAt: string;
@@ -707,6 +763,8 @@ export type AdminEventMutationResult =
         | "template-created"
         | "template-saved"
         | "template-version-created"
+        | "template-version-deleted"
+        | "template-deleted"
         | "template-published"
         | "occurrence-created"
         | "occurrence-updated"
@@ -730,11 +788,14 @@ export type AdminEventMutationResult =
       reason:
         | "slug_in_use"
         | "template_not_publishable"
+        | "template_version_not_deletable"
         | "registration_window_policy_invalid"
         | "regions_not_confirmed"
         | "region_code_in_use"
         | "region_not_retirable"
+        | "coordinator_coverage_required"
         | "occurrence_not_publishable";
+      coordinatorCoverage?: Array<AdminEventCoordinatorCoverageImpact>;
     };
 
 export type AdminEventTemplateDetailResult =

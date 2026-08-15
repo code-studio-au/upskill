@@ -37,7 +37,11 @@ strict application CSP, structured logging, durable audit evidence and
 idempotent queue consumers are implemented. Recoverable access codes are stored
 as authenticated ciphertext with an external per-environment key, indexed by a
 non-secret lookup segment and protected by authorization, audit, eligibility,
-capacity, expiry and revocation controls.
+capacity, expiry and revocation controls. Event Survey QR records use random
+opaque public references; the QR endpoint discloses only a same-origin guarded
+landing URL, and the landing route rechecks authentication, selected/open-entry
+participation, occurrence lifecycle and Section release before exact-Survey
+access.
 
 ### Target Product
 

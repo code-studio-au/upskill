@@ -373,7 +373,8 @@ interface EventTemplateVersionSectionTable {
     | "occurrence_start"
     | "occurrence_end"
     | "final_session_end";
-  releaseOffsetMinutes: number;
+  releaseOffsetAmount: number;
+  releaseOffsetUnit: "minute" | "hour" | "day" | "week" | "month";
   createdAt: Timestamp;
 }
 
@@ -402,6 +403,11 @@ interface EventOccurrenceTable {
     "open_entry" | "required_unrestricted" | "required_restricted";
   approvalMode: "automatic" | "manual";
   timezone: string;
+  localStartsAt: string;
+  localEndsAt: string;
+  localRegistrationOpensAt: string | null;
+  localRegistrationClosesAt: string | null;
+  localCoordinatorLockAt: string | null;
   startsAt: Timestamp;
   endsAt: Timestamp;
   registrationOpensAt: Timestamp | null;
@@ -441,6 +447,8 @@ interface EventSessionTable {
   sessionDefinitionId: string;
   position: number;
   title: string;
+  localStartsAt: string;
+  localEndsAt: string;
   startsAt: Timestamp;
   endsAt: Timestamp;
   presenterRequired: boolean;
@@ -512,11 +520,23 @@ interface EventOccurrenceRescheduleTable {
   id: string;
   eventOccurrenceId: string;
   registrationWindowPolicy: "keep" | "replace_future" | "reopen";
+  previousTimezone: string;
+  previousLocalStartsAt: string;
+  previousLocalEndsAt: string;
+  previousLocalRegistrationOpensAt: string | null;
+  previousLocalRegistrationClosesAt: string | null;
+  previousLocalCoordinatorLockAt: string | null;
   previousStartsAt: Timestamp;
   previousEndsAt: Timestamp;
   previousRegistrationOpensAt: Timestamp | null;
   previousRegistrationClosesAt: Timestamp | null;
   previousCoordinatorLockAt: Timestamp | null;
+  nextTimezone: string;
+  nextLocalStartsAt: string;
+  nextLocalEndsAt: string;
+  nextLocalRegistrationOpensAt: string | null;
+  nextLocalRegistrationClosesAt: string | null;
+  nextLocalCoordinatorLockAt: string | null;
   nextStartsAt: Timestamp;
   nextEndsAt: Timestamp;
   nextRegistrationOpensAt: Timestamp | null;
@@ -610,6 +630,17 @@ interface EventSectionReleaseTable {
   eventParticipationId: string;
   eventTemplateVersionSectionId: string;
   releasedAt: Timestamp;
+}
+
+interface EventSurveyAccessTable {
+  id: string;
+  eventOccurrenceId: string;
+  eventTemplateVersionItemId: string;
+  publicReference: string;
+  generation: Generated<number>;
+  accessPolicy: Generated<"authenticated_participant">;
+  createdAt: Timestamp;
+  revokedAt: Timestamp | null;
 }
 
 interface OrderTable {
@@ -759,6 +790,7 @@ export interface Database {
   event_registration: EventRegistrationTable;
   event_registration_transition: EventRegistrationTransitionTable;
   event_section_release: EventSectionReleaseTable;
+  event_survey_access: EventSurveyAccessTable;
   event_session: EventSessionTable;
   event_template: EventTemplateTable;
   event_template_session_definition: EventTemplateSessionDefinitionTable;

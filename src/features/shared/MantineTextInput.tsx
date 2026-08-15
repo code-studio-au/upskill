@@ -15,6 +15,7 @@ interface MantineTextInputProps {
   inputMode?:
     "decimal" | "email" | "numeric" | "search" | "tel" | "text" | "url";
   label?: string;
+  list?: string;
   max?: number;
   maxLength?: number;
   min?: number;

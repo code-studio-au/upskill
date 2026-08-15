@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
+import { addElapsedDays } from "#/server/time/time.server";
 
 export interface CheckoutSessionSnapshot {
   id: string;
@@ -21,10 +22,6 @@ export interface CheckoutSessionSnapshot {
 
 export type FulfillmentResult =
   "fulfilled" | "already-fulfilled" | "review-required" | "ignored";
-
-function addUtcDays(date: Date, days: number): Date {
-  return new Date(date.getTime() + days * 24 * 60 * 60 * 1_000);
-}
 
 function assertUpskillSession(session: CheckoutSessionSnapshot): string | null {
   if (session.application !== "upskill") return null;
@@ -167,7 +164,7 @@ export async function fulfillCheckoutSession(
           status: "active",
           enrolledAt: now,
           completedAt: null,
-          expiresAt: addUtcDays(now, item.enrollmentDurationDays),
+          expiresAt: addElapsedDays(now, item.enrollmentDurationDays),
           removedAt: null,
         })
         .execute();

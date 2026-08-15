@@ -78,7 +78,8 @@ export async function findLearnerEventWorkspace(
         "description",
         "phase",
         "releaseAnchor",
-        "releaseOffsetMinutes",
+        "releaseOffsetAmount",
+        "releaseOffsetUnit",
       ])
       .where(
         "eventTemplateVersionId",
@@ -150,7 +151,9 @@ export async function findLearnerEventWorkspace(
     sections.map(async (section) => {
       const releaseAt = calculateEventSectionReleaseAt({
         releaseAnchor: section.releaseAnchor,
-        releaseOffsetMinutes: section.releaseOffsetMinutes,
+        releaseOffsetAmount: section.releaseOffsetAmount,
+        releaseOffsetUnit: section.releaseOffsetUnit,
+        timezone: participation.timezone,
         participationCreatedAt: participation.participationCreatedAt,
         occurrenceStartsAt: participation.startsAt,
         occurrenceEndsAt: participation.endsAt,

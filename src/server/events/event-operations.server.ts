@@ -12,12 +12,14 @@ import {
   type EventOperationsAccess,
 } from "./event-operations-access.server";
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
+import { findEventSurveyQrCatalogue } from "./event-survey-access.server";
 
 async function findEventParticipantProgress(
   eventOccurrenceId: string,
   eventTemplateVersionId: string,
   occurrenceStartsAt: string,
   occurrenceEndsAt: string,
+  occurrenceTimezone: string,
   access: EventOperationsAccess,
 ): Promise<Array<EventParticipantProgress>> {
   const administrator = canAdministerEvent(access);
@@ -77,7 +79,8 @@ async function findEventParticipantProgress(
           "title",
           "phase",
           "releaseAnchor",
-          "releaseOffsetMinutes",
+          "releaseOffsetAmount",
+          "releaseOffsetUnit",
         ])
         .where("eventTemplateVersionId", "=", eventTemplateVersionId)
         .orderBy("position")
@@ -164,7 +167,9 @@ async function findEventParticipantProgress(
     const projectedSections = sections.map((section) => {
       const releaseAt = calculateEventSectionReleaseAt({
         releaseAnchor: section.releaseAnchor,
-        releaseOffsetMinutes: section.releaseOffsetMinutes,
+        releaseOffsetAmount: section.releaseOffsetAmount,
+        releaseOffsetUnit: section.releaseOffsetUnit,
+        timezone: occurrenceTimezone,
         participationCreatedAt: participant.createdAt,
         occurrenceStartsAt: occurrenceStart,
         occurrenceEndsAt: occurrenceEnd,
@@ -413,6 +418,7 @@ export async function findEventOperationsWorkspace(
   const presenter =
     access.presentsWholeOccurrence || assignedSessionIds.size > 0;
   const canViewProgress = administrator || coordinator;
+  const canViewSurveyQrCatalogue = administrator || coordinator || presenter;
   const sessions = workspace.sessions
     .filter(
       (session) =>
@@ -452,15 +458,21 @@ export async function findEventOperationsWorkspace(
   if (administrator) roles.push("administrator");
   if (coordinator) roles.push("coordinator");
   if (presenter) roles.push("presenter");
-  const participantProgress = canViewProgress
-    ? await findEventParticipantProgress(
-        eventOccurrenceId,
-        workspace.occurrence.eventTemplateVersionId,
-        workspace.occurrence.startsAt,
-        workspace.occurrence.endsAt,
-        access,
-      )
-    : [];
+  const [participantProgress, surveyQrCatalogue] = await Promise.all([
+    canViewProgress
+      ? findEventParticipantProgress(
+          eventOccurrenceId,
+          workspace.occurrence.eventTemplateVersionId,
+          workspace.occurrence.startsAt,
+          workspace.occurrence.endsAt,
+          workspace.occurrence.timezone,
+          access,
+        )
+      : [],
+    canViewSurveyQrCatalogue
+      ? findEventSurveyQrCatalogue(eventOccurrenceId, access)
+      : [],
+  ]);
 
   return {
     occurrence: {
@@ -483,6 +495,7 @@ export async function findEventOperationsWorkspace(
       canViewRegistrations: administrator || coordinator,
       canRecordAttendance: administrator || coordinator || presenter,
       canViewProgress,
+      canViewSurveyQrCatalogue,
     },
     metrics: {
       registrations: registrations.length,
@@ -529,5 +542,6 @@ export async function findEventOperationsWorkspace(
     })),
     sessions,
     participantProgress,
+    surveyQrCatalogue,
   };
 }

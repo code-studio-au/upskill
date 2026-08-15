@@ -301,9 +301,10 @@ DLQ/outbox monitoring, and operational support tooling.
   one User, accepted Registration, occurrence item and exact Survey Version; it
   is not an authenticated account session.
 - **Event Survey QR Access:** persisted Event Occurrence-owned access record for
-  one exact Survey item and optional Session, with opaque public reference,
-  availability policy and rotation/revocation lifecycle; email/PII is captured
-  after scanning and is never encoded in the QR.
+  one exact Survey item, with opaque public reference, availability policy and
+  rotation/revocation lifecycle; email/PII is captured after scanning and is
+  never encoded in the QR. The current model is occurrence-scoped; an optional
+  Session binding is added only when that relationship becomes explicit.
 - **Coordinator Assignment:** occurrence-and-region-scoped operational
   responsibility shared by one or more Coordinators.
 - **Event Instance Administrator Assignment:** operational ownership record

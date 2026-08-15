@@ -54,7 +54,9 @@ export default defineConfig({
     command: `pnpm run build && ${secureServerPrefix}${testProxyPrefix}APP_ORIGIN=${browserOrigin} LEARNING_ORIGIN=${learningOrigin} pnpm run start:origins`,
     ignoreHTTPSErrors: secure,
     url: `${browserOrigin}/api/health`,
-    reuseExistingServer: !process.env.CI,
+    // Reusing a developer server can direct browser mutations at the normal
+    // local database instead of the disposable test database.
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });
