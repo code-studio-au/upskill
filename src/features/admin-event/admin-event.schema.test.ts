@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminCoordinationRegionSaveSchema,
   adminEventOccurrenceCreateSchema,
   adminEventOccurrenceFormSchema,
   adminEventOccurrenceRescheduleFormSchema,
+  adminEventStaffCandidateSearchSchema,
+  adminEventStaffEligibilityGrantSchema,
   adminEventTemplateCreateSchema,
   normalizeEventDomains,
 } from "./admin-event.schema";
@@ -124,6 +127,91 @@ describe("event administration schemas", () => {
         defaultAdministratorIds: ["admin_1"],
       }).success,
     ).toBe(true);
+  });
+
+  it("requires exact regional scope for coordinator eligibility", () => {
+    expect(
+      adminEventStaffEligibilityGrantSchema.safeParse({
+        email: "presenter@example.com",
+        responsibility: "presenter",
+        regionId: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      adminEventStaffEligibilityGrantSchema.safeParse({
+        email: "coordinator@example.com",
+        responsibility: "coordinator",
+        regionId: "region_north",
+      }).success,
+    ).toBe(true);
+    expect(
+      adminEventStaffEligibilityGrantSchema.safeParse({
+        email: "coordinator@example.com",
+        responsibility: "coordinator",
+        regionId: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      adminEventStaffEligibilityGrantSchema.safeParse({
+        email: "presenter@example.com",
+        responsibility: "presenter",
+        regionId: "region_north",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires enough input and regional scope for staff autocomplete", () => {
+    expect(
+      adminEventStaffCandidateSearchSchema.safeParse({
+        q: "pre",
+        responsibility: "presenter",
+        regionId: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      adminEventStaffCandidateSearchSchema.safeParse({
+        q: "coordinator",
+        responsibility: "coordinator",
+        regionId: "region_north",
+      }).success,
+    ).toBe(true);
+    expect(
+      adminEventStaffCandidateSearchSchema.safeParse({
+        q: "c",
+        responsibility: "coordinator",
+        regionId: "region_north",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps region groups above selectable operational regions", () => {
+    expect(
+      adminCoordinationRegionSaveSchema.safeParse({
+        regionId: null,
+        name: "New South Wales",
+        code: "NSW",
+        kind: "group",
+        parentId: null,
+      }).success,
+    ).toBe(true);
+    expect(
+      adminCoordinationRegionSaveSchema.safeParse({
+        regionId: null,
+        name: "Sydney Local Health District",
+        code: "SLHD",
+        kind: "operational",
+        parentId: "region_group_nsw",
+      }).success,
+    ).toBe(true);
+    expect(
+      adminCoordinationRegionSaveSchema.safeParse({
+        regionId: null,
+        name: "Nested group",
+        code: "NESTED",
+        kind: "group",
+        parentId: "region_group_nsw",
+      }).success,
+    ).toBe(false);
   });
 
   it("requires confirmed, uniquely owned regional reschedule coverage", () => {

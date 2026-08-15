@@ -55,6 +55,100 @@ export const adminEventTemplateParamsSchema = z.object({
   eventTemplateId: identifierSchema,
 });
 
+export const adminEventStaffEligibilityGrantSchema = z
+  .object({
+    email: z.email("Enter a valid user email address.").check(z.maxLength(320)),
+    responsibility: z.enum(["presenter", "coordinator"]),
+    regionId: z.nullable(identifierSchema),
+  })
+  .check(
+    z.superRefine((value, context) => {
+      if (value.responsibility === "presenter" && value.regionId !== null)
+        context.addIssue({
+          code: "custom",
+          path: ["regionId"],
+          message: "Presenter eligibility is not region-specific.",
+        });
+      if (value.responsibility === "coordinator" && value.regionId === null)
+        context.addIssue({
+          code: "custom",
+          path: ["regionId"],
+          message: "Select the coordinator's region.",
+        });
+    }),
+  );
+
+export const adminEventStaffEligibilityParamsSchema = z.object({
+  eligibilityId: identifierSchema,
+});
+
+export const adminEventStaffCandidateSearchSchema = z
+  .object({
+    q: z.string().check(z.trim(), z.minLength(2), z.maxLength(100)),
+    responsibility: z.enum(["presenter", "coordinator"]),
+    regionId: z.nullable(identifierSchema),
+  })
+  .check(
+    z.superRefine((value, context) => {
+      if (value.responsibility === "presenter" && value.regionId !== null)
+        context.addIssue({
+          code: "custom",
+          path: ["regionId"],
+          message: "Presenter search is not region-specific.",
+        });
+      if (value.responsibility === "coordinator" && value.regionId === null)
+        context.addIssue({
+          code: "custom",
+          path: ["regionId"],
+          message: "Select the coordinator's region before searching.",
+        });
+    }),
+  );
+
+export const adminCoordinationRegionSaveSchema = z
+  .object({
+    regionId: z.nullable(identifierSchema),
+    name: boundedText(160, "Enter a region name."),
+    code: z
+      .string()
+      .check(
+        z.trim(),
+        z.minLength(2, "Enter a region code."),
+        z.maxLength(40),
+        z.regex(
+          /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/u,
+          "Use letters, numbers and hyphens only.",
+        ),
+      ),
+    kind: z.enum(["group", "operational"]),
+    parentId: z.nullable(identifierSchema),
+  })
+  .check(
+    z.superRefine((value, context) => {
+      if (value.kind === "group" && value.parentId !== null)
+        context.addIssue({
+          code: "custom",
+          path: ["parentId"],
+          message: "Region groups must be top-level.",
+        });
+      if (value.regionId !== null && value.regionId === value.parentId)
+        context.addIssue({
+          code: "custom",
+          path: ["parentId"],
+          message: "A region cannot be its own parent.",
+        });
+    }),
+  );
+
+export const adminCoordinationRegionStatusSchema = z.object({
+  regionId: identifierSchema,
+  status: z.enum(["active", "retired"]),
+});
+
+export type AdminCoordinationRegionSaveInput = z.infer<
+  typeof adminCoordinationRegionSaveSchema
+>;
+
 const eventTemplateItemBase = {
   id: identifierSchema,
   title: boundedText(200, "Enter an item title."),
@@ -434,7 +528,13 @@ export type AdminEventOccurrenceRegionalCoverageInput = z.infer<
 >["regionalCoverage"];
 
 export interface AdminEventOccurrenceRegionalCoverageOptions {
-  availableRegions: Array<{ id: string; name: string; code: string }>;
+  availableRegions: Array<{
+    id: string;
+    name: string;
+    code: string;
+    parentName: string | null;
+  }>;
+  availableCoordinators: Array<AdminEventPersonOption & { regionId: string }>;
   availableUsers: Array<AdminEventPersonOption>;
   currentRegions: Array<{
     regionId: string;
@@ -473,10 +573,20 @@ export type AdminEventTemplateItem = z.infer<
   typeof adminEventTemplateItemSchema
 >;
 
-interface AdminEventPersonOption {
+export interface AdminEventPersonOption {
   id: string;
   name: string;
   email: string;
+}
+
+interface AdminEventPresenterOption extends AdminEventPersonOption {
+  eligibilityId: string;
+}
+
+interface AdminEventCoordinatorOption extends AdminEventPersonOption {
+  eligibilityId: string;
+  regionId: string;
+  regionName: string;
 }
 
 export interface AdminEventTemplateDetail {
@@ -499,9 +609,17 @@ export interface AdminEventTemplateDetail {
   draft: AdminEventTemplateDraft;
   people: {
     platformAdministrators: Array<AdminEventPersonOption>;
+    coordinators: Array<AdminEventCoordinatorOption>;
+    presenters: Array<AdminEventPresenterOption>;
     users: Array<AdminEventPersonOption>;
   };
-  regions: Array<{ id: string; name: string; code: string }>;
+  regions: Array<{
+    id: string;
+    name: string;
+    code: string;
+    parentId: string | null;
+    parentName: string | null;
+  }>;
   library: {
     modules: Array<{ id: string; title: string; version: number }>;
     surveys: Array<{ id: string; title: string; version: number }>;
@@ -527,6 +645,17 @@ export interface AdminEventWorkspace {
     version: number;
   }>;
   platformAdministrators: Array<AdminEventPersonOption>;
+  coordinators: Array<AdminEventCoordinatorOption>;
+  presenters: Array<AdminEventPresenterOption>;
+  regions: Array<{
+    id: string;
+    name: string;
+    code: string;
+    kind: "group" | "operational";
+    status: "active" | "retired";
+    parentId: string | null;
+    parentName: string | null;
+  }>;
   occurrences: Array<{
     id: string;
     eventTemplateVersionId: string;
@@ -572,10 +701,18 @@ export type AdminEventMutationResult =
         | "occurrence-created"
         | "occurrence-updated"
         | "occurrence-rescheduled"
-        | "occurrence-published";
+        | "occurrence-published"
+        | "staff-eligibility-granted"
+        | "staff-eligibility-revoked"
+        | "region-created"
+        | "region-updated"
+        | "region-retired"
+        | "region-reactivated";
       eventTemplateId?: string;
       eventTemplateVersionId?: string;
       eventOccurrenceId?: string;
+      eligibilityId?: string;
+      regionId?: string;
     }>
   | { status: "not-found" }
   | {
@@ -585,6 +722,8 @@ export type AdminEventMutationResult =
         | "template_not_publishable"
         | "registration_window_policy_invalid"
         | "regions_not_confirmed"
+        | "region_code_in_use"
+        | "region_not_retirable"
         | "occurrence_not_publishable";
     };
 

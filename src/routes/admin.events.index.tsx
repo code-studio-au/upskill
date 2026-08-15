@@ -29,13 +29,27 @@ import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import { z } from "#/validation/zod";
 
 const adminEventsSearchSchema = z.object({
-  view: z.catch(z.enum(["occurrences", "templates"]), "occurrences"),
+  view: z.catch(
+    z.enum(["occurrences", "templates", "staff", "regions"]),
+    "occurrences",
+  ),
 });
 
 const AdminEventOccurrenceDialog = lazy(async () => {
   const module =
     await import("#/features/admin-event/AdminEventOccurrenceDialog");
   return { default: module.AdminEventOccurrenceDialog };
+});
+
+const AdminEventStaffRoster = lazy(async () => {
+  const module = await import("#/features/admin-event/AdminEventStaffRoster");
+  return { default: module.AdminEventStaffRoster };
+});
+
+const AdminCoordinationRegionDirectory = lazy(async () => {
+  const module =
+    await import("#/features/admin-event/AdminCoordinationRegionDirectory");
+  return { default: module.AdminCoordinationRegionDirectory };
 });
 
 export const Route = createFileRoute("/admin/events/")({
@@ -141,7 +155,7 @@ function AdminEventsPage() {
           >
             Create template
           </Button>
-        ) : (
+        ) : search.view === "occurrences" ? (
           <Button
             disabled={workspace.publishedVersions.length === 0}
             onClick={() => {
@@ -151,7 +165,7 @@ function AdminEventsPage() {
           >
             Schedule occurrence
           </Button>
-        )}
+        ) : null}
       </Group>
 
       {error ? <Alert color="red">{error}</Alert> : null}
@@ -167,6 +181,14 @@ function AdminEventsPage() {
           {
             value: "templates",
             label: `Templates (${String(workspace.templates.length)})`,
+          },
+          {
+            value: "staff",
+            label: `Event staff (${String(workspace.presenters.length + workspace.coordinators.length)})`,
+          },
+          {
+            value: "regions",
+            label: `Regions (${String(workspace.regions.length)})`,
           },
         ]}
         onChange={(view) => void navigate({ search: { view } })}
@@ -235,7 +257,7 @@ function AdminEventsPage() {
             )}
           </Stack>
         </section>
-      ) : (
+      ) : search.view === "occurrences" ? (
         <section aria-labelledby="event-occurrences-heading">
           <Stack gap="md">
             <div>
@@ -351,6 +373,26 @@ function AdminEventsPage() {
             )}
           </Stack>
         </section>
+      ) : search.view === "staff" ? (
+        <Suspense fallback={<LoadingSpinner label="Loading event staff" />}>
+          <AdminEventStaffRoster
+            presenters={workspace.presenters}
+            coordinators={workspace.coordinators}
+            regions={workspace.regions}
+            onChanged={async () => {
+              await refresh();
+            }}
+          />
+        </Suspense>
+      ) : (
+        <Suspense fallback={<LoadingSpinner label="Loading regions" />}>
+          <AdminCoordinationRegionDirectory
+            regions={workspace.regions}
+            onChanged={async () => {
+              await refresh();
+            }}
+          />
+        </Suspense>
       )}
 
       <Suspense fallback={<LoadingSpinner label="Loading event editor" />}>

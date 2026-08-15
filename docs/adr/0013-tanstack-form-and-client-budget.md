@@ -79,6 +79,27 @@ requiring a Brotli cap change, so the raw aggregate cap ratchets by 2 KB. A
 stricter 4 KB gzip route cap now constrains `/my-events`; root preload,
 largest-asset and general per-route incremental limits remain unchanged.
 
+The Event Staff eligibility roster and hierarchical Coordination Region
+directory are separate conditional chunks loaded only from their corresponding
+Event administration tabs. The complete all-route build measures 701,738 raw
+JavaScript bytes and 203,536 Brotli bytes after adding the server-backed staff
+autocomplete, exact regional Coordinator eligibility and region-directory
+forms. Aggregate caps therefore ratchet by 16 KB raw and 6 KB Brotli. Named
+2.25 KB gzip caps constrain each new conditional chunk; root preload,
+largest-asset and per-route limits remain unchanged. The Template loader returns
+only eligible candidates and already-referenced historical staff, never the
+full User directory.
+
+The staff email field uses Mantine's CSP-safe `Autocomplete`, including its
+Combobox, Popover and floating-positioning dependencies, rather than an
+application wrapper or native datalist. The measured cost is intentionally
+contained in the already conditional Event Staff roster chunk; it does not
+enter the public or root preload boundary. The complete all-route build measures
+801,936 raw JavaScript bytes and 231,030 Brotli bytes, while the conditional
+Staff roster chunk measures 32.15 KB gzip. Its explicit cap therefore ratchets
+to 34 KB, and aggregate caps to 803 KB raw and 233 KB Brotli. Root preload,
+largest-asset and per-route limits remain unchanged.
+
 ## Consequences
 
 Validation, dirty/touched state and loading behavior now have one consistent

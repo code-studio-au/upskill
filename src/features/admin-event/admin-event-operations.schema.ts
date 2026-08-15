@@ -142,7 +142,13 @@ export interface AdminEventOccurrenceOperations {
   }>;
   administrators: Array<EventPerson>;
   availableUsers: Array<EventPerson>;
-  availableRegions: Array<{ id: string; name: string; code: string }>;
+  availableCoordinators: Array<EventPerson & { regionId: string }>;
+  availableRegions: Array<{
+    id: string;
+    name: string;
+    code: string;
+    parentName: string | null;
+  }>;
   reschedules: Array<{
     id: string;
     registrationWindowPolicy: "keep" | "replace_future" | "reopen";

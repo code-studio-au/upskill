@@ -1,21 +1,24 @@
-import { Badge } from "#/features/shared/Badge";
-import { MantineTextInput } from "#/features/shared/MantineTextInput";
-import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
-import { Alert, Button, Group, Text } from "#/features/shared/mantine";
 import {
   createColumnHelper,
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
 import { useMemo } from "react";
-import { decideEventCoordinatorRegistration } from "#/server/functions/event-operations";
-import type { EventOperationsWorkspace } from "./event-operations.schema";
-import type { EventOperationsAction } from "./EventOperationsOverview";
+import type {
+  AdminEventOccurrenceOperations,
+  EventRegistrationStatus,
+} from "./admin-event-operations.schema";
+import classes from "./AdminEventRegistrationTable.module.css";
+import { Badge } from "#/features/shared/Badge";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
+import { Button, Group, Text } from "#/features/shared/mantine";
+import {
+  decideAdminEventCoordinatorRegistration,
+  decideAdminEventFinalRegistration,
+} from "#/server/functions/admin-event-operations";
 
-const statusLabels: Record<
-  EventOperationsWorkspace["registrations"][number]["status"],
-  string
-> = {
+const statusLabels: Record<EventRegistrationStatus, string> = {
   submitted: "Submitted",
   coordinator_approved: "Candidate",
   coordinator_declined: "Not approved",
@@ -25,7 +28,8 @@ const statusLabels: Record<
   withdrawn: "Withdrawn",
   cancelled: "Cancelled",
 };
-type Registration = EventOperationsWorkspace["registrations"][number];
+
+type Registration = AdminEventOccurrenceOperations["registrations"][number];
 type RegistrationRow = Registration & { reviewLocked: boolean };
 const registrationTableFeatures = tableFeatures({});
 const registrationColumn = createColumnHelper<
@@ -33,18 +37,23 @@ const registrationColumn = createColumnHelper<
   RegistrationRow
 >();
 
-export function EventOperationsRegistrationReview({
+export function AdminEventRegistrationTable({
   workspace,
   priorities,
   processingId,
+  mutationsAvailable,
   setPriorities,
   action,
 }: {
-  workspace: EventOperationsWorkspace;
+  workspace: AdminEventOccurrenceOperations;
   priorities: Record<string, string>;
   processingId: string | null;
+  mutationsAvailable: boolean;
   setPriorities: React.Dispatch<React.SetStateAction<Record<string, string>>>;
-  action: EventOperationsAction;
+  action: (
+    id: string,
+    operation: () => Promise<{ status: string; reason?: string }>,
+  ) => Promise<void>;
 }) {
   const data = useMemo(
     () =>
@@ -53,7 +62,7 @@ export function EventOperationsRegistrationReview({
         reviewLocked:
           workspace.regions.find(
             (candidate) => candidate.id === registration.regionId,
-          )?.effectivelyLocked ?? true,
+          )?.effectivelyLocked ?? false,
       })),
     [workspace.regions, workspace.registrations],
   );
@@ -64,7 +73,7 @@ export function EventOperationsRegistrationReview({
           header: "Learner",
           cell: ({ row }) => (
             <div>
-              <Text fw={700}>{row.original.name}</Text>
+              <Text fw={600}>{row.original.name}</Text>
               <Text c="dimmed" size="sm">
                 {row.original.email}
               </Text>
@@ -72,13 +81,18 @@ export function EventOperationsRegistrationReview({
           ),
         }),
         registrationColumn.accessor(
-          (registration) => registration.regionName ?? "No region",
+          (registration) => registration.regionName ?? "Direct / unregional",
           { id: "region", header: "Region" },
         ),
         registrationColumn.accessor("status", {
           header: "Status",
           cell: ({ row }) => (
-            <Badge variant="light">{statusLabels[row.original.status]}</Badge>
+            <Badge
+              variant="light"
+              color={row.original.status === "selected" ? "green" : "blue"}
+            >
+              {statusLabels[row.original.status]}
+            </Badge>
           ),
         }),
         registrationColumn.display({
@@ -95,7 +109,8 @@ export function EventOperationsRegistrationReview({
                   priorities[registration.id] ??
                   String(registration.coordinatorPriority ?? "")
                 }
-                disabled={registration.reviewLocked}
+                classNames={{ input: classes.priority }}
+                disabled={!mutationsAvailable || registration.reviewLocked}
                 onChange={(event) => {
                   const value = event.currentTarget.value;
                   setPriorities((current) => ({
@@ -108,22 +123,24 @@ export function EventOperationsRegistrationReview({
           },
         }),
         registrationColumn.display({
-          id: "review",
-          header: "Review",
+          id: "coordinatorReview",
+          header: "Coordinator review",
           cell: ({ row }) => {
             const registration = row.original;
             return (
-              <Group gap="sm" wrap="wrap">
+              <Group gap="xs" wrap="wrap">
                 <Button
-                  size="sm"
+                  size="xs"
                   variant="light"
                   disabled={
-                    !registration.reviewRoundId || registration.reviewLocked
+                    !mutationsAvailable ||
+                    !registration.reviewRoundId ||
+                    registration.reviewLocked
                   }
                   loading={processingId === `approve-${registration.id}`}
                   onClick={() =>
                     void action(`approve-${registration.id}`, () =>
-                      decideEventCoordinatorRegistration({
+                      decideAdminEventCoordinatorRegistration({
                         data: {
                           eventOccurrenceId: workspace.occurrence.id,
                           registrationId: registration.id,
@@ -139,16 +156,18 @@ export function EventOperationsRegistrationReview({
                   Approve
                 </Button>
                 <Button
-                  size="sm"
+                  size="xs"
                   variant="subtle"
                   color="red"
                   disabled={
-                    !registration.reviewRoundId || registration.reviewLocked
+                    !mutationsAvailable ||
+                    !registration.reviewRoundId ||
+                    registration.reviewLocked
                   }
                   loading={processingId === `decline-${registration.id}`}
                   onClick={() =>
                     void action(`decline-${registration.id}`, () =>
-                      decideEventCoordinatorRegistration({
+                      decideAdminEventCoordinatorRegistration({
                         data: {
                           eventOccurrenceId: workspace.occurrence.id,
                           registrationId: registration.id,
@@ -165,24 +184,71 @@ export function EventOperationsRegistrationReview({
             );
           },
         }),
+        registrationColumn.display({
+          id: "finalDecision",
+          header: "Final decision",
+          cell: ({ row }) => {
+            const registration = row.original;
+            if (!mutationsAvailable) return null;
+            return (
+              <Group gap="xs" wrap="wrap">
+                {(
+                  [
+                    "selected",
+                    "waitlisted",
+                    "not_selected",
+                    "cancelled",
+                  ] as const
+                ).map((decision) => (
+                  <Button
+                    key={decision}
+                    size="xs"
+                    variant={decision === "selected" ? "filled" : "subtle"}
+                    {...(decision === "cancelled"
+                      ? { color: "red" as const }
+                      : {})}
+                    loading={processingId === `${decision}-${registration.id}`}
+                    onClick={() =>
+                      void action(`${decision}-${registration.id}`, () =>
+                        decideAdminEventFinalRegistration({
+                          data: {
+                            eventOccurrenceId: workspace.occurrence.id,
+                            registrationId: registration.id,
+                            decision,
+                          },
+                        }),
+                      )
+                    }
+                  >
+                    {decision === "selected"
+                      ? "Confirm"
+                      : decision.replaceAll("_", " ")}
+                  </Button>
+                ))}
+              </Group>
+            );
+          },
+        }),
       ]),
-    [action, priorities, processingId, setPriorities, workspace.occurrence.id],
+    [
+      action,
+      mutationsAvailable,
+      priorities,
+      processingId,
+      setPriorities,
+      workspace.occurrence.id,
+    ],
   );
   const table = useTable({
     features: registrationTableFeatures,
     columns,
     data,
   });
-  if (!workspace.registrations.length)
-    return (
-      <Alert title="No assigned registrations">
-        Registrations for your assigned regions will appear here.
-      </Alert>
-    );
+
   return (
     <ResponsiveDataTable
       table={table}
-      caption="Learner registrations assigned for coordinator review"
+      caption="Learner registrations, regional review and final decisions"
     />
   );
 }

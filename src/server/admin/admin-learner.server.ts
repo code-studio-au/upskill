@@ -144,7 +144,7 @@ export async function findAdminLearners(
       activeEnrollments: row.activeEnrollments,
       completedEnrollments: row.completedEnrollments,
     })),
-    pagination: { page, pages, total: countRow.count },
+    pagination: { page, pages, total: countRow.count, pageSize: PAGE_SIZE },
     query: input.q,
   };
 }

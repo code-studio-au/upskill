@@ -572,28 +572,20 @@ export function AdminEventTemplateEditor({
                           <Text fw={600} size="sm">
                             Default presenters
                           </Text>
-                          {detail.people.users.map((person) => (
-                            <MantineCheckbox
-                              key={person.id}
-                              label={`${person.name} · ${person.email}`}
-                              checked={item.presenterIds.includes(person.id)}
-                              disabled={!detail.version.editable}
-                              onChange={(checked) => {
-                                updateItem(section.id, item.id, (current) =>
-                                  current.kind === "session"
-                                    ? {
-                                        ...current,
-                                        presenterIds: toggle(
-                                          current.presenterIds,
-                                          person.id,
-                                          checked,
-                                        ),
-                                      }
-                                    : current,
-                                );
-                              }}
-                            />
-                          ))}
+                          <StaffPicker
+                            label="Presenter"
+                            candidates={detail.people.presenters}
+                            people={detail.people.users}
+                            selectedIds={item.presenterIds}
+                            disabled={!detail.version.editable}
+                            onChange={(presenterIds) => {
+                              updateItem(section.id, item.id, (current) =>
+                                current.kind === "session"
+                                  ? { ...current, presenterIds }
+                                  : current,
+                              );
+                            }}
+                          />
                         </>
                       ) : null}
                     </Stack>
@@ -674,7 +666,14 @@ export function AdminEventTemplateEditor({
                 return (
                   <Stack key={region.regionId} gap="xs">
                     <Group justify="space-between">
-                      <Text fw={700}>{option?.name ?? region.regionId}</Text>
+                      <div>
+                        <Text fw={700}>{option?.name ?? region.regionId}</Text>
+                        {option?.parentName ? (
+                          <Text c="dimmed" size="xs">
+                            {option.parentName}
+                          </Text>
+                        ) : null}
+                      </div>
                       {detail.version.editable ? (
                         <Button
                           size="xs"
@@ -694,31 +693,26 @@ export function AdminEventTemplateEditor({
                         </Button>
                       ) : null}
                     </Group>
-                    {detail.people.users.map((person) => (
-                      <MantineCheckbox
-                        key={person.id}
-                        label={`${person.name} · ${person.email}`}
-                        checked={region.coordinatorIds.includes(person.id)}
-                        disabled={!detail.version.editable}
-                        onChange={(checked) => {
-                          setDraft((current) => ({
-                            ...current,
-                            regions: current.regions.map((candidate) =>
-                              candidate.regionId === region.regionId
-                                ? {
-                                    ...candidate,
-                                    coordinatorIds: toggle(
-                                      candidate.coordinatorIds,
-                                      person.id,
-                                      checked,
-                                    ),
-                                  }
-                                : candidate,
-                            ),
-                          }));
-                        }}
-                      />
-                    ))}
+                    <StaffPicker
+                      label="Coordinator"
+                      candidates={detail.people.coordinators.filter(
+                        (coordinator) =>
+                          coordinator.regionId === region.regionId,
+                      )}
+                      people={detail.people.users}
+                      selectedIds={region.coordinatorIds}
+                      disabled={!detail.version.editable}
+                      onChange={(coordinatorIds) => {
+                        setDraft((current) => ({
+                          ...current,
+                          regions: current.regions.map((candidate) =>
+                            candidate.regionId === region.regionId
+                              ? { ...candidate, coordinatorIds }
+                              : candidate,
+                          ),
+                        }));
+                      }}
+                    />
                     <hr className={classes.divider} />
                   </Stack>
                 );
@@ -738,7 +732,7 @@ export function AdminEventTemplateEditor({
                       )
                       .map((region) => ({
                         value: region.id,
-                        label: `${region.name} · ${region.code}`,
+                        label: `${region.parentName ? `${region.parentName} — ` : ""}${region.name} · ${region.code}`,
                       })),
                   ]}
                   onChange={(event) => {
@@ -757,6 +751,108 @@ export function AdminEventTemplateEditor({
             </Stack>
           </Paper>
         </Stack>
+      ) : null}
+    </Stack>
+  );
+}
+
+function StaffPicker({
+  label,
+  candidates,
+  people,
+  selectedIds,
+  disabled,
+  onChange,
+}: {
+  label: "Presenter" | "Coordinator";
+  candidates: Array<{ id: string; name: string; email: string }>;
+  people: Array<{ id: string; name: string; email: string }>;
+  selectedIds: Array<string>;
+  disabled: boolean;
+  onChange: (selectedIds: Array<string>) => void;
+}) {
+  const [candidateId, setCandidateId] = useState("");
+  const candidateIds = new Set(candidates.map((candidate) => candidate.id));
+  const available = candidates.filter(
+    (candidate) => !selectedIds.includes(candidate.id),
+  );
+
+  return (
+    <Stack gap="xs">
+      {selectedIds.length ? (
+        selectedIds.map((personId) => {
+          const person = people.find((candidate) => candidate.id === personId);
+          const eligible = candidateIds.has(personId);
+          return (
+            <Paper withBorder radius="md" p="sm" key={personId}>
+              <Group justify="space-between" align="center" wrap="wrap">
+                <div>
+                  <Text fw={600}>{person?.name ?? "Unknown user"}</Text>
+                  <Text c="dimmed" size="xs">
+                    {person?.email ?? personId}
+                  </Text>
+                  {!eligible ? (
+                    <Text c="red.7" size="xs" fw={600}>
+                      No longer eligible for new assignments
+                    </Text>
+                  ) : null}
+                </div>
+                {!disabled ? (
+                  <Button
+                    size="xs"
+                    color="red"
+                    variant="subtle"
+                    onClick={() => {
+                      onChange(selectedIds.filter((id) => id !== personId));
+                    }}
+                  >
+                    Remove
+                  </Button>
+                ) : null}
+              </Group>
+            </Paper>
+          );
+        })
+      ) : (
+        <Text c="dimmed" size="sm">
+          No {label.toLocaleLowerCase("en-AU")} assigned.
+        </Text>
+      )}
+      {!disabled ? (
+        <Group align="end" wrap="wrap" grow>
+          <MantineNativeSelect
+            label={`Add ${label.toLocaleLowerCase("en-AU")}`}
+            value={candidateId}
+            disabled={available.length === 0}
+            data={[
+              {
+                value: "",
+                label: available.length
+                  ? `Select ${label.toLocaleLowerCase("en-AU")}`
+                  : `No eligible ${label.toLocaleLowerCase("en-AU")}s available`,
+                disabled: true,
+              },
+              ...available.map((candidate) => ({
+                value: candidate.id,
+                label: `${candidate.name} · ${candidate.email}`,
+              })),
+            ]}
+            onChange={(event) => {
+              setCandidateId(event.currentTarget.value);
+            }}
+          />
+          <Button
+            variant="light"
+            disabled={!candidateId}
+            onClick={() => {
+              if (!candidateId) return;
+              onChange([...selectedIds, candidateId]);
+              setCandidateId("");
+            }}
+          >
+            Add
+          </Button>
+        </Group>
       ) : null}
     </Stack>
   );

@@ -75,6 +75,7 @@ try {
     "survey_response",
     "survey_version",
     "user",
+    "event_staff_eligibility",
   ];
   const result = await sql<{
     table_name: string;
@@ -125,6 +126,9 @@ try {
     "scorm_launch_token_attempt_idx",
     "survey_response_enrollment_idx",
     "survey_progress_enrollment_idx",
+    "event_presenter_eligibility_active_uq",
+    "event_coordinator_eligibility_active_uq",
+    "coordination_region_code_unique_uq",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -138,6 +142,21 @@ try {
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
+  const eventDirectoryConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'coordination_region_kind_ck',
+          'coordination_region_code_uppercase_ck',
+          'event_staff_eligibility_responsibility_ck',
+          'event_staff_eligibility_revocation_ck'
+        )`.execute(db);
+  assert.equal(
+    eventDirectoryConstraints.rows.length,
+    4,
+    "Event staff and region-directory constraints must exist",
+  );
   const eventTemplateColumns = await sql<{
     column_name: string;
   }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'event_template'`.execute(

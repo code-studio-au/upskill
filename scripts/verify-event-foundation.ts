@@ -4,9 +4,13 @@ import { sql } from "kysely";
 import {
   createAdminEventOccurrence,
   createAdminEventTemplate,
+  findAdminEventStaffCandidates,
+  grantAdminEventStaffEligibility,
   publishAdminEventOccurrence,
   publishAdminEventTemplateVersion,
   rescheduleAdminEventOccurrence,
+  revokeAdminEventStaffEligibility,
+  saveAdminCoordinationRegion,
   saveAdminEventTemplateDraft,
   updateAdminEventOccurrence,
 } from "#/server/admin/admin-event.server";
@@ -59,6 +63,7 @@ const addedCoordinationRegionId = `coordination_region_added_${suffix}`;
 let eventTemplateId: string | null = null;
 let eventTemplateVersionId: string | null = null;
 let eventOccurrenceId: string | null = null;
+let coordinationRegionGroupId: string | null = null;
 
 async function cleanup(): Promise<void> {
   if (eventOccurrenceId) {
@@ -190,39 +195,41 @@ async function cleanup(): Promise<void> {
       .deleteFrom("event_template")
       .where("id", "=", eventTemplateId)
       .execute();
-  await database
-    .deleteFrom("outbox_event")
-    .where("aggregateId", "in", [
-      ...(eventTemplateId ? [eventTemplateId] : []),
-      ...(eventOccurrenceId ? [eventOccurrenceId] : []),
-    ])
-    .execute();
+  const aggregateIds = [
+    ...(eventTemplateId ? [eventTemplateId] : []),
+    ...(eventOccurrenceId ? [eventOccurrenceId] : []),
+  ];
+  if (aggregateIds.length)
+    await database
+      .deleteFrom("outbox_event")
+      .where("aggregateId", "in", aggregateIds)
+      .execute();
   await database.transaction().execute(async (transaction) => {
     await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
       transaction,
     );
     await transaction
       .deleteFrom("audit_event")
-      .where((expression) =>
-        expression.or([
-          expression("subjectId", "in", [
-            ...(eventTemplateId ? [eventTemplateId] : []),
-            ...(eventTemplateVersionId ? [eventTemplateVersionId] : []),
-            ...(eventOccurrenceId ? [eventOccurrenceId] : []),
-          ]),
-          expression("actorUserId", "in", [
-            administrator.id,
-            learner.id,
-            coordinator.id,
-            presenter.id,
-          ]),
-        ]),
-      )
+      .where("actorUserId", "in", [
+        administrator.id,
+        learner.id,
+        coordinator.id,
+        presenter.id,
+      ])
       .execute();
   });
   await database
     .deleteFrom("platform_admin")
     .where("userId", "=", administrator.id)
+    .execute();
+  await database
+    .deleteFrom("event_staff_eligibility")
+    .where("userId", "in", [
+      administrator.id,
+      learner.id,
+      coordinator.id,
+      presenter.id,
+    ])
     .execute();
   await database
     .deleteFrom("user")
@@ -237,6 +244,11 @@ async function cleanup(): Promise<void> {
     .deleteFrom("coordination_region")
     .where("id", "in", [coordinationRegionId, addedCoordinationRegionId])
     .execute();
+  if (coordinationRegionGroupId)
+    await database
+      .deleteFrom("coordination_region")
+      .where("id", "=", coordinationRegionGroupId)
+      .execute();
 }
 
 try {
@@ -272,15 +284,17 @@ try {
       {
         id: coordinationRegionId,
         parentId: null,
-        code: `VERIFY-${suffix}`,
+        code: `VERIFY-${suffix}`.toLocaleUpperCase("en-AU"),
         name: "Verification region",
+        kind: "operational",
         status: "active",
       },
       {
         id: addedCoordinationRegionId,
         parentId: null,
-        code: `VERIFY-ADDED-${suffix}`,
+        code: `VERIFY-ADDED-${suffix}`.toLocaleUpperCase("en-AU"),
         name: "Added verification region",
+        kind: "operational",
         status: "active",
       },
     ])
@@ -298,6 +312,129 @@ try {
       emailVerified: true,
     })
     .execute();
+
+  const createdGroup = await saveAdminCoordinationRegion(
+    {
+      regionId: null,
+      name: "Verification jurisdiction",
+      code: `verify-group-${suffix}`,
+      kind: "group",
+      parentId: null,
+    },
+    administrator,
+  );
+  assert.equal(createdGroup.status, "created");
+  assert.ok("regionId" in createdGroup);
+  coordinationRegionGroupId = createdGroup.regionId;
+  assert.deepEqual(
+    await saveAdminCoordinationRegion(
+      {
+        regionId: coordinationRegionId,
+        name: "Verification region",
+        code: `verify-${suffix}`,
+        kind: "operational",
+        parentId: coordinationRegionGroupId,
+      },
+      administrator,
+    ),
+    { status: "updated", regionId: coordinationRegionId },
+  );
+
+  assert.equal(
+    (
+      await grantAdminEventStaffEligibility(
+        {
+          email: coordinator.email,
+          responsibility: "coordinator",
+          regionId: coordinationRegionId,
+        },
+        administrator,
+      )
+    )?.status,
+    "granted",
+  );
+  assert.equal(
+    (
+      await grantAdminEventStaffEligibility(
+        {
+          email: presenter.email,
+          responsibility: "presenter",
+          regionId: null,
+        },
+        administrator,
+      )
+    )?.status,
+    "granted",
+  );
+  assert.equal(
+    (
+      await grantAdminEventStaffEligibility(
+        {
+          email: administrator.email,
+          responsibility: "coordinator",
+          regionId: addedCoordinationRegionId,
+        },
+        administrator,
+      )
+    )?.status,
+    "granted",
+  );
+  const temporaryEligibility = await grantAdminEventStaffEligibility(
+    {
+      email: learner.email,
+      responsibility: "presenter",
+      regionId: null,
+    },
+    administrator,
+  );
+  assert.ok(temporaryEligibility);
+  assert.equal(
+    await revokeAdminEventStaffEligibility(
+      temporaryEligibility.eligibilityId,
+      administrator,
+    ),
+    "revoked",
+  );
+  assert.equal(
+    (
+      await findAdminEventStaffCandidates({
+        q: presenter.email,
+        responsibility: "presenter",
+        regionId: null,
+      })
+    ).length,
+    0,
+  );
+  assert.deepEqual(
+    (
+      await findAdminEventStaffCandidates({
+        q: learner.email,
+        responsibility: "presenter",
+        regionId: null,
+      })
+    ).map((candidate) => candidate.id),
+    [learner.id],
+  );
+  assert.equal(
+    (
+      await findAdminEventStaffCandidates({
+        q: coordinator.email,
+        responsibility: "coordinator",
+        regionId: coordinationRegionId,
+      })
+    ).length,
+    0,
+  );
+  assert.deepEqual(
+    (
+      await findAdminEventStaffCandidates({
+        q: coordinator.email,
+        responsibility: "coordinator",
+        regionId: addedCoordinationRegionId,
+      })
+    ).map((candidate) => candidate.id),
+    [coordinator.id],
+  );
 
   const createdTemplate = await createAdminEventTemplate(
     {

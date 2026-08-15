@@ -223,6 +223,12 @@ notifies the assigned Event Instance Administrators. Once locked, only a
 Platform Administrator can reopen it under the defined audited workflow.
 Coordinators cannot change final administrator selection or confirmation.
 
+Coordinator roster eligibility is recorded per Coordination Region and only
+constrains who may be selected as a default for that region on new Template
+Versions. A User may be eligible in multiple regions. Roster eligibility grants
+no Event or participant access; that authority begins only with an active
+occurrence-and-region Coordinator assignment.
+
 Ending/revoking a Coordinator assignment or disabling its User immediately
 removes future access without removing historical actions. Other assigned
 Coordinators continue. A sole-Coordinator impact requires a replacement; until
@@ -287,6 +293,16 @@ answers. It does not grant impersonation or a general learner session.
 Presenter assignment does not grant registration approval, broad learner
 history, course authoring, organisation administration, or unrelated
 attendance access.
+
+The administrative Event Staff roster is a selection constraint, not an
+authorisation grant. It identifies Users who may be chosen as Presenter defaults
+and records Coordinator eligibility per Coordination Region without exposing the
+entire User directory in each editor. Only occurrence/session Presenter and
+occurrence/region Coordinator assignments grant the narrow operating access
+described above. Removing roster eligibility blocks new defaults and future
+instance creation from an invalid default, but it does not erase historical
+Template Versions or assignments and does not silently end an already-active
+scoped assignment.
 
 Ending/revoking a Presenter assignment or disabling its User immediately removes
 future access while retaining the historical assignment and individually

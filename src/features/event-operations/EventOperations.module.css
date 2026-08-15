@@ -22,7 +22,6 @@
   margin-top: 0.35rem;
 }
 
-.registrationList,
 .sessionList {
   display: grid;
   gap: 1rem;
@@ -30,10 +29,6 @@
 
 .workspaceLink {
   margin-top: auto;
-}
-
-.registrationList {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .attendanceRow {
@@ -48,8 +43,7 @@
 @media (max-width: 48rem) {
   .eventGrid,
   .summaryGrid,
-  .metricGrid,
-  .registrationList {
+  .metricGrid {
     grid-template-columns: 1fr;
   }
 

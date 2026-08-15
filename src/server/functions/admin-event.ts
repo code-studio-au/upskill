@@ -1,13 +1,19 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
+  adminCoordinationRegionSaveSchema,
+  adminCoordinationRegionStatusSchema,
   adminEventOccurrenceFormSchema,
   adminEventOccurrenceParamsSchema,
   adminEventOccurrenceRescheduleFormSchema,
   adminEventOccurrenceUpdateFormSchema,
+  adminEventStaffCandidateSearchSchema,
+  adminEventStaffEligibilityGrantSchema,
+  adminEventStaffEligibilityParamsSchema,
   adminEventTemplateDraftSchema,
   adminEventTemplateParamsSchema,
   adminEventTemplateVersionParamsSchema,
   type AdminEventMutationResult,
+  type AdminEventPersonOption,
   type AdminEventResult,
   type AdminEventTemplateDetailResult,
   type AdminEventWorkspace,
@@ -24,6 +30,124 @@ export const getAdminEventWorkspace = createServerFn({ method: "GET" }).handler(
     return { status: "ready", data: await findAdminEventWorkspace() };
   },
 );
+
+export const saveAdminCoordinationRegion = createServerFn({ method: "POST" })
+  .validator(adminCoordinationRegionSaveSchema)
+  .handler(async ({ data }): Promise<AdminEventMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { saveAdminCoordinationRegion: saveRegion } =
+      await import("#/server/admin/admin-event.server");
+    const outcome = await saveRegion(data, request.user);
+    if (!("regionId" in outcome)) {
+      if (outcome.status === "not-found") return { status: "not-found" };
+      return {
+        status: "conflict",
+        reason:
+          outcome.status === "code-in-use"
+            ? "region_code_in_use"
+            : "region_not_retirable",
+      };
+    }
+    return {
+      status: "ready",
+      data: {
+        outcome:
+          outcome.status === "created" ? "region-created" : "region-updated",
+        regionId: outcome.regionId,
+      },
+    };
+  });
+
+export const setAdminCoordinationRegionStatus = createServerFn({
+  method: "POST",
+})
+  .validator(adminCoordinationRegionStatusSchema)
+  .handler(async ({ data }): Promise<AdminEventMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { setAdminCoordinationRegionStatus: setStatus } =
+      await import("#/server/admin/admin-event.server");
+    const outcome = await setStatus(data.regionId, data.status, request.user);
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "conflict")
+      return { status: "conflict", reason: "region_not_retirable" };
+    return {
+      status: "ready",
+      data: {
+        outcome:
+          data.status === "active" ? "region-reactivated" : "region-retired",
+        regionId: data.regionId,
+      },
+    };
+  });
+
+export const grantAdminEventStaffEligibility = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventStaffEligibilityGrantSchema)
+  .handler(async ({ data }): Promise<AdminEventMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { grantAdminEventStaffEligibility: grantEligibility } =
+      await import("#/server/admin/admin-event.server");
+    const outcome = await grantEligibility(data, request.user);
+    if (!outcome) return { status: "not-found" };
+    return {
+      status: "ready",
+      data: {
+        outcome: "staff-eligibility-granted",
+        eligibilityId: outcome.eligibilityId,
+      },
+    };
+  });
+
+export const revokeAdminEventStaffEligibility = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventStaffEligibilityParamsSchema)
+  .handler(async ({ data }): Promise<AdminEventMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { revokeAdminEventStaffEligibility: revokeEligibility } =
+      await import("#/server/admin/admin-event.server");
+    const outcome = await revokeEligibility(data.eligibilityId, request.user);
+    if (outcome === "not-found") return { status: "not-found" };
+    return {
+      status: "ready",
+      data: {
+        outcome: "staff-eligibility-revoked",
+        eligibilityId: data.eligibilityId,
+      },
+    };
+  });
+
+export const searchAdminEventStaffCandidates = createServerFn({ method: "GET" })
+  .validator(adminEventStaffCandidateSearchSchema)
+  .handler(
+    async ({
+      data,
+    }): Promise<AdminEventResult<Array<AdminEventPersonOption>>> => {
+      const { getAdministratorRequest } =
+        await import("#/server/admin/admin-access.server");
+      const request = await getAdministratorRequest();
+      if (request.status !== "ready") return request;
+      const { findAdminEventStaffCandidates } =
+        await import("#/server/admin/admin-event.server");
+      return {
+        status: "ready",
+        data: await findAdminEventStaffCandidates(data),
+      };
+    },
+  );
 
 export const getAdminEventTemplate = createServerFn({ method: "GET" })
   .validator(adminEventTemplateParamsSchema)

@@ -1,4 +1,10 @@
-import { Badge } from "#/features/shared/Badge";
+import {
+  createColumnHelper,
+  rowPaginationFeature,
+  tableFeatures,
+  useTable,
+  type PaginationState,
+} from "@tanstack/react-table";
 import {
   Button,
   Group,
@@ -14,14 +20,16 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import {
   adminLearnerSearchSchema,
+  type AdminLearnerDirectory,
   type AdminLearnerSearch,
 } from "#/features/admin/admin.schema";
 import { RemovableFilterChip } from "#/features/shared/RemovableFilterChip";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
 import { getAdminLearners } from "#/server/functions/admin";
 import classes from "./admin.module.css";
 
@@ -41,8 +49,47 @@ export const Route = createFileRoute("/admin/learners/")({
   component: AdminLearnersPage,
 });
 
+const learnerTableFeatures = tableFeatures({ rowPaginationFeature });
+type LearnerRow = AdminLearnerDirectory["learners"][number];
+const learnerColumn = createColumnHelper<
+  typeof learnerTableFeatures,
+  LearnerRow
+>();
+const learnerColumns = learnerColumn.columns([
+  learnerColumn.accessor("name", {
+    header: "Learner",
+    cell: ({ row }) => (
+      <Link
+        to="/admin/learners/$userId"
+        params={{ userId: row.original.id }}
+        className={classes.learnerNameLink}
+      >
+        {row.original.name}
+      </Link>
+    ),
+  }),
+  learnerColumn.accessor("email", { header: "Email" }),
+  learnerColumn.accessor("enrollments", { header: "Enrolments" }),
+  learnerColumn.accessor("activeEnrollments", { header: "Active" }),
+  learnerColumn.accessor("completedEnrollments", { header: "Completed" }),
+]);
+const numericLearnerColumns = new Set([
+  "enrollments",
+  "activeEnrollments",
+  "completedEnrollments",
+]);
+
 function AdminLearnersPage() {
   const result = Route.useLoaderData();
+  if (result.status === "forbidden") return <AdminAccessDenied />;
+  return <AdminLearnerDirectoryPage directory={result.data} />;
+}
+
+function AdminLearnerDirectoryPage({
+  directory,
+}: {
+  directory: AdminLearnerDirectory;
+}) {
   const search = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
   const navigating = useRouterState({
@@ -52,8 +99,36 @@ function AdminLearnersPage() {
   useEffect(() => {
     if (submittedSearch) void navigate({ search: submittedSearch });
   }, [navigate, submittedSearch]);
-  if (result.status === "forbidden") return <AdminAccessDenied />;
-  const directory = result.data;
+  const pagination = useMemo<PaginationState>(
+    () => ({
+      pageIndex: directory.pagination.page - 1,
+      pageSize: directory.pagination.pageSize,
+    }),
+    [directory.pagination.page, directory.pagination.pageSize],
+  );
+  const table = useTable({
+    features: learnerTableFeatures,
+    columns: learnerColumns,
+    data: directory.learners,
+    manualPagination: true,
+    rowCount: directory.pagination.total,
+    state: { pagination },
+    onPaginationChange: (updater) => {
+      const next =
+        typeof updater === "function" ? updater(pagination) : updater;
+      if (next.pageIndex === pagination.pageIndex) return;
+      void navigate({
+        search: { q: directory.query, page: next.pageIndex + 1 },
+      });
+    },
+  });
+  const firstResult =
+    directory.pagination.total === 0
+      ? 0
+      : directory.pagination.pageSize * (directory.pagination.page - 1) + 1;
+  const lastResult = directory.learners.length
+    ? firstResult + directory.learners.length - 1
+    : 0;
 
   return (
     <Stack gap="lg">
@@ -108,53 +183,16 @@ function AdminLearnersPage() {
       ) : null}
 
       <Text c="dimmed" size="sm">
-        {directory.pagination.total} learner
-        {directory.pagination.total === 1 ? "" : "s"} found
+        Showing {firstResult}–{lastResult} of {directory.pagination.total}{" "}
+        learner{directory.pagination.total === 1 ? "" : "s"}
       </Text>
 
       {directory.learners.length > 0 ? (
-        <div className={classes.learnerGrid}>
-          {directory.learners.map((learner) => (
-            <Paper
-              withBorder
-              radius="lg"
-              p="md"
-              className={classes.learnerCard}
-              key={learner.id}
-            >
-              <Stack gap="sm" h="100%">
-                <div className={classes.learnerHeader}>
-                  <div>
-                    <Title order={2} size="h3">
-                      {learner.name}
-                    </Title>
-                    <Text c="dimmed" size="sm">
-                      {learner.email}
-                    </Text>
-                  </div>
-                  <Badge variant="light">Learner</Badge>
-                </div>
-                <div className={classes.metrics}>
-                  <Metric label="Enrolments" value={learner.enrollments} />
-                  <Metric label="Active" value={learner.activeEnrollments} />
-                  <Metric
-                    label="Completed"
-                    value={learner.completedEnrollments}
-                  />
-                </div>
-                <Link
-                  to="/admin/learners/$userId"
-                  params={{ userId: learner.id }}
-                  className={classes.profileLink}
-                >
-                  <Button component="span" variant="light" fullWidth>
-                    View learner profile
-                  </Button>
-                </Link>
-              </Stack>
-            </Paper>
-          ))}
-        </div>
+        <ResponsiveDataTable
+          table={table}
+          caption="Registered learners and enrolment totals"
+          numericColumns={numericLearnerColumns}
+        />
       ) : (
         <Paper withBorder radius="lg" p="xl">
           <Title order={2} size="h3">
@@ -167,59 +205,30 @@ function AdminLearnersPage() {
       )}
 
       {directory.pagination.pages > 1 ? (
-        <Group justify="space-between">
-          {directory.pagination.page === 1 ? (
-            <Button variant="light" disabled>
-              Previous
-            </Button>
-          ) : (
-            <Link
-              to="/admin/learners"
-              search={{
-                q: directory.query,
-                page: directory.pagination.page - 1,
-              }}
-              className={classes.buttonLink}
-            >
-              <Button component="span" variant="light">
-                Previous
-              </Button>
-            </Link>
-          )}
+        <Group justify="space-between" className={classes.pagination}>
+          <Button
+            variant="light"
+            disabled={!table.getCanPreviousPage() || navigating}
+            onClick={() => {
+              table.previousPage();
+            }}
+          >
+            Previous
+          </Button>
           <Text size="sm">
             Page {directory.pagination.page} of {directory.pagination.pages}
           </Text>
-          {directory.pagination.page === directory.pagination.pages ? (
-            <Button variant="light" disabled>
-              Next
-            </Button>
-          ) : (
-            <Link
-              to="/admin/learners"
-              search={{
-                q: directory.query,
-                page: directory.pagination.page + 1,
-              }}
-              className={classes.buttonLink}
-            >
-              <Button component="span" variant="light">
-                Next
-              </Button>
-            </Link>
-          )}
+          <Button
+            variant="light"
+            disabled={!table.getCanNextPage() || navigating}
+            onClick={() => {
+              table.nextPage();
+            }}
+          >
+            Next
+          </Button>
         </Group>
       ) : null}
     </Stack>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: number }) {
-  return (
-    <div className={classes.metric}>
-      <Text size="xs" c="dimmed">
-        {label}
-      </Text>
-      <Text fw={800}>{value}</Text>
-    </div>
   );
 }

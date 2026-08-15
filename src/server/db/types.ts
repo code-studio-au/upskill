@@ -75,6 +75,17 @@ interface PlatformAdminTable {
   createdAt: Timestamp;
 }
 
+interface EventStaffEligibilityTable {
+  id: string;
+  userId: string;
+  responsibility: "presenter" | "coordinator";
+  regionId: string | null;
+  grantedByUserId: string | null;
+  grantedAt: Timestamp;
+  revokedByUserId: string | null;
+  revokedAt: Timestamp | null;
+}
+
 interface CourseTable {
   id: string;
   slug: string;
@@ -287,6 +298,7 @@ interface CoordinationRegionTable {
   parentId: string | null;
   code: string;
   name: string;
+  kind: Generated<"group" | "operational">;
   status: "active" | "retired";
   createdAt: Timestamp;
 }
@@ -637,6 +649,12 @@ export type AuditEventAction =
   | "event_occurrence.published"
   | "event_occurrence.lifecycle_changed"
   | "event_occurrence.rescheduled"
+  | "event_staff.eligibility_granted"
+  | "event_staff.eligibility_revoked"
+  | "coordination_region.created"
+  | "coordination_region.updated"
+  | "coordination_region.retired"
+  | "coordination_region.reactivated"
   | "event_attendance.recorded"
   | "event_region_review.locked"
   | "event_registration.administrator_added"
@@ -701,6 +719,7 @@ export interface Database {
   event_occurrence_reschedule_region_coordinator: EventOccurrenceRescheduleRegionCoordinatorTable;
   event_participation: EventParticipationTable;
   event_presenter_assignment: EventPresenterAssignmentTable;
+  event_staff_eligibility: EventStaffEligibilityTable;
   event_region_review_round: EventRegionReviewRoundTable;
   event_registration: EventRegistrationTable;
   event_registration_transition: EventRegistrationTransitionTable;
