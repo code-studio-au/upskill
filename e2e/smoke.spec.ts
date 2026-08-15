@@ -231,6 +231,23 @@ async function cleanupEventAuthoringFixture(
   });
 }
 
+async function cleanupEventStaffFixture(
+  database: Client,
+  userId: string,
+): Promise<void> {
+  await withPgAuditMaintenance(database, async (transaction) => {
+    await transaction.query(
+      `delete from audit_event where "subjectId" = $1 and action like 'event_staff.%'`,
+      [userId],
+    );
+    await transaction.query(
+      `delete from event_staff_eligibility where "userId" = $1`,
+      [userId],
+    );
+    await transaction.query(`delete from "user" where id = $1`, [userId]);
+  });
+}
+
 async function cleanupSurveyAuthoringFixture(
   database: Client,
   titles: Array<string>,
@@ -891,6 +908,11 @@ test("platform administrators can inspect learner progress", async ({
   const eventTemplateTitle = "E2E virtual workshop";
   const eventOccurrenceTitle = "E2E virtual workshop · August";
   const eventSlug = "e2e-virtual-workshop-august";
+  const eventPresenter = {
+    id: "e2e_event_presenter",
+    name: "E2E Event Presenter",
+    email: "e2e-event-presenter@example.com",
+  };
   async function openAdminPage(name: string): Promise<void> {
     const menu = page.locator('details[aria-label="Administration menu"]');
     if (!(await menu.evaluate((element: HTMLDetailsElement) => element.open))) {
@@ -911,6 +933,11 @@ test("platform administrators can inspect learner progress", async ({
       accessOrganizationName,
     );
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
+    await cleanupEventStaffFixture(authoringDatabase, eventPresenter.id);
+    await authoringDatabase.query(
+      `insert into "user" (id, name, email, "emailVerified") values ($1, $2, $3, true)`,
+      [eventPresenter.id, eventPresenter.name, eventPresenter.email],
+    );
     await openAdminPage("Courses");
     await expect(
       page.getByRole("heading", { name: "Courses", exact: true }),
@@ -1143,6 +1170,20 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Events", exact: true }),
     ).toBeVisible();
+    await page.getByRole("button", { name: /Event staff/u }).click();
+    await page
+      .getByRole("combobox", { name: "User email" })
+      .fill(eventPresenter.email);
+    await page
+      .getByRole("option")
+      .filter({ hasText: eventPresenter.email })
+      .click();
+    await page
+      .getByRole("button", { name: "Add eligible staff member" })
+      .click();
+    await expect(
+      page.getByText("Presenter added to the eligible roster."),
+    ).toBeVisible();
     await page.getByRole("button", { name: /Templates/u }).click();
     await page.getByRole("button", { name: "Create template" }).click();
     await expect(page).toHaveURL(/\/admin\/events\/event_template_/u);
@@ -1165,7 +1206,7 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: "Add event session" }).click();
     await page.getByLabel("Display title").fill("Live workshop");
     await page.getByLabel("Duration (minutes)").fill("90");
-    await page.getByLabel("Add presenter").selectOption({ index: 1 });
+    await page.getByLabel("Add presenter").selectOption(eventPresenter.id);
     await page.getByRole("button", { name: "Add", exact: true }).click();
     await page.getByRole("button", { name: "Staffing and regions" }).click();
     await page.getByLabel("Avery Administrator · admin@example.com").check();
@@ -1252,6 +1293,7 @@ test("platform administrators can inspect learner progress", async ({
       accessOrganizationName,
     );
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
+    await cleanupEventStaffFixture(authoringDatabase, eventPresenter.id);
     await authoringDatabase.end();
   }
 
