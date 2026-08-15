@@ -28,6 +28,49 @@ export const eventOperationsAttendanceSchema = z.object({
   state: z.enum(["not_recorded", "checked_in", "attended", "absent"]),
 });
 
+export const eventProgressFilterSchema = z.object({
+  q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
+  state: z.catch(
+    z.enum(["all", "not_started", "in_progress", "up_to_date", "completed"]),
+    "all",
+  ),
+});
+
+export type EventProgressFilter = z.infer<typeof eventProgressFilterSchema>;
+export type EventParticipantProgressState =
+  "not_started" | "in_progress" | "up_to_date" | "completed";
+export type EventSectionProgressState =
+  "locked" | "not_started" | "in_progress" | "completed";
+
+export interface EventParticipantProgress {
+  eventParticipationId: string;
+  name: string;
+  email: string;
+  regionId: string | null;
+  regionName: string | null;
+  state: EventParticipantProgressState;
+  completedAt: string | null;
+  completedAvailableItems: number;
+  availableItems: number;
+  totalItems: number;
+  sections: Array<{
+    id: string;
+    title: string;
+    phase: "pre_event" | "session" | "post_event" | "follow_up";
+    state: EventSectionProgressState;
+    releaseAt: string;
+    completedItems: number;
+    totalItems: number;
+    items: Array<{
+      id: string;
+      title: string;
+      kind: "session" | "scorm" | "survey" | "resource";
+      required: boolean;
+      state: "completed" | "incomplete";
+    }>;
+  }>;
+}
+
 export interface AssignedEventOperationsSummary {
   id: string;
   title: string;
@@ -62,12 +105,16 @@ export interface EventOperationsWorkspace {
     canReviewRegistrations: boolean;
     canViewRegistrations: boolean;
     canRecordAttendance: boolean;
+    canViewProgress: boolean;
   };
   metrics: {
     registrations: number;
     awaitingReview: number;
     candidates: number;
     confirmed: number;
+    completed: number;
+    upToDate: number;
+    preWorkAttention: number;
   };
   regions: Array<{
     id: string;
@@ -99,6 +146,7 @@ export interface EventOperationsWorkspace {
       state: "not_recorded" | "checked_in" | "attended" | "absent";
     }>;
   }>;
+  participantProgress: Array<EventParticipantProgress>;
 }
 
 export type AssignedEventOperationsResult =

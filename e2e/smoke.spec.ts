@@ -1390,6 +1390,25 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const accessAccessibility = await new AxeBuilder({ page }).analyze();
     expect(accessAccessibility.violations).toEqual([]);
+
+    await page.goto(
+      `/event-operations/${encodeURIComponent(occurrenceId)}?view=progress&q=&state=all`,
+    );
+    await expect(
+      page.getByRole("heading", { name: eventOccurrenceTitle, level: 1 }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Participant progress" }),
+    ).toBeVisible();
+    await expect(page.getByRole("table")).toContainText(
+      administratorUser.email,
+    );
+    const progressExport = await page.request.get(
+      `/api/event-operations/${encodeURIComponent(occurrenceId)}/progress.csv?q=&state=all`,
+    );
+    expect(progressExport.status()).toBe(200);
+    expect(progressExport.headers()["content-type"]).toContain("text/csv");
+    expect(await progressExport.text()).toContain(administratorUser.email);
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupSurveyAuthoringFixture(authoringDatabase, surveyTitles);

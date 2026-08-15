@@ -18,8 +18,9 @@ observability; an administrator completion override is audit evidence.
 ## Architecture Horizons
 
 - **Current Product:** PostgreSQL read boundaries, structured JSON logs, durable
-  audit evidence, health endpoint, domain verifiers and basic administrator and
-  learner views.
+  audit evidence, health endpoint, domain verifiers, basic administrator and
+  learner views, and an evidence-derived Event participant/Section progress
+  matrix with region-scoped filtered/all-authorized CSV export.
 - **Target Product:** production metrics/alerts, deployment identity/readiness,
   queue/outbox/DLQ visibility, purpose-built event/enterprise/support read
   models and responsive visual learning analytics with validated selectable

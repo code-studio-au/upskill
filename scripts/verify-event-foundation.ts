@@ -1087,6 +1087,51 @@ try {
   );
   assert.equal(learnerWorkspace.workspace.completionState, "completed");
   assert.equal(learnerWorkspace.workspace.certificateAvailable, true);
+  const administratorProgressAccess = await getEventOperationsAccess(
+    administrator,
+    eventOccurrenceId,
+  );
+  assert.ok(administratorProgressAccess);
+  const administratorProgressWorkspace = await findEventOperationsWorkspace(
+    eventOccurrenceId,
+    administratorProgressAccess,
+  );
+  assert.ok(administratorProgressWorkspace);
+  assert.equal(administratorProgressWorkspace.access.canViewProgress, true);
+  assert.deepEqual(
+    administratorProgressWorkspace.participantProgress.map((participant) => ({
+      id: participant.eventParticipationId,
+      state: participant.state,
+      regionId: participant.regionId,
+      sections: participant.sections.map((section) => section.state),
+    })),
+    [
+      {
+        id: participationId,
+        state: "completed",
+        regionId: occurrenceRegion.id,
+        sections: ["completed"],
+      },
+    ],
+  );
+  const scopedCoordinatorWorkspace = await findEventOperationsWorkspace(
+    eventOccurrenceId,
+    coordinatorAccess,
+  );
+  assert.ok(scopedCoordinatorWorkspace);
+  assert.deepEqual(
+    scopedCoordinatorWorkspace.participantProgress.map(
+      (participant) => participant.eventParticipationId,
+    ),
+    [participationId],
+  );
+  const attendanceOnlyPresenterWorkspace = await findEventOperationsWorkspace(
+    eventOccurrenceId,
+    presenterAccess,
+  );
+  assert.ok(attendanceOnlyPresenterWorkspace);
+  assert.equal(attendanceOnlyPresenterWorkspace.access.canViewProgress, false);
+  assert.deepEqual(attendanceOnlyPresenterWorkspace.participantProgress, []);
   assert.deepEqual(
     await findLearnerEventWorkspace(eventOccurrenceId, coordinator),
     { status: "not-found" },
@@ -1287,7 +1332,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, staff/session snapshots, scoped coordinator and presenter operations, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
   );
 } finally {
   await cleanup();
