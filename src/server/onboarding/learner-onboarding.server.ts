@@ -19,8 +19,8 @@ import {
   flattenedItems,
   storedAnswers,
   storedVisited,
-  validateAnswer,
 } from "#/server/learning/learner-survey.server";
+import { validateAnswer } from "#/server/learning/survey-answer-validation";
 import { logServerEvent } from "#/server/logging/server-logger";
 import type { Transaction } from "kysely";
 import { z } from "#/validation/zod";
@@ -227,9 +227,21 @@ export async function saveLearnerOnboardingStep(
       .forUpdate()
       .executeTakeFirst();
     if (!row) return { status: "not-found" };
-    if (row.status === "completed") return { status: "unavailable" };
     const content = parseSurveyVersionContent(row.content);
     const items = flattenedItems(content);
+    if (row.status === "completed") {
+      if (!row.submittedAt) return { status: "unavailable" };
+      return {
+        status: "submitted",
+        progress: deriveProgress(content, {
+          answers: storedAnswers(row.answers),
+          visitedItemIds: items.map((item) => item.id),
+          currentItemId: null,
+          completedAt: row.submittedAt,
+        }),
+        completedCourse: false,
+      };
+    }
     const itemIndex = items.findIndex((candidate) => candidate.id === itemId);
     const item = items[itemIndex];
     if (!item) return { status: "not-found" };

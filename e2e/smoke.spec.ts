@@ -1169,7 +1169,7 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByLabel("Section 2 title").fill("Follow-up");
     await surveySections
       .nth(1)
-      .getByRole("button", { name: "Add written response" })
+      .getByRole("button", { name: "Add long text" })
       .click();
     await surveySections
       .nth(1)

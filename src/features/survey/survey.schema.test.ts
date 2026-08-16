@@ -115,6 +115,32 @@ describe("survey contracts", () => {
     ).toBe(true);
   });
 
+  it("rejects impossible calendar-date bounds", () => {
+    expect(
+      surveyVersionContentSchema.safeParse({
+        title: "Dates",
+        description: "",
+        sections: [
+          {
+            id: "dates",
+            title: "Dates",
+            description: "",
+            items: [
+              {
+                id: "date",
+                kind: "date",
+                prompt: "Choose a date",
+                required: true,
+                minimum: "2026-02-31",
+                maximum: null,
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects duplicate item identifiers across sections", () => {
     expect(
       surveyVersionContentSchema.safeParse({

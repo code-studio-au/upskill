@@ -255,6 +255,15 @@ try {
     user,
   );
   assert.equal(completed.status, "submitted");
+  const repeatedCompletion = await saveLearnerOnboardingStep(
+    onboarding.assignmentId,
+    "onboarding_region",
+    "region_verified",
+    user,
+  );
+  assert.equal(repeatedCompletion.status, "submitted");
+  assert.equal(repeatedCompletion.progress.percent, 100);
+  assert.ok(repeatedCompletion.progress.completedAt);
   const updated = await database
     .selectFrom("user")
     .select(["name", "phone", "currentRegionId"])
