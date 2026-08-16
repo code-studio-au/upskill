@@ -41,9 +41,6 @@ function AdminResourcesPage() {
             Learning content
           </Text>
           <Title order={1}>PDF resources</Title>
-          <Text c="dimmed" mt="xs">
-            Manage private, immutable documents used by learning activities.
-          </Text>
         </div>
         <Button
           onClick={() => {

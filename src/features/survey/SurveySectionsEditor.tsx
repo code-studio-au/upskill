@@ -4,7 +4,6 @@ import {
   Group,
   Paper,
   Stack,
-  Text,
   Title,
 } from "#/features/shared/mantine";
 import { useState } from "react";
@@ -82,13 +81,7 @@ export function SurveySectionsEditor({
 
   return (
     <Stack gap="lg">
-      <div>
-        <Title order={2}>Survey sections</Title>
-        <Text c="dimmed">
-          Learners complete each item in order. Instruction blocks are marked
-          viewed when the learner selects Next.
-        </Text>
-      </div>
+      <Title order={2}>Survey sections</Title>
       {sections.length === 0 ? (
         <Alert title="No sections">Add a section before publishing.</Alert>
       ) : null}

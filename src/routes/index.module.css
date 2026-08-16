@@ -31,10 +31,6 @@
   line-height: 0.98;
 }
 
-.lead {
-  max-width: 38rem;
-}
-
 .featurePanel {
   border: 1px solid var(--mantine-color-indigo-2);
   border-radius: var(--mantine-radius-xl);

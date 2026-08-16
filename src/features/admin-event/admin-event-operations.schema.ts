@@ -28,7 +28,8 @@ export const adminEventFinalDecisionSchema = z.object({
 
 export const adminEventAddRegistrationSchema = z.object({
   eventOccurrenceId: identifier,
-  userId: identifier,
+  name: z.string().check(z.trim(), z.minLength(1), z.maxLength(200)),
+  email: z.email().check(z.maxLength(320)),
   eventOccurrenceRegionId: z.nullable(identifier),
   overrideDomainRestriction: z.boolean(),
 });

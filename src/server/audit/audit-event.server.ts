@@ -55,6 +55,7 @@ export const durableAuditActions = [
   "survey.created",
   "survey.published",
   "survey.version_created",
+  "user.provisional_created",
 ] as const satisfies ReadonlyArray<AuditEventAction>;
 
 export type DurableAuditAction = (typeof durableAuditActions)[number];

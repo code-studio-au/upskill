@@ -65,9 +65,6 @@ function AdminModulesPage() {
             Learning content
           </Text>
           <Title order={1}>SCORM modules</Title>
-          <Text c="dimmed" mt="xs">
-            Manage immutable Rise 360 SCORM 1.2 packages and versions.
-          </Text>
         </div>
         <Button
           onClick={() => {

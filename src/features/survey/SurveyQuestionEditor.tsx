@@ -51,7 +51,6 @@ export function SurveyQuestionEditor({
           <MantineTextInput
             component="textarea"
             label="Instructions"
-            description="The learner records this block as viewed by selecting Next."
             value={item.body}
             disabled={disabled}
             maxLength={10_000}

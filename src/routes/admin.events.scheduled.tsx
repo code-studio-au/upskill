@@ -80,10 +80,6 @@ function ScheduledEventsPage() {
             Events
           </Text>
           <Title order={1}>Scheduled events</Title>
-          <Text c="dimmed" mt="xs" maw={760}>
-            Manage dated event instances, registration, regional review,
-            staffing, attendance and participant progress.
-          </Text>
         </div>
         <Button
           component={Link}

@@ -3,7 +3,7 @@ import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 describe("runScormWorkerIteration", () => {
   it("uses a non-blocking queue receive after dispatching outbox work", async () => {
-    const consumeNextScormMessage = vi
+    const consumeNextWorkMessage = vi
       .fn()
       .mockResolvedValue({ status: "no-work" });
 
@@ -15,14 +15,14 @@ describe("runScormWorkerIteration", () => {
         ],
         limitReached: false,
       }),
-      consumeNextScormMessage,
+      consumeNextWorkMessage,
     });
 
-    expect(consumeNextScormMessage).toHaveBeenCalledWith(0);
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
   });
 
   it("retains long polling when the outbox is empty", async () => {
-    const consumeNextScormMessage = vi
+    const consumeNextWorkMessage = vi
       .fn()
       .mockResolvedValue({ status: "no-work" });
 
@@ -31,9 +31,9 @@ describe("runScormWorkerIteration", () => {
         outcomes: [],
         limitReached: false,
       }),
-      consumeNextScormMessage,
+      consumeNextWorkMessage,
     });
 
-    expect(consumeNextScormMessage).toHaveBeenCalledWith(undefined);
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(undefined);
   });
 });

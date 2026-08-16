@@ -1,0 +1,116 @@
+.root {
+  position: relative;
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.description,
+.optionDescription {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+}
+
+.control {
+  position: relative;
+}
+
+.input {
+  width: 100%;
+  min-height: 2.25rem;
+  padding: 0.4375rem 2.25rem 0.4375rem 0.75rem;
+  color: var(--mantine-color-text);
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.55;
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.input:focus-visible {
+  border-color: var(--mantine-primary-color-filled);
+  outline: 2px solid var(--mantine-primary-color-light);
+  outline-offset: 1px;
+}
+
+.input:disabled {
+  color: var(--mantine-color-dimmed);
+  background: var(--mantine-color-gray-1);
+  cursor: not-allowed;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--mantine-color-red-7);
+}
+
+.loader {
+  position: absolute;
+  top: 50%;
+  right: 0.75rem;
+  width: 0.875rem;
+  height: 0.875rem;
+  margin-top: -0.4375rem;
+  border: 2px solid var(--mantine-color-gray-3);
+  border-top-color: var(--mantine-primary-color-filled);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+.options {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  left: 0;
+  max-height: 15rem;
+  padding: 0.25rem;
+  margin: 0;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-sm);
+  box-shadow: var(--mantine-shadow-md);
+}
+
+.option {
+  display: grid;
+  gap: 0.125rem;
+  width: 100%;
+  padding: 0.5rem 0.625rem;
+  color: var(--mantine-color-text);
+  font: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--mantine-radius-sm);
+  cursor: pointer;
+}
+
+.option:hover,
+.option[data-active] {
+  background: var(--mantine-primary-color-light);
+}
+
+.optionLabel {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+.error {
+  color: var(--mantine-color-red-7);
+  font-size: var(--mantine-font-size-xs);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

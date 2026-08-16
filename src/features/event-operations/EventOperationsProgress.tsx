@@ -267,14 +267,7 @@ export function EventOperationsProgress({
       ) : null}
 
       <Group justify="space-between" align="end" wrap="wrap">
-        <div>
-          <Title order={2}>Participant progress</Title>
-          <Text c="dimmed" size="sm">
-            Showing {data.length} of {workspace.participantProgress.length}{" "}
-            participants in your authorised event scope. Survey answers are not
-            exposed.
-          </Text>
-        </div>
+        <Title order={2}>Participant progress</Title>
         <Group gap="sm">
           <Button
             component="a"

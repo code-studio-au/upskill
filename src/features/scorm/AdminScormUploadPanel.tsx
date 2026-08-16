@@ -138,7 +138,6 @@ export function AdminScormUploadPanel({
             {(field) => (
               <MantineFilePicker
                 label="SCORM ZIP"
-                description="Maximum 250 MB. Archives are quarantined before extraction."
                 placeholder="Choose a ZIP file"
                 value={field.state.value}
                 onChange={field.handleChange}

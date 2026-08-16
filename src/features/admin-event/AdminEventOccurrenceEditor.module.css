@@ -43,6 +43,8 @@
 
 .detailsGrid,
 .twoColumnGrid,
+.dateCapacityGrid,
+.dateRangeGrid,
 .scheduleSettings,
 .deliveryGrid,
 .locationFields,
@@ -53,7 +55,9 @@
 }
 
 .detailsGrid,
-.twoColumnGrid {
+.twoColumnGrid,
+.dateCapacityGrid,
+.dateRangeGrid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -92,13 +96,9 @@
   gap: var(--mantine-spacing-md);
 }
 
-.timelineHeading {
-  max-width: 48rem;
-}
-
 .actionBar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--mantine-spacing-lg);
   align-items: center;
   padding: var(--mantine-spacing-md);
@@ -108,16 +108,14 @@
   box-shadow: var(--mantine-shadow-xs);
 }
 
-.actionCopy {
-  min-width: 0;
-}
-
 .actions {
   flex: 0 0 auto;
 }
 
 .detailsGrid > *,
 .twoColumnGrid > *,
+.dateCapacityGrid > *,
+.dateRangeGrid > *,
 .scheduleSettings > *,
 .deliveryGrid > *,
 .locationFields > *,
@@ -126,6 +124,10 @@
 }
 
 @media (max-width: 68em) {
+  .dateCapacityGrid {
+    grid-template-columns: 1fr;
+  }
+
   .scheduleGrid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -161,11 +163,8 @@
   }
 
   .scheduleSettings,
+  .dateRangeGrid,
   .locationFields {
     grid-template-columns: 1fr;
-  }
-
-  .actionCopy {
-    display: none;
   }
 }

@@ -1,4 +1,4 @@
-import { Alert, Button, Group, Stack, Text } from "#/features/shared/mantine";
+import { Alert, Button, Group, Stack } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
 import { formatLocalDate } from "#/features/shared/local-date";
@@ -111,10 +111,6 @@ export function AdminCourseRoster({
           <h2 id="course-roster-heading" className={classes.heading}>
             Learner roster
           </h2>
-          <p className={classes.description}>
-            Add access to an exact published version or review retained learner
-            history.
-          </p>
         </div>
         <span className={classes.count}>
           {detail.roster.total}{" "}
@@ -142,14 +138,7 @@ export function AdminCourseRoster({
         }}
       >
         <Stack gap="sm">
-          <div>
-            <h3 className={classes.formHeading}>Add learner access</h3>
-            <Text c="dimmed" size="sm">
-              The learner must already have a verified Upskill account.
-              Re-adding removed or expired access retains their existing
-              progress.
-            </Text>
-          </div>
+          <h3 className={classes.formHeading}>Add learner access</h3>
           <div className={classes.formFields}>
             <enrollmentForm.Field name="learnerEmail">
               {(field) => (
@@ -189,12 +178,6 @@ export function AdminCourseRoster({
               )}
             </enrollmentForm.Field>
           </div>
-          {!canEnroll ? (
-            <Text c="dimmed" size="sm">
-              Publish and activate a course version before adding learner
-              access.
-            </Text>
-          ) : null}
           <enrollmentForm.Subscribe selector={(state) => state.isSubmitting}>
             {(isSubmitting) => (
               <Group justify="flex-end">
@@ -269,13 +252,6 @@ export function AdminCourseRoster({
           ))}
         </div>
       )}
-
-      {detail.roster.total > detail.roster.limit ? (
-        <p className={classes.description}>
-          Showing the {detail.roster.limit} most recent enrolments. Use learner
-          search to find older records.
-        </p>
-      ) : null}
 
       {removal ? (
         <ConfirmationDialog

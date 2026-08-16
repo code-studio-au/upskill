@@ -22,7 +22,7 @@ import {
   SCORM_INGESTION_TOPIC,
   type ScormIngestionWorkMessage,
 } from "#/server/queue/work-message";
-import { consumeNextScormMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
+import { consumeNextWorkMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
 import {
   ingestScormPackageVersion,
   stageScormPackageArchive,
@@ -208,7 +208,7 @@ try {
   }
   const processed = new Set<string>();
   while (processed.size < staged.length) {
-    const consumption = await consumeNextScormMessage();
+    const consumption = await consumeNextWorkMessage();
     assert.notEqual(consumption.status, "no-work");
     assert.notEqual(consumption.status, "retry");
     if (consumption.status !== "processed") continue;
@@ -264,7 +264,7 @@ try {
     },
   };
   await sendQueueMessage(JSON.stringify(duplicateMessage));
-  const duplicate = await consumeNextScormMessage();
+  const duplicate = await consumeNextWorkMessage();
   assert.equal(duplicate.status, "processed");
   assert.equal(duplicate.outcome.status, "already-ready");
 
@@ -309,7 +309,7 @@ try {
     },
   );
   await dispatchNextScormEvent();
-  const deletion = await consumeNextScormMessage();
+  const deletion = await consumeNextWorkMessage();
   assert.equal(deletion.status, "processed");
   assert.equal(deletion.outcome.status, "storage-removed");
   await assert.rejects(() =>

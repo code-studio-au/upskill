@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { RESOURCE_DELETION_TOPIC } from "#/server/queue/work-message";
+import {
+  NOTIFICATION_DELIVERY_TOPIC,
+  RESOURCE_DELETION_TOPIC,
+} from "#/server/queue/work-message";
 
 const mocks = vi.hoisted(() => ({
   changeVisibility: vi.fn(),
@@ -7,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   deleteObject: vi.fn(),
   deleteObjectPrefix: vi.fn(),
   ingest: vi.fn(),
+  deliverNotification: vi.fn(),
   receive: vi.fn(),
 }));
 vi.mock("#/server/env.server", () => ({
@@ -24,6 +28,9 @@ vi.mock("#/server/storage/object-storage.server", () => ({
 vi.mock("#/server/scorm/scorm-package-ingestion.server", () => ({
   ingestScormPackageVersion: mocks.ingest,
 }));
+vi.mock("#/server/notifications/notification-delivery.server", () => ({
+  deliverNotification: mocks.deliverNotification,
+}));
 vi.mock("#/server/queue/sqs.server", () => ({
   changeQueueMessageVisibility: mocks.changeVisibility,
   deleteQueueMessage: mocks.deleteMessage,
@@ -38,10 +45,10 @@ describe("content work consumer", () => {
   it("removes only the validated private resource object", async () => {
     const resourceVersionId = "resource_version_1";
     const objectKey = `resources/${resourceVersionId}/${"a".repeat(64)}.pdf`;
-    const { handleContentWorkMessage } =
+    const { handleWorkMessage } =
       await import("./scorm-ingestion-consumer.server");
     await expect(
-      handleContentWorkMessage({
+      handleWorkMessage({
         version: 1,
         eventId: "outbox_1",
         topic: RESOURCE_DELETION_TOPIC,
@@ -56,10 +63,10 @@ describe("content work consumer", () => {
   });
 
   it("rejects a resource aggregate mismatch before storage access", async () => {
-    const { handleContentWorkMessage } =
+    const { handleWorkMessage } =
       await import("./scorm-ingestion-consumer.server");
     await expect(
-      handleContentWorkMessage({
+      handleWorkMessage({
         version: 1,
         eventId: "outbox_1",
         topic: RESOURCE_DELETION_TOPIC,
@@ -74,11 +81,11 @@ describe("content work consumer", () => {
   });
 
   it("clears both exact SCORM storage prefixes", async () => {
-    const { handleContentWorkMessage } =
+    const { handleWorkMessage } =
       await import("./scorm-ingestion-consumer.server");
     const packageVersionId = "scorm_pkgv_1";
     await expect(
-      handleContentWorkMessage({
+      handleWorkMessage({
         version: 1,
         eventId: "outbox_2",
         topic: "scorm.package_delete_requested",
@@ -95,10 +102,10 @@ describe("content work consumer", () => {
 
   it("delegates SCORM ingestion and rejects an aggregate mismatch", async () => {
     mocks.ingest.mockResolvedValue({ status: "ready" });
-    const { handleContentWorkMessage } =
+    const { handleWorkMessage } =
       await import("./scorm-ingestion-consumer.server");
     await expect(
-      handleContentWorkMessage({
+      handleWorkMessage({
         version: 1,
         eventId: "outbox_3",
         topic: "scorm.package_ingest_requested",
@@ -110,7 +117,7 @@ describe("content work consumer", () => {
       }),
     ).resolves.toEqual({ status: "ready" });
     await expect(
-      handleContentWorkMessage({
+      handleWorkMessage({
         version: 1,
         eventId: "outbox_4",
         topic: "scorm.package_ingest_requested",
@@ -123,11 +130,27 @@ describe("content work consumer", () => {
     ).rejects.toThrow("aggregate and package version do not match");
   });
 
+  it("delegates notification work to the notification boundary", async () => {
+    mocks.deliverNotification.mockResolvedValue({ status: "delivered" });
+    const { handleWorkMessage } =
+      await import("./scorm-ingestion-consumer.server");
+    await expect(
+      handleWorkMessage({
+        version: 1,
+        eventId: "outbox_notification_1",
+        topic: NOTIFICATION_DELIVERY_TOPIC,
+        aggregateId: "notification_1",
+        payload: { notificationId: "notification_1" },
+      }),
+    ).resolves.toEqual({ status: "delivered" });
+    expect(mocks.deliverNotification).toHaveBeenCalledWith("notification_1");
+  });
+
   it("returns no work without attempting queue acknowledgement", async () => {
     mocks.receive.mockResolvedValue(undefined);
-    const { consumeNextScormMessage } =
+    const { consumeNextWorkMessage } =
       await import("./scorm-ingestion-consumer.server");
-    await expect(consumeNextScormMessage(0)).resolves.toEqual({
+    await expect(consumeNextWorkMessage(0)).resolves.toEqual({
       status: "no-work",
     });
     expect(mocks.deleteMessage).not.toHaveBeenCalled();
@@ -150,9 +173,9 @@ describe("content work consumer", () => {
       receiptHandle: "receipt_1",
       receiveCount: 1,
     });
-    const { consumeNextScormMessage } =
+    const { consumeNextWorkMessage } =
       await import("./scorm-ingestion-consumer.server");
-    await expect(consumeNextScormMessage()).resolves.toMatchObject({
+    await expect(consumeNextWorkMessage()).resolves.toMatchObject({
       status: "processed",
       eventId: "outbox_5",
       aggregateId: resourceVersionId,
@@ -165,7 +188,7 @@ describe("content work consumer", () => {
       receiptHandle: "receipt_2",
       receiveCount: 2,
     });
-    await expect(consumeNextScormMessage()).resolves.toMatchObject({
+    await expect(consumeNextWorkMessage()).resolves.toMatchObject({
       status: "retry",
       messageId: "message_2",
       receiveCount: 2,

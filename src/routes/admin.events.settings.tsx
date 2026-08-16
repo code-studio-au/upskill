@@ -56,10 +56,6 @@ function EventSettingsPage() {
           Events
         </Text>
         <Title order={1}>Event settings</Title>
-        <Text c="dimmed" mt="xs" maw={760}>
-          Manage the eligible staff roster and reusable coordination regions
-          available to new templates and scheduled events.
-        </Text>
       </div>
 
       <PageTabs

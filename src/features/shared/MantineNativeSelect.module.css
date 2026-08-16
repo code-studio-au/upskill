@@ -1,5 +1,6 @@
 .root {
   display: grid;
+  min-width: 0;
   gap: 0.25rem;
 }
 

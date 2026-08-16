@@ -1318,9 +1318,7 @@ test("platform administrators can inspect learner progress", async ({
     await page
       .getByLabel("Template version")
       .selectOption({ label: "Version 1 · Published" });
-    await expect(
-      page.getByText("This published version is immutable", { exact: false }),
-    ).toBeVisible();
+    await expect(page.getByLabel("Title")).toBeDisabled();
     await page
       .getByLabel("Template version")
       .selectOption({ label: "Version 2 · Draft" });
@@ -1345,8 +1343,10 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByLabel("Event title").fill(eventOccurrenceTitle);
     await expect(page.getByLabel("Friendly URL")).toHaveValue(eventSlug);
     await page.getByLabel("Event timezone").fill("Sydney — Australia");
-    await page.getByLabel("Starts").fill("2027-08-21T09:00");
-    await page.getByLabel("Ends").fill("2027-08-21T10:30");
+    await page
+      .getByRole("textbox", { name: "Starts" })
+      .fill("21/08/2027 09:00");
+    await page.getByRole("textbox", { name: "Ends" }).fill("21/08/2027 10:30");
     await page
       .getByLabel("Protected virtual meeting URL")
       .fill("https://meet.example.com/e2e-workshop");
@@ -1693,11 +1693,6 @@ test("platform administrators can inspect learner progress", async ({
   await page.getByRole("button", { name: /Modules/u }).click();
   await expect(
     page.getByRole("heading", { name: "Module progress" }),
-  ).toBeVisible();
-  await expect(
-    page.getByText(
-      "Corrections never alter the learner's original SCORM attempts.",
-    ),
   ).toBeVisible();
   await expect(page.getByLabel(/Reason for marking/)).toHaveCount(0);
   await page.getByRole("button", { name: /Corrections/u }).click();

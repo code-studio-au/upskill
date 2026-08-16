@@ -34,9 +34,6 @@ function MyEventsPage() {
             Learner area
           </Text>
           <Title order={1}>My events</Title>
-          <Text c="dimmed" mt="xs">
-            Manage your instructor-led event registrations and outcomes.
-          </Text>
         </div>
         <Suspense fallback={<LoadingSpinner label="Loading events" />}>
           <LearnerEventSection events={dashboard.events} />

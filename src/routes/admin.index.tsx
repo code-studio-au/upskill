@@ -26,7 +26,7 @@ function AdminPage() {
   const result = Route.useLoaderData();
   if (result.status === "forbidden") return <AdminAccessDenied />;
 
-  const { administrator, statistics } = result.data;
+  const { statistics } = result.data;
   const stats = [
     { label: "Registered learners", value: statistics.learners },
     { label: "Active enrolments", value: statistics.activeEnrollments },
@@ -45,9 +45,6 @@ function AdminPage() {
           System overview
         </Text>
         <Title order={1}>Administration</Title>
-        <Text c="dimmed" mt="xs">
-          Signed in as {administrator.name} ({administrator.email}).
-        </Text>
       </div>
       <section aria-labelledby="statistics-heading">
         <Stack gap="md">

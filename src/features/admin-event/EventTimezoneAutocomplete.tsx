@@ -28,7 +28,6 @@ export function EventTimezoneAutocomplete({
     <>
       <MantineTextInput
         label="Event timezone"
-        description="Start typing a city or country, then choose a timezone."
         placeholder="Search for Sydney, London, New York…"
         list={suggestionsId}
         value={query}

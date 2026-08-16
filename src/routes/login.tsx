@@ -73,10 +73,6 @@ function LoginPage() {
               Learner access
             </Text>
             <Title order={1}>Sign in to Upskill</Title>
-            <Text c="dimmed" mt="xs">
-              Continue courses and discover learning available to your work
-              email.
-            </Text>
           </div>
           {error ? (
             <Alert color="red" title="Sign-in failed" role="alert">

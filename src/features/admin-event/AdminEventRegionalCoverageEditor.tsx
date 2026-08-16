@@ -69,13 +69,7 @@ export function AdminEventRegionalCoverageEditor({
 
   return (
     <Stack gap="sm">
-      <div>
-        <Title order={3}>Regional coverage</Title>
-        <Text c="dimmed" size="sm">
-          Reconfirm each applicable region and its coordinators. Removing a
-          region never silently changes existing registrations.
-        </Text>
-      </div>
+      <Title order={3}>Regional coverage</Title>
       {[...regions.values()].map((region) => {
         const configured = configuredByRegion.get(region.id);
         const current = currentByRegion.get(region.id);

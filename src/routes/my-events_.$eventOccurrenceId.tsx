@@ -117,10 +117,7 @@ function LearnerEventWorkspacePage() {
                   ) : null}
                 </div>
               ) : (
-                <Text size="sm" c="dimmed">
-                  Virtual event. The protected meeting link appears in each
-                  Session when it opens.
-                </Text>
+                <Text size="sm">Virtual event</Text>
               )}
               {workspace.certificateAvailable ? (
                 <Button

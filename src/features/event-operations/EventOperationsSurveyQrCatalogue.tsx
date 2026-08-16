@@ -47,14 +47,7 @@ export function EventOperationsSurveyQrCatalogue({
 }) {
   return (
     <Stack gap="lg">
-      <div>
-        <Title order={2}>Survey QR catalogue</Title>
-        <Text c="dimmed" size="sm" maw={760}>
-          Each code resolves to one exact Survey in this Event Instance. A scan
-          never bypasses sign-in, participant selection or the Section release
-          schedule.
-        </Text>
-      </div>
+      <Title order={2}>Survey QR catalogue</Title>
 
       {workspace.surveyQrCatalogue.length ? (
         <div className={classes.qrCatalogueGrid}>

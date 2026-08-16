@@ -28,10 +28,6 @@ export function AdminAccessGrantManager({
             Organisation access
           </Text>
           <Title order={1}>Access grants</Title>
-          <Text c="dimmed" mt="xs">
-            Issue capacity-limited codes for exact published course versions and
-            optional verified-email domains.
-          </Text>
         </div>
         <Group gap="sm">
           <Badge color="blue" variant="light">

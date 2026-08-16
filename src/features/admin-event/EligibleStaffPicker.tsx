@@ -1,10 +1,5 @@
-import "@mantine/core/styles/Combobox.css";
-import "@mantine/core/styles/Input.css";
-import "@mantine/core/styles/Popover.css";
-import "@mantine/core/styles/ScrollArea.css";
-
-import { Autocomplete } from "@mantine/core";
 import { useState } from "react";
+import { LightweightAutocomplete } from "#/features/shared/LightweightAutocomplete";
 import { Button, Group, Paper, Stack, Text } from "#/features/shared/mantine";
 
 interface Person {
@@ -35,9 +30,7 @@ export function EligibleStaffPicker({
     (candidate) => !selectedIds.includes(candidate.id),
   );
   const selectedCandidate = available.find(
-    (candidate) =>
-      candidate.email === query ||
-      `${candidate.name} · ${candidate.email}` === query,
+    (candidate) => candidate.email === query,
   );
 
   return (
@@ -89,7 +82,7 @@ export function EligibleStaffPicker({
       )}
       {!disabled ? (
         <Group align="end" wrap="wrap" grow>
-          <Autocomplete
+          <LightweightAutocomplete
             label={`Add ${label.toLocaleLowerCase("en-AU")}`}
             placeholder={
               available.length
@@ -98,9 +91,10 @@ export function EligibleStaffPicker({
             }
             value={query}
             disabled={available.length === 0}
-            data={available.map((candidate) => ({
+            options={available.map((candidate) => ({
               value: candidate.email,
-              label: `${candidate.name} · ${candidate.email}`,
+              label: candidate.name,
+              description: candidate.email,
             }))}
             limit={8}
             onChange={setQuery}

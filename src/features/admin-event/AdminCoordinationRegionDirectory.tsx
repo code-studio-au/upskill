@@ -72,14 +72,7 @@ export function AdminCoordinationRegionDirectory({
   return (
     <Stack gap="lg">
       <Group justify="space-between" align="end" wrap="wrap">
-        <div>
-          <Title order={2}>Coordination regions</Title>
-          <Text c="dimmed" size="sm">
-            Group operational regions under jurisdictions such as NSW or
-            Victoria. Event templates may combine operational regions from any
-            group, while each region keeps its own coordinator review list.
-          </Text>
-        </div>
+        <Title order={2}>Coordination regions</Title>
         <Group>
           <Button
             variant="default"
@@ -346,7 +339,6 @@ function RegionDialog({
             {(field) => (
               <MantineTextInput
                 label="Short code"
-                description="Unique uppercase admin reference used in filters, imports and exports, such as NSW or SLHD."
                 value={field.state.value}
                 error={firstFormError(field.state.meta.errors)}
                 onBlur={field.handleBlur}

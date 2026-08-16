@@ -35,10 +35,6 @@ function AssignedEventOperationsPage() {
           Assigned delivery
         </Text>
         <Title order={1}>Event operations</Title>
-        <Text c="dimmed" mt="xs" maw={720}>
-          Review registrations and manage attendance only for the event regions
-          and sessions assigned to you.
-        </Text>
       </div>
 
       {events.length === 0 ? (
