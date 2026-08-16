@@ -33,6 +33,12 @@ port 3001 and the local SCORM worker, so asynchronous uploads are processed and
 modules run inside the learner workspace. Use `pnpm dev:web` only when
 deliberately running the learning origin and worker separately.
 
+Local email is captured in PostgreSQL by default. To send it through Mailgun,
+set `EMAIL_PROVIDER=mailgun`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN` and
+`MAILGUN_FROM` in `.env.local`; use `MAILGUN_API_BASE_URL` for an EU-region
+domain. `pnpm dev` already runs the notification consumer. Never commit the
+domain sending key.
+
 The project is currently pre-production with no real data. Accepted breaking
 domain changes may rebase the migration chain and require a reset of only
 `.local/postgres`; see ADR 0021. This temporary policy ends before the first
@@ -162,9 +168,11 @@ See the [architecture specification](docs/architecture.md), broader
 [architecture decisions](docs/adr/README.md).
 
 Before the first AWS release, populate the application configuration secret
-output by the CDK application stack with the real application/learning origins
-and Stripe keys. EC2 combines that application secret with the RDS secret in a
-private systemd environment file on boot and at every atomic deployment. A
+output by the CDK application stack with the real application/learning origins,
+Stripe keys, Mailgun domain sending key, sending domain and From address. Use
+Mailgun's EU API base URL when the sending domain is hosted in the EU region.
+EC2 combines that application secret with the RDS secret in a private systemd
+environment file on boot and at every atomic deployment. A
 dedicated versioned Secrets Manager value supplies each environment's access-code
 encryption key and is readable only by the application instance role. The public
 lookup ID is stored in PostgreSQL and requires no separate secret.

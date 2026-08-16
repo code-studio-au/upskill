@@ -39,12 +39,12 @@ export function AppHeader({ session }: { session: AppShellSession }) {
           >
             Browse learning
           </Link>
-          {user ? (
+          {user && !user.requiresOnboarding ? (
             <Link to="/dashboard" className={classes.headerLink}>
               My learning
             </Link>
           ) : null}
-          {user ? (
+          {user && !user.requiresOnboarding ? (
             <Link to="/my-events" className={classes.headerLink}>
               My events
             </Link>
@@ -88,12 +88,20 @@ export function AppHeader({ session }: { session: AppShellSession }) {
                 >
                   Browse learning
                 </Link>
-                <Link to="/dashboard" className={classes.menuLink}>
-                  My learning
-                </Link>
-                <Link to="/my-events" className={classes.menuLink}>
-                  My events
-                </Link>
+                {user.requiresOnboarding ? (
+                  <Link to="/onboarding" className={classes.menuLink}>
+                    Complete onboarding
+                  </Link>
+                ) : (
+                  <>
+                    <Link to="/dashboard" className={classes.menuLink}>
+                      My learning
+                    </Link>
+                    <Link to="/my-events" className={classes.menuLink}>
+                      My events
+                    </Link>
+                  </>
+                )}
                 {user.isPlatformAdministrator ? (
                   <Link to="/admin" className={classes.menuLink}>
                     Administration

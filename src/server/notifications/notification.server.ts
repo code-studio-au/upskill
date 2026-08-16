@@ -12,6 +12,7 @@ export async function enqueueAccountSetupNotification(
     name: string;
     email: string;
     deduplicationKey: string;
+    setupUrl: string;
     createdAt: Date;
   },
 ): Promise<string> {
@@ -26,9 +27,10 @@ export async function enqueueAccountSetupNotification(
       recipientName: input.name,
       recipientEmail: input.email,
       deduplicationKey: input.deduplicationKey,
-      payload: { version: 1 },
+      payload: { version: 1, setupUrl: input.setupUrl },
       lastErrorCode: null,
       deliveredAt: null,
+      supersededAt: null,
       createdAt: input.createdAt,
       updatedAt: input.createdAt,
     })

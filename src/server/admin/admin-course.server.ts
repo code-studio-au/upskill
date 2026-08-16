@@ -385,6 +385,7 @@ export async function findAdminCourse(
           "learning_activity_version.version",
         ])
         .where("learning_activity_version.publishedAt", "is not", null)
+        .where("learning_activity.surveyUsage", "=", "learning")
         .orderBy("learning_activity.title")
         .orderBy("learning_activity_version.version", "desc")
         .execute(),
@@ -494,9 +495,15 @@ async function validateDraftReferences(
             "learning_activity_version.id",
             "survey_version.id",
           )
+          .innerJoin(
+            "learning_activity",
+            "learning_activity.id",
+            "learning_activity_version.activityId",
+          )
           .select("survey_version.id as id")
           .where("survey_version.id", "in", surveyIds)
           .where("learning_activity_version.publishedAt", "is not", null)
+          .where("learning_activity.surveyUsage", "=", "learning")
           .execute(),
   ]);
   return (

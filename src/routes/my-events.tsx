@@ -3,6 +3,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { lazy, Suspense } from "react";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import { getLearnerEventsDashboard } from "#/server/functions/learner";
+import { getLearnerOnboarding } from "#/server/functions/onboarding";
 import classes from "./dashboard.module.css";
 
 const LearnerEventSection = lazy(async () => {
@@ -13,6 +14,8 @@ const LearnerEventSection = lazy(async () => {
 export const Route = createFileRoute("/my-events")({
   ssr: "data-only",
   loader: async () => {
+    const onboarding = await getLearnerOnboarding();
+    if (onboarding.status === "ready") throw redirect({ to: "/onboarding" });
     const dashboard = await getLearnerEventsDashboard();
     if (!dashboard)
       throw redirect({

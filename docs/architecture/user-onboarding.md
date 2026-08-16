@@ -1,6 +1,6 @@
 # User Onboarding
 
-**Status:** Target Product; implementation pending\
+**Status:** Current Product foundation; advanced administration pending\
 **Scope:** Authenticated-user onboarding, versioned questionnaires, profile
 initialisation, privacy, completion, and soft-account transition
 
@@ -36,9 +36,19 @@ identity onboarding.
 
 ## Current Product
 
-Better Auth account/session mechanics and versioned learning Surveys exist.
-There is no complete authenticated-user onboarding workflow, onboarding
-assignment model or pre-dashboard route gate in the current repository.
+Better Auth account/session mechanics, secure provisional-account activation
+and Survey-backed onboarding are implemented. Administrators can classify and
+publish onboarding questionnaires, activate an immutable onboarding definition
+version with a versioned privacy notice and allowlisted profile mappings, and
+review configuration history. The learner flow creates or resumes an exact
+version-pinned assignment, validates each answer server-side, applies mapped
+name, phone and canonical current-region fields transactionally, and gates My
+Learning/My Events until completion. Onboarding responses remain separate from
+Learning Evidence and course/event progress.
+
+Explicit re-onboarding campaigns, privacy-scoped answer support/reporting,
+answer retention/redaction jobs, profession mappings and a durable
+`onboarding.completed` outbox event remain Target Product work.
 
 ## Target Product
 
@@ -227,15 +237,17 @@ editing the derived state.
 
 ## Implementation Sequence
 
-1. Generalise the Survey renderer/validator for an onboarding response context
-   without weakening existing Learning Survey entitlement rules.
-2. Add Onboarding Definition, immutable Version, Assignment, Response and
-   Completion persistence with a resettable pre-production migration.
-3. Add the server-side pre-dashboard resolver and mobile onboarding route.
-4. Add typed profile mappings and transactional completion/outbox handling.
-5. Add version authoring/activation and explicit re-onboarding administration.
-6. Add privacy-scoped support/reporting only after its authorisation and
-   retention policies are implemented.
+1. **Implemented:** generalise the Survey schema, renderer and validator without
+   weakening Learning Survey entitlement rules.
+2. **Implemented:** add Onboarding Definition Version, Assignment and Response
+   persistence with version-pinned completion state.
+3. **Implemented:** add the server-side pre-dashboard resolver and mobile
+   onboarding route.
+4. **Partly implemented:** typed name, phone and current-region mappings are
+   transactional; durable completion outbox dispatch remains pending.
+5. **Partly implemented:** version activation exists; explicit re-onboarding
+   campaigns remain pending.
+6. **Pending:** privacy-scoped support/reporting and retention/redaction.
 
 ## Related Decisions
 

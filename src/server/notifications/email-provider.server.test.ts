@@ -1,21 +1,37 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  appEnvironment: "test",
+  environment: {
+    APP_ENV: "test",
+    EMAIL_PROVIDER: "local_capture",
+    MAILGUN_API_BASE_URL: "https://api.mailgun.net",
+    MAILGUN_API_KEY: "",
+    MAILGUN_DOMAIN: "",
+    MAILGUN_FROM: "",
+  },
   execute: vi.fn(),
   insertInto: vi.fn(),
   values: vi.fn(),
   onConflict: vi.fn(),
+  fetch: vi.fn(),
 }));
 
 vi.mock("#/server/env.server", () => ({
-  getServerEnv: () => ({ APP_ENV: mocks.appEnvironment }),
+  getServerEnv: () => mocks.environment,
 }));
 
 describe("email provider boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.appEnvironment = "test";
+    mocks.environment = {
+      APP_ENV: "test",
+      EMAIL_PROVIDER: "local_capture",
+      MAILGUN_API_BASE_URL: "https://api.mailgun.net",
+      MAILGUN_API_KEY: "",
+      MAILGUN_DOMAIN: "",
+      MAILGUN_FROM: "",
+    };
+    vi.stubGlobal("fetch", mocks.fetch);
     mocks.insertInto.mockReturnValue({ values: mocks.values });
     mocks.values.mockReturnValue({ onConflict: mocks.onConflict });
     mocks.onConflict.mockReturnValue({ execute: mocks.execute });
@@ -44,14 +60,82 @@ describe("email provider boundary", () => {
     );
   });
 
-  it("supports development but fails closed without a production provider", async () => {
+  it("fails closed when Mailgun is selected without complete configuration", async () => {
     const { getEmailProvider } = await import("./email-provider.server");
     const database = { insertInto: mocks.insertInto };
-    mocks.appEnvironment = "development";
-    expect(getEmailProvider(database as never).id).toBe("local_capture");
-    mocks.appEnvironment = "production";
+    mocks.environment = {
+      APP_ENV: "production",
+      EMAIL_PROVIDER: "mailgun",
+      MAILGUN_API_BASE_URL: "https://api.mailgun.net",
+      MAILGUN_API_KEY: "",
+      MAILGUN_DOMAIN: "",
+      MAILGUN_FROM: "",
+    };
     expect(() => getEmailProvider(database as never)).toThrow(
       "EMAIL_PROVIDER_NOT_CONFIGURED",
     );
+  });
+
+  it("sends Mailgun multipart requests through the provider boundary", async () => {
+    const { getEmailProvider } = await import("./email-provider.server");
+    mocks.environment = {
+      APP_ENV: "development",
+      EMAIL_PROVIDER: "mailgun",
+      MAILGUN_API_BASE_URL: "https://api.eu.mailgun.net",
+      MAILGUN_API_KEY: "sending-key",
+      MAILGUN_DOMAIN: "mg.example.com",
+      MAILGUN_FROM: "Upskill <no-reply@mg.example.com>",
+    };
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ id: "<message@example.com>" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const provider = getEmailProvider({} as never);
+    await expect(
+      provider.send({
+        notificationId: "notification_2",
+        recipientEmail: "learner@example.com",
+        subject: "Set up your account",
+        textBody: "Follow the link",
+      }),
+    ).resolves.toEqual({ messageId: "<message@example.com>" });
+    expect(mocks.fetch).toHaveBeenCalledOnce();
+    const [url, request] = mocks.fetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("https://api.eu.mailgun.net/v3/mg.example.com/messages");
+    expect(request.method).toBe("POST");
+    expect(request.headers).toEqual({
+      Authorization: `Basic ${Buffer.from("api:sending-key").toString("base64")}`,
+    });
+    expect(request.body).toBeInstanceOf(FormData);
+    const form = request.body as FormData;
+    expect(form.get("from")).toBe("Upskill <no-reply@mg.example.com>");
+    expect(form.get("to")).toBe("learner@example.com");
+    expect(form.get("subject")).toBe("Set up your account");
+    expect(form.get("text")).toBe("Follow the link");
+  });
+
+  it("does not expose Mailgun response bodies when delivery is rejected", async () => {
+    const { getEmailProvider } = await import("./email-provider.server");
+    mocks.environment = {
+      APP_ENV: "development",
+      EMAIL_PROVIDER: "mailgun",
+      MAILGUN_API_BASE_URL: "https://api.mailgun.net",
+      MAILGUN_API_KEY: "sending-key",
+      MAILGUN_DOMAIN: "mg.example.com",
+      MAILGUN_FROM: "Upskill <no-reply@mg.example.com>",
+    };
+    mocks.fetch.mockResolvedValue(
+      new Response("secret provider detail", { status: 401 }),
+    );
+    await expect(
+      getEmailProvider({} as never).send({
+        notificationId: "notification_3",
+        recipientEmail: "learner@example.com",
+        subject: "Subject",
+        textBody: "Body",
+      }),
+    ).rejects.toThrow("EMAIL_PROVIDER_REJECTED");
   });
 });

@@ -27,8 +27,12 @@ architecture.
   delivery-attempt history, a provider-neutral email boundary and outbox/SQS
   worker delivery are implemented for provisional accounts created by an Event
   administrator. Development and test use an idempotent database capture
-  provider. A production email provider, account-activation flow, governed
-  template catalogue and scheduled reminder system are not yet implemented.
+  provider by default; explicit local opt-in and deployed environments use
+  Mailgun. Provisional accounts receive a 72-hour, single-use setup link carried
+  outside the request URL, set a Better Auth credential, become verified/active
+  and can sign in. Administrators can supersede an outstanding link and queue a
+  replacement. A governed template catalogue and scheduled reminder system are
+  not yet implemented.
 - **Target Product:** committed domain-event subscriptions create idempotent
   notification records, resolve bounded recipients/templates and deliver
   transactional email with observable retry/failure behaviour. A governed Email
@@ -744,13 +748,15 @@ real email.
 ### Phase 1 --- Email foundation
 
 - notification table/state model; **foundation implemented**
-- provider adapter interface; **implemented with local/test capture adapter**
+- provider adapter interface; **implemented with local/test capture and Mailgun adapters**
 - Email Designer with Offering/System catalogues, immutable publication,
   contract validation, preview and rollback;
 - seeded safe System Email defaults and dedicated Platform Administrator
   capability;
 - idempotent immediate delivery worker; **implemented for account-setup intent**
 - delivery attempt/status recording; **implemented**
+- expiring one-time provisional-account activation and administrator resend;
+  **implemented**
 - exact version/render-snapshot history with privacy-scoped access;
 - metrics and failure visibility.
 

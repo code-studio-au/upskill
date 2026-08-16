@@ -15,9 +15,12 @@ import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as EventOperationsRouteImport } from './routes/event-operations'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MyEventsRouteImport } from './routes/my-events'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as AccountSetupRouteImport } from './routes/account.setup'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccessRouteImport } from './routes/admin.access'
 import { Route as AdminModulesRouteImport } from './routes/admin.modules'
+import { Route as AdminOnboardingRouteImport } from './routes/admin.onboarding'
 import { Route as AdminResourcesRouteImport } from './routes/admin.resources'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as CheckoutSuccessRouteImport } from './routes/checkout.success'
@@ -89,6 +92,16 @@ const MyEventsRoute = MyEventsRouteImport.update({
   path: '/my-events',
   getParentRoute: () => rootRouteImport,
 } as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccountSetupRoute = AccountSetupRouteImport.update({
+  id: '/account/setup',
+  path: '/account/setup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -102,6 +115,11 @@ const AdminAccessRoute = AdminAccessRouteImport.update({
 const AdminModulesRoute = AdminModulesRouteImport.update({
   id: '/modules',
   path: '/modules',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminOnboardingRoute = AdminOnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminResourcesRoute = AdminResourcesRouteImport.update({
@@ -330,8 +348,11 @@ export interface FileRoutesByFullPath {
   '/event-operations': typeof EventOperationsRouteWithChildren
   '/login': typeof LoginRoute
   '/my-events': typeof MyEventsRoute
+  '/onboarding': typeof OnboardingRoute
+  '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/onboarding': typeof AdminOnboardingRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
@@ -379,8 +400,11 @@ export interface FileRoutesByTo {
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/my-events': typeof MyEventsRoute
+  '/onboarding': typeof OnboardingRoute
+  '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/onboarding': typeof AdminOnboardingRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
@@ -431,8 +455,11 @@ export interface FileRoutesById {
   '/event-operations': typeof EventOperationsRouteWithChildren
   '/login': typeof LoginRoute
   '/my-events': typeof MyEventsRoute
+  '/onboarding': typeof OnboardingRoute
+  '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/onboarding': typeof AdminOnboardingRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
@@ -484,8 +511,11 @@ export interface FileRouteTypes {
     | '/event-operations'
     | '/login'
     | '/my-events'
+    | '/onboarding'
+    | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
+    | '/admin/onboarding'
     | '/admin/resources'
     | '/api/health'
     | '/checkout/success'
@@ -533,8 +563,11 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/login'
     | '/my-events'
+    | '/onboarding'
+    | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
+    | '/admin/onboarding'
     | '/admin/resources'
     | '/api/health'
     | '/checkout/success'
@@ -584,8 +617,11 @@ export interface FileRouteTypes {
     | '/event-operations'
     | '/login'
     | '/my-events'
+    | '/onboarding'
+    | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
+    | '/admin/onboarding'
     | '/admin/resources'
     | '/api/health'
     | '/checkout/success'
@@ -636,6 +672,8 @@ export interface RootRouteChildren {
   EventOperationsRoute: typeof EventOperationsRouteWithChildren
   LoginRoute: typeof LoginRoute
   MyEventsRoute: typeof MyEventsRoute
+  OnboardingRoute: typeof OnboardingRoute
+  AccountSetupRoute: typeof AccountSetupRoute
   ApiHealthRoute: typeof ApiHealthRoute
   CheckoutSuccessRoute: typeof CheckoutSuccessRoute
   CoursesSlugRoute: typeof CoursesSlugRoute
@@ -703,6 +741,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MyEventsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/account/setup': {
+      id: '/account/setup'
+      path: '/account/setup'
+      fullPath: '/account/setup'
+      preLoaderRoute: typeof AccountSetupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/': {
       id: '/admin/'
       path: '/'
@@ -722,6 +774,13 @@ declare module '@tanstack/react-router' {
       path: '/modules'
       fullPath: '/admin/modules'
       preLoaderRoute: typeof AdminModulesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/onboarding': {
+      id: '/admin/onboarding'
+      path: '/onboarding'
+      fullPath: '/admin/onboarding'
+      preLoaderRoute: typeof AdminOnboardingRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/resources': {
@@ -1010,6 +1069,7 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
   AdminModulesRoute: typeof AdminModulesRoute
+  AdminOnboardingRoute: typeof AdminOnboardingRoute
   AdminResourcesRoute: typeof AdminResourcesRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
@@ -1031,6 +1091,7 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
   AdminModulesRoute: AdminModulesRoute,
+  AdminOnboardingRoute: AdminOnboardingRoute,
   AdminResourcesRoute: AdminResourcesRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
@@ -1092,6 +1153,8 @@ const rootRouteChildren: RootRouteChildren = {
   EventOperationsRoute: EventOperationsRouteWithChildren,
   LoginRoute: LoginRoute,
   MyEventsRoute: MyEventsRoute,
+  OnboardingRoute: OnboardingRoute,
+  AccountSetupRoute: AccountSetupRoute,
   ApiHealthRoute: ApiHealthRoute,
   CheckoutSuccessRoute: CheckoutSuccessRoute,
   CoursesSlugRoute: CoursesSlugRoute,

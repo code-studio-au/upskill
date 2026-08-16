@@ -6,6 +6,7 @@ export interface AppShellSession {
     email: string;
     isPlatformAdministrator: boolean;
     hasAssignedEventOperations: boolean;
+    requiresOnboarding: boolean;
   } | null;
 }
 
@@ -14,14 +15,19 @@ export const getAppShellSession = createServerFn({ method: "GET" }).handler(
     const { getRequestUser } = await import("#/server/auth/session.server");
     const user = await getRequestUser();
     if (!user) return { user: null };
-    const [{ isPlatformAdministrator }, { hasAssignedEventOperations }] =
-      await Promise.all([
-        import("#/server/admin/admin-access.server"),
-        import("#/server/events/event-operations-access.server"),
-      ]);
-    const [administrator, eventOperations] = await Promise.all([
+    const [
+      { isPlatformAdministrator },
+      { hasAssignedEventOperations },
+      { findLearnerOnboarding },
+    ] = await Promise.all([
+      import("#/server/admin/admin-access.server"),
+      import("#/server/events/event-operations-access.server"),
+      import("#/server/onboarding/learner-onboarding.server"),
+    ]);
+    const [administrator, eventOperations, onboarding] = await Promise.all([
       isPlatformAdministrator(user.id),
       hasAssignedEventOperations(user.id),
+      findLearnerOnboarding(user),
     ]);
     return {
       user: {
@@ -29,6 +35,7 @@ export const getAppShellSession = createServerFn({ method: "GET" }).handler(
         email: user.email,
         isPlatformAdministrator: administrator,
         hasAssignedEventOperations: eventOperations,
+        requiresOnboarding: typeof onboarding !== "string",
       },
     };
   },

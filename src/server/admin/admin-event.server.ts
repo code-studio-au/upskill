@@ -1080,6 +1080,7 @@ export async function findAdminEventTemplate(
         "learning_activity_version.version",
       ])
       .where("learning_activity_version.publishedAt", "is not", null)
+      .where("learning_activity.surveyUsage", "=", "learning")
       .orderBy("learning_activity.title")
       .orderBy("learning_activity_version.version", "desc")
       .execute(),
@@ -1179,8 +1180,19 @@ async function validateEventDraftReferences(
       activityIds.length
         ? transaction
             .selectFrom("learning_activity_version")
-            .select("id")
-            .where("id", "in", activityIds)
+            .innerJoin(
+              "learning_activity",
+              "learning_activity.id",
+              "learning_activity_version.activityId",
+            )
+            .select("learning_activity_version.id")
+            .where("learning_activity_version.id", "in", activityIds)
+            .where((expression) =>
+              expression.or([
+                expression("learning_activity_version.kind", "!=", "survey"),
+                expression("learning_activity.surveyUsage", "=", "learning"),
+              ]),
+            )
             .execute()
         : [],
       regionIds.size

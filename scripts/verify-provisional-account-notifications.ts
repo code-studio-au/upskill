@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { auth } from "#/server/auth/auth.server";
+import {
+  findAccountSetupRequest,
+  resendAccountSetup,
+} from "#/server/identity/account-setup.server";
 import { provisionUser } from "#/server/identity/provisional-user.server";
 import { deliverNotification } from "#/server/notifications/notification-delivery.server";
 import { NOTIFICATION_DELIVERY_TOPIC } from "#/server/queue/work-message";
@@ -80,6 +85,20 @@ try {
   const notification = notifications[0];
   assert.ok(notification);
   assert.equal(notification.status, "pending");
+  const firstSetupUrl = (notification.payload as { setupUrl?: unknown })
+    .setupUrl;
+  assert.equal(typeof firstSetupUrl, "string");
+  const firstSetupLocation = new URL(firstSetupUrl as string);
+  assert.equal(firstSetupLocation.search, "");
+  const firstToken = new URLSearchParams(firstSetupLocation.hash.slice(1)).get(
+    "token",
+  );
+  assert.ok(firstToken);
+  assert.deepEqual(await findAccountSetupRequest(firstToken), {
+    status: "ready",
+    name: "Provisional Learner",
+    email,
+  });
   const outbox = await database
     .selectFrom("outbox_event")
     .select(["topic", "aggregateId", "payload"])
@@ -89,32 +108,105 @@ try {
   assert.equal(outbox.aggregateId, notification.id);
   assert.deepEqual(outbox.payload, { notificationId: notification.id });
 
-  assert.deepEqual(await deliverNotification(notification.id), {
-    status: "delivered",
+  const actor = {
+    id: actorId,
+    name: "Provisioning verifier",
+    email: `provisioning-actor-${suffix}@example.com`,
+    emailVerified: true,
+  };
+  assert.equal(await resendAccountSetup(first.user.id, actor), "resent");
+  assert.deepEqual(await findAccountSetupRequest(firstToken), {
+    status: "invalid",
   });
   assert.deepEqual(await deliverNotification(notification.id), {
+    status: "superseded",
+  });
+  const replacement = await database
+    .selectFrom("notification")
+    .selectAll()
+    .where("recipientUserId", "=", first.user.id)
+    .where("id", "!=", notification.id)
+    .executeTakeFirstOrThrow();
+  const replacementSetupUrl = (replacement.payload as { setupUrl?: unknown })
+    .setupUrl;
+  assert.equal(typeof replacementSetupUrl, "string");
+  const replacementToken = new URLSearchParams(
+    new URL(replacementSetupUrl as string).hash.slice(1),
+  ).get("token");
+  assert.ok(replacementToken);
+  await database
+    .updateTable("notification")
+    .set({ status: "processing", attempts: 1, updatedAt: new Date() })
+    .where("id", "=", replacement.id)
+    .execute();
+  await assert.rejects(
+    deliverNotification(replacement.id),
+    /EMAIL_DELIVERY_IN_PROGRESS/u,
+  );
+  await database
+    .updateTable("notification")
+    .set({ updatedAt: new Date(0) })
+    .where("id", "=", replacement.id)
+    .execute();
+  assert.deepEqual(await deliverNotification(replacement.id), {
+    status: "delivered",
+  });
+  assert.deepEqual(await deliverNotification(replacement.id), {
     status: "already-delivered",
   });
   const delivered = await database
     .selectFrom("notification")
-    .select(["status", "attempts", "deliveredAt"])
-    .where("id", "=", notification.id)
+    .select(["status", "attempts", "deliveredAt", "payload"])
+    .where("id", "=", replacement.id)
     .executeTakeFirstOrThrow();
   assert.equal(delivered.status, "delivered");
-  assert.equal(delivered.attempts, 1);
+  assert.equal(delivered.attempts, 2);
   assert.ok(delivered.deliveredAt);
+  assert.deepEqual(delivered.payload, { version: 1 });
   const deliveryAttemptCount = await database
     .selectFrom("notification_delivery_attempt")
     .select(({ fn }) => fn.countAll<number>().as("count"))
-    .where("notificationId", "=", notification.id)
+    .where("notificationId", "=", replacement.id)
     .executeTakeFirstOrThrow();
   assert.equal(String(deliveryAttemptCount.count), "1");
   const capturedEmailCount = await database
     .selectFrom("email_delivery_capture")
     .select(({ fn }) => fn.countAll<number>().as("count"))
-    .where("notificationId", "=", notification.id)
+    .where("notificationId", "=", replacement.id)
     .executeTakeFirstOrThrow();
   assert.equal(String(capturedEmailCount.count), "1");
+
+  await auth.api.resetPassword({
+    body: {
+      token: replacementToken,
+      newPassword: "verified-local-password",
+    },
+  });
+  assert.deepEqual(await findAccountSetupRequest(replacementToken), {
+    status: "invalid",
+  });
+  const activated = await database
+    .selectFrom("user")
+    .select(["accountState", "emailVerified", "activatedAt"])
+    .where("id", "=", first.user.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(activated.accountState, "active");
+  assert.equal(activated.emailVerified, true);
+  assert.ok(activated.activatedAt);
+  const credential = await database
+    .selectFrom("account")
+    .select(["providerId", "password"])
+    .where("userId", "=", first.user.id)
+    .where("providerId", "=", "credential")
+    .executeTakeFirstOrThrow();
+  assert.ok(credential.password);
+  await auth.api.signInEmail({
+    body: { email, password: "verified-local-password" },
+  });
+  assert.equal(
+    await resendAccountSetup(first.user.id, actor),
+    "already-active",
+  );
 
   const rolledBackEmail = `rolled-back-${suffix}@example.com`;
   await assert.rejects(
@@ -138,7 +230,7 @@ try {
   assert.equal(String(rolledBackCount.count), "0");
 
   console.log(
-    "Verified provisional-user idempotency, transactional rollback and local notification delivery",
+    "Verified provisional-user idempotency, secure setup activation, resend supersession, delivery claiming and transactional rollback",
   );
 } finally {
   await destroyDatabase();

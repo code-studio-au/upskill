@@ -1,4 +1,9 @@
-import { useId, type ChangeEventHandler, type FocusEventHandler } from "react";
+import {
+  useId,
+  type ChangeEventHandler,
+  type FocusEventHandler,
+  type ReactNode,
+} from "react";
 import classes from "./MantineTextInput.module.css";
 
 interface MantineTextInputProps {
@@ -6,7 +11,7 @@ interface MantineTextInputProps {
   autoCapitalize?: string;
   autoComplete?: string;
   classNames?: { input?: string | undefined };
-  component?: "textarea";
+  component?: "textarea" | undefined;
   defaultValue?: string;
   description?: string;
   disabled?: boolean;
@@ -16,9 +21,9 @@ interface MantineTextInputProps {
     "decimal" | "email" | "numeric" | "search" | "tel" | "text" | "url";
   label?: string;
   list?: string;
-  max?: number;
+  max?: number | undefined;
   maxLength?: number;
-  min?: number;
+  min?: number | undefined;
   name?: string;
   onBlur?: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   onChange?: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>;
@@ -29,10 +34,12 @@ interface MantineTextInputProps {
   type?: "date" | "datetime-local" | "email" | "number" | "password" | "text";
   value?: string;
   withAsterisk?: boolean;
+  children?: ReactNode;
 }
 
 export function MantineTextInput({
   "aria-label": ariaLabel,
+  children,
   classNames,
   component,
   description,
@@ -84,6 +91,7 @@ export function MantineTextInput({
       ) : (
         <input {...common} />
       )}
+      {children}
       {error ? (
         <span className={classes.error} id={errorId}>
           {error}

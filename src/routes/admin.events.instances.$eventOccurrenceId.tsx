@@ -101,6 +101,7 @@ function EventInstanceOperationsPage() {
   const router = useRouter();
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [lifecycleTarget, setLifecycleTarget] = useState<
     "cancelled" | "completed" | "archived" | null
@@ -110,9 +111,11 @@ function EventInstanceOperationsPage() {
     async (
       id: string,
       operation: () => Promise<{ status: string; reason?: string }>,
+      successMessage?: string,
     ) => {
       setProcessingId(id);
       setError(null);
+      setSuccess(null);
       try {
         const outcome = await operation();
         if (outcome.status !== "ready") {
@@ -131,6 +134,8 @@ function EventInstanceOperationsPage() {
               "This learner already has a registration for this event.",
             registration_unavailable:
               "Registrations cannot be added to this event in its current state.",
+            account_already_active:
+              "This learner has already completed account setup.",
           };
           setError(
             messages[outcome.reason ?? ""] ??
@@ -139,6 +144,7 @@ function EventInstanceOperationsPage() {
           return;
         }
         await router.invalidate();
+        if (successMessage) setSuccess(successMessage);
       } finally {
         setProcessingId(null);
       }
@@ -245,6 +251,7 @@ function EventInstanceOperationsPage() {
       </Group>
 
       {error ? <Alert color="red">{error}</Alert> : null}
+      {success ? <Alert color="green">{success}</Alert> : null}
 
       <div className={classes.metrics}>
         {[

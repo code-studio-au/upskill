@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import type { Kysely } from "kysely";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
+import { z } from "#/validation/zod.server";
 
 interface EmailDelivery {
   notificationId: string;
@@ -10,6 +11,8 @@ interface EmailDelivery {
   subject: string;
   textBody: string;
 }
+
+const mailgunResponseSchema = z.object({ id: z.string().min(1) });
 
 export interface EmailProvider {
   readonly id: string;
@@ -37,9 +40,56 @@ class LocalCaptureEmailProvider implements EmailProvider {
   }
 }
 
+class MailgunEmailProvider implements EmailProvider {
+  readonly id = "mailgun";
+
+  constructor(
+    private readonly configuration: {
+      apiBaseUrl: string;
+      apiKey: string;
+      domain: string;
+      from: string;
+    },
+  ) {}
+
+  async send(message: EmailDelivery): Promise<{ messageId: string }> {
+    const form = new FormData();
+    form.set("from", this.configuration.from);
+    form.set("to", message.recipientEmail);
+    form.set("subject", message.subject);
+    form.set("text", message.textBody);
+    const response = await fetch(
+      `${this.configuration.apiBaseUrl}/v3/${encodeURIComponent(this.configuration.domain)}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(`api:${this.configuration.apiKey}`).toString("base64")}`,
+        },
+        body: form,
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!response.ok) throw new Error("EMAIL_PROVIDER_REJECTED");
+    const result = mailgunResponseSchema.safeParse(await response.json());
+    if (!result.success) throw new Error("EMAIL_PROVIDER_INVALID_RESPONSE");
+    return { messageId: result.data.id };
+  }
+}
+
 export function getEmailProvider(database: Kysely<Database>): EmailProvider {
-  const environment = getServerEnv().APP_ENV;
-  if (environment === "development" || environment === "test")
+  const environment = getServerEnv();
+  if (environment.EMAIL_PROVIDER === "local_capture")
     return new LocalCaptureEmailProvider(database);
-  throw new Error("EMAIL_PROVIDER_NOT_CONFIGURED");
+  if (
+    !environment.MAILGUN_API_KEY ||
+    !environment.MAILGUN_DOMAIN ||
+    !environment.MAILGUN_FROM
+  )
+    throw new Error("EMAIL_PROVIDER_NOT_CONFIGURED");
+  return new MailgunEmailProvider({
+    apiBaseUrl: environment.MAILGUN_API_BASE_URL,
+    apiKey: environment.MAILGUN_API_KEY,
+    domain: environment.MAILGUN_DOMAIN,
+    from: environment.MAILGUN_FROM,
+  });
 }

@@ -38,7 +38,7 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
   const [surveys, versions, courseUsage] = await Promise.all([
     database
       .selectFrom("learning_activity")
-      .select(["id", "title"])
+      .select(["id", "title", "surveyUsage"])
       .where("kind", "=", "survey")
       .orderBy("title")
       .execute(),
@@ -57,6 +57,7 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
     return {
       id: survey.id,
       title: survey.title,
+      usage: survey.surveyUsage === "onboarding" ? "onboarding" : "learning",
       latestVersion: surveyVersions[0]?.version ?? 0,
       draftVersion:
         surveyVersions.find((version) => version.publishedAt === null)
@@ -80,7 +81,7 @@ export async function findAdminSurvey(
   const database = getDatabase();
   const survey = await database
     .selectFrom("learning_activity")
-    .select(["id", "title"])
+    .select(["id", "title", "surveyUsage"])
     .where("id", "=", surveyId)
     .where("kind", "=", "survey")
     .executeTakeFirst();
@@ -107,7 +108,11 @@ export async function findAdminSurvey(
   const content = parseSurveyVersionContent(version.content);
   const courseUsage = await findContentCourseVersionUsage();
   return {
-    survey,
+    survey: {
+      id: survey.id,
+      title: survey.title,
+      usage: survey.surveyUsage === "onboarding" ? "onboarding" : "learning",
+    },
     version: {
       id: version.id,
       version: version.version,
@@ -130,6 +135,7 @@ export async function findAdminSurvey(
 
 export async function createAdminSurvey(
   title: string,
+  usage: "learning" | "onboarding",
   user: AuthenticatedUser,
 ): Promise<{ surveyId: string; versionId: string }> {
   const database = getDatabase();
@@ -139,7 +145,13 @@ export async function createAdminSurvey(
   await database.transaction().execute(async (transaction) => {
     await transaction
       .insertInto("learning_activity")
-      .values({ id: surveyId, kind: "survey", title, createdAt: now })
+      .values({
+        id: surveyId,
+        kind: "survey",
+        title,
+        surveyUsage: usage,
+        createdAt: now,
+      })
       .execute();
     await transaction
       .insertInto("learning_activity_version")
@@ -161,7 +173,7 @@ export async function createAdminSurvey(
       action: "survey.created",
       subjectType: "survey",
       subjectId: surveyId,
-      metadata: { versionId },
+      metadata: { usage, versionId },
       createdAt: now,
     });
   });

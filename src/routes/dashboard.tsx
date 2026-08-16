@@ -16,11 +16,14 @@ import { formatLocalDate } from "#/features/shared/local-date";
 import { AppDialog } from "#/features/shared/AppDialog";
 import type { LearnerCourse } from "#/features/learner/learner.schema";
 import { getLearnerDashboard } from "#/server/functions/learner";
+import { getLearnerOnboarding } from "#/server/functions/onboarding";
 import classes from "./dashboard.module.css";
 
 export const Route = createFileRoute("/dashboard")({
   ssr: "data-only",
   loader: async () => {
+    const onboarding = await getLearnerOnboarding();
+    if (onboarding.status === "ready") throw redirect({ to: "/onboarding" });
     const dashboard = await getLearnerDashboard();
     if (!dashboard)
       throw redirect({

@@ -211,7 +211,7 @@ function surveyContent(
           },
           {
             id: `${prefix}_reflection`,
-            kind: "text",
+            kind: "long_text",
             prompt:
               phase === "pre"
                 ? "What would you most like to learn?"
@@ -231,7 +231,7 @@ async function createSurveyFixture(
   title: string,
   phase: "pre" | "post",
 ): Promise<string> {
-  const created = await createAdminSurvey(title, administrator);
+  const created = await createAdminSurvey(title, "learning", administrator);
   const content = surveyContent(prefix, title, phase);
   const draft: AdminSurveyDraft = {
     surveyId: created.surveyId,
@@ -389,11 +389,12 @@ function answersForSurvey(
   const answers: Record<string, string | Array<string>> = {};
   for (const item of content.sections.flatMap((section) => section.items)) {
     if (item.kind === "instruction") continue;
-    if (item.kind === "text")
+    if (item.kind === "short_text" || item.kind === "long_text")
       answers[item.id] = "A practical next step for this test learner.";
-    else if (item.kind === "single_choice")
+    else if (item.kind === "single_choice" || item.kind === "dropdown")
       answers[item.id] = item.options[1]?.id ?? item.options[0]?.id ?? "";
-    else answers[item.id] = item.options.slice(0, 2).map((option) => option.id);
+    else if (item.kind === "multiple_choice")
+      answers[item.id] = item.options.slice(0, 2).map((option) => option.id);
   }
   return answers;
 }

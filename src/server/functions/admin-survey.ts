@@ -44,7 +44,7 @@ export const createAdminSurvey = createServerFn({ method: "POST" })
     if (request.status !== "ready") return request;
     const { createAdminSurvey: createSurvey } =
       await import("#/server/admin/admin-survey.server");
-    const created = await createSurvey(data.title, request.user);
+    const created = await createSurvey(data.title, data.usage, request.user);
     return {
       status: "ready",
       data: { outcome: "created", ...created },

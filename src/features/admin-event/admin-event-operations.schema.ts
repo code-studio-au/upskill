@@ -41,6 +41,11 @@ export const adminEventAttendanceSchema = z.object({
   state: z.enum(["not_recorded", "checked_in", "attended", "absent"]),
 });
 
+export const adminEventAccountSetupSchema = z.object({
+  eventOccurrenceId: identifier,
+  userId: identifier,
+});
+
 export const adminEventLifecycleSchema = z.object({
   eventOccurrenceId: identifier,
   target: z.enum(["cancelled", "completed", "archived"]),
@@ -120,6 +125,8 @@ export interface AdminEventOccurrenceOperations {
     coordinatorDecidedAt: string | null;
     finalDecidedAt: string | null;
     finalDecisionLocked: boolean;
+    accountState: "provisional" | "active";
+    setupRequestedAt: string | null;
   }>;
   regions: Array<{
     id: string;
@@ -203,5 +210,6 @@ export type AdminEventOperationsMutationResult =
         | "registration_unavailable"
         | "domain_override_required"
         | "duplicate_registration"
+        | "account_already_active"
         | "attendance_unavailable";
     };

@@ -17,6 +17,7 @@ const optionalText = (maximum: number) =>
 const surveyOptionSchema = z.object({
   id: identifierSchema,
   label: boundedText(240),
+  externalValue: z.optional(optionalText(240)),
 });
 
 const questionBase = {
@@ -25,7 +26,66 @@ const questionBase = {
   required: z.boolean(),
 };
 
+const optionQuestionBase = {
+  ...questionBase,
+  options: z.array(surveyOptionSchema).check(z.minLength(2), z.maxLength(500)),
+};
+const dateOnlySchema = z
+  .string()
+  .check(z.regex(/^\d{4}-\d{2}-\d{2}$/u, "Enter a valid date."));
+
 const surveyQuestionSchema = z.discriminatedUnion("kind", [
+  z.object({
+    ...optionQuestionBase,
+    kind: z.literal("single_choice"),
+  }),
+  z.object({
+    ...optionQuestionBase,
+    kind: z.literal("multiple_choice"),
+  }),
+  z.object({
+    ...optionQuestionBase,
+    kind: z.literal("dropdown"),
+  }),
+  z.object({
+    ...questionBase,
+    kind: z.literal("short_text"),
+    maximumLength: z.number().check(z.int(), z.minimum(1), z.maximum(500)),
+    format: z.enum(["plain", "email", "phone", "url"]),
+  }),
+  z.object({
+    ...questionBase,
+    kind: z.literal("long_text"),
+    maximumLength: z.number().check(z.int(), z.minimum(1), z.maximum(10_000)),
+  }),
+  z.object({
+    ...questionBase,
+    kind: z.literal("checkbox"),
+  }),
+  z.object({
+    ...questionBase,
+    kind: z.literal("number"),
+    integer: z.boolean(),
+    minimum: z.nullable(z.number()),
+    maximum: z.nullable(z.number()),
+  }),
+  z.object({
+    ...questionBase,
+    kind: z.literal("date"),
+    minimum: z.nullable(dateOnlySchema),
+    maximum: z.nullable(dateOnlySchema),
+  }),
+  z.object({
+    ...questionBase,
+    kind: z.literal("rating"),
+    minimum: z.number().check(z.int(), z.minimum(0), z.maximum(10)),
+    maximum: z.number().check(z.int(), z.minimum(1), z.maximum(10)),
+    minimumLabel: optionalText(120),
+    maximumLabel: optionalText(120),
+  }),
+]);
+
+const legacySurveyQuestionSchema = z.discriminatedUnion("kind", [
   z.object({
     ...questionBase,
     kind: z.literal("single_choice"),
@@ -65,7 +125,22 @@ const surveySectionSchema = z.object({
 const legacySurveyVersionContentSchema = z.object({
   title: boundedText(160),
   description: optionalText(2_000),
-  questions: z.array(surveyQuestionSchema).check(z.maxLength(100)),
+  questions: z.array(legacySurveyQuestionSchema).check(z.maxLength(100)),
+});
+
+const legacySectionSurveyContentSchema = z.object({
+  title: boundedText(160),
+  description: optionalText(2_000),
+  sections: z.array(
+    z.object({
+      id: identifierSchema,
+      title: boundedText(160),
+      description: optionalText(2_000),
+      items: z
+        .array(z.union([legacySurveyQuestionSchema, surveyInstructionSchema]))
+        .check(z.maxLength(100)),
+    }),
+  ),
 });
 
 export const surveyVersionContentSchema = z
@@ -96,9 +171,29 @@ export const surveyVersionContentSchema = z
               message: "Item identifiers must be unique",
             });
           itemIdentifiers.add(item.id);
-          if (item.kind === "instruction" || item.kind === "text") continue;
+          if (!("options" in item)) {
+            if (
+              (item.kind === "number" || item.kind === "date") &&
+              item.minimum !== null &&
+              item.maximum !== null &&
+              item.minimum > item.maximum
+            )
+              context.addIssue({
+                code: "custom",
+                path: ["sections", sectionIndex, "items", itemIndex, "maximum"],
+                message: "Maximum must not be less than minimum",
+              });
+            if (item.kind === "rating" && item.minimum >= item.maximum)
+              context.addIssue({
+                code: "custom",
+                path: ["sections", sectionIndex, "items", itemIndex, "maximum"],
+                message: "Rating maximum must be greater than minimum",
+              });
+            continue;
+          }
           const optionIdentifiers = new Set<string>();
           const labels = new Set<string>();
+          const externalValues = new Set<string>();
           for (const [optionIndex, option] of item.options.entries()) {
             if (optionIdentifiers.has(option.id))
               context.addIssue({
@@ -131,6 +226,25 @@ export const surveyVersionContentSchema = z
                 message: "Option labels must be unique within a question",
               });
             labels.add(normalized);
+            if (option.externalValue) {
+              const normalizedExternalValue =
+                option.externalValue.toLocaleLowerCase("en-AU");
+              if (externalValues.has(normalizedExternalValue))
+                context.addIssue({
+                  code: "custom",
+                  path: [
+                    "sections",
+                    sectionIndex,
+                    "items",
+                    itemIndex,
+                    "options",
+                    optionIndex,
+                    "externalValue",
+                  ],
+                  message: "External values must be unique within a question",
+                });
+              externalValues.add(normalizedExternalValue);
+            }
           }
         }
       }
@@ -148,6 +262,17 @@ export function parseSurveyVersionContent(
 ): SurveyVersionContent {
   const current = surveyVersionContentSchema.safeParse(value);
   if (current.success) return current.data;
+  const legacySections = legacySectionSurveyContentSchema.safeParse(value);
+  if (legacySections.success)
+    return surveyVersionContentSchema.parse({
+      ...legacySections.data,
+      sections: legacySections.data.sections.map((section) => ({
+        ...section,
+        items: section.items.map((item) =>
+          item.kind === "text" ? { ...item, kind: "long_text" as const } : item,
+        ),
+      })),
+    });
   const legacy = legacySurveyVersionContentSchema.safeParse(value);
   if (!legacy.success) return surveyVersionContentSchema.parse(value);
   return surveyVersionContentSchema.parse({
@@ -158,7 +283,11 @@ export function parseSurveyVersionContent(
         id: "section_legacy_questions",
         title: "Survey",
         description: "",
-        items: legacy.data.questions,
+        items: legacy.data.questions.map((question) =>
+          question.kind === "text"
+            ? { ...question, kind: "long_text" as const }
+            : question,
+        ),
       },
     ],
   });
@@ -166,6 +295,7 @@ export function parseSurveyVersionContent(
 
 export const adminSurveyCreateSchema = z.object({
   title: boundedText(160),
+  usage: z.enum(["learning", "onboarding"]),
 });
 
 export const adminSurveyParamsSchema = z.object({ surveyId: identifierSchema });
@@ -208,8 +338,10 @@ export const learnerEventSurveyParamsSchema = z.object({
 });
 
 export const surveyAnswerValueSchema = z.union([
-  z.string().check(z.maxLength(2_000)),
-  z.array(identifierSchema).check(z.maxLength(20)),
+  z.string().check(z.maxLength(10_000)),
+  z.array(identifierSchema).check(z.maxLength(500)),
+  z.boolean(),
+  z.number(),
 ]);
 
 export const learnerEventSurveyStepSchema = z.object({
@@ -239,6 +371,7 @@ export type LearnerEventSurveyStep = z.infer<
 export interface AdminSurveySummary {
   id: string;
   title: string;
+  usage: "learning" | "onboarding";
   latestVersion: number;
   draftVersion: number | null;
   publishedVersions: number;
@@ -251,7 +384,7 @@ export interface AdminSurveySummary {
 }
 
 export interface AdminSurveyDetail {
-  survey: { id: string; title: string };
+  survey: { id: string; title: string; usage: "learning" | "onboarding" };
   version: {
     id: string;
     version: number;

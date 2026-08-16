@@ -19,6 +19,11 @@ const envSchema = z.object({
     .default(LOCAL_ACCESS_CODE_ENCRYPTION_KEY),
   STRIPE_SECRET_KEY: z.string().startsWith("sk_"),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_"),
+  EMAIL_PROVIDER: z.enum(["local_capture", "mailgun"]).default("local_capture"),
+  MAILGUN_API_KEY: z.string().min(1).optional(),
+  MAILGUN_DOMAIN: z.string().min(1).optional(),
+  MAILGUN_FROM: z.string().min(1).max(320).optional(),
+  MAILGUN_API_BASE_URL: z.url().default("https://api.mailgun.net"),
   AWS_REGION: z.string().min(1).default("ap-southeast-2"),
   S3_ENDPOINT: z.url().optional(),
   S3_ACCESS_KEY_ID: z.string().min(1).optional(),
@@ -59,6 +64,14 @@ let parsed: ServerEnv | undefined;
 export function getServerEnv(): ServerEnv {
   if (parsed) return parsed;
   const validated = envSchema.parse(process.env);
+  if (validated.EMAIL_PROVIDER === "mailgun") {
+    if (!validated.MAILGUN_API_KEY)
+      throw new Error("MAILGUN_API_KEY is required for Mailgun delivery");
+    if (!validated.MAILGUN_DOMAIN)
+      throw new Error("MAILGUN_DOMAIN is required for Mailgun delivery");
+    if (!validated.MAILGUN_FROM)
+      throw new Error("MAILGUN_FROM is required for Mailgun delivery");
+  }
   if (validated.APP_ENV === "staging" || validated.APP_ENV === "production") {
     if (
       !process.env.ACCESS_CODE_ENCRYPTION_KEY ||
@@ -71,6 +84,10 @@ export function getServerEnv(): ServerEnv {
       throw new Error("SQS_QUEUE_URL is required outside local environments");
     if (validated.SQS_ENDPOINT)
       throw new Error("SQS_ENDPOINT is prohibited outside local environments");
+    if (validated.EMAIL_PROVIDER !== "mailgun")
+      throw new Error(
+        "Mailgun delivery is required outside local environments",
+      );
     parsed = validated;
   } else {
     parsed = {

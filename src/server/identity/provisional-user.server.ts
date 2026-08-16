@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { Database } from "#/server/db/types";
-import { enqueueAccountSetupNotification } from "#/server/notifications/notification.server";
+import { createAccountSetupRequest } from "./account-setup.server";
 
 export type ProvisionalUserSource =
   "administrator" | "open_entry" | "late_invitation" | "access_owner";
@@ -43,6 +43,7 @@ export async function provisionUser(
       provisioningSource: input.source,
       provisionedByUserId: input.actorUserId,
       setupRequestedAt: createdAt,
+      activatedAt: null,
       createdAt,
       updatedAt: createdAt,
     })
@@ -69,7 +70,7 @@ export async function provisionUser(
     metadata: { source: input.source },
     createdAt,
   });
-  const notificationId = await enqueueAccountSetupNotification(transaction, {
+  const notificationId = await createAccountSetupRequest(transaction, {
     userId: user.id,
     name: user.name,
     email: user.email,

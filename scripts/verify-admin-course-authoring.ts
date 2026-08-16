@@ -118,7 +118,12 @@ try {
     .values([
       { id: ids.module, kind: "scorm", title: "Verified module" },
       { id: ids.resource, kind: "resource", title: "Verified PDF" },
-      { id: ids.survey, kind: "survey", title: "Verified survey" },
+      {
+        id: ids.survey,
+        kind: "survey",
+        title: "Verified survey",
+        surveyUsage: "learning",
+      },
     ])
     .execute();
   await database

@@ -62,6 +62,7 @@
     "db:verify:admin-access-grants": "node --env-file-if-exists=.env.local --import tsx scripts/verify-admin-access-grants.ts",
     "db:verify:admin-course-authoring": "node --env-file-if-exists=.env.local --import tsx scripts/verify-admin-course-authoring.ts",
     "db:verify:surveys": "node --env-file-if-exists=.env.local --import tsx scripts/verify-survey-workflow.ts",
+    "db:verify:onboarding": "node --env-file-if-exists=.env.local --import tsx scripts/verify-onboarding-workflow.ts",
     "db:verify:resources": "node --env-file-if-exists=.env.local --import tsx scripts/verify-resource-library.ts",
     "db:verify:certificates": "node --env-file-if-exists=.env.local --import tsx scripts/verify-completion-certificates.ts",
     "db:verify:events": "node --env-file-if-exists=.env.local --import tsx scripts/verify-event-foundation.ts",
