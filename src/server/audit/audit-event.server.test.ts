@@ -35,6 +35,7 @@ describe("audit event boundary", () => {
       "event_registration.submitted",
       "event_registration.withdrawn",
       "event_template.created",
+      "event_template.draft_deleted",
       "event_template.version_created",
       "event_template.version_published",
       "enrollment.access_code_redeemed",

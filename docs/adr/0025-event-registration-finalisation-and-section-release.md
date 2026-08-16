@@ -51,6 +51,13 @@ using a safe application route rather than embedding a privileged token. A
 provisional user completes account setup and onboarding as required before the
 ordinary learner dashboard is exposed.
 
+An assigned administrator may correct a final decision before attendance is
+recorded; each correction remains an explicit, audited Registration transition.
+Once any Session attendance evidence exists for the resulting Participation,
+the operational table shows the retained decision as a static status and the
+decision command rejects further changes. Attendance must be corrected through
+its own workflow rather than silently invalidated by a registration action.
+
 Capacity is reserved transactionally at final assigned-administrator selection.
 The implementation must not infer a final place from UI state or allow
 concurrent decisions to oversubscribe an occurrence.

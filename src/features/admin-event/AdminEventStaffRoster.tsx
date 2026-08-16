@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   adminEventStaffEligibilityGrantSchema,
   type AdminEventCoordinatorCoverageImpact,
+  type AdminEventStaffEligibilityGrantInput,
   type AdminEventWorkspace,
 } from "./admin-event.schema";
 import { firstFormError } from "#/features/shared/form-errors";
@@ -29,6 +30,12 @@ import {
   searchAdminEventStaffCandidates,
 } from "#/server/functions/admin-event";
 import classes from "./AdminEventStaffRoster.module.css";
+
+const eligibilityDefaults: AdminEventStaffEligibilityGrantInput = {
+  email: "",
+  responsibility: "presenter",
+  regionId: null,
+};
 
 export function AdminEventStaffRoster({
   coordinators,
@@ -62,19 +69,13 @@ export function AdminEventStaffRoster({
     [suggestions],
   );
   const form = useForm({
-    defaultValues: {
-      email: "",
-      responsibility: "presenter",
-      regionId: null as string | null,
-    },
+    defaultValues: eligibilityDefaults,
     validators: { onSubmit: adminEventStaffEligibilityGrantSchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminEventStaffEligibilityGrantSchema.safeParse(value);
-      if (!parsed.success) return;
       setError(null);
       setMessage(null);
       const result = await grantAdminEventStaffEligibility({
-        data: parsed.data,
+        data: value,
       });
       if (result.status === "not-found") {
         setError("The user or selected active region could not be found.");

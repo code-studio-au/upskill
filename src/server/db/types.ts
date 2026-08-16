@@ -270,6 +270,8 @@ interface ScormAttemptContextTable {
   removedAt: Date | null;
   eventParticipationId: string | null;
   occurrenceStatus: EventOccurrenceTable["status"] | null;
+  participationMode: EventParticipationTable["mode"] | null;
+  registrationStatus: EventRegistrationTable["status"] | null;
 }
 
 interface LearningProgressOverrideTable {
@@ -729,6 +731,7 @@ export type AuditEventAction =
   | "event_registration.submitted"
   | "event_registration.withdrawn"
   | "event_template.created"
+  | "event_template.draft_deleted"
   | "event_template.version_created"
   | "event_template.version_published"
   | "enrollment.access_code_redeemed"

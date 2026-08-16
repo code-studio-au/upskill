@@ -16,6 +16,7 @@ export const learnerWorkspaceInputSchema = z.object({
 export const learnerResourceInputSchema = z.union([
   z.object({
     enrollmentId: enrollmentIdSchema,
+    courseVersionItemId: enrollmentIdSchema,
     resourceVersionId: enrollmentIdSchema,
   }),
   z.object({

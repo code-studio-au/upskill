@@ -25,6 +25,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { ensureEventSurveyAccessRecords } from "#/server/events/event-survey-access.server";
+import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.server";
 import {
@@ -1509,6 +1510,17 @@ export async function deleteAdminEventTemplateVersion(
           .deleteFrom("event_template")
           .where("id", "=", eventTemplateId)
           .executeTakeFirstOrThrow();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: administrator.id,
+        action: "event_template.draft_deleted",
+        subjectType: remaining ? "event_template_version" : "event_template",
+        subjectId: remaining ? eventTemplateVersionId : eventTemplateId,
+        aggregateId: eventTemplateId,
+        metadata: {
+          eventTemplateVersionId,
+          templateDeleted: !remaining,
+        },
+      });
       return { status: "deleted", templateDeleted: !remaining } as const;
     });
   if (outcome.status === "deleted")
@@ -1615,6 +1627,9 @@ export async function publishAdminEventTemplateVersion(
             .select([
               sql<number>`count(distinct sections.id)::integer`.as("sections"),
               sql<number>`count(items.id)::integer`.as("items"),
+              sql<number>`count(distinct sections.id) filter (where items.id is null)::integer`.as(
+                "emptySections",
+              ),
               sql<number>`count(items.id) filter (where items.kind = 'session')::integer`.as(
                 "sessions",
               ),
@@ -1629,6 +1644,7 @@ export async function publishAdminEventTemplateVersion(
       if (
         structure.sections === 0 ||
         structure.items === 0 ||
+        structure.emptySections > 0 ||
         structure.sessions === 0 ||
         administratorCoverage.configured === 0 ||
         administratorCoverage.configured !== administratorCoverage.active ||
@@ -2207,36 +2223,61 @@ export async function rescheduleAdminEventOccurrence(
         .executeTakeFirst();
       if (slugOwner) return "slug-in-use" as const;
 
-      const [sessions, occurrenceRegions, coordinatorRows, finalDecision] =
-        await Promise.all([
-          transaction
-            .selectFrom("event_session")
-            .select(["id", "startsAt", "endsAt"])
-            .where("eventOccurrenceId", "=", eventOccurrenceId)
-            .execute(),
-          transaction
-            .selectFrom("event_occurrence_region")
-            .select(["id", "regionId", "position", "retiredAt"])
-            .where("eventOccurrenceId", "=", eventOccurrenceId)
-            .execute(),
-          transaction
-            .selectFrom("event_coordinator_assignment as assignment")
-            .innerJoin(
-              "event_occurrence_region as region",
-              "region.id",
-              "assignment.eventOccurrenceRegionId",
-            )
-            .select(["assignment.eventOccurrenceRegionId", "assignment.userId"])
-            .where("region.eventOccurrenceId", "=", eventOccurrenceId)
-            .where("assignment.endedAt", "is", null)
-            .execute(),
-          transaction
-            .selectFrom("event_registration")
-            .select("id")
-            .where("eventOccurrenceId", "=", eventOccurrenceId)
-            .where("finalDecidedAt", "is not", null)
-            .executeTakeFirst(),
-        ]);
+      const [
+        sessions,
+        occurrenceRegions,
+        coordinatorRows,
+        finalDecision,
+        participations,
+        releaseSections,
+      ] = await Promise.all([
+        transaction
+          .selectFrom("event_session")
+          .select(["id", "startsAt", "endsAt"])
+          .where("eventOccurrenceId", "=", eventOccurrenceId)
+          .execute(),
+        transaction
+          .selectFrom("event_occurrence_region")
+          .select(["id", "regionId", "position", "retiredAt"])
+          .where("eventOccurrenceId", "=", eventOccurrenceId)
+          .execute(),
+        transaction
+          .selectFrom("event_coordinator_assignment as assignment")
+          .innerJoin(
+            "event_occurrence_region as region",
+            "region.id",
+            "assignment.eventOccurrenceRegionId",
+          )
+          .select(["assignment.eventOccurrenceRegionId", "assignment.userId"])
+          .where("region.eventOccurrenceId", "=", eventOccurrenceId)
+          .where("assignment.endedAt", "is", null)
+          .execute(),
+        transaction
+          .selectFrom("event_registration")
+          .select("id")
+          .where("eventOccurrenceId", "=", eventOccurrenceId)
+          .where("finalDecidedAt", "is not", null)
+          .executeTakeFirst(),
+        transaction
+          .selectFrom("event_participation")
+          .select(["id", "createdAt"])
+          .where("eventOccurrenceId", "=", eventOccurrenceId)
+          .execute(),
+        transaction
+          .selectFrom("event_template_version_section")
+          .select([
+            "id",
+            "releaseAnchor",
+            "releaseOffsetAmount",
+            "releaseOffsetUnit",
+          ])
+          .where(
+            "eventTemplateVersionId",
+            "=",
+            occurrence.eventTemplateVersionId,
+          )
+          .execute(),
+      ]);
       const activeRegions = occurrenceRegions.filter(
         (region) => !region.retiredAt,
       );
@@ -2343,6 +2384,40 @@ export async function rescheduleAdminEventOccurrence(
       const submittedClosesAt = optionalDate(next.registrationClosesAt);
       const submittedLockAt = optionalDate(next.coordinatorLockAt);
       const now = new Date();
+      const originalFinalSessionEndsAt = sessions.reduce(
+        (latest, session) =>
+          session.endsAt > latest ? session.endsAt : latest,
+        occurrence.endsAt,
+      );
+      const elapsedReleases = participations.flatMap((participation) =>
+        releaseSections.flatMap((section) => {
+          const calculatedReleaseAt = calculateEventSectionReleaseAt({
+            releaseAnchor: section.releaseAnchor,
+            releaseOffsetAmount: section.releaseOffsetAmount,
+            releaseOffsetUnit: section.releaseOffsetUnit,
+            timezone: occurrence.timezone,
+            participationCreatedAt: participation.createdAt,
+            occurrenceStartsAt: occurrence.startsAt,
+            occurrenceEndsAt: occurrence.endsAt,
+            finalSessionEndsAt: originalFinalSessionEndsAt,
+          });
+          return calculatedReleaseAt <= now
+            ? [
+                {
+                  eventParticipationId: participation.id,
+                  eventTemplateVersionSectionId: section.id,
+                  releasedAt: now,
+                },
+              ]
+            : [];
+        }),
+      );
+      if (elapsedReleases.length)
+        await transaction
+          .insertInto("event_section_release")
+          .values(elapsedReleases)
+          .onConflict((conflict) => conflict.doNothing())
+          .execute();
       let nextOpensAt = occurrence.registrationOpensAt;
       let nextClosesAt = occurrence.registrationClosesAt;
       let nextLockAt = occurrence.coordinatorLockAt;

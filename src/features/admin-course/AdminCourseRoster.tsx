@@ -44,11 +44,9 @@ export function AdminCourseRoster({
     },
     validators: { onSubmit: adminCourseEnrollmentCreateSchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminCourseEnrollmentCreateSchema.safeParse(value);
-      if (!parsed.success) return;
       setError(null);
       setMessage(null);
-      const result = await addAdminCourseEnrollment({ data: parsed.data });
+      const result = await addAdminCourseEnrollment({ data: value });
       if (result.status === "not-found") {
         setError(
           result.entity === "learner"

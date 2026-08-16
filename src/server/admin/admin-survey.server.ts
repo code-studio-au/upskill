@@ -105,6 +105,7 @@ export async function findAdminSurvey(
     versions.find((candidate) => candidate.publishedAt === null) ?? versions[0];
   if (!version) throw new Error("Survey has no version");
   const content = parseSurveyVersionContent(version.content);
+  const courseUsage = await findContentCourseVersionUsage();
   return {
     survey,
     version: {
@@ -112,6 +113,7 @@ export async function findAdminSurvey(
       version: version.version,
       publishedAt: version.publishedAt?.toISOString() ?? null,
       editable: version.publishedAt === null,
+      courseUsages: courseUsage.surveys.get(version.id) ?? [],
     },
     versions: versions.map((candidate) => ({
       id: candidate.id,

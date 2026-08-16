@@ -1496,6 +1496,19 @@ test("platform administrators can inspect learner progress", async ({
        values ($1, $2, 'attended', 'administrator', $3, now(), now())`,
       [participationId, occurrenceSessionId, administratorUser.id],
     );
+    await page.goto(
+      `/admin/events/instances/${occurrenceId}?view=registrations`,
+    );
+    const finalisedRegistrationRow = page.getByRole("row").filter({
+      hasText: administratorUser.email,
+    });
+    await expect(finalisedRegistrationRow).toBeVisible();
+    await expect(
+      finalisedRegistrationRow.getByLabel(
+        `Final decision for ${administratorUser.name}`,
+      ),
+    ).toHaveCount(0);
+    await expect(finalisedRegistrationRow).toContainText("Confirmed");
     await page.goto("/my-events");
     const learnerEvent = page.getByRole("heading", {
       name: eventOccurrenceTitle,

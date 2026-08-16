@@ -122,6 +122,8 @@ function EventInstanceOperationsPage() {
               "No places remain. Waitlist or remove another confirmed participant first.",
             invalid_transition:
               "That decision is not available from the current registration state.",
+            final_decision_locked:
+              "This registration has attendance evidence, so its final decision can no longer be changed here.",
             domain_override_required:
               "This learner does not match the restricted domains. Confirm the explicit override to continue.",
             duplicate_registration:

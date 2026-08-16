@@ -47,12 +47,10 @@ export function AdminAccessGrantForm({
     },
     validators: { onSubmit: adminAccessGrantCreateSchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminAccessGrantCreateSchema.safeParse(value);
-      if (!parsed.success) return;
       setError(null);
       setMessage(null);
       setIssuedCode(null);
-      const response = await createAdminAccessGrant({ data: parsed.data });
+      const response = await createAdminAccessGrant({ data: value });
       if (response.status === "not-found") {
         setError("Choose a published course version that is still available.");
         return;

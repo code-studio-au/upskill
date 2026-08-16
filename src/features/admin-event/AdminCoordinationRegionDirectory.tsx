@@ -293,10 +293,8 @@ function RegionDialog({
     },
     validators: { onSubmit: adminCoordinationRegionSaveSchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminCoordinationRegionSaveSchema.safeParse(value);
-      if (!parsed.success) return;
       setError(null);
-      const result = await saveAdminCoordinationRegion({ data: parsed.data });
+      const result = await saveAdminCoordinationRegion({ data: value });
       if (result.status === "conflict") {
         setError(
           result.reason === "region_code_in_use"

@@ -257,6 +257,7 @@ export interface AdminSurveyDetail {
     version: number;
     publishedAt: string | null;
     editable: boolean;
+    courseUsages: Array<CourseVersionUsage>;
   };
   versions: Array<{
     id: string;

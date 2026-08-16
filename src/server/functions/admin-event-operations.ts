@@ -88,6 +88,8 @@ export const decideAdminEventFinalRegistration = createServerFn({
       return { status: "conflict", reason: "capacity_full" };
     if (outcome === "domain-override-required")
       return { status: "conflict", reason: "domain_override_required" };
+    if (outcome === "final-decision-locked")
+      return { status: "conflict", reason: "final_decision_locked" };
     if (outcome === "invalid-transition")
       return { status: "conflict", reason: "invalid_transition" };
     return { status: "ready" };

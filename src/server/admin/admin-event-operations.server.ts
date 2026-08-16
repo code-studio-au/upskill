@@ -244,7 +244,12 @@ export async function findAdminEventOccurrenceOperations(
       .execute(),
     database
       .selectFrom("event_participation")
-      .select(["id", "nameSnapshot as name", "emailSnapshot as email"])
+      .select([
+        "id",
+        "registrationId",
+        "nameSnapshot as name",
+        "emailSnapshot as email",
+      ])
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .execute(),
     database
@@ -341,6 +346,16 @@ export async function findAdminEventOccurrenceOperations(
   const selected = registrationRows.filter(
     (row) => row.status === "selected",
   ).length;
+  const participationByRegistration = new Map<string, string>();
+  for (const participation of participationRows)
+    if (participation.registrationId)
+      participationByRegistration.set(
+        participation.registrationId,
+        participation.id,
+      );
+  const participationWithAttendance = new Set(
+    attendanceRows.map((row) => row.eventParticipationId),
+  );
   return {
     occurrence: {
       ...occurrence,
@@ -377,6 +392,9 @@ export async function findAdminEventOccurrenceOperations(
       submittedAt: row.submittedAt.toISOString(),
       coordinatorDecidedAt: row.coordinatorDecidedAt?.toISOString() ?? null,
       finalDecidedAt: row.finalDecidedAt?.toISOString() ?? null,
+      finalDecisionLocked: participationWithAttendance.has(
+        participationByRegistration.get(row.id) ?? "",
+      ),
     })),
     regions: regionRows.map((region) => {
       const review = reviewsByRegion.get(region.id);
@@ -672,6 +690,17 @@ export async function decideAdminEventFinalRegistration(
       if (!occurrence || !registration) return "not-found" as const;
       if (occurrence.status !== "published")
         return "invalid-transition" as const;
+      const attendance = await transaction
+        .selectFrom("event_participation as participation")
+        .innerJoin(
+          "event_attendance as attendance",
+          "attendance.eventParticipationId",
+          "participation.id",
+        )
+        .select("attendance.state")
+        .where("participation.registrationId", "=", registration.id)
+        .executeTakeFirst();
+      if (attendance) return "final-decision-locked" as const;
       const wasSelected = registration.status === "selected";
       if (decision === "selected" && !wasSelected) {
         const eligible = registration.reviewRoundId

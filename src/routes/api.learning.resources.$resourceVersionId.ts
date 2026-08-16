@@ -15,6 +15,7 @@ export const Route = createFileRoute(
         const input = learnerResourceInputSchema.safeParse({
           resourceVersionId: params.resourceVersionId,
           enrollmentId: url.searchParams.get("enrollmentId"),
+          courseVersionItemId: url.searchParams.get("courseVersionItemId"),
           eventParticipationId: url.searchParams.get("eventParticipationId"),
           eventTemplateVersionItemId: url.searchParams.get(
             "eventTemplateVersionItemId",

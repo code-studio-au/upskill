@@ -27,11 +27,9 @@ export function AdminAccessGrantCapacityDialog({
     },
     validators: { onSubmit: adminAccessGrantCapacitySchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminAccessGrantCapacitySchema.safeParse(value);
-      if (!parsed.success) return;
       setError(null);
       const response = await updateAdminAccessGrantCapacity({
-        data: parsed.data,
+        data: value,
       });
       if (response.status === "conflict") {
         setError(

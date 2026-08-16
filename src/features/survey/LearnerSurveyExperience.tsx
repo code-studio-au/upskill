@@ -12,6 +12,7 @@ import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineProgress } from "#/features/shared/MantineProgress";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { firstFormError } from "#/features/shared/form-errors";
 import { useForm } from "@tanstack/react-form";
 import { useState, type ReactNode } from "react";
 import type {
@@ -51,7 +52,6 @@ export function LearnerSurveyExperience({
     steps.findIndex((step) => step.item.id === survey.progress.currentItemId),
   );
   const [displayIndex, setDisplayIndex] = useState(initialIndex);
-  const [answers, setAnswers] = useState(survey.progress.answers);
   const [progress, setProgress] = useState(survey.progress);
   const [error, setError] = useState<string>();
   const answerForm = useForm({
@@ -91,7 +91,6 @@ export function LearnerSurveyExperience({
         return;
       }
       setProgress(result.progress);
-      setAnswers(result.progress.answers);
       if (result.status === "advanced") {
         const nextIndex = Math.min(displayIndex + 1, steps.length - 1);
         const next = steps[nextIndex]?.item;
@@ -202,10 +201,15 @@ export function LearnerSurveyExperience({
                       {item.required ? " *" : ""}
                     </Title>
                     <answerForm.Field name="answer">
-                      {(field) =>
-                        item.kind === "single_choice" ? (
+                      {(field) => {
+                        const fieldError = firstFormError(
+                          field.state.meta.errors,
+                        );
+                        const errorId = `${item.id}-error`;
+                        return item.kind === "single_choice" ? (
                           <MantineNativeSelect
                             aria-label={item.prompt}
+                            error={fieldError}
                             value={
                               typeof field.state.value === "string"
                                 ? field.state.value
@@ -219,16 +223,16 @@ export function LearnerSurveyExperience({
                               })),
                             ]}
                             onChange={(event) => {
-                              const value = event.currentTarget.value;
-                              field.handleChange(value);
-                              setAnswers((current) => ({
-                                ...current,
-                                [item.id]: value,
-                              }));
+                              field.handleChange(event.currentTarget.value);
                             }}
                           />
                         ) : item.kind === "multiple_choice" ? (
-                          <Stack gap="xs" role="group" aria-label={item.prompt}>
+                          <Stack
+                            gap="xs"
+                            role="group"
+                            aria-label={item.prompt}
+                            aria-describedby={fieldError ? errorId : undefined}
+                          >
                             {item.options.map((option) => {
                               const selected = Array.isArray(field.state.value)
                                 ? field.state.value
@@ -245,19 +249,21 @@ export function LearnerSurveyExperience({
                                           (id) => id !== option.id,
                                         );
                                     field.handleChange(value);
-                                    setAnswers((current) => ({
-                                      ...current,
-                                      [item.id]: value,
-                                    }));
                                   }}
                                 />
                               );
                             })}
+                            {fieldError ? (
+                              <Text id={errorId} c="red" size="sm" role="alert">
+                                {fieldError}
+                              </Text>
+                            ) : null}
                           </Stack>
                         ) : (
                           <MantineTextInput
                             component="textarea"
                             aria-label={item.prompt}
+                            error={fieldError}
                             maxLength={item.maximumLength}
                             value={
                               typeof field.state.value === "string"
@@ -265,16 +271,11 @@ export function LearnerSurveyExperience({
                                 : ""
                             }
                             onChange={(event) => {
-                              const value = event.currentTarget.value;
-                              field.handleChange(value);
-                              setAnswers((current) => ({
-                                ...current,
-                                [item.id]: value,
-                              }));
+                              field.handleChange(event.currentTarget.value);
                             }}
                           />
-                        )
-                      }
+                        );
+                      }}
                     </answerForm.Field>
                   </>
                 )}
@@ -293,7 +294,9 @@ export function LearnerSurveyExperience({
                         const previousIndex = displayIndex - 1;
                         const previous = steps[previousIndex]?.item;
                         answerForm.reset({
-                          answer: previous ? answers[previous.id] : undefined,
+                          answer: previous
+                            ? progress.answers[previous.id]
+                            : undefined,
                         });
                         setDisplayIndex(previousIndex);
                       }}

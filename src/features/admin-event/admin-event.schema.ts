@@ -89,6 +89,9 @@ export const adminEventStaffEligibilityGrantSchema = z
         });
     }),
   );
+export type AdminEventStaffEligibilityGrantInput = z.infer<
+  typeof adminEventStaffEligibilityGrantSchema
+>;
 
 export const adminEventStaffEligibilityParamsSchema = z.object({
   eligibilityId: identifierSchema,

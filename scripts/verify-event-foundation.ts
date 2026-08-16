@@ -6,6 +6,7 @@ import { ianaTimeZoneSchema } from "#/features/shared/time.schema";
 import {
   createAdminEventOccurrence,
   createAdminEventTemplate,
+  deleteAdminEventTemplateVersion,
   findAdminEventStaffCandidates,
   grantAdminEventStaffEligibility,
   publishAdminEventOccurrence,
@@ -559,6 +560,33 @@ try {
     "published",
   );
 
+  const disposableTemplate = await createAdminEventTemplate(
+    {
+      title: "Disposable verification template",
+      defaultAdministratorIds: [administrator.id],
+    },
+    administrator,
+  );
+  assert.equal(disposableTemplate.status, "created");
+  assert.deepEqual(
+    await deleteAdminEventTemplateVersion(
+      disposableTemplate.eventTemplateId,
+      disposableTemplate.eventTemplateVersionId,
+      administrator,
+    ),
+    { status: "deleted", templateDeleted: true },
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select("action")
+      .where("action", "=", "event_template.draft_deleted")
+      .where("subjectId", "=", disposableTemplate.eventTemplateId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.action),
+    "event_template.draft_deleted",
+  );
+
   const createdTemplate = await createAdminEventTemplate(
     {
       title: "Verification workshop",
@@ -621,6 +649,34 @@ try {
     ),
     "saved",
   );
+  assert.equal(
+    await database
+      .insertInto("event_template_version_section")
+      .values({
+        id: `event_empty_section_${suffix}`,
+        eventTemplateVersionId,
+        position: 1,
+        title: "Empty section",
+        description: "Must block publication.",
+        phase: "post_event",
+        releaseAnchor: "occurrence_end",
+        releaseOffsetAmount: 0,
+        releaseOffsetUnit: "minute",
+      })
+      .execute()
+      .then(() =>
+        publishAdminEventTemplateVersion(
+          createdTemplate.eventTemplateId,
+          createdTemplate.eventTemplateVersionId,
+          administrator,
+        ),
+      ),
+    "conflict",
+  );
+  await database
+    .deleteFrom("event_template_version_section")
+    .where("id", "=", `event_empty_section_${suffix}`)
+    .executeTakeFirstOrThrow();
   assert.equal(
     await publishAdminEventTemplateVersion(
       eventTemplateId,
@@ -1063,6 +1119,24 @@ try {
     "updated",
   );
   assert.equal(
+    await decideAdminEventFinalRegistration(
+      eventOccurrenceId,
+      learnerRegistration.id,
+      "waitlisted",
+      administrator,
+    ),
+    "updated",
+  );
+  assert.equal(
+    await decideAdminEventFinalRegistration(
+      eventOccurrenceId,
+      learnerRegistration.id,
+      "selected",
+      administrator,
+    ),
+    "updated",
+  );
+  assert.equal(
     await database
       .selectFrom("event_occurrence")
       .select("confirmedCount")
@@ -1075,6 +1149,10 @@ try {
     await withdrawLearnerEventRegistration(eventOccurrenceId, learner),
     "withdrawn",
   );
+  assert.deepEqual(
+    await findLearnerEventWorkspace(eventOccurrenceId, learner),
+    { status: "not-found" },
+  );
   assert.equal(
     await database
       .selectFrom("event_registration_transition")
@@ -1082,7 +1160,7 @@ try {
       .where("eventRegistrationId", "=", learnerRegistration.id)
       .executeTakeFirstOrThrow()
       .then((row) => row.count),
-    3,
+    5,
   );
   assert.equal(
     await database
@@ -1221,6 +1299,22 @@ try {
       .then((row) => row.state),
     "attended",
   );
+  assert.equal(
+    await decideAdminEventFinalRegistration(
+      eventOccurrenceId,
+      registrationId,
+      "waitlisted",
+      administrator,
+    ),
+    "final-decision-locked",
+  );
+  assert.equal(
+    (
+      await findAdminEventOccurrenceOperations(eventOccurrenceId)
+    )?.registrations.find((registration) => registration.id === registrationId)
+      ?.finalDecisionLocked,
+    true,
+  );
   assert.deepEqual(
     await resolveLearnerEventSurveyReference(
       eventSurveyAccess.publicReference,
@@ -1345,6 +1439,23 @@ try {
   const coverageRevisionEndsAt = new Date(
     finalEndsAt.getTime() + 24 * 60 * 60 * 1000,
   );
+  await database
+    .deleteFrom("event_section_release")
+    .where("eventParticipationId", "=", participationId)
+    .where("eventTemplateVersionSectionId", "=", templateSection.id)
+    .execute();
+  const elapsedStart = new Date(Date.now() - 2 * 60 * 60 * 1000);
+  const elapsedEnd = new Date(Date.now() - 60 * 60 * 1000);
+  await database
+    .updateTable("event_occurrence")
+    .set({ startsAt: elapsedStart, endsAt: elapsedEnd })
+    .where("id", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_session")
+    .set({ startsAt: elapsedStart, endsAt: elapsedEnd })
+    .where("id", "=", session.id)
+    .executeTakeFirstOrThrow();
   assert.equal(
     await rescheduleAdminEventOccurrence(
       eventOccurrenceId,
@@ -1382,6 +1493,14 @@ try {
       administrator,
     ),
     "rescheduled",
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_section_release")
+      .select("releasedAt")
+      .where("eventParticipationId", "=", participationId)
+      .where("eventTemplateVersionSectionId", "=", templateSection.id)
+      .executeTakeFirst(),
   );
   assert.deepEqual(
     await database

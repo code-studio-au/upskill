@@ -177,8 +177,6 @@ export function AdminEventOccurrenceEditor({
     defaultValues,
     validators: { onSubmit: adminEventOccurrenceFormSchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminEventOccurrenceFormSchema.safeParse(value);
-      if (!parsed.success) return;
       setError(null);
       if (
         occurrence?.status === "published" &&
@@ -194,7 +192,7 @@ export function AdminEventOccurrenceEditor({
           ? await rescheduleAdminEventOccurrence({
               data: {
                 eventOccurrenceId: occurrence.id,
-                occurrence: parsed.data,
+                occurrence: value,
                 registrationWindowPolicy,
                 regionsConfirmed: true,
                 regionalCoverage: regionalCoverageInput,
@@ -203,10 +201,10 @@ export function AdminEventOccurrenceEditor({
           : await updateAdminEventOccurrence({
               data: {
                 eventOccurrenceId: occurrence.id,
-                occurrence: parsed.data,
+                occurrence: value,
               },
             })
-        : await createAdminEventOccurrence({ data: parsed.data });
+        : await createAdminEventOccurrence({ data: value });
       if (result.status !== "ready") {
         setError(
           result.status === "conflict" && result.reason === "slug_in_use"

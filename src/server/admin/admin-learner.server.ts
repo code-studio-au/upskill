@@ -18,6 +18,7 @@ import { isLearningComplete } from "#/server/learning/learning-completion.server
 import {
   findEffectiveEnrollmentProgressOverride,
   findEffectiveModuleCompletion,
+  findEffectiveModuleCompletionForEnrollments,
 } from "#/server/learning/progress-overrides.server";
 
 const PAGE_SIZE = 20;
@@ -200,21 +201,14 @@ export async function findAdminLearnerProfile(
     ])
     .orderBy("enrollment.enrolledAt", "desc")
     .execute();
-  const moduleCompletionByEnrollment = new Map(
-    await Promise.all(
-      rows.map(
-        async (row) =>
-          [
-            row.id,
-            await findEffectiveModuleCompletion(
-              database,
-              row.id,
-              row.courseVersionId,
-            ),
-          ] as const,
-      ),
-    ),
-  );
+  const moduleCompletionByEnrollment =
+    await findEffectiveModuleCompletionForEnrollments(
+      database,
+      rows.map((row) => ({
+        enrollmentId: row.id,
+        courseVersionId: row.courseVersionId,
+      })),
+    );
 
   return {
     learner: {
@@ -397,7 +391,7 @@ export async function findAdminEnrollmentDetail(
       accessStatus: enrollmentAccessStatus(enrollment),
       completionState:
         completionOverride?.state ??
-        (enrollment.status === "completed" ? "completed" : "incomplete"),
+        (enrollment.completedAt ? "completed" : "incomplete"),
       completionSource: completionOverride ? "administrator" : "system",
       enrolledAt: enrollment.enrolledAt.toISOString(),
       completedAt: enrollment.completedAt?.toISOString() ?? null,
@@ -506,7 +500,7 @@ export async function applyAdminProgressOverride(
         );
         previousState =
           latest?.state ??
-          (enrollment.status === "completed" ? "completed" : "incomplete");
+          (enrollment.completedAt ? "completed" : "incomplete");
       }
       if (previousState === input.state) return "unchanged";
 
@@ -562,7 +556,7 @@ export async function applyAdminProgressOverride(
       }
 
       if (desiredCompletion) {
-        const currentlyCompleted = enrollment.status === "completed";
+        const currentlyCompleted = enrollment.completedAt !== null;
         const shouldComplete = desiredCompletion === "completed";
         if (currentlyCompleted !== shouldComplete) {
           await transaction
