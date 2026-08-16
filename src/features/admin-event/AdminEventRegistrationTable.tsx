@@ -172,7 +172,8 @@ export function AdminEventRegistrationTable({
               !registration.finalDecisionLocked &&
               (pendingDecision || Boolean(registration.finalDecidedAt));
             if (!canDecide)
-              return registration.finalDecidedAt
+              return registration.finalDecidedAt ||
+                registration.status === "coordinator_declined"
                 ? statusLabels[registration.status]
                 : "Pending";
             return (

@@ -353,9 +353,10 @@ export async function findAdminEventOccurrenceOperations(
         participation.registrationId,
         participation.id,
       );
-  const participationWithAttendance = new Set(
-    attendanceRows.map((row) => row.eventParticipationId),
-  );
+  const participationWithAttendance = new Set<string>();
+  for (const attendance of attendanceRows)
+    if (attendance.state !== "not_recorded")
+      participationWithAttendance.add(attendance.eventParticipationId);
   return {
     occurrence: {
       ...occurrence,
@@ -484,6 +485,13 @@ export async function recordAdminEventAttendance(
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", input.eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!occurrence) return "not-found" as const;
       const valid = await transaction
         .selectFrom("event_participation as participation")
         .innerJoin(
@@ -491,10 +499,21 @@ export async function recordAdminEventAttendance(
           "session.eventOccurrenceId",
           "participation.eventOccurrenceId",
         )
+        .leftJoin(
+          "event_registration as registration",
+          "registration.id",
+          "participation.registrationId",
+        )
         .select(["participation.id"])
         .where("participation.id", "=", input.eventParticipationId)
         .where("session.id", "=", input.eventSessionId)
         .where("participation.eventOccurrenceId", "=", input.eventOccurrenceId)
+        .where((expression) =>
+          expression.or([
+            expression("participation.mode", "=", "open_entry"),
+            expression("registration.status", "=", "selected"),
+          ]),
+        )
         .executeTakeFirst();
       if (!valid) return "not-found" as const;
       const now = new Date();
@@ -699,6 +718,7 @@ export async function decideAdminEventFinalRegistration(
         )
         .select("attendance.state")
         .where("participation.registrationId", "=", registration.id)
+        .where("attendance.state", "!=", "not_recorded")
         .executeTakeFirst();
       if (attendance) return "final-decision-locked" as const;
       const wasSelected = registration.status === "selected";

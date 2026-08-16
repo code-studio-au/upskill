@@ -1127,6 +1127,24 @@ try {
     ),
     "updated",
   );
+  const learnerParticipationId = await database
+    .selectFrom("event_participation")
+    .select("id")
+    .where("registrationId", "=", learnerRegistration.id)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.id);
+  assert.equal(
+    await recordAdminEventAttendance(
+      {
+        eventOccurrenceId,
+        eventParticipationId: learnerParticipationId,
+        eventSessionId: session.id,
+        state: "attended",
+      },
+      administrator,
+    ),
+    "not-found",
+  );
   assert.equal(
     await decideAdminEventFinalRegistration(
       eventOccurrenceId,
@@ -1444,11 +1462,17 @@ try {
     .where("eventParticipationId", "=", participationId)
     .where("eventTemplateVersionSectionId", "=", templateSection.id)
     .execute();
+  await database
+    .updateTable("event_template_version_section")
+    .set({ releaseAnchor: "final_session_end" })
+    .where("id", "=", templateSection.id)
+    .executeTakeFirstOrThrow();
   const elapsedStart = new Date(Date.now() - 2 * 60 * 60 * 1000);
   const elapsedEnd = new Date(Date.now() - 60 * 60 * 1000);
+  const ongoingOccurrenceEnd = new Date(Date.now() + 60 * 60 * 1000);
   await database
     .updateTable("event_occurrence")
-    .set({ startsAt: elapsedStart, endsAt: elapsedEnd })
+    .set({ startsAt: elapsedStart, endsAt: ongoingOccurrenceEnd })
     .where("id", "=", eventOccurrenceId)
     .executeTakeFirstOrThrow();
   await database

@@ -2384,11 +2384,12 @@ export async function rescheduleAdminEventOccurrence(
       const submittedClosesAt = optionalDate(next.registrationClosesAt);
       const submittedLockAt = optionalDate(next.coordinatorLockAt);
       const now = new Date();
-      const originalFinalSessionEndsAt = sessions.reduce(
-        (latest, session) =>
-          session.endsAt > latest ? session.endsAt : latest,
-        occurrence.endsAt,
-      );
+      const originalFinalSessionEndsAt =
+        sessions.reduce<Date | null>(
+          (latest, session) =>
+            !latest || session.endsAt > latest ? session.endsAt : latest,
+          null,
+        ) ?? occurrence.endsAt;
       const elapsedReleases = participations.flatMap((participation) =>
         releaseSections.flatMap((section) => {
           const calculatedReleaseAt = calculateEventSectionReleaseAt({
