@@ -3,19 +3,31 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
+import { z } from "#/validation/zod.server";
 import { getEmailProvider } from "./email-provider.server";
 
 export type NotificationDeliveryOutcome =
-  { status: "delivered" } | { status: "already-delivered" };
+  | { status: "delivered" }
+  | { status: "already-delivered" }
+  | { status: "superseded" };
 
 function safeErrorCode(error: unknown): string {
   if (
     error instanceof Error &&
-    error.message === "EMAIL_PROVIDER_NOT_CONFIGURED"
+    [
+      "EMAIL_PROVIDER_INVALID_RESPONSE",
+      "EMAIL_PROVIDER_NOT_CONFIGURED",
+      "EMAIL_PROVIDER_REJECTED",
+    ].includes(error.message)
   )
     return error.message;
   return "EMAIL_DELIVERY_FAILED";
 }
+
+const accountSetupPayloadSchema = z.object({
+  version: z.literal(1),
+  setupUrl: z.url(),
+});
 
 export async function deliverNotification(
   notificationId: string,
@@ -28,55 +40,86 @@ export async function deliverNotification(
     .executeTakeFirstOrThrow();
   if (notification.status === "delivered")
     return { status: "already-delivered" };
+  if (notification.status === "superseded") return { status: "superseded" };
 
   const attempt = notification.attempts + 1;
-  await database
+  const claimTime = new Date();
+  const staleBefore = new Date(
+    claimTime.getTime() - getServerEnv().SQS_VISIBILITY_TIMEOUT_SECONDS * 1_000,
+  );
+  const claimed = await database
     .updateTable("notification")
-    .set({ attempts: attempt, status: "pending", updatedAt: new Date() })
+    .set({ attempts: attempt, status: "processing", updatedAt: claimTime })
     .where("id", "=", notification.id)
-    .where("status", "!=", "delivered")
-    .execute();
+    .where((expression) =>
+      expression.or([
+        expression("status", "in", ["pending", "failed"]),
+        expression.and([
+          expression("status", "=", "processing"),
+          expression("updatedAt", "<=", staleBefore),
+        ]),
+      ]),
+    )
+    .returning("id")
+    .executeTakeFirst();
+  if (!claimed) {
+    const current = await database
+      .selectFrom("notification")
+      .select("status")
+      .where("id", "=", notification.id)
+      .executeTakeFirstOrThrow();
+    if (current.status === "delivered") return { status: "already-delivered" };
+    if (current.status === "superseded") return { status: "superseded" };
+    throw new Error("EMAIL_DELIVERY_IN_PROGRESS");
+  }
 
   let provider: ReturnType<typeof getEmailProvider> | undefined;
   try {
     const activeProvider = getEmailProvider(database);
     provider = activeProvider;
+    const payload = accountSetupPayloadSchema.parse(notification.payload);
     const delivery = await activeProvider.send({
       notificationId: notification.id,
       recipientEmail: notification.recipientEmail,
-      subject: "Your Upskill account has been created",
-      textBody: `${notification.recipientName}, an Upskill account has been created for you. Visit ${getServerEnv().APP_ORIGIN}/login to access Upskill.`,
+      subject: "Set up your Upskill account",
+      textBody: `Hello ${notification.recipientName},\n\nAn Upskill account has been created for you. Set your password within 72 hours:\n\n${payload.setupUrl}\n\nIf you were not expecting this message, you can ignore it.`,
     });
     const deliveredAt = new Date();
-    await database.transaction().execute(async (transaction) => {
-      await transaction
-        .insertInto("notification_delivery_attempt")
-        .values({
-          id: `notification_delivery_${randomUUID()}`,
-          notificationId: notification.id,
-          attempt,
-          provider: activeProvider.id,
-          status: "delivered",
-          providerMessageId: delivery.messageId,
-          errorCode: null,
-          createdAt: deliveredAt,
-        })
-        .onConflict((conflict) =>
-          conflict.columns(["notificationId", "attempt"]).doNothing(),
-        )
-        .execute();
-      await transaction
-        .updateTable("notification")
-        .set({
-          status: "delivered",
-          deliveredAt,
-          lastErrorCode: null,
-          updatedAt: deliveredAt,
-        })
-        .where("id", "=", notification.id)
-        .execute();
-    });
-    return { status: "delivered" };
+    const recorded = await database
+      .transaction()
+      .execute(async (transaction) => {
+        await transaction
+          .insertInto("notification_delivery_attempt")
+          .values({
+            id: `notification_delivery_${randomUUID()}`,
+            notificationId: notification.id,
+            attempt,
+            provider: activeProvider.id,
+            status: "delivered",
+            providerMessageId: delivery.messageId,
+            errorCode: null,
+            createdAt: deliveredAt,
+          })
+          .onConflict((conflict) =>
+            conflict.columns(["notificationId", "attempt"]).doNothing(),
+          )
+          .execute();
+        return await transaction
+          .updateTable("notification")
+          .set({
+            status: "delivered",
+            payload: { version: 1 },
+            deliveredAt,
+            lastErrorCode: null,
+            supersededAt: null,
+            updatedAt: deliveredAt,
+          })
+          .where("id", "=", notification.id)
+          .where("status", "=", "processing")
+          .returning("id")
+          .executeTakeFirst();
+      });
+    return recorded ? { status: "delivered" } : { status: "superseded" };
   } catch (error) {
     const errorCode = safeErrorCode(error);
     const failedAt = new Date();
@@ -105,7 +148,7 @@ export async function deliverNotification(
           updatedAt: failedAt,
         })
         .where("id", "=", notification.id)
-        .where("status", "!=", "delivered")
+        .where("status", "=", "processing")
         .execute();
     });
     throw error;

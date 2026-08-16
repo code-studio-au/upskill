@@ -19,12 +19,23 @@ import { useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { firstFormError } from "#/features/shared/form-errors";
 import { adminSurveyCreateSchema } from "#/features/survey/survey.schema";
 import {
   createAdminSurvey,
   getAdminSurveys,
 } from "#/server/functions/admin-survey";
+
+interface SurveyCreateValues {
+  title: string;
+  usage: "learning" | "onboarding";
+}
+
+const defaultSurveyCreateValues: SurveyCreateValues = {
+  title: "",
+  usage: "learning",
+};
 
 export const Route = createFileRoute("/admin/surveys/")({
   ssr: false,
@@ -46,7 +57,7 @@ function AdminSurveysPage() {
   const [opened, setOpened] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const surveyForm = useForm({
-    defaultValues: { title: "" },
+    defaultValues: defaultSurveyCreateValues,
     validators: { onSubmit: adminSurveyCreateSchema },
     onSubmit: async ({ value }) => {
       setError(null);
@@ -98,6 +109,11 @@ function AdminSurveysPage() {
                     {survey.draftVersion ? (
                       <Badge>Draft v{survey.draftVersion}</Badge>
                     ) : null}
+                    <Badge variant="light">
+                      {survey.usage === "onboarding"
+                        ? "Onboarding"
+                        : "Learning"}
+                    </Badge>
                   </Group>
                   <Text c="dimmed" size="sm">
                     {survey.publishedVersions} published versions · Latest v
@@ -146,6 +162,26 @@ function AdminSurveysPage() {
                         onBlur={field.handleBlur}
                         onChange={(event) => {
                           field.handleChange(event.currentTarget.value);
+                        }}
+                        required
+                      />
+                    )}
+                  </surveyForm.Field>
+                  <surveyForm.Field name="usage">
+                    {(field) => (
+                      <MantineNativeSelect
+                        label="Survey purpose"
+                        value={field.state.value}
+                        data={[
+                          { value: "learning", label: "Learning activity" },
+                          { value: "onboarding", label: "User onboarding" },
+                        ]}
+                        onChange={(event) => {
+                          field.handleChange(
+                            event.currentTarget.value === "onboarding"
+                              ? "onboarding"
+                              : "learning",
+                          );
                         }}
                         required
                       />

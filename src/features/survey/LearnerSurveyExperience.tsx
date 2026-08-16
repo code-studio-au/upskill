@@ -8,13 +8,10 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
-import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
-import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineProgress } from "#/features/shared/MantineProgress";
-import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
 import { useForm } from "@tanstack/react-form";
-import { useState, type ReactNode } from "react";
+import { lazy, Suspense, useState, type ReactNode } from "react";
 import type {
   LearnerSurveyProgress,
   LearnerSurveyStepResult,
@@ -22,6 +19,11 @@ import type {
   SurveyVersionContent,
 } from "#/features/survey/survey.schema";
 import classes from "./LearnerSurveyExperience.module.css";
+
+const SurveyQuestionInput = lazy(async () => {
+  const module = await import("./SurveyQuestionInput");
+  return { default: module.SurveyQuestionInput };
+});
 
 interface SurveyExperience {
   sectionTitle: string;
@@ -69,6 +71,9 @@ export function LearnerSurveyExperience({
           return undefined;
         if (Array.isArray(value.answer) && value.answer.length > 0)
           return undefined;
+        if (typeof value.answer === "number" && Number.isFinite(value.answer))
+          return undefined;
+        if (value.answer === true) return undefined;
         return {
           fields: { answer: "Answer this question before continuing." },
         };
@@ -206,74 +211,19 @@ export function LearnerSurveyExperience({
                           field.state.meta.errors,
                         );
                         const errorId = `${item.id}-error`;
-                        return item.kind === "single_choice" ? (
-                          <MantineNativeSelect
-                            aria-label={item.prompt}
-                            error={fieldError}
-                            value={
-                              typeof field.state.value === "string"
-                                ? field.state.value
-                                : ""
-                            }
-                            data={[
-                              { value: "", label: "Choose an answer" },
-                              ...item.options.map((option) => ({
-                                value: option.id,
-                                label: option.label,
-                              })),
-                            ]}
-                            onChange={(event) => {
-                              field.handleChange(event.currentTarget.value);
-                            }}
-                          />
-                        ) : item.kind === "multiple_choice" ? (
-                          <Stack
-                            gap="xs"
-                            role="group"
-                            aria-label={item.prompt}
-                            aria-describedby={fieldError ? errorId : undefined}
+                        return (
+                          <Suspense
+                            fallback={<Text size="sm">Loading question…</Text>}
                           >
-                            {item.options.map((option) => {
-                              const selected = Array.isArray(field.state.value)
-                                ? field.state.value
-                                : [];
-                              return (
-                                <MantineCheckbox
-                                  key={option.id}
-                                  label={option.label}
-                                  checked={selected.includes(option.id)}
-                                  onChange={(checked) => {
-                                    const value = checked
-                                      ? [...selected, option.id]
-                                      : selected.filter(
-                                          (id) => id !== option.id,
-                                        );
-                                    field.handleChange(value);
-                                  }}
-                                />
-                              );
-                            })}
-                            {fieldError ? (
-                              <Text id={errorId} c="red" size="sm" role="alert">
-                                {fieldError}
-                              </Text>
-                            ) : null}
-                          </Stack>
-                        ) : (
-                          <MantineTextInput
-                            component="textarea"
-                            aria-label={item.prompt}
-                            error={fieldError}
-                            maxLength={item.maximumLength}
-                            value={
-                              typeof field.state.value === "string"
-                                ? field.state.value
-                                : ""
-                            }
-                            onChange={(event) => {
-                              field.handleChange(event.currentTarget.value);
-                            }}
-                          />
+                            <SurveyQuestionInput
+                              key={item.id}
+                              question={item}
+                              value={field.state.value}
+                              error={fieldError}
+                              errorId={errorId}
+                              onChange={field.handleChange}
+                            />
+                          </Suspense>
                         );
                       }}
                     </answerForm.Field>

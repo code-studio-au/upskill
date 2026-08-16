@@ -10,12 +10,12 @@ import {
   type LearnerSurveyStepResult,
   type SurveyAnswerValue,
   type SurveyItem,
-  type SurveyQuestion,
   type SurveyVersionContent,
 } from "#/features/survey/survey.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
+import { validateAnswer } from "#/server/learning/survey-answer-validation";
 import { logServerEvent } from "#/server/logging/server-logger";
 
 export interface StoredProgress {
@@ -95,66 +95,6 @@ export function deriveProgress(
       };
     }),
   };
-}
-
-export function validateAnswer(
-  question: SurveyQuestion,
-  value: SurveyAnswerValue | undefined,
-):
-  | { valid: true; answer?: SurveyAnswerValue }
-  | { valid: false; message: string } {
-  if (question.kind === "text") {
-    if (typeof value === "undefined" || value === "") {
-      if (question.required)
-        return { valid: false, message: `Answer “${question.prompt}”.` };
-      return { valid: true };
-    }
-    if (typeof value !== "string" || value.length > question.maximumLength)
-      return { valid: false, message: `Review “${question.prompt}”.` };
-    const normalized = value.trim();
-    if (question.required && !normalized)
-      return { valid: false, message: `Answer “${question.prompt}”.` };
-    return normalized ? { valid: true, answer: normalized } : { valid: true };
-  }
-
-  const optionIds = new Set(question.options.map((option) => option.id));
-  if (question.kind === "single_choice") {
-    if (typeof value === "undefined" || value === "") {
-      if (question.required)
-        return {
-          valid: false,
-          message: `Choose an answer for “${question.prompt}”.`,
-        };
-      return { valid: true };
-    }
-    if (typeof value !== "string" || !optionIds.has(value))
-      return {
-        valid: false,
-        message: `Choose an answer for “${question.prompt}”.`,
-      };
-    return { valid: true, answer: value };
-  }
-
-  if (typeof value === "undefined") {
-    if (question.required)
-      return {
-        valid: false,
-        message: `Choose an answer for “${question.prompt}”.`,
-      };
-    return { valid: true };
-  }
-  if (!Array.isArray(value))
-    return { valid: false, message: `Review “${question.prompt}”.` };
-  const unique = [...new Set(value)];
-  if (
-    unique.some((optionId) => !optionIds.has(optionId)) ||
-    (question.required && unique.length === 0)
-  )
-    return {
-      valid: false,
-      message: `Choose an answer for “${question.prompt}”.`,
-    };
-  return unique.length > 0 ? { valid: true, answer: unique } : { valid: true };
 }
 
 export async function findLearnerSurvey(

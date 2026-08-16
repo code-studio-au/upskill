@@ -17,6 +17,14 @@ export const auth = betterAuth({
     enabled: true,
     disableSignUp: true,
     requireEmailVerification: true,
+    minPasswordLength: 12,
+    maxPasswordLength: 128,
+    revokeSessionsOnPasswordReset: true,
+    onPasswordReset: async ({ user }) => {
+      const { activateAccountAfterPasswordReset } =
+        await import("#/server/identity/account-setup.server");
+      await activateAccountAfterPasswordReset(user.id);
+    },
   },
   trustedOrigins: [env.APP_ORIGIN],
   rateLimit: {

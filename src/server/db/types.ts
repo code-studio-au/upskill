@@ -21,6 +21,10 @@ interface UserTable {
   >;
   provisionedByUserId: Generated<string | null>;
   setupRequestedAt: OptionalTimestamp;
+  activatedAt: OptionalTimestamp;
+  phone: string | null;
+  currentRegionId: string | null;
+  profileData: Json;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -137,7 +141,53 @@ interface LearningActivityTable {
   id: string;
   kind: "scorm" | "survey" | "resource";
   title: string;
+  surveyUsage: Generated<"learning" | "onboarding" | null>;
   createdAt: Timestamp;
+}
+
+interface OnboardingDefinitionTable {
+  id: string;
+  name: string;
+  createdAt: Timestamp;
+}
+
+interface OnboardingDefinitionVersionTable {
+  id: string;
+  definitionId: string;
+  version: number;
+  surveyVersionId: string;
+  privacyNotice: string;
+  privacyNoticeVersion: string;
+  profileMappings: Json;
+  publishedAt: Timestamp;
+  activatedAt: Timestamp | null;
+  deactivatedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface OnboardingAssignmentTable {
+  id: string;
+  userId: string;
+  definitionVersionId: string;
+  status: "assigned" | "in_progress" | "completed" | "superseded";
+  source: "automatic" | "administrator" | "campaign";
+  assignedAt: Timestamp;
+  startedAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  supersededAt: Timestamp | null;
+}
+
+interface OnboardingResponseTable {
+  id: string;
+  assignmentId: string;
+  surveyVersionId: string;
+  answers: Json;
+  visitedItemIds: Json;
+  currentItemId: string | null;
+  startedAt: Timestamp;
+  updatedAt: Timestamp;
+  submittedAt: Timestamp | null;
+  redactedAt: Timestamp | null;
 }
 
 interface LearningActivityVersionTable {
@@ -715,12 +765,15 @@ interface NotificationTable {
   recipientUserId: string;
   recipientName: string;
   recipientEmail: string;
-  status: Generated<"pending" | "delivered" | "failed">;
+  status: Generated<
+    "pending" | "processing" | "delivered" | "failed" | "superseded"
+  >;
   deduplicationKey: string;
   payload: Json;
   attempts: Generated<number>;
   lastErrorCode: string | null;
   deliveredAt: Timestamp | null;
+  supersededAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -796,7 +849,9 @@ export type AuditEventAction =
   | "survey.created"
   | "survey.published"
   | "survey.version_created"
-  | "user.provisional_created";
+  | "user.provisional_created"
+  | "user.account_activated"
+  | "user.account_setup_resent";
 
 interface AuditEventTable {
   id: string;
@@ -855,6 +910,10 @@ export interface Database {
   learning_resource_version: LearningResourceVersionTable;
   notification: NotificationTable;
   notification_delivery_attempt: NotificationDeliveryAttemptTable;
+  onboarding_assignment: OnboardingAssignmentTable;
+  onboarding_definition: OnboardingDefinitionTable;
+  onboarding_definition_version: OnboardingDefinitionVersionTable;
+  onboarding_response: OnboardingResponseTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   platform_admin: PlatformAdminTable;

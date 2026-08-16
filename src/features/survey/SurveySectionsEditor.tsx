@@ -37,7 +37,22 @@ function newItem(kind: SurveyItem["kind"]): SurveyItem {
     prompt: "New question",
     required: true,
   };
-  if (kind === "text") return { ...base, kind, maximumLength: 2_000 };
+  if (kind === "short_text")
+    return { ...base, kind, maximumLength: 240, format: "plain" };
+  if (kind === "long_text") return { ...base, kind, maximumLength: 2_000 };
+  if (kind === "checkbox") return { ...base, kind };
+  if (kind === "number")
+    return { ...base, kind, integer: false, minimum: null, maximum: null };
+  if (kind === "date") return { ...base, kind, minimum: null, maximum: null };
+  if (kind === "rating")
+    return {
+      ...base,
+      kind,
+      minimum: 1,
+      maximum: 5,
+      minimumLabel: "",
+      maximumLabel: "",
+    };
   return {
     ...base,
     kind,
@@ -188,7 +203,13 @@ export function SurveySectionsEditor({
                   [
                     ["single_choice", "Add single choice"],
                     ["multiple_choice", "Add multiple choice"],
-                    ["text", "Add written response"],
+                    ["dropdown", "Add dropdown"],
+                    ["short_text", "Add short text"],
+                    ["long_text", "Add long text"],
+                    ["checkbox", "Add checkbox"],
+                    ["number", "Add number"],
+                    ["date", "Add date"],
+                    ["rating", "Add rating"],
                     ["instruction", "Add instruction block"],
                   ] as const
                 ).map(([kind, label]) => (

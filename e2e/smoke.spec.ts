@@ -944,6 +944,76 @@ test("learners can end their authenticated session", async ({ page }) => {
   await expect(page).toHaveURL(/\/login\?redirect=%2Fdashboard$/);
 });
 
+test("provisional learners can activate an account from a setup link", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "chromium-mobile",
+    "The account-activation journey runs once across the browser matrix.",
+  );
+  const database = new Client({ connectionString: process.env.DATABASE_URL });
+  const userId = "e2e_provisional_account";
+  const token = "a".repeat(43);
+  await database.connect();
+  try {
+    await database.query(
+      `insert into "user"
+        (id, name, email, "emailVerified", "accountState", "provisioningSource", "setupRequestedAt")
+       values ($1, 'E2E Provisional Learner', 'e2e-provisional@example.com', false,
+        'provisional', 'administrator', now())`,
+      [userId],
+    );
+    await database.query(
+      `insert into verification (id, identifier, value, "expiresAt", "createdAt", "updatedAt")
+       values ('e2e_account_setup_verification', $1, $2, now() + interval '1 hour', now(), now())`,
+      [`reset-password:${token}`, userId],
+    );
+
+    await page.goto(`/account/setup#token=${token}`);
+    await expect(page).toHaveURL(/\/account\/setup$/u);
+    await expect(
+      page.getByRole("heading", { name: "Set up your account" }),
+    ).toBeVisible();
+    await page
+      .getByLabel("Password *", { exact: true })
+      .fill("e2e-account-password");
+    await page.getByLabel("Confirm password").fill("e2e-account-password");
+    await page
+      .getByRole("button", { name: "Set password and continue" })
+      .click();
+    await expect(page).toHaveURL(/\/dashboard$/u);
+    await expect(
+      page.getByRole("heading", { name: "My learning" }),
+    ).toBeVisible();
+
+    const activated = await database.query<{
+      accountState: string;
+      emailVerified: boolean;
+      activatedAt: Date | null;
+    }>(
+      `select "accountState", "emailVerified", "activatedAt" from "user" where id = $1`,
+      [userId],
+    );
+    expect(activated.rows[0]).toMatchObject({
+      accountState: "active",
+      emailVerified: true,
+    });
+    expect(activated.rows[0]?.activatedAt).toBeInstanceOf(Date);
+  } finally {
+    await withPgAuditMaintenance(database, async (transaction) => {
+      await transaction.query(
+        `delete from audit_event where "subjectId" = $1`,
+        [userId],
+      );
+    });
+    await database.query(`delete from session where "userId" = $1`, [userId]);
+    await database.query(`delete from account where "userId" = $1`, [userId]);
+    await database.query(`delete from verification where value = $1`, [userId]);
+    await database.query(`delete from "user" where id = $1`, [userId]);
+    await database.end();
+  }
+});
+
 test("platform administrators can inspect learner progress", async ({
   page,
 }, testInfo) => {
@@ -1099,7 +1169,7 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByLabel("Section 2 title").fill("Follow-up");
     await surveySections
       .nth(1)
-      .getByRole("button", { name: "Add written response" })
+      .getByRole("button", { name: "Add long text" })
       .click();
     await surveySections
       .nth(1)

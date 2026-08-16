@@ -23,9 +23,9 @@ import {
   flattenedItems,
   storedAnswers,
   storedVisited,
-  validateAnswer,
   type StoredProgress,
 } from "#/server/learning/learner-survey.server";
+import { validateAnswer } from "#/server/learning/survey-answer-validation";
 import { logServerEvent } from "#/server/logging/server-logger";
 
 async function findEventSurveyAccess(

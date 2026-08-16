@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted target; implementation pending.
+Accepted and implemented for the default onboarding flow. Explicit
+re-onboarding campaigns and privacy-scoped answer operations remain follow-up
+work.
 
 ## Context
 

@@ -112,7 +112,11 @@ try {
     publishAdminSurveyVersion,
     saveAdminSurveyDraft,
   } = await import("#/server/admin/admin-survey.server");
-  const created = await createAdminSurvey("Verified learner survey", user);
+  const created = await createAdminSurvey(
+    "Verified learner survey",
+    "learning",
+    user,
+  );
   surveyId = created.surveyId;
   const draft: AdminSurveyDraft = {
     surveyId,
@@ -150,7 +154,7 @@ try {
           },
           {
             id: "question_optional",
-            kind: "text",
+            kind: "long_text",
             prompt: "Optional feedback",
             required: false,
             maximumLength: 200,

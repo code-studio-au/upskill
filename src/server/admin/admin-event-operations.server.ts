@@ -11,6 +11,7 @@ import {
   normalizeUserEmail,
   provisionUser,
 } from "#/server/identity/provisional-user.server";
+import { resendAccountSetup } from "#/server/identity/account-setup.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 
 function domainFromEmail(email: string): string | null {
@@ -135,6 +136,7 @@ export async function findAdminEventOccurrenceOperations(
         "region.id",
         "occurrence_region.regionId",
       )
+      .innerJoin("user", "user.id", "registration.userId")
       .select([
         "registration.id",
         "registration.userId",
@@ -150,6 +152,8 @@ export async function findAdminEventOccurrenceOperations(
         "registration.submittedAt",
         "registration.coordinatorDecidedAt",
         "registration.finalDecidedAt",
+        "user.accountState",
+        "user.setupRequestedAt",
       ])
       .where("registration.eventOccurrenceId", "=", eventOccurrenceId)
       .orderBy("registration.submittedAt", "desc")
@@ -397,6 +401,7 @@ export async function findAdminEventOccurrenceOperations(
       submittedAt: row.submittedAt.toISOString(),
       coordinatorDecidedAt: row.coordinatorDecidedAt?.toISOString() ?? null,
       finalDecidedAt: row.finalDecidedAt?.toISOString() ?? null,
+      setupRequestedAt: row.setupRequestedAt?.toISOString() ?? null,
       finalDecisionLocked: participationWithAttendance.has(
         participationByRegistration.get(row.id) ?? "",
       ),
@@ -474,6 +479,21 @@ export async function findAdminEventOccurrenceOperations(
       occurredAt: transition.occurredAt.toISOString(),
     })),
   };
+}
+
+export async function resendAdminEventAccountSetup(
+  eventOccurrenceId: string,
+  userId: string,
+  actor: AuthenticatedUser,
+): Promise<"resent" | "not-found" | "already-active"> {
+  const registration = await getDatabase()
+    .selectFrom("event_registration")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", userId)
+    .executeTakeFirst();
+  if (!registration) return "not-found";
+  return await resendAccountSetup(userId, actor);
 }
 
 export async function recordAdminEventAttendance(

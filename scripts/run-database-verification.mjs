@@ -16,6 +16,7 @@ const verificationScripts = [
   "scripts/verify-admin-access-grants.ts",
   "scripts/verify-admin-course-authoring.ts",
   "scripts/verify-survey-workflow.ts",
+  "scripts/verify-onboarding-workflow.ts",
   "scripts/verify-resource-library.ts",
   "scripts/verify-completion-certificates.ts",
   "scripts/verify-event-foundation.ts",
@@ -73,6 +74,7 @@ try {
     ...process.env,
     APP_ENV: "test",
     DATABASE_URL: disposableDatabase.databaseUrl,
+    EMAIL_PROVIDER: "local_capture",
   };
   for (const script of verificationScripts) {
     if (interruptedSignal) break;

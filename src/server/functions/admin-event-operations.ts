@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start";
 import {
   adminEventAddRegistrationSchema,
   adminEventAttendanceSchema,
+  adminEventAccountSetupSchema,
   adminEventCoordinatorDecisionSchema,
   adminEventFinalDecisionSchema,
   adminEventLifecycleSchema,
@@ -123,6 +124,24 @@ export const recordAdminEventAttendance = createServerFn({ method: "POST" })
     const outcome = await record(data, request.user);
     if (outcome === "not-found")
       return { status: "conflict", reason: "attendance_unavailable" };
+    return { status: "ready" };
+  });
+
+export const resendAdminEventAccountSetup = createServerFn({ method: "POST" })
+  .validator(adminEventAccountSetupSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { resendAdminEventAccountSetup: resend } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await resend(
+      data.eventOccurrenceId,
+      data.userId,
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "already-active")
+      return { status: "conflict", reason: "account_already_active" };
     return { status: "ready" };
   });
 

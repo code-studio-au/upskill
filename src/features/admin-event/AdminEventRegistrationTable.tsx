@@ -12,10 +12,12 @@ import classes from "./AdminEventRegistrationTable.module.css";
 import { CompactActionSelect } from "#/features/shared/CompactActionSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
-import { Text } from "#/features/shared/mantine";
+import { Badge } from "#/features/shared/Badge";
+import { Button, Group, Stack, Text } from "#/features/shared/mantine";
 import {
   decideAdminEventCoordinatorRegistration,
   decideAdminEventFinalRegistration,
+  resendAdminEventAccountSetup,
 } from "#/server/functions/admin-event-operations";
 
 const statusLabels: Record<EventRegistrationStatus, string> = {
@@ -53,6 +55,7 @@ export function AdminEventRegistrationTable({
   action: (
     id: string,
     operation: () => Promise<{ status: string; reason?: string }>,
+    successMessage?: string,
   ) => Promise<void>;
 }) {
   const data = useMemo(
@@ -72,12 +75,39 @@ export function AdminEventRegistrationTable({
         registrationColumn.accessor("name", {
           header: "Learner",
           cell: ({ row }) => (
-            <div>
+            <Stack gap={4}>
               <Text fw={600}>{row.original.name}</Text>
               <Text c="dimmed" size="sm">
                 {row.original.email}
               </Text>
-            </div>
+              {row.original.accountState === "provisional" ? (
+                <Group gap="xs" wrap="wrap">
+                  <Badge color="orange" variant="light">
+                    Setup pending
+                  </Badge>
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    loading={processingId === `resend-setup-${row.original.id}`}
+                    onClick={() => {
+                      void action(
+                        `resend-setup-${row.original.id}`,
+                        () =>
+                          resendAdminEventAccountSetup({
+                            data: {
+                              eventOccurrenceId: workspace.occurrence.id,
+                              userId: row.original.userId,
+                            },
+                          }),
+                        "Account setup email queued.",
+                      );
+                    }}
+                  >
+                    Resend setup email
+                  </Button>
+                </Group>
+              ) : null}
+            </Stack>
           ),
         }),
         registrationColumn.accessor(
