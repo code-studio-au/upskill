@@ -111,13 +111,7 @@ function LearnerWorkspacePage() {
           </Paper>
 
           <Stack gap="xl">
-            <div>
-              <Title order={2}>Course program</Title>
-              <Text c="dimmed" mt={4}>
-                Your enrolment gives you access to this exact published course
-                version.
-              </Text>
-            </div>
+            <Title order={2}>Course program</Title>
 
             <LearnerProgramSections
               kind="course"

@@ -1079,7 +1079,8 @@ try {
     await addAdminEventRegistration(
       {
         eventOccurrenceId,
-        userId: learner.id,
+        name: learner.name,
+        email: learner.email,
         eventOccurrenceRegionId: null,
         overrideDomainRestriction: false,
       },
@@ -1104,6 +1105,36 @@ try {
         coordinatorCount: 2,
       },
     ],
+  );
+  const provisionalEmail = `event-provisional-${suffix}@outside.example.net`;
+  assert.equal(
+    await addAdminEventRegistration(
+      {
+        eventOccurrenceId,
+        name: "Provisional Event Learner",
+        email: provisionalEmail,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: true,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const provisionalEventUser = await database
+    .selectFrom("user")
+    .select(["id", "accountState", "emailVerified"])
+    .where("email", "=", provisionalEmail)
+    .executeTakeFirstOrThrow();
+  assert.equal(provisionalEventUser.accountState, "provisional");
+  assert.equal(provisionalEventUser.emailVerified, false);
+  assert.equal(
+    await database
+      .selectFrom("notification")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("recipientUserId", "=", provisionalEventUser.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    1,
   );
   const learnerRegistration = operations.registrations[0];
   assert.ok(learnerRegistration);

@@ -1,0 +1,90 @@
+.root {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
+.label {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+  line-height: 1.55;
+}
+
+.control {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 2.25rem;
+  padding: 0.4375rem 0.75rem;
+  color: var(--mantine-color-text);
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  line-height: 1.55;
+  background: var(--mantine-color-body);
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-sm) 0 0 var(--mantine-radius-sm);
+}
+
+.input:focus-visible {
+  z-index: 1;
+  border-color: var(--mantine-primary-color-filled);
+  outline: 2px solid var(--mantine-primary-color-light);
+  outline-offset: 1px;
+}
+
+.input:disabled {
+  color: var(--mantine-color-dimmed);
+  background: var(--mantine-color-gray-1);
+  cursor: not-allowed;
+}
+
+.input[aria-invalid="true"] {
+  border-color: var(--mantine-color-red-7);
+}
+
+.pickerButton {
+  min-width: 2.5rem;
+  padding-inline: 0.625rem;
+  color: var(--mantine-color-text);
+  font: inherit;
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-4);
+  border-left: 0;
+  border-radius: 0 var(--mantine-radius-sm) var(--mantine-radius-sm) 0;
+  cursor: pointer;
+}
+
+.pickerButton:hover:not(:disabled) {
+  background: var(--mantine-color-gray-1);
+}
+
+.pickerButton:focus-visible {
+  z-index: 1;
+  outline: 2px solid var(--mantine-primary-color-light);
+  outline-offset: 1px;
+}
+
+.pickerButton:disabled {
+  color: var(--mantine-color-dimmed);
+  cursor: not-allowed;
+}
+
+.nativePicker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.error {
+  color: var(--mantine-color-red-7);
+  font-size: var(--mantine-font-size-xs);
+}

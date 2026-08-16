@@ -22,6 +22,7 @@ import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
 import { createFriendlySlug } from "#/features/shared/friendly-slug";
+import { EventLocalDateTimeInput } from "./EventLocalDateTimeInput";
 import { createEventTimezoneOptions } from "./event-timezones";
 import { EventTimezoneAutocomplete } from "./EventTimezoneAutocomplete";
 import {
@@ -60,12 +61,10 @@ function initialSchedule() {
 function EditorSection({
   number,
   title,
-  description,
   children,
 }: {
   number: number;
   title: string;
-  description: string;
   children: ReactNode;
 }) {
   return (
@@ -75,12 +74,7 @@ function EditorSection({
           <span className={classes.sectionNumber} aria-hidden="true">
             {number}
           </span>
-          <div>
-            <Title order={2}>{title}</Title>
-            <Text c="dimmed" size="sm" mt={4}>
-              {description}
-            </Text>
-          </div>
+          <Title order={2}>{title}</Title>
         </div>
         {children}
       </Stack>
@@ -249,13 +243,6 @@ export function AdminEventOccurrenceEditor({
                   {isPublished ? "Published" : "Draft"}
                 </Badge>
               </Group>
-              <Text c="dimmed" mt="xs" maw={760}>
-                {occurrence
-                  ? isPublished
-                    ? "Move this published event without rewriting prior registration decisions or completed review rounds."
-                    : "Update this draft while retaining its pinned event template version."
-                  : "Choose a published template, then set the event's dates, delivery and registration policy. You can review staffing and publish it after the draft is created."}
-              </Text>
             </div>
           </div>
 
@@ -273,11 +260,7 @@ export function AdminEventOccurrenceEditor({
               </Alert>
             ) : null}
 
-            <EditorSection
-              number={1}
-              title="Template and event details"
-              description="Start from a stable published template and give this scheduled event its own learner-facing identity."
-            >
+            <EditorSection number={1} title="Template and event details">
               <div className={classes.detailsGrid}>
                 <div className={classes.fullWidth}>
                   <form.Field name="eventTemplateVersionId">
@@ -322,7 +305,6 @@ export function AdminEventOccurrenceEditor({
                   {(field) => (
                     <MantineTextInput
                       label="Friendly URL"
-                      description="Creates /events/your-friendly-url and must be unique."
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
@@ -337,22 +319,17 @@ export function AdminEventOccurrenceEditor({
               </div>
             </EditorSection>
 
-            <EditorSection
-              number={2}
-              title="Dates and capacity"
-              description="Set the learner-visible event window in the event's local timezone."
-            >
-              <div className={classes.twoColumnGrid}>
-                <div className={classes.twoColumnGrid}>
+            <EditorSection number={2} title="Dates and capacity">
+              <div className={classes.dateCapacityGrid}>
+                <div className={classes.dateRangeGrid}>
                   <form.Field name="startsAt">
                     {(field) => (
-                      <MantineTextInput
-                        type="datetime-local"
+                      <EventLocalDateTimeInput
                         label="Starts"
                         value={field.state.value}
                         onBlur={field.handleBlur}
-                        onChange={(event) => {
-                          field.handleChange(event.currentTarget.value);
+                        onChange={(value) => {
+                          field.handleChange(value);
                         }}
                         error={firstFormError(field.state.meta.errors)}
                         required
@@ -361,13 +338,12 @@ export function AdminEventOccurrenceEditor({
                   </form.Field>
                   <form.Field name="endsAt">
                     {(field) => (
-                      <MantineTextInput
-                        type="datetime-local"
+                      <EventLocalDateTimeInput
                         label="Ends"
                         value={field.state.value}
                         onBlur={field.handleBlur}
-                        onChange={(event) => {
-                          field.handleChange(event.currentTarget.value);
+                        onChange={(value) => {
+                          field.handleChange(value);
                         }}
                         error={firstFormError(field.state.meta.errors)}
                         required
@@ -407,11 +383,7 @@ export function AdminEventOccurrenceEditor({
               </div>
             </EditorSection>
 
-            <EditorSection
-              number={3}
-              title="Delivery"
-              description="Choose one delivery method and provide only the location details learners will need."
-            >
+            <EditorSection number={3} title="Delivery">
               <div className={classes.deliveryGrid}>
                 <form.Field name="deliveryMode">
                   {(field) => (
@@ -447,7 +419,6 @@ export function AdminEventOccurrenceEditor({
                           {(field) => (
                             <MantineTextInput
                               label="Venue name"
-                              description="Required for in-person delivery."
                               value={field.state.value}
                               onBlur={field.handleBlur}
                               onChange={(event) => {
@@ -479,7 +450,6 @@ export function AdminEventOccurrenceEditor({
                           {(field) => (
                             <MantineTextInput
                               label="Protected virtual meeting URL"
-                              description="Required for virtual delivery; never shown publicly."
                               value={field.state.value}
                               onBlur={field.handleBlur}
                               onChange={(event) => {
@@ -497,11 +467,7 @@ export function AdminEventOccurrenceEditor({
               </div>
             </EditorSection>
 
-            <EditorSection
-              number={4}
-              title="Registration"
-              description="Control who can register, whether approval is required and when each review stage closes."
-            >
+            <EditorSection number={4} title="Registration">
               <Stack gap="lg">
                 <div className={classes.twoColumnGrid}>
                   <form.Field name="registrationMode">
@@ -544,12 +510,7 @@ export function AdminEventOccurrenceEditor({
                     selector={(state) => state.values.registrationMode}
                   >
                     {(registrationMode) =>
-                      registrationMode === "open_entry" ? (
-                        <Alert color="indigo" title="No registration step">
-                          Learners can enter directly, so approval and
-                          registration deadlines do not apply.
-                        </Alert>
-                      ) : (
+                      registrationMode === "open_entry" ? null : (
                         <form.Field name="approvalMode">
                           {(field) => (
                             <MantineNativeSelect
@@ -586,7 +547,6 @@ export function AdminEventOccurrenceEditor({
                           <MantineTextInput
                             component="textarea"
                             label="Permitted email domains"
-                            description="Separate domains with commas or new lines."
                             value={field.state.value}
                             onBlur={field.handleBlur}
                             onChange={(event) => {
@@ -602,50 +562,37 @@ export function AdminEventOccurrenceEditor({
                 </form.Subscribe>
                 {occurrence?.status === "published" ? (
                   <Stack gap="md" className={classes.reschedulePolicy}>
-                    <div>
-                      <Text fw={700}>Reschedule policy</Text>
-                      <Text c="dimmed" size="sm">
-                        Event dates and registration deadlines are managed
-                        separately so an accidental reschedule cannot reopen
-                        registrations.
-                      </Text>
-                    </div>
+                    <Text fw={700}>Reschedule policy</Text>
                     <form.Subscribe
                       selector={(state) => state.values.registrationMode}
                     >
                       {(registrationMode) =>
                         registrationMode === "open_entry" ? null : (
-                          <>
-                            <MantineNativeSelect
-                              label="Registration-window policy"
-                              value={registrationWindowPolicy}
-                              data={[
-                                {
-                                  value: "keep",
-                                  label: "Keep existing registration deadlines",
-                                },
-                                {
-                                  value: "replace_future",
-                                  label: "Replace still-future deadlines",
-                                },
-                                {
-                                  value: "reopen",
-                                  label:
-                                    "Reopen registration with new review rounds",
-                                },
-                              ]}
-                              onChange={(event) => {
-                                setRegistrationWindowPolicy(
-                                  event.currentTarget
-                                    .value as typeof registrationWindowPolicy,
-                                );
-                              }}
-                            />
-                            <Text size="xs" c="dimmed">
-                              Moving the event dates never reopens registration
-                              by itself.
-                            </Text>
-                          </>
+                          <MantineNativeSelect
+                            label="Registration-window policy"
+                            value={registrationWindowPolicy}
+                            data={[
+                              {
+                                value: "keep",
+                                label: "Keep existing registration deadlines",
+                              },
+                              {
+                                value: "replace_future",
+                                label: "Replace still-future deadlines",
+                              },
+                              {
+                                value: "reopen",
+                                label:
+                                  "Reopen registration with new review rounds",
+                              },
+                            ]}
+                            onChange={(event) => {
+                              setRegistrationWindowPolicy(
+                                event.currentTarget
+                                  .value as typeof registrationWindowPolicy,
+                              );
+                            }}
+                          />
                         )
                       }
                     </form.Subscribe>
@@ -681,13 +628,7 @@ export function AdminEventOccurrenceEditor({
                   {(registrationMode) =>
                     registrationMode === "open_entry" ? null : (
                       <div className={classes.registrationTimeline}>
-                        <div className={classes.timelineHeading}>
-                          <Text fw={700}>Registration timetable</Text>
-                          <Text c="dimmed" size="sm">
-                            Set the learner registration window. The coordinator
-                            cut-off follows registration close.
-                          </Text>
-                        </div>
+                        <Text fw={700}>Registration timetable</Text>
                         <div className={classes.scheduleGrid}>
                           {(
                             [
@@ -698,8 +639,7 @@ export function AdminEventOccurrenceEditor({
                           ).map(([name, label]) => (
                             <form.Field name={name} key={name}>
                               {(field) => (
-                                <MantineTextInput
-                                  type="datetime-local"
+                                <EventLocalDateTimeInput
                                   label={label}
                                   value={field.state.value}
                                   disabled={
@@ -707,10 +647,8 @@ export function AdminEventOccurrenceEditor({
                                     registrationWindowPolicy === "keep"
                                   }
                                   onBlur={field.handleBlur}
-                                  onChange={(event) => {
-                                    field.handleChange(
-                                      event.currentTarget.value,
-                                    );
+                                  onChange={(value) => {
+                                    field.handleChange(value);
                                   }}
                                   error={firstFormError(
                                     field.state.meta.errors,
@@ -728,16 +666,6 @@ export function AdminEventOccurrenceEditor({
             </EditorSection>
 
             <div className={classes.actionBar}>
-              <div className={classes.actionCopy}>
-                <Text fw={700} size="sm">
-                  {isPublished
-                    ? "Review the dates and registration impact before confirming."
-                    : "This event remains a draft until you review and publish it."}
-                </Text>
-                <Text c="dimmed" size="xs">
-                  Drafts are not visible to learners.
-                </Text>
-              </div>
               <Group gap="sm" className={classes.actions}>
                 <Button
                   type="button"

@@ -14,7 +14,6 @@
 .heading,
 .formHeading,
 .learnerName,
-.description,
 .email,
 .details,
 .empty {
@@ -48,14 +47,9 @@
   line-height: var(--mantine-h3-line-height);
 }
 
-.description,
 .email,
 .details {
   color: var(--mantine-color-dimmed);
-}
-
-.description {
-  margin-top: var(--mantine-spacing-xs);
 }
 
 .rosterGrid {

@@ -31,10 +31,6 @@ function HomePage() {
             <Title order={1} className={classes.title}>
               Skills that make work better.
             </Title>
-            <Text size="xl" c="dimmed" className={classes.lead}>
-              Practical, accessible learning for people and
-              organisations—available wherever the work happens.
-            </Text>
             <Group>
               <Button
                 component={Link}

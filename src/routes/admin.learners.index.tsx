@@ -137,9 +137,6 @@ function AdminLearnerDirectoryPage({
           Learner support
         </Text>
         <Title order={1}>Learners</Title>
-        <Text c="dimmed" mt="xs">
-          Search registered learners and inspect their enrolment history.
-        </Text>
       </div>
 
       <form
@@ -198,9 +195,6 @@ function AdminLearnerDirectoryPage({
           <Title order={2} size="h3">
             No learners found
           </Title>
-          <Text c="dimmed" mt="xs">
-            Try another name or email address.
-          </Text>
         </Paper>
       )}
 

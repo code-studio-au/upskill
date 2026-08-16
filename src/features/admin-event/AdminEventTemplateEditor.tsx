@@ -272,11 +272,6 @@ export function AdminEventTemplateEditor({
               });
             }}
           />
-          <Text c="dimmed">
-            {detail.version.editable
-              ? "Complete the title, then design the reusable sections, activities and staffing defaults for this version."
-              : "This published version is immutable and remains pinned to its occurrences."}
-          </Text>
         </div>
         {detail.version.editable ? (
           <Group>
@@ -404,12 +399,7 @@ export function AdminEventTemplateEditor({
       {editorView === "program" ? (
         <Stack gap="lg">
           <Group justify="space-between">
-            <div>
-              <Title order={2}>Sections and activities</Title>
-              <Text size="sm" c="dimmed">
-                Sessions and learning activities run in this exact order.
-              </Text>
-            </div>
+            <Title order={2}>Sections and activities</Title>
             {detail.version.editable ? (
               <Button
                 variant="light"
@@ -525,7 +515,6 @@ export function AdminEventTemplateEditor({
                       <MantineTextInput
                         type="number"
                         label="Offset amount"
-                        description="Use a negative value to release before the anchor."
                         value={String(section.releaseOffsetAmount)}
                         disabled={!detail.version.editable}
                         onChange={(event) => {
@@ -789,10 +778,6 @@ export function AdminEventTemplateEditor({
           <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
             <Stack gap="sm">
               <Title order={2}>Default administrators</Title>
-              <Text size="sm" c="dimmed">
-                These active platform administrators are copied to each
-                occurrence.
-              </Text>
               <EligibleStaffPicker
                 label="Administrator"
                 candidates={detail.people.platformAdministrators}
@@ -813,9 +798,6 @@ export function AdminEventTemplateEditor({
           <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
             <Stack gap="md">
               <Title order={2}>Regions and coordinators</Title>
-              <Text size="sm" c="dimmed">
-                Add only regions that require their own registration review.
-              </Text>
               {draft.regions.map((region) => {
                 const option = detail.regions.find(
                   (candidate) => candidate.id === region.regionId,

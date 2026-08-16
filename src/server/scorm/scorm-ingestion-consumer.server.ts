@@ -8,11 +8,16 @@ import {
   receiveQueueMessage,
 } from "#/server/queue/sqs.server";
 import {
-  parseContentWorkMessage,
+  NOTIFICATION_DELIVERY_TOPIC,
+  parseWorkerMessage,
   RESOURCE_DELETION_TOPIC,
   SCORM_DELETION_TOPIC,
-  type ContentWorkMessage,
+  type WorkerMessage,
 } from "#/server/queue/work-message";
+import {
+  deliverNotification,
+  type NotificationDeliveryOutcome,
+} from "#/server/notifications/notification-delivery.server";
 import {
   ingestScormPackageVersion,
   type ScormIngestionOutcome,
@@ -22,9 +27,12 @@ import {
   deleteObjectPrefix,
 } from "#/server/storage/object-storage.server";
 
-type ScormWorkOutcome = ScormIngestionOutcome | { status: "storage-removed" };
+type ScormWorkOutcome =
+  | ScormIngestionOutcome
+  | NotificationDeliveryOutcome
+  | { status: "storage-removed" };
 
-export type ScormConsumerOutcome =
+export type WorkConsumerOutcome =
   | { status: "no-work" }
   | {
       status: "processed";
@@ -41,9 +49,11 @@ export type ScormConsumerOutcome =
       error: string;
     };
 
-export async function handleContentWorkMessage(
-  message: ContentWorkMessage,
+export async function handleWorkMessage(
+  message: WorkerMessage,
 ): Promise<ScormWorkOutcome> {
+  if (message.topic === NOTIFICATION_DELIVERY_TOPIC)
+    return deliverNotification(message.payload.notificationId);
   if (message.topic === RESOURCE_DELETION_TOPIC) {
     if (message.aggregateId !== message.payload.resourceVersionId)
       throw new Error(
@@ -79,15 +89,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "Unknown worker error";
 }
 
-export async function consumeNextScormMessage(
+export async function consumeNextWorkMessage(
   waitTimeSeconds?: number,
-): Promise<ScormConsumerOutcome> {
+): Promise<WorkConsumerOutcome> {
   const received = await receiveQueueMessage(undefined, waitTimeSeconds);
   if (!received) return { status: "no-work" };
   const env = getServerEnv();
   let heartbeat: NodeJS.Timeout | undefined;
   try {
-    const message = parseContentWorkMessage(received.body);
+    const message = parseWorkerMessage(received.body);
     const heartbeatSeconds = Math.max(
       10,
       Math.floor(env.SQS_VISIBILITY_TIMEOUT_SECONDS / 3),
@@ -106,7 +116,7 @@ export async function consumeNextScormMessage(
       });
     }, heartbeatSeconds * 1_000);
     heartbeat.unref();
-    const outcome = await handleContentWorkMessage(message);
+    const outcome = await handleWorkMessage(message);
     await deleteQueueMessage(received.receiptHandle);
     return {
       status: "processed",

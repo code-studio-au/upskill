@@ -131,7 +131,6 @@ export function AdminResourceUpload({
               <MantineTextInput
                 label="Version description"
                 name={field.name}
-                description="Optional notes about this document version."
                 value={field.state.value}
                 maxLength={2_000}
                 error={firstFormError(field.state.meta.errors)}
@@ -149,7 +148,6 @@ export function AdminResourceUpload({
                   <MantineFilePicker
                     label="PDF document"
                     placeholder="Choose a PDF"
-                    description="Maximum 25 MB. Documents remain private."
                     accept=".pdf,application/pdf"
                     required
                     value={field.state.value}

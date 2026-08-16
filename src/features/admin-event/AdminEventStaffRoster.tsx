@@ -1,11 +1,5 @@
-import "@mantine/core/styles/Combobox.css";
-import "@mantine/core/styles/Input.css";
-import "@mantine/core/styles/Popover.css";
-import "@mantine/core/styles/ScrollArea.css";
-
 import { useForm } from "@tanstack/react-form";
-import { Autocomplete, Loader, NativeSelect } from "@mantine/core";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   adminEventStaffEligibilityGrantSchema,
   type AdminEventCoordinatorCoverageImpact,
@@ -13,6 +7,7 @@ import {
   type AdminEventWorkspace,
 } from "./admin-event.schema";
 import { firstFormError } from "#/features/shared/form-errors";
+import { LightweightAutocomplete } from "#/features/shared/LightweightAutocomplete";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import {
@@ -63,11 +58,6 @@ export function AdminEventStaffRoster({
     Array<{ id: string; name: string; email: string }>
   >([]);
   const [searching, setSearching] = useState(false);
-  const suggestionsByEmail = useMemo(
-    () =>
-      new Map(suggestions.map((suggestion) => [suggestion.email, suggestion])),
-    [suggestions],
-  );
   const form = useForm({
     defaultValues: eligibilityDefaults,
     validators: { onSubmit: adminEventStaffEligibilityGrantSchema },
@@ -155,14 +145,7 @@ export function AdminEventStaffRoster({
 
   return (
     <Stack gap="lg">
-      <div>
-        <Title order={2}>Eligible event staff</Title>
-        <Text c="dimmed" size="sm">
-          This roster limits new template selections. It grants no event access;
-          presenter access remains session-scoped and coordinator access remains
-          occurrence-and-region-scoped.
-        </Text>
-      </div>
+      <Title order={2}>Eligible event staff</Title>
       {message ? (
         <Alert color="green" role="status">
           {message}
@@ -227,37 +210,18 @@ export function AdminEventStaffRoster({
             <div className={classes.formGrid}>
               <form.Field name="email">
                 {(field) => (
-                  <Autocomplete
+                  <LightweightAutocomplete
                     className={classes.emailField}
                     label="User email"
-                    description={
-                      responsibility === "coordinator" && regionId === null
-                        ? "Select a region, then search by name or email."
-                        : undefined
-                    }
-                    type="email"
-                    autoComplete="off"
                     placeholder="Search by name or email"
                     maxLength={320}
-                    data={suggestions.map((suggestion) => suggestion.email)}
-                    filter={({ options }) => options}
+                    options={suggestions.map((suggestion) => ({
+                      value: suggestion.email,
+                      label: suggestion.name,
+                      description: suggestion.email,
+                    }))}
                     limit={10}
-                    renderOption={({ option }) => {
-                      const suggestion = suggestionsByEmail.get(option.value);
-                      return suggestion ? (
-                        <div>
-                          <Text fw={600} size="sm">
-                            {suggestion.name}
-                          </Text>
-                          <Text c="dimmed" size="xs">
-                            {suggestion.email}
-                          </Text>
-                        </div>
-                      ) : (
-                        option.value
-                      );
-                    }}
-                    rightSection={searching ? <Loader size="xs" /> : undefined}
+                    loading={searching}
                     value={field.state.value}
                     error={firstFormError(field.state.meta.errors)}
                     onBlur={() => {
@@ -276,8 +240,7 @@ export function AdminEventStaffRoster({
               </form.Field>
               <form.Field name="responsibility">
                 {(field) => (
-                  <NativeSelect
-                    className={classes.responsibilityField}
+                  <MantineNativeSelect
                     label="Responsibility"
                     value={field.state.value}
                     data={[

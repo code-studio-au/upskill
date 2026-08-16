@@ -15,6 +15,12 @@ interface UserTable {
   emailVerified: boolean;
   image: string | null;
   stripeCustomerId: string | null;
+  accountState: Generated<"provisional" | "active">;
+  provisioningSource: Generated<
+    "administrator" | "open_entry" | "late_invitation" | "access_owner" | null
+  >;
+  provisionedByUserId: Generated<string | null>;
+  setupRequestedAt: OptionalTimestamp;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -702,6 +708,42 @@ interface OutboxEventTable {
   createdAt: Timestamp;
 }
 
+interface NotificationTable {
+  id: string;
+  channel: "email";
+  templateKey: "account_setup_requested";
+  recipientUserId: string;
+  recipientName: string;
+  recipientEmail: string;
+  status: Generated<"pending" | "delivered" | "failed">;
+  deduplicationKey: string;
+  payload: Json;
+  attempts: Generated<number>;
+  lastErrorCode: string | null;
+  deliveredAt: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface NotificationDeliveryAttemptTable {
+  id: string;
+  notificationId: string;
+  attempt: number;
+  provider: string;
+  status: "delivered" | "failed";
+  providerMessageId: string | null;
+  errorCode: string | null;
+  createdAt: Timestamp;
+}
+
+interface EmailDeliveryCaptureTable {
+  notificationId: string;
+  recipientEmail: string;
+  subject: string;
+  textBody: string;
+  createdAt: Timestamp;
+}
+
 export type AuditEventAction =
   | "access_grant.administrator_capacity_updated"
   | "access_grant.administrator_code_revealed"
@@ -753,7 +795,8 @@ export type AuditEventAction =
   | "scorm.package_version_removed"
   | "survey.created"
   | "survey.published"
-  | "survey.version_created";
+  | "survey.version_created"
+  | "user.provisional_created";
 
 interface AuditEventTable {
   id: string;
@@ -777,6 +820,7 @@ export interface Database {
   course_version_section: CourseVersionSectionTable;
   coordination_region: CoordinationRegionTable;
   enrollment: EnrollmentTable;
+  email_delivery_capture: EmailDeliveryCaptureTable;
   event_admin_assignment: EventAdminAssignmentTable;
   event_attendance: EventAttendanceTable;
   event_coordinator_assignment: EventCoordinatorAssignmentTable;
@@ -809,6 +853,8 @@ export interface Database {
   learning_activity_version: LearningActivityVersionTable;
   learning_progress_override: LearningProgressOverrideTable;
   learning_resource_version: LearningResourceVersionTable;
+  notification: NotificationTable;
+  notification_delivery_attempt: NotificationDeliveryAttemptTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   platform_admin: PlatformAdminTable;

@@ -23,25 +23,17 @@ import classes from "./LearnerEventSection.module.css";
 
 type EventView = "registrations" | "available" | "history";
 
-const viewContent: Record<
-  EventView,
-  { title: string; description: string; empty: string }
-> = {
+const viewContent: Record<EventView, { title: string; empty: string }> = {
   registrations: {
     title: "My event registrations",
-    description:
-      "Registrations awaiting review, approved registrations and waitlisted events.",
     empty: "You do not have any active event registrations.",
   },
   available: {
     title: "Available events",
-    description: "Upcoming events you have not registered for.",
     empty: "There are no other events available to you.",
   },
   history: {
     title: "Registration history",
-    description:
-      "Events you withdrew from, were not selected for, or that were cancelled.",
     empty: "You do not have any previous registration outcomes.",
   },
 };
@@ -189,7 +181,6 @@ export function LearnerEventSection({
         <EventGroup
           headingId={`${activeView}-events-heading`}
           title={viewContent[activeView].title}
-          description={viewContent[activeView].description}
         >
           {activeEvents.length > 0 ? (
             activeEvents.map((event) => (
@@ -222,25 +213,18 @@ export function LearnerEventSection({
 function EventGroup({
   headingId,
   title,
-  description,
   children,
 }: {
   headingId: string;
   title: string;
-  description: string;
   children: ReactNode;
 }) {
   return (
     <section aria-labelledby={headingId}>
       <Stack gap="md">
-        <div>
-          <Title order={3} id={headingId}>
-            {title}
-          </Title>
-          <Text c="dimmed" size="sm" mt={4}>
-            {description}
-          </Text>
-        </div>
+        <Title order={3} id={headingId}>
+          {title}
+        </Title>
         {children}
       </Stack>
     </section>

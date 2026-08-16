@@ -70,10 +70,6 @@ function AdminCoursesPage() {
             Course authoring
           </Text>
           <Title order={1}>Courses</Title>
-          <Text c="dimmed" mt="xs">
-            Build immutable course versions from ordered sections, modules and
-            resources.
-          </Text>
         </div>
         <Button
           loading={creating}

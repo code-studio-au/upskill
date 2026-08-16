@@ -71,9 +71,6 @@ function AdminSurveysPage() {
             Learning content
           </Text>
           <Title order={1}>Surveys</Title>
-          <Text c="dimmed" mt="xs">
-            Publish immutable question sets for exact course-version references.
-          </Text>
         </div>
         <Button
           onClick={() => {

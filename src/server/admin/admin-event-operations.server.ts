@@ -7,6 +7,10 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import {
+  normalizeUserEmail,
+  provisionUser,
+} from "#/server/identity/provisional-user.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 
 function domainFromEmail(email: string): string | null {
@@ -834,119 +838,161 @@ export async function decideAdminEventFinalRegistration(
 export async function addAdminEventRegistration(
   input: {
     eventOccurrenceId: string;
-    userId: string;
+    name: string;
+    email: string;
     eventOccurrenceRegionId: string | null;
     overrideDomainRestriction: boolean;
   },
   actor: AuthenticatedUser,
 ) {
-  return await getDatabase()
-    .transaction()
-    .execute(async (transaction) => {
-      const occurrence = await transaction
-        .selectFrom("event_occurrence")
-        .selectAll()
-        .where("id", "=", input.eventOccurrenceId)
-        .forUpdate()
-        .executeTakeFirst();
-      const user = await transaction
-        .selectFrom("user")
-        .select(["id", "name", "email", "emailVerified"])
-        .where("id", "=", input.userId)
-        .executeTakeFirst();
-      if (!occurrence || !user) return "not-found" as const;
-      if (
-        occurrence.status !== "published" ||
-        occurrence.registrationMode === "open_entry"
-      )
-        return "unavailable" as const;
-      const duplicate = await transaction
-        .selectFrom("event_registration")
-        .select("id")
-        .where("eventOccurrenceId", "=", occurrence.id)
-        .where("userId", "=", user.id)
-        .executeTakeFirst();
-      if (duplicate) return "duplicate" as const;
-      let eligibilitySource:
-        "unrestricted" | "verified_domain" | "administrator_override" =
-        "unrestricted";
-      if (occurrence.registrationMode === "required_restricted") {
-        const domain = user.emailVerified ? domainFromEmail(user.email) : null;
-        const domainAllowed = domain
-          ? await transaction
-              .selectFrom("event_occurrence_domain")
-              .select("domain")
-              .where("eventOccurrenceId", "=", occurrence.id)
-              .where("domain", "=", domain)
-              .executeTakeFirst()
-          : null;
-        if (!domainAllowed && !input.overrideDomainRestriction)
-          return "override-required" as const;
-        eligibilitySource = domainAllowed
-          ? "verified_domain"
-          : "administrator_override";
-      }
-      if (input.eventOccurrenceRegionId) {
-        const region = await transaction
-          .selectFrom("event_occurrence_region")
-          .select("id")
-          .where("id", "=", input.eventOccurrenceRegionId)
-          .where("eventOccurrenceId", "=", occurrence.id)
-          .where("retiredAt", "is", null)
+  try {
+    return await getDatabase()
+      .transaction()
+      .execute(async (transaction) => {
+        const occurrence = await transaction
+          .selectFrom("event_occurrence")
+          .selectAll()
+          .where("id", "=", input.eventOccurrenceId)
+          .forUpdate()
           .executeTakeFirst();
-        if (!region) return "not-found" as const;
-      }
-      const now = new Date();
-      const id = `event_registration_${randomUUID()}`;
-      await transaction
-        .insertInto("event_registration")
-        .values({
-          id,
-          eventOccurrenceId: occurrence.id,
-          userId: user.id,
-          eventOccurrenceRegionId: input.eventOccurrenceRegionId,
-          reviewRoundId: null,
-          nameSnapshot: user.name,
-          emailSnapshot: user.email,
-          source:
-            eligibilitySource === "administrator_override"
-              ? "administrator_override"
-              : "late_invitation",
-          eligibilitySource,
-          status: "submitted",
-          coordinatorPriority: null,
-          submittedAt: now,
-          coordinatorDecidedAt: null,
-          coordinatorDecidedByUserId: null,
-          finalDecidedAt: null,
-          finalDecidedByUserId: null,
-          lockedInAt: null,
-        })
-        .execute();
-      await transaction
-        .insertInto("event_registration_transition")
-        .values({
-          id: `event_registration_transition_${randomUUID()}`,
-          eventRegistrationId: id,
-          fromStatus: null,
-          toStatus: "submitted",
-          source: "administrator",
+        if (!occurrence) return "not-found" as const;
+        if (
+          occurrence.status !== "published" ||
+          occurrence.registrationMode === "open_entry"
+        )
+          return "unavailable" as const;
+        const existingUser = await transaction
+          .selectFrom("user")
+          .select(["id", "name", "email", "emailVerified"])
+          .where(
+            sql<boolean>`lower(email) = ${normalizeUserEmail(input.email)}`,
+          )
+          .executeTakeFirst();
+        const candidate = existingUser ?? {
+          id: null,
+          name: input.name.trim(),
+          email: normalizeUserEmail(input.email),
+          emailVerified: false,
+        };
+        if (candidate.id) {
+          const duplicate = await transaction
+            .selectFrom("event_registration")
+            .select("id")
+            .where("eventOccurrenceId", "=", occurrence.id)
+            .where("userId", "=", candidate.id)
+            .executeTakeFirst();
+          if (duplicate) return "duplicate" as const;
+        }
+        let eligibilitySource:
+          "unrestricted" | "verified_domain" | "administrator_override" =
+          "unrestricted";
+        if (occurrence.registrationMode === "required_restricted") {
+          const domain = candidate.emailVerified
+            ? domainFromEmail(candidate.email)
+            : null;
+          const domainAllowed = domain
+            ? await transaction
+                .selectFrom("event_occurrence_domain")
+                .select("domain")
+                .where("eventOccurrenceId", "=", occurrence.id)
+                .where("domain", "=", domain)
+                .executeTakeFirst()
+            : null;
+          if (!domainAllowed && !input.overrideDomainRestriction)
+            return "override-required" as const;
+          eligibilitySource = domainAllowed
+            ? "verified_domain"
+            : "administrator_override";
+        }
+        if (input.eventOccurrenceRegionId) {
+          const region = await transaction
+            .selectFrom("event_occurrence_region")
+            .select("id")
+            .where("id", "=", input.eventOccurrenceRegionId)
+            .where("eventOccurrenceId", "=", occurrence.id)
+            .where("retiredAt", "is", null)
+            .executeTakeFirst();
+          if (!region) return "not-found" as const;
+        }
+        const now = new Date();
+        const id = `event_registration_${randomUUID()}`;
+        const user =
+          existingUser ??
+          (
+            await provisionUser(transaction, {
+              name: candidate.name,
+              email: candidate.email,
+              source: "administrator",
+              actorUserId: actor.id,
+              sourceEventId: id,
+              createdAt: now,
+            })
+          ).user;
+        const concurrentDuplicate = await transaction
+          .selectFrom("event_registration")
+          .select("id")
+          .where("eventOccurrenceId", "=", occurrence.id)
+          .where("userId", "=", user.id)
+          .executeTakeFirst();
+        if (concurrentDuplicate)
+          throw new Error("CONCURRENT_DUPLICATE_EVENT_REGISTRATION");
+        await transaction
+          .insertInto("event_registration")
+          .values({
+            id,
+            eventOccurrenceId: occurrence.id,
+            userId: user.id,
+            eventOccurrenceRegionId: input.eventOccurrenceRegionId,
+            reviewRoundId: null,
+            nameSnapshot: user.name,
+            emailSnapshot: user.email,
+            source:
+              eligibilitySource === "administrator_override"
+                ? "administrator_override"
+                : "late_invitation",
+            eligibilitySource,
+            status: "submitted",
+            coordinatorPriority: null,
+            submittedAt: now,
+            coordinatorDecidedAt: null,
+            coordinatorDecidedByUserId: null,
+            finalDecidedAt: null,
+            finalDecidedByUserId: null,
+            lockedInAt: null,
+          })
+          .execute();
+        await transaction
+          .insertInto("event_registration_transition")
+          .values({
+            id: `event_registration_transition_${randomUUID()}`,
+            eventRegistrationId: id,
+            fromStatus: null,
+            toStatus: "submitted",
+            source: "administrator",
+            actorUserId: actor.id,
+            priority: null,
+            occurredAt: now,
+          })
+          .execute();
+        await recordDurableAuditEvent(transaction, {
           actorUserId: actor.id,
-          priority: null,
-          occurredAt: now,
-        })
-        .execute();
-      await recordDurableAuditEvent(transaction, {
-        actorUserId: actor.id,
-        action: "event_registration.administrator_added",
-        subjectType: "event_registration",
-        subjectId: id,
-        aggregateId: occurrence.id,
-        metadata: { eligibilitySource },
-        createdAt: now,
+          action: "event_registration.administrator_added",
+          subjectType: "event_registration",
+          subjectId: id,
+          aggregateId: occurrence.id,
+          metadata: { eligibilitySource },
+          createdAt: now,
+        });
+        return "created" as const;
       });
-      return "created" as const;
-    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "CONCURRENT_DUPLICATE_EVENT_REGISTRATION"
+    )
+      return "duplicate" as const;
+    throw error;
+  }
 }
 
 export async function transitionAdminEventOccurrence(

@@ -17,6 +17,7 @@ import { AppDialog } from "#/features/shared/AppDialog";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { PageTabs } from "#/features/shared/PageTabs";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
@@ -364,11 +365,6 @@ function EventInstanceOperationsPage() {
           <Paper withBorder radius="lg" p="md">
             <Stack gap="sm">
               <Title order={2}>Instance lifecycle</Title>
-              <Text c="dimmed" size="sm">
-                Complete delivery, cancel the event for every active
-                participant, or archive a finished instance from active
-                operations.
-              </Text>
               <Group gap="sm">
                 {workspace.occurrence.status === "published" ? (
                   <>
@@ -630,30 +626,33 @@ function AddLearnerDialog({
   processing: boolean;
   onClose: () => void;
   onAdd: (data: {
-    userId: string;
+    name: string;
+    email: string;
     eventOccurrenceRegionId: string | null;
     overrideDomainRestriction: boolean;
   }) => Promise<void>;
 }) {
-  const [userId, setUserId] = useState("");
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [regionId, setRegionId] = useState("");
   const [override, setOverride] = useState(false);
   return (
     <AppDialog title="Add learner to event" onClose={onClose}>
       <Stack gap="md">
-        <MantineNativeSelect
-          label="Learner"
+        <MantineTextInput
+          label="Learner email"
           required
-          value={userId}
-          data={[
-            { value: "", label: "Select a learner", disabled: true },
-            ...workspace.availableUsers.map((user) => ({
-              value: user.id,
-              label: `${user.name} — ${user.email}`,
-            })),
-          ]}
+          type="email"
+          value={email}
           onChange={(event) => {
-            setUserId(event.currentTarget.value);
+            setEmail(event.currentTarget.value);
+          }}
+        />
+        <MantineTextInput
+          label="Learner name"
+          value={name}
+          onChange={(event) => {
+            setName(event.currentTarget.value);
           }}
         />
         {workspace.regions.length ? (
@@ -686,10 +685,13 @@ function AddLearnerDialog({
           </Button>
           <Button
             loading={processing}
-            disabled={!userId || (workspace.regions.length > 0 && !regionId)}
+            disabled={
+              !name || !email || (workspace.regions.length > 0 && !regionId)
+            }
             onClick={() =>
               void onAdd({
-                userId,
+                name,
+                email,
                 eventOccurrenceRegionId: regionId || null,
                 overrideDomainRestriction: override,
               })

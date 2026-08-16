@@ -58,9 +58,6 @@ function DashboardPage() {
               Learner area
             </Text>
             <Title order={1}>My learning</Title>
-            <Text c="dimmed" mt="xs">
-              Welcome back, {dashboard.user.name}.
-            </Text>
           </div>
           <Button
             variant="light"
@@ -225,9 +222,6 @@ function CourseSection({
         ) : (
           <div className={classes.empty}>
             <Text fw={600}>No courses in progress.</Text>
-            <Text c="dimmed" mt="xs">
-              Browse the catalogue to find your next course.
-            </Text>
             <Button component={Link} to="/courses" variant="light" mt="md">
               Browse courses
             </Button>

@@ -425,7 +425,6 @@ export function AdminCourseEditor({
             />
             <MantineTextInput
               label="Friendly URL"
-              description="Used in the public course URL. It must be unique."
               value={draft.slug}
               disabled={!editable}
               onChange={(event) => {
@@ -558,13 +557,7 @@ export function AdminCourseEditor({
       {editorView === "program" ? (
         <Stack gap="md">
           <Group justify="space-between">
-            <div>
-              <Title order={2}>Sections and items</Title>
-              <Text c="dimmed">
-                Section progress is derived from completion of its required
-                items.
-              </Text>
-            </div>
+            <Title order={2}>Sections and items</Title>
             {editable ? (
               <Button
                 variant="light"
@@ -791,11 +784,6 @@ export function AdminCourseEditor({
         <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
           <Stack gap="md">
             <Title order={2}>Course lifecycle</Title>
-            <Text c="dimmed">
-              {detail.course.enrollmentCount} enrolments and{" "}
-              {detail.course.commerceReferenceCount} commerce references retain
-              immutable version history.
-            </Text>
             <Group>
               {detail.course.status !== "archived" ? (
                 <Button
@@ -819,12 +807,6 @@ export function AdminCourseEditor({
                 </Button>
               )}
             </Group>
-            {detail.course.status === "archived" && !detail.course.canDelete ? (
-              <Text size="sm" c="dimmed">
-                Archived courses with enrolment or commerce history are retained
-                and cannot be permanently deleted.
-              </Text>
-            ) : null}
           </Stack>
         </Paper>
       ) : null}

@@ -2,7 +2,7 @@ import { destroyDatabase } from "#/server/db/database.server";
 import { dispatchAvailableOutboxEvents } from "#/server/outbox/outbox-dispatcher.server";
 import { destroyQueueClient } from "#/server/queue/sqs.server";
 import { logServerEvent } from "#/server/logging/server-logger";
-import { consumeNextScormMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
+import { consumeNextWorkMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
@@ -20,7 +20,7 @@ try {
   while (!shutdown.signal.aborted) {
     const { dispatch, consumption } = await runScormWorkerIteration({
       dispatchAvailableOutboxEvents,
-      consumeNextScormMessage,
+      consumeNextWorkMessage,
     });
     for (const outcome of dispatch.outcomes)
       logServerEvent({
@@ -37,7 +37,7 @@ try {
     if (consumption.status !== "no-work")
       logServerEvent({
         level: consumption.status === "retry" ? "warn" : "info",
-        event: "worker.content_processed",
+        event: "worker.work_processed",
         fields: {
           status: consumption.status,
           messageId: consumption.messageId,

@@ -91,33 +91,33 @@ verifiers, and CDK verification.
 
 ## Current Capability Assessment
 
-| Capability                         | Current maturity                                        | Direction                                                                  |
-| ---------------------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------- |
-| Public course catalogue            | Strong                                                  | Continue incremental UX/product growth                                     |
-| Individual course checkout         | Strong                                                  | Preserve transaction and idempotency model                                 |
-| Learner enrolment/workspace        | Common activity-version foundation                      | Extend the model to Events and attendance                                  |
-| SCORM delivery                     | Strong                                                  | Preserve isolation and immutable versions                                  |
-| Surveys                            | Strong foundation                                       | Reuse in courses and target Events                                         |
-| Resources                          | Strong foundation                                       | Broaden beyond PDF when required                                           |
-| Certificates                       | On-demand rendering implemented                         | Reuse the common completion-eligibility boundary                           |
-| Organisation access codes          | Strong encrypted lifecycle                              | Evolve toward explicit entitlements/contracts                              |
-| Customer Access Owner portal       | Target design                                           | Add scoped invitations, utilisation views and eligible capacity extensions |
-| Enterprise blanket access          | Partial concept                                         | Add a first-class contract/coverage model                                  |
-| Course administration              | Strong foundation                                       | Add authoring workflow maturity as needed                                  |
-| Learner administration             | Strong foundation                                       | Add richer support tooling over time                                       |
-| Events                             | Authoring, registration and blended-learning foundation | Add open-entry check-in, communications and recovery maturity              |
-| Coordinator workflows              | Region-scoped review, progress and Survey QR operations | Add lifecycle alerts and recovery controls                                 |
-| Presenter workflows                | Session-scoped attendance and Survey QR operations      | Add recovery windows and printable/minimal export                          |
-| Attendance                         | Durable evidence and corrections                        | Add offline/minimal operational export                                     |
-| Authenticated user onboarding      | Accepted target                                         | Add Survey-backed version assignment, privacy-scoped response and gating   |
-| Open-entry guest check-in          | Target design                                           | Guard virtual links and create provisional-user/check-in evidence          |
-| Passwordless prerequisite recovery | Target design                                           | Add SMS/email OTP, task sessions and scoped facilitated Survey fallback    |
-| Staged Event release               | Implemented learner foundation                          | Add notification and open-entry workflow maturity                          |
-| Regional Event selection           | Implemented operational foundation                      | Add assignment alerts and late-invitation UX maturity                      |
-| Automated email/notifications      | Accepted target                                         | Add Email Designer, Section plans, occurrence overrides and delivery       |
-| Reporting/visual analytics         | Basic read boundaries                                   | Add filtered charts/tables; project only when justified                    |
-| Global support/impersonation       | Future possibility                                      | Add carefully with audit safeguards                                        |
-| Operational observability          | Partial                                                 | Treat as a production-hardening priority                                   |
+| Capability                         | Current maturity                                        | Direction                                                                                   |
+| ---------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Public course catalogue            | Strong                                                  | Continue incremental UX/product growth                                                      |
+| Individual course checkout         | Strong                                                  | Preserve transaction and idempotency model                                                  |
+| Learner enrolment/workspace        | Common activity-version foundation                      | Extend the model to Events and attendance                                                   |
+| SCORM delivery                     | Strong                                                  | Preserve isolation and immutable versions                                                   |
+| Surveys                            | Strong foundation                                       | Reuse in courses and target Events                                                          |
+| Resources                          | Strong foundation                                       | Broaden beyond PDF when required                                                            |
+| Certificates                       | On-demand rendering implemented                         | Reuse the common completion-eligibility boundary                                            |
+| Organisation access codes          | Strong encrypted lifecycle                              | Evolve toward explicit entitlements/contracts                                               |
+| Customer Access Owner portal       | Target design                                           | Add scoped invitations, utilisation views and eligible capacity extensions                  |
+| Enterprise blanket access          | Partial concept                                         | Add a first-class contract/coverage model                                                   |
+| Course administration              | Strong foundation                                       | Add authoring workflow maturity as needed                                                   |
+| Learner administration             | Strong foundation                                       | Add richer support tooling over time                                                        |
+| Events                             | Authoring, registration and blended-learning foundation | Add open-entry check-in, communications and recovery maturity                               |
+| Coordinator workflows              | Region-scoped review, progress and Survey QR operations | Add lifecycle alerts and recovery controls                                                  |
+| Presenter workflows                | Session-scoped attendance and Survey QR operations      | Add recovery windows and printable/minimal export                                           |
+| Attendance                         | Durable evidence and corrections                        | Add offline/minimal operational export                                                      |
+| Authenticated user onboarding      | Accepted target                                         | Add Survey-backed version assignment, privacy-scoped response and gating                    |
+| Open-entry guest check-in          | Target design                                           | Guard virtual links and create provisional-user/check-in evidence                           |
+| Passwordless prerequisite recovery | Target design                                           | Add SMS/email OTP, task sessions and scoped facilitated Survey fallback                     |
+| Staged Event release               | Implemented learner foundation                          | Add notification and open-entry workflow maturity                                           |
+| Regional Event selection           | Implemented operational foundation                      | Add assignment alerts and late-invitation UX maturity                                       |
+| Automated email/notifications      | Delivery foundation implemented                         | Add production provider, activation, Email Designer, Section plans and occurrence overrides |
+| Reporting/visual analytics         | Basic read boundaries                                   | Add filtered charts/tables; project only when justified                                     |
+| Global support/impersonation       | Future possibility                                      | Add carefully with audit safeguards                                                         |
+| Operational observability          | Partial                                                 | Treat as a production-hardening priority                                                    |
 
 ## Priority 0/1 --- Production Reliability
 
@@ -502,6 +502,20 @@ than the sum of every lazy admin chunk.
 
 Operating-mode navigation will become important once coordinator and
 presenter experiences are added.
+
+### Long-term user locale preferences
+
+**Future possibility:** add an explicit locale preference to each user account.
+That preference should control presentation only, including date order,
+date/time wording, number formatting and currency display. It must not change
+the stored ISO date/time values, Event Instance IANA timezone, currency code or
+minor-unit monetary amount.
+
+Until user locale preferences exist, administrative date/time entry uses the
+Australian `DD/MM/YYYY HH:mm` display and monetary values use the product's
+current Australian-dollar presentation. Event schedules continue to store a
+timezone-free local ISO date/time together with the selected IANA timezone so
+daylight-saving conversion remains deterministic.
 
 ## Testing Roadmap
 

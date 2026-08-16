@@ -54,6 +54,7 @@ describe("audit event boundary", () => {
       "survey.created",
       "survey.published",
       "survey.version_created",
+      "user.provisional_created",
     ]);
   });
 

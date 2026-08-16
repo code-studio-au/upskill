@@ -115,10 +115,6 @@ function EventSurveyQrPresentationPage() {
           <Text fw={700} size="xl" className={classes.centeredText}>
             Scan to open the event Survey
           </Text>
-          <Text c="dimmed" maw={720} className={classes.centeredText}>
-            Participants sign in and are returned directly to this exact Survey.
-            Registration and release rules still apply.
-          </Text>
         </div>
       </Stack>
     </main>

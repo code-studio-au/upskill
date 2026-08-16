@@ -3,6 +3,7 @@ import { z } from "#/validation/zod.server";
 export const SCORM_INGESTION_TOPIC = "scorm.package_ingest_requested";
 export const SCORM_DELETION_TOPIC = "scorm.package_delete_requested";
 export const RESOURCE_DELETION_TOPIC = "resource.version_delete_requested";
+export const NOTIFICATION_DELIVERY_TOPIC = "notification.delivery_requested";
 
 const packageVersionIdSchema = z
   .string()
@@ -95,6 +96,25 @@ const resourceDeletionWorkMessageSchema = z.object({
   payload: resourceDeletionPayloadSchema,
 });
 
+const notificationDeliveryWorkMessageSchema = z
+  .object({
+    version: z.literal(1),
+    eventId: z.string().min(1).max(200),
+    topic: z.literal(NOTIFICATION_DELIVERY_TOPIC),
+    aggregateId: z.string().min(1).max(200),
+    payload: z.object({
+      notificationId: packageVersionIdSchema,
+    }),
+  })
+  .superRefine((message, context) => {
+    if (message.aggregateId !== message.payload.notificationId)
+      context.addIssue({
+        code: "custom",
+        path: ["aggregateId"],
+        message: "Aggregate must match the notification",
+      });
+  });
+
 const scormWorkMessageSchema = z.discriminatedUnion("topic", [
   scormIngestionWorkMessageSchema,
   scormDeletionWorkMessageSchema,
@@ -106,12 +126,20 @@ const contentWorkMessageSchema = z.discriminatedUnion("topic", [
   resourceDeletionWorkMessageSchema,
 ]);
 
+const workerMessageSchema = z.discriminatedUnion("topic", [
+  scormIngestionWorkMessageSchema,
+  scormDeletionWorkMessageSchema,
+  resourceDeletionWorkMessageSchema,
+  notificationDeliveryWorkMessageSchema,
+]);
+
 export type ScormIngestionWorkMessage = z.infer<
   typeof scormIngestionWorkMessageSchema
 >;
 
 export type ScormWorkMessage = z.infer<typeof scormWorkMessageSchema>;
 export type ContentWorkMessage = z.infer<typeof contentWorkMessageSchema>;
+export type WorkerMessage = z.infer<typeof workerMessageSchema>;
 
 export function parseScormIngestionWorkMessage(
   body: string,
@@ -125,4 +153,8 @@ export function parseScormWorkMessage(body: string): ScormWorkMessage {
 
 export function parseContentWorkMessage(body: string): ContentWorkMessage {
   return contentWorkMessageSchema.parse(JSON.parse(body));
+}
+
+export function parseWorkerMessage(body: string): WorkerMessage {
+  return workerMessageSchema.parse(JSON.parse(body));
 }

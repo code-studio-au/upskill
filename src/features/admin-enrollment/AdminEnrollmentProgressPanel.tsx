@@ -26,10 +26,6 @@ function renderOverview(
                 <Title order={2} id="course-completion-heading">
                   Overall course completion
                 </Title>
-                <Text c="dimmed" size="sm" mt={4}>
-                  Access is {detail.enrollment.accessStatus}; completion is
-                  tracked separately.
-                </Text>
               </div>
               <Badge
                 color={stateColour(detail.enrollment.completionState)}
@@ -82,10 +78,6 @@ function renderOverview(
               <Title order={2} id="section-progress-heading">
                 Section progress
               </Title>
-              <Text c="dimmed" mt={4}>
-                Completion is derived from the required items in this exact
-                published course version.
-              </Text>
             </div>
             <div className={classes.moduleDetailList}>
               {detail.sections.map((section) => (
@@ -158,9 +150,6 @@ function renderModules(
           <Title order={2} id="module-progress-heading">
             Module progress
           </Title>
-          <Text c="dimmed" mt={4}>
-            Corrections never alter the learner&apos;s original SCORM attempts.
-          </Text>
         </div>
         {detail.modules.length > 0 ? (
           <div className={classes.moduleDetailList}>
@@ -236,9 +225,6 @@ function renderCorrections(detail: AdminEnrollmentDetail) {
           <Title order={2} id="override-history-heading">
             Correction history
           </Title>
-          <Text c="dimmed" mt={4}>
-            The latest 50 append-only progress corrections are shown.
-          </Text>
         </div>
         {detail.overrideHistory.length > 0 ? (
           <ol className={classes.auditList}>

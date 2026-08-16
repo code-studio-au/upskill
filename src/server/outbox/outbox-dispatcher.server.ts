@@ -7,7 +7,8 @@ import {
 import { getDatabase } from "#/server/db/database.server";
 import { logAuditEvent } from "#/server/logging/server-logger";
 import {
-  parseContentWorkMessage,
+  NOTIFICATION_DELIVERY_TOPIC,
+  parseWorkerMessage,
   RESOURCE_DELETION_TOPIC,
   SCORM_DELETION_TOPIC,
   SCORM_INGESTION_TOPIC,
@@ -44,6 +45,7 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
         RESOURCE_DELETION_TOPIC,
         SCORM_INGESTION_TOPIC,
         SCORM_DELETION_TOPIC,
+        NOTIFICATION_DELIVERY_TOPIC,
       ])
       .where("processedAt", "is", null)
       .where("availableAt", "<=", new Date())
@@ -92,7 +94,7 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
         .execute();
       return { status: "logged", eventId: projection.eventId };
     }
-    const message = parseContentWorkMessage(
+    const message = parseWorkerMessage(
       JSON.stringify({
         version: 1,
         eventId: claimed.id,
@@ -104,7 +106,9 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
     const subjectId =
       message.topic === RESOURCE_DELETION_TOPIC
         ? message.payload.resourceVersionId
-        : message.payload.packageVersionId;
+        : message.topic === NOTIFICATION_DELIVERY_TOPIC
+          ? message.payload.notificationId
+          : message.payload.packageVersionId;
     if (subjectId !== claimed.aggregateId)
       throw new Error("Outbox aggregate and work subject do not match");
     const messageId = await sendQueueMessage(JSON.stringify(message));

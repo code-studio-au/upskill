@@ -64,6 +64,9 @@ try {
     "learning_item_progress",
     "learning_progress_override",
     "learning_resource_version",
+    "notification",
+    "notification_delivery_attempt",
+    "email_delivery_capture",
     "order",
     "order_item",
     "organization",
@@ -132,6 +135,8 @@ try {
     "event_coordinator_eligibility_active_uq",
     "coordination_region_code_unique_uq",
     "event_survey_access_active_item_uq",
+    "user_email_normalized_uq",
+    "notification_pending_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;

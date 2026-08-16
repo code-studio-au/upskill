@@ -101,10 +101,6 @@ export function AdminAccessGrantForm({
       {issuedCode ? (
         <Alert color="gray" title="Access code created" role="status">
           <Stack gap="sm">
-            <Text>
-              Share this code with the organisation. It remains retrievable from
-              the grant card by platform administrators.
-            </Text>
             <code className={classes.issuedCode}>{issuedCode}</code>
             <Group gap="sm">
               <Button
@@ -143,9 +139,6 @@ export function AdminAccessGrantForm({
         }}
       >
         <Stack gap="md">
-          <Text c="dimmed" size="sm">
-            Learners retain their enrolment if this code is later revoked.
-          </Text>
           <div className={classes.formGrid}>
             <grantForm.Field name="label">
               {(field) => (
@@ -181,7 +174,6 @@ export function AdminAccessGrantForm({
               {(field) => (
                 <MantineTextInput
                   label="Access code"
-                  description="Use a memorable organisation or cohort code. A short unique lookup suffix will be appended when the grant is created."
                   placeholder="EXAMPLE-HEALTH-2027"
                   autoCapitalize="characters"
                   autoComplete="off"
@@ -267,7 +259,6 @@ export function AdminAccessGrantForm({
               <MantineTextInput
                 component="textarea"
                 label="Permitted email domains (optional)"
-                description="Separate domains with commas or new lines. Leave blank to allow any verified learner."
                 placeholder="example.com, staff.example.org"
                 value={field.state.value}
                 onBlur={field.handleBlur}

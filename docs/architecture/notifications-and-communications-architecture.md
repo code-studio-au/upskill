@@ -23,9 +23,12 @@ architecture.
 
 ## Architecture Horizons
 
-- **Current Product:** durable audit/outbox records and SQS work-command
-  delivery exist; no notification domain, provider adapter, templates or
-  scheduled reminder system is implemented.
+- **Current Product:** durable notification intents, deduplication keys,
+  delivery-attempt history, a provider-neutral email boundary and outbox/SQS
+  worker delivery are implemented for provisional accounts created by an Event
+  administrator. Development and test use an idempotent database capture
+  provider. A production email provider, account-activation flow, governed
+  template catalogue and scheduled reminder system are not yet implemented.
 - **Target Product:** committed domain-event subscriptions create idempotent
   notification records, resolve bounded recipients/templates and deliver
   transactional email with observable retry/failure behaviour. A governed Email
@@ -740,14 +743,14 @@ real email.
 
 ### Phase 1 --- Email foundation
 
-- notification table/state model;
-- provider adapter interface;
+- notification table/state model; **foundation implemented**
+- provider adapter interface; **implemented with local/test capture adapter**
 - Email Designer with Offering/System catalogues, immutable publication,
   contract validation, preview and rollback;
 - seeded safe System Email defaults and dedicated Platform Administrator
   capability;
-- idempotent immediate delivery worker;
-- delivery attempt/status recording;
+- idempotent immediate delivery worker; **implemented for account-setup intent**
+- delivery attempt/status recording; **implemented**
 - exact version/render-snapshot history with privacy-scoped access;
 - metrics and failure visibility.
 

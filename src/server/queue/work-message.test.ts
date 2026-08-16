@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   parseContentWorkMessage,
+  parseWorkerMessage,
+  NOTIFICATION_DELIVERY_TOPIC,
   parseScormWorkMessage,
   RESOURCE_DELETION_TOPIC,
   SCORM_DELETION_TOPIC,
@@ -120,6 +122,25 @@ describe("SCORM ingestion work messages", () => {
           aggregateId: resourceVersionId,
           payload: { resourceVersionId, objectKey: "resources/other/file.pdf" },
         }),
+      ),
+    ).toThrow();
+  });
+
+  it("parses notification delivery and binds it to its aggregate", () => {
+    const body = JSON.stringify({
+      version: 1,
+      eventId: "outbox_notification_1",
+      topic: NOTIFICATION_DELIVERY_TOPIC,
+      aggregateId: "notification_1",
+      payload: { notificationId: "notification_1" },
+    });
+    expect(parseWorkerMessage(body)).toMatchObject({
+      topic: NOTIFICATION_DELIVERY_TOPIC,
+      payload: { notificationId: "notification_1" },
+    });
+    expect(() =>
+      parseWorkerMessage(
+        body.replace('"notification_1"}', '"notification_2"}'),
       ),
     ).toThrow();
   });

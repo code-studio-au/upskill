@@ -64,11 +64,6 @@ function EventTemplatesPage() {
             Events
           </Text>
           <Title order={1}>Event templates</Title>
-          <Text c="dimmed" mt="xs" maw={760}>
-            Design reusable event structures, activities and staffing defaults.
-            Published versions remain stable for every scheduled event created
-            from them.
-          </Text>
         </div>
         <Button loading={creating} onClick={() => void startTemplate()}>
           Create template

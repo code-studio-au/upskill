@@ -2,11 +2,11 @@ import { destroyDatabase } from "#/server/db/database.server";
 import { dispatchNextOutboxEvent } from "#/server/outbox/outbox-dispatcher.server";
 import { destroyQueueClient } from "#/server/queue/sqs.server";
 import { logServerEvent } from "#/server/logging/server-logger";
-import { consumeNextScormMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
+import { consumeNextWorkMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
 
 try {
   const dispatch = await dispatchNextOutboxEvent();
-  const consumption = await consumeNextScormMessage();
+  const consumption = await consumeNextWorkMessage();
   logServerEvent({
     level:
       dispatch.status === "retry" || consumption.status === "retry"

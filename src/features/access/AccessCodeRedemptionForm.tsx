@@ -1,4 +1,4 @@
-import { Alert, Button, Stack, Text } from "#/features/shared/mantine";
+import { Alert, Button, Stack } from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { useState, useSyncExternalStore } from "react";
@@ -78,10 +78,6 @@ export function AccessCodeRedemptionForm() {
 
   return (
     <Stack gap="md">
-      <Text c="dimmed">
-        Enter the code supplied by your organisation to add the course to your
-        learning area.
-      </Text>
       {message ? (
         <Alert color={message.color} title={message.title} role="status">
           {message.body}
