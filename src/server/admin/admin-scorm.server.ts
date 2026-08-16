@@ -10,6 +10,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import { findContentCourseVersionUsage } from "#/server/admin/content-usage.server";
 import {
+  parseScormWorkMessage,
   SCORM_DELETION_TOPIC,
   SCORM_INGESTION_TOPIC,
 } from "#/server/queue/work-message";
@@ -137,6 +138,22 @@ export async function removeAdminScormPackageVersion(
           },
         };
 
+      const outboxId = `outbox_${randomUUID()}`;
+      const deletionPayload = {
+        packageVersionId,
+        quarantinePrefix: `scorm/${packageVersionId}/`,
+        contentPrefix: `${version.contentPrefix}/`,
+      };
+      parseScormWorkMessage(
+        JSON.stringify({
+          version: 1,
+          eventId: outboxId,
+          topic: SCORM_DELETION_TOPIC,
+          aggregateId: packageVersionId,
+          payload: deletionPayload,
+        }),
+      );
+
       await transaction
         .deleteFrom("outbox_event")
         .where("topic", "=", SCORM_INGESTION_TOPIC)
@@ -175,14 +192,10 @@ export async function removeAdminScormPackageVersion(
       await transaction
         .insertInto("outbox_event")
         .values({
-          id: `outbox_${randomUUID()}`,
+          id: outboxId,
           topic: SCORM_DELETION_TOPIC,
           aggregateId: packageVersionId,
-          payload: {
-            packageVersionId,
-            quarantinePrefix: `scorm/${packageVersionId}/`,
-            contentPrefix: `${version.contentPrefix}/`,
-          },
+          payload: deletionPayload,
           availableAt: now,
           processedAt: null,
           createdAt: now,

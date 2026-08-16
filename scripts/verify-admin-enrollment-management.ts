@@ -230,6 +230,16 @@ try {
   assert.equal(removed.status, "cancelled");
   assert.equal(removed.completedAt?.toISOString(), completedAt.toISOString());
   assert.ok(removed.removedAt);
+  const { findAdminEnrollmentDetail } =
+    await import("#/server/admin/admin-learner.server");
+  const removedDetail = await findAdminEnrollmentDetail(
+    learner.id,
+    enrollmentId,
+  );
+  assert.ok(removedDetail);
+  assert.equal(removedDetail.enrollment.accessStatus, "cancelled");
+  assert.equal(removedDetail.enrollment.completionState, "completed");
+  assert.equal(removedDetail.enrollment.completedAt, completedAt.toISOString());
 
   assert.deepEqual(
     await addAdminCourseEnrollment(

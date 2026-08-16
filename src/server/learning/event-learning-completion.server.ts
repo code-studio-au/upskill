@@ -15,10 +15,25 @@ export async function completeEventParticipationIfReady(
       "occurrence.id",
       "participation.eventOccurrenceId",
     )
-    .select(["participation.completedAt", "occurrence.eventTemplateVersionId"])
+    .leftJoin(
+      "event_registration as registration",
+      "registration.id",
+      "participation.registrationId",
+    )
+    .select([
+      "participation.completedAt",
+      "participation.mode",
+      "registration.status as registrationStatus",
+      "occurrence.eventTemplateVersionId",
+    ])
     .where("participation.id", "=", eventParticipationId)
     .executeTakeFirst();
   if (!participation) return false;
+  if (
+    participation.mode === "registered" &&
+    participation.registrationStatus !== "selected"
+  )
+    return false;
   const [sections, items, progress, attendance] = await Promise.all([
     transaction
       .selectFrom("event_template_version_section")

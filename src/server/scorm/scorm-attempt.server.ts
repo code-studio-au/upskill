@@ -51,6 +51,8 @@ function attemptContextAvailable(context: {
   removedAt: Date | null;
   eventParticipationId: string | null;
   occurrenceStatus: string | null;
+  participationMode: string | null;
+  registrationStatus: string | null;
 }): boolean {
   if (context.enrollmentId)
     return (
@@ -64,7 +66,9 @@ function attemptContextAvailable(context: {
   return Boolean(
     context.eventParticipationId &&
     context.occurrenceStatus &&
-    !["cancelled", "archived"].includes(context.occurrenceStatus),
+    !["cancelled", "archived"].includes(context.occurrenceStatus) &&
+    (context.participationMode === "open_entry" ||
+      context.registrationStatus === "selected"),
   );
 }
 
@@ -239,6 +243,11 @@ export async function createEventScormLaunch(
           "occurrence.id",
           "participation.eventOccurrenceId",
         )
+        .leftJoin(
+          "event_registration as registration",
+          "registration.id",
+          "participation.registrationId",
+        )
         .innerJoin("event_template_version_item as item", (join) =>
           join.onRef(
             "item.eventTemplateVersionId",
@@ -274,6 +283,12 @@ export async function createEventScormLaunch(
         ])
         .where("participation.id", "=", eventParticipationId)
         .where("participation.userId", "=", user.id)
+        .where((expression) =>
+          expression.or([
+            expression("participation.mode", "=", "open_entry"),
+            expression("registration.status", "=", "selected"),
+          ]),
+        )
         .where("item.id", "=", eventTemplateVersionItemId)
         .where("item.kind", "=", "scorm")
         .forUpdate("participation")
@@ -438,6 +453,8 @@ export async function exchangeScormLaunchToken(
           "context.removedAt",
           "context.eventParticipationId",
           "context.occurrenceStatus",
+          "context.participationMode",
+          "context.registrationStatus",
         ])
         .where("scorm_launch_token.digest", "=", digestScormToken(token))
         .forUpdate("scorm_launch_token")
@@ -505,6 +522,8 @@ function sessionIsAvailable(session: {
   removedAt: Date | null;
   eventParticipationId: string | null;
   occurrenceStatus: string | null;
+  participationMode: string | null;
+  registrationStatus: string | null;
 }): boolean {
   return (
     !session.revokedAt &&
@@ -562,6 +581,8 @@ export async function findAuthorizedScormPlayer(
       "context.removedAt",
       "context.eventParticipationId",
       "context.occurrenceStatus",
+      "context.participationMode",
+      "context.registrationStatus",
       "scorm_attempt.id as attemptId",
       "scorm_attempt.lessonStatus",
       "scorm_attempt.location",
@@ -628,6 +649,8 @@ export async function authorizeScormAttemptSession(
       "context.removedAt",
       "context.eventParticipationId",
       "context.occurrenceStatus",
+      "context.participationMode",
+      "context.registrationStatus",
     ])
     .where("scorm_attempt_session.digest", "=", digestScormToken(sessionToken))
     .where("scorm_attempt_session.attemptId", "=", attemptId)
@@ -667,6 +690,8 @@ export async function recordScormProgress(
           "context.enrollmentExpiresAt",
           "context.removedAt",
           "context.occurrenceStatus",
+          "context.participationMode",
+          "context.registrationStatus",
         ])
         .where(
           "scorm_attempt_session.digest",

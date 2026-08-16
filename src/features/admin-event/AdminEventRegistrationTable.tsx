@@ -9,7 +9,6 @@ import type {
   EventRegistrationStatus,
 } from "./admin-event-operations.schema";
 import classes from "./AdminEventRegistrationTable.module.css";
-import { Badge } from "#/features/shared/Badge";
 import { CompactActionSelect } from "#/features/shared/CompactActionSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
@@ -85,17 +84,6 @@ export function AdminEventRegistrationTable({
           (registration) => registration.regionName ?? "Direct / unregional",
           { id: "region", header: "Region" },
         ),
-        registrationColumn.accessor("status", {
-          header: "Status",
-          cell: ({ row }) => (
-            <Badge
-              variant="light"
-              color={row.original.status === "selected" ? "green" : "blue"}
-            >
-              {statusLabels[row.original.status]}
-            </Badge>
-          ),
-        }),
         registrationColumn.display({
           id: "priority",
           header: "Priority",
@@ -137,10 +125,7 @@ export function AdminEventRegistrationTable({
                 label="Review"
                 ariaLabel={`Coordinator review for ${registration.name}`}
                 disabled={disabled}
-                loading={
-                  processingId === `approve-${registration.id}` ||
-                  processingId === `decline-${registration.id}`
-                }
+                loading={Boolean(processingId?.endsWith(registration.id))}
                 items={[
                   { value: "coordinator_approved", label: "Approve" },
                   {
@@ -176,20 +161,26 @@ export function AdminEventRegistrationTable({
           header: "Final decision",
           cell: ({ row }) => {
             const registration = row.original;
-            if (!mutationsAvailable) return null;
+            const pendingDecision =
+              (registration.status === "submitted" &&
+                !registration.reviewRoundId) ||
+              (registration.status === "coordinator_approved" &&
+                Boolean(registration.reviewRoundId) &&
+                registration.reviewLocked);
+            const canDecide =
+              mutationsAvailable &&
+              !registration.finalDecisionLocked &&
+              (pendingDecision || Boolean(registration.finalDecidedAt));
+            if (!canDecide)
+              return registration.finalDecidedAt ||
+                registration.status === "coordinator_declined"
+                ? statusLabels[registration.status]
+                : "Pending";
             return (
               <CompactActionSelect
-                label="Decide"
+                label={registration.finalDecidedAt ? "Change" : "Decide"}
                 ariaLabel={`Final decision for ${registration.name}`}
-                loading={[
-                  "selected",
-                  "waitlisted",
-                  "not_selected",
-                  "cancelled",
-                ].some(
-                  (decision) =>
-                    processingId === `${decision}-${registration.id}`,
-                )}
+                loading={Boolean(processingId?.endsWith(registration.id))}
                 items={[
                   { value: "selected", label: "Confirm place" },
                   { value: "waitlisted", label: "Move to waitlist" },

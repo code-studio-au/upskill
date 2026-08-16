@@ -60,6 +60,7 @@ export async function getLearnerPdfResource(
             ]),
           )
           .where("course_version_item.kind", "=", "resource")
+          .where("course_version_item.id", "=", input.courseVersionItemId)
           .where("learning_resource_version.id", "=", input.resourceVersionId)
           .executeTakeFirst()
       : await database
@@ -86,6 +87,11 @@ export async function getLearnerPdfResource(
             "resource.id",
             "item.learningActivityVersionId",
           )
+          .leftJoin(
+            "event_registration as registration",
+            "registration.id",
+            "participation.registrationId",
+          )
           .select([
             "item.id as itemId",
             "participation.createdAt as participationCreatedAt",
@@ -103,6 +109,12 @@ export async function getLearnerPdfResource(
           ])
           .where("participation.id", "=", input.eventParticipationId)
           .where("participation.userId", "=", user.id)
+          .where((expression) =>
+            expression.or([
+              expression("participation.mode", "=", "open_entry"),
+              expression("registration.status", "=", "selected"),
+            ]),
+          )
           .where("item.id", "=", input.eventTemplateVersionItemId)
           .where("item.kind", "=", "resource")
           .where("resource.id", "=", input.resourceVersionId)
@@ -148,62 +160,110 @@ export async function getLearnerPdfResource(
     return { status: "unavailable" };
   }
 
-  await database.transaction().execute(async (transaction) => {
-    if ("enrollmentId" in input && "courseVersionId" in resource) {
-      await transaction
-        .insertInto("learning_item_progress")
-        .values({
-          id: `learning_progress_${randomUUID()}`,
-          enrollmentId: input.enrollmentId,
-          courseVersionItemId: resource.itemId,
-          eventParticipationId: null,
-          eventTemplateVersionItemId: null,
-          state: "completed",
-          completedAt: now,
-          updatedAt: now,
-        })
-        .onConflict((conflict) =>
-          conflict
-            .columns(["enrollmentId", "courseVersionItemId"])
-            .where("enrollmentId", "is not", null)
-            .doUpdateSet({ state: "completed", updatedAt: now }),
-        )
-        .execute();
-      await completeEnrollmentIfReady(
-        transaction,
-        {
-          enrollmentId: input.enrollmentId,
-          courseVersionId: resource.courseVersionId,
-          source: "resource",
-        },
-        now,
-      );
-    } else if (!("enrollmentId" in input)) {
-      await transaction
-        .insertInto("learning_item_progress")
-        .values({
-          id: `learning_progress_${randomUUID()}`,
-          enrollmentId: null,
-          courseVersionItemId: null,
-          eventParticipationId: input.eventParticipationId,
-          eventTemplateVersionItemId: input.eventTemplateVersionItemId,
-          state: "completed",
-          completedAt: now,
-          updatedAt: now,
-        })
-        .onConflict((conflict) =>
-          conflict
-            .columns(["eventParticipationId", "eventTemplateVersionItemId"])
-            .where("eventParticipationId", "is not", null)
-            .doUpdateSet({ state: "completed", updatedAt: now }),
-        )
-        .execute();
-      await completeEventParticipationIfReady(
-        transaction,
-        input.eventParticipationId,
-        now,
-      );
-    }
-  });
+  const progressRecorded = await database
+    .transaction()
+    .execute(async (transaction) => {
+      if ("enrollmentId" in input && "courseVersionId" in resource) {
+        const enrollment = await transaction
+          .selectFrom("enrollment")
+          .select("id")
+          .where("id", "=", input.enrollmentId)
+          .where("userId", "=", user.id)
+          .where("courseVersionId", "=", resource.courseVersionId)
+          .where("removedAt", "is", null)
+          .where("status", "in", ["active", "completed"])
+          .where((expression) =>
+            expression.or([
+              expression("expiresAt", "is", null),
+              expression("expiresAt", ">", now),
+            ]),
+          )
+          .forUpdate()
+          .executeTakeFirst();
+        if (!enrollment) return false;
+        await transaction
+          .insertInto("learning_item_progress")
+          .values({
+            id: `learning_progress_${randomUUID()}`,
+            enrollmentId: input.enrollmentId,
+            courseVersionItemId: resource.itemId,
+            eventParticipationId: null,
+            eventTemplateVersionItemId: null,
+            state: "completed",
+            completedAt: now,
+            updatedAt: now,
+          })
+          .onConflict((conflict) =>
+            conflict
+              .columns(["enrollmentId", "courseVersionItemId"])
+              .where("enrollmentId", "is not", null)
+              .doUpdateSet({ state: "completed", updatedAt: now }),
+          )
+          .execute();
+        await completeEnrollmentIfReady(
+          transaction,
+          {
+            enrollmentId: input.enrollmentId,
+            courseVersionId: resource.courseVersionId,
+            source: "resource",
+          },
+          now,
+        );
+        return true;
+      } else if (!("enrollmentId" in input)) {
+        const participation = await transaction
+          .selectFrom("event_participation as participation")
+          .innerJoin(
+            "event_occurrence as occurrence",
+            "occurrence.id",
+            "participation.eventOccurrenceId",
+          )
+          .leftJoin(
+            "event_registration as registration",
+            "registration.id",
+            "participation.registrationId",
+          )
+          .select("participation.id")
+          .where("participation.id", "=", input.eventParticipationId)
+          .where("participation.userId", "=", user.id)
+          .where("occurrence.status", "not in", ["cancelled", "archived"])
+          .where((expression) =>
+            expression.or([
+              expression("participation.mode", "=", "open_entry"),
+              expression("registration.status", "=", "selected"),
+            ]),
+          )
+          .forUpdate("participation")
+          .executeTakeFirst();
+        if (!participation) return false;
+        await transaction
+          .insertInto("learning_item_progress")
+          .values({
+            id: `learning_progress_${randomUUID()}`,
+            enrollmentId: null,
+            courseVersionItemId: null,
+            eventParticipationId: input.eventParticipationId,
+            eventTemplateVersionItemId: input.eventTemplateVersionItemId,
+            state: "completed",
+            completedAt: now,
+            updatedAt: now,
+          })
+          .onConflict((conflict) =>
+            conflict
+              .columns(["eventParticipationId", "eventTemplateVersionItemId"])
+              .where("eventParticipationId", "is not", null)
+              .doUpdateSet({ state: "completed", updatedAt: now }),
+          )
+          .execute();
+        await completeEventParticipationIfReady(
+          transaction,
+          input.eventParticipationId,
+          now,
+        );
+        return true;
+      }
+      return false;
+    });
+  if (!progressRecorded) return { status: "not-found" };
   return { status: "ready", bytes, displayName: resource.displayName };
 }

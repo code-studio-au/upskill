@@ -40,6 +40,7 @@ export async function findLearnerEventWorkspace(
     )
     .select([
       "participation.id as participationId",
+      "participation.mode",
       "participation.createdAt as participationCreatedAt",
       "participation.completedAt",
       "registration.status as registrationStatus",
@@ -67,6 +68,11 @@ export async function findLearnerEventWorkspace(
     participation.registrationStatus === "cancelled"
   )
     return { status: "cancelled", title: participation.title };
+  if (
+    participation.mode === "registered" &&
+    participation.registrationStatus !== "selected"
+  )
+    return { status: "not-found" };
 
   const [sections, items, sessions, attendance, progress] = await Promise.all([
     database

@@ -274,6 +274,26 @@ try {
   assert.ok(removedStorage);
   const { removeAdminScormPackageVersion } =
     await import("#/server/admin/admin-scorm.server");
+  await database
+    .updateTable("scorm_package_version")
+    .set({ contentPrefix: `legacy/${removed.packageVersionId}` })
+    .where("id", "=", removed.packageVersionId)
+    .executeTakeFirstOrThrow();
+  await assert.rejects(
+    removeAdminScormPackageVersion(removed.packageVersionId, administrator.id),
+  );
+  assert.ok(
+    await database
+      .selectFrom("scorm_package_version")
+      .select("id")
+      .where("id", "=", removed.packageVersionId)
+      .executeTakeFirst(),
+  );
+  await database
+    .updateTable("scorm_package_version")
+    .set({ contentPrefix: removedStorage.contentPrefix })
+    .where("id", "=", removed.packageVersionId)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await removeAdminScormPackageVersion(
       removed.packageVersionId,

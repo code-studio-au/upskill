@@ -173,7 +173,7 @@ function CourseItemAction({
     return (
       <Button
         component="a"
-        href={`/api/learning/resources/${encodeURIComponent(item.resourceVersionId)}?enrollmentId=${encodeURIComponent(enrollmentId)}`}
+        href={`/api/learning/resources/${encodeURIComponent(item.resourceVersionId)}?enrollmentId=${encodeURIComponent(enrollmentId)}&courseVersionItemId=${encodeURIComponent(item.id)}`}
         target="_blank"
         rel="noreferrer"
         variant="light"

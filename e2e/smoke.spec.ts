@@ -1483,6 +1483,21 @@ test("platform administrators can inspect learner progress", async ({
         administratorUser.email,
       ],
     );
+    await authoringDatabase.query(
+      `insert into event_registration
+        (id, "eventOccurrenceId", "userId", "eventOccurrenceRegionId", "reviewRoundId",
+          "nameSnapshot", "emailSnapshot", source, "eligibilitySource", status,
+          "coordinatorDecidedAt", "coordinatorDecidedByUserId")
+       values ('e2e_event_declined_registration', $1, $2, $3, null, $4, $5,
+          'ordinary', 'unrestricted', 'coordinator_declined', now(), $2)`,
+      [
+        occurrenceId,
+        eventPresenter.id,
+        eventOccurrenceRegionId,
+        eventPresenter.name,
+        eventPresenter.email,
+      ],
+    );
     const occurrenceSession = await authoringDatabase.query<{ id: string }>(
       `select id from event_session where "eventOccurrenceId" = $1 order by position limit 1`,
       [occurrenceId],
@@ -1496,6 +1511,24 @@ test("platform administrators can inspect learner progress", async ({
        values ($1, $2, 'attended', 'administrator', $3, now(), now())`,
       [participationId, occurrenceSessionId, administratorUser.id],
     );
+    await page.goto(
+      `/admin/events/instances/${occurrenceId}?view=registrations`,
+    );
+    const finalisedRegistrationRow = page.getByRole("row").filter({
+      hasText: administratorUser.email,
+    });
+    await expect(finalisedRegistrationRow).toBeVisible();
+    await expect(
+      finalisedRegistrationRow.getByLabel(
+        `Final decision for ${administratorUser.name}`,
+      ),
+    ).toHaveCount(0);
+    await expect(finalisedRegistrationRow).toContainText("Confirmed");
+    const declinedRegistrationRow = page.getByRole("row").filter({
+      hasText: eventPresenter.email,
+    });
+    await expect(declinedRegistrationRow).toContainText("Not approved");
+    await expect(declinedRegistrationRow).not.toContainText("Pending");
     await page.goto("/my-events");
     const learnerEvent = page.getByRole("heading", {
       name: eventOccurrenceTitle,

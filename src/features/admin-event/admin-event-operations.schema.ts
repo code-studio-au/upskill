@@ -118,6 +118,7 @@ export interface AdminEventOccurrenceOperations {
     submittedAt: string;
     coordinatorDecidedAt: string | null;
     finalDecidedAt: string | null;
+    finalDecisionLocked: boolean;
   }>;
   regions: Array<{
     id: string;
@@ -195,6 +196,7 @@ export type AdminEventOperationsMutationResult =
       status: "conflict";
       reason:
         | "invalid_transition"
+        | "final_decision_locked"
         | "region_locked"
         | "capacity_full"
         | "registration_unavailable"

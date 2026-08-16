@@ -244,7 +244,12 @@ export async function findAdminEventOccurrenceOperations(
       .execute(),
     database
       .selectFrom("event_participation")
-      .select(["id", "nameSnapshot as name", "emailSnapshot as email"])
+      .select([
+        "id",
+        "registrationId",
+        "nameSnapshot as name",
+        "emailSnapshot as email",
+      ])
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .execute(),
     database
@@ -341,6 +346,17 @@ export async function findAdminEventOccurrenceOperations(
   const selected = registrationRows.filter(
     (row) => row.status === "selected",
   ).length;
+  const participationByRegistration = new Map<string, string>();
+  for (const participation of participationRows)
+    if (participation.registrationId)
+      participationByRegistration.set(
+        participation.registrationId,
+        participation.id,
+      );
+  const participationWithAttendance = new Set<string>();
+  for (const attendance of attendanceRows)
+    if (attendance.state !== "not_recorded")
+      participationWithAttendance.add(attendance.eventParticipationId);
   return {
     occurrence: {
       ...occurrence,
@@ -377,6 +393,9 @@ export async function findAdminEventOccurrenceOperations(
       submittedAt: row.submittedAt.toISOString(),
       coordinatorDecidedAt: row.coordinatorDecidedAt?.toISOString() ?? null,
       finalDecidedAt: row.finalDecidedAt?.toISOString() ?? null,
+      finalDecisionLocked: participationWithAttendance.has(
+        participationByRegistration.get(row.id) ?? "",
+      ),
     })),
     regions: regionRows.map((region) => {
       const review = reviewsByRegion.get(region.id);
@@ -466,6 +485,13 @@ export async function recordAdminEventAttendance(
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", input.eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!occurrence) return "not-found" as const;
       const valid = await transaction
         .selectFrom("event_participation as participation")
         .innerJoin(
@@ -473,10 +499,21 @@ export async function recordAdminEventAttendance(
           "session.eventOccurrenceId",
           "participation.eventOccurrenceId",
         )
+        .leftJoin(
+          "event_registration as registration",
+          "registration.id",
+          "participation.registrationId",
+        )
         .select(["participation.id"])
         .where("participation.id", "=", input.eventParticipationId)
         .where("session.id", "=", input.eventSessionId)
         .where("participation.eventOccurrenceId", "=", input.eventOccurrenceId)
+        .where((expression) =>
+          expression.or([
+            expression("participation.mode", "=", "open_entry"),
+            expression("registration.status", "=", "selected"),
+          ]),
+        )
         .executeTakeFirst();
       if (!valid) return "not-found" as const;
       const now = new Date();
@@ -672,6 +709,18 @@ export async function decideAdminEventFinalRegistration(
       if (!occurrence || !registration) return "not-found" as const;
       if (occurrence.status !== "published")
         return "invalid-transition" as const;
+      const attendance = await transaction
+        .selectFrom("event_participation as participation")
+        .innerJoin(
+          "event_attendance as attendance",
+          "attendance.eventParticipationId",
+          "participation.id",
+        )
+        .select("attendance.state")
+        .where("participation.registrationId", "=", registration.id)
+        .where("attendance.state", "!=", "not_recorded")
+        .executeTakeFirst();
+      if (attendance) return "final-decision-locked" as const;
       const wasSelected = registration.status === "selected";
       if (decision === "selected" && !wasSelected) {
         const eligible = registration.reviewRoundId

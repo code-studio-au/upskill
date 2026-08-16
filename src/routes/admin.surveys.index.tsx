@@ -49,10 +49,8 @@ function AdminSurveysPage() {
     defaultValues: { title: "" },
     validators: { onSubmit: adminSurveyCreateSchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminSurveyCreateSchema.safeParse(value);
-      if (!parsed.success) return;
       setError(null);
-      const created = await createAdminSurvey({ data: parsed.data });
+      const created = await createAdminSurvey({ data: value });
       if (created.status !== "ready") {
         setError("The survey could not be created.");
         return;

@@ -54,11 +54,9 @@ export function AccessCodeRedemptionForm() {
     defaultValues: { code: "" },
     validators: { onSubmit: accessCodeInputSchema },
     onSubmit: async ({ value }) => {
-      const validation = accessCodeInputSchema.safeParse(value);
-      if (!validation.success) return;
       setMessage(null);
       try {
-        const result = await redeemLearnerAccessCode({ data: validation.data });
+        const result = await redeemLearnerAccessCode({ data: value });
         if (result.status === "unauthenticated") {
           window.location.assign("/login?redirect=%2Fdashboard");
           return;

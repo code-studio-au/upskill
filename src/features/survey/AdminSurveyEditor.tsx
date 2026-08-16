@@ -13,6 +13,7 @@ import { useRef, useState } from "react";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
 import { PageTabs } from "#/features/shared/PageTabs";
+import { CourseVersionUsageList } from "#/features/admin-course/CourseVersionUsageList";
 import { SurveySectionsEditor } from "./SurveySectionsEditor";
 import {
   adminSurveyDraftSchema,
@@ -43,14 +44,9 @@ export function AdminSurveyEditor({
     defaultValues: detail.draft,
     validators: { onSubmit: adminSurveyDraftSchema },
     onSubmit: async ({ value }) => {
-      const parsed = adminSurveyDraftSchema.safeParse(value);
-      if (!parsed.success) {
-        setError(parsed.error.issues[0]?.message ?? "Review the survey.");
-        return;
-      }
       setMessage(null);
       setError(null);
-      const result = await saveAdminSurvey({ data: parsed.data });
+      const result = await saveAdminSurvey({ data: value });
       if (result.status !== "ready") {
         setError("The survey draft could not be saved.");
         return;
@@ -167,15 +163,7 @@ export function AdminSurveyEditor({
         value={editorView}
         tabs={[
           { value: "details", label: "Details" },
-          {
-            value: "questions",
-            label: `Questions (${String(
-              sections.reduce(
-                (total, section) => total + section.items.length,
-                0,
-              ),
-            )})`,
-          },
+          { value: "questions", label: "Questions" },
         ]}
         onChange={setEditorView}
       />
@@ -216,6 +204,14 @@ export function AdminSurveyEditor({
                 />
               )}
             </surveyForm.Field>
+            {detail.version.courseUsages.length ? (
+              <Stack gap="xs">
+                <Title order={3} size="h4">
+                  Used by course versions
+                </Title>
+                <CourseVersionUsageList usages={detail.version.courseUsages} />
+              </Stack>
+            ) : null}
           </Stack>
         </Paper>
       ) : null}
