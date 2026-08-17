@@ -14,10 +14,16 @@ const boundedText = (maximum: number) =>
 const optionalText = (maximum: number) =>
   z.string().check(z.trim(), z.maxLength(maximum));
 
+export const REGION_GROUP_OPTION_SOURCE = "coordination_region_groups" as const;
+export const OPERATIONAL_REGION_OPTION_SOURCE =
+  "coordination_operational_regions" as const;
+
 const surveyOptionSchema = z.object({
   id: identifierSchema,
   label: boundedText(240),
   externalValue: z.optional(optionalText(240)),
+  parentExternalValue: z.optional(optionalText(240)),
+  nextSectionId: z.optional(identifierSchema),
 });
 
 const questionBase = {
@@ -30,6 +36,15 @@ const optionQuestionBase = {
   ...questionBase,
   options: z.array(surveyOptionSchema).check(z.minLength(2), z.maxLength(500)),
 };
+
+const dropdownQuestionSchema = z.object({
+  ...questionBase,
+  kind: z.literal("dropdown"),
+  optionSource: z.optional(
+    z.enum([REGION_GROUP_OPTION_SOURCE, OPERATIONAL_REGION_OPTION_SOURCE]),
+  ),
+  options: z.array(surveyOptionSchema).check(z.maxLength(500)),
+});
 
 export function isCalendarDate(value: string): boolean {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/u.exec(value);
@@ -60,10 +75,7 @@ const surveyQuestionSchema = z.discriminatedUnion("kind", [
     ...optionQuestionBase,
     kind: z.literal("multiple_choice"),
   }),
-  z.object({
-    ...optionQuestionBase,
-    kind: z.literal("dropdown"),
-  }),
+  dropdownQuestionSchema,
   z.object({
     ...questionBase,
     kind: z.literal("short_text"),
@@ -168,6 +180,9 @@ export const surveyVersionContentSchema = z
   })
   .check(
     z.superRefine((content, context) => {
+      const sectionIndexes = new Map(
+        content.sections.map((section, index) => [section.id, index] as const),
+      );
       const sectionIdentifiers = new Set<string>();
       const itemIdentifiers = new Set<string>();
       let itemCount = 0;
@@ -209,6 +224,16 @@ export const surveyVersionContentSchema = z
             continue;
           }
           const optionIdentifiers = new Set<string>();
+          if (
+            item.kind === "dropdown" &&
+            item.optionSource === undefined &&
+            item.options.length < 2
+          )
+            context.addIssue({
+              code: "custom",
+              path: ["sections", sectionIndex, "items", itemIndex, "options"],
+              message: "A dropdown question needs at least two options",
+            });
           const labels = new Set<string>();
           const externalValues = new Set<string>();
           for (const [optionIndex, option] of item.options.entries()) {
@@ -227,6 +252,28 @@ export const surveyVersionContentSchema = z
                 message: "Option identifiers must be unique",
               });
             optionIdentifiers.add(option.id);
+            if (option.nextSectionId) {
+              const targetIndex = sectionIndexes.get(option.nextSectionId);
+              if (
+                item.kind === "multiple_choice" ||
+                targetIndex === undefined ||
+                targetIndex <= sectionIndex
+              )
+                context.addIssue({
+                  code: "custom",
+                  path: [
+                    "sections",
+                    sectionIndex,
+                    "items",
+                    itemIndex,
+                    "options",
+                    optionIndex,
+                    "nextSectionId",
+                  ],
+                  message:
+                    "Conditional logic must continue at a later survey section",
+                });
+            }
             const normalized = option.label.toLocaleLowerCase("en-AU");
             if (labels.has(normalized))
               context.addIssue({
@@ -375,6 +422,7 @@ export const learnerSurveyStepSchema = z.object({
 });
 
 export type SurveyQuestion = z.infer<typeof surveyQuestionSchema>;
+export type SurveyOption = z.infer<typeof surveyOptionSchema>;
 export type SurveyItem = z.infer<typeof surveyItemSchema>;
 export type SurveySection = z.infer<typeof surveySectionSchema>;
 export type SurveyVersionContent = z.infer<typeof surveyVersionContentSchema>;
@@ -414,7 +462,54 @@ export interface AdminSurveyDetail {
     version: number;
     publishedAt: string | null;
   }>;
+  regionGroupOptions: Array<SurveyOption>;
+  operationalRegionOptions: Array<SurveyOption>;
   draft: AdminSurveyDraft;
+}
+
+export function isRegionGroupQuestion(item: SurveyItem): item is Extract<
+  SurveyQuestion,
+  { kind: "dropdown" }
+> & {
+  optionSource: typeof REGION_GROUP_OPTION_SOURCE;
+} {
+  return (
+    item.kind === "dropdown" && item.optionSource === REGION_GROUP_OPTION_SOURCE
+  );
+}
+
+export function isOperationalRegionQuestion(item: SurveyItem): item is Extract<
+  SurveyQuestion,
+  { kind: "dropdown" }
+> & {
+  optionSource: typeof OPERATIONAL_REGION_OPTION_SOURCE;
+} {
+  return (
+    item.kind === "dropdown" &&
+    item.optionSource === OPERATIONAL_REGION_OPTION_SOURCE
+  );
+}
+
+export function applyRegionDirectoryOptions(
+  content: SurveyVersionContent,
+  options: {
+    regionGroups: Array<SurveyOption>;
+    operationalRegions: Array<SurveyOption>;
+  },
+): SurveyVersionContent {
+  return {
+    ...content,
+    sections: content.sections.map((section) => ({
+      ...section,
+      items: section.items.map((item) =>
+        isRegionGroupQuestion(item)
+          ? { ...item, options: options.regionGroups }
+          : isOperationalRegionQuestion(item)
+            ? { ...item, options: options.operationalRegions }
+            : item,
+      ),
+    })),
+  };
 }
 
 export type AdminSurveyResult<T> =

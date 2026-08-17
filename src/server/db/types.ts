@@ -651,6 +651,8 @@ interface EventRegistrationTransitionTable {
   eventRegistrationId: string;
   fromStatus: EventRegistrationTable["status"] | null;
   toStatus: EventRegistrationTable["status"];
+  fromEventOccurrenceRegionId: Generated<string | null>;
+  toEventOccurrenceRegionId: Generated<string | null>;
   source:
     "learner" | "automatic" | "coordinator" | "administrator" | "deadline";
   actorUserId: string | null;
@@ -823,6 +825,7 @@ export type AuditEventAction =
   | "event_registration.administrator_added"
   | "event_registration.coordinator_reviewed"
   | "event_registration.final_decided"
+  | "event_registration.region_reassigned"
   | "event_registration.submitted"
   | "event_registration.withdrawn"
   | "event_template.created"
@@ -851,7 +854,8 @@ export type AuditEventAction =
   | "survey.version_created"
   | "user.provisional_created"
   | "user.account_activated"
-  | "user.account_setup_resent";
+  | "user.account_setup_resent"
+  | "user.onboarding_reassigned";
 
 interface AuditEventTable {
   id: string;

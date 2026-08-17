@@ -128,6 +128,8 @@ function EventInstanceOperationsPage() {
               "That decision is not available from the current registration state.",
             final_decision_locked:
               "This registration has attendance evidence, so its final decision can no longer be changed here.",
+            finalized_reassignment_confirmation_required:
+              "Confirm the region change because this registration already has a final decision.",
             domain_override_required:
               "This learner does not match the restricted domains. Confirm the explicit override to continue.",
             duplicate_registration:

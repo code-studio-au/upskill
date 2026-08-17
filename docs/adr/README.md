@@ -35,7 +35,8 @@ is complete.
 | 0026 | [Regional Event review, selection and late invitations](0026-regional-event-registration-selection.md)                    | Accepted target; implementation pending                 |
 | 0027 | [Section-embedded automated email plans and occurrence overrides](0027-section-embedded-automated-emails.md)              | Accepted target; implementation pending                 |
 | 0028 | [Versioned Event Templates and resilient staff coverage](0028-versioned-event-templates-and-admin-ownership.md)           | Accepted; foundation and initial authoring implemented  |
-| 0029 | [Survey-backed versioned user onboarding](0029-survey-backed-versioned-user-onboarding.md)                                | Accepted target; implementation pending                 |
-| 0030 | [Standard Survey question types and option authoring](0030-standard-survey-question-types-and-option-authoring.md)        | Accepted target; implementation pending                 |
+| 0029 | [Survey-backed versioned user onboarding](0029-survey-backed-versioned-user-onboarding.md)                                | Accepted and initially implemented                      |
+| 0030 | [Standard Survey question types and option authoring](0030-standard-survey-question-types-and-option-authoring.md)        | Accepted and implemented                                |
 | 0031 | [TanStack Table for operational data grids](0031-tanstack-table-operational-data-grids.md)                                | Accepted and initially implemented                      |
 | 0032 | [Typed instants, local schedules and duration semantics](0032-typed-time-model.md)                                        | Accepted and implemented                                |
+| 0033 | [Forward-only Survey branching](0033-forward-only-survey-branching.md)                                                    | Accepted and implemented                                |

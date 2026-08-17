@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import { parseSurveyVersionContent } from "#/features/survey/survey.schema";
 import type {
   AdminEnrollmentDetail,
   AdminLearnerDirectory,
@@ -12,9 +13,13 @@ import type {
   AdminProgressOverrideInput,
 } from "#/features/admin/admin.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
-import { enqueueAuditLogProjection } from "#/server/audit/audit-event.server";
+import {
+  enqueueAuditLogProjection,
+  recordDurableAuditEvent,
+} from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import { isLearningComplete } from "#/server/learning/learning-completion.server";
+import { flattenedItems } from "#/server/learning/learner-survey.server";
 import {
   findEffectiveEnrollmentProgressOverride,
   findEffectiveModuleCompletion,
@@ -162,45 +167,100 @@ export async function findAdminLearnerProfile(
     .executeTakeFirst();
   if (!learner) return null;
 
-  const rows = await database
-    .selectFrom("enrollment")
-    .innerJoin(
-      "course_version",
-      "course_version.id",
-      "enrollment.courseVersionId",
-    )
-    .innerJoin("course", "course.id", "course_version.courseId")
-    .leftJoin("scorm_attempt", "scorm_attempt.enrollmentId", "enrollment.id")
-    .select([
-      "enrollment.id",
-      "enrollment.courseVersionId",
-      "enrollment.status",
-      "enrollment.enrolledAt",
-      "enrollment.completedAt",
-      "enrollment.expiresAt",
-      "enrollment.removedAt",
-      "course.slug as courseSlug",
-      "course.title as courseTitle",
-      "course_version.version as courseVersion",
-      sql<Date | null>`max("scorm_attempt"."lastActivityAt")`.as(
-        "lastActivityAt",
-      ),
-    ])
-    .where("enrollment.userId", "=", userId)
-    .groupBy([
-      "enrollment.id",
-      "enrollment.courseVersionId",
-      "enrollment.status",
-      "enrollment.enrolledAt",
-      "enrollment.completedAt",
-      "enrollment.expiresAt",
-      "enrollment.removedAt",
-      "course.slug",
-      "course.title",
-      "course_version.version",
-    ])
-    .orderBy("enrollment.enrolledAt", "desc")
-    .execute();
+  const [rows, onboardingRows, activeOnboarding] = await Promise.all([
+    database
+      .selectFrom("enrollment")
+      .innerJoin(
+        "course_version",
+        "course_version.id",
+        "enrollment.courseVersionId",
+      )
+      .innerJoin("course", "course.id", "course_version.courseId")
+      .leftJoin("scorm_attempt", "scorm_attempt.enrollmentId", "enrollment.id")
+      .select([
+        "enrollment.id",
+        "enrollment.courseVersionId",
+        "enrollment.status",
+        "enrollment.enrolledAt",
+        "enrollment.completedAt",
+        "enrollment.expiresAt",
+        "enrollment.removedAt",
+        "course.slug as courseSlug",
+        "course.title as courseTitle",
+        "course_version.version as courseVersion",
+        sql<Date | null>`max("scorm_attempt"."lastActivityAt")`.as(
+          "lastActivityAt",
+        ),
+      ])
+      .where("enrollment.userId", "=", userId)
+      .groupBy([
+        "enrollment.id",
+        "enrollment.courseVersionId",
+        "enrollment.status",
+        "enrollment.enrolledAt",
+        "enrollment.completedAt",
+        "enrollment.expiresAt",
+        "enrollment.removedAt",
+        "course.slug",
+        "course.title",
+        "course_version.version",
+      ])
+      .orderBy("enrollment.enrolledAt", "desc")
+      .execute(),
+    database
+      .selectFrom("onboarding_assignment as assignment")
+      .innerJoin(
+        "onboarding_definition_version as definition_version",
+        "definition_version.id",
+        "assignment.definitionVersionId",
+      )
+      .innerJoin(
+        "learning_activity_version as survey_version",
+        "survey_version.id",
+        "definition_version.surveyVersionId",
+      )
+      .innerJoin(
+        "learning_activity as survey",
+        "survey.id",
+        "survey_version.activityId",
+      )
+      .select([
+        "assignment.id",
+        "assignment.status",
+        "assignment.source",
+        "assignment.assignedAt",
+        "assignment.startedAt",
+        "assignment.completedAt",
+        "assignment.supersededAt",
+        "definition_version.version as definitionVersion",
+        "survey.title as surveyTitle",
+        "survey_version.version as surveyVersion",
+      ])
+      .where("assignment.userId", "=", userId)
+      .orderBy("assignment.assignedAt", "desc")
+      .execute(),
+    database
+      .selectFrom("onboarding_definition_version as definition_version")
+      .innerJoin(
+        "learning_activity_version as survey_version",
+        "survey_version.id",
+        "definition_version.surveyVersionId",
+      )
+      .innerJoin(
+        "learning_activity as survey",
+        "survey.id",
+        "survey_version.activityId",
+      )
+      .select([
+        "definition_version.id as definitionVersionId",
+        "definition_version.version as definitionVersion",
+        "survey.title as surveyTitle",
+        "survey_version.version as surveyVersion",
+      ])
+      .where("definition_version.activatedAt", "is not", null)
+      .where("definition_version.deactivatedAt", "is", null)
+      .executeTakeFirst(),
+  ]);
   const moduleCompletionByEnrollment =
     await findEffectiveModuleCompletionForEnrollments(
       database,
@@ -216,6 +276,23 @@ export async function findAdminLearnerProfile(
       name: learner.name,
       email: learner.email,
       joinedAt: learner.createdAt.toISOString(),
+    },
+    onboarding: {
+      activeConfiguration: activeOnboarding ?? null,
+      canRequire:
+        Boolean(activeOnboarding) &&
+        !onboardingRows.some((assignment) =>
+          (["assigned", "in_progress"] as const).includes(
+            assignment.status as never,
+          ),
+        ),
+      assignments: onboardingRows.map((assignment) => ({
+        ...assignment,
+        assignedAt: assignment.assignedAt.toISOString(),
+        startedAt: assignment.startedAt?.toISOString() ?? null,
+        completedAt: assignment.completedAt?.toISOString() ?? null,
+        supersededAt: assignment.supersededAt?.toISOString() ?? null,
+      })),
     },
     enrollments: rows.map((row) => {
       const moduleCompletion = moduleCompletionByEnrollment.get(row.id) ?? [];
@@ -241,6 +318,95 @@ export async function findAdminLearnerProfile(
       };
     }),
   };
+}
+
+export async function requireAdminReOnboarding(
+  userId: string,
+  actor: AuthenticatedUser,
+): Promise<
+  | "assigned"
+  | "not-found"
+  | "no-active-onboarding"
+  | "onboarding-already-required"
+> {
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const learner = await transaction
+        .selectFrom("user")
+        .select("id")
+        .where("id", "=", userId)
+        .where(learnerPredicate())
+        .forUpdate()
+        .executeTakeFirst();
+      if (!learner) return "not-found";
+      const open = await transaction
+        .selectFrom("onboarding_assignment")
+        .select("id")
+        .where("userId", "=", userId)
+        .where("status", "in", ["assigned", "in_progress"])
+        .executeTakeFirst();
+      if (open) return "onboarding-already-required";
+      const active = await transaction
+        .selectFrom("onboarding_definition_version as definition_version")
+        .innerJoin(
+          "survey_version",
+          "survey_version.id",
+          "definition_version.surveyVersionId",
+        )
+        .select([
+          "definition_version.id",
+          "definition_version.surveyVersionId",
+          "survey_version.content",
+        ])
+        .where("definition_version.activatedAt", "is not", null)
+        .where("definition_version.deactivatedAt", "is", null)
+        .executeTakeFirst();
+      if (!active) return "no-active-onboarding";
+      const now = new Date();
+      const assignmentId = `onboarding_assignment_${randomUUID()}`;
+      await transaction
+        .insertInto("onboarding_assignment")
+        .values({
+          id: assignmentId,
+          userId,
+          definitionVersionId: active.id,
+          status: "assigned",
+          source: "administrator",
+          assignedAt: now,
+          startedAt: null,
+          completedAt: null,
+          supersededAt: null,
+        })
+        .execute();
+      await transaction
+        .insertInto("onboarding_response")
+        .values({
+          id: `onboarding_response_${randomUUID()}`,
+          assignmentId,
+          surveyVersionId: active.surveyVersionId,
+          answers: {},
+          visitedItemIds: [],
+          currentItemId:
+            flattenedItems(parseSurveyVersionContent(active.content))[0]?.id ??
+            null,
+          startedAt: now,
+          updatedAt: now,
+          submittedAt: null,
+          redactedAt: null,
+        })
+        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: actor.id,
+        action: "user.onboarding_reassigned",
+        subjectType: "user",
+        subjectId: userId,
+        aggregateId: userId,
+        metadata: { definitionVersionId: active.id, assignmentId },
+        createdAt: now,
+      });
+      return "assigned";
+    });
 }
 
 function enrollmentAccessStatus(enrollment: {

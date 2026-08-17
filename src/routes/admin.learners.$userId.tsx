@@ -8,16 +8,22 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
+import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineProgress } from "#/features/shared/MantineProgress";
 import {
   createFileRoute,
   Link,
   notFound,
   redirect,
+  useRouter,
 } from "@tanstack/react-router";
+import { useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { adminLearnerParamsSchema } from "#/features/admin/admin.schema";
-import { getAdminLearnerProfile } from "#/server/functions/admin";
+import {
+  getAdminLearnerProfile,
+  requireAdminReOnboarding,
+} from "#/server/functions/admin";
 import classes from "./admin.module.css";
 
 export const Route = createFileRoute("/admin/learners/$userId")({
@@ -41,6 +47,10 @@ export const Route = createFileRoute("/admin/learners/$userId")({
 
 function AdminLearnerProfilePage() {
   const result = Route.useLoaderData();
+  const router = useRouter();
+  const [confirmReOnboarding, setConfirmReOnboarding] = useState(false);
+  const [processing, setProcessing] = useState(false);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
   if (result.status === "forbidden") return <AdminAccessDenied />;
   const profile = result.data;
 
@@ -63,6 +73,53 @@ function AdminLearnerProfilePage() {
           Back to learners
         </Button>
       </div>
+
+      <section aria-labelledby="onboarding-heading">
+        <Stack gap="md">
+          <Group justify="space-between" align="center">
+            <Title order={2} id="onboarding-heading">
+              Onboarding
+            </Title>
+            <Button
+              variant="light"
+              disabled={!profile.onboarding.canRequire}
+              onClick={() => {
+                setConfirmReOnboarding(true);
+              }}
+            >
+              Require re-onboarding
+            </Button>
+          </Group>
+          {onboardingError ? <Text c="red">{onboardingError}</Text> : null}
+          <Paper withBorder radius="lg" p="lg">
+            {profile.onboarding.assignments.length ? (
+              <Stack gap="sm">
+                {profile.onboarding.assignments.map((assignment) => (
+                  <Group
+                    key={assignment.id}
+                    justify="space-between"
+                    align="flex-start"
+                  >
+                    <div>
+                      <Text fw={600}>{assignment.surveyTitle}</Text>
+                      <Text c="dimmed" size="sm">
+                        Onboarding version {assignment.definitionVersion} ·
+                        Survey version {assignment.surveyVersion} · Assigned{" "}
+                        {formatLocalDate(assignment.assignedAt)}
+                      </Text>
+                    </div>
+                    <Badge variant="light">
+                      {assignment.status.replaceAll("_", " ")}
+                    </Badge>
+                  </Group>
+                ))}
+              </Stack>
+            ) : (
+              <Text>No onboarding history.</Text>
+            )}
+          </Paper>
+        </Stack>
+      </section>
 
       <section aria-labelledby="enrolments-heading">
         <Stack gap="md">
@@ -155,6 +212,42 @@ function AdminLearnerProfilePage() {
           )}
         </Stack>
       </section>
+      {confirmReOnboarding ? (
+        <ConfirmationDialog
+          title="Require re-onboarding?"
+          description="The learner will complete the current onboarding version at their next sign-in. Previous responses remain retained."
+          confirmLabel="Require re-onboarding"
+          confirmColor="blue"
+          pending={processing}
+          onCancel={() => {
+            setConfirmReOnboarding(false);
+          }}
+          onConfirm={() => {
+            setProcessing(true);
+            setOnboardingError(null);
+            void requireAdminReOnboarding({
+              data: { userId: profile.learner.id },
+            })
+              .then(async (outcome) => {
+                if (outcome.status === "ready") {
+                  setConfirmReOnboarding(false);
+                  await router.invalidate();
+                  return;
+                }
+                setOnboardingError(
+                  outcome.status === "conflict" &&
+                    outcome.reason === "onboarding_already_required"
+                    ? "Onboarding is already required for this learner."
+                    : "No active onboarding version is available.",
+                );
+                setConfirmReOnboarding(false);
+              })
+              .finally(() => {
+                setProcessing(false);
+              });
+          }}
+        />
+      ) : null}
     </Stack>
   );
 }

@@ -5,6 +5,7 @@ import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { useState } from "react";
+import { SurveyLocalDateInput } from "./SurveyLocalDateInput";
 
 const questionLabels: Record<SurveyQuestion["kind"], string> = {
   single_choice: "Single choice",
@@ -19,6 +20,7 @@ const questionLabels: Record<SurveyQuestion["kind"], string> = {
 };
 
 export function SurveyQuestionEditor({
+  branchSections,
   disabled,
   index,
   item,
@@ -27,6 +29,7 @@ export function SurveyQuestionEditor({
   onRemove,
   total,
 }: {
+  branchSections: Array<{ id: string; title: string }>;
   disabled: boolean;
   index: number;
   item: SurveyItem;
@@ -79,11 +82,19 @@ export function SurveyQuestionEditor({
     );
 
   const question: SurveyQuestion = item;
+  const questionLabel =
+    question.kind === "dropdown" &&
+    question.optionSource === "coordination_region_groups"
+      ? "Region group"
+      : question.kind === "dropdown" &&
+          question.optionSource === "coordination_operational_regions"
+        ? "Operational region"
+        : questionLabels[question.kind];
   return (
     <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }} data-survey-item>
       <Stack gap="md">
         <ItemActions
-          badge={questionLabels[question.kind]}
+          badge={questionLabel}
           disabled={disabled}
           index={index}
           total={total}
@@ -110,6 +121,7 @@ export function SurveyQuestionEditor({
           }}
         />
         <QuestionSettings
+          branchSections={branchSections}
           disabled={disabled}
           question={question}
           onChange={onChange}
@@ -120,10 +132,12 @@ export function SurveyQuestionEditor({
 }
 
 function QuestionSettings({
+  branchSections,
   disabled,
   onChange,
   question,
 }: {
+  branchSections: Array<{ id: string; title: string }>;
   disabled: boolean;
   onChange: (question: SurveyQuestion) => void;
   question: SurveyQuestion;
@@ -132,14 +146,32 @@ function QuestionSettings({
     question.kind === "single_choice" ||
     question.kind === "multiple_choice" ||
     question.kind === "dropdown"
-  )
+  ) {
+    if (
+      question.kind === "dropdown" &&
+      (question.optionSource === "coordination_region_groups" ||
+        question.optionSource === "coordination_operational_regions")
+    )
+      return (
+        <Paper withBorder radius="md" p="md">
+          <Stack gap="xs">
+            <Group justify="space-between">
+              <Text fw={700}>Directory options</Text>
+              <Badge variant="light">Locked</Badge>
+            </Group>
+            <Text size="sm">{question.options.length} active options</Text>
+          </Stack>
+        </Paper>
+      );
     return (
       <OptionsEditor
+        branchSections={branchSections}
         disabled={disabled}
         question={question}
         onChange={onChange}
       />
     );
+  }
   if (question.kind === "short_text" || question.kind === "long_text")
     return (
       <Group align="end" grow>
@@ -215,27 +247,25 @@ function QuestionSettings({
   if (question.kind === "date")
     return (
       <Group align="end" grow>
-        <MantineTextInput
-          type="date"
+        <SurveyLocalDateInput
           label="Earliest date"
           value={question.minimum ?? ""}
           disabled={disabled}
-          onChange={(event) => {
+          onChange={(value) => {
             onChange({
               ...question,
-              minimum: event.currentTarget.value || null,
+              minimum: value ?? null,
             });
           }}
         />
-        <MantineTextInput
-          type="date"
+        <SurveyLocalDateInput
           label="Latest date"
           value={question.maximum ?? ""}
           disabled={disabled}
-          onChange={(event) => {
+          onChange={(value) => {
             onChange({
               ...question,
-              maximum: event.currentTarget.value || null,
+              maximum: value ?? null,
             });
           }}
         />
@@ -329,10 +359,12 @@ function NullableNumberSetting({
 }
 
 function OptionsEditor({
+  branchSections,
   disabled,
   onChange,
   question,
 }: {
+  branchSections: Array<{ id: string; title: string }>;
   disabled: boolean;
   onChange: (question: SurveyQuestion) => void;
   question: Extract<
@@ -360,7 +392,8 @@ function OptionsEditor({
       {question.options.map((option, optionIndex) => (
         <Group key={option.id} align="end" wrap="nowrap">
           <MantineTextInput
-            label={`Option ${String(optionIndex + 1)}`}
+            label={`Learner-facing label ${String(optionIndex + 1)}`}
+            placeholder="Enter option label"
             value={option.label}
             disabled={disabled}
             onChange={(event) => {
@@ -378,7 +411,7 @@ function OptionsEditor({
             flex={1}
           />
           <MantineTextInput
-            label="External value"
+            label="External mapping value (not displayed)"
             value={option.externalValue ?? ""}
             disabled={disabled}
             onChange={(event) => {
@@ -454,6 +487,43 @@ function OptionsEditor({
           ) : null}
         </Group>
       ))}
+      {(question.kind === "single_choice" || question.kind === "dropdown") &&
+      branchSections.length > 0 ? (
+        <Paper withBorder radius="md" p="md">
+          <Stack gap="sm">
+            <Text fw={700}>Conditional logic</Text>
+            {question.options.map((option, optionIndex) => (
+              <MantineNativeSelect
+                key={option.id}
+                label={`After “${option.label || `Option ${String(optionIndex + 1)}`}”`}
+                disabled={disabled}
+                value={option.nextSectionId ?? ""}
+                data={[
+                  { value: "", label: "Continue normally" },
+                  ...branchSections.map((section) => ({
+                    value: section.id,
+                    label: `Continue at ${section.title}`,
+                  })),
+                ]}
+                onChange={(event) => {
+                  const nextSectionId = event.currentTarget.value;
+                  onChange({
+                    ...question,
+                    options: question.options.map((candidate) =>
+                      candidate.id === option.id
+                        ? {
+                            ...candidate,
+                            nextSectionId: nextSectionId || undefined,
+                          }
+                        : candidate,
+                    ),
+                  });
+                }}
+              />
+            ))}
+          </Stack>
+        </Paper>
+      ) : null}
       {!disabled ? (
         <>
           <Button

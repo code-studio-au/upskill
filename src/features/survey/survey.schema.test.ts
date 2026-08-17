@@ -115,6 +115,52 @@ describe("survey contracts", () => {
     ).toBe(true);
   });
 
+  it("accepts locked region directory questions and their parent relationship", () => {
+    const parsed = surveyVersionContentSchema.safeParse({
+      title: "Onboarding",
+      description: "",
+      sections: [
+        {
+          id: "profile",
+          title: "Profile",
+          description: "",
+          items: [
+            {
+              id: "group",
+              kind: "dropdown",
+              optionSource: "coordination_region_groups",
+              prompt: "Region group",
+              required: true,
+              options: [
+                {
+                  id: "group_nsw",
+                  label: "NSW Health (NSW-HEALTH)",
+                  externalValue: "group_nsw",
+                },
+              ],
+            },
+            {
+              id: "region",
+              kind: "dropdown",
+              optionSource: "coordination_operational_regions",
+              prompt: "Operational region",
+              required: true,
+              options: [
+                {
+                  id: "region_slhd",
+                  label: "Sydney Local Health District (SLHD)",
+                  externalValue: "region_slhd",
+                  parentExternalValue: "group_nsw",
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+  });
+
   it("rejects impossible calendar-date bounds", () => {
     expect(
       surveyVersionContentSchema.safeParse({
@@ -174,6 +220,81 @@ describe("survey contracts", () => {
             ],
           },
         ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts forward answer branches to existing later sections", () => {
+    expect(
+      surveyVersionContentSchema.safeParse({
+        title: "Onboarding",
+        description: "",
+        sections: [
+          {
+            id: "work",
+            title: "Work",
+            description: "",
+            items: [
+              {
+                id: "works_in_region",
+                kind: "single_choice",
+                prompt: "Do you work in a region?",
+                required: true,
+                options: [
+                  { id: "yes", label: "Yes", nextSectionId: "region" },
+                  { id: "no", label: "No", nextSectionId: "profile" },
+                ],
+              },
+            ],
+          },
+          {
+            id: "region",
+            title: "Region",
+            description: "",
+            items: [],
+          },
+          {
+            id: "profile",
+            title: "Profile",
+            description: "",
+            items: [],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects missing, backward and multiple-choice branch targets", () => {
+    const sections = [
+      {
+        id: "first",
+        title: "First",
+        description: "",
+        items: [],
+      },
+      {
+        id: "second",
+        title: "Second",
+        description: "",
+        items: [
+          {
+            id: "invalid_branch",
+            kind: "multiple_choice",
+            prompt: "Choose",
+            required: true,
+            options: [
+              { id: "one", label: "One", nextSectionId: "first" },
+              { id: "two", label: "Two", nextSectionId: "missing" },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(
+      surveyVersionContentSchema.safeParse({
+        title: "Invalid branching",
+        description: "",
+        sections,
       }).success,
     ).toBe(false);
   });

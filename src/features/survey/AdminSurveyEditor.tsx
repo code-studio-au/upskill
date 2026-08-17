@@ -218,7 +218,10 @@ export function AdminSurveyEditor({
 
       {editorView === "questions" ? (
         <SurveySectionsEditor
+          operationalRegionOptions={detail.operationalRegionOptions}
+          regionGroupOptions={detail.regionGroupOptions}
           editable={editable}
+          usage={detail.survey.usage}
           sections={sections}
           onChange={(sections) => {
             surveyForm.setFieldValue("sections", sections);

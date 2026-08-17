@@ -432,7 +432,14 @@ registration submitted
 The learner's current profile region is user-updateable, but registration stores
 the confirmed point-in-time region. A later move applies to future registrations
 only. Correcting an active Registration's region is an explicit retained and
-audited assigned-administrator action.
+audited assigned-administrator action. Operations compares the live profile
+region with the Registration Region Snapshot, so a mismatch caused by
+re-onboarding, a User profile edit or an administrator correction is visible
+without rewriting the Registration. Reassignment before Coordinator review
+moves the Registration to the destination list. Reassignment after a
+Coordinator decision resets that regional decision and priority. A Registration
+with a final decision requires an explicit exceptional confirmation; its final
+decision and Learning/Attendance evidence remain retained.
 
 Coordinator approval is provisional candidacy, not acceptance into the Event.
 Only Coordinator-approved registrations advance from a regional list. A region

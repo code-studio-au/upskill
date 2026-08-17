@@ -23,6 +23,7 @@ import {
   findAdminEventOccurrenceOperations,
   lockAdminEventRegion,
   recordAdminEventAttendance,
+  reassignAdminEventRegistrationRegion,
   transitionAdminEventOccurrence,
 } from "#/server/admin/admin-event-operations.server";
 import {
@@ -324,6 +325,14 @@ async function cleanup(): Promise<void> {
     .where("id", "in", [coordinator.id, presenter.id])
     .execute();
   await database
+    .updateTable("user")
+    .set({ currentRegionId: null })
+    .where("currentRegionId", "in", [
+      coordinationRegionId,
+      addedCoordinationRegionId,
+    ])
+    .execute();
+  await database
     .deleteFrom("coordination_region")
     .where("id", "in", [coordinationRegionId, addedCoordinationRegionId])
     .execute();
@@ -540,9 +549,44 @@ try {
             prompt: "Was this Event useful?",
             required: true,
             options: [
-              { id: `survey_yes_${suffix}`, label: "Yes" },
-              { id: `survey_no_${suffix}`, label: "No" },
+              {
+                id: `survey_yes_${suffix}`,
+                label: "Yes",
+                nextSectionId: `survey_detail_section_${suffix}`,
+              },
+              {
+                id: `survey_no_${suffix}`,
+                label: "No",
+                nextSectionId: `survey_finish_section_${suffix}`,
+              },
             ],
+          },
+        ],
+      },
+      {
+        id: `survey_detail_section_${suffix}`,
+        title: "Additional feedback",
+        description: "Only shown on the yes path.",
+        items: [
+          {
+            id: `survey_detail_${suffix}`,
+            kind: "long_text",
+            prompt: "What was useful?",
+            required: true,
+            maximumLength: 500,
+          },
+        ],
+      },
+      {
+        id: `survey_finish_section_${suffix}`,
+        title: "Finish",
+        description: "The common destination.",
+        items: [
+          {
+            id: `survey_finish_${suffix}`,
+            kind: "instruction",
+            title: "Ready to submit",
+            body: "Continue to finish the event survey.",
           },
         ],
       },
@@ -1128,6 +1172,99 @@ try {
     .executeTakeFirstOrThrow();
   assert.equal(provisionalEventUser.accountState, "provisional");
   assert.equal(provisionalEventUser.emailVerified, false);
+  await database
+    .updateTable("user")
+    .set({ currentRegionId: addedCoordinationRegionId })
+    .where("id", "=", provisionalEventUser.id)
+    .execute();
+  const provisionalRegistration = await database
+    .selectFrom("event_registration")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", provisionalEventUser.id)
+    .executeTakeFirstOrThrow();
+  const mismatchBeforeReassignment = (
+    await findAdminEventOccurrenceOperations(eventOccurrenceId)
+  )?.registrations.find(
+    (registration) => registration.id === provisionalRegistration.id,
+  );
+  assert.equal(mismatchBeforeReassignment?.regionMismatch, true);
+  assert.equal(
+    mismatchBeforeReassignment.profileRegionName,
+    "Added verification region",
+  );
+  assert.equal(
+    await reassignAdminEventRegistrationRegion(
+      {
+        eventOccurrenceId,
+        registrationId: provisionalRegistration.id,
+        eventOccurrenceRegionId: addedOccurrenceRegion.id,
+        confirmFinalizedReassignment: false,
+      },
+      administrator,
+    ),
+    "updated",
+  );
+  assert.equal(
+    (
+      await findAdminEventOccurrenceOperations(eventOccurrenceId)
+    )?.registrations.find(
+      (registration) => registration.id === provisionalRegistration.id,
+    )?.regionMismatch,
+    false,
+  );
+  await database
+    .updateTable("event_registration")
+    .set({
+      status: "waitlisted",
+      finalDecidedAt: new Date(),
+      finalDecidedByUserId: administrator.id,
+    })
+    .where("id", "=", provisionalRegistration.id)
+    .execute();
+  assert.equal(
+    await reassignAdminEventRegistrationRegion(
+      {
+        eventOccurrenceId,
+        registrationId: provisionalRegistration.id,
+        eventOccurrenceRegionId: occurrenceRegion.id,
+        confirmFinalizedReassignment: false,
+      },
+      administrator,
+    ),
+    "finalized-confirmation-required",
+  );
+  assert.equal(
+    await reassignAdminEventRegistrationRegion(
+      {
+        eventOccurrenceId,
+        registrationId: provisionalRegistration.id,
+        eventOccurrenceRegionId: occurrenceRegion.id,
+        confirmFinalizedReassignment: true,
+      },
+      administrator,
+    ),
+    "updated",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_registration_transition")
+      .select(["fromEventOccurrenceRegionId", "toEventOccurrenceRegionId"])
+      .where("eventRegistrationId", "=", provisionalRegistration.id)
+      .where("toEventOccurrenceRegionId", "is not", null)
+      .orderBy("occurredAt")
+      .execute(),
+    [
+      {
+        fromEventOccurrenceRegionId: null,
+        toEventOccurrenceRegionId: addedOccurrenceRegion.id,
+      },
+      {
+        fromEventOccurrenceRegionId: addedOccurrenceRegion.id,
+        toEventOccurrenceRegionId: occurrenceRegion.id,
+      },
+    ],
+  );
   assert.equal(
     await database
       .selectFrom("notification")
@@ -1404,6 +1541,52 @@ try {
       eventTemplateVersionItemId: `event_survey_item_${suffix}`,
     },
   );
+  const { advanceLearnerEventSurvey, findLearnerEventSurvey } =
+    await import("#/server/learning/learner-event-survey.server");
+  const eventSurvey = await findLearnerEventSurvey(
+    eventOccurrenceId,
+    `event_survey_item_${suffix}`,
+    administrator,
+  );
+  assert.notEqual(eventSurvey, null);
+  assert.notEqual(eventSurvey, "unavailable");
+  if (!eventSurvey || eventSurvey === "unavailable")
+    throw new Error("Expected released learner event survey");
+  const eventSurveyBranch = await advanceLearnerEventSurvey(
+    {
+      eventParticipationId: participationId,
+      eventTemplateVersionItemId: `event_survey_item_${suffix}`,
+      itemId: `survey_question_${suffix}`,
+      answer: `survey_no_${suffix}`,
+    },
+    administrator,
+  );
+  assert.equal(eventSurveyBranch.status, "advanced");
+  assert.equal(
+    eventSurveyBranch.progress.currentItemId,
+    `survey_finish_${suffix}`,
+  );
+  assert.equal(eventSurveyBranch.progress.totalItems, 2);
+  const hiddenEventSurveyItem = await advanceLearnerEventSurvey(
+    {
+      eventParticipationId: participationId,
+      eventTemplateVersionItemId: `event_survey_item_${suffix}`,
+      itemId: `survey_detail_${suffix}`,
+      answer: "This answer must not be accepted.",
+    },
+    administrator,
+  );
+  assert.equal(hiddenEventSurveyItem.status, "invalid");
+  const eventSurveySubmitted = await advanceLearnerEventSurvey(
+    {
+      eventParticipationId: participationId,
+      eventTemplateVersionItemId: `event_survey_item_${suffix}`,
+      itemId: `survey_finish_${suffix}`,
+    },
+    administrator,
+  );
+  assert.equal(eventSurveySubmitted.status, "submitted");
+  assert.equal(eventSurveySubmitted.progress.percent, 100);
   assert.equal(
     await ensureEventSectionReleased(database, {
       eventParticipationId: participationId,

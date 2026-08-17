@@ -137,6 +137,11 @@ export async function findAdminEventOccurrenceOperations(
         "occurrence_region.regionId",
       )
       .innerJoin("user", "user.id", "registration.userId")
+      .leftJoin(
+        "coordination_region as profile_region",
+        "profile_region.id",
+        "user.currentRegionId",
+      )
       .select([
         "registration.id",
         "registration.userId",
@@ -146,7 +151,10 @@ export async function findAdminEventOccurrenceOperations(
         "registration.eligibilitySource",
         "registration.status",
         "registration.eventOccurrenceRegionId as regionId",
+        "occurrence_region.regionId as registeredDirectoryRegionId",
         "region.name as regionName",
+        "user.currentRegionId as profileRegionId",
+        "profile_region.name as profileRegionName",
         "registration.reviewRoundId",
         "registration.coordinatorPriority",
         "registration.submittedAt",
@@ -289,6 +297,26 @@ export async function findAdminEventOccurrenceOperations(
         "transition.eventRegistrationId",
       )
       .leftJoin("user as actor", "actor.id", "transition.actorUserId")
+      .leftJoin(
+        "event_occurrence_region as from_occurrence_region",
+        "from_occurrence_region.id",
+        "transition.fromEventOccurrenceRegionId",
+      )
+      .leftJoin(
+        "coordination_region as from_region",
+        "from_region.id",
+        "from_occurrence_region.regionId",
+      )
+      .leftJoin(
+        "event_occurrence_region as to_occurrence_region",
+        "to_occurrence_region.id",
+        "transition.toEventOccurrenceRegionId",
+      )
+      .leftJoin(
+        "coordination_region as to_region",
+        "to_region.id",
+        "to_occurrence_region.regionId",
+      )
       .select([
         "transition.id",
         "transition.eventRegistrationId as registrationId",
@@ -298,6 +326,8 @@ export async function findAdminEventOccurrenceOperations(
         "transition.source",
         "actor.name as actorName",
         "transition.priority",
+        "from_region.name as fromRegionName",
+        "to_region.name as toRegionName",
         "transition.occurredAt",
       ])
       .where("registration.eventOccurrenceId", "=", eventOccurrenceId)
@@ -405,6 +435,7 @@ export async function findAdminEventOccurrenceOperations(
       finalDecisionLocked: participationWithAttendance.has(
         participationByRegistration.get(row.id) ?? "",
       ),
+      regionMismatch: row.profileRegionId !== row.registeredDirectoryRegionId,
     })),
     regions: regionRows.map((region) => {
       const review = reviewsByRegion.get(region.id);
@@ -852,6 +883,119 @@ export async function decideAdminEventFinalRegistration(
         createdAt: now,
       });
       return "updated" as const;
+    });
+}
+
+export async function reassignAdminEventRegistrationRegion(
+  input: {
+    eventOccurrenceId: string;
+    registrationId: string;
+    eventOccurrenceRegionId: string;
+    confirmFinalizedReassignment: boolean;
+  },
+  actor: AuthenticatedUser,
+) {
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .select(["id", "status", "registrationClosesAt", "coordinatorLockAt"])
+        .where("id", "=", input.eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
+      const registration = await transaction
+        .selectFrom("event_registration")
+        .selectAll()
+        .where("id", "=", input.registrationId)
+        .where("eventOccurrenceId", "=", input.eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
+      const destination = await transaction
+        .selectFrom("event_occurrence_region")
+        .select("id")
+        .where("id", "=", input.eventOccurrenceRegionId)
+        .where("eventOccurrenceId", "=", input.eventOccurrenceId)
+        .where("retiredAt", "is", null)
+        .executeTakeFirst();
+      if (!occurrence || !registration || !destination) return "not-found";
+      if (
+        occurrence.status !== "published" ||
+        registration.eventOccurrenceRegionId === destination.id ||
+        (["withdrawn", "cancelled"] as const).includes(
+          registration.status as never,
+        )
+      )
+        return "invalid-transition";
+
+      const finalized =
+        registration.finalDecidedAt !== null ||
+        (["selected", "waitlisted", "not_selected"] as const).includes(
+          registration.status as never,
+        );
+      if (finalized && !input.confirmFinalizedReassignment)
+        return "finalized-confirmation-required";
+
+      const destinationReview = await ensureReviewRound(
+        transaction,
+        occurrence,
+        destination.id,
+      );
+      if (
+        !finalized &&
+        destinationReview &&
+        (destinationReview.lockedAt ||
+          destinationReview.coordinatorLockAt <= new Date())
+      )
+        return "region-locked";
+
+      const resetCoordinatorDecision =
+        registration.coordinatorDecidedAt !== null ||
+        registration.coordinatorPriority !== null;
+      const nextStatus = finalized ? registration.status : "submitted";
+      const now = new Date();
+      await transaction
+        .updateTable("event_registration")
+        .set({
+          eventOccurrenceRegionId: destination.id,
+          reviewRoundId: destinationReview?.id ?? null,
+          status: nextStatus,
+          coordinatorPriority: null,
+          coordinatorDecidedAt: null,
+          coordinatorDecidedByUserId: null,
+        })
+        .where("id", "=", registration.id)
+        .execute();
+      await transaction
+        .insertInto("event_registration_transition")
+        .values({
+          id: `event_registration_transition_${randomUUID()}`,
+          eventRegistrationId: registration.id,
+          fromStatus: registration.status,
+          toStatus: nextStatus,
+          fromEventOccurrenceRegionId: registration.eventOccurrenceRegionId,
+          toEventOccurrenceRegionId: destination.id,
+          source: "administrator",
+          actorUserId: actor.id,
+          priority: registration.coordinatorPriority,
+          occurredAt: now,
+        })
+        .execute();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: actor.id,
+        action: "event_registration.region_reassigned",
+        subjectType: "event_registration",
+        subjectId: registration.id,
+        aggregateId: occurrence.id,
+        metadata: {
+          fromEventOccurrenceRegionId: registration.eventOccurrenceRegionId,
+          toEventOccurrenceRegionId: destination.id,
+          resetCoordinatorDecision,
+          finalizedOverride: finalized,
+        },
+        createdAt: now,
+      });
+      return "updated";
     });
 }
 

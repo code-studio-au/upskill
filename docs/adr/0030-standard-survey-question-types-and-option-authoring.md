@@ -25,7 +25,9 @@ The shared Survey model supports this standard question set:
 | Long text                  | Trimmed string                 | Reflection, explanation and qualitative feedback                   |
 | Single choice              | One immutable option ID        | A small visible radio-button list                                  |
 | Multiple choice            | Unique immutable option IDs    | A small visible checkbox list                                      |
-| Dropdown / combobox        | One immutable option ID        | A longer single-select searchable list, such as region             |
+| Dropdown                   | One immutable option ID        | A compact single-select list                                       |
+| Region group               | One immutable Region Group ID  | Directory-backed onboarding group selection                        |
+| Operational region         | One immutable Region ID        | Directory-backed child selection filtered by Region Group          |
 | Checkbox / acknowledgement | Boolean                        | One labelled statement such as agreement to terms                  |
 | Number                     | Validated decimal/whole number | Years of experience and other bounded numeric answers              |
 | Date                       | ISO local calendar date        | Date-only answers where collection has an explicit privacy purpose |
@@ -51,6 +53,10 @@ option structure. The editor supports:
 - a preview before applying the bulk change; and
 - blocking case-insensitive duplicate labels/values with row-level errors.
 
+New choice questions start with blank learner-facing labels so placeholder text
+cannot be mistaken for a finished answer. The external mapping value is never
+shown as the answer label.
+
 Import preserves supplied order and creates stable internal option IDs once. It
 does not silently alphabetise, merge duplicates or derive durable IDs from
 labels. Published Survey Versions snapshot their exact option IDs, labels, order
@@ -65,6 +71,28 @@ versioned reference dataset rather than an unbounded Survey document.
 For profile fields such as current region, an Onboarding Definition Version maps
 each selectable option to an authorised canonical Region ID. A copied label by
 itself must not create or guess a Region relationship.
+
+### Region directory questions
+
+Region group and Operational region are distinct onboarding Survey Designer
+question types. They reuse the Dropdown answer and rendering model,
+but carry a semantic directory source that ordinary editable Dropdowns do not.
+Only one of each may appear in an onboarding Survey Version, and they cannot be
+inserted into a learning Survey.
+
+The Region group options are sourced from active Region Group records. The
+Operational region options are sourced from active Operational Regions with an
+active parent group. The designer locks both option sets. The Operational region
+question must follow the Region group question; at runtime it exposes only
+children of the selected group. The server rejects a submitted Operational
+Region that does not belong to that selected group.
+
+Drafts refresh from the current directory. Publication snapshots the exact
+option IDs, labels and parent relationships into the immutable Survey Version,
+so later renaming, retirement or re-parenting cannot reinterpret a historical
+response. Operational Region labels do not repeat the selected parent group's
+name. Activation automatically maps the Operational region question to the
+User's current Region profile field.
 
 ### Checkbox semantics
 
@@ -117,10 +145,9 @@ The Survey schema, designer, learner/onboarding renderer, answer union, response
 validation and tests must be extended together. Existing published versions and
 responses keep their current representation.
 
-The dropdown UI uses an accessible Mantine Combobox/Select implementation with
-search for longer lists, strict CSP compatibility and mobile keyboard/focus
-testing. Its code remains within the Survey/onboarding route split and client
-bundle budget.
+The dropdown UI uses a styled native select with strict CSP compatibility and
+mobile keyboard/focus testing. Its code remains within the Survey/onboarding
+route split and client bundle budget.
 
 ## Invariants / Guardrails
 
@@ -136,8 +163,8 @@ bundle budget.
 
 ## Follow-up / Triggers
 
-Consider file upload, signature, matrix/grid, ranking, reusable reference
-datasets or conditional branching only after a concrete workflow defines their
+Consider file upload, signature, matrix/grid, ranking, additional reusable
+reference datasets or conditional branching only after a concrete workflow defines their
 evidence, privacy, accessibility and reporting requirements.
 
 ## Related Documents

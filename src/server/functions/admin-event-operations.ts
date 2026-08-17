@@ -8,6 +8,7 @@ import {
   adminEventLifecycleSchema,
   adminEventOccurrenceOperationsParamsSchema,
   adminEventRegionLockSchema,
+  adminEventRegistrationRegionReassignmentSchema,
   type AdminEventOperationsMutationResult,
   type AdminEventOperationsResult,
 } from "#/features/admin-event/admin-event-operations.schema";
@@ -91,6 +92,29 @@ export const decideAdminEventFinalRegistration = createServerFn({
       return { status: "conflict", reason: "domain_override_required" };
     if (outcome === "final-decision-locked")
       return { status: "conflict", reason: "final_decision_locked" };
+    if (outcome === "invalid-transition")
+      return { status: "conflict", reason: "invalid_transition" };
+    return { status: "ready" };
+  });
+
+export const reassignAdminEventRegistrationRegion = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventRegistrationRegionReassignmentSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { reassignAdminEventRegistrationRegion: reassign } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await reassign(data, request.user);
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "region-locked")
+      return { status: "conflict", reason: "region_locked" };
+    if (outcome === "finalized-confirmation-required")
+      return {
+        status: "conflict",
+        reason: "finalized_reassignment_confirmation_required",
+      };
     if (outcome === "invalid-transition")
       return { status: "conflict", reason: "invalid_transition" };
     return { status: "ready" };

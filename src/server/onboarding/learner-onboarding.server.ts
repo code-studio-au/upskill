@@ -7,6 +7,8 @@ import {
   type LearnerOnboardingStepResult,
 } from "#/features/onboarding/onboarding.schema";
 import {
+  isOperationalRegionQuestion,
+  isRegionGroupQuestion,
   parseSurveyVersionContent,
   type SurveyAnswerValue,
   type SurveyQuestion,
@@ -228,13 +230,14 @@ export async function saveLearnerOnboardingStep(
       .executeTakeFirst();
     if (!row) return { status: "not-found" };
     const content = parseSurveyVersionContent(row.content);
-    const items = flattenedItems(content);
+    const storedAnswerValues = storedAnswers(row.answers);
+    const items = flattenedItems(content, storedAnswerValues);
     if (row.status === "completed") {
       if (!row.submittedAt) return { status: "unavailable" };
       return {
         status: "submitted",
         progress: deriveProgress(content, {
-          answers: storedAnswers(row.answers),
+          answers: storedAnswerValues,
           visitedItemIds: items.map((item) => item.id),
           currentItemId: null,
           completedAt: row.submittedAt,
@@ -252,11 +255,34 @@ export async function saveLearnerOnboardingStep(
         status: "invalid",
         message: "Complete the current onboarding item before continuing.",
       };
-    let answers = storedAnswers(row.answers);
+    let answers = storedAnswerValues;
     if (item.kind !== "instruction") {
       const validation = validateAnswer(item, answer);
       if (!validation.valid)
         return { status: "invalid", message: validation.message };
+      if (
+        isOperationalRegionQuestion(item) &&
+        typeof validation.answer === "string"
+      ) {
+        const groupQuestion = items.find(isRegionGroupQuestion);
+        const groupAnswer = groupQuestion
+          ? answers[groupQuestion.id]
+          : undefined;
+        const groupId =
+          groupQuestion && typeof groupAnswer === "string"
+            ? groupQuestion.options.find((option) => option.id === groupAnswer)
+                ?.externalValue
+            : undefined;
+        const selectedRegion = item.options.find(
+          (option) => option.id === validation.answer,
+        );
+        if (!groupId || selectedRegion?.parentExternalValue !== groupId)
+          return {
+            status: "invalid",
+            message:
+              "Choose an operational region from the selected region group.",
+          };
+      }
       if (typeof validation.answer === "undefined")
         answers = Object.fromEntries(
           Object.entries(answers).filter(
@@ -264,19 +290,55 @@ export async function saveLearnerOnboardingStep(
           ),
         );
       else answers[item.id] = validation.answer;
+      if (isRegionGroupQuestion(item)) {
+        const operationalQuestion = items.find(isOperationalRegionQuestion);
+        const operationalAnswer = operationalQuestion
+          ? answers[operationalQuestion.id]
+          : undefined;
+        const selectedGroup =
+          typeof validation.answer === "string"
+            ? item.options.find((option) => option.id === validation.answer)
+                ?.externalValue
+            : undefined;
+        const selectedOperationalRegion =
+          operationalQuestion && typeof operationalAnswer === "string"
+            ? operationalQuestion.options.find(
+                (option) => option.id === operationalAnswer,
+              )
+            : undefined;
+        if (
+          operationalQuestion &&
+          selectedOperationalRegion?.parentExternalValue !== selectedGroup
+        )
+          answers = Object.fromEntries(
+            Object.entries(answers).filter(
+              ([questionId]) => questionId !== operationalQuestion.id,
+            ),
+          );
+      }
     }
-    const visitedItemIds = alreadyVisited
-      ? existingVisited
-      : [...existingVisited, item.id];
+    const nextItems = flattenedItems(content, answers);
+    const nextItemIds = new Set(nextItems.map((candidate) => candidate.id));
+    answers = Object.fromEntries(
+      Object.entries(answers).filter(([questionId]) =>
+        nextItemIds.has(questionId),
+      ),
+    );
+    const visitedItemIds = [
+      ...new Set(
+        [...existingVisited, item.id].filter((visitedItemId) =>
+          nextItemIds.has(visitedItemId),
+        ),
+      ),
+    ];
     const visited = new Set(visitedItemIds);
     const completed =
-      items.length > 0 && items.every((candidate) => visited.has(candidate.id));
+      nextItems.length > 0 &&
+      nextItems.every((candidate) => visited.has(candidate.id));
     const now = new Date();
     const currentItemId = completed
       ? null
-      : alreadyVisited
-        ? row.currentItemId
-        : (items[itemIndex + 1]?.id ?? null);
+      : (nextItems.find((candidate) => !visited.has(candidate.id))?.id ?? null);
     await transaction
       .updateTable("onboarding_response")
       .set({
@@ -384,8 +446,8 @@ async function applyProfileMappings(
       update.name = answer;
     if (mapping.destination === "phone" && typeof answer === "string")
       update.phone = answer;
-    if (mapping.destination === "currentRegionId" && mappedRegionId)
-      update.currentRegionId = mappedRegionId;
+    if (mapping.destination === "currentRegionId")
+      update.currentRegionId = mappedRegionId ?? null;
   }
   if (Object.keys(update).length > 0)
     await transaction

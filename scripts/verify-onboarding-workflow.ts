@@ -16,6 +16,8 @@ const user: AuthenticatedUser = {
 };
 const regionId = "verify_onboarding_region";
 const otherRegionId = "verify_onboarding_region_other";
+const regionGroupId = "verify_onboarding_region_group";
+const otherRegionGroupId = "verify_onboarding_region_group_other";
 const database = new Kysely<Database>({
   dialect: new PostgresDialect({
     pool: new Pool({ connectionString: databaseUrl }),
@@ -67,7 +69,12 @@ async function cleanup(): Promise<void> {
   await database.deleteFrom("user").where("id", "=", user.id).execute();
   await database
     .deleteFrom("coordination_region")
-    .where("id", "in", [regionId, otherRegionId])
+    .where("id", "in", [
+      regionId,
+      otherRegionId,
+      regionGroupId,
+      otherRegionGroupId,
+    ])
     .execute();
 }
 
@@ -86,11 +93,29 @@ try {
     .insertInto("coordination_region")
     .values([
       {
+        id: regionGroupId,
+        name: "Verification group",
+        code: "VERIFY-GROUP",
+        kind: "group",
+        parentId: null,
+        status: "active",
+        createdAt: new Date(),
+      },
+      {
+        id: otherRegionGroupId,
+        name: "Other verification group",
+        code: "VERIFY-GROUP-OTHER",
+        kind: "group",
+        parentId: null,
+        status: "active",
+        createdAt: new Date(),
+      },
+      {
         id: regionId,
         name: "Verification region",
         code: "VERIFY-ONBOARDING",
         kind: "operational",
-        parentId: null,
+        parentId: regionGroupId,
         status: "active",
         createdAt: new Date(),
       },
@@ -99,7 +124,7 @@ try {
         name: "Other verification region",
         code: "VERIFY-ONBOARDING-OTHER",
         kind: "operational",
-        parentId: null,
+        parentId: otherRegionGroupId,
         status: "active",
         createdAt: new Date(),
       },
@@ -152,22 +177,58 @@ try {
             format: "phone",
           },
           {
-            id: "onboarding_region",
-            kind: "dropdown",
-            prompt: "Current region",
+            id: "onboarding_works_in_region",
+            kind: "single_choice",
+            prompt: "Do you work in a region?",
             required: true,
             options: [
               {
-                id: "region_verified",
-                label: "Verification region",
-                externalValue: regionId,
+                id: "onboarding_works_in_region_yes",
+                label: "Yes",
+                nextSectionId: "onboarding_region",
               },
               {
-                id: "region_other",
-                label: "Other",
-                externalValue: otherRegionId,
+                id: "onboarding_works_in_region_no",
+                label: "No",
+                nextSectionId: "onboarding_finish",
               },
             ],
+          },
+        ],
+      },
+      {
+        id: "onboarding_region",
+        title: "Region",
+        description: "",
+        items: [
+          {
+            id: "onboarding_region_group",
+            kind: "dropdown",
+            optionSource: "coordination_region_groups",
+            prompt: "Region group",
+            required: true,
+            options: [],
+          },
+          {
+            id: "onboarding_region",
+            kind: "dropdown",
+            optionSource: "coordination_operational_regions",
+            prompt: "Operational region",
+            required: true,
+            options: [],
+          },
+        ],
+      },
+      {
+        id: "onboarding_finish",
+        title: "Finish",
+        description: "",
+        items: [
+          {
+            id: "onboarding_finish_information",
+            kind: "instruction",
+            title: "Profile ready",
+            body: "Continue to finish onboarding.",
           },
         ],
       },
@@ -188,7 +249,6 @@ try {
       profileMappings: [
         { questionId: "onboarding_name", destination: "name" },
         { questionId: "onboarding_phone", destination: "phone" },
-        { questionId: "onboarding_region", destination: "currentRegionId" },
       ],
     },
     user,
@@ -248,17 +308,53 @@ try {
     ).status,
     "advanced",
   );
-  const completed = await saveLearnerOnboardingStep(
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        onboarding.assignmentId,
+        "onboarding_works_in_region",
+        "onboarding_works_in_region_yes",
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        onboarding.assignmentId,
+        "onboarding_region_group",
+        regionGroupId,
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  const wrongGroup = await saveLearnerOnboardingStep(
     onboarding.assignmentId,
     "onboarding_region",
-    "region_verified",
+    otherRegionId,
+    user,
+  );
+  assert.equal(wrongGroup.status, "invalid");
+  const regionCompleted = await saveLearnerOnboardingStep(
+    onboarding.assignmentId,
+    "onboarding_region",
+    regionId,
+    user,
+  );
+  assert.equal(regionCompleted.status, "advanced");
+  const completed = await saveLearnerOnboardingStep(
+    onboarding.assignmentId,
+    "onboarding_finish_information",
+    undefined,
     user,
   );
   assert.equal(completed.status, "submitted");
   const repeatedCompletion = await saveLearnerOnboardingStep(
     onboarding.assignmentId,
     "onboarding_region",
-    "region_verified",
+    regionId,
     user,
   );
   assert.equal(repeatedCompletion.status, "submitted");
@@ -275,8 +371,94 @@ try {
     currentRegionId: regionId,
   });
   assert.equal(await findLearnerOnboarding(user), "complete");
+  const { requireAdminReOnboarding } =
+    await import("#/server/admin/admin-learner.server");
+  assert.equal(await requireAdminReOnboarding(user.id, user), "assigned");
+  const reassigned = await findLearnerOnboarding(user);
+  assert.equal(typeof reassigned, "object");
+  if (typeof reassigned === "string")
+    throw new Error("Expected administrator re-onboarding assignment");
+  assert.notEqual(reassigned.assignmentId, onboarding.assignmentId);
+  assert.equal(
+    await requireAdminReOnboarding(user.id, user),
+    "onboarding-already-required",
+  );
+  const assignmentHistory = await database
+    .selectFrom("onboarding_assignment")
+    .select(["id", "definitionVersionId", "status", "source"])
+    .where("userId", "=", user.id)
+    .orderBy("assignedAt")
+    .execute();
+  assert.deepEqual(assignmentHistory, [
+    {
+      id: onboarding.assignmentId,
+      definitionVersionId: activation.configurationId,
+      status: "completed",
+      source: "automatic",
+    },
+    {
+      id: reassigned.assignmentId,
+      definitionVersionId: secondActivation.configurationId,
+      status: "assigned",
+      source: "administrator",
+    },
+  ]);
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        reassigned.assignmentId,
+        "onboarding_name",
+        "Updated Learner",
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        reassigned.assignmentId,
+        "onboarding_phone",
+        "+61 400 000 000",
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  const skippedRegion = await saveLearnerOnboardingStep(
+    reassigned.assignmentId,
+    "onboarding_works_in_region",
+    "onboarding_works_in_region_no",
+    user,
+  );
+  assert.equal(skippedRegion.status, "advanced");
+  assert.equal(
+    skippedRegion.progress.currentItemId,
+    "onboarding_finish_information",
+  );
+  assert.equal(skippedRegion.progress.totalItems, 4);
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        reassigned.assignmentId,
+        "onboarding_finish_information",
+        undefined,
+        user,
+      )
+    ).status,
+    "submitted",
+  );
+  assert.equal(
+    await database
+      .selectFrom("user")
+      .select("currentRegionId")
+      .where("id", "=", user.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.currentRegionId),
+    null,
+  );
   console.log(
-    "Verified version-pinned onboarding assignment, ordered resume, profile projection and completion gate",
+    "Verified version-pinned onboarding, conditional section branching, profile projection, completion gate and retained administrator re-onboarding",
   );
 } finally {
   await cleanup();

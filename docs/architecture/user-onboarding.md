@@ -83,8 +83,10 @@ The supported content includes:
 - titled Sections;
 - Text/Instruction Blocks;
 - required and optional questions;
-- Short/Long text, Single/Multiple choice, searchable Dropdown/combobox,
+- Short/Long text, Single/Multiple choice, Dropdown,
   Checkbox/acknowledgement, Number, Date and Rating/Likert questions;
+- directory-backed Region group and Operational region dropdowns whose options
+  cannot be edited in the Survey Designer;
 - individual or bulk-pasted option authoring, including spreadsheet region
   lists;
 - question/Section ordering and validation; and
@@ -116,9 +118,11 @@ in-progress assignment stays pinned to its exact version even if a newer version
 becomes active. A superseding assignment is explicit; it must retain the old
 assignment and explain why the new one replaced it.
 
-Re-onboarding gates the ordinary learner dashboard at the next authenticated
-dashboard boundary. It does not revoke identity, entitlements, registrations,
-historical Attendance or Learning Evidence.
+An administrator can require re-onboarding from the retained User profile. The
+new assignment pins the currently active Onboarding Definition Version and
+gates the ordinary learner dashboard at the next authenticated dashboard
+boundary. It does not revoke identity, entitlements, registrations, historical
+Attendance or Learning Evidence.
 
 ### Assignment and completion flow
 
@@ -129,6 +133,7 @@ soft account created/reused
   -> onboarding requirement resolved server-side
   -> exact active version assigned if required
   -> onboarding form started/resumed
+  -> answer-based conditional paths skip inapplicable sections
   -> final answers validated against pinned Survey Version
   -> approved profile mappings + response + completion committed atomically
   -> onboarding.completed fact placed in the outbox
@@ -153,10 +158,12 @@ version snapshots an allowlisted, typed mapping from question key to profile
 field. Final submission validates and writes those mapped values in the same
 transaction as completion.
 
-Dropdown options store stable IDs rather than labels. A profile mapping such as
-current region must map the selected option to an authorised canonical Region
-ID; pasting a region label into the questionnaire does not create or infer a
-domain Region. A required terms/privacy Checkbox is satisfied only by explicit
+Dropdown options store stable IDs rather than labels. The Region group question
+snapshots active Region Groups, and the Operational region question snapshots
+active Operational Regions and their parent relationship. The latter is
+filtered by the selected Region Group and is automatically mapped to the User's
+current canonical Region ID. Authors cannot edit these directory-backed option
+sets. A required terms/privacy Checkbox is satisfied only by explicit
 acceptance and references the exact versioned terms/privacy content.
 
 Raw answer payloads are never the live profile source of truth. Users may later
@@ -245,8 +252,8 @@ editing the derived state.
    onboarding route.
 4. **Partly implemented:** typed name, phone and current-region mappings are
    transactional; durable completion outbox dispatch remains pending.
-5. **Partly implemented:** version activation exists; explicit re-onboarding
-   campaigns remain pending.
+5. **Partly implemented:** version activation and explicit User-level
+   administrator re-onboarding exist; bulk/cohort campaigns remain pending.
 6. **Pending:** privacy-scoped support/reporting and retention/redaction.
 
 ## Related Decisions
@@ -256,3 +263,4 @@ editing the derived state.
 - [ADR 0023: User onboarding and open-entry guest check-in](../adr/0023-onboarding-and-open-entry-guest-check-in.md)
 - [ADR 0029: Survey-backed versioned user onboarding](../adr/0029-survey-backed-versioned-user-onboarding.md)
 - [ADR 0030: Standard Survey question types and option authoring](../adr/0030-standard-survey-question-types-and-option-authoring.md)
+- [ADR 0033: Forward-only Survey branching](../adr/0033-forward-only-survey-branching.md)

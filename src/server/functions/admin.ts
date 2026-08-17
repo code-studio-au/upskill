@@ -3,6 +3,7 @@ import {
   adminEnrollmentParamsSchema,
   adminLearnerParamsSchema,
   adminLearnerSearchSchema,
+  adminRequireReOnboardingSchema,
   adminProgressOverrideInputSchema,
   type AdminEnrollmentResult,
   type AdminProfileResult,
@@ -10,6 +11,7 @@ import {
   type AdminResult,
   type AdminLearnerDirectory,
   type AdminOverview,
+  type AdminRequireReOnboardingResult,
 } from "#/features/admin/admin.schema";
 
 export const getAdminOverview = createServerFn({ method: "GET" }).handler(
@@ -82,4 +84,22 @@ export const overrideAdminProgress = createServerFn({ method: "POST" })
     return outcome === "not-found"
       ? { status: "not-found" }
       : { status: "ready", data: { outcome } };
+  });
+
+export const requireAdminReOnboarding = createServerFn({ method: "POST" })
+  .validator(adminRequireReOnboardingSchema)
+  .handler(async ({ data }): Promise<AdminRequireReOnboardingResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { requireAdminReOnboarding: requireOnboarding } =
+      await import("#/server/admin/admin-learner.server");
+    const outcome = await requireOnboarding(data.userId, request.user);
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "no-active-onboarding")
+      return { status: "conflict", reason: "no_active_onboarding" };
+    if (outcome === "onboarding-already-required")
+      return { status: "conflict", reason: "onboarding_already_required" };
+    return { status: "ready", data: { outcome } };
   });

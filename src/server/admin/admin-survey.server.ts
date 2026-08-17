@@ -5,10 +5,14 @@ import type {
   AdminSurveyDetail,
   AdminSurveyDraft,
   AdminSurveySummary,
+  SurveyOption,
   SurveyVersionContent,
 } from "#/features/survey/survey.schema";
 import {
+  applyRegionDirectoryOptions,
   adminSurveyDraftSchema,
+  isOperationalRegionQuestion,
+  isRegionGroupQuestion,
   parseSurveyVersionContent,
   surveyVersionContentSchema,
 } from "#/features/survey/survey.schema";
@@ -31,6 +35,76 @@ function blankSurvey(title: string): SurveyVersionContent {
       },
     ],
   };
+}
+
+async function findRegionDirectoryOptions(): Promise<{
+  regionGroups: Array<SurveyOption>;
+  operationalRegions: Array<SurveyOption>;
+}> {
+  const database = getDatabase();
+  const [groups, operationalRegions] = await Promise.all([
+    database
+      .selectFrom("coordination_region")
+      .select(["id", "name", "code"])
+      .where("kind", "=", "group")
+      .where("status", "=", "active")
+      .orderBy("name")
+      .execute(),
+    database
+      .selectFrom("coordination_region as region")
+      .innerJoin(
+        "coordination_region as parent",
+        "parent.id",
+        "region.parentId",
+      )
+      .select(["region.id", "region.name", "region.code", "region.parentId"])
+      .where("region.kind", "=", "operational")
+      .where("region.status", "=", "active")
+      .where("parent.kind", "=", "group")
+      .where("parent.status", "=", "active")
+      .orderBy("parent.name")
+      .orderBy("region.name")
+      .execute(),
+  ]);
+  return {
+    regionGroups: groups.map((group) => ({
+      id: group.id,
+      label: `${group.name} (${group.code})`,
+      externalValue: group.id,
+    })),
+    operationalRegions: operationalRegions.map((region) => ({
+      id: region.id,
+      label: `${region.name} (${region.code})`,
+      externalValue: region.id,
+      parentExternalValue: region.parentId ?? undefined,
+    })),
+  };
+}
+
+function regionDirectoryQuestionSummary(content: SurveyVersionContent): {
+  groups: number;
+  operationalRegions: number;
+  groupIndex: number;
+  operationalIndex: number;
+} {
+  let groups = 0;
+  let operationalRegions = 0;
+  let groupIndex = -1;
+  let operationalIndex = -1;
+  let itemIndex = 0;
+  for (const section of content.sections)
+    for (const item of section.items) {
+      if (isRegionGroupQuestion(item)) {
+        groups += 1;
+        if (groupIndex < 0) groupIndex = itemIndex;
+      }
+      if (isOperationalRegionQuestion(item)) {
+        operationalRegions += 1;
+        if (operationalIndex < 0) operationalIndex = itemIndex;
+      }
+      itemIndex += 1;
+    }
+  return { groups, operationalRegions, groupIndex, operationalIndex };
 }
 
 export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
@@ -105,8 +179,15 @@ export async function findAdminSurvey(
   const version =
     versions.find((candidate) => candidate.publishedAt === null) ?? versions[0];
   if (!version) throw new Error("Survey has no version");
-  const content = parseSurveyVersionContent(version.content);
-  const courseUsage = await findContentCourseVersionUsage();
+  const parsedContent = parseSurveyVersionContent(version.content);
+  const [courseUsage, regionDirectoryOptions] = await Promise.all([
+    findContentCourseVersionUsage(),
+    findRegionDirectoryOptions(),
+  ]);
+  const content =
+    version.publishedAt === null && survey.surveyUsage === "onboarding"
+      ? applyRegionDirectoryOptions(parsedContent, regionDirectoryOptions)
+      : parsedContent;
   return {
     survey: {
       id: survey.id,
@@ -125,6 +206,14 @@ export async function findAdminSurvey(
       version: candidate.version,
       publishedAt: candidate.publishedAt?.toISOString() ?? null,
     })),
+    regionGroupOptions:
+      survey.surveyUsage === "onboarding"
+        ? regionDirectoryOptions.regionGroups
+        : [],
+    operationalRegionOptions:
+      survey.surveyUsage === "onboarding"
+        ? regionDirectoryOptions.operationalRegions
+        : [],
     draft: adminSurveyDraftSchema.parse({
       surveyId,
       versionId: version.id,
@@ -183,20 +272,42 @@ export async function createAdminSurvey(
 export async function saveAdminSurveyDraft(
   draft: AdminSurveyDraft,
   user: AuthenticatedUser,
-): Promise<"saved" | "not-found" | "published"> {
+): Promise<"saved" | "not-found" | "published" | "invalid"> {
   const database = getDatabase();
-  const content = surveyVersionContentSchema.parse(draft);
+  const parsedContent = surveyVersionContentSchema.parse(draft);
+  const regionDirectoryOptions = await findRegionDirectoryOptions();
   const saved = await database.transaction().execute(async (transaction) => {
     const version = await transaction
       .selectFrom("learning_activity_version")
-      .select(["id", "publishedAt"])
-      .where("id", "=", draft.versionId)
-      .where("activityId", "=", draft.surveyId)
-      .where("kind", "=", "survey")
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "learning_activity_version.id",
+        "learning_activity_version.publishedAt",
+        "learning_activity.surveyUsage",
+      ])
+      .where("learning_activity_version.id", "=", draft.versionId)
+      .where("learning_activity_version.activityId", "=", draft.surveyId)
+      .where("learning_activity_version.kind", "=", "survey")
       .forUpdate()
       .executeTakeFirst();
     if (!version) return "not-found" as const;
     if (version.publishedAt) return "published" as const;
+    const regionQuestionCounts = regionDirectoryQuestionSummary(parsedContent);
+    if (
+      regionQuestionCounts.groups > 1 ||
+      regionQuestionCounts.operationalRegions > 1 ||
+      ((regionQuestionCounts.groups > 0 ||
+        regionQuestionCounts.operationalRegions > 0) &&
+        version.surveyUsage !== "onboarding")
+    )
+      return "invalid" as const;
+    const content = surveyVersionContentSchema.parse(
+      applyRegionDirectoryOptions(parsedContent, regionDirectoryOptions),
+    );
     await transaction
       .updateTable("survey_version")
       .set({ content })
@@ -296,6 +407,7 @@ export async function publishAdminSurveyVersion(
   user: AuthenticatedUser,
 ): Promise<"published" | "not-found" | "invalid"> {
   const database = getDatabase();
+  const regionDirectoryOptions = await findRegionDirectoryOptions();
   return await database.transaction().execute(async (transaction) => {
     const version = await transaction
       .selectFrom("learning_activity_version")
@@ -304,10 +416,16 @@ export async function publishAdminSurveyVersion(
         "survey_version.id",
         "learning_activity_version.id",
       )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
       .select([
         "learning_activity_version.version",
         "survey_version.content",
         "learning_activity_version.publishedAt",
+        "learning_activity.surveyUsage",
       ])
       .where("learning_activity_version.id", "=", versionId)
       .where("learning_activity_version.activityId", "=", surveyId)
@@ -315,13 +433,38 @@ export async function publishAdminSurveyVersion(
       .executeTakeFirst();
     if (!version) return "not-found" as const;
     if (version.publishedAt) return "invalid" as const;
-    const content = parseSurveyVersionContent(version.content);
+    const parsedContent = parseSurveyVersionContent(version.content);
+    const regionQuestionCounts = regionDirectoryQuestionSummary(parsedContent);
+    if (
+      regionQuestionCounts.groups > 1 ||
+      regionQuestionCounts.operationalRegions > 1 ||
+      ((regionQuestionCounts.groups > 0 ||
+        regionQuestionCounts.operationalRegions > 0) &&
+        version.surveyUsage !== "onboarding") ||
+      (regionQuestionCounts.groups > 0 &&
+        regionDirectoryOptions.regionGroups.length === 0) ||
+      (regionQuestionCounts.operationalRegions > 0 &&
+        (regionDirectoryOptions.operationalRegions.length === 0 ||
+          regionQuestionCounts.groupIndex < 0 ||
+          regionQuestionCounts.operationalIndex <
+            regionQuestionCounts.groupIndex))
+    )
+      return "invalid" as const;
+    const content = applyRegionDirectoryOptions(
+      parsedContent,
+      regionDirectoryOptions,
+    );
     if (
       content.sections.length === 0 ||
       content.sections.some((section) => section.items.length === 0)
     )
       return "invalid" as const;
     const now = new Date();
+    await transaction
+      .updateTable("survey_version")
+      .set({ content })
+      .where("id", "=", versionId)
+      .execute();
     await transaction
       .updateTable("learning_activity_version")
       .set({ publishedAt: now })

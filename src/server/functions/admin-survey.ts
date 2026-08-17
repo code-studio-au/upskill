@@ -62,6 +62,8 @@ export const saveAdminSurvey = createServerFn({ method: "POST" })
       await import("#/server/admin/admin-survey.server");
     const result = await saveAdminSurveyDraft(data, request.user);
     if (result === "not-found") return { status: "not-found" };
+    if (result === "invalid")
+      return { status: "conflict", reason: "invalid_region_question" };
     if (result === "published")
       return { status: "conflict", reason: "version_is_published" };
     return {

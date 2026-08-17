@@ -33,6 +33,7 @@ export const durableAuditActions = [
   "event_registration.administrator_added",
   "event_registration.coordinator_reviewed",
   "event_registration.final_decided",
+  "event_registration.region_reassigned",
   "event_registration.submitted",
   "event_registration.withdrawn",
   "event_template.created",
@@ -58,6 +59,7 @@ export const durableAuditActions = [
   "user.account_activated",
   "user.account_setup_resent",
   "user.provisional_created",
+  "user.onboarding_reassigned",
 ] as const satisfies ReadonlyArray<AuditEventAction>;
 
 export type DurableAuditAction = (typeof durableAuditActions)[number];

@@ -9,6 +9,7 @@ import {
 import { useState } from "react";
 import { SurveyQuestionEditor } from "./SurveyQuestionEditor";
 import type {
+  SurveyOption,
   SurveyItem,
   SurveyQuestion,
   SurveySection,
@@ -57,10 +58,41 @@ function newItem(kind: SurveyItem["kind"]): SurveyItem {
     ...base,
     kind,
     options: [
-      { id: `option_${crypto.randomUUID()}`, label: "Option 1" },
-      { id: `option_${crypto.randomUUID()}`, label: "Option 2" },
+      { id: `option_${crypto.randomUUID()}`, label: "" },
+      { id: `option_${crypto.randomUUID()}`, label: "" },
     ],
   } satisfies SurveyQuestion;
+}
+
+function newRegionDirectoryItem(
+  optionSource:
+    "coordination_region_groups" | "coordination_operational_regions",
+  options: Array<SurveyOption>,
+): SurveyItem {
+  return {
+    id: `question_${crypto.randomUUID()}`,
+    kind: "dropdown",
+    optionSource,
+    prompt:
+      optionSource === "coordination_region_groups"
+        ? "Region group"
+        : "Operational region",
+    required: true,
+    options,
+  };
+}
+
+function newYesNoItem(): SurveyItem {
+  return {
+    id: `question_${crypto.randomUUID()}`,
+    kind: "single_choice",
+    prompt: "New Yes / No question",
+    required: true,
+    options: [
+      { id: `option_${crypto.randomUUID()}`, label: "Yes" },
+      { id: `option_${crypto.randomUUID()}`, label: "No" },
+    ],
+  };
 }
 
 function newSection(index: number): SurveySection {
@@ -72,22 +104,85 @@ function newSection(index: number): SurveySection {
   };
 }
 
+function forwardBranchesOnly(
+  sections: Array<SurveySection>,
+): Array<SurveySection> {
+  const sectionIndexes = new Map(
+    sections.map((section, index) => [section.id, index] as const),
+  );
+  return sections.map((section, sectionIndex) => ({
+    ...section,
+    items: section.items.map((item) => {
+      if (
+        item.kind !== "single_choice" &&
+        item.kind !== "multiple_choice" &&
+        item.kind !== "dropdown"
+      )
+        return item;
+      return {
+        ...item,
+        options: item.options.map((option) => {
+          if (
+            !option.nextSectionId ||
+            (sectionIndexes.get(option.nextSectionId) ?? -1) > sectionIndex
+          )
+            return option;
+          const withoutBranch = { ...option };
+          delete withoutBranch.nextSectionId;
+          return withoutBranch;
+        }),
+      };
+    }),
+  }));
+}
+
 export function SurveySectionsEditor({
   editable,
   onChange,
+  operationalRegionOptions,
+  regionGroupOptions,
   sections,
+  usage,
 }: {
   editable: boolean;
   onChange: (sections: Array<SurveySection>) => void;
+  operationalRegionOptions: Array<SurveyOption>;
+  regionGroupOptions: Array<SurveyOption>;
   sections: Array<SurveySection>;
+  usage: "learning" | "onboarding";
 }) {
   const [removeTarget, setRemoveTarget] = useState<{
     sectionId: string;
     itemId?: string;
   } | null>(null);
+  const hasRegionGroupQuestion = sections.some((section) =>
+    section.items.some(
+      (item) =>
+        item.kind === "dropdown" &&
+        item.optionSource === "coordination_region_groups",
+    ),
+  );
+  const hasOperationalRegionQuestion = sections.some((section) =>
+    section.items.some(
+      (item) =>
+        item.kind === "dropdown" &&
+        item.optionSource === "coordination_operational_regions",
+    ),
+  );
+  const regionGroupSectionIndex = sections.findIndex((section) =>
+    section.items.some(
+      (item) =>
+        item.kind === "dropdown" &&
+        item.optionSource === "coordination_region_groups",
+    ),
+  );
+
+  function commit(next: Array<SurveySection>): void {
+    onChange(forwardBranchesOnly(next));
+  }
 
   function updateSection(section: SurveySection): void {
-    onChange(
+    commit(
       sections.map((candidate) =>
         candidate.id === section.id ? section : candidate,
       ),
@@ -118,7 +213,7 @@ export function SurveySectionsEditor({
                     variant="default"
                     disabled={sectionIndex === 0}
                     onClick={() => {
-                      onChange(move(sections, sectionIndex, -1));
+                      commit(move(sections, sectionIndex, -1));
                     }}
                   >
                     Up
@@ -128,7 +223,7 @@ export function SurveySectionsEditor({
                     variant="default"
                     disabled={sectionIndex === sections.length - 1}
                     onClick={() => {
-                      onChange(move(sections, sectionIndex, 1));
+                      commit(move(sections, sectionIndex, 1));
                     }}
                   >
                     Down
@@ -177,6 +272,9 @@ export function SurveySectionsEditor({
                 item={item}
                 index={itemIndex}
                 total={section.items.length}
+                branchSections={sections
+                  .slice(sectionIndex + 1)
+                  .map(({ id, title }) => ({ id, title }))}
                 disabled={!editable}
                 onChange={(updated) => {
                   updateSection({
@@ -199,6 +297,54 @@ export function SurveySectionsEditor({
             ))}
             {editable ? (
               <Group>
+                {usage === "onboarding" ? (
+                  <>
+                    <Button
+                      variant="light"
+                      disabled={
+                        hasRegionGroupQuestion ||
+                        regionGroupOptions.length === 0
+                      }
+                      onClick={() => {
+                        updateSection({
+                          ...section,
+                          items: [
+                            ...section.items,
+                            newRegionDirectoryItem(
+                              "coordination_region_groups",
+                              regionGroupOptions,
+                            ),
+                          ],
+                        });
+                      }}
+                    >
+                      Add region group
+                    </Button>
+                    <Button
+                      variant="light"
+                      disabled={
+                        hasOperationalRegionQuestion ||
+                        operationalRegionOptions.length === 0 ||
+                        regionGroupSectionIndex < 0 ||
+                        regionGroupSectionIndex > sectionIndex
+                      }
+                      onClick={() => {
+                        updateSection({
+                          ...section,
+                          items: [
+                            ...section.items,
+                            newRegionDirectoryItem(
+                              "coordination_operational_regions",
+                              operationalRegionOptions,
+                            ),
+                          ],
+                        });
+                      }}
+                    >
+                      Add operational region
+                    </Button>
+                  </>
+                ) : null}
                 {(
                   [
                     ["single_choice", "Add single choice"],
@@ -226,6 +372,17 @@ export function SurveySectionsEditor({
                     {label}
                   </Button>
                 ))}
+                <Button
+                  variant="light"
+                  onClick={() => {
+                    updateSection({
+                      ...section,
+                      items: [...section.items, newYesNoItem()],
+                    });
+                  }}
+                >
+                  Add Yes / No
+                </Button>
               </Group>
             ) : null}
           </Stack>
@@ -235,7 +392,7 @@ export function SurveySectionsEditor({
         <Button
           variant="outline"
           onClick={() => {
-            onChange([...sections, newSection(sections.length)]);
+            commit([...sections, newSection(sections.length)]);
           }}
         >
           Add section
@@ -256,7 +413,7 @@ export function SurveySectionsEditor({
             setRemoveTarget(null);
           }}
           onConfirm={() => {
-            onChange(
+            commit(
               removeTarget.itemId
                 ? sections.map((section) =>
                     section.id === removeTarget.sectionId
