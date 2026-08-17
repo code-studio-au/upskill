@@ -22,6 +22,10 @@ export const adminLearnerParamsSchema = z.object({
   userId: adminIdentifierSchema,
 });
 
+export const adminRequireReOnboardingSchema = z.object({
+  userId: adminIdentifierSchema,
+});
+
 export const adminEnrollmentParamsSchema = z.object({
   userId: adminIdentifierSchema,
   enrollmentId: adminIdentifierSchema,
@@ -96,6 +100,27 @@ interface AdminLearnerEnrollment {
 
 export interface AdminLearnerProfile {
   learner: { id: string; name: string; email: string; joinedAt: string };
+  onboarding: {
+    activeConfiguration: {
+      definitionVersionId: string;
+      definitionVersion: number;
+      surveyTitle: string;
+      surveyVersion: number;
+    } | null;
+    canRequire: boolean;
+    assignments: Array<{
+      id: string;
+      status: "assigned" | "in_progress" | "completed" | "superseded";
+      source: "automatic" | "administrator" | "campaign";
+      definitionVersion: number;
+      surveyTitle: string;
+      surveyVersion: number;
+      assignedAt: string;
+      startedAt: string | null;
+      completedAt: string | null;
+      supersededAt: string | null;
+    }>;
+  };
   enrollments: Array<AdminLearnerEnrollment>;
 }
 
@@ -169,3 +194,11 @@ export type AdminEnrollmentResult =
 
 export type AdminProgressOverrideResult =
   AdminResult<{ outcome: "changed" | "unchanged" }> | { status: "not-found" };
+
+export type AdminRequireReOnboardingResult =
+  | AdminResult<{ outcome: "assigned" }>
+  | { status: "not-found" }
+  | {
+      status: "conflict";
+      reason: "no_active_onboarding" | "onboarding_already_required";
+    };

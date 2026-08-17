@@ -166,10 +166,13 @@ export async function findLearnerEventSurvey(
       .executeTakeFirst(),
   ]);
   const content = parseSurveyVersionContent(row.content);
-  const allItemIds = flattenedItems(content).map((item) => item.id);
+  const responseAnswers = storedAnswers(response?.answers);
+  const allItemIds = flattenedItems(content, responseAnswers).map(
+    (item) => item.id,
+  );
   const stored: StoredProgress | null = response
     ? {
-        answers: storedAnswers(response.answers),
+        answers: responseAnswers,
         visitedItemIds: allItemIds,
         currentItemId: null,
         completedAt: progress?.completedAt ?? response.submittedAt,
@@ -212,7 +215,6 @@ export async function advanceLearnerEventSurvey(
       if (!row.available || !row.publishedAt)
         return { status: "unavailable" } as const;
       const content = parseSurveyVersionContent(row.content);
-      const items = flattenedItems(content);
       const submittedResponse = await transaction
         .selectFrom("survey_response")
         .select(["answers", "submittedAt"])
@@ -223,17 +225,20 @@ export async function advanceLearnerEventSurvey(
           input.eventTemplateVersionItemId,
         )
         .executeTakeFirst();
-      if (submittedResponse)
+      if (submittedResponse) {
+        const submittedAnswers = storedAnswers(submittedResponse.answers);
+        const items = flattenedItems(content, submittedAnswers);
         return {
           status: "submitted",
           progress: deriveProgress(content, {
-            answers: storedAnswers(submittedResponse.answers),
+            answers: submittedAnswers,
             visitedItemIds: items.map((item) => item.id),
             currentItemId: null,
             completedAt: submittedResponse.submittedAt,
           }),
           completedCourse: false,
         } as const;
+      }
       const persisted = await transaction
         .selectFrom("survey_progress")
         .select(["answers", "visitedItemIds", "currentItemId", "completedAt"])
@@ -255,9 +260,10 @@ export async function advanceLearnerEventSurvey(
         : {
             answers: {},
             visitedItemIds: [],
-            currentItemId: items[0]?.id ?? null,
+            currentItemId: flattenedItems(content, {})[0]?.id ?? null,
             completedAt: null,
           };
+      const items = flattenedItems(content, stored.answers);
       const itemIndex = items.findIndex((item) => item.id === input.itemId);
       if (itemIndex < 0)
         return {
@@ -290,13 +296,26 @@ export async function advanceLearnerEventSurvey(
           );
         else answers[item.id] = validation.answer;
       }
-      const visitedItemIds = alreadyVisited
-        ? stored.visitedItemIds
-        : [...stored.visitedItemIds, item.id];
-      const currentItemId = alreadyVisited
-        ? stored.currentItemId
-        : (items[itemIndex + 1]?.id ?? null);
-      const completed = visitedItemIds.length === items.length;
+      const nextItems = flattenedItems(content, answers);
+      const nextItemIds = new Set(nextItems.map((candidate) => candidate.id));
+      answers = Object.fromEntries(
+        Object.entries(answers).filter(([questionId]) =>
+          nextItemIds.has(questionId),
+        ),
+      );
+      const visitedItemIds = [
+        ...new Set(
+          [...stored.visitedItemIds, item.id].filter((visitedItemId) =>
+            nextItemIds.has(visitedItemId),
+          ),
+        ),
+      ];
+      const visited = new Set(visitedItemIds);
+      const currentItemId =
+        nextItems.find((candidate) => !visited.has(candidate.id))?.id ?? null;
+      const completed =
+        nextItems.length > 0 &&
+        nextItems.every((candidate) => visited.has(candidate.id));
       const completedAt = completed ? now : null;
       await transaction
         .insertInto("survey_progress")

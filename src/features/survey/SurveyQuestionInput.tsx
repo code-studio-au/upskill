@@ -5,8 +5,8 @@ import type {
   SurveyAnswerValue,
   SurveyQuestion,
 } from "#/features/survey/survey.schema";
-import { useId, useState } from "react";
 import classes from "./SurveyQuestionInput.module.css";
+import { SurveyLocalDateInput } from "./SurveyLocalDateInput";
 
 export function SurveyQuestionInput({
   error,
@@ -23,10 +23,11 @@ export function SurveyQuestionInput({
 }) {
   if (question.kind === "dropdown")
     return (
-      <SearchableQuestionSelect
+      <DropdownQuestionSelect
         question={question}
         value={typeof value === "string" ? value : undefined}
         error={error}
+        errorId={errorId}
         onChange={onChange}
       />
     );
@@ -141,14 +142,11 @@ export function SurveyQuestionInput({
     );
   if (question.kind === "date")
     return (
-      <MantineTextInput
+      <SurveyLocalDateInput
         aria-label={question.prompt}
         error={error}
-        type="date"
         value={typeof value === "string" ? value : ""}
-        onChange={(event) => {
-          onChange(event.currentTarget.value || undefined);
-        }}
+        onChange={onChange}
       />
     );
   return (
@@ -174,55 +172,46 @@ export function SurveyQuestionInput({
   );
 }
 
-function SearchableQuestionSelect({
+function DropdownQuestionSelect({
   error,
+  errorId,
   onChange,
   question,
   value,
 }: {
   error: string | undefined;
+  errorId: string;
   onChange: (value: SurveyAnswerValue | undefined) => void;
   question: Extract<SurveyQuestion, { kind: "dropdown" }>;
   value: string | undefined;
 }) {
-  const listId = useId();
-  const selectedLabel =
-    question.options.find((option) => option.id === value)?.label ?? "";
-  const [query, setQuery] = useState(selectedLabel);
+  const unavailable =
+    question.optionSource === "coordination_operational_regions" &&
+    question.options.length === 0;
   return (
-    <MantineTextInput
-      aria-label={question.prompt}
-      autoComplete="off"
-      error={error}
-      list={listId}
-      placeholder="Search or choose an answer"
-      value={query}
-      onChange={(event) => {
-        const next = event.currentTarget.value;
-        setQuery(next);
-        const match = question.options.find(
-          (option) =>
-            option.label.toLocaleLowerCase("en-AU") ===
-            next.toLocaleLowerCase("en-AU"),
-        );
-        onChange(match?.id);
-      }}
-      onBlur={() => {
-        const match = question.options.find(
-          (option) =>
-            option.label.toLocaleLowerCase("en-AU") ===
-            query.toLocaleLowerCase("en-AU"),
-        );
-        setQuery(match?.label ?? "");
-        onChange(match?.id);
-      }}
-    >
-      <datalist id={listId}>
+    <Stack gap="xs">
+      <select
+        className={classes.select}
+        aria-label={question.prompt}
+        aria-describedby={error ? errorId : undefined}
+        aria-invalid={Boolean(error)}
+        disabled={unavailable}
+        value={value ?? ""}
+        onChange={(event) => {
+          onChange(event.currentTarget.value || undefined);
+        }}
+      >
+        <option value="">
+          {unavailable ? "Choose a region group first" : "Choose an answer"}
+        </option>
         {question.options.map((option) => (
-          <option value={option.label} key={option.id} />
+          <option value={option.id} key={option.id}>
+            {option.label}
+          </option>
         ))}
-      </datalist>
-    </MantineTextInput>
+      </select>
+      <FieldError error={error} errorId={errorId} />
+    </Stack>
   );
 }
 

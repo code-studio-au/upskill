@@ -26,6 +26,13 @@ export const adminEventFinalDecisionSchema = z.object({
   decision: z.enum(["selected", "waitlisted", "not_selected", "cancelled"]),
 });
 
+export const adminEventRegistrationRegionReassignmentSchema = z.object({
+  eventOccurrenceId: identifier,
+  registrationId: identifier,
+  eventOccurrenceRegionId: identifier,
+  confirmFinalizedReassignment: z.boolean(),
+});
+
 export const adminEventAddRegistrationSchema = z.object({
   eventOccurrenceId: identifier,
   name: z.string().check(z.trim(), z.minLength(1), z.maxLength(200)),
@@ -119,6 +126,9 @@ export interface AdminEventOccurrenceOperations {
     status: EventRegistrationStatus;
     regionId: string | null;
     regionName: string | null;
+    profileRegionId: string | null;
+    profileRegionName: string | null;
+    regionMismatch: boolean;
     reviewRoundId: string | null;
     coordinatorPriority: number | null;
     submittedAt: string;
@@ -185,6 +195,8 @@ export interface AdminEventOccurrenceOperations {
       "learner" | "automatic" | "coordinator" | "administrator" | "deadline";
     actorName: string | null;
     priority: number | null;
+    fromRegionName: string | null;
+    toRegionName: string | null;
     occurredAt: string;
   }>;
 }
@@ -205,6 +217,7 @@ export type AdminEventOperationsMutationResult =
       reason:
         | "invalid_transition"
         | "final_decision_locked"
+        | "finalized_reassignment_confirmation_required"
         | "region_locked"
         | "capacity_full"
         | "registration_unavailable"

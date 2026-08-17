@@ -15,7 +15,9 @@ import { firstFormError } from "#/features/shared/form-errors";
 import {
   activateOnboardingSchema,
   type AdminOnboardingData,
+  type OnboardingConfiguration,
 } from "#/features/onboarding/onboarding.schema";
+import { isOperationalRegionQuestion } from "#/features/survey/survey.schema";
 import {
   activateAdminOnboarding,
   getAdminOnboarding,
@@ -23,6 +25,26 @@ import {
 import { useForm } from "@tanstack/react-form";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useState } from "react";
+
+type ProfileMapping = OnboardingConfiguration["profileMappings"][number];
+
+function withAutomaticCurrentRegionMapping(
+  mappings: Array<ProfileMapping>,
+  survey: AdminOnboardingData["surveyVersions"][number] | undefined,
+): Array<ProfileMapping> {
+  const question = survey?.content.sections
+    .flatMap((section) => section.items)
+    .find(isOperationalRegionQuestion);
+  if (!question) return mappings;
+  return [
+    ...mappings.filter(
+      (mapping) =>
+        mapping.destination !== "currentRegionId" &&
+        mapping.questionId !== question.id,
+    ),
+    { questionId: question.id, destination: "currentRegionId" },
+  ];
+}
 
 export const Route = createFileRoute("/admin/onboarding")({
   ssr: false,
@@ -48,12 +70,20 @@ function AdminOnboardingWorkspace({ data }: { data: AdminOnboardingData }) {
   const router = useRouter();
   const [error, setError] = useState<string>();
   const { active, history, surveyVersions } = data;
+  const initialSurveyVersionId =
+    active?.surveyVersionId ?? surveyVersions[0]?.id ?? "";
+  const initialSurvey = surveyVersions.find(
+    (survey) => survey.id === initialSurveyVersionId,
+  );
   const form = useForm({
     defaultValues: {
-      surveyVersionId: active?.surveyVersionId ?? surveyVersions[0]?.id ?? "",
+      surveyVersionId: initialSurveyVersionId,
       privacyNotice: active?.privacyNotice ?? "",
       privacyNoticeVersion: active?.privacyNoticeVersion ?? "1",
-      profileMappings: active?.profileMappings ?? [],
+      profileMappings: withAutomaticCurrentRegionMapping(
+        active?.profileMappings ?? [],
+        initialSurvey,
+      ),
     },
     validators: { onSubmit: activateOnboardingSchema },
     onSubmit: async ({ value }) => {
@@ -107,8 +137,17 @@ function AdminOnboardingWorkspace({ data }: { data: AdminOnboardingData }) {
                       label: `${survey.title} — version ${String(survey.version)}`,
                     }))}
                     onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                      form.setFieldValue("profileMappings", []);
+                      const surveyVersionId = event.currentTarget.value;
+                      field.handleChange(surveyVersionId);
+                      form.setFieldValue(
+                        "profileMappings",
+                        withAutomaticCurrentRegionMapping(
+                          [],
+                          surveyVersions.find(
+                            (survey) => survey.id === surveyVersionId,
+                          ),
+                        ),
+                      );
                     }}
                     required
                   />
@@ -153,6 +192,9 @@ function AdminOnboardingWorkspace({ data }: { data: AdminOnboardingData }) {
                         (item) => item.kind !== "instruction",
                       ),
                     ) ?? [];
+                  const automaticCurrentRegionQuestion = questions.find(
+                    isOperationalRegionQuestion,
+                  );
                   return (
                     <Stack gap="sm">
                       <Title order={3}>Profile mappings</Title>
@@ -182,13 +224,28 @@ function AdminOnboardingWorkspace({ data }: { data: AdminOnboardingData }) {
                                     : "Full name"
                               }
                               value={selected}
-                              data={[
-                                { value: "", label: "Do not update" },
-                                ...compatible.map((question) => ({
-                                  value: question.id,
-                                  label: question.prompt,
-                                })),
-                              ]}
+                              disabled={
+                                destination === "currentRegionId" &&
+                                automaticCurrentRegionQuestion !== undefined
+                              }
+                              data={
+                                destination === "currentRegionId" &&
+                                automaticCurrentRegionQuestion
+                                  ? [
+                                      {
+                                        value:
+                                          automaticCurrentRegionQuestion.id,
+                                        label: `${automaticCurrentRegionQuestion.prompt} (automatic)`,
+                                      },
+                                    ]
+                                  : [
+                                      { value: "", label: "Do not update" },
+                                      ...compatible.map((question) => ({
+                                        value: question.id,
+                                        label: question.prompt,
+                                      })),
+                                    ]
+                              }
                               onChange={(event) => {
                                 const questionId = event.currentTarget.value;
                                 const remaining = field.state.value.filter(

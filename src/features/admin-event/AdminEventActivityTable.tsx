@@ -51,7 +51,12 @@ export function AdminEventActivityTable({
           header: "Transition",
           cell: ({ row }) => {
             const entry = row.original;
-            return `${entry.fromStatus ? `${statusLabels[entry.fromStatus]} → ` : ""}${statusLabels[entry.toStatus]}${entry.priority === null ? "" : ` · priority ${String(entry.priority)}`}`;
+            const state = `${entry.fromStatus ? `${statusLabels[entry.fromStatus]} → ` : ""}${statusLabels[entry.toStatus]}${entry.priority === null ? "" : ` · priority ${String(entry.priority)}`}`;
+            const region =
+              entry.fromRegionName && entry.toRegionName
+                ? ` · ${entry.fromRegionName} → ${entry.toRegionName}`
+                : "";
+            return `${state}${region}`;
           },
         }),
         activityColumn.accessor("source", { header: "Source" }),

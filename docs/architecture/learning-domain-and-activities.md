@@ -349,9 +349,8 @@ survey domain owns question structure and response validation.
 Events should reuse the same survey implementation rather than create a
 second event-specific questionnaire system.
 
-The current implementation supports written, single-choice and multiple-choice
-questions. The accepted target standardises Short text, Long text, Single
-choice, Multiple choice, searchable Dropdown/combobox, labelled
+The shared implementation supports Short text, Long text, Single choice,
+Multiple choice, Dropdown, labelled
 Checkbox/acknowledgement, Number, Date and Rating/Likert questions. Yes/No is a
 Single-choice preset; email/phone/URL are typed Short-text validation modes.
 Instruction Blocks remain non-answer items.
@@ -362,6 +361,12 @@ ordering, duplicate validation and a bounded maximum. Published versions retain
 the exact list. Canonical profile fields such as region require explicit mapping
 from options to domain Region IDs rather than label matching. See
 [ADR 0030](../adr/0030-standard-survey-question-types-and-option-authoring.md).
+
+Single choice and Dropdown answers may use forward-only conditional logic to
+continue at an administrator-selected later Survey Section. The pinned version,
+learner navigation, server validation and progress calculation share the same
+deterministic reachable path; skipped sections do not block completion. See
+[ADR 0033](../adr/0033-forward-only-survey-branching.md).
 
 ## Resources as an Activity Type
 

@@ -18,7 +18,13 @@ import type {
   SurveyAnswerValue,
   SurveyVersionContent,
 } from "#/features/survey/survey.schema";
+import {
+  isOperationalRegionQuestion,
+  isRegionGroupQuestion,
+  type SurveyQuestion,
+} from "#/features/survey/survey.schema";
 import classes from "./LearnerSurveyExperience.module.css";
+import { surveyPathSteps } from "./survey-branching";
 
 const SurveyQuestionInput = lazy(async () => {
   const module = await import("./SurveyQuestionInput");
@@ -30,6 +36,32 @@ interface SurveyExperience {
   content: SurveyVersionContent;
   progress: LearnerSurveyProgress;
   submittedAt: string | null;
+}
+
+function availableQuestion(
+  question: SurveyQuestion,
+  content: SurveyVersionContent,
+  answers: Record<string, SurveyAnswerValue>,
+): SurveyQuestion {
+  if (!isOperationalRegionQuestion(question)) return question;
+  const groupQuestion = content.sections
+    .flatMap((section) => section.items)
+    .find(isRegionGroupQuestion);
+  if (!groupQuestion) return { ...question, options: [] };
+  const groupAnswer = answers[groupQuestion.id];
+  const groupId =
+    typeof groupAnswer === "string"
+      ? groupQuestion.options.find((option) => option.id === groupAnswer)
+          ?.externalValue
+      : undefined;
+  return {
+    ...question,
+    options: groupId
+      ? question.options.filter(
+          (option) => option.parentExternalValue === groupId,
+        )
+      : [],
+  };
 }
 
 export function LearnerSurveyExperience({
@@ -46,20 +78,21 @@ export function LearnerSurveyExperience({
     answer: SurveyAnswerValue | undefined,
   ) => Promise<LearnerSurveyStepResult>;
 }) {
-  const steps = survey.content.sections.flatMap((section, sectionIndex) =>
-    section.items.map((item) => ({ item, section, sectionIndex })),
-  );
-  const initialIndex = Math.max(
-    0,
-    steps.findIndex((step) => step.item.id === survey.progress.currentItemId),
-  );
-  const [displayIndex, setDisplayIndex] = useState(initialIndex);
+  const initialSteps = surveyPathSteps(survey.content, survey.progress.answers);
+  const initialItemId =
+    survey.progress.currentItemId ?? initialSteps[0]?.item.id ?? null;
+  const [displayItemId, setDisplayItemId] = useState(initialItemId);
   const [progress, setProgress] = useState(survey.progress);
   const [error, setError] = useState<string>();
+  const steps = surveyPathSteps(survey.content, progress.answers);
+  const displayIndex = Math.max(
+    0,
+    steps.findIndex((step) => step.item.id === displayItemId),
+  );
   const answerForm = useForm({
     defaultValues: {
-      answer: steps[initialIndex]?.item.id
-        ? survey.progress.answers[steps[initialIndex].item.id]
+      answer: initialItemId
+        ? survey.progress.answers[initialItemId]
         : undefined,
     },
     validators: {
@@ -97,12 +130,19 @@ export function LearnerSurveyExperience({
       }
       setProgress(result.progress);
       if (result.status === "advanced") {
-        const nextIndex = Math.min(displayIndex + 1, steps.length - 1);
-        const next = steps[nextIndex]?.item;
+        const nextSteps = surveyPathSteps(
+          survey.content,
+          result.progress.answers,
+        );
+        const currentIndex = nextSteps.findIndex(
+          (step) => step.item.id === current.item.id,
+        );
+        const next =
+          nextSteps[Math.min(currentIndex + 1, nextSteps.length - 1)]?.item;
         answerForm.reset({
           answer: next ? result.progress.answers[next.id] : undefined,
         });
-        setDisplayIndex(nextIndex);
+        setDisplayItemId(next?.id ?? null);
       }
     },
   });
@@ -217,7 +257,11 @@ export function LearnerSurveyExperience({
                           >
                             <SurveyQuestionInput
                               key={item.id}
-                              question={item}
+                              question={availableQuestion(
+                                item,
+                                survey.content,
+                                progress.answers,
+                              )}
                               value={field.state.value}
                               error={fieldError}
                               errorId={errorId}
@@ -248,7 +292,7 @@ export function LearnerSurveyExperience({
                             ? progress.answers[previous.id]
                             : undefined,
                         });
-                        setDisplayIndex(previousIndex);
+                        setDisplayItemId(previous?.id ?? null);
                       }}
                     >
                       Previous

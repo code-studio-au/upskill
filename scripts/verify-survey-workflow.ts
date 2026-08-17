@@ -148,8 +148,16 @@ try {
             prompt: "Choose one",
             required: true,
             options: [
-              { id: "answer_one", label: "One" },
-              { id: "answer_two", label: "Two" },
+              {
+                id: "answer_one",
+                label: "One",
+                nextSectionId: "survey_section_detail",
+              },
+              {
+                id: "answer_two",
+                label: "Two",
+                nextSectionId: "survey_section_finish",
+              },
             ],
           },
           {
@@ -158,6 +166,34 @@ try {
             prompt: "Optional feedback",
             required: false,
             maximumLength: 200,
+          },
+        ],
+      },
+      {
+        id: "survey_section_detail",
+        title: "Additional detail",
+        description: "Only shown on the first answer path.",
+        items: [
+          {
+            id: "question_detail",
+            kind: "short_text",
+            prompt: "Add detail",
+            required: true,
+            maximumLength: 100,
+            format: "plain",
+          },
+        ],
+      },
+      {
+        id: "survey_section_finish",
+        title: "Finish",
+        description: "The common destination.",
+        items: [
+          {
+            id: "instruction_finish",
+            kind: "instruction",
+            title: "Ready to submit",
+            body: "Continue to finish the survey.",
           },
         ],
       },
@@ -174,7 +210,7 @@ try {
   const detail = await findAdminSurvey(surveyId);
   assert.ok(detail);
   assert.equal(detail.version.version, 2);
-  assert.equal(detail.draft.sections.length, 2);
+  assert.equal(detail.draft.sections.length, 4);
   assert.equal(detail.draft.sections[0]?.items.length, 1);
 
   await database
@@ -301,11 +337,28 @@ try {
     user,
   );
   assert.equal(answered.status, "advanced");
-  const submitted = await advanceLearnerSurvey(
+  assert.equal(answered.progress.currentItemId, "instruction_finish");
+  assert.equal(answered.progress.totalItems, 3);
+  assert.equal(
+    answered.progress.sections.some(
+      (section) => section.id === "survey_section_detail",
+    ),
+    false,
+  );
+  const hiddenItem = await advanceLearnerSurvey(
     {
       enrollmentId: ids.enrollment,
       courseVersionItemId: ids.item,
       itemId: "question_optional",
+    },
+    user,
+  );
+  assert.equal(hiddenItem.status, "invalid");
+  const submitted = await advanceLearnerSurvey(
+    {
+      enrollmentId: ids.enrollment,
+      courseVersionItemId: ids.item,
+      itemId: "instruction_finish",
     },
     user,
   );
@@ -331,7 +384,7 @@ try {
   assert.deepEqual(storedProgress.visitedItemIds, [
     "instruction_privacy",
     "question_required",
-    "question_optional",
+    "instruction_finish",
   ]);
   assert.ok(storedProgress.completedAt);
   assert.equal(
@@ -345,7 +398,7 @@ try {
     "completed",
   );
   console.log(
-    "Verified immutable survey sections, ordered view and answer progress, response evidence and course completion",
+    "Verified immutable survey sections, forward conditional paths, ordered view and answer progress, response evidence and course completion",
   );
 } finally {
   await cleanup();

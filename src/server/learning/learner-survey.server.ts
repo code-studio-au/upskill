@@ -17,6 +17,7 @@ import { getDatabase } from "#/server/db/database.server";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
 import { validateAnswer } from "#/server/learning/survey-answer-validation";
 import { logServerEvent } from "#/server/logging/server-logger";
+import { surveyPathItems } from "#/features/survey/survey-branching";
 
 export interface StoredProgress {
   answers: Record<string, SurveyAnswerValue>;
@@ -27,8 +28,11 @@ export interface StoredProgress {
 
 export function flattenedItems(
   content: SurveyVersionContent,
+  answers?: Readonly<Record<string, SurveyAnswerValue>>,
 ): Array<SurveyItem> {
-  return content.sections.flatMap((section) => section.items);
+  return answers
+    ? surveyPathItems(content, answers)
+    : content.sections.flatMap((section) => section.items);
 }
 
 export function storedAnswers(
@@ -56,7 +60,8 @@ export function deriveProgress(
   content: SurveyVersionContent,
   stored: StoredProgress | null,
 ): LearnerSurveyProgress {
-  const items = flattenedItems(content);
+  const answers = stored?.answers ?? {};
+  const items = flattenedItems(content, answers);
   const validItemIds = new Set(items.map((item) => item.id));
   const visitedItemIds = (stored?.visitedItemIds ?? []).filter((itemId) =>
     validItemIds.has(itemId),
@@ -65,7 +70,9 @@ export function deriveProgress(
   const completedItems = visited.size;
   const totalItems = items.length;
   return {
-    answers: stored?.answers ?? {},
+    answers: Object.fromEntries(
+      Object.entries(answers).filter(([itemId]) => validItemIds.has(itemId)),
+    ),
     visitedItemIds,
     currentItemId:
       stored?.completedAt || totalItems === 0
@@ -78,21 +85,27 @@ export function deriveProgress(
     totalItems,
     percent:
       totalItems === 0 ? 0 : Math.round((completedItems / totalItems) * 100),
-    sections: content.sections.map((section) => {
-      const sectionCompleted = section.items.filter((item) =>
+    sections: content.sections.flatMap((section) => {
+      const availableItems = section.items.filter((item) =>
+        validItemIds.has(item.id),
+      );
+      if (availableItems.length === 0) return [];
+      const sectionCompleted = availableItems.filter((item) =>
         visited.has(item.id),
       ).length;
-      const sectionTotal = section.items.length;
-      return {
-        id: section.id,
-        completedItems: sectionCompleted,
-        totalItems: sectionTotal,
-        percent:
-          sectionTotal === 0
-            ? 0
-            : Math.round((sectionCompleted / sectionTotal) * 100),
-        completed: sectionTotal > 0 && sectionCompleted === sectionTotal,
-      };
+      const sectionTotal = availableItems.length;
+      return [
+        {
+          id: section.id,
+          completedItems: sectionCompleted,
+          totalItems: sectionTotal,
+          percent:
+            sectionTotal === 0
+              ? 0
+              : Math.round((sectionCompleted / sectionTotal) * 100),
+          completed: sectionTotal > 0 && sectionCompleted === sectionTotal,
+        },
+      ];
     }),
   };
 }
@@ -181,10 +194,13 @@ export async function findLearnerSurvey(
   if (!row) return null;
   if (!row.publishedAt) return "unavailable";
   const content = parseSurveyVersionContent(row.content);
-  const completedItems = flattenedItems(content).map((item) => item.id);
+  const responseAnswers = storedAnswers(row.responseAnswers);
+  const completedItems = flattenedItems(content, responseAnswers).map(
+    (item) => item.id,
+  );
   const stored: StoredProgress | null = row.submittedAt
     ? {
-        answers: storedAnswers(row.responseAnswers),
+        answers: responseAnswers,
         visitedItemIds: completedItems,
         currentItemId: null,
         completedAt: row.progressCompletedAt ?? row.submittedAt,
@@ -259,7 +275,6 @@ export async function advanceLearnerSurvey(
     if (!row.publishedAt) return { status: "unavailable" } as const;
 
     const content = parseSurveyVersionContent(row.content);
-    const items = flattenedItems(content);
     const submittedResponse = await transaction
       .selectFrom("survey_response")
       .select(["answers", "submittedAt"])
@@ -267,8 +282,10 @@ export async function advanceLearnerSurvey(
       .where("courseVersionItemId", "=", input.courseVersionItemId)
       .executeTakeFirst();
     if (submittedResponse) {
+      const submittedAnswers = storedAnswers(submittedResponse.answers);
+      const items = flattenedItems(content, submittedAnswers);
       const progress = deriveProgress(content, {
-        answers: storedAnswers(submittedResponse.answers),
+        answers: submittedAnswers,
         visitedItemIds: items.map((item) => item.id),
         currentItemId: null,
         completedAt: submittedResponse.submittedAt,
@@ -297,9 +314,10 @@ export async function advanceLearnerSurvey(
       : {
           answers: {},
           visitedItemIds: [],
-          currentItemId: items[0]?.id ?? null,
+          currentItemId: flattenedItems(content, {})[0]?.id ?? null,
           completedAt: null,
         };
+    const items = flattenedItems(content, stored.answers);
     const itemIndex = items.findIndex((item) => item.id === input.itemId);
     if (itemIndex < 0)
       return {
@@ -334,13 +352,26 @@ export async function advanceLearnerSurvey(
       else answers[item.id] = validation.answer;
     }
 
-    const visitedItemIds = alreadyVisited
-      ? stored.visitedItemIds
-      : [...stored.visitedItemIds, item.id];
-    const currentItemId = alreadyVisited
-      ? stored.currentItemId
-      : (items[itemIndex + 1]?.id ?? null);
-    const completed = visitedItemIds.length === items.length;
+    const nextItems = flattenedItems(content, answers);
+    const nextItemIds = new Set(nextItems.map((candidate) => candidate.id));
+    answers = Object.fromEntries(
+      Object.entries(answers).filter(([questionId]) =>
+        nextItemIds.has(questionId),
+      ),
+    );
+    const visitedItemIds = [
+      ...new Set(
+        [...stored.visitedItemIds, item.id].filter((visitedItemId) =>
+          nextItemIds.has(visitedItemId),
+        ),
+      ),
+    ];
+    const visited = new Set(visitedItemIds);
+    const currentItemId =
+      nextItems.find((candidate) => !visited.has(candidate.id))?.id ?? null;
+    const completed =
+      nextItems.length > 0 &&
+      nextItems.every((candidate) => visited.has(candidate.id));
     const completedAt = completed ? now : null;
 
     await transaction

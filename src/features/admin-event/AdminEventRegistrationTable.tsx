@@ -3,7 +3,7 @@ import {
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import type {
   AdminEventOccurrenceOperations,
   EventRegistrationStatus,
@@ -14,11 +14,17 @@ import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
 import { Badge } from "#/features/shared/Badge";
 import { Button, Group, Stack, Text } from "#/features/shared/mantine";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import {
   decideAdminEventCoordinatorRegistration,
   decideAdminEventFinalRegistration,
   resendAdminEventAccountSetup,
 } from "#/server/functions/admin-event-operations";
+
+const AdminEventRegistrationRegionDialog = lazy(async () => {
+  const module = await import("./AdminEventRegistrationRegionDialog");
+  return { default: module.AdminEventRegistrationRegionDialog };
+});
 
 const statusLabels: Record<EventRegistrationStatus, string> = {
   submitted: "Submitted",
@@ -58,6 +64,8 @@ export function AdminEventRegistrationTable({
     successMessage?: string,
   ) => Promise<void>;
 }) {
+  const [regionRegistration, setRegionRegistration] =
+    useState<Registration | null>(null);
   const data = useMemo(
     () =>
       workspace.registrations.map((registration) => ({
@@ -110,10 +118,39 @@ export function AdminEventRegistrationTable({
             </Stack>
           ),
         }),
-        registrationColumn.accessor(
-          (registration) => registration.regionName ?? "Direct / unregional",
-          { id: "region", header: "Region" },
-        ),
+        registrationColumn.display({
+          id: "region",
+          header: "Region",
+          cell: ({ row }) => {
+            const registration = row.original;
+            return (
+              <Stack gap={4}>
+                <Text>{registration.regionName ?? "Direct / unregional"}</Text>
+                {registration.regionMismatch ? (
+                  <Badge color="orange" variant="light">
+                    Profile: {registration.profileRegionName ?? "No region"}
+                  </Badge>
+                ) : null}
+                {workspace.regions.length > 1 ? (
+                  <Button
+                    size="compact-xs"
+                    variant="subtle"
+                    disabled={
+                      !mutationsAvailable ||
+                      registration.status === "withdrawn" ||
+                      registration.status === "cancelled"
+                    }
+                    onClick={() => {
+                      setRegionRegistration(registration);
+                    }}
+                  >
+                    Change region
+                  </Button>
+                ) : null}
+              </Stack>
+            );
+          },
+        }),
         registrationColumn.display({
           id: "priority",
           header: "Priority",
@@ -240,6 +277,7 @@ export function AdminEventRegistrationTable({
       processingId,
       setPriorities,
       workspace.occurrence.id,
+      workspace.regions,
     ],
   );
   const table = useTable({
@@ -249,9 +287,24 @@ export function AdminEventRegistrationTable({
   });
 
   return (
-    <ResponsiveDataTable
-      table={table}
-      caption="Learner registrations, regional review and final decisions"
-    />
+    <>
+      <ResponsiveDataTable
+        table={table}
+        caption="Learner registrations, regional review and final decisions"
+      />
+      {regionRegistration ? (
+        <Suspense fallback={<LoadingSpinner label="Loading region change" />}>
+          <AdminEventRegistrationRegionDialog
+            workspace={workspace}
+            registration={regionRegistration}
+            processingId={processingId}
+            action={action}
+            onClose={() => {
+              setRegionRegistration(null);
+            }}
+          />
+        </Suspense>
+      ) : null}
+    </>
   );
 }

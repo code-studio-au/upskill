@@ -9,7 +9,10 @@ import {
   activateOnboardingSchema,
   onboardingProfileMappingSchema,
 } from "#/features/onboarding/onboarding.schema";
-import { parseSurveyVersionContent } from "#/features/survey/survey.schema";
+import {
+  isOperationalRegionQuestion,
+  parseSurveyVersionContent,
+} from "#/features/survey/survey.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { logServerEvent } from "#/server/logging/server-logger";
@@ -154,7 +157,30 @@ export async function activateOnboardingConfiguration(
         ),
       ),
     );
-    for (const mapping of parsed.profileMappings) {
+    const currentRegionQuestions = [...questions.values()].filter(
+      isOperationalRegionQuestion,
+    );
+    if (currentRegionQuestions.length > 1)
+      return {
+        status: "invalid",
+        message:
+          "The onboarding survey has more than one current region question.",
+      };
+    const currentRegionQuestion = currentRegionQuestions[0];
+    const profileMappings = currentRegionQuestion
+      ? [
+          ...parsed.profileMappings.filter(
+            (mapping) =>
+              mapping.destination !== "currentRegionId" &&
+              mapping.questionId !== currentRegionQuestion.id,
+          ),
+          {
+            questionId: currentRegionQuestion.id,
+            destination: "currentRegionId" as const,
+          },
+        ]
+      : parsed.profileMappings;
+    for (const mapping of profileMappings) {
       const question = questions.get(mapping.questionId);
       if (!question)
         return {
@@ -191,6 +217,7 @@ export async function activateOnboardingConfiguration(
           .selectFrom("coordination_region")
           .select("id")
           .where("id", "in", regionIds)
+          .where("kind", "=", "operational")
           .where("status", "=", "active")
           .execute();
         if (
@@ -236,7 +263,7 @@ export async function activateOnboardingConfiguration(
         surveyVersionId: parsed.surveyVersionId,
         privacyNotice: parsed.privacyNotice,
         privacyNoticeVersion: parsed.privacyNoticeVersion,
-        profileMappings: JSON.stringify(parsed.profileMappings),
+        profileMappings: JSON.stringify(profileMappings),
         publishedAt: now,
         activatedAt: now,
         deactivatedAt: null,

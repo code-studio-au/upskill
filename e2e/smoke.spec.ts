@@ -1150,8 +1150,8 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: /Questions/u }).click();
     await page.getByRole("button", { name: "Add single choice" }).click();
     await page.getByLabel("Question 1").fill("Was this survey useful?");
-    await page.getByLabel("Option 1").fill("Yes");
-    await page.getByLabel("Option 2").fill("No");
+    await page.getByLabel("Learner-facing label 1").fill("Yes");
+    await page.getByLabel("Learner-facing label 2").fill("No");
     await page.getByRole("button", { name: "Add instruction block" }).click();
     await page.getByLabel("Block title").fill("Before you answer");
     await page
