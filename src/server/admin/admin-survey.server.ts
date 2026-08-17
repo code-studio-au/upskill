@@ -16,6 +16,7 @@ import {
   parseSurveyVersionContent,
   surveyVersionContentSchema,
 } from "#/features/survey/survey.schema";
+import { operationalRegionPathsIncludeRegionGroup } from "#/features/survey/survey-branching";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
@@ -447,7 +448,8 @@ export async function publishAdminSurveyVersion(
         (regionDirectoryOptions.operationalRegions.length === 0 ||
           regionQuestionCounts.groupIndex < 0 ||
           regionQuestionCounts.operationalIndex <
-            regionQuestionCounts.groupIndex))
+            regionQuestionCounts.groupIndex ||
+          !operationalRegionPathsIncludeRegionGroup(parsedContent)))
     )
       return "invalid" as const;
     const content = applyRegionDirectoryOptions(

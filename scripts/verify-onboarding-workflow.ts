@@ -185,7 +185,7 @@ try {
               {
                 id: "onboarding_works_in_region_yes",
                 label: "Yes",
-                nextSectionId: "onboarding_region",
+                nextSectionId: "onboarding_region_group",
               },
               {
                 id: "onboarding_works_in_region_no",
@@ -197,8 +197,8 @@ try {
         ],
       },
       {
-        id: "onboarding_region",
-        title: "Region",
+        id: "onboarding_region_group",
+        title: "Region group",
         description: "",
         items: [
           {
@@ -209,6 +209,13 @@ try {
             required: true,
             options: [],
           },
+        ],
+      },
+      {
+        id: "onboarding_operational_region",
+        title: "Operational region",
+        description: "",
+        items: [
           {
             id: "onboarding_region",
             kind: "dropdown",
@@ -234,6 +241,21 @@ try {
       },
     ],
   };
+  const unsafeDraft = structuredClone(draft);
+  const unsafeBranchQuestion = unsafeDraft.sections[0]?.items[2];
+  if (!unsafeBranchQuestion || unsafeBranchQuestion.kind !== "single_choice")
+    throw new Error("Expected onboarding branch question");
+  const unsafeYesOption = unsafeBranchQuestion.options[0];
+  if (!unsafeYesOption) throw new Error("Expected onboarding yes option");
+  unsafeBranchQuestion.options[0] = {
+    ...unsafeYesOption,
+    nextSectionId: "onboarding_operational_region",
+  };
+  assert.equal(await saveAdminSurveyDraft(unsafeDraft, user), "saved");
+  assert.equal(
+    await publishAdminSurveyVersion(surveyId, created.versionId, user),
+    "invalid",
+  );
   assert.equal(await saveAdminSurveyDraft(draft, user), "saved");
   assert.equal(
     await publishAdminSurveyVersion(surveyId, created.versionId, user),
