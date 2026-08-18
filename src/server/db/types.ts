@@ -476,6 +476,7 @@ interface EventOccurrenceTable {
   venueName: string | null;
   venueAddress: string | null;
   virtualJoinUrl: string | null;
+  openEntryAttendanceMode: Generated<"checked_in" | "attended">;
   administratorAttentionRequired: Generated<boolean>;
   coordinatorAttentionRequired: Generated<boolean>;
   presenterAttentionRequired: Generated<boolean>;
@@ -644,6 +645,11 @@ interface EventRegistrationTable {
   finalDecidedAt: Timestamp | null;
   finalDecidedByUserId: string | null;
   lockedInAt: Timestamp | null;
+  regionMismatchAcknowledgedProfileRegionId: Generated<string | null>;
+  regionMismatchAcknowledgedAt: OptionalTimestamp;
+  regionMismatchAcknowledgedByUserId: Generated<string | null>;
+  regionalReviewWaivedAt: OptionalTimestamp;
+  regionalReviewWaivedByUserId: Generated<string | null>;
 }
 
 interface EventRegistrationTransitionTable {
@@ -660,6 +666,26 @@ interface EventRegistrationTransitionTable {
   occurredAt: Timestamp;
 }
 
+interface EventRegistrationRegionDecisionTable {
+  id: string;
+  eventRegistrationId: string;
+  registrationEventOccurrenceRegionId: string | null;
+  resolution:
+    | "registered_region_confirmed"
+    | "profile_region_confirmed"
+    | "profile_aligned_to_registration"
+    | "region_guest_confirmed";
+  classification: "event_region" | "outside_event_region" | "no_region_guest";
+  reportingRegionId: string | null;
+  reportingRegionCodeSnapshot: string | null;
+  reportingRegionNameSnapshot: string | null;
+  reportingRegionGroupCodeSnapshot: string | null;
+  reportingRegionGroupNameSnapshot: string | null;
+  decidedByUserId: string;
+  decidedAt: Timestamp;
+  supersededAt: Timestamp | null;
+}
+
 interface EventParticipationTable {
   id: string;
   eventOccurrenceId: string;
@@ -671,8 +697,19 @@ interface EventParticipationTable {
   detailsSubmittedAt: Timestamp | null;
   joinDisclosedAt: Timestamp | null;
   checkedInAt: Timestamp | null;
+  privacyAcceptedAt: OptionalTimestamp;
+  privacyNoticeVersion: Generated<string | null>;
   completedAt: OptionalTimestamp;
   createdAt: Timestamp;
+}
+
+interface EventGuestAccessTable {
+  id: string;
+  eventOccurrenceId: string;
+  publicReference: string;
+  generation: Generated<number>;
+  createdAt: Timestamp;
+  revokedAt: Timestamp | null;
 }
 
 interface EventAttendanceTable {
@@ -810,6 +847,7 @@ export type AuditEventAction =
   | "course.published"
   | "course.version_created"
   | "event_occurrence.created"
+  | "event_occurrence.guest_access_rotated"
   | "event_occurrence.updated"
   | "event_occurrence.published"
   | "event_occurrence.lifecycle_changed"
@@ -825,6 +863,8 @@ export type AuditEventAction =
   | "event_registration.administrator_added"
   | "event_registration.coordinator_reviewed"
   | "event_registration.final_decided"
+  | "event_registration.region_mismatch_acknowledged"
+  | "event_registration.region_decided"
   | "event_registration.region_reassigned"
   | "event_registration.submitted"
   | "event_registration.withdrawn"
@@ -855,7 +895,8 @@ export type AuditEventAction =
   | "user.provisional_created"
   | "user.account_activated"
   | "user.account_setup_resent"
-  | "user.onboarding_reassigned";
+  | "user.onboarding_reassigned"
+  | "user.region_updated";
 
 interface AuditEventTable {
   id: string;
@@ -883,6 +924,7 @@ export interface Database {
   event_admin_assignment: EventAdminAssignmentTable;
   event_attendance: EventAttendanceTable;
   event_coordinator_assignment: EventCoordinatorAssignmentTable;
+  event_guest_access: EventGuestAccessTable;
   event_occurrence: EventOccurrenceTable;
   event_occurrence_domain: EventOccurrenceDomainTable;
   event_occurrence_region: EventOccurrenceRegionTable;
@@ -894,6 +936,7 @@ export interface Database {
   event_staff_eligibility: EventStaffEligibilityTable;
   event_region_review_round: EventRegionReviewRoundTable;
   event_registration: EventRegistrationTable;
+  event_registration_region_decision: EventRegistrationRegionDecisionTable;
   event_registration_transition: EventRegistrationTransitionTable;
   event_section_release: EventSectionReleaseTable;
   event_survey_access: EventSurveyAccessTable;

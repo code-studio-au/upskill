@@ -20,6 +20,7 @@ import {
   decideAdminEventFinalRegistration,
   resendAdminEventAccountSetup,
 } from "#/server/functions/admin-event-operations";
+import { registrationRegionDecisionLabel } from "./event-registration-region-decision";
 
 const AdminEventRegistrationRegionDialog = lazy(async () => {
   const module = await import("./AdminEventRegistrationRegionDialog");
@@ -126,12 +127,21 @@ export function AdminEventRegistrationTable({
             return (
               <Stack gap={4}>
                 <Text>{registration.regionName ?? "Direct / unregional"}</Text>
-                {registration.regionMismatch ? (
-                  <Badge color="orange" variant="light">
-                    Profile: {registration.profileRegionName ?? "No region"}
+                {registration.regionDecision || registration.regionMismatch ? (
+                  <Badge
+                    color={registration.regionDecision ? "green" : "orange"}
+                    variant="light"
+                  >
+                    {registration.regionDecision
+                      ? registrationRegionDecisionLabel(
+                          registration.regionDecision,
+                        )
+                      : `Current profile: ${registration.profileRegionName ?? "No region"} · review`}
                   </Badge>
                 ) : null}
-                {workspace.regions.length > 1 ? (
+                {workspace.regions.length > 1 ||
+                registration.regionMismatch ||
+                registration.regionDecision ? (
                   <Button
                     size="compact-xs"
                     variant="subtle"
@@ -144,7 +154,9 @@ export function AdminEventRegistrationTable({
                       setRegionRegistration(registration);
                     }}
                   >
-                    Change region
+                    {registration.regionMismatch || registration.regionDecision
+                      ? "Review region"
+                      : "Change region"}
                   </Button>
                 ) : null}
               </Stack>

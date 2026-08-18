@@ -50,9 +50,12 @@ activities, completion, and certification.
   existing registrations or cancelling active registrations and releasing
   confirmed capacity. Confirmed participants can now complete released Event
   learning in a learner workspace, while assigned staff can display the
-  persisted QR catalogue for exact Survey items. Open-entry guest check-in,
-  passwordless/shared-device prerequisite recovery and automated communications
-  remain target workflows.
+  persisted QR catalogue for exact Survey items. Open-entry occurrences now own
+  a revocable high-entropy guest link that captures privacy-accepted name/email,
+  creates or reuses a provisional account, retains open-entry participation,
+  protects the virtual destination until submission and records session-window
+  self check-in according to occurrence policy. Passwordless/shared-device
+  prerequisite recovery and automated communications remain target workflows.
 - **Target Product:** the Event domain described in this document, including
   regional Coordinator review, assigned standard-administrator selection,
   capacity-safe registration, attendance and blended learning. Every in-person
@@ -123,8 +126,9 @@ creates another review round. The same workflow supports region addition,
 Coordinator reassignment and region retirement with an affected-registration
 preview and a future-only or cancel-active disposition. Cancellation retains
 participation and Attendance evidence while revoking the cancelled learner
-workspace. Public promotion/registration pages and open-entry check-in should
-not be described as implemented yet.
+workspace. Public promotion/registration pages are not implemented. The
+separate open-entry guest boundary is implemented, but it does not authenticate
+the submitted email address or replace the future passwordless recovery flow.
 
 Each occurrence also owns a persisted opaque public reference for every exact
 Survey item. Creating an occurrence materializes those records idempotently;
@@ -274,10 +278,11 @@ cancelled and archived instances do not block revocation.
 
 ### Registration region snapshot
 
-The region confirmed by the learner when registering. It is initialized from
-their user-updateable onboarding/profile region but retained with the
-Registration so a later move does not rewrite or reroute current or historical
-decisions.
+The occurrence region selected and confirmed by the learner when registering.
+The current onboarding/profile region is shown as guidance and used to flag a
+mismatch, but does not prevent choosing another offered occurrence region. The
+snapshot is retained with the Registration so a later move does not rewrite or
+reroute current or historical Coordinator decisions.
 
 ### Regional review list
 
@@ -435,11 +440,39 @@ only. Correcting an active Registration's region is an explicit retained and
 audited assigned-administrator action. Operations compares the live profile
 region with the Registration Region Snapshot, so a mismatch caused by
 re-onboarding, a User profile edit or an administrator correction is visible
-without rewriting the Registration. Reassignment before Coordinator review
-moves the Registration to the destination list. Reassignment after a
-Coordinator decision resets that regional decision and priority. A Registration
-with a final decision requires an explicit exceptional confirmation; its final
-decision and Learning/Attendance evidence remain retained.
+without rewriting the Registration. Coordinators see mismatches within their
+assigned regional list but cannot move a Registration into another
+Coordinator's scope. An administrator either moves the Registration or records
+an audited acknowledgement that its retained snapshot remains correct for this
+occurrence. Keeping the snapshot and moving it to the current profile region
+are both retained, reviewable decisions displayed as confirmed. Reassignment
+before Coordinator review moves the Registration to
+the destination list. Reassignment after a Coordinator decision resets that
+regional decision and priority. Moving into an already locked destination
+requires explicit administrator confirmation, waives another regional review
+and leaves the Registration awaiting the separate final attendee-selection
+decision without presenting the region choice as unresolved. A
+Registration with a final decision requires a separate exceptional
+confirmation; its final decision and Learning/Attendance evidence remain
+retained.
+
+If a learner has no current profile region, the assigned administrator can
+retain that state and confirm the occurrence Registration as a **region guest**.
+If the live profile belongs to a region outside the occurrence, the
+administrator can confirm an **outside-region guest**. Neither action removes or
+rewrites the selected Registration Region Snapshot: the Registration remains in
+that region's Coordinator list with its priority and decision intact. A separate
+retained reporting decision snapshots `event_region`, `outside_event_region` or
+`no_region_guest`, including operational-region and parent-group labels where
+applicable. The alternative is an explicit, audited update of the learner's
+profile to the Registration Region Snapshot; because this changes current
+profile state, it affects future registrations.
+
+Attendance reporting groups against that retained decision rather than the
+learner's mutable current profile. This supports counts for the Event's own
+regions, outside Region Groups/operational regions and no-region guests while
+preserving the Coordinator-routing history. Reclassification supersedes the
+current decision but does not delete earlier decisions.
 
 Coordinator approval is provisional candidacy, not acceptance into the Event.
 Only Coordinator-approved registrations advance from a regional list. A region
@@ -753,6 +786,12 @@ protected Join action must not mark attendance. Inside the window, an occurrence
 may explicitly accept self-check-in as attended or require presenter/coordinator
 confirmation. This policy is visible to staff and remains correctable with
 provenance.
+
+The current implementation uses the Event occurrence's published-to-end window
+for guest-link validity and exact Session start/end windows for self check-in.
+The operations workspace exposes the active link, rotation and the configured
+`checked_in` or automatic-`attended` policy. Earlier details/Join submissions
+remain `not_recorded` until a later in-window access or authorised staff action.
 
 Presenters and coordinators may record attendance only within authorised
 scope; platform administrators provide a support backstop. Writes

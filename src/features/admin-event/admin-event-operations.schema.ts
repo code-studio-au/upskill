@@ -31,7 +31,24 @@ export const adminEventRegistrationRegionReassignmentSchema = z.object({
   registrationId: identifier,
   eventOccurrenceRegionId: identifier,
   confirmFinalizedReassignment: z.boolean(),
+  confirmLockedDestinationReassignment: z.boolean(),
 });
+
+export const adminEventRegistrationProfileRegionAlignmentSchema = z.object({
+  eventOccurrenceId: identifier,
+  registrationId: identifier,
+});
+
+export const adminEventRegistrationRegionGuestDecisionSchema = z.object({
+  eventOccurrenceId: identifier,
+  registrationId: identifier,
+});
+
+export const adminEventRegistrationRegionMismatchAcknowledgementSchema =
+  z.object({
+    eventOccurrenceId: identifier,
+    registrationId: identifier,
+  });
 
 export const adminEventAddRegistrationSchema = z.object({
   eventOccurrenceId: identifier,
@@ -56,6 +73,15 @@ export const adminEventAccountSetupSchema = z.object({
 export const adminEventLifecycleSchema = z.object({
   eventOccurrenceId: identifier,
   target: z.enum(["cancelled", "completed", "archived"]),
+});
+
+export const adminEventGuestAccessRotateSchema = z.object({
+  eventOccurrenceId: identifier,
+});
+
+export const adminEventGuestAttendanceModeSchema = z.object({
+  eventOccurrenceId: identifier,
+  mode: z.enum(["checked_in", "attended"]),
 });
 
 export type EventRegistrationStatus =
@@ -107,7 +133,13 @@ export interface AdminEventOccurrenceOperations {
     domains: string;
     sessionCount: number;
     assignedAdminCount: number;
+    openEntryAttendanceMode: "checked_in" | "attended";
   };
+  guestAccess: {
+    publicReference: string;
+    generation: number;
+    createdAt: string;
+  } | null;
   metrics: {
     total: number;
     submitted: number;
@@ -129,6 +161,24 @@ export interface AdminEventOccurrenceOperations {
     profileRegionId: string | null;
     profileRegionName: string | null;
     regionMismatch: boolean;
+    regionMismatchAcknowledged: boolean;
+    regionDecision: {
+      id: string;
+      resolution:
+        | "registered_region_confirmed"
+        | "profile_region_confirmed"
+        | "profile_aligned_to_registration"
+        | "region_guest_confirmed";
+      classification:
+        "event_region" | "outside_event_region" | "no_region_guest";
+      reportingRegionId: string | null;
+      reportingRegionCodeSnapshot: string | null;
+      reportingRegionNameSnapshot: string | null;
+      reportingRegionGroupCodeSnapshot: string | null;
+      reportingRegionGroupNameSnapshot: string | null;
+      decidedAt: string;
+    } | null;
+    regionalReviewWaivedAt: string | null;
     reviewRoundId: string | null;
     coordinatorPriority: number | null;
     submittedAt: string;
@@ -160,6 +210,10 @@ export interface AdminEventOccurrenceOperations {
       eventParticipationId: string;
       name: string;
       email: string;
+      mode: "registered" | "open_entry";
+      detailsSubmittedAt: string | null;
+      joinDisclosedAt: string | null;
+      checkedInAt: string | null;
       state: "not_recorded" | "checked_in" | "attended" | "absent";
       updatedAt: string | null;
     }>;
@@ -218,6 +272,8 @@ export type AdminEventOperationsMutationResult =
         | "invalid_transition"
         | "final_decision_locked"
         | "finalized_reassignment_confirmation_required"
+        | "locked_destination_reassignment_confirmation_required"
+        | "region_mismatch_resolved"
         | "region_locked"
         | "capacity_full"
         | "registration_unavailable"

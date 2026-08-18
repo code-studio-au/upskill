@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted target; implementation pending.
+Accepted; regional review and selection are implemented. Expiring
+user-specific late invitations remain pending.
 
 ## Context
 
@@ -42,12 +43,48 @@ an ownership assignment, not a separate authorization role; any Platform
 Administrator retains an audited backstop under ADR 0028.
 
 A user's current region is captured during onboarding and may be updated when
-they move. Registration submission requires the learner to confirm the relevant
-current region and stores an immutable **Registration Region Snapshot**. Later
-profile changes affect future registrations only. An assigned Event Instance
+they move. Registration submission requires the learner to select one of the
+occurrence's offered regions and stores that choice as the immutable
+**Registration Region Snapshot** used for Coordinator routing. The live profile
+region is a comparison signal, not an authorization boundary: a learner with no
+profile region or with a region outside the occurrence may still select an
+offered registration region. Later profile changes affect future registrations
+only. An assigned Event Instance
 Administrator may explicitly reassign a still-active Registration when the
 snapshot was wrong; this retains the old and new region, actor, time and reason
-category in audit evidence.
+category in audit evidence. Assigned Coordinators can see a current-profile
+mismatch on registrations in their own list, but cross-region movement remains
+administrator-only. The administrator may instead acknowledge that the
+Registration Region Snapshot remains correct; that decision is retained and
+becomes stale automatically if the live profile region changes again.
+Moving the snapshot to the live profile region is also retained as a confirmed
+region-review decision. Both outcomes remain reviewable and are presented as
+resolved region decisions rather than as another administrator-review warning.
+When the live profile has no region, the administrator may instead confirm the
+Registration as a **region guest**. When the live profile belongs to a region
+outside this occurrence, the administrator may confirm an **outside-region
+guest**. Both decisions retain the selected Registration Region Snapshot and its
+Coordinator decisions; they separately snapshot the attendee's reporting
+classification and current region identity. Alternatively, the administrator
+may explicitly update the learner profile to the registered region; that
+audited profile change applies to future registrations as well.
+
+Attendance and completion reporting uses the retained reporting classification,
+not the mutable current profile. It can therefore group attendees under an
+offered Event region, an outside operational region (including its parent Region
+Group), or **No region guest**, while preserving which regional Coordinator list
+processed the Registration. A later administrator decision supersedes the
+current reporting decision without deleting its history.
+
+Moving a non-final Registration into an already locked destination list
+requires a separate explicit confirmation. The system clears the prior
+Coordinator decision and priority, records that regional review was waived and
+routes the Registration directly to the assigned Event Instance Administrator's
+final attendee-selection queue. This pending final decision is separate from
+the already confirmed region decision. It does not silently reopen either
+regional list. A finalised
+Registration uses the existing exceptional confirmation and retains its final
+decision and Learning/Attendance evidence.
 
 Every active occurrence-region has one or more active Coordinators so work can
 be shared and covered during leave. Each Coordinator action retains its

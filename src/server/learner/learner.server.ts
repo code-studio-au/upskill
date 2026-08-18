@@ -142,14 +142,28 @@ export async function findLearnerEventsDashboard(
 ): Promise<LearnerEventsDashboard> {
   const now = new Date();
   const domain = emailDomain(user.email);
-  const eventRegistrations = await getDatabase()
-    .selectFrom("event_registration")
-    .select(["eventOccurrenceId", "status"])
-    .where("userId", "=", user.id)
-    .execute();
-  const registeredEventIds = eventRegistrations.map(
-    (registration) => registration.eventOccurrenceId,
-  );
+  const [eventRegistrations, eventParticipations] = await Promise.all([
+    getDatabase()
+      .selectFrom("event_registration")
+      .select(["eventOccurrenceId", "status"])
+      .where("userId", "=", user.id)
+      .execute(),
+    getDatabase()
+      .selectFrom("event_participation")
+      .select(["eventOccurrenceId", "mode"])
+      .where("userId", "=", user.id)
+      .execute(),
+  ]);
+  const registeredEventIds = [
+    ...new Set([
+      ...eventRegistrations.map(
+        (registration) => registration.eventOccurrenceId,
+      ),
+      ...eventParticipations.map(
+        (participation) => participation.eventOccurrenceId,
+      ),
+    ]),
+  ];
 
   let eventQuery = getDatabase()
     .selectFrom("event_occurrence")
@@ -228,9 +242,19 @@ export async function findLearnerEventsDashboard(
       registration.status,
     ]),
   );
+  const participationByEvent = new Map(
+    eventParticipations.map((participation) => [
+      participation.eventOccurrenceId,
+      participation.mode,
+    ]),
+  );
   const events: Array<LearnerEvent> = eventRows.flatMap((event) => {
     const registrationStatus =
       registrationByEvent.get(event.eventOccurrenceId) ?? null;
+    const participationMode =
+      participationByEvent.get(event.eventOccurrenceId) === "open_entry"
+        ? "open_entry"
+        : null;
     const eligible =
       event.registrationMode === "required_unrestricted" ||
       (user.emailVerified &&
@@ -240,7 +264,7 @@ export async function findLearnerEventsDashboard(
             candidate.eventOccurrenceId === event.eventOccurrenceId &&
             candidate.domain === domain,
         ));
-    if (!eligible && !registrationStatus) return [];
+    if (!eligible && !registrationStatus && !participationMode) return [];
     const notOpen =
       event.registrationOpensAt !== null && event.registrationOpensAt > now;
     const closed =
@@ -259,8 +283,14 @@ export async function findLearnerEventsDashboard(
         startsAt: event.startsAt.toISOString(),
         endsAt: event.endsAt.toISOString(),
         registrationStatus,
+        participationMode,
         canRegister:
-          !registrationStatus && eligible && !notOpen && !closed && !full,
+          !participationMode &&
+          !registrationStatus &&
+          eligible &&
+          !notOpen &&
+          !closed &&
+          !full,
         registrationUnavailableReason: notOpen
           ? "not_open"
           : closed

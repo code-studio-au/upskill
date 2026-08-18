@@ -18,7 +18,10 @@ import {
   updateAdminEventOccurrence,
 } from "#/server/admin/admin-event.server";
 import {
+  acknowledgeAdminEventRegistrationRegionMismatch,
   addAdminEventRegistration,
+  alignAdminEventRegistrationProfileRegion,
+  confirmAdminEventRegistrationRegionGuest,
   decideAdminEventFinalRegistration,
   findAdminEventOccurrenceOperations,
   lockAdminEventRegion,
@@ -39,6 +42,12 @@ import {
   findEventSurveyQrCatalogue,
   resolveLearnerEventSurveyReference,
 } from "#/server/events/event-survey-access.server";
+import {
+  ensureEventGuestAccessRecord,
+  findPublicEventGuestAccess,
+  rotateEventGuestAccessRecord,
+  submitPublicEventGuestAccess,
+} from "#/server/events/event-guest-access.server";
 import {
   registerLearnerForEvent,
   withdrawLearnerEventRegistration,
@@ -86,6 +95,7 @@ const presenter: AuthenticatedUser = {
 };
 const coordinationRegionId = `coordination_region_${suffix}`;
 const addedCoordinationRegionId = `coordination_region_added_${suffix}`;
+const outsideCoordinationRegionId = `coordination_region_outside_${suffix}`;
 let eventTemplateId: string | null = null;
 let eventTemplateVersionId: string | null = null;
 let eventOccurrenceId: string | null = null;
@@ -171,6 +181,15 @@ async function cleanup(): Promise<void> {
     if (registrationIds.length)
       await database
         .deleteFrom("event_registration_transition")
+        .where(
+          "eventRegistrationId",
+          "in",
+          registrationIds.map((registration) => registration.id),
+        )
+        .execute();
+    if (registrationIds.length)
+      await database
+        .deleteFrom("event_registration_region_decision")
         .where(
           "eventRegistrationId",
           "in",
@@ -330,11 +349,16 @@ async function cleanup(): Promise<void> {
     .where("currentRegionId", "in", [
       coordinationRegionId,
       addedCoordinationRegionId,
+      outsideCoordinationRegionId,
     ])
     .execute();
   await database
     .deleteFrom("coordination_region")
-    .where("id", "in", [coordinationRegionId, addedCoordinationRegionId])
+    .where("id", "in", [
+      coordinationRegionId,
+      addedCoordinationRegionId,
+      outsideCoordinationRegionId,
+    ])
     .execute();
   if (coordinationRegionGroupId)
     await database
@@ -389,6 +413,14 @@ try {
         kind: "operational",
         status: "active",
       },
+      {
+        id: outsideCoordinationRegionId,
+        parentId: null,
+        code: `VERIFY-OUTSIDE-${suffix}`.toLocaleUpperCase("en-AU"),
+        name: "Outside verification region",
+        kind: "operational",
+        status: "active",
+      },
     ])
     .execute();
   await database
@@ -430,6 +462,19 @@ try {
       administrator,
     ),
     { status: "updated", regionId: coordinationRegionId },
+  );
+  assert.deepEqual(
+    await saveAdminCoordinationRegion(
+      {
+        regionId: outsideCoordinationRegionId,
+        name: "Outside verification region",
+        code: `verify-outside-${suffix}`,
+        kind: "operational",
+        parentId: coordinationRegionGroupId,
+      },
+      administrator,
+    ),
+    { status: "updated", regionId: outsideCoordinationRegionId },
   );
 
   const coordinatorEligibility = await grantAdminEventStaffEligibility(
@@ -1151,6 +1196,133 @@ try {
       },
     ],
   );
+  const regionGuestEmail = `event-region-guest-${suffix}@outside.example.net`;
+  assert.equal(
+    await addAdminEventRegistration(
+      {
+        eventOccurrenceId,
+        name: "Region Guest Event Learner",
+        email: regionGuestEmail,
+        eventOccurrenceRegionId: addedOccurrenceRegion.id,
+        overrideDomainRestriction: true,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const regionGuestUser = await database
+    .selectFrom("user")
+    .select(["id", "currentRegionId"])
+    .where("email", "=", regionGuestEmail)
+    .executeTakeFirstOrThrow();
+  assert.equal(regionGuestUser.currentRegionId, null);
+  const regionGuestRegistration = await database
+    .selectFrom("event_registration")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", regionGuestUser.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await alignAdminEventRegistrationProfileRegion(
+      eventOccurrenceId,
+      regionGuestRegistration.id,
+      administrator,
+    ),
+    "updated",
+  );
+  assert.equal(
+    await database
+      .selectFrom("user")
+      .select("currentRegionId")
+      .where("id", "=", regionGuestUser.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.currentRegionId),
+    addedCoordinationRegionId,
+  );
+  await database
+    .updateTable("user")
+    .set({ currentRegionId: null })
+    .where("id", "=", regionGuestUser.id)
+    .execute();
+  assert.equal(
+    await confirmAdminEventRegistrationRegionGuest(
+      eventOccurrenceId,
+      regionGuestRegistration.id,
+      administrator,
+    ),
+    "updated",
+  );
+  const regionGuestResolution = (
+    await findAdminEventOccurrenceOperations(eventOccurrenceId)
+  )?.registrations.find(
+    (registration) => registration.id === regionGuestRegistration.id,
+  );
+  assert.ok(regionGuestResolution);
+  assert.equal(regionGuestResolution.regionId, addedOccurrenceRegion.id);
+  assert.equal(regionGuestResolution.profileRegionId, null);
+  assert.equal(regionGuestResolution.regionMismatch, true);
+  assert.equal(regionGuestResolution.regionMismatchAcknowledged, true);
+  assert.equal(regionGuestResolution.regionalReviewWaivedAt, null);
+  assert.equal(
+    regionGuestResolution.regionDecision?.classification,
+    "no_region_guest",
+  );
+  await database
+    .updateTable("user")
+    .set({ currentRegionId: outsideCoordinationRegionId })
+    .where("id", "=", regionGuestUser.id)
+    .execute();
+  assert.equal(
+    await confirmAdminEventRegistrationRegionGuest(
+      eventOccurrenceId,
+      regionGuestRegistration.id,
+      administrator,
+    ),
+    "updated",
+  );
+  const outsideRegionGuestResolution = (
+    await findAdminEventOccurrenceOperations(eventOccurrenceId)
+  )?.registrations.find(
+    (registration) => registration.id === regionGuestRegistration.id,
+  );
+  assert.equal(
+    outsideRegionGuestResolution?.regionDecision?.classification,
+    "outside_event_region",
+  );
+  assert.equal(
+    outsideRegionGuestResolution.regionDecision.reportingRegionNameSnapshot,
+    "Outside verification region",
+  );
+  assert.equal(
+    outsideRegionGuestResolution.regionDecision
+      .reportingRegionGroupNameSnapshot,
+    "Verification jurisdiction",
+  );
+  const retainedRegionDecisions = await database
+    .selectFrom("event_registration_region_decision")
+    .select(["classification", "supersededAt"])
+    .where("eventRegistrationId", "=", regionGuestRegistration.id)
+    .orderBy("decidedAt", "asc")
+    .execute();
+  assert.equal(retainedRegionDecisions.length, 3);
+  const [profileAlignment, noRegionGuest, outsideRegionGuest] =
+    retainedRegionDecisions;
+  assert.ok(profileAlignment && noRegionGuest && outsideRegionGuest);
+  assert.equal(profileAlignment.supersededAt !== null, true);
+  assert.equal(noRegionGuest.classification, "no_region_guest");
+  assert.equal(noRegionGuest.supersededAt !== null, true);
+  assert.equal(outsideRegionGuest.classification, "outside_event_region");
+  assert.equal(outsideRegionGuest.supersededAt, null);
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("action", "=", "user.region_updated")
+      .where("subjectId", "=", regionGuestUser.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    1,
+  );
   const provisionalEmail = `event-provisional-${suffix}@outside.example.net`;
   assert.equal(
     await addAdminEventRegistration(
@@ -1194,13 +1366,9 @@ try {
     "Added verification region",
   );
   assert.equal(
-    await reassignAdminEventRegistrationRegion(
-      {
-        eventOccurrenceId,
-        registrationId: provisionalRegistration.id,
-        eventOccurrenceRegionId: addedOccurrenceRegion.id,
-        confirmFinalizedReassignment: false,
-      },
+    await acknowledgeAdminEventRegistrationRegionMismatch(
+      eventOccurrenceId,
+      provisionalRegistration.id,
       administrator,
     ),
     "updated",
@@ -1210,8 +1378,104 @@ try {
       await findAdminEventOccurrenceOperations(eventOccurrenceId)
     )?.registrations.find(
       (registration) => registration.id === provisionalRegistration.id,
-    )?.regionMismatch,
-    false,
+    )?.regionMismatchAcknowledged,
+    true,
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("action", "=", "event_registration.region_mismatch_acknowledged")
+      .where("subjectId", "=", provisionalRegistration.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    1,
+  );
+  assert.equal(
+    await reassignAdminEventRegistrationRegion(
+      {
+        eventOccurrenceId,
+        registrationId: provisionalRegistration.id,
+        eventOccurrenceRegionId: addedOccurrenceRegion.id,
+        confirmFinalizedReassignment: false,
+        confirmLockedDestinationReassignment: false,
+      },
+      administrator,
+    ),
+    "updated",
+  );
+  const profileRegionReassignment = (
+    await findAdminEventOccurrenceOperations(eventOccurrenceId)
+  )?.registrations.find(
+    (registration) => registration.id === provisionalRegistration.id,
+  );
+  assert.equal(profileRegionReassignment?.regionMismatch, false);
+  assert.equal(profileRegionReassignment.regionMismatchAcknowledged, true);
+  assert.equal(
+    await reassignAdminEventRegistrationRegion(
+      {
+        eventOccurrenceId,
+        registrationId: provisionalRegistration.id,
+        eventOccurrenceRegionId: occurrenceRegion.id,
+        confirmFinalizedReassignment: false,
+        confirmLockedDestinationReassignment: false,
+      },
+      administrator,
+    ),
+    "locked-destination-confirmation-required",
+  );
+  assert.equal(
+    await reassignAdminEventRegistrationRegion(
+      {
+        eventOccurrenceId,
+        registrationId: provisionalRegistration.id,
+        eventOccurrenceRegionId: occurrenceRegion.id,
+        confirmFinalizedReassignment: false,
+        confirmLockedDestinationReassignment: true,
+      },
+      administrator,
+    ),
+    "updated",
+  );
+  const waivedReviewRegistration = (
+    await findAdminEventOccurrenceOperations(eventOccurrenceId)
+  )?.registrations.find(
+    (registration) => registration.id === provisionalRegistration.id,
+  );
+  assert.equal(waivedReviewRegistration?.status, "submitted");
+  assert.equal(waivedReviewRegistration.reviewRoundId, null);
+  assert.ok(waivedReviewRegistration.regionalReviewWaivedAt);
+  const mismatchCoordinatorAccess = await getEventOperationsAccess(
+    coordinator,
+    eventOccurrenceId,
+  );
+  assert.ok(mismatchCoordinatorAccess);
+  const mismatchCoordinatorWorkspace = await findEventOperationsWorkspace(
+    eventOccurrenceId,
+    mismatchCoordinatorAccess,
+  );
+  const coordinatorMismatch = mismatchCoordinatorWorkspace?.registrations.find(
+    (registration) => registration.id === provisionalRegistration.id,
+  );
+  assert.equal(coordinatorMismatch?.regionMismatch, true);
+  assert.equal(
+    coordinatorMismatch.profileRegionName,
+    "Added verification region",
+  );
+  assert.equal(coordinatorMismatch.regionMismatchAcknowledged, false);
+  assert.ok(coordinatorMismatch.regionalReviewWaivedAt);
+  assert.equal(
+    await reassignAdminEventRegistrationRegion(
+      {
+        eventOccurrenceId,
+        registrationId: provisionalRegistration.id,
+        eventOccurrenceRegionId: addedOccurrenceRegion.id,
+        confirmFinalizedReassignment: false,
+        confirmLockedDestinationReassignment: false,
+      },
+      administrator,
+    ),
+    "updated",
   );
   await database
     .updateTable("event_registration")
@@ -1229,6 +1493,7 @@ try {
         registrationId: provisionalRegistration.id,
         eventOccurrenceRegionId: occurrenceRegion.id,
         confirmFinalizedReassignment: false,
+        confirmLockedDestinationReassignment: false,
       },
       administrator,
     ),
@@ -1241,6 +1506,7 @@ try {
         registrationId: provisionalRegistration.id,
         eventOccurrenceRegionId: occurrenceRegion.id,
         confirmFinalizedReassignment: true,
+        confirmLockedDestinationReassignment: false,
       },
       administrator,
     ),
@@ -1257,6 +1523,14 @@ try {
     [
       {
         fromEventOccurrenceRegionId: null,
+        toEventOccurrenceRegionId: addedOccurrenceRegion.id,
+      },
+      {
+        fromEventOccurrenceRegionId: addedOccurrenceRegion.id,
+        toEventOccurrenceRegionId: occurrenceRegion.id,
+      },
+      {
+        fromEventOccurrenceRegionId: occurrenceRegion.id,
         toEventOccurrenceRegionId: addedOccurrenceRegion.id,
       },
       {
@@ -1417,6 +1691,77 @@ try {
     presenterWorkspace.sessions.map((assignedSession) => assignedSession.id),
     [session.id],
   );
+  const guestEventOccurrenceId = eventOccurrenceId;
+  assert.ok(guestEventOccurrenceId);
+  await database
+    .updateTable("event_occurrence")
+    .set({ registrationMode: "open_entry", approvalMode: "automatic" })
+    .where("id", "=", guestEventOccurrenceId)
+    .execute();
+  const guestAccess = await database
+    .transaction()
+    .execute((transaction) =>
+      ensureEventGuestAccessRecord(
+        transaction,
+        guestEventOccurrenceId,
+        new Date(),
+      ),
+    );
+  assert.match(guestAccess.publicReference, /^[A-Za-z0-9_-]{32}$/u);
+  assert.equal(
+    (await findPublicEventGuestAccess(guestAccess.publicReference)).status,
+    "ready",
+  );
+  const guestSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: guestAccess.publicReference,
+      name: coordinator.name,
+      email: coordinator.email,
+    },
+    `verification:${suffix}`,
+  );
+  assert.equal(guestSubmission.status, "ready");
+  assert.equal(guestSubmission.data.attendanceState, "not_recorded");
+  assert.equal(guestSubmission.data.accountSetupRequested, false);
+  assert.equal(
+    await database
+      .selectFrom("event_participation")
+      .select("mode")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .where("userId", "=", coordinator.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.mode),
+    "open_entry",
+  );
+  assert.equal(
+    (await findLearnerEventsDashboard(coordinator)).events.find(
+      (event) => event.eventOccurrenceId === eventOccurrenceId,
+    )?.participationMode,
+    "open_entry",
+  );
+  const replacementGuestReference = await rotateEventGuestAccessRecord(
+    eventOccurrenceId,
+    administrator,
+  );
+  assert.ok(replacementGuestReference);
+  assert.deepEqual(
+    await findPublicEventGuestAccess(guestAccess.publicReference),
+    { status: "not-found" },
+  );
+  await database
+    .deleteFrom("event_participation")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", coordinator.id)
+    .execute();
+  await database
+    .deleteFrom("event_guest_access")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .execute();
+  await database
+    .updateTable("event_occurrence")
+    .set({ registrationMode: "required_restricted", approvalMode: "manual" })
+    .where("id", "=", eventOccurrenceId)
+    .execute();
   assert.equal(
     await getEventOperationsAccess(learner, eventOccurrenceId),
     null,
@@ -1910,7 +2255,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, coverage-safe Coordinator eligibility revocation, staff/session snapshots, scoped coordinator and presenter operations, occurrence-owned guarded Survey QR access, restricted-domain administrator addition, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, coverage-safe Coordinator eligibility revocation, staff/session snapshots, scoped coordinator and presenter operations, occurrence-owned guarded Survey QR access, restricted-domain administrator addition, acknowledged profile-region mismatches, region-guest overrides, audited profile-region alignment, exceptional locked-list reassignment, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
   );
 } finally {
   await cleanup();
