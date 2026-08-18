@@ -767,8 +767,6 @@ interface AccessGrantTable {
   organizationId: string | null;
   orderId: string | null;
   courseVersionId: string;
-  accessCodeLookupId: Generated<string | null>;
-  encryptedAccessCode: Generated<string | null>;
   label: Generated<string | null>;
   createdByUserId: Generated<string | null>;
   enrollmentDurationDays: number;
@@ -778,6 +776,49 @@ interface AccessGrantTable {
   revokedAt: OptionalTimestamp;
   revokedByUserId: Generated<string | null>;
   createdAt: Timestamp;
+  kind: Generated<
+    "bulk_purchase" | "enterprise_contract" | "individual_purchase"
+  >;
+  customerExtendable: Generated<boolean>;
+  fulfillmentMode: Generated<"shared_code" | "single_use_codes" | null>;
+  codePrefix: Generated<string | null>;
+}
+
+interface AccessGrantCodeTable {
+  id: string;
+  accessGrantId: string;
+  lookupId: string;
+  encryptedAccessCode: string;
+  ordinal: number | null;
+  createdAt: Timestamp;
+}
+
+interface AccessGrantOwnerAssignmentTable {
+  id: string;
+  accessGrantId: string;
+  userId: string;
+  invitedEmail: string;
+  invitedByUserId: string;
+  invitedAt: Timestamp;
+  activatedAt: Timestamp | null;
+  revokedAt: Timestamp | null;
+  revokedByUserId: string | null;
+}
+
+interface EntitlementTable {
+  id: string;
+  userId: string;
+  courseVersionId: string;
+  enrollmentId: string;
+  originType: "access_grant" | "order" | "administrator";
+  originAccessGrantId: string | null;
+  originAccessGrantCodeId: string | null;
+  originOrderId: string | null;
+  redemptionEmailSnapshot: string;
+  informationReleaseNoticeVersion: string | null;
+  informationReleaseAcceptedAt: Timestamp | null;
+  grantedAt: Timestamp;
+  revokedAt: Timestamp | null;
 }
 
 interface AccessGrantDomainTable {
@@ -837,6 +878,10 @@ interface EmailDeliveryCaptureTable {
 }
 
 export type AuditEventAction =
+  | "access_grant.owner_activated"
+  | "access_grant.owner_assigned"
+  | "access_grant.owner_code_revealed"
+  | "access_grant.owner_revoked"
   | "access_grant.administrator_capacity_updated"
   | "access_grant.administrator_code_revealed"
   | "access_grant.administrator_created"
@@ -878,6 +923,7 @@ export type AuditEventAction =
   | "enrollment.learning_completed"
   | "enrollment.purchased"
   | "enrollment.scorm_completed"
+  | "entitlement.information_release_accepted"
   | "learning.progress_overridden"
   | "order.checkout_failed"
   | "order.checkout_paid"
@@ -912,7 +958,9 @@ interface AuditEventTable {
 export interface Database {
   account: AccountTable;
   access_grant: AccessGrantTable;
+  access_grant_code: AccessGrantCodeTable;
   access_grant_domain: AccessGrantDomainTable;
+  access_grant_owner_assignment: AccessGrantOwnerAssignmentTable;
   audit_event: AuditEventTable;
   course: CourseTable;
   course_version: CourseVersionTable;
@@ -920,6 +968,7 @@ export interface Database {
   course_version_section: CourseVersionSectionTable;
   coordination_region: CoordinationRegionTable;
   enrollment: EnrollmentTable;
+  entitlement: EntitlementTable;
   email_delivery_capture: EmailDeliveryCaptureTable;
   event_admin_assignment: EventAdminAssignmentTable;
   event_attendance: EventAttendanceTable;

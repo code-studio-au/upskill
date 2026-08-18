@@ -128,7 +128,9 @@ export function AdminAccessGrantDirectory({
             setMessage(
               outcome === "unchanged"
                 ? "Access capacity was already set to that value."
-                : "Access capacity updated. The existing code is unchanged.",
+                : capacityGrant.fulfillmentMode === "single_use_codes"
+                  ? "Access capacity updated and additional single-use codes generated."
+                  : "Access capacity updated. The existing code is unchanged.",
             );
             await router.invalidate();
           }}
@@ -222,6 +224,23 @@ function GrantCard({
             ? `Restricted to ${grant.domains.join(", ")}`
             : "Available to any verified learner with the code"}
         </Text>
+        <Text size="sm">
+          {grant.kind === "enterprise_contract"
+            ? "Enterprise access"
+            : "Bulk purchase"}
+          {grant.customerExtendable ? " · Owner-extendable" : ""}
+        </Text>
+        <Text size="sm">
+          {grant.fulfillmentMode === "single_use_codes"
+            ? "Unique single-use codes"
+            : "Shared reusable code"}
+        </Text>
+        <Text size="sm" c="dimmed">
+          Access Owners:{" "}
+          {grant.owners
+            .map((owner) => `${owner.name} (${owner.status})`)
+            .join(", ") || "None"}
+        </Text>
         {accessCode ? (
           <div className={classes.revealedCode} role="status">
             <code className={classes.issuedCode}>{accessCode}</code>
@@ -263,18 +282,20 @@ function GrantCard({
             Created {formatLocalDate(grant.createdAt)}
           </Text>
           <div className={classes.cardActions}>
-            <Button
-              type="button"
-              variant="light"
-              size="xs"
-              loading={revealPending}
-              disabled={Boolean(accessCode)}
-              onClick={() => {
-                void revealCode();
-              }}
-            >
-              Show code
-            </Button>
+            {grant.fulfillmentMode === "shared_code" ? (
+              <Button
+                type="button"
+                variant="light"
+                size="xs"
+                loading={revealPending}
+                disabled={Boolean(accessCode)}
+                onClick={() => {
+                  void revealCode();
+                }}
+              >
+                Show code
+              </Button>
+            ) : null}
             {!grant.revokedAt ? (
               <Button
                 type="button"

@@ -9,12 +9,17 @@ below is retained as historical context.
 
 ## Decision
 
-Platform administrators may issue an access code for one exact published course
+Platform administrators may issue access codes for one exact published course
 version. Each grant records an operator-facing label, organisation, capacity,
 learner access duration, optional code expiry and zero or more normalized email
 domains. Creating a grant may reuse an existing case-insensitive organisation
 name or create its stable identity inside the same transaction. Draft versions
 and archived courses are not valid targets.
+
+A finite grant chooses one reusable shared code or a generated batch containing
+one unique single-use code per enrolment. Increasing shared-code capacity keeps
+the code unchanged. Increasing batch capacity appends new codes; batch capacity
+cannot be reduced because unused codes may already have been distributed.
 
 Administrators choose a memorable code containing letters, numbers and readable
 separators. Upskill stores its uppercase, hyphen-separated canonical form as

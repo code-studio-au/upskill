@@ -59,6 +59,11 @@ export function AppHeader({ session }: { session: AppShellSession }) {
               Event operations
             </Link>
           ) : null}
+          {user?.hasAccessOwnerAssignments ? (
+            <Link to="/access-management" className={classes.headerLink}>
+              Access management
+            </Link>
+          ) : null}
         </nav>
 
         {user ? (
@@ -110,6 +115,11 @@ export function AppHeader({ session }: { session: AppShellSession }) {
                 {user.hasAssignedEventOperations ? (
                   <Link to="/event-operations" className={classes.menuLink}>
                     Event operations
+                  </Link>
+                ) : null}
+                {user.hasAccessOwnerAssignments ? (
+                  <Link to="/access-management" className={classes.menuLink}>
+                    Access management
                   </Link>
                 ) : null}
               </div>

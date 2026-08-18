@@ -3,7 +3,7 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
-import { addElapsedDays } from "#/server/time/time.server";
+import { issueCourseEntitlement } from "#/server/learning/course-entitlement.server";
 
 export interface CheckoutSessionSnapshot {
   id: string;
@@ -138,7 +138,6 @@ export async function fulfillCheckoutSession(
       }
 
       const grantId = randomUUID();
-      const enrollmentId = randomUUID();
       await transaction
         .insertInto("access_grant")
         .values({
@@ -146,28 +145,31 @@ export async function fulfillCheckoutSession(
           organizationId: null,
           orderId: order.id,
           courseVersionId: item.courseVersionId,
-          accessCodeLookupId: null,
-          encryptedAccessCode: null,
           enrollmentDurationDays: item.enrollmentDurationDays,
           quantity: 1,
           redeemed: 1,
           expiresAt: null,
+          kind: "individual_purchase",
+          customerExtendable: false,
+          fulfillmentMode: null,
         })
         .execute();
-      await transaction
-        .insertInto("enrollment")
-        .values({
-          id: enrollmentId,
-          userId: purchaserUserId,
-          courseVersionId: item.courseVersionId,
-          accessGrantId: grantId,
-          status: "active",
-          enrolledAt: now,
-          completedAt: null,
-          expiresAt: addElapsedDays(now, item.enrollmentDurationDays),
-          removedAt: null,
-        })
-        .execute();
+      const { enrollmentId } = await issueCourseEntitlement(transaction, {
+        userId: purchaserUserId,
+        userEmail: (
+          await transaction
+            .selectFrom("user")
+            .select("email")
+            .where("id", "=", purchaserUserId)
+            .executeTakeFirstOrThrow()
+        ).email,
+        courseVersionId: item.courseVersionId,
+        enrollmentDurationDays: item.enrollmentDurationDays,
+        enrollmentAccessGrantId: grantId,
+        origin: { type: "order", orderId: order.id },
+        createdAt: now,
+        eventSource: "stripe-checkout",
+      });
       await recordDurableAuditEvent(transaction, {
         actorUserId: purchaserUserId,
         action: "order.checkout_paid",
@@ -187,23 +189,6 @@ export async function fulfillCheckoutSession(
         },
         createdAt: now,
       });
-      await transaction
-        .insertInto("outbox_event")
-        .values({
-          id: randomUUID(),
-          topic: "enrollment.created",
-          aggregateId: enrollmentId,
-          payload: {
-            enrollmentId,
-            userId: purchaserUserId,
-            courseVersionId: item.courseVersionId,
-            source: "stripe-checkout",
-          },
-          availableAt: now,
-          processedAt: null,
-          createdAt: now,
-        })
-        .execute();
       return "fulfilled";
     });
 }

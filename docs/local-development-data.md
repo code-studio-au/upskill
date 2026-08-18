@@ -31,6 +31,8 @@ All credential accounts use `SEED_LEARNER_PASSWORD` from `.env.local`:
   North, Test Central and Test South respectively.
 - `learner@example.com` and `redeemer@example.com` remain as compatibility
   fixtures for browser and access-grant verification.
+- `redeemer2@example.com` owns a ten-place third-party reseller allocation with
+  generated single-use codes available under **Access management**.
 
 Learners 1-4 are represented in Test North, learners 5-7 in Test Central and
 learners 8-10 in Test South through their occurrence-region registrations. The

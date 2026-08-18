@@ -85,6 +85,11 @@ export async function findLearnerDashboard(
         "course_version.id",
         "access_grant.courseVersionId",
       )
+      .innerJoin(
+        "access_grant_code",
+        "access_grant_code.accessGrantId",
+        "access_grant.id",
+      )
       .innerJoin("course", "course.id", "course_version.courseId")
       .leftJoin("enrollment", (join) =>
         join
@@ -100,7 +105,6 @@ export async function findLearnerDashboard(
       .where("access_grant_domain.domain", "=", domain)
       .where("course.status", "=", "published")
       .where("course_version.publishedAt", "is not", null)
-      .where("access_grant.encryptedAccessCode", "is not", null)
       .where("access_grant.revokedAt", "is", null)
       .where("enrollment.id", "is", null)
       .whereRef("access_grant.redeemed", "<", "access_grant.quantity")

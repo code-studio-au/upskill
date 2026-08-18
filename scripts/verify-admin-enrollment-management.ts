@@ -40,11 +40,16 @@ async function cleanup(): Promise<void> {
     .where("userId", "=", ids.learner)
     .execute();
   const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
-  if (enrollmentIds.length > 0)
+  if (enrollmentIds.length > 0) {
+    await database
+      .deleteFrom("entitlement")
+      .where("enrollmentId", "in", enrollmentIds)
+      .execute();
     await database
       .deleteFrom("outbox_event")
       .where("aggregateId", "in", enrollmentIds)
       .execute();
+  }
   await database
     .deleteFrom("outbox_event")
     .where(sql<boolean>`payload ->> 'actorUserId' = ${ids.administrator}`)
@@ -306,8 +311,15 @@ try {
     .select("topic")
     .where("aggregateId", "=", enrollmentId)
     .execute();
-  assert.equal(projected.length, 3);
-  assert.ok(projected.every((event) => event.topic === "audit.log_requested"));
+  assert.equal(projected.length, 4);
+  assert.equal(
+    projected.filter((event) => event.topic === "audit.log_requested").length,
+    3,
+  );
+  assert.equal(
+    projected.filter((event) => event.topic === "enrollment.created").length,
+    1,
+  );
 
   console.log(
     "Verified administrator enrollment, duplicate protection, soft removal, history-preserving restoration and durable audit projections",

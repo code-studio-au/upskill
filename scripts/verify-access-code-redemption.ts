@@ -53,14 +53,14 @@ function protectedCode(
   lookupId: string,
 ): {
   accessCode: string;
-  accessCodeLookupId: string;
+  lookupId: string;
   encryptedAccessCode: string;
 } {
   const issued = issueAccessCode(base, lookupId);
   if (!issued) throw new Error("Access-code verification fixture was invalid");
   return {
     accessCode: issued.accessCode,
-    accessCodeLookupId: issued.lookupId,
+    lookupId: issued.lookupId,
     encryptedAccessCode: encryptAccessCode({
       accessGrantId,
       lookupId: issued.lookupId,
@@ -83,6 +83,10 @@ async function cleanup(): Promise<void> {
     const enrollmentIds = enrollmentRows.map((row) => row.id);
     if (enrollmentIds.length > 0) {
       await database
+        .deleteFrom("entitlement")
+        .where("enrollmentId", "in", enrollmentIds)
+        .execute();
+      await database
         .deleteFrom("outbox_event")
         .where("aggregateId", "in", enrollmentIds)
         .execute();
@@ -101,6 +105,14 @@ async function cleanup(): Promise<void> {
       .execute();
     await database
       .deleteFrom("access_grant_domain")
+      .where("accessGrantId", "in", [
+        ids.capacityGrant,
+        ids.restrictedGrant,
+        ids.expiredGrant,
+      ])
+      .execute();
+    await database
+      .deleteFrom("access_grant_code")
       .where("accessGrantId", "in", [
         ids.capacityGrant,
         ids.restrictedGrant,
@@ -184,36 +196,65 @@ try {
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCodeLookupId: capacityCode.accessCodeLookupId,
-        encryptedAccessCode: capacityCode.encryptedAccessCode,
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
         expiresAt: new Date(Date.now() + 60_000),
+        fulfillmentMode: "shared_code",
+        codePrefix: "VERIFY-CAPACITY-2026",
       },
       {
         id: ids.restrictedGrant,
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCodeLookupId: restrictedCode.accessCodeLookupId,
-        encryptedAccessCode: restrictedCode.encryptedAccessCode,
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
         expiresAt: new Date(Date.now() + 60_000),
+        fulfillmentMode: "shared_code",
+        codePrefix: "VERIFY-DOMAIN-2026",
       },
       {
         id: ids.expiredGrant,
         organizationId: null,
         orderId: null,
         courseVersionId: ids.version,
-        accessCodeLookupId: expiredCode.accessCodeLookupId,
-        encryptedAccessCode: expiredCode.encryptedAccessCode,
         enrollmentDurationDays: 30,
         quantity: 1,
         redeemed: 0,
         expiresAt: new Date(Date.now() - 60_000),
+        fulfillmentMode: "shared_code",
+        codePrefix: "VERIFY-EXPIRED-2026",
+      },
+    ])
+    .execute();
+  await database
+    .insertInto("access_grant_code")
+    .values([
+      {
+        id: `code_${ids.capacityGrant}`,
+        accessGrantId: ids.capacityGrant,
+        lookupId: capacityCode.lookupId,
+        encryptedAccessCode: capacityCode.encryptedAccessCode,
+        ordinal: null,
+        createdAt: new Date(),
+      },
+      {
+        id: `code_${ids.restrictedGrant}`,
+        accessGrantId: ids.restrictedGrant,
+        lookupId: restrictedCode.lookupId,
+        encryptedAccessCode: restrictedCode.encryptedAccessCode,
+        ordinal: null,
+        createdAt: new Date(),
+      },
+      {
+        id: `code_${ids.expiredGrant}`,
+        accessGrantId: ids.expiredGrant,
+        lookupId: expiredCode.lookupId,
+        encryptedAccessCode: expiredCode.encryptedAccessCode,
+        ordinal: null,
+        createdAt: new Date(),
       },
     ])
     .execute();
@@ -227,12 +268,22 @@ try {
 
   const { redeemAccessCode } =
     await import("#/server/access/redeem-access-code.server");
+  const redemption = (code: string) => ({
+    code,
+    informationReleaseAccepted: true as const,
+    noticeVersion: "access-owner-v1" as const,
+  });
   const concurrentResults = await Promise.all([
     redeemAccessCode(
-      capacityCode.accessCode.replaceAll("-", " ").toLocaleLowerCase("en-AU"),
+      redemption(
+        capacityCode.accessCode.replaceAll("-", " ").toLocaleLowerCase("en-AU"),
+      ),
       users.first,
     ),
-    redeemAccessCode(capacityCode.accessCode.replaceAll("-", ""), users.second),
+    redeemAccessCode(
+      redemption(capacityCode.accessCode.replaceAll("-", "")),
+      users.second,
+    ),
   ]);
   assert.deepEqual(concurrentResults.map((result) => result.status).sort(), [
     "enrolled",
@@ -241,16 +292,26 @@ try {
   const winner =
     concurrentResults[0].status === "enrolled" ? users.first : users.second;
   assert.equal(
-    (await redeemAccessCode(capacityCode.accessCode, winner)).status,
+    (await redeemAccessCode(redemption(capacityCode.accessCode), winner))
+      .status,
     "already-enrolled",
   );
   assert.equal(
-    (await redeemAccessCode(restrictedCode.accessCode, users.unverified))
-      .status,
+    (
+      await redeemAccessCode(
+        redemption(restrictedCode.accessCode),
+        users.unverified,
+      )
+    ).status,
     "invalid",
   );
   assert.equal(
-    (await redeemAccessCode(expiredCode.accessCode, users.unverified)).status,
+    (
+      await redeemAccessCode(
+        redemption(expiredCode.accessCode),
+        users.unverified,
+      )
+    ).status,
     "invalid",
   );
 
@@ -270,6 +331,21 @@ try {
   assert.ok(enrollment);
   assert.ok(enrollment.expiresAt);
   const enrollmentId = enrollment.id;
+  const entitlement = await database
+    .selectFrom("entitlement")
+    .select([
+      "originType",
+      "originAccessGrantId",
+      "redemptionEmailSnapshot",
+      "informationReleaseNoticeVersion",
+      "informationReleaseAcceptedAt",
+    ])
+    .where("enrollmentId", "=", enrollmentId)
+    .executeTakeFirstOrThrow();
+  assert.equal(entitlement.originType, "access_grant");
+  assert.equal(entitlement.originAccessGrantId, ids.capacityGrant);
+  assert.equal(entitlement.informationReleaseNoticeVersion, "access-owner-v1");
+  assert.ok(entitlement.informationReleaseAcceptedAt);
   assert.equal(
     await database
       .selectFrom("audit_event")
@@ -286,7 +362,7 @@ try {
       .where("aggregateId", "=", enrollmentId)
       .executeTakeFirstOrThrow()
       .then((row) => row.count),
-    2,
+    3,
   );
   console.log(
     "Verified atomic access-code capacity, domain and expiry enforcement with audit/outbox writes",

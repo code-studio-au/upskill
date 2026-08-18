@@ -29,7 +29,9 @@ try {
 
   const expectedTables = [
     "access_grant",
+    "access_grant_code",
     "access_grant_domain",
+    "access_grant_owner_assignment",
     "audit_event",
     "course",
     "course_version",
@@ -37,6 +39,7 @@ try {
     "course_version_section",
     "coordination_region",
     "enrollment",
+    "entitlement",
     "event_admin_assignment",
     "event_attendance",
     "event_coordinator_assignment",
@@ -292,7 +295,7 @@ try {
   const accessCodeIndex = indexResult.rows.find(
     (index) => index.indexname === "access_grant_code_lookup_id_uq",
   );
-  if (!accessCodeIndex?.indexdef.includes('"accessCodeLookupId"'))
+  if (!accessCodeIndex?.indexdef.includes('"lookupId"'))
     throw new Error(
       "Access-code unique index must use the public lookup identifier",
     );
@@ -356,10 +359,9 @@ try {
   const actualAccessGrantColumns = new Set(
     accessGrantColumns.rows.map((row) => row.column_name),
   );
-  const missingAccessGrantColumns = [
-    "accessCodeLookupId",
-    "encryptedAccessCode",
-  ].filter((column) => !actualAccessGrantColumns.has(column));
+  const missingAccessGrantColumns = ["fulfillmentMode", "codePrefix"].filter(
+    (column) => !actualAccessGrantColumns.has(column),
+  );
   if (missingAccessGrantColumns.length > 0)
     throw new Error(
       `Missing access-grant columns: ${missingAccessGrantColumns.join(", ")}`,
@@ -368,6 +370,13 @@ try {
     throw new Error("Legacy access-code HMAC digest column must be removed");
   if (actualAccessGrantColumns.has("accessCode"))
     throw new Error("Plaintext access-code column must be removed");
+  if (
+    actualAccessGrantColumns.has("accessCodeLookupId") ||
+    actualAccessGrantColumns.has("encryptedAccessCode")
+  )
+    throw new Error(
+      "Access-code envelopes must be normalized into access_grant_code",
+    );
 
   const auditVerificationId = "verify_audit_append_only";
   const auditVerificationActorId = "verify_audit_append_only_actor";
