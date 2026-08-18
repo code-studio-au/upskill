@@ -69,6 +69,7 @@ export function AccessCodeRedemptionForm() {
   > | null>(null);
   const [accepted, setAccepted] = useState(false);
   const [redeeming, setRedeeming] = useState(false);
+  const [redemptionComplete, setRedemptionComplete] = useState(false);
   const codeForm = useForm({
     defaultValues: { code: "" },
     validators: { onSubmit: accessCodeInputSchema },
@@ -114,6 +115,7 @@ export function AccessCodeRedemptionForm() {
       }
       setMessage(resultMessage(result));
       if (result.status === "enrolled") {
+        setRedemptionComplete(true);
         setPreview(null);
         setAccepted(false);
         codeForm.reset();
@@ -137,7 +139,7 @@ export function AccessCodeRedemptionForm() {
           {message.body}
         </Alert>
       ) : null}
-      {!preview ? (
+      {!preview && !redemptionComplete ? (
         <form
           method="post"
           action="/dashboard"
@@ -185,7 +187,8 @@ export function AccessCodeRedemptionForm() {
             </codeForm.Subscribe>
           </div>
         </form>
-      ) : (
+      ) : null}
+      {preview ? (
         <Paper withBorder radius="lg" p="md">
           <Stack gap="md">
             <div>
@@ -235,7 +238,7 @@ export function AccessCodeRedemptionForm() {
             </Group>
           </Stack>
         </Paper>
-      )}
+      ) : null}
     </Stack>
   );
 }

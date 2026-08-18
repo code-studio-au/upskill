@@ -1915,17 +1915,26 @@ test("verified learners see entitlements and can redeem access", async ({
 
   const code = page.getByRole("textbox", { name: "Access code *" });
   await page.getByRole("button", { name: "Redeem access code" }).click();
-  await page.getByRole("button", { name: "Apply access code" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Enter the complete access code.")).toBeVisible();
   await code.fill("NOT-A-REAL-CODE");
-  await page.getByRole("button", { name: "Apply access code" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Code not accepted")).toBeVisible();
 
   await code.fill("EXAMPLE-LEARN-2026-EXAMP7E26X");
-  await page.getByRole("button", { name: "Apply access code" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(
-    page.getByText(/Access code applied|Already enrolled/),
+    page.getByRole("heading", { name: "Information release confirmation" }),
   ).toBeVisible();
+  await page
+    .getByRole("checkbox", {
+      name: "I understand and agree to release this information to the access provider.",
+    })
+    .check();
+  await page.getByRole("button", { name: "Agree and enrol" }).click();
+  await expect(page.getByText("Access code applied")).toBeVisible();
+  await expect(code).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Continue learning" }),
   ).toBeVisible();
