@@ -242,9 +242,12 @@ Learner chooses course
 ### Organisation seat purchase
 
 ```text
-Organisation purchases N seats
-  -> capacity-backed access grant
-  -> code supplied to organisation
+Organisation selects N seats and shared or single-use codes
+  -> server-priced pending order + immutable item/bulk snapshot
+  -> Stripe Checkout + post-purchase invoice
+  -> signed, locked and replay-safe webhook fulfilment
+  -> capacity-backed access grant + scoped Access Owner assignment
+  -> shared code or N numbered single-use codes
   -> employee redeems code
   -> grant locked
   -> eligibility / expiry / capacity checked
@@ -308,8 +311,12 @@ These concepts should remain distinct.
 - **Refund** is a commerce event whose educational consequence must be
   an explicit policy decision.
 
-Refund policy should be implemented through entitlement/access state,
-not by mutating historical progress.
+Refund events are recorded idempotently against the payment intent and roll up
+to partially-refunded or refunded order state. They never reduce grant
+capacity, delete or disable distributed codes, revoke learner entitlements, or
+mutate learning evidence. Any later access intervention is a separate explicit
+administrator action. An unpaid canceled or expired Checkout creates no grant,
+codes or entitlement.
 
 ## Enterprise contracts
 
@@ -342,9 +349,10 @@ unchanged. Browser return routes only display the resulting state.
 
 Blanket or 100%-covered contracts have no finite uses to purchase. Expired,
 revoked, administratively fixed or otherwise ineligible grants also suppress and
-reject the extension action server-side. A later refund policy must explicitly
-define the capacity consequence and must never reduce total capacity below uses
-already redeemed.
+reject the extension action server-side. Exhausted but otherwise active grants
+remain eligible. Refunds retain the fulfilled capacity and every issued code,
+including unredeemed codes, because distribution may already have occurred
+outside Upskill.
 
 ## Events and blended learning
 

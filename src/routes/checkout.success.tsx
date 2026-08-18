@@ -48,8 +48,12 @@ function CheckoutSuccessPage() {
   const checkout = Route.useLoaderData();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
-  const isPaid = checkout.status === "paid";
+  const isFulfilled =
+    checkout.status === "paid" ||
+    checkout.status === "partially_refunded" ||
+    checkout.status === "refunded";
   const isPending = checkout.status === "pending";
+  const isBulk = checkout.kind !== "individual_purchase";
 
   async function refreshStatus(): Promise<void> {
     if (refreshing) return;
@@ -85,17 +89,21 @@ function CheckoutSuccessPage() {
               Checkout status
             </Text>
             <Title order={1}>
-              {isPaid
-                ? "Your course is ready"
+              {isFulfilled
+                ? isBulk
+                  ? "Your access codes are ready"
+                  : "Your course is ready"
                 : isPending
                   ? "Payment is processing"
                   : "Checkout was not completed"}
             </Title>
           </div>
 
-          {isPaid ? (
+          {isFulfilled ? (
             <Alert color="green" title="Enrolment confirmed" role="status">
-              {checkout.courseTitle} is now available in your learning area.
+              {isBulk
+                ? `Bulk access for ${checkout.courseTitle} is now available in Access management.`
+                : `${checkout.courseTitle} is now available in your learning area.`}
             </Alert>
           ) : isPending ? (
             <Alert color="blue" title="Awaiting confirmation" role="status">
@@ -115,9 +123,13 @@ function CheckoutSuccessPage() {
             </Alert>
           )}
 
-          {isPaid ? (
-            <Button component={Link} to="/dashboard" size="lg">
-              Go to my learning
+          {isFulfilled ? (
+            <Button
+              component={Link}
+              to={isBulk ? "/access-management" : "/dashboard"}
+              size="lg"
+            >
+              {isBulk ? "Manage access" : "Go to my learning"}
             </Button>
           ) : isPending ? (
             <Button
@@ -130,9 +142,15 @@ function CheckoutSuccessPage() {
             >
               Check payment status
             </Button>
+          ) : isBulk && checkout.kind === "capacity_extension" ? (
+            <Link to="/access-management" className={classes.link}>
+              <Button component="span" size="lg" fullWidth>
+                Return to access management
+              </Button>
+            </Link>
           ) : (
             <Link
-              to="/courses/$slug"
+              to={isBulk ? "/courses/$slug/bulk-order" : "/courses/$slug"}
               params={{ slug: checkout.courseSlug }}
               className={classes.link}
             >

@@ -423,6 +423,12 @@ capacity; the success redirect never fulfils it. Blanket/100%-covered contracts,
 revoked/expired sources and administratively fixed grants have no purchase
 action.
 
+The same dashboard retains paid/refunded order history and Checkout-generated
+invoice access. A refund records the financial outcome but preserves grant
+capacity, shared and single-use codes, redemptions, entitlements and learning
+evidence. This prevents distributed credentials from changing meaning without a
+separate explicit access decision.
+
 Do not expose internal platform administration or unrelated learner details
 merely because someone owns an access allocation.
 

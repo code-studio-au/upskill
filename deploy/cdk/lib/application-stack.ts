@@ -61,7 +61,7 @@ export class ApplicationStack extends Stack {
           UPSKILL_TRUST_PROXY: "true",
           APP_ORIGIN: `https://${props.config.name}.example.invalid`,
           LEARNING_ORIGIN: `https://learn-${props.config.name}.example.invalid`,
-          STRIPE_SECRET_KEY: "sk_live_REPLACE_BEFORE_DEPLOY",
+          STRIPE_SECRET_KEY: "rk_live_REPLACE_BEFORE_DEPLOY",
           STRIPE_WEBHOOK_SECRET: "whsec_REPLACE_BEFORE_DEPLOY",
           EMAIL_PROVIDER: "mailgun",
           MAILGUN_API_KEY: "REPLACE_WITH_DOMAIN_SENDING_KEY",

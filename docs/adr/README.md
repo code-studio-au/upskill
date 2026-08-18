@@ -41,3 +41,4 @@ is complete.
 | 0032 | [Typed instants, local schedules and duration semantics](0032-typed-time-model.md)                                         | Accepted and implemented                                   |
 | 0033 | [Forward-only Survey branching](0033-forward-only-survey-branching.md)                                                     | Accepted and implemented                                   |
 | 0034 | [Source-neutral entitlements and Access Owner disclosure](0034-source-neutral-entitlements-and-access-owner-disclosure.md) | Accepted and implemented for course access                 |
+| 0035 | [Bulk-order Checkout and refund preservation](0035-bulk-order-checkout-and-refund-preservation.md)                         | Accepted and implemented for course access grants          |

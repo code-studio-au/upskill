@@ -17,7 +17,9 @@ const envSchema = z.object({
     .string()
     .regex(/^[A-Za-z0-9_-]{43}$/u)
     .default(LOCAL_ACCESS_CODE_ENCRYPTION_KEY),
-  STRIPE_SECRET_KEY: z.string().startsWith("sk_"),
+  STRIPE_SECRET_KEY: z.string().regex(/^(?:sk|rk)_/u, {
+    message: "Stripe secret key must start with sk_ or rk_",
+  }),
   STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_"),
   EMAIL_PROVIDER: z.enum(["local_capture", "mailgun"]).default("local_capture"),
   MAILGUN_API_KEY: z.string().min(1).optional(),

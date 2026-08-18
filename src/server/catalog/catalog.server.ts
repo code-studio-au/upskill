@@ -31,6 +31,7 @@ function toSummary(course: PublishedCourse): CourseSummary {
 function toDetail(course: PublishedCourse): CourseDetail {
   return {
     ...toSummary(course),
+    bulkPricing: course.content.bulkPricing,
     description: course.content.description,
     currency: course.content.currency,
     hasCompletionCertificate: course.content.hasCompletionCertificate,

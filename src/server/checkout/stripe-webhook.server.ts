@@ -8,6 +8,7 @@ import {
   markCheckoutSessionFailed,
   type CheckoutSessionSnapshot,
 } from "./checkout-fulfillment.server";
+import { recordStripeRefund } from "./refund-fulfillment.server";
 
 function objectId(value: string | { id: string } | null): string | null {
   if (typeof value === "string") return value;
@@ -21,6 +22,7 @@ function snapshotSession(
     id: session.id,
     application: session.metadata?.application ?? null,
     orderId: session.metadata?.orderId ?? null,
+    orderKind: session.metadata?.orderKind ?? null,
     userId: session.metadata?.userId ?? null,
     courseVersionId: session.metadata?.courseVersionId ?? null,
     clientReferenceId: session.client_reference_id,
@@ -30,7 +32,22 @@ function snapshotSession(
     paymentStatus: session.payment_status,
     paymentIntentId: objectId(session.payment_intent),
     customerId: objectId(session.customer),
+    invoiceId: objectId(session.invoice),
   };
+}
+
+function refundStatus(
+  value: string,
+): "pending" | "requires_action" | "succeeded" | "failed" | "canceled" {
+  if (
+    value === "pending" ||
+    value === "requires_action" ||
+    value === "succeeded" ||
+    value === "failed" ||
+    value === "canceled"
+  )
+    return value;
+  throw new Error("Stripe refund status is invalid");
 }
 
 export function constructStripeEvent(
@@ -57,5 +74,23 @@ export async function handleStripeEvent(event: Stripe.Event): Promise<void> {
     event.type === "checkout.session.expired"
   ) {
     await markCheckoutSessionFailed(snapshotSession(event.data.object));
+    return;
+  }
+  if (
+    event.type === "refund.created" ||
+    event.type === "refund.updated" ||
+    event.type === "refund.failed"
+  ) {
+    const refund = event.data.object;
+    if (!refund.status) throw new Error("Stripe refund status is missing");
+    await recordStripeRefund({
+      id: refund.id,
+      paymentIntentId: objectId(refund.payment_intent),
+      amountCents: refund.amount,
+      currency: refund.currency,
+      status: refundStatus(refund.status),
+      reason: refund.reason,
+      createdAt: new Date(refund.created * 1000),
+    });
   }
 }

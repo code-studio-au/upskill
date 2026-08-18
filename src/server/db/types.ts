@@ -745,9 +745,14 @@ interface OrderTable {
   purchaserUserId: string | null;
   stripeCheckoutSessionId: string | null;
   stripePaymentIntentId: string | null;
-  status: "pending" | "paid" | "failed" | "refunded";
+  stripeInvoiceId: string | null;
+  kind: Generated<
+    "individual_purchase" | "bulk_purchase" | "capacity_extension"
+  >;
+  status: "pending" | "paid" | "failed" | "partially_refunded" | "refunded";
   currency: string;
   totalCents: number;
+  refundedCents: Generated<number>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -760,6 +765,28 @@ interface OrderItemTable {
   unitPriceCents: number;
   enrollmentDurationDays: number;
   createdAt: Timestamp;
+}
+
+interface BulkOrderTable {
+  orderId: string;
+  accessGrantId: string | null;
+  organizationName: string;
+  grantLabel: string;
+  fulfillmentMode: "shared_code" | "single_use_codes";
+  codePrefix: string;
+  customerExtendable: Generated<boolean>;
+  createdAt: Timestamp;
+}
+
+interface OrderRefundTable {
+  stripeRefundId: string;
+  orderId: string;
+  amountCents: number;
+  currency: string;
+  status: "pending" | "requires_action" | "succeeded" | "failed" | "canceled";
+  reason: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 interface AccessGrantTable {
@@ -928,6 +955,7 @@ export type AuditEventAction =
   | "order.checkout_failed"
   | "order.checkout_paid"
   | "order.paid_existing_enrollment"
+  | "order.refund_recorded"
   | "resource.uploaded"
   | "resource.version_removed"
   | "scorm.attempt_launch_issued"
@@ -1013,8 +1041,10 @@ export interface Database {
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   platform_admin: PlatformAdminTable;
+  bulk_order: BulkOrderTable;
   order: OrderTable;
   order_item: OrderItemTable;
+  order_refund: OrderRefundTable;
   outbox_event: OutboxEventTable;
   session: SessionTable;
   scorm_attempt: ScormAttemptTable;

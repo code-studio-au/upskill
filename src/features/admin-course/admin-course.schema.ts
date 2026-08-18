@@ -19,6 +19,10 @@ const moneySchema = z
 const durationSchema = z
   .number()
   .check(z.int(), z.positive(), z.maximum(100_000));
+const bulkPriceTierSchema = z.object({
+  minimumQuantity: z.number().check(z.int(), z.minimum(2), z.maximum(100_000)),
+  unitPriceCents: moneySchema.check(z.positive()),
+});
 
 export const adminCourseParamsSchema = z.object({
   courseId: identifierSchema,
@@ -112,6 +116,10 @@ export const adminCourseDraftSchema = z
     durationMinutes: durationSchema,
     priceCents: moneySchema,
     salePriceCents: z.nullable(moneySchema),
+    bulkPricing: z.object({
+      enabled: z.boolean(),
+      tiers: z.array(bulkPriceTierSchema).check(z.maxLength(20)),
+    }),
     featured: z.boolean(),
     listInStore: z.boolean(),
     hasCompletionCertificate: z.boolean(),
@@ -130,6 +138,31 @@ export const adminCourseDraftSchema = z
           path: ["salePriceCents"],
           message: "Sale price must be lower than the standard price",
         });
+      if (draft.bulkPricing.enabled && draft.bulkPricing.tiers.length === 0)
+        context.addIssue({
+          code: "custom",
+          path: ["bulkPricing", "tiers"],
+          message: "Add at least one bulk-pricing tier",
+        });
+      const individualPrice = draft.salePriceCents ?? draft.priceCents;
+      let previousQuantity = 1;
+      let previousPrice = individualPrice;
+      for (const [index, tier] of draft.bulkPricing.tiers.entries()) {
+        if (tier.minimumQuantity <= previousQuantity)
+          context.addIssue({
+            code: "custom",
+            path: ["bulkPricing", "tiers", index, "minimumQuantity"],
+            message: "Bulk-pricing quantities must increase",
+          });
+        if (tier.unitPriceCents >= previousPrice)
+          context.addIssue({
+            code: "custom",
+            path: ["bulkPricing", "tiers", index, "unitPriceCents"],
+            message: "Each tier must reduce the per-seat price",
+          });
+        previousQuantity = tier.minimumQuantity;
+        previousPrice = tier.unitPriceCents;
+      }
       const identifiers = new Set<string>();
       for (const [sectionIndex, section] of draft.sections.entries()) {
         if (identifiers.has(section.id))

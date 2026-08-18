@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
+import { createStripeDevelopmentSetup } from "./stripe-development.mjs";
 
 const requireFromHere = createRequire(import.meta.url);
 const viteEntry = path.join(
@@ -9,16 +10,28 @@ const viteEntry = path.join(
   "vite.js",
 );
 
+let stripeSetup;
+try {
+  stripeSetup = createStripeDevelopmentSetup();
+} catch (error) {
+  console.error(
+    error instanceof Error
+      ? error.message
+      : "Unable to configure Stripe webhook forwarding.",
+  );
+  process.exit(1);
+}
+
 const definitions = [
   {
     script: "dev:web",
     command: process.execPath,
-    arguments: [viteEntry, "dev", "--port", "3000"],
+    arguments: [viteEntry, "dev", "--port", "3000", "--strictPort"],
   },
   {
     script: "dev:learning",
     command: process.execPath,
-    arguments: [viteEntry, "dev", "--port", "3001"],
+    arguments: [viteEntry, "dev", "--port", "3001", "--strictPort"],
   },
   {
     script: "worker:scorm",
@@ -32,11 +45,16 @@ const definitions = [
     ],
   },
 ];
+definitions.push(stripeSetup.listener);
+console.log(
+  "Stripe webhook forwarding enabled for http://localhost:3000/api/stripe/webhook",
+);
 
 const services = definitions.map((definition) => ({
   script: definition.script,
   process: spawn(definition.command, definition.arguments, {
-    stdio: "inherit",
+    env: stripeSetup.environment,
+    stdio: definition.stdio ?? "inherit",
   }),
 }));
 

@@ -1,0 +1,11 @@
+.tier {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  align-items: end;
+}
+
+@media (min-width: 48em) {
+  .tier {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  }
+}

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import {
   createColumnHelper,
   tableFeatures,
@@ -18,6 +18,7 @@ import {
 import { formatLocalDate } from "#/features/shared/local-date";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
 import { revealAccessOwnerGrantCode } from "#/server/functions/access-owner";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import type { AccessOwnerDashboard as DashboardData } from "./access-owner.schema";
 import classes from "./AccessOwnerDashboard.module.css";
 
@@ -28,6 +29,10 @@ const learnerColumn = createColumnHelper<
   LearnerRow
 >();
 const numericColumns = new Set(["progressPercent"]);
+const AccessOwnerCommercePanel = lazy(async () => {
+  const module = await import("./AccessOwnerCommercePanel");
+  return { default: module.AccessOwnerCommercePanel };
+});
 
 function AccessOwnerLearnerTable({
   learners,
@@ -211,6 +216,9 @@ function AccessGrantPanel({
           </Group>
         </div>
         {error ? <Alert color="red">{error}</Alert> : null}
+        <Suspense fallback={<LoadingSpinner />}>
+          <AccessOwnerCommercePanel grant={grant} />
+        </Suspense>
         <Title order={3} size="h4">
           Access-granted learners
         </Title>

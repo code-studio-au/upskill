@@ -20,6 +20,7 @@ const validDraft = {
   durationMinutes: 30,
   priceCents: 10_000,
   salePriceCents: 8_000,
+  bulkPricing: { enabled: false, tiers: [] },
   featured: false,
   listInStore: true,
   hasCompletionCertificate: false,

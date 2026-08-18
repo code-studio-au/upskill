@@ -6,6 +6,58 @@ const boundedText = (maximum: number) =>
 const moneySchema = z
   .number()
   .check(z.int(), z.nonnegative(), z.maximum(100_000_000));
+const bulkPriceTierSchema = z.object({
+  minimumQuantity: z.number().check(z.int(), z.minimum(2), z.maximum(100_000)),
+  unitPriceCents: moneySchema.check(z.positive()),
+});
+const bulkPricingSchema = z
+  .object({
+    enabled: z.boolean(),
+    tiers: z.array(bulkPriceTierSchema).check(z.maxLength(20)),
+  })
+  .check(
+    z.superRefine((pricing, context) => {
+      if (pricing.enabled && pricing.tiers.length === 0)
+        context.addIssue({
+          code: "custom",
+          path: ["tiers"],
+          message: "Add at least one bulk-pricing tier",
+        });
+      let previousQuantity = 1;
+      let previousPrice = Number.POSITIVE_INFINITY;
+      for (const [index, tier] of pricing.tiers.entries()) {
+        if (tier.minimumQuantity <= previousQuantity)
+          context.addIssue({
+            code: "custom",
+            path: ["tiers", index, "minimumQuantity"],
+            message: "Bulk-pricing quantities must increase",
+          });
+        if (tier.unitPriceCents >= previousPrice)
+          context.addIssue({
+            code: "custom",
+            path: ["tiers", index, "unitPriceCents"],
+            message: "Each bulk-pricing tier must reduce the per-seat price",
+          });
+        previousQuantity = tier.minimumQuantity;
+        previousPrice = tier.unitPriceCents;
+      }
+    }),
+  );
+
+export type BulkPricing = z.infer<typeof bulkPricingSchema>;
+
+export function resolveBulkUnitPrice(
+  pricing: BulkPricing,
+  quantity: number,
+): number | null {
+  if (!pricing.enabled) return null;
+  let unitPriceCents: number | null = null;
+  for (const tier of pricing.tiers) {
+    if (quantity < tier.minimumQuantity) break;
+    unitPriceCents = tier.unitPriceCents;
+  }
+  return unitPriceCents;
+}
 
 const courseSectionSummarySchema = z.object({
   title: boundedText(160),
@@ -53,6 +105,7 @@ export const courseContentSchema = z
       .check(z.int(), z.positive(), z.maximum(100_000)),
     priceCents: moneySchema,
     salePriceCents: z.nullable(moneySchema),
+    bulkPricing: z._default(bulkPricingSchema, { enabled: false, tiers: [] }),
     currency: z.literal("AUD"),
     featured: z.boolean(),
     listInStore: z.boolean(),
@@ -99,6 +152,14 @@ export const courseContentSchema = z
           path: ["salePriceCents"],
           message: "Sale price must be lower than the standard price",
         });
+      const individualPrice = content.salePriceCents ?? content.priceCents;
+      for (const [index, tier] of content.bulkPricing.tiers.entries())
+        if (tier.unitPriceCents >= individualPrice)
+          context.addIssue({
+            code: "custom",
+            path: ["bulkPricing", "tiers", index, "unitPriceCents"],
+            message: "Bulk seat prices must be lower than the individual price",
+          });
     }),
   );
 
@@ -124,4 +185,5 @@ export interface CourseDetail extends CourseSummary {
   modules: CourseContent["modules"];
   sections: NonNullable<CourseContent["sections"]>;
   publishedVersion: number;
+  bulkPricing: BulkPricing;
 }

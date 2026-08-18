@@ -50,6 +50,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
+import { Route as CoursesSlugBulkOrderRouteImport } from './routes/courses.$slug_.bulk-order'
 import { Route as AdminEventsInstancesEventOccurrenceIdRouteImport } from './routes/admin.events.instances.$eventOccurrenceId'
 import { Route as AdminEventsInstancesNewRouteImport } from './routes/admin.events.instances_.new'
 import { Route as ApiAccessManagementAccessGrantIdCodesDotcsvRouteImport } from './routes/api.access-management.$accessGrantId.codes[.]csv'
@@ -276,6 +277,11 @@ const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
   path: '/api/stripe/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CoursesSlugBulkOrderRoute = CoursesSlugBulkOrderRouteImport.update({
+  id: '/courses/$slug_/bulk-order',
+  path: '/courses/$slug/bulk-order',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminEventsInstancesEventOccurrenceIdRoute =
   AdminEventsInstancesEventOccurrenceIdRouteImport.update({
     id: '/events/instances/$eventOccurrenceId',
@@ -406,6 +412,7 @@ export interface FileRoutesByFullPath {
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
   '/admin/events/': typeof AdminEventsIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
@@ -462,6 +469,7 @@ export interface FileRoutesByTo {
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/admin/courses': typeof AdminCoursesIndexRoute
   '/admin/events': typeof AdminEventsIndexRoute
   '/admin/learners': typeof AdminLearnersIndexRoute
@@ -521,6 +529,7 @@ export interface FileRoutesById {
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/courses/$slug_/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
   '/admin/events/': typeof AdminEventsIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
@@ -581,6 +590,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/courses/$slug/bulk-order'
     | '/admin/courses/'
     | '/admin/events/'
     | '/admin/learners/'
@@ -637,6 +647,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/courses/$slug/bulk-order'
     | '/admin/courses'
     | '/admin/events'
     | '/admin/learners'
@@ -695,6 +706,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/courses/$slug_/bulk-order'
     | '/admin/courses/'
     | '/admin/events/'
     | '/admin/learners/'
@@ -740,6 +752,7 @@ export interface RootRouteChildren {
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  CoursesSlugBulkOrderRoute: typeof CoursesSlugBulkOrderRoute
   ApiAccessManagementAccessGrantIdCodesDotcsvRoute: typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
   ApiAccessManagementAccessGrantIdLearnersDotcsvRoute: typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute: typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
@@ -1041,6 +1054,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStripeWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/courses/$slug_/bulk-order': {
+      id: '/courses/$slug_/bulk-order'
+      path: '/courses/$slug/bulk-order'
+      fullPath: '/courses/$slug/bulk-order'
+      preLoaderRoute: typeof CoursesSlugBulkOrderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/events/instances/$eventOccurrenceId': {
       id: '/admin/events/instances/$eventOccurrenceId'
       path: '/events/instances/$eventOccurrenceId'
@@ -1253,6 +1273,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  CoursesSlugBulkOrderRoute: CoursesSlugBulkOrderRoute,
   ApiAccessManagementAccessGrantIdCodesDotcsvRoute:
     ApiAccessManagementAccessGrantIdCodesDotcsvRoute,
   ApiAccessManagementAccessGrantIdLearnersDotcsvRoute:

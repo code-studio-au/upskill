@@ -612,6 +612,37 @@ test("validated catalogue search remains navigable", async ({ page }) => {
   await expect(page.getByText("Enter your password.")).toBeVisible();
 });
 
+test("bulk-order pricing is responsive and route-split from course detail", async ({
+  page,
+}) => {
+  await page.goto("/courses/psychological-safety-at-work");
+  await page.getByRole("link", { name: "Purchase bulk access" }).click();
+  await expect(page).toHaveURL(
+    /\/courses\/psychological-safety-at-work\/bulk-order$/u,
+  );
+  await expect(
+    page.getByRole("heading", {
+      name: "Purchase Psychological safety at work",
+    }),
+  ).toBeVisible();
+  await page.getByLabel("Organisation name").fill("Browser Test Health");
+  await page.getByLabel("Number of seats").fill("20");
+  await expect(
+    page
+      .getByText("Price per seat", { exact: true })
+      .locator("..")
+      .getByText("$59.00", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("$1,180.00", { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
+});
+
 test("Stripe webhook rejects an invalid signature", async ({ request }) => {
   const response = await request.post("/api/stripe/webhook", {
     data: { type: "checkout.session.completed" },

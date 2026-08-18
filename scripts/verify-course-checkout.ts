@@ -109,6 +109,7 @@ function sessionFor(
     id: sessionId,
     application: "upskill",
     orderId,
+    orderKind: "individual_purchase",
     userId: ids.user,
     courseVersionId: ids.version,
     clientReferenceId: orderId,
@@ -118,6 +119,7 @@ function sessionFor(
     paymentStatus: "paid",
     paymentIntentId: `pi_${orderId}`,
     customerId: "cus_verify_checkout",
+    invoiceId: null,
   };
 }
 
@@ -288,6 +290,7 @@ try {
     await import("#/server/checkout/checkout-status.server");
   assert.deepEqual(await findCheckoutStatus(`cs_test_${ids.paidOrder}`, user), {
     status: "paid",
+    kind: "individual_purchase",
     courseTitle: "Verified Checkout course",
     courseSlug: "verify-checkout-course",
   });

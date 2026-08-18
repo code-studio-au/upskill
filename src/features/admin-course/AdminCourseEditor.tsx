@@ -52,6 +52,11 @@ const AdminCourseRoster = lazy(async () => {
   return { default: module.AdminCourseRoster };
 });
 
+const AdminCourseBulkPricingEditor = lazy(async () => {
+  const module = await import("./AdminCourseBulkPricingEditor");
+  return { default: module.AdminCourseBulkPricingEditor };
+});
+
 type Confirmation =
   | { action: "archive" }
   | { action: "delete-course" }
@@ -550,6 +555,16 @@ export function AdminCourseEditor({
                 }}
               />
             </Group>
+            <Suspense fallback={<LoadingSpinner />}>
+              <AdminCourseBulkPricingEditor
+                bulkPricing={draft.bulkPricing}
+                editable={editable}
+                individualPriceCents={draft.salePriceCents ?? draft.priceCents}
+                onChange={(bulkPricing) => {
+                  setDraft((current) => ({ ...current, bulkPricing }));
+                }}
+              />
+            </Suspense>
           </Stack>
         </Paper>
       ) : null}
