@@ -23,8 +23,9 @@ eligible workforce.
 
 ## Architecture Horizons
 
-- **Current Product:** organisation identity/membership plus course-specific,
-  capacity-limited access grants with optional verified-domain eligibility.
+- **Current Product:** organisation identity/membership, course-specific access
+  grants, explicit course entitlements, learner information-release evidence,
+  and scoped Access Owner self-service for assigned grants.
 - **Target Product:** first-class enterprise contracts, covered-offering scope,
   eligibility rules, effective periods, source-neutral entitlements and scoped
   Access Owner self-service for assigned grants/contracts.
@@ -47,11 +48,16 @@ is part of the commercial entitlement model.
 
 ## Current Product
 
-The repository already contains organisation-aware access grants and
-organisation membership/role concepts. Access grants can represent an
+The repository already contains organisation-aware access grants,
+organisation membership/role concepts, source-neutral course entitlements and
+scoped Access Owner assignments. Access grants can represent an
 exact published course version, capacity, redeemed quantity, enrolment
 duration, expiry, revocation, and optional verified-email-domain
-restrictions.
+restrictions. Individual checkout, code redemption and administrator assignment
+use a common transactional entitlement/enrolment issuer. Access-code redemption
+records the learner's explicit information-release notice version, acceptance
+time and redemption-email snapshot before an assigned owner can see bounded
+progress.
 
 This works well for a customer buying a fixed number of places in one
 course.
@@ -71,8 +77,9 @@ duplicate contract policy and make renewals/reporting harder.
 
 ## Target Product
 
-The following boundaries describe the accepted direction. Only the organisation
-and course-specific access-grant subset exists today.
+The following boundaries describe the accepted direction. The organisation,
+course-specific access-grant, course-entitlement and assigned-grant Access Owner
+subsets exist today; contracts and broad coverage do not.
 
 ## Domain Boundaries
 
@@ -386,6 +393,9 @@ source it may show:
 - purchase or contract identity and covered offering;
 - the human-readable discount/access code through the audited retrieval
   boundary;
+- a downloadable audited CSV of numbered single-use codes, including
+  available/redeemed state and redemption attribution, when that fulfilment
+  mode was purchased;
 - purchased capacity, redeemed uses and remaining uses for finite grants;
 - utilisation without a synthetic remaining-use limit for blanket/100%-covered
   contracts; and
@@ -543,20 +553,27 @@ entitlements/enrolments for the same intended access.
 
 ## Recommended Implementation Sequence
 
-### Now
+### Preserve
 
 - Preserve existing organisation access-grant and capacity-locking
   model.
 - Keep organisation role semantics separate from event/platform roles.
 - Ensure grant origin and organisation relationships remain explicit.
 
-### Next --- explicit entitlement foundation
+### Implemented --- course entitlement and assigned-grant owner foundation
 
-- Introduce source-neutral entitlement semantics.
-- Make enrolment access origin directly traceable.
-- Treat access grants as entitlement producers/capacity pools.
-- Add invitation-backed Access Owner assignments and their bounded dashboard.
-- Add capacity-extension orders for eligible finite grants.
+- Source-neutral course entitlements make enrolment origin directly traceable.
+- Access grants act as entitlement producers and serialized capacity pools.
+- A finite grant chooses either one shared reusable code or a generated batch of
+  one unique single-use code per place. Batch capacity extensions append codes
+  without invalidating distributed codes.
+- Email-bound Access Owner assignments, audited code reveal, bounded progress,
+  consent-filtered learner lists and CSV export are implemented.
+- New Access Owner emails use the provisional account/setup-email workflow.
+
+### Next --- customer extensions and contracts
+
+- Add Stripe-backed capacity-extension orders for eligible finite grants.
 
 ### Enterprise contract phase
 

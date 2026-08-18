@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted target; implementation pending.
+Accepted and implemented for registered/open-entry participation, staged
+Section release, attendance-aware final decisions and event completion.
 
 ## Context
 

@@ -1,5 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
-import { accessCodeInputSchema } from "#/features/access/access-code.schema";
+import {
+  accessCodeInputSchema,
+  accessCodeRedemptionSchema,
+} from "#/features/access/access-code.schema";
 import { learnerEventRegistrationSchema } from "#/features/learner/learner.schema";
 import { learnerEventWorkspaceInputSchema } from "#/features/learner/learner-event-workspace.schema";
 import {
@@ -63,7 +66,7 @@ export const resolveLearnerEventSurveyQr = createServerFn({ method: "GET" })
   });
 
 export const redeemLearnerAccessCode = createServerFn({ method: "POST" })
-  .validator(accessCodeInputSchema)
+  .validator(accessCodeRedemptionSchema)
   .handler(async ({ data }) => {
     const { getRequestUser } = await import("#/server/auth/session.server");
     const user = await getRequestUser();
@@ -71,7 +74,18 @@ export const redeemLearnerAccessCode = createServerFn({ method: "POST" })
 
     const { redeemAccessCode } =
       await import("#/server/access/redeem-access-code.server");
-    return await redeemAccessCode(data.code, user);
+    return await redeemAccessCode(data, user);
+  });
+
+export const previewLearnerAccessCode = createServerFn({ method: "POST" })
+  .validator(accessCodeInputSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" } as const;
+    const { previewAccessCode } =
+      await import("#/server/access/redeem-access-code.server");
+    return await previewAccessCode(data.code, user);
   });
 
 export const registerLearnerEvent = createServerFn({ method: "POST" })

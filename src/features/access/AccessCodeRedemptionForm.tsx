@@ -1,13 +1,26 @@
-import { Alert, Button, Stack } from "#/features/shared/mantine";
+import {
+  Alert,
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
 import { useState, useSyncExternalStore } from "react";
 import {
   accessCodeInputSchema,
+  type AccessCodePreviewResult,
   type AccessCodeRedemptionResult,
 } from "./access-code.schema";
-import { redeemLearnerAccessCode } from "#/server/functions/learner";
+import {
+  previewLearnerAccessCode,
+  redeemLearnerAccessCode,
+} from "#/server/functions/learner";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { firstFormError } from "#/features/shared/form-errors";
 import classes from "./AccessCodeRedemptionForm.module.css";
 
@@ -50,22 +63,30 @@ export function AccessCodeRedemptionForm() {
     () => false,
   );
   const [message, setMessage] = useState<Message | null>(null);
+  const [preview, setPreview] = useState<Extract<
+    AccessCodePreviewResult,
+    { status: "ready" }
+  > | null>(null);
+  const [accepted, setAccepted] = useState(false);
+  const [redeeming, setRedeeming] = useState(false);
+  const [redemptionComplete, setRedemptionComplete] = useState(false);
   const codeForm = useForm({
     defaultValues: { code: "" },
     validators: { onSubmit: accessCodeInputSchema },
     onSubmit: async ({ value }) => {
       setMessage(null);
       try {
-        const result = await redeemLearnerAccessCode({ data: value });
+        const result = await previewLearnerAccessCode({ data: value });
         if (result.status === "unauthenticated") {
           window.location.assign("/login?redirect=%2Fdashboard");
           return;
         }
-        setMessage(resultMessage(result));
-        if (result.status === "enrolled") {
-          codeForm.reset();
-          await router.invalidate();
+        if (result.status === "ready") {
+          setPreview(result);
+          setAccepted(false);
+          return;
         }
+        setMessage(resultMessage(result));
       } catch {
         setMessage({
           color: "red",
@@ -76,6 +97,41 @@ export function AccessCodeRedemptionForm() {
     },
   });
 
+  async function confirmRedemption(): Promise<void> {
+    if (!preview || !accepted) return;
+    setRedeeming(true);
+    setMessage(null);
+    try {
+      const result = await redeemLearnerAccessCode({
+        data: {
+          code: codeForm.state.values.code,
+          informationReleaseAccepted: true,
+          noticeVersion: preview.noticeVersion,
+        },
+      });
+      if (result.status === "unauthenticated") {
+        window.location.assign("/login?redirect=%2Fdashboard");
+        return;
+      }
+      setMessage(resultMessage(result));
+      if (result.status === "enrolled") {
+        setRedemptionComplete(true);
+        setPreview(null);
+        setAccepted(false);
+        codeForm.reset();
+        await router.invalidate();
+      }
+    } catch {
+      setMessage({
+        color: "red",
+        title: "Code not applied",
+        body: "Access-code redemption is temporarily unavailable. Please try again.",
+      });
+    } finally {
+      setRedeeming(false);
+    }
+  }
+
   return (
     <Stack gap="md">
       {message ? (
@@ -83,51 +139,106 @@ export function AccessCodeRedemptionForm() {
           {message.body}
         </Alert>
       ) : null}
-      <form
-        method="post"
-        action="/dashboard"
-        onSubmit={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-          void codeForm.handleSubmit();
-        }}
-      >
-        <div className={classes.controls}>
-          <codeForm.Field name="code">
-            {(field) => (
-              <MantineTextInput
-                label="Access code"
-                name={field.name}
-                value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => {
-                  field.handleChange(event.currentTarget.value);
-                }}
-                autoComplete="off"
-                autoCapitalize="characters"
-                spellCheck={false}
-                withAsterisk
-                error={firstFormError(field.state.meta.errors)}
-                classNames={{ input: classes.codeInput }}
-              />
-            )}
-          </codeForm.Field>
-          <codeForm.Subscribe
-            selector={(state) => [state.canSubmit, state.isSubmitting] as const}
-          >
-            {([canSubmit, isSubmitting]) => (
+      {!preview && !redemptionComplete ? (
+        <form
+          method="post"
+          action="/dashboard"
+          onSubmit={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            void codeForm.handleSubmit();
+          }}
+        >
+          <div className={classes.controls}>
+            <codeForm.Field name="code">
+              {(field) => (
+                <MantineTextInput
+                  label="Access code"
+                  name={field.name}
+                  value={field.state.value}
+                  onBlur={field.handleBlur}
+                  onChange={(event) => {
+                    field.handleChange(event.currentTarget.value);
+                  }}
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  withAsterisk
+                  error={firstFormError(field.state.meta.errors)}
+                  classNames={{ input: classes.codeInput }}
+                />
+              )}
+            </codeForm.Field>
+            <codeForm.Subscribe
+              selector={(state) =>
+                [state.canSubmit, state.isSubmitting] as const
+              }
+            >
+              {([canSubmit, isSubmitting]) => (
+                <Button
+                  type="submit"
+                  loading={isSubmitting}
+                  disabled={!hydrated || !canSubmit}
+                  className={classes.submit}
+                >
+                  Continue
+                </Button>
+              )}
+            </codeForm.Subscribe>
+          </div>
+        </form>
+      ) : null}
+      {preview ? (
+        <Paper withBorder radius="lg" p="md">
+          <Stack gap="md">
+            <div>
+              <Title order={3} size="h4">
+                Information release confirmation
+              </Title>
+              <Text fw={600}>{preview.courseTitle}</Text>
+              <Text size="sm" c="dimmed">
+                {preview.accessKind === "enterprise_contract"
+                  ? "Enterprise access"
+                  : "Bulk-purchased access"}{" "}
+                provided by {preview.organizationName}
+              </Text>
+            </div>
+            <Alert color="blue">
+              By continuing, you allow {preview.organizationName} and its
+              assigned Access Owners to view your name, the email used for this
+              redemption, this course, your progress and your completion status.
+              They cannot view your survey answers, detailed SCORM data, other
+              learning, or unrelated profile information.
+            </Alert>
+            <MantineCheckbox
+              checked={accepted}
+              onChange={setAccepted}
+              label="I understand and agree to release this information to the access provider."
+            />
+            <Group justify="flex-end">
               <Button
-                type="submit"
-                loading={isSubmitting}
-                disabled={!hydrated || !canSubmit}
-                className={classes.submit}
+                type="button"
+                variant="default"
+                disabled={redeeming}
+                onClick={() => {
+                  setPreview(null);
+                  setAccepted(false);
+                }}
               >
-                Apply access code
+                Change code
               </Button>
-            )}
-          </codeForm.Subscribe>
-        </div>
-      </form>
+              <Button
+                type="button"
+                loading={redeeming}
+                disabled={!hydrated || !accepted}
+                onClick={() => void confirmRedemption()}
+              >
+                Agree and enrol
+              </Button>
+            </Group>
+          </Stack>
+        </Paper>
+      ) : null}
     </Stack>
   );
 }

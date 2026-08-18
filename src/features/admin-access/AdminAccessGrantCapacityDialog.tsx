@@ -33,7 +33,9 @@ export function AdminAccessGrantCapacityDialog({
       });
       if (response.status === "conflict") {
         setError(
-          `Capacity cannot be lower than the ${String(grant.redeemed)} places already redeemed.`,
+          response.reason === "batch_capacity_reduction"
+            ? "A generated code batch cannot be reduced because unused codes may already have been distributed."
+            : `Capacity cannot be lower than the ${String(grant.redeemed)} places already redeemed.`,
         );
         return;
       }
@@ -70,7 +72,10 @@ export function AdminAccessGrantCapacityDialog({
             <Stack gap="md">
               <Text>
                 {grant.label} has used {grant.redeemed} of {grant.quantity}
-                available enrolments. Changing capacity keeps the existing code.
+                available enrolments.{" "}
+                {grant.fulfillmentMode === "single_use_codes"
+                  ? "Increasing capacity generates additional single-use codes."
+                  : "Changing capacity keeps the existing shared code."}
               </Text>
               <capacityForm.Field name="quantity">
                 {(field) => (
@@ -78,7 +83,11 @@ export function AdminAccessGrantCapacityDialog({
                     label="Total available enrolments"
                     type="number"
                     inputMode="numeric"
-                    min={Math.max(1, grant.redeemed)}
+                    min={
+                      grant.fulfillmentMode === "single_use_codes"
+                        ? grant.quantity
+                        : Math.max(1, grant.redeemed)
+                    }
                     max={100_000}
                     value={String(field.state.value)}
                     onBlur={field.handleBlur}

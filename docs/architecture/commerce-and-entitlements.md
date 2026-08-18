@@ -36,15 +36,17 @@ history, completion, and derived certificate eligibility.
 
 ### Organisation seat purchases
 
-Healthcare organisations may purchase fixed numbers of course places,
-commonly 10, 20, or 100 seats. Upskill provides an access code
-associated with the purchased course and capacity. Eligible staff redeem
-the code until the purchased capacity is exhausted.
+Healthcare organisations may purchase fixed numbers of course places, commonly
+10, 20, or 100 seats. The purchaser chooses either one reusable shared code or a
+generated batch containing one unique single-use code per purchased place.
+Eligible learners redeem codes until the purchased capacity is exhausted. The
+single-use mode supports third-party resellers who take payment outside Upskill
+and control distribution of individual codes.
 
 The target purchase flow also records one or more customer-side Access Owner
 email addresses. Their accepted scoped assignments expose only the associated
-grant, access code, allocation utilisation and status of learners whose access
-originated from it.
+grant, shared code or single-use code batch, allocation utilisation and status
+of learners whose access originated from it.
 
 ### Government and enterprise contracts
 
@@ -93,9 +95,9 @@ certificates, and learner routes.
 
 ## Current Product
 
-Upskill already contains most of the required pieces, although the
-current implementation uses `access_grant` and direct enrolment creation
-rather than one explicit entitlement abstraction.
+Upskill now uses an explicit source-neutral course-entitlement record between
+individual order, access-grant or administrator origin and the exact-version
+enrolment. Enterprise contracts and Event entitlement scopes remain target work.
 
 ### Orders and Stripe checkout
 
@@ -117,23 +119,25 @@ fulfilment idempotent.
 ### Access grants and access codes
 
 Administrator-managed grants currently support an exact published course
-version, organisation, human-readable code, total capacity, redeemed
-capacity, enrolment duration, optional expiry, optional
+version, organisation, code fulfilment mode, encrypted human-readable codes,
+total capacity, redeemed capacity, enrolment duration, optional expiry, optional
 verified-email-domain restrictions, and revocation.
 
 Redemption locks the grant row before checking capacity and incrementing
 usage. This prevents concurrent redemptions from oversubscribing
 purchased capacity and is an important invariant to retain.
 
-An access code is a credential used to discover/redeem a grant. It is
-**not** itself the entitlement or domain identity. Code rotation,
+An access code is a credential used to discover/redeem a grant. A grant has
+either one shared reusable code or numbered single-use codes matching its
+capacity. It is **not** itself the entitlement or domain identity. Code rotation,
 storage, delivery, or retrieval should not change the identity of the
 underlying commercial right.
 
 ### Enrolments
 
-Current purchase and redemption flows create exact-version enrolments
-directly. Enrolments retain learning history independently of later
+Current purchase, redemption and administrator-assignment flows create an
+entitlement and exact-version enrolment transactionally. Enrolments retain
+learning history independently of later
 publication changes. This is a strong learning-domain property.
 
 The recommended evolution is not to replace enrolments, but to make the
@@ -279,16 +283,17 @@ The current implementation follows
 [ADR 0019](../adr/0019-encrypted-recoverable-access-codes.md):
 
 ```text
-submitted code -> extract public lookup ID -> indexed grant lookup
+submitted code -> extract public lookup ID -> indexed grant-code lookup
 selected ciphertext -> authenticated decryption -> full normalized-code comparison
 ```
 
 The server-generated ten-character lookup ID is a stable, non-secret segment of
-the displayed human-readable code and is stored uniquely in PostgreSQL. The
-complete code is stored only in one AES-256-GCM envelope bound to its grant and
-lookup IDs. Deployed key material remains outside PostgreSQL in a dedicated AWS
-Secrets Manager value protected at rest by KMS. This preserves efficient
-ordinary lookup and authorised repeated recovery without a separate HMAC lookup
+the displayed human-readable code and is stored uniquely in PostgreSQL on a
+first-class grant-code record. The complete code is stored only in one
+AES-256-GCM envelope bound to its grant and lookup IDs. Deployed key material
+remains outside PostgreSQL in a dedicated AWS Secrets Manager value protected at
+rest by KMS. This preserves efficient ordinary lookup, authorized repeated
+shared-code recovery and authorized batch export without a separate HMAC lookup
 key while reducing the impact of a database-only disclosure.
 
 ## Expiry, removal, revocation, and refunds
@@ -330,9 +335,10 @@ assigned dashboard, but cannot directly edit the grant quantity.
 The server resolves the authoritative grant, assignment, lifecycle, eligible
 price and requested quantity before creating a pending capacity-extension order
 and Stripe Checkout Session. The signed webhook locks and idempotently fulfils
-that order, then increments grant capacity without replacing its human-readable
-code. Existing redemption counts and enrolments are unchanged. Browser return
-routes only display the resulting state.
+that order, then increments grant capacity. Shared-code grants retain the same
+code; single-use grants append the corresponding number of new codes without
+changing any existing code. Existing redemption counts and enrolments are
+unchanged. Browser return routes only display the resulting state.
 
 Blanket or 100%-covered contracts have no finite uses to purchase. Expired,
 revoked, administratively fixed or otherwise ineligible grants also suppress and
@@ -403,14 +409,18 @@ unaware of the commercial source?** If yes, the boundary is working.
 - Preserve encrypted access-code storage, indexed candidate lookup and audited
   individual recovery.
 
-### Next --- introduce explicit entitlement semantics
+### Implemented --- course entitlement semantics
 
-- Define an entitlement domain type and lifecycle.
-- Make enrolment origin explicit rather than inferred.
-- Treat `access_grant` as a grant/pool capable of issuing
-  entitlements.
-- Add scoped Access Owner invitations/read models and trace owner-visible
-  learners through entitlement origin.
+- Course enrolment origin is explicit rather than inferred.
+- `access_grant` is a grant/pool capable of issuing entitlements.
+- Finite grants support reusable shared codes or generated single-use code
+  batches, with exact code origin recorded for single-use redemptions.
+- Assigned-grant Access Owner reads trace consented learners through exact
+  entitlement origin and expose only bounded progress fields.
+- Checkout, access-code and administrator flows share one issuance boundary.
+
+### Next --- extend commercial scope
+
 - Add webhook-fulfilled capacity-extension orders for eligible finite grants.
 - Add enterprise-contract scope without adding learning-specific
   exceptions.

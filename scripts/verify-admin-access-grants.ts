@@ -64,6 +64,11 @@ async function cleanup(): Promise<void> {
     .where("userId", "in", learnerIds)
     .execute();
   const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+  if (enrollmentIds.length > 0)
+    await database
+      .deleteFrom("entitlement")
+      .where("enrollmentId", "in", enrollmentIds)
+      .execute();
   await database
     .deleteFrom("outbox_event")
     .where("aggregateId", "in", [...grantIds, ...enrollmentIds, "none"])
@@ -85,7 +90,15 @@ async function cleanup(): Promise<void> {
     .execute();
   if (grantIds.length > 0) {
     await database
+      .deleteFrom("access_grant_owner_assignment")
+      .where("accessGrantId", "in", grantIds)
+      .execute();
+    await database
       .deleteFrom("access_grant_domain")
+      .where("accessGrantId", "in", grantIds)
+      .execute();
+    await database
+      .deleteFrom("access_grant_code")
       .where("accessGrantId", "in", grantIds)
       .execute();
     await database
@@ -189,10 +202,15 @@ try {
       enrollmentDurationDays: 60,
       expiresOn: "",
       domains: "",
+      kind: "bulk_purchase",
+      fulfillmentMode: "shared_code",
+      customerExtendable: true,
+      ownerEmails: administrator.email,
     },
     administrator,
   );
   assert.equal(created.status, "created");
+  assert.ok(created.accessCode);
   assert.match(
     created.accessCode,
     /^VERIFY-ORGANISATION-2027-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{10}$/u,
@@ -207,26 +225,37 @@ try {
       enrollmentDurationDays: 60,
       expiresOn: "",
       domains: "",
+      kind: "bulk_purchase",
+      fulfillmentMode: "shared_code",
+      customerExtendable: false,
+      ownerEmails: administrator.email,
     },
     administrator,
   );
   assert.equal(sameBase.status, "created");
+  assert.ok(sameBase.accessCode);
   assert.notEqual(sameBase.accessCode, created.accessCode);
   const stored = await database
     .selectFrom("access_grant")
     .select([
-      "accessCodeLookupId",
-      "encryptedAccessCode",
       "quantity",
       "redeemed",
       "revokedAt",
       "organizationId",
+      "fulfillmentMode",
     ])
     .where("id", "=", created.accessGrantId)
     .executeTakeFirstOrThrow();
-  assert.equal(stored.accessCodeLookupId, created.accessCode.slice(-10));
-  assert.ok(stored.encryptedAccessCode?.startsWith("v1."));
-  assert.ok(!stored.encryptedAccessCode?.includes("VERIFY"));
+  const storedCode = await database
+    .selectFrom("access_grant_code")
+    .select(["lookupId", "encryptedAccessCode", "ordinal"])
+    .where("accessGrantId", "=", created.accessGrantId)
+    .executeTakeFirstOrThrow();
+  assert.equal(stored.fulfillmentMode, "shared_code");
+  assert.equal(storedCode.lookupId, created.accessCode.slice(-10));
+  assert.equal(storedCode.ordinal, null);
+  assert.ok(storedCode.encryptedAccessCode.startsWith("v1."));
+  assert.ok(!storedCode.encryptedAccessCode.includes("VERIFY"));
   assert.equal(stored.quantity, 2);
   assert.equal(stored.redeemed, 0);
   assert.equal(stored.revokedAt, null);
@@ -260,6 +289,19 @@ try {
     [],
   );
   assert.deepEqual(
+    directory.grants.find((grant) => grant.id === created.accessGrantId)
+      ?.owners,
+    [
+      {
+        id: directory.grants.find((grant) => grant.id === created.accessGrantId)
+          ?.owners[0]?.id,
+        name: administrator.name,
+        email: administrator.email,
+        status: "active",
+      },
+    ],
+  );
+  assert.deepEqual(
     await revealAdminAccessGrantCode(
       { accessGrantId: created.accessGrantId },
       administrator,
@@ -288,14 +330,45 @@ try {
 
   const { redeemAccessCode } =
     await import("#/server/access/redeem-access-code.server");
+  const redemption = (code: string) => ({
+    code,
+    informationReleaseAccepted: true as const,
+    noticeVersion: "access-owner-v1" as const,
+  });
   const redeemed = await redeemAccessCode(
-    created.accessCode.replaceAll("-", " ").toLocaleLowerCase("en-AU"),
+    redemption(
+      created.accessCode.replaceAll("-", " ").toLocaleLowerCase("en-AU"),
+    ),
     firstLearner,
   );
   assert.equal(redeemed.status, "enrolled");
   assert.equal(
-    (await redeemAccessCode(created.accessCode, secondLearner)).status,
+    (await redeemAccessCode(redemption(created.accessCode), secondLearner))
+      .status,
     "enrolled",
+  );
+  const {
+    exportAccessOwnerCodes,
+    findAccessOwnerDashboard,
+    revealAccessOwnerCode,
+  } = await import("#/server/access/access-owner.server");
+  const ownerDashboard = await findAccessOwnerDashboard(administrator);
+  const ownedGrant = ownerDashboard?.grants.find(
+    (grant) => grant.id === created.accessGrantId,
+  );
+  assert.equal(ownedGrant?.learners.length, 2);
+  assert.deepEqual(
+    ownedGrant.learners.map((learner) => learner.email).sort(),
+    [firstLearner.email, secondLearner.email].sort(),
+  );
+  assert.deepEqual(
+    await revealAccessOwnerCode(created.accessGrantId, administrator),
+    { status: "ready", accessCode: created.accessCode },
+  );
+  assert.equal(await findAccessOwnerDashboard(firstLearner), null);
+  assert.deepEqual(
+    await revealAccessOwnerCode(created.accessGrantId, firstLearner),
+    { status: "not-found" },
   );
   const enrollment = await database
     .selectFrom("enrollment")
@@ -326,9 +399,91 @@ try {
     ),
     { status: "unchanged", accessGrantId: created.accessGrantId },
   );
-  assert.deepEqual(await redeemAccessCode(created.accessCode, thirdLearner), {
-    status: "invalid",
-  });
+  assert.deepEqual(
+    await redeemAccessCode(redemption(created.accessCode), thirdLearner),
+    { status: "invalid" },
+  );
+
+  const batch = await createAdminAccessGrant(
+    {
+      label: "Third-party single-use resale codes",
+      organizationName,
+      accessCode: "verify reseller 2027",
+      courseVersionId: ids.version,
+      quantity: 2,
+      enrollmentDurationDays: 60,
+      expiresOn: "",
+      domains: "",
+      kind: "bulk_purchase",
+      fulfillmentMode: "single_use_codes",
+      customerExtendable: true,
+      ownerEmails: administrator.email,
+    },
+    administrator,
+  );
+  assert.equal(batch.status, "created");
+  assert.equal(batch.accessCode, null);
+  assert.equal(batch.generatedCodeCount, 2);
+  const initialBatchExport = await exportAccessOwnerCodes(
+    batch.accessGrantId,
+    administrator,
+  );
+  assert.equal(initialBatchExport.status, "ready");
+  const firstBatchCode = initialBatchExport.data.codes.at(0);
+  assert.ok(firstBatchCode);
+  assert.deepEqual(
+    initialBatchExport.data.codes.map((code) => code.status),
+    ["available", "available"],
+  );
+  assert.equal(
+    (
+      await redeemAccessCode(
+        redemption(firstBatchCode.accessCode),
+        thirdLearner,
+      )
+    ).status,
+    "enrolled",
+  );
+  assert.equal(
+    (
+      await redeemAccessCode(
+        redemption(firstBatchCode.accessCode),
+        firstLearner,
+      )
+    ).status,
+    "invalid",
+  );
+  assert.deepEqual(
+    await updateAdminAccessGrantCapacity(
+      { accessGrantId: batch.accessGrantId, quantity: 1 },
+      administrator,
+    ),
+    { status: "conflict", reason: "batch_capacity_reduction" },
+  );
+  assert.deepEqual(
+    await updateAdminAccessGrantCapacity(
+      { accessGrantId: batch.accessGrantId, quantity: 3 },
+      administrator,
+    ),
+    { status: "capacity-updated", accessGrantId: batch.accessGrantId },
+  );
+  const extendedBatchExport = await exportAccessOwnerCodes(
+    batch.accessGrantId,
+    administrator,
+  );
+  assert.equal(extendedBatchExport.status, "ready");
+  assert.equal(extendedBatchExport.data.codes.length, 3);
+  const [firstExtendedCode, , thirdExtendedCode] =
+    extendedBatchExport.data.codes;
+  assert.ok(firstExtendedCode);
+  assert.ok(thirdExtendedCode);
+  assert.equal(firstExtendedCode.status, "redeemed");
+  assert.equal(firstExtendedCode.codeNumber, 1);
+  assert.equal(thirdExtendedCode.codeNumber, 3);
+  assert.deepEqual(
+    await revealAccessOwnerCode(batch.accessGrantId, administrator),
+    { status: "not-found" },
+  );
   assert.ok(
     await database
       .selectFrom("enrollment")
@@ -343,10 +498,10 @@ try {
       .where("subjectId", "=", created.accessGrantId)
       .executeTakeFirstOrThrow()
       .then((row) => row.count),
-    5,
+    6,
   );
   console.log(
-    "Verified encrypted retrievable codes, repeated reveal, public lookup, editable capacity, redemption visibility and non-destructive revocation",
+    "Verified encrypted shared and single-use codes, scoped Access Owner assignments, audited batch export, consent-bounded learner progress, capacity extension and non-destructive revocation",
   );
 } finally {
   await cleanup();

@@ -38,7 +38,8 @@ export const createAdminAccessGrant = createServerFn({ method: "POST" })
       data: {
         outcome: "created",
         accessGrantId: outcome.accessGrantId,
-        accessCode: outcome.accessCode,
+        ...(outcome.accessCode ? { accessCode: outcome.accessCode } : {}),
+        generatedCodeCount: outcome.generatedCodeCount,
       },
     };
   });

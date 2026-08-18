@@ -1,6 +1,5 @@
 import "@tanstack/react-start/server-only";
 
-import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import type {
   AdminCourseEnrollmentCreateInput,
@@ -9,6 +8,7 @@ import type {
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
+import { issueCourseEntitlement } from "#/server/learning/course-entitlement.server";
 
 type AddEnrollmentOutcome =
   | { status: "enrolled" | "restored"; enrollmentId: string }
@@ -77,9 +77,10 @@ export async function addAdminCourseEnrollment(
       if (hasCurrentAccess)
         return { status: "conflict", reason: "already-enrolled" };
 
-      const enrollmentId = existing?.id ?? `enrollment_${randomUUID()}`;
       const outcome = existing ? "restored" : "enrolled";
+      let enrollmentId: string;
       if (existing) {
+        enrollmentId = existing.id;
         await transaction
           .updateTable("enrollment")
           .set({
@@ -89,21 +90,22 @@ export async function addAdminCourseEnrollment(
           })
           .where("id", "=", existing.id)
           .executeTakeFirstOrThrow();
-      } else {
         await transaction
-          .insertInto("enrollment")
-          .values({
-            id: enrollmentId,
-            userId: learner.id,
-            courseVersionId: courseVersion.id,
-            accessGrantId: null,
-            status: "active",
-            enrolledAt: now,
-            completedAt: null,
-            expiresAt: null,
-            removedAt: null,
-          })
+          .updateTable("entitlement")
+          .set({ revokedAt: null })
+          .where("enrollmentId", "=", existing.id)
           .execute();
+      } else {
+        ({ enrollmentId } = await issueCourseEntitlement(transaction, {
+          userId: learner.id,
+          userEmail: learner.email,
+          courseVersionId: courseVersion.id,
+          enrollmentDurationDays: null,
+          enrollmentAccessGrantId: null,
+          origin: { type: "administrator" },
+          createdAt: now,
+          eventSource: "administrator",
+        }));
       }
 
       await recordDurableAuditEvent(transaction, {
@@ -159,6 +161,11 @@ export async function removeAdminCourseEnrollment(
         .set({ status: "cancelled", removedAt: now })
         .where("id", "=", enrollment.id)
         .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable("entitlement")
+        .set({ revokedAt: now })
+        .where("enrollmentId", "=", enrollment.id)
+        .execute();
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "enrollment.administrator_removed",

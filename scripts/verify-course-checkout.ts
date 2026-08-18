@@ -40,6 +40,10 @@ async function cleanup(): Promise<void> {
     const enrollmentIds = enrollments.map((row) => row.id);
     if (enrollmentIds.length > 0) {
       await database
+        .deleteFrom("entitlement")
+        .where("enrollmentId", "in", enrollmentIds)
+        .execute();
+      await database
         .deleteFrom("outbox_event")
         .where("aggregateId", "in", enrollmentIds)
         .execute();
@@ -244,20 +248,23 @@ try {
   assert.ok(enrollment.expiresAt);
   const grant = await database
     .selectFrom("access_grant")
-    .select([
-      "orderId",
-      "quantity",
-      "redeemed",
-      "accessCodeLookupId",
-      "encryptedAccessCode",
-    ])
+    .select(["orderId", "quantity", "redeemed", "kind", "fulfillmentMode"])
     .where("id", "=", enrollment.accessGrantId)
     .executeTakeFirstOrThrow();
   assert.equal(grant.orderId, ids.paidOrder);
   assert.equal(grant.quantity, 1);
   assert.equal(grant.redeemed, 1);
-  assert.equal(grant.accessCodeLookupId, null);
-  assert.equal(grant.encryptedAccessCode, null);
+  assert.equal(grant.kind, "individual_purchase");
+  assert.equal(grant.fulfillmentMode, null);
+  assert.equal(
+    await database
+      .selectFrom("access_grant_code")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("accessGrantId", "=", enrollment.accessGrantId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    0,
+  );
 
   const auditCount = await database
     .selectFrom("audit_event")

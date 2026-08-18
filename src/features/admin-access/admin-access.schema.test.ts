@@ -13,6 +13,10 @@ const valid = {
   enrollmentDurationDays: 365,
   expiresOn: "2027-12-31",
   domains: "Example.com, staff.example.org",
+  kind: "bulk_purchase" as const,
+  fulfillmentMode: "shared_code" as const,
+  customerExtendable: true,
+  ownerEmails: "owner@example.com",
 };
 
 describe("administrator access-grant validation", () => {

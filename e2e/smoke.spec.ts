@@ -434,6 +434,14 @@ async function cleanupAccessGrantFixture(
         [grantIds],
       );
       await transaction.query(
+        `delete from access_grant_owner_assignment where "accessGrantId" = any($1::text[])`,
+        [grantIds],
+      );
+      await transaction.query(
+        `delete from access_grant_code where "accessGrantId" = any($1::text[])`,
+        [grantIds],
+      );
+      await transaction.query(
         `delete from access_grant where id = any($1::text[])`,
         [grantIds],
       );
@@ -1246,6 +1254,7 @@ test("platform administrators can inspect learner progress", async ({
     await page
       .getByLabel("Permitted email domains (optional)")
       .fill("E2E.EXAMPLE.COM, e2e.example.com");
+    await page.getByLabel("Access Owner emails").fill("redeemer2@example.com");
     await page.getByRole("button", { name: "Create access grant" }).click();
     await expect(
       page.getByText(
@@ -1265,20 +1274,28 @@ test("platform administrators can inspect learner progress", async ({
       grantCard.getByText("Restricted to e2e.example.com"),
     ).toBeVisible();
     const storedGrant = await authoringDatabase.query<{
-      accessCodeLookupId: string | null;
       encryptedAccessCode: string | null;
+      fulfillmentMode: string;
+      kind: string;
+      lookupId: string;
       quantity: number;
       revokedAt: Date | null;
     }>(
-      `select "accessCodeLookupId", "encryptedAccessCode", quantity, "revokedAt" from access_grant where label = $1`,
+      `select code."lookupId", code."encryptedAccessCode", ag.kind,
+          ag."fulfillmentMode", ag.quantity, ag."revokedAt"
+       from access_grant as ag
+       join access_grant_code as code on code."accessGrantId" = ag.id
+       where ag.label = $1 and code.ordinal is null`,
       [accessGrantLabel],
     );
-    expect(storedGrant.rows[0]?.accessCodeLookupId).toBe(accessCode.slice(-10));
+    expect(storedGrant.rows[0]?.lookupId).toBe(accessCode.slice(-10));
     expect(storedGrant.rows[0]?.encryptedAccessCode).toMatch(/^v1\./u);
     expect(storedGrant.rows[0]?.encryptedAccessCode).not.toContain(
       accessCodeBase,
     );
     expect(storedGrant.rows[0]?.quantity).toBe(3);
+    expect(storedGrant.rows[0]?.kind).toBe("bulk_purchase");
+    expect(storedGrant.rows[0]?.fulfillmentMode).toBe("shared_code");
     expect(storedGrant.rows[0]?.revokedAt).toBeNull();
     await page.getByRole("button", { name: "Done" }).click();
     await grantCard.getByRole("button", { name: "Show code" }).click();
@@ -1294,7 +1311,10 @@ test("platform administrators can inspect learner progress", async ({
       encryptedAccessCode: string | null;
       quantity: number;
     }>(
-      `select "encryptedAccessCode", quantity from access_grant where label = $1`,
+      `select code."encryptedAccessCode", ag.quantity
+       from access_grant as ag
+       join access_grant_code as code on code."accessGrantId" = ag.id
+       where ag.label = $1 and code.ordinal is null`,
       [accessGrantLabel],
     );
     expect(expandedGrant.rows[0]).toEqual({
@@ -1915,17 +1935,26 @@ test("verified learners see entitlements and can redeem access", async ({
 
   const code = page.getByRole("textbox", { name: "Access code *" });
   await page.getByRole("button", { name: "Redeem access code" }).click();
-  await page.getByRole("button", { name: "Apply access code" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Enter the complete access code.")).toBeVisible();
   await code.fill("NOT-A-REAL-CODE");
-  await page.getByRole("button", { name: "Apply access code" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Code not accepted")).toBeVisible();
 
   await code.fill("EXAMPLE-LEARN-2026-EXAMP7E26X");
-  await page.getByRole("button", { name: "Apply access code" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
   await expect(
-    page.getByText(/Access code applied|Already enrolled/),
+    page.getByRole("heading", { name: "Information release confirmation" }),
   ).toBeVisible();
+  await page
+    .getByRole("checkbox", {
+      name: "I understand and agree to release this information to the access provider.",
+    })
+    .check();
+  await page.getByRole("button", { name: "Agree and enrol" }).click();
+  await expect(page.getByText("Access code applied")).toBeVisible();
+  await expect(code).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Continue" })).toHaveCount(0);
   await expect(
     page.getByRole("heading", { name: "Continue learning" }),
   ).toBeVisible();

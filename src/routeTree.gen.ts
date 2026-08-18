@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AccessManagementRouteImport } from './routes/access-management'
 import { Route as AdminRouteImport } from './routes/admin'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as EventOperationsRouteImport } from './routes/event-operations'
@@ -51,6 +52,8 @@ import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launche
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 import { Route as AdminEventsInstancesEventOccurrenceIdRouteImport } from './routes/admin.events.instances.$eventOccurrenceId'
 import { Route as AdminEventsInstancesNewRouteImport } from './routes/admin.events.instances_.new'
+import { Route as ApiAccessManagementAccessGrantIdCodesDotcsvRouteImport } from './routes/api.access-management.$accessGrantId.codes[.]csv'
+import { Route as ApiAccessManagementAccessGrantIdLearnersDotcsvRouteImport } from './routes/api.access-management.$accessGrantId.learners[.]csv'
 import { Route as ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport } from './routes/api.event-operations.$eventOccurrenceId.progress[.]csv'
 import { Route as ApiEventSurveysPublicReferenceQrDotsvgRouteImport } from './routes/api.event-surveys.$publicReference.qr[.]svg'
 import { Route as ApiLearningCertificatesEnrollmentIdRouteImport } from './routes/api.learning.certificates.$enrollmentId'
@@ -66,6 +69,11 @@ import { Route as ApiScormAttemptsAttemptIdContentSplatRouteImport } from './rou
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AccessManagementRoute = AccessManagementRouteImport.update({
+  id: '/access-management',
+  path: '/access-management',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminRoute = AdminRouteImport.update({
@@ -279,6 +287,18 @@ const AdminEventsInstancesNewRoute = AdminEventsInstancesNewRouteImport.update({
   path: '/events/instances/new',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiAccessManagementAccessGrantIdCodesDotcsvRoute =
+  ApiAccessManagementAccessGrantIdCodesDotcsvRouteImport.update({
+    id: '/api/access-management/$accessGrantId/codes.csv',
+    path: '/api/access-management/$accessGrantId/codes.csv',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAccessManagementAccessGrantIdLearnersDotcsvRoute =
+  ApiAccessManagementAccessGrantIdLearnersDotcsvRouteImport.update({
+    id: '/api/access-management/$accessGrantId/learners.csv',
+    path: '/api/access-management/$accessGrantId/learners.csv',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute =
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport.update({
     id: '/api/event-operations/$eventOccurrenceId/progress.csv',
@@ -350,6 +370,7 @@ const ApiScormAttemptsAttemptIdContentSplatRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/access-management': typeof AccessManagementRoute
   '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/event-operations': typeof EventOperationsRouteWithChildren
@@ -391,6 +412,8 @@ export interface FileRoutesByFullPath {
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
   '/admin/events/instances/new': typeof AdminEventsInstancesNewRoute
+  '/api/access-management/$accessGrantId/codes.csv': typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
+  '/api/access-management/$accessGrantId/learners.csv': typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -405,6 +428,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/access-management': typeof AccessManagementRoute
   '/dashboard': typeof DashboardRoute
   '/login': typeof LoginRoute
   '/my-events': typeof MyEventsRoute
@@ -444,6 +468,8 @@ export interface FileRoutesByTo {
   '/admin/surveys': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
   '/admin/events/instances/new': typeof AdminEventsInstancesNewRoute
+  '/api/access-management/$accessGrantId/codes.csv': typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
+  '/api/access-management/$accessGrantId/learners.csv': typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -459,6 +485,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/access-management': typeof AccessManagementRoute
   '/admin': typeof AdminRouteWithChildren
   '/dashboard': typeof DashboardRoute
   '/event-operations': typeof EventOperationsRouteWithChildren
@@ -500,6 +527,8 @@ export interface FileRoutesById {
   '/admin/surveys/': typeof AdminSurveysIndexRoute
   '/admin/events/instances/$eventOccurrenceId': typeof AdminEventsInstancesEventOccurrenceIdRoute
   '/admin/events/instances_/new': typeof AdminEventsInstancesNewRoute
+  '/api/access-management/$accessGrantId/codes.csv': typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
+  '/api/access-management/$accessGrantId/learners.csv': typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -516,6 +545,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/access-management'
     | '/admin'
     | '/dashboard'
     | '/event-operations'
@@ -557,6 +587,8 @@ export interface FileRouteTypes {
     | '/admin/surveys/'
     | '/admin/events/instances/$eventOccurrenceId'
     | '/admin/events/instances/new'
+    | '/api/access-management/$accessGrantId/codes.csv'
+    | '/api/access-management/$accessGrantId/learners.csv'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -571,6 +603,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/access-management'
     | '/dashboard'
     | '/login'
     | '/my-events'
@@ -610,6 +643,8 @@ export interface FileRouteTypes {
     | '/admin/surveys'
     | '/admin/events/instances/$eventOccurrenceId'
     | '/admin/events/instances/new'
+    | '/api/access-management/$accessGrantId/codes.csv'
+    | '/api/access-management/$accessGrantId/learners.csv'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -624,6 +659,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/access-management'
     | '/admin'
     | '/dashboard'
     | '/event-operations'
@@ -665,6 +701,8 @@ export interface FileRouteTypes {
     | '/admin/surveys/'
     | '/admin/events/instances/$eventOccurrenceId'
     | '/admin/events/instances_/new'
+    | '/api/access-management/$accessGrantId/codes.csv'
+    | '/api/access-management/$accessGrantId/learners.csv'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -680,6 +718,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccessManagementRoute: typeof AccessManagementRoute
   AdminRoute: typeof AdminRouteWithChildren
   DashboardRoute: typeof DashboardRoute
   EventOperationsRoute: typeof EventOperationsRouteWithChildren
@@ -701,6 +740,8 @@ export interface RootRouteChildren {
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  ApiAccessManagementAccessGrantIdCodesDotcsvRoute: typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
+  ApiAccessManagementAccessGrantIdLearnersDotcsvRoute: typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute: typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   ApiEventSurveysPublicReferenceQrDotsvgRoute: typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   ApiLearningCertificatesEnrollmentIdRoute: typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -718,6 +759,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/access-management': {
+      id: '/access-management'
+      path: '/access-management'
+      fullPath: '/access-management'
+      preLoaderRoute: typeof AccessManagementRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin': {
@@ -1007,6 +1055,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminEventsInstancesNewRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/access-management/$accessGrantId/codes.csv': {
+      id: '/api/access-management/$accessGrantId/codes.csv'
+      path: '/api/access-management/$accessGrantId/codes.csv'
+      fullPath: '/api/access-management/$accessGrantId/codes.csv'
+      preLoaderRoute: typeof ApiAccessManagementAccessGrantIdCodesDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/access-management/$accessGrantId/learners.csv': {
+      id: '/api/access-management/$accessGrantId/learners.csv'
+      path: '/api/access-management/$accessGrantId/learners.csv'
+      fullPath: '/api/access-management/$accessGrantId/learners.csv'
+      preLoaderRoute: typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/event-operations/$eventOccurrenceId/progress.csv': {
       id: '/api/event-operations/$eventOccurrenceId/progress.csv'
       path: '/api/event-operations/$eventOccurrenceId/progress.csv'
@@ -1169,6 +1231,7 @@ const ApiScormAttemptsAttemptIdRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AccessManagementRoute: AccessManagementRoute,
   AdminRoute: AdminRouteWithChildren,
   DashboardRoute: DashboardRoute,
   EventOperationsRoute: EventOperationsRouteWithChildren,
@@ -1190,6 +1253,10 @@ const rootRouteChildren: RootRouteChildren = {
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  ApiAccessManagementAccessGrantIdCodesDotcsvRoute:
+    ApiAccessManagementAccessGrantIdCodesDotcsvRoute,
+  ApiAccessManagementAccessGrantIdLearnersDotcsvRoute:
+    ApiAccessManagementAccessGrantIdLearnersDotcsvRoute,
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute:
     ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute,
   ApiEventSurveysPublicReferenceQrDotsvgRoute:

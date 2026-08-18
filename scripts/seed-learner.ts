@@ -30,6 +30,12 @@ const redeemer: CredentialProfile = {
   name: "Riley Redeemer",
   email: "redeemer@example.com",
 };
+const bulkAccessOwner: CredentialProfile = {
+  id: "user_local_redeemer_2",
+  accountId: "account_local_redeemer_2",
+  name: "Redeemer 2",
+  email: "redeemer2@example.com",
+};
 const administrator: CredentialProfile = {
   id: "user_local_admin",
   accountId: "account_local_admin",
@@ -61,6 +67,7 @@ const scenarioCoordinators: Array<CredentialProfile> = Array.from(
   },
 );
 const exampleAccessGrantId = "access_grant_example_psychological_safety";
+const bulkAccessGrantId = "access_grant_example_reseller_batch";
 const exampleIssuedCode = issueAccessCode("EXAMPLE-LEARN-2026", "EXAMP7E26X");
 if (!exampleIssuedCode)
   throw new Error("Local access-code fixture was invalid");
@@ -68,6 +75,14 @@ const exampleEncryptedCode = encryptAccessCode({
   accessGrantId: exampleAccessGrantId,
   lookupId: exampleIssuedCode.lookupId,
   accessCode: exampleIssuedCode.accessCode,
+});
+const bulkCodeSuffixes = "23456789AB";
+const bulkIssuedCodes = Array.from({ length: 10 }, (_, index) => {
+  const suffix = bulkCodeSuffixes[index];
+  if (!suffix) throw new Error("Local bulk access-code suffix was missing");
+  const issued = issueAccessCode("RESELLER-BULK-2026", `BATCHC9D2${suffix}`);
+  if (!issued) throw new Error("Local bulk access-code fixture was invalid");
+  return issued;
 });
 
 async function seedCredentialUser(
@@ -137,6 +152,11 @@ try {
     const redeemerId = await seedCredentialUser(
       transaction,
       redeemer,
+      passwordHash,
+    );
+    const bulkAccessOwnerId = await seedCredentialUser(
+      transaction,
+      bulkAccessOwner,
       passwordHash,
     );
     const administratorId = await seedCredentialUser(
@@ -226,6 +246,10 @@ try {
       .where("userId", "=", redeemerId)
       .where("courseVersionId", "=", "course_version_psychological_safety_1");
     await transaction
+      .deleteFrom("entitlement")
+      .where("enrollmentId", "in", redeemerEnrollmentIds)
+      .execute();
+    await transaction
       .deleteFrom("survey_progress")
       .where("enrollmentId", "in", redeemerEnrollmentIds)
       .execute();
@@ -245,21 +269,40 @@ try {
         organizationId: "organization_example",
         orderId: null,
         courseVersionId: "course_version_psychological_safety_1",
-        accessCodeLookupId: exampleIssuedCode.lookupId,
-        encryptedAccessCode: exampleEncryptedCode,
         enrollmentDurationDays: 365,
         quantity: 100,
         redeemed: 0,
         expiresAt: new Date("2027-12-31T23:59:59.000Z"),
+        fulfillmentMode: "shared_code",
+        codePrefix: "UPSKILL-2027",
       })
       .onConflict((conflict) =>
         conflict.column("id").doUpdateSet({
           quantity: 100,
           redeemed: 0,
-          accessCodeLookupId: exampleIssuedCode.lookupId,
-          encryptedAccessCode: exampleEncryptedCode,
           enrollmentDurationDays: 365,
           expiresAt: new Date("2027-12-31T23:59:59.000Z"),
+          fulfillmentMode: "shared_code",
+          codePrefix: "UPSKILL-2027",
+        }),
+      )
+      .execute();
+
+    await transaction
+      .insertInto("access_grant_code")
+      .values({
+        id: "access_grant_code_example_psychological_safety",
+        accessGrantId: exampleAccessGrantId,
+        lookupId: exampleIssuedCode.lookupId,
+        encryptedAccessCode: exampleEncryptedCode,
+        ordinal: null,
+        createdAt: new Date(),
+      })
+      .onConflict((conflict) =>
+        conflict.column("lookupId").doUpdateSet({
+          lookupId: exampleIssuedCode.lookupId,
+          encryptedAccessCode: exampleEncryptedCode,
+          ordinal: null,
         }),
       )
       .execute();
@@ -271,6 +314,89 @@ try {
         domain: "example.com",
       })
       .onConflict((conflict) => conflict.doNothing())
+      .execute();
+
+    await transaction
+      .insertInto("access_grant")
+      .values({
+        id: bulkAccessGrantId,
+        organizationId: "organization_example",
+        orderId: null,
+        courseVersionId: "course_version_psychological_safety_1",
+        label: "Third-party reseller allocation",
+        createdByUserId: administratorId,
+        enrollmentDurationDays: 365,
+        quantity: bulkIssuedCodes.length,
+        redeemed: 0,
+        expiresAt: new Date("2027-12-31T23:59:59.000Z"),
+        kind: "bulk_purchase",
+        customerExtendable: true,
+        fulfillmentMode: "single_use_codes",
+        codePrefix: "RESELLER-BULK-2026",
+      })
+      .onConflict((conflict) =>
+        conflict.column("id").doUpdateSet({
+          label: "Third-party reseller allocation",
+          createdByUserId: administratorId,
+          enrollmentDurationDays: 365,
+          quantity: bulkIssuedCodes.length,
+          expiresAt: new Date("2027-12-31T23:59:59.000Z"),
+          kind: "bulk_purchase",
+          customerExtendable: true,
+          fulfillmentMode: "single_use_codes",
+          codePrefix: "RESELLER-BULK-2026",
+        }),
+      )
+      .execute();
+
+    await transaction
+      .insertInto("access_grant_code")
+      .values(
+        bulkIssuedCodes.map((issued, index) => ({
+          id: `access_grant_code_example_reseller_${String(index + 1)}`,
+          accessGrantId: bulkAccessGrantId,
+          lookupId: issued.lookupId,
+          encryptedAccessCode: encryptAccessCode({
+            accessGrantId: bulkAccessGrantId,
+            lookupId: issued.lookupId,
+            accessCode: issued.accessCode,
+          }),
+          ordinal: index + 1,
+          createdAt: new Date(),
+        })),
+      )
+      .onConflict((conflict) =>
+        conflict.column("id").doUpdateSet((expression) => ({
+          lookupId: expression.ref("excluded.lookupId"),
+          encryptedAccessCode: expression.ref("excluded.encryptedAccessCode"),
+          ordinal: expression.ref("excluded.ordinal"),
+        })),
+      )
+      .execute();
+
+    await transaction
+      .insertInto("access_grant_owner_assignment")
+      .values({
+        id: "access_owner_example_reseller",
+        accessGrantId: bulkAccessGrantId,
+        userId: bulkAccessOwnerId,
+        invitedEmail: bulkAccessOwner.email,
+        invitedByUserId: administratorId,
+        invitedAt: new Date(),
+        activatedAt: new Date(),
+        revokedAt: null,
+        revokedByUserId: null,
+      })
+      .onConflict((conflict) =>
+        conflict.column("id").doUpdateSet({
+          userId: bulkAccessOwnerId,
+          invitedEmail: bulkAccessOwner.email,
+          invitedByUserId: administratorId,
+          activatedAt: new Date(),
+          revokedAt: null,
+          revokedByUserId: null,
+        }),
+      )
       .execute();
 
     await transaction
@@ -321,7 +447,7 @@ try {
   });
 
   console.log(
-    `Seeded ${String(scenarioLearners.length)} scenario learners, ${String(scenarioCoordinators.length)} coordinators, compatibility learners ${learner.email} and ${redeemer.email}, plus administrator ${administrator.email}`,
+    `Seeded ${String(scenarioLearners.length)} scenario learners, ${String(scenarioCoordinators.length)} coordinators, compatibility learners ${learner.email} and ${redeemer.email}, bulk Access Owner ${bulkAccessOwner.email}, plus administrator ${administrator.email}`,
   );
 } finally {
   await database.destroy();

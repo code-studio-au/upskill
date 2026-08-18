@@ -32,6 +32,26 @@ export function normalizeAdminAccessDomains(
   return domains;
 }
 
+export function normalizeAccessOwnerEmails(
+  value: string,
+): Array<string> | null {
+  const emails = [
+    ...new Set(
+      value
+        .split(/[\s,;]+/u)
+        .map((email) => email.trim().toLocaleLowerCase("en-AU"))
+        .filter(Boolean),
+    ),
+  ];
+  if (
+    emails.length < 1 ||
+    emails.length > 20 ||
+    emails.some((email) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email))
+  )
+    return null;
+  return emails;
+}
+
 const expiryDateSchema = z.string().check(
   z.trim(),
   z.maxLength(10),
@@ -78,6 +98,16 @@ export const adminAccessGrantCreateSchema = z.object({
     z.refine(
       (value) => normalizeAdminAccessDomains(value) !== null,
       "Enter valid domain names separated by commas.",
+    ),
+  ),
+  kind: z.enum(["bulk_purchase", "enterprise_contract"]),
+  fulfillmentMode: z.enum(["shared_code", "single_use_codes"]),
+  customerExtendable: z.boolean(),
+  ownerEmails: z.string().check(
+    z.maxLength(2_000),
+    z.refine(
+      (value) => normalizeAccessOwnerEmails(value) !== null,
+      "Enter at least one valid Access Owner email.",
     ),
   ),
 });
@@ -133,6 +163,15 @@ export interface AdminAccessGrantDirectory {
     expiresAt: string | null;
     revokedAt: string | null;
     createdAt: string;
+    kind: "bulk_purchase" | "enterprise_contract";
+    fulfillmentMode: "shared_code" | "single_use_codes";
+    customerExtendable: boolean;
+    owners: Array<{
+      id: string;
+      name: string;
+      email: string;
+      status: "pending" | "active";
+    }>;
     redemptions: Array<{
       enrollmentId: string;
       learnerId: string;
@@ -156,11 +195,15 @@ export type AdminAccessGrantMutationResult =
       outcome: "created" | "revoked" | "unchanged" | "capacity-updated";
       accessGrantId: string;
       accessCode?: string;
+      generatedCodeCount?: number;
     }>
   | { status: "not-found"; entity: "access-grant" | "course-version" }
   | {
       status: "conflict";
-      reason: "capacity_below_redeemed" | "expiry_not_future";
+      reason:
+        | "capacity_below_redeemed"
+        | "batch_capacity_reduction"
+        | "expiry_not_future";
     };
 
 export type AdminAccessGrantRevealResult =

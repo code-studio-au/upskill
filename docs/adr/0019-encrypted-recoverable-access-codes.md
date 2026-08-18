@@ -27,8 +27,8 @@ uniquely indexes that identifier as an ordinary value. The memorable code body
 and lookup segment together form the exact code shown to administrators and
 entered by learners.
 
-Redemption parses the lookup identifier, selects one grant by normal indexed
-lookup, decrypts that grant's ciphertext and compares the complete normalized
+Redemption parses the lookup identifier, selects one grant-code record by normal
+indexed lookup, decrypts that record's ciphertext and compares the complete normalized
 submitted code before applying any grant policy. This avoids a separately
 managed HMAC lookup key while preventing a database-only disclosure from
 revealing the complete credential.
@@ -46,7 +46,7 @@ only by the application instance role. Development and test use an explicitly
 local key; staging and production reject that fallback. The envelope version
 provides a controlled rotation path without implementing a premature key ring.
 
-The intended record contains:
+Each grant-code record contains:
 
 - a server-generated, unique, non-secret lookup identifier included in the
   displayed code;
@@ -56,7 +56,8 @@ The intended record contains:
 - a key version or key identifier.
 
 Redemption extracts the lookup identifier from learner input, selects the unique
-grant, decrypts and compares only that candidate, locks the grant row, and
+grant-code record, decrypts and compares only that candidate, locks the code and
+grant rows, and
 retains the existing eligibility, capacity, expiry and revocation transaction.
 Administrator retrieval selects the grant by its ordinary grant identifier,
 reauthorizes the administrator, decrypts only that code, and retains the existing
@@ -65,15 +66,18 @@ durable retrieval audit event.
 Codes, ciphertext and key material are excluded from logs, generic reports,
 queue payloads and audit metadata. The public lookup identifier may appear only
 where operationally required and never counts as proof of possession. Directory
-queries never decrypt codes in bulk.
+queries never decrypt codes. Explicit Access Owner batch export reauthorizes the
+assigned owner, decrypts only that grant's codes, returns no-store CSV, and
+records one audited reveal operation.
 
 ## Migration and rollout
 
 Because Upskill was pre-production and its data was disposable, the reset
 baseline replaced/reissued existing codes rather than retaining a dual-read
-compatibility path. The executable schema has a unique public lookup identifier
-and one encrypted envelope; it has no plaintext or HMAC-digest code column. New
-writes cannot fall back to plaintext.
+compatibility path. The executable schema normalizes one or more encrypted code
+records beneath each managed grant, with a globally unique public lookup
+identifier per code; it has no plaintext or HMAC-digest code column. New writes
+cannot fall back to plaintext.
 
 If key rotation is required, add a new envelope/key version, deploy a temporary
 reader for both versions, re-encrypt explicitly with fresh nonces, verify the
