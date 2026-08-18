@@ -39,6 +39,7 @@ const viewContent: Record<EventView, { title: string; empty: string }> = {
 };
 
 function statusLabel(event: LearnerEvent): string {
+  if (event.participationMode === "open_entry") return "Event joined";
   if (!event.registrationStatus) {
     if (event.registrationUnavailableReason === "not_open")
       return "Registration opens later";
@@ -61,6 +62,7 @@ function statusLabel(event: LearnerEvent): string {
 }
 
 function statusColor(event: LearnerEvent): string {
+  if (event.participationMode === "open_entry") return "green";
   if (event.registrationStatus === "selected") return "green";
   if (event.registrationStatus === "coordinator_approved") return "teal";
   if (event.registrationStatus === "waitlisted") return "yellow";
@@ -276,7 +278,8 @@ function LearnerEventCard({
           {event.deliveryMode === "virtual" ? "Virtual" : "In person"} ·{" "}
           {event.timezone}
         </Text>
-        {event.registrationStatus === "selected" ? (
+        {event.registrationStatus === "selected" ||
+        event.participationMode === "open_entry" ? (
           <Link
             to="/my-events/$eventOccurrenceId"
             params={{ eventOccurrenceId: event.eventOccurrenceId }}
@@ -284,7 +287,7 @@ function LearnerEventCard({
             <Button component="span">Open event</Button>
           </Link>
         ) : null}
-        {!event.registrationStatus ? (
+        {!event.registrationStatus && !event.participationMode ? (
           <Stack gap="xs">
             {event.canRegister && event.regions.length > 0 ? (
               <MantineNativeSelect
@@ -323,7 +326,8 @@ function LearnerEventCard({
               {unavailableLabel(event)}
             </Button>
           </Stack>
-        ) : event.registrationStatus !== "withdrawn" &&
+        ) : !event.participationMode &&
+          event.registrationStatus !== "withdrawn" &&
           event.registrationStatus !== "cancelled" &&
           event.registrationStatus !== "not_selected" &&
           event.registrationStatus !== "coordinator_declined" ? (

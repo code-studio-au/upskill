@@ -111,6 +111,11 @@ export interface EventOperationsWorkspace {
     capacity: number;
     confirmedCount: number;
   };
+  guestAccess: {
+    publicReference: string;
+    generation: number;
+    createdAt: string;
+  } | null;
   access: {
     roles: Array<"administrator" | "coordinator" | "presenter">;
     canReviewRegistrations: boolean;
@@ -130,6 +135,7 @@ export interface EventOperationsWorkspace {
   };
   regions: Array<{
     id: string;
+    regionId: string;
     name: string;
     code: string;
     effectivelyLocked: boolean;
@@ -142,8 +148,31 @@ export interface EventOperationsWorkspace {
     status: EventRegistrationStatus;
     regionId: string | null;
     regionName: string | null;
+    profileRegionId: string | null;
+    profileRegionName: string | null;
+    regionMismatch: boolean;
+    regionMismatchAcknowledged: boolean;
+    regionDecision: {
+      id: string;
+      resolution:
+        | "registered_region_confirmed"
+        | "profile_region_confirmed"
+        | "profile_aligned_to_registration"
+        | "region_guest_confirmed";
+      classification:
+        "event_region" | "outside_event_region" | "no_region_guest";
+      reportingRegionId: string | null;
+      reportingRegionCodeSnapshot: string | null;
+      reportingRegionNameSnapshot: string | null;
+      reportingRegionGroupCodeSnapshot: string | null;
+      reportingRegionGroupNameSnapshot: string | null;
+      decidedAt: string;
+    } | null;
+    regionalReviewWaivedAt: string | null;
     reviewRoundId: string | null;
     coordinatorPriority: number | null;
+    coordinatorDecidedAt: string | null;
+    finalDecidedAt: string | null;
   }>;
   sessions: Array<{
     id: string;

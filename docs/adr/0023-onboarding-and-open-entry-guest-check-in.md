@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted target; implementation pending.
+Accepted; onboarding and the first open-entry guest access/check-in boundary are implemented.
 
 ## Decision
 
@@ -87,6 +87,17 @@ valid only for the configured access period. It reduces accidental public
 disclosure but cannot prevent a recipient from copying a meeting URL after it is
 shown; meeting-provider controls remain a separate defence.
 
+The implemented first boundary issues a 192-bit opaque reference per occurrence
+and supports explicit rotation, which immediately revokes the previous link.
+Guest access is available only while the open-entry occurrence is published and
+has not ended. Details submission and Join disclosure are retained separately;
+`self_check_in` evidence is created only for a Session whose own start/end window
+contains the submission time. The occurrence chooses whether that evidence is
+`checked_in` pending staff confirmation or immediately `attended`. The public
+route is isolated from authenticated learning routes, is excluded from search
+indexing, validates all input and never includes the protected meeting URL in
+its initial loader response.
+
 ## Consequences
 
 Open entry remains distinct from registration-required unrestricted Events.
@@ -98,4 +109,6 @@ Onboarding does not block provisional open-entry users from reaching the guarded
 Join action. The implementation needs an explicit privacy basis for demographic
 and guest contact data, safe idempotent user lookup/creation, email verification
 and setup delivery, abuse controls, duplicate/reconciliation support and
-accessible mobile-first forms.
+accessible mobile-first forms. Passwordless sign-in, shared-device prerequisite
+recovery and broader duplicate/reconciliation tooling remain separate follow-up
+work.

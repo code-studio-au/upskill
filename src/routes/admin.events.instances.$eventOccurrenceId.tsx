@@ -35,6 +35,8 @@ import {
   getAdminEventOccurrenceOperations,
   lockAdminEventRegion,
   recordAdminEventAttendance,
+  rotateAdminEventGuestAccess,
+  setAdminEventGuestAttendanceMode,
   transitionAdminEventOccurrence,
 } from "#/server/functions/admin-event-operations";
 import { z } from "#/validation/zod";
@@ -130,6 +132,10 @@ function EventInstanceOperationsPage() {
               "This registration has attendance evidence, so its final decision can no longer be changed here.",
             finalized_reassignment_confirmation_required:
               "Confirm the region change because this registration already has a final decision.",
+            locked_destination_reassignment_confirmation_required:
+              "Confirm the exceptional move because the destination regional list is locked.",
+            region_mismatch_resolved:
+              "The learner profile and registration region now match.",
             domain_override_required:
               "This learner does not match the restricted domains. Confirm the explicit override to continue.",
             duplicate_registration:
@@ -289,6 +295,77 @@ function EventInstanceOperationsPage() {
       {search.view === "overview" ? (
         <Stack gap="lg">
           <div className={classes.cards}>
+            {workspace.guestAccess ? (
+              <Paper withBorder radius="lg" p="md">
+                <Stack gap="sm">
+                  <Title order={2}>Guest access</Title>
+                  <Text className={classes.guestLink}>
+                    /event-access/{workspace.guestAccess.publicReference}
+                  </Text>
+                  <MantineNativeSelect
+                    label="Guest self check-in"
+                    value={workspace.occurrence.openEntryAttendanceMode}
+                    disabled={processingId === "guest-attendance-mode"}
+                    data={[
+                      {
+                        value: "checked_in",
+                        label: "Checked in · staff confirm attendance",
+                      },
+                      {
+                        value: "attended",
+                        label: "Record attendance automatically",
+                      },
+                    ]}
+                    onChange={(event) => {
+                      const mode = event.currentTarget.value as
+                        "checked_in" | "attended";
+                      void action("guest-attendance-mode", () =>
+                        setAdminEventGuestAttendanceMode({
+                          data: {
+                            eventOccurrenceId: workspace.occurrence.id,
+                            mode,
+                          },
+                        }),
+                      );
+                    }}
+                  />
+                  <Group gap="sm">
+                    <Button
+                      variant="light"
+                      onClick={() => {
+                        const url = new URL(
+                          `/event-access/${workspace.guestAccess?.publicReference ?? ""}`,
+                          window.location.origin,
+                        ).toString();
+                        void navigator.clipboard.writeText(url).then(() => {
+                          setSuccess("Guest access link copied.");
+                        });
+                      }}
+                    >
+                      Copy link
+                    </Button>
+                    <Button
+                      variant="subtle"
+                      loading={processingId === "rotate-guest-access"}
+                      onClick={() =>
+                        void action(
+                          "rotate-guest-access",
+                          () =>
+                            rotateAdminEventGuestAccess({
+                              data: {
+                                eventOccurrenceId: workspace.occurrence.id,
+                              },
+                            }),
+                          "Guest access link replaced. The previous link no longer works.",
+                        )
+                      }
+                    >
+                      Replace link
+                    </Button>
+                  </Group>
+                </Stack>
+              </Paper>
+            ) : null}
             <Paper withBorder radius="lg" p="md">
               <Stack gap="sm">
                 <Title order={2}>Schedule</Title>
@@ -502,6 +579,22 @@ function EventInstanceOperationsPage() {
                           <Text c="dimmed" size="sm">
                             {participant.email}
                           </Text>
+                          {participant.mode === "open_entry" ? (
+                            <Text c="dimmed" size="xs">
+                              Guest · details{" "}
+                              {participant.detailsSubmittedAt
+                                ? formatLocalDateTime(
+                                    participant.detailsSubmittedAt,
+                                    {
+                                      timeZone: workspace.occurrence.timezone,
+                                    },
+                                  )
+                                : "not submitted"}
+                              {participant.joinDisclosedAt
+                                ? " · join disclosed"
+                                : ""}
+                            </Text>
+                          ) : null}
                         </div>
                         <MantineNativeSelect
                           aria-label={`Attendance for ${participant.name}`}

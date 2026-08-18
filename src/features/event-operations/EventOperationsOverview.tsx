@@ -29,6 +29,27 @@ export function EventOperationsOverview({
   return (
     <Stack gap="lg">
       <div className={classes.summaryGrid}>
+        {workspace.guestAccess ? (
+          <Paper withBorder radius="lg" p="md">
+            <Title order={2}>Guest access</Title>
+            <Text mt="xs" className={classes.guestLink}>
+              /event-access/{workspace.guestAccess.publicReference}
+            </Text>
+            <Button
+              variant="light"
+              mt="sm"
+              onClick={() => {
+                const url = new URL(
+                  `/event-access/${workspace.guestAccess?.publicReference ?? ""}`,
+                  window.location.origin,
+                ).toString();
+                void navigator.clipboard.writeText(url);
+              }}
+            >
+              Copy guest link
+            </Button>
+          </Paper>
+        ) : null}
         <Paper withBorder radius="lg" p="md">
           <Title order={2}>Schedule</Title>
           <Text mt="xs">

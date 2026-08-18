@@ -17,6 +17,7 @@ describe("audit event boundary", () => {
       "course.published",
       "course.version_created",
       "event_occurrence.created",
+      "event_occurrence.guest_access_rotated",
       "event_occurrence.updated",
       "event_occurrence.published",
       "event_occurrence.lifecycle_changed",
@@ -32,6 +33,8 @@ describe("audit event boundary", () => {
       "event_registration.administrator_added",
       "event_registration.coordinator_reviewed",
       "event_registration.final_decided",
+      "event_registration.region_mismatch_acknowledged",
+      "event_registration.region_decided",
       "event_registration.region_reassigned",
       "event_registration.submitted",
       "event_registration.withdrawn",
@@ -59,6 +62,7 @@ describe("audit event boundary", () => {
       "user.account_setup_resent",
       "user.provisional_created",
       "user.onboarding_reassigned",
+      "user.region_updated",
     ]);
   });
 

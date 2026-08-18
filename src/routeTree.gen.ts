@@ -26,6 +26,7 @@ import { Route as ApiHealthRouteImport } from './routes/api.health'
 import { Route as CheckoutSuccessRouteImport } from './routes/checkout.success'
 import { Route as CoursesIndexRouteImport } from './routes/courses.index'
 import { Route as CoursesSlugRouteImport } from './routes/courses.$slug'
+import { Route as EventAccessPublicReferenceRouteImport } from './routes/event-access.$publicReference'
 import { Route as EventOperationsIndexRouteImport } from './routes/event-operations.index'
 import { Route as EventOperationsEventOccurrenceIdRouteImport } from './routes/event-operations.$eventOccurrenceId'
 import { Route as EventSurveysPublicReferenceRouteImport } from './routes/event-surveys.$publicReference'
@@ -147,6 +148,12 @@ const CoursesSlugRoute = CoursesSlugRouteImport.update({
   path: '/courses/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EventAccessPublicReferenceRoute =
+  EventAccessPublicReferenceRouteImport.update({
+    id: '/event-access/$publicReference',
+    path: '/event-access/$publicReference',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const EventOperationsIndexRoute = EventOperationsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -357,6 +364,7 @@ export interface FileRoutesByFullPath {
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/event-access/$publicReference': typeof EventAccessPublicReferenceRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
@@ -409,6 +417,7 @@ export interface FileRoutesByTo {
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/event-access/$publicReference': typeof EventAccessPublicReferenceRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
@@ -464,6 +473,7 @@ export interface FileRoutesById {
   '/api/health': typeof ApiHealthRoute
   '/checkout/success': typeof CheckoutSuccessRoute
   '/courses/$slug': typeof CoursesSlugRoute
+  '/event-access/$publicReference': typeof EventAccessPublicReferenceRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
@@ -520,6 +530,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
+    | '/event-access/$publicReference'
     | '/event-operations/$eventOccurrenceId'
     | '/event-surveys/$publicReference'
     | '/learn/$enrollmentId'
@@ -572,6 +583,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
+    | '/event-access/$publicReference'
     | '/event-operations/$eventOccurrenceId'
     | '/event-surveys/$publicReference'
     | '/learn/$enrollmentId'
@@ -626,6 +638,7 @@ export interface FileRouteTypes {
     | '/api/health'
     | '/checkout/success'
     | '/courses/$slug'
+    | '/event-access/$publicReference'
     | '/event-operations/$eventOccurrenceId'
     | '/event-surveys/$publicReference'
     | '/learn/$enrollmentId'
@@ -677,6 +690,7 @@ export interface RootRouteChildren {
   ApiHealthRoute: typeof ApiHealthRoute
   CheckoutSuccessRoute: typeof CheckoutSuccessRoute
   CoursesSlugRoute: typeof CoursesSlugRoute
+  EventAccessPublicReferenceRoute: typeof EventAccessPublicReferenceRoute
   EventSurveysPublicReferenceRoute: typeof EventSurveysPublicReferenceRoute
   LearnEnrollmentIdRoute: typeof LearnEnrollmentIdRoute
   MyEventsEventOccurrenceIdRoute: typeof MyEventsEventOccurrenceIdRoute
@@ -816,6 +830,13 @@ declare module '@tanstack/react-router' {
       path: '/courses/$slug'
       fullPath: '/courses/$slug'
       preLoaderRoute: typeof CoursesSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/event-access/$publicReference': {
+      id: '/event-access/$publicReference'
+      path: '/event-access/$publicReference'
+      fullPath: '/event-access/$publicReference'
+      preLoaderRoute: typeof EventAccessPublicReferenceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/event-operations/': {
@@ -1158,6 +1179,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiHealthRoute: ApiHealthRoute,
   CheckoutSuccessRoute: CheckoutSuccessRoute,
   CoursesSlugRoute: CoursesSlugRoute,
+  EventAccessPublicReferenceRoute: EventAccessPublicReferenceRoute,
   EventSurveysPublicReferenceRoute: EventSurveysPublicReferenceRoute,
   LearnEnrollmentIdRoute: LearnEnrollmentIdRoute,
   MyEventsEventOccurrenceIdRoute: MyEventsEventOccurrenceIdRoute,

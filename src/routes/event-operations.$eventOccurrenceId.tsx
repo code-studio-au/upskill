@@ -142,6 +142,12 @@ function EventOperationsPage() {
             "That action is not available from the current state.",
           attendance_unavailable:
             "Attendance could not be recorded for that participant.",
+          locked_destination_reassignment_confirmation_required:
+            "Confirm the move into the locked regional list.",
+          finalized_reassignment_confirmation_required:
+            "Confirm the region change for this finalized registration.",
+          region_mismatch_resolved:
+            "The learner's profile region now matches this registration.",
         };
         setError(
           outcome.status === "forbidden"

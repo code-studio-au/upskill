@@ -2,16 +2,18 @@ import { Badge } from "#/features/shared/Badge";
 import { CompactActionSelect } from "#/features/shared/CompactActionSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
-import { Alert, Text } from "#/features/shared/mantine";
+import { Alert, Button, Stack, Text } from "#/features/shared/mantine";
 import {
   createColumnHelper,
   tableFeatures,
   useTable,
 } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { decideEventCoordinatorRegistration } from "#/server/functions/event-operations";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import type { EventOperationsWorkspace } from "./event-operations.schema";
 import type { EventOperationsAction } from "./EventOperationsOverview";
+import { registrationRegionDecisionLabel } from "#/features/admin-event/event-registration-region-decision";
 
 const statusLabels: Record<
   EventOperationsWorkspace["registrations"][number]["status"],
@@ -34,6 +36,12 @@ const registrationColumn = createColumnHelper<
   RegistrationRow
 >();
 
+const AdminEventRegistrationRegionDialog = lazy(async () => {
+  const module =
+    await import("#/features/admin-event/AdminEventRegistrationRegionDialog");
+  return { default: module.AdminEventRegistrationRegionDialog };
+});
+
 export function EventOperationsRegistrationReview({
   workspace,
   priorities,
@@ -47,6 +55,9 @@ export function EventOperationsRegistrationReview({
   setPriorities: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   action: EventOperationsAction;
 }) {
+  const [regionRegistration, setRegionRegistration] =
+    useState<Registration | null>(null);
+  const administrator = workspace.access.roles.includes("administrator");
   const data = useMemo(
     () =>
       workspace.registrations.map((registration) => ({
@@ -74,7 +85,48 @@ export function EventOperationsRegistrationReview({
         }),
         registrationColumn.accessor(
           (registration) => registration.regionName ?? "No region",
-          { id: "region", header: "Region" },
+          {
+            id: "region",
+            header: "Region",
+            cell: ({ row }) => {
+              const registration = row.original;
+              return (
+                <Stack gap={4}>
+                  <Text>{registration.regionName ?? "No region"}</Text>
+                  {registration.regionDecision ||
+                  registration.regionMismatch ? (
+                    <Badge
+                      color={registration.regionDecision ? "green" : "orange"}
+                      variant="light"
+                    >
+                      {registration.regionDecision
+                        ? registrationRegionDecisionLabel(
+                            registration.regionDecision,
+                          )
+                        : `Current profile: ${registration.profileRegionName ?? "No region"} · administrator review`}
+                    </Badge>
+                  ) : null}
+                  {administrator &&
+                  (registration.regionMismatch ||
+                    registration.regionDecision) ? (
+                    <Button
+                      size="compact-xs"
+                      variant="subtle"
+                      disabled={
+                        registration.status === "withdrawn" ||
+                        registration.status === "cancelled"
+                      }
+                      onClick={() => {
+                        setRegionRegistration(registration);
+                      }}
+                    >
+                      Review region
+                    </Button>
+                  ) : null}
+                </Stack>
+              );
+            },
+          },
         ),
         registrationColumn.accessor("status", {
           header: "Status",
@@ -155,7 +207,14 @@ export function EventOperationsRegistrationReview({
           },
         }),
       ]),
-    [action, priorities, processingId, setPriorities, workspace.occurrence.id],
+    [
+      action,
+      administrator,
+      priorities,
+      processingId,
+      setPriorities,
+      workspace.occurrence.id,
+    ],
   );
   const table = useTable({
     features: registrationTableFeatures,
@@ -169,9 +228,24 @@ export function EventOperationsRegistrationReview({
       </Alert>
     );
   return (
-    <ResponsiveDataTable
-      table={table}
-      caption="Learner registrations assigned for coordinator review"
-    />
+    <>
+      <ResponsiveDataTable
+        table={table}
+        caption="Learner registrations assigned for coordinator review"
+      />
+      {regionRegistration ? (
+        <Suspense fallback={<LoadingSpinner label="Loading region review" />}>
+          <AdminEventRegistrationRegionDialog
+            workspace={workspace}
+            registration={regionRegistration}
+            processingId={processingId}
+            action={action}
+            onClose={() => {
+              setRegionRegistration(null);
+            }}
+          />
+        </Suspense>
+      ) : null}
+    </>
   );
 }

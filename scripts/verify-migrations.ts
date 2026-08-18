@@ -40,6 +40,7 @@ try {
     "event_admin_assignment",
     "event_attendance",
     "event_coordinator_assignment",
+    "event_guest_access",
     "event_occurrence",
     "event_occurrence_domain",
     "event_occurrence_region",
@@ -47,6 +48,7 @@ try {
     "event_presenter_assignment",
     "event_region_review_round",
     "event_registration",
+    "event_registration_region_decision",
     "event_section_release",
     "event_survey_access",
     "event_session",
@@ -123,6 +125,8 @@ try {
     "event_occurrence_slug_uq",
     "event_presenter_assignment_active_idx",
     "event_registration_selection_idx",
+    "event_registration_region_decision_current_uq",
+    "event_registration_region_decision_reporting_idx",
     "learning_progress_override_latest_idx",
     "learning_item_progress_enrollment_idx",
     "order_purchaser_status_idx",
@@ -135,6 +139,7 @@ try {
     "event_coordinator_eligibility_active_uq",
     "coordination_region_code_unique_uq",
     "event_survey_access_active_item_uq",
+    "event_guest_access_active_occurrence_uq",
     "user_email_normalized_uq",
     "notification_pending_idx",
   ];
@@ -179,6 +184,49 @@ try {
     eventSurveyAccessConstraints.rows.length,
     4,
     "Event Survey access identity, rotation and policy constraints must exist",
+  );
+  const eventGuestAccessConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_guest_access_public_reference_uq',
+          'event_guest_access_generation_uq',
+          'event_guest_access_reference_ck',
+          'event_guest_access_generation_ck',
+          'event_occurrence_open_entry_attendance_mode_ck'
+        )`.execute(db);
+  assert.equal(
+    eventGuestAccessConstraints.rows.length,
+    5,
+    "Open-entry guest access identity, rotation and attendance constraints must exist",
+  );
+  const eventRegistrationReviewConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_registration_region_mismatch_ack_ck',
+          'event_registration_regional_review_waiver_ck'
+        )`.execute(db);
+  assert.equal(
+    eventRegistrationReviewConstraints.rows.length,
+    2,
+    "Event registration mismatch acknowledgement and review-waiver constraints must exist",
+  );
+  const eventRegistrationRegionDecisionConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_registration_region_decision_resolution_ck',
+          'event_registration_region_decision_classification_ck',
+          'event_registration_region_decision_snapshot_ck'
+        )`.execute(db);
+  assert.equal(
+    eventRegistrationRegionDecisionConstraints.rows.length,
+    3,
+    "Event registration reporting-region decisions must be constrained",
   );
   const eventTemplateColumns = await sql<{
     column_name: string;

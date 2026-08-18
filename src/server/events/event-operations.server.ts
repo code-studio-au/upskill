@@ -61,10 +61,15 @@ async function findEventParticipantProgress(
     .orderBy("participation.nameSnapshot")
     .orderBy("participation.emailSnapshot");
   if (!administrator)
-    participantQuery = participantQuery.where(
-      "registration.eventOccurrenceRegionId",
-      "in",
-      access.coordinatorRegionIds,
+    participantQuery = participantQuery.where((expression) =>
+      expression.or([
+        expression(
+          "registration.eventOccurrenceRegionId",
+          "in",
+          access.coordinatorRegionIds,
+        ),
+        expression("participation.mode", "=", "open_entry"),
+      ]),
     );
   const participants = await participantQuery.execute();
   if (participants.length === 0) return [];
@@ -407,12 +412,18 @@ export async function findEventOperationsWorkspace(
         )
         .select([
           "participation.id",
+          "participation.mode",
           "registration.eventOccurrenceRegionId as regionId",
         ])
         .where("participation.eventOccurrenceId", "=", eventOccurrenceId)
         .execute();
   const participantRegionById = new Map(
     participationRegions.map((row) => [row.id, row.regionId]),
+  );
+  const openEntryParticipantIds = new Set(
+    participationRegions
+      .filter((row) => row.mode === "open_entry")
+      .map((row) => row.id),
   );
   const coordinator = coordinatorRegionIds.size > 0;
   const presenter =
@@ -441,6 +452,7 @@ export async function findEventOperationsWorkspace(
             (participant) =>
               administrator ||
               presenterMayRecord ||
+              openEntryParticipantIds.has(participant.eventParticipationId) ||
               coordinatorRegionIds.has(
                 participantRegionById.get(participant.eventParticipationId) ??
                   "",
@@ -497,6 +509,7 @@ export async function findEventOperationsWorkspace(
       canViewProgress,
       canViewSurveyQrCatalogue,
     },
+    guestAccess: workspace.guestAccess,
     metrics: {
       registrations: registrations.length,
       awaitingReview: registrations.filter(
@@ -525,6 +538,7 @@ export async function findEventOperationsWorkspace(
     },
     regions: regions.map((region) => ({
       id: region.id,
+      regionId: region.regionId,
       name: region.name,
       code: region.code,
       effectivelyLocked: region.effectivelyLocked,
@@ -537,8 +551,16 @@ export async function findEventOperationsWorkspace(
       status: registration.status,
       regionId: registration.regionId,
       regionName: registration.regionName,
+      profileRegionId: registration.profileRegionId,
+      profileRegionName: registration.profileRegionName,
+      regionMismatch: registration.regionMismatch,
+      regionMismatchAcknowledged: registration.regionMismatchAcknowledged,
+      regionDecision: registration.regionDecision,
+      regionalReviewWaivedAt: registration.regionalReviewWaivedAt,
       reviewRoundId: registration.reviewRoundId,
       coordinatorPriority: registration.coordinatorPriority,
+      coordinatorDecidedAt: registration.coordinatorDecidedAt,
+      finalDecidedAt: registration.finalDecidedAt,
     })),
     sessions,
     participantProgress,

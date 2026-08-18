@@ -748,6 +748,7 @@ export interface AdminEventWorkspace {
     venueName: string;
     venueAddress: string;
     virtualJoinUrl: string;
+    openEntryAttendanceMode: "checked_in" | "attended";
     domains: string;
     confirmedCount: number;
     sessionCount: number;

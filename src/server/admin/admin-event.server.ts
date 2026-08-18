@@ -25,6 +25,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { ensureEventSurveyAccessRecords } from "#/server/events/event-survey-access.server";
+import { ensureEventGuestAccessRecord } from "#/server/events/event-guest-access.server";
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.server";
@@ -126,6 +127,7 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         "event_occurrence.venueName",
         "event_occurrence.venueAddress",
         "event_occurrence.virtualJoinUrl",
+        "event_occurrence.openEntryAttendanceMode",
         sql<number>`(
           select count(*)::integer from event_session
           where event_session."eventOccurrenceId" = event_occurrence.id
@@ -1901,6 +1903,7 @@ export async function createAdminEventOccurrence(
           venueName: optionalText(input.venueName),
           venueAddress: optionalText(input.venueAddress),
           virtualJoinUrl: optionalText(input.virtualJoinUrl),
+          openEntryAttendanceMode: "checked_in",
           publishedAt: null,
           createdByUserId: administrator.id,
           createdAt: now,
@@ -1913,6 +1916,8 @@ export async function createAdminEventOccurrence(
         version.id,
         now,
       );
+      if (input.registrationMode === "open_entry")
+        await ensureEventGuestAccessRecord(transaction, eventOccurrenceId, now);
       if (domains.length)
         await transaction
           .insertInto("event_occurrence_domain")

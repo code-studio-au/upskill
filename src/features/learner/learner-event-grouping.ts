@@ -19,6 +19,10 @@ export function groupLearnerEvents(
     available: [],
   };
   for (const event of events) {
+    if (event.participationMode === "open_entry") {
+      groups.registrations.push(event);
+      continue;
+    }
     if (event.registrationStatus === null) {
       if (event.registrationUnavailableReason !== "closed")
         groups.available.push(event);

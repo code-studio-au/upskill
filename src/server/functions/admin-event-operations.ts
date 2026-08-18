@@ -5,9 +5,14 @@ import {
   adminEventAccountSetupSchema,
   adminEventCoordinatorDecisionSchema,
   adminEventFinalDecisionSchema,
+  adminEventGuestAccessRotateSchema,
+  adminEventGuestAttendanceModeSchema,
   adminEventLifecycleSchema,
   adminEventOccurrenceOperationsParamsSchema,
   adminEventRegionLockSchema,
+  adminEventRegistrationProfileRegionAlignmentSchema,
+  adminEventRegistrationRegionGuestDecisionSchema,
+  adminEventRegistrationRegionMismatchAcknowledgementSchema,
   adminEventRegistrationRegionReassignmentSchema,
   type AdminEventOperationsMutationResult,
   type AdminEventOperationsResult,
@@ -34,6 +39,39 @@ export const getAdminEventOccurrenceOperations = createServerFn({
     return detail ? { status: "ready", data: detail } : { status: "not-found" };
   });
 
+export const rotateAdminEventGuestAccess = createServerFn({ method: "POST" })
+  .validator(adminEventGuestAccessRotateSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { rotateEventGuestAccessRecord } =
+      await import("#/server/events/event-guest-access.server");
+    const publicReference = await rotateEventGuestAccessRecord(
+      data.eventOccurrenceId,
+      request.user,
+    );
+    return publicReference ? { status: "ready" } : { status: "not-found" };
+  });
+
+export const setAdminEventGuestAttendanceMode = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventGuestAttendanceModeSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { setAdminEventGuestAttendanceMode: setMode } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await setMode(
+      data.eventOccurrenceId,
+      data.mode,
+      request.user,
+    );
+    return outcome === "updated"
+      ? { status: "ready" }
+      : { status: "not-found" };
+  });
+
 export const decideAdminEventCoordinatorRegistration = createServerFn({
   method: "POST",
 })
@@ -47,6 +85,28 @@ export const decideAdminEventCoordinatorRegistration = createServerFn({
     if (outcome === "not-found") return { status: "not-found" };
     if (outcome === "region-locked")
       return { status: "conflict", reason: "region_locked" };
+    if (outcome === "invalid-transition")
+      return { status: "conflict", reason: "invalid_transition" };
+    return { status: "ready" };
+  });
+
+export const acknowledgeAdminEventRegistrationRegionMismatch = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventRegistrationRegionMismatchAcknowledgementSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { acknowledgeAdminEventRegistrationRegionMismatch: acknowledge } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await acknowledge(
+      data.eventOccurrenceId,
+      data.registrationId,
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "no-mismatch")
+      return { status: "conflict", reason: "region_mismatch_resolved" };
     if (outcome === "invalid-transition")
       return { status: "conflict", reason: "invalid_transition" };
     return { status: "ready" };
@@ -108,13 +168,60 @@ export const reassignAdminEventRegistrationRegion = createServerFn({
       await import("#/server/admin/admin-event-operations.server");
     const outcome = await reassign(data, request.user);
     if (outcome === "not-found") return { status: "not-found" };
-    if (outcome === "region-locked")
-      return { status: "conflict", reason: "region_locked" };
+    if (outcome === "locked-destination-confirmation-required")
+      return {
+        status: "conflict",
+        reason: "locked_destination_reassignment_confirmation_required",
+      };
     if (outcome === "finalized-confirmation-required")
       return {
         status: "conflict",
         reason: "finalized_reassignment_confirmation_required",
       };
+    if (outcome === "invalid-transition")
+      return { status: "conflict", reason: "invalid_transition" };
+    return { status: "ready" };
+  });
+
+export const alignAdminEventRegistrationProfileRegion = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventRegistrationProfileRegionAlignmentSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { alignAdminEventRegistrationProfileRegion: align } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await align(
+      data.eventOccurrenceId,
+      data.registrationId,
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "no-mismatch")
+      return { status: "conflict", reason: "region_mismatch_resolved" };
+    if (outcome === "invalid-transition")
+      return { status: "conflict", reason: "invalid_transition" };
+    return { status: "ready" };
+  });
+
+export const confirmAdminEventRegistrationRegionGuest = createServerFn({
+  method: "POST",
+})
+  .validator(adminEventRegistrationRegionGuestDecisionSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { confirmAdminEventRegistrationRegionGuest: confirm } =
+      await import("#/server/admin/admin-event-operations.server");
+    const outcome = await confirm(
+      data.eventOccurrenceId,
+      data.registrationId,
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "no-mismatch")
+      return { status: "conflict", reason: "region_mismatch_resolved" };
     if (outcome === "invalid-transition")
       return { status: "conflict", reason: "invalid_transition" };
     return { status: "ready" };
