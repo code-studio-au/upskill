@@ -84,6 +84,9 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       column.notNull().defaultTo(false),
     )
     .execute();
+  await sql`update access_grant
+    set kind = 'individual_purchase'
+    where "orderId" is not null`.execute(db);
   await db.schema
     .alterTable("access_grant")
     .addCheckConstraint(

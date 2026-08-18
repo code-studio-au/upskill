@@ -248,12 +248,13 @@ try {
   assert.ok(enrollment.expiresAt);
   const grant = await database
     .selectFrom("access_grant")
-    .select(["orderId", "quantity", "redeemed", "fulfillmentMode"])
+    .select(["orderId", "quantity", "redeemed", "kind", "fulfillmentMode"])
     .where("id", "=", enrollment.accessGrantId)
     .executeTakeFirstOrThrow();
   assert.equal(grant.orderId, ids.paidOrder);
   assert.equal(grant.quantity, 1);
   assert.equal(grant.redeemed, 1);
+  assert.equal(grant.kind, "individual_purchase");
   assert.equal(grant.fulfillmentMode, null);
   assert.equal(
     await database
