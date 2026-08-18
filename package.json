@@ -13,7 +13,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "node scripts/start-development.mjs",
+    "dev": "node --env-file-if-exists=.env.local scripts/start-development.mjs",
     "dev:web": "vite dev --port 3000",
     "dev:learning": "vite dev --port 3001",
     "generate:routes": "tsr generate",
@@ -54,6 +54,7 @@
     "db:verify:audit": "node --env-file-if-exists=.env.local --import tsx scripts/verify-audit-logging.ts",
     "db:verify:access-codes": "node --env-file-if-exists=.env.local --import tsx scripts/verify-access-code-redemption.ts",
     "db:verify:checkout": "node --env-file-if-exists=.env.local --import tsx scripts/verify-course-checkout.ts",
+    "db:verify:bulk-commerce": "node --env-file-if-exists=.env.local --import tsx scripts/verify-bulk-order-commerce.ts",
     "db:verify:learner-workspace": "node --env-file-if-exists=.env.local --import tsx scripts/verify-learner-workspace.ts",
     "db:verify:scorm-attempts": "node --env-file-if-exists=.env.local --import tsx scripts/verify-scorm-attempts.ts",
     "db:verify:admin-visibility": "node --env-file-if-exists=.env.local --import tsx scripts/verify-admin-visibility.ts",

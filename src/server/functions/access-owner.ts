@@ -1,9 +1,21 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
+  accessOwnerInvoiceInputSchema,
   accessOwnerGrantInputSchema,
   type AccessOwnerDashboard,
   type AccessOwnerResult,
 } from "#/features/access-owner/access-owner.schema";
+
+export const getAccessOwnerInvoiceUrl = createServerFn({ method: "POST" })
+  .validator(accessOwnerInvoiceInputSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" } as const;
+    const { findAccessOwnerInvoiceUrl } =
+      await import("#/server/access/access-owner.server");
+    return await findAccessOwnerInvoiceUrl(data.orderId, user);
+  });
 
 export const getAccessOwnerDashboard = createServerFn({
   method: "GET",

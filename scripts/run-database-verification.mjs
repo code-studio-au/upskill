@@ -8,6 +8,7 @@ const verificationScripts = [
   "scripts/verify-audit-logging.ts",
   "scripts/verify-access-code-redemption.ts",
   "scripts/verify-course-checkout.ts",
+  "scripts/verify-bulk-order-commerce.ts",
   "scripts/verify-learner-workspace.ts",
   "scripts/verify-scorm-attempts.ts",
   "scripts/verify-admin-visibility.ts",

@@ -1,0 +1,33 @@
+.reorderControls {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  align-items: end;
+  grid-template-columns: minmax(8rem, 12rem) auto;
+  justify-content: start;
+}
+.orderList {
+  display: grid;
+  margin-top: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  overflow: hidden;
+}
+.orderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+}
+.orderRow + .orderRow {
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+@media (max-width: 36em) {
+  .reorderControls {
+    grid-template-columns: 1fr;
+  }
+  .orderRow {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

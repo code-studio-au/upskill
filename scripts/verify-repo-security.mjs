@@ -71,8 +71,13 @@ if (!packageJson.scripts["verify:app:static"].includes("pnpm run doctor"))
   failures.push("React Doctor must remain part of application verification");
 if (!packageJson.scripts.build.includes("vite.worker.config.ts"))
   failures.push("Production builds must include the asynchronous worker");
-if (packageJson.scripts.dev !== "node scripts/start-development.mjs")
-  failures.push("Local development must start the web app and worker together");
+if (
+  packageJson.scripts.dev !==
+  "node --env-file-if-exists=.env.local scripts/start-development.mjs"
+)
+  failures.push(
+    "Local development must load local configuration and start the supervised services",
+  );
 const disposablePostgres = fs.readFileSync(
   path.join(root, "scripts/disposable-postgres.mjs"),
   "utf8",
@@ -113,12 +118,31 @@ const developmentLauncher = fs.readFileSync(
   path.join(root, "scripts/start-development.mjs"),
   "utf8",
 );
-for (const requiredProcess of ["vite", "src/worker/scorm-worker.ts"]) {
+for (const requiredProcess of [
+  "vite",
+  "src/worker/scorm-worker.ts",
+  "createStripeDevelopmentSetup",
+  "--strictPort",
+]) {
   if (!developmentLauncher.includes(requiredProcess))
     failures.push(
       `Local development launcher must include: ${requiredProcess}`,
     );
 }
+const stripeDevelopment = fs.readFileSync(
+  path.join(root, "scripts/stripe-development.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  '"listen"',
+  '"--print-secret"',
+  '"checkout.session.completed"',
+  '"refund.created"',
+  '"http://localhost:3000/api/stripe/webhook"',
+  'stdio: ["ignore", "ignore", "ignore"]',
+])
+  if (!stripeDevelopment.includes(invariant))
+    failures.push(`Stripe development listener is missing: ${invariant}`);
 if (
   !developmentLauncher.includes('requireFromHere.resolve("vite/package.json")')
 )

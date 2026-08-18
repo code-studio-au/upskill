@@ -101,7 +101,7 @@ verifiers, and CDK verification.
 | Resources                          | Strong foundation                                        | Broaden beyond PDF when required                                         |
 | Certificates                       | On-demand rendering implemented                          | Reuse the common completion-eligibility boundary                         |
 | Organisation access codes          | Encrypted shared or single-use batches plus entitlements | Add contracts and broader coverage                                       |
-| Customer Access Owner portal       | Assigned-grant dashboard and CSV implemented             | Add Stripe-backed eligible capacity extensions                           |
+| Customer Access Owner portal       | Orders, invoices, CSV and Stripe capacity extensions     | Add contract-wide reporting and broader coverage                         |
 | Enterprise blanket access          | Partial concept                                          | Add a first-class contract/coverage model                                |
 | Course administration              | Strong foundation                                        | Add authoring workflow maturity as needed                                |
 | Learner administration             | Strong foundation                                        | Add richer support tooling over time                                     |
@@ -279,11 +279,12 @@ access is implemented, covering organisation, effective/renewal dates,
 covered offerings, eligibility, unlimited/capped access, and audit
 history.
 
-Bulk/enterprise grant creation now adds email-bound Access Owner assignments,
-uses provisional account setup where needed, and provides a narrow
-consent-filtered assigned-source dashboard with CSV export. Stripe-backed
-additional-use purchasing and first-class contracts remain the next commercial
-steps.
+Bulk/enterprise grant creation adds email-bound Access Owner assignments, uses
+provisional account setup where needed, and provides a narrow consent-filtered
+assigned-source dashboard with CSV export. Course-version quantity tiers,
+initial shared/single-use bulk Checkout, replay-safe capacity extensions,
+invoice/payment history and refund-safe code preservation are implemented.
+First-class blanket contracts remain the next commercial step.
 This is resource-scoped customer self-service, not organisation-wide or
 platform administration.
 
@@ -598,7 +599,7 @@ without understanding why.
 - organisation utilisation reporting;
 - Access Owner assignment and narrow customer dashboard (implemented for
   course-specific grants);
-- capped-grant capacity-extension checkout and webhook fulfilment;
+- capped-grant capacity-extension checkout and webhook fulfilment (implemented);
 
 ### Phase E --- Communications and support
 

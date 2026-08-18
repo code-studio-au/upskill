@@ -169,7 +169,8 @@ See the [architecture specification](docs/architecture.md), broader
 
 Before the first AWS release, populate the application configuration secret
 output by the CDK application stack with the real application/learning origins,
-Stripe keys, Mailgun domain sending key, sending domain and From address. Use
+restricted Stripe key, Stripe webhook signing secret, Mailgun domain sending
+key, sending domain and From address. Use
 Mailgun's EU API base URL when the sending domain is hosted in the EU region.
 EC2 combines that application secret with the RDS secret in a private systemd
 environment file on boot and at every atomic deployment. A
@@ -184,7 +185,21 @@ the application stack then terminates HTTPS and permanently redirects HTTP.
 
 Configure Stripe to send `checkout.session.completed`,
 `checkout.session.async_payment_succeeded`,
-`checkout.session.async_payment_failed` and `checkout.session.expired` events
+`checkout.session.async_payment_failed`, `checkout.session.expired`,
+`refund.created`, `refund.updated` and `refund.failed` events
 to `POST /api/stripe/webhook`. For local test-mode forwarding, use the Stripe
 CLI webhook secret as `STRIPE_WEBHOOK_SECRET`; the redirect success page never
 fulfils an order by itself.
+
+The restricted `STRIPE_SECRET_KEY` needs write access to Checkout Sessions and
+Customers plus read access to Invoices. Bulk Checkout enables post-purchase
+invoice creation; Access Owners retrieve the Stripe-hosted invoice from their
+assigned-grant order history. Refund events update financial history only and
+never delete issued codes or learning access.
+
+`pnpm run dev` starts the authenticated Stripe CLI listener with the web,
+learning and SCORM-worker processes. It injects the listener's temporary signing
+secret without changing `.env.local`, so local Checkout fulfilment works while
+the development supervisor is running. Run `stripe login` once before starting
+development. Startup fails clearly when Stripe CLI is unavailable or no longer
+authenticated because payment webhooks are a required local service.

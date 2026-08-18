@@ -143,6 +143,7 @@ export async function findAccessOwnerDashboard(
       "access_grant.revokedAt",
       "organization.name as organizationName",
       "course.title as courseTitle",
+      "course_version.content",
     ])
     .where("assignment.userId", "=", user.id)
     .where("assignment.activatedAt", "is not", null)
@@ -152,36 +153,58 @@ export async function findAccessOwnerDashboard(
     .execute();
   if (grants.length === 0) return null;
   const grantIds = grants.map((grant) => grant.id);
-  const learners = await database
-    .selectFrom("entitlement")
-    .innerJoin("enrollment", "enrollment.id", "entitlement.enrollmentId")
-    .innerJoin("user", "user.id", "entitlement.userId")
-    .leftJoin(
-      "access_grant_code",
-      "access_grant_code.id",
-      "entitlement.originAccessGrantCodeId",
-    )
-    .innerJoin(
-      "course_version",
-      "course_version.id",
-      "entitlement.courseVersionId",
-    )
-    .select([
-      "entitlement.originAccessGrantId as accessGrantId",
-      "entitlement.redemptionEmailSnapshot as email",
-      "entitlement.grantedAt",
-      "enrollment.id as enrollmentId",
-      "enrollment.status",
-      "user.name",
-      "course_version.id as courseVersionId",
-      "course_version.content",
-      "access_grant_code.ordinal as codeNumber",
-    ])
-    .where("entitlement.originAccessGrantId", "in", grantIds)
-    .where("entitlement.informationReleaseAcceptedAt", "is not", null)
-    .where("entitlement.revokedAt", "is", null)
-    .orderBy("entitlement.grantedAt", "desc")
-    .execute();
+  const [learners, orders] = await Promise.all([
+    database
+      .selectFrom("entitlement")
+      .innerJoin("enrollment", "enrollment.id", "entitlement.enrollmentId")
+      .innerJoin("user", "user.id", "entitlement.userId")
+      .leftJoin(
+        "access_grant_code",
+        "access_grant_code.id",
+        "entitlement.originAccessGrantCodeId",
+      )
+      .innerJoin(
+        "course_version",
+        "course_version.id",
+        "entitlement.courseVersionId",
+      )
+      .select([
+        "entitlement.originAccessGrantId as accessGrantId",
+        "entitlement.redemptionEmailSnapshot as email",
+        "entitlement.grantedAt",
+        "enrollment.id as enrollmentId",
+        "enrollment.status",
+        "user.name",
+        "course_version.id as courseVersionId",
+        "course_version.content",
+        "access_grant_code.ordinal as codeNumber",
+      ])
+      .where("entitlement.originAccessGrantId", "in", grantIds)
+      .where("entitlement.informationReleaseAcceptedAt", "is not", null)
+      .where("entitlement.revokedAt", "is", null)
+      .orderBy("entitlement.grantedAt", "desc")
+      .execute(),
+    database
+      .selectFrom("bulk_order")
+      .innerJoin("order", "order.id", "bulk_order.orderId")
+      .innerJoin("order_item", "order_item.orderId", "order.id")
+      .select([
+        "bulk_order.accessGrantId",
+        "order.id",
+        "order.kind",
+        "order.status",
+        "order.currency",
+        "order.totalCents",
+        "order.refundedCents",
+        "order.stripeInvoiceId",
+        "order.createdAt",
+        "order_item.quantity",
+        "order_item.unitPriceCents",
+      ])
+      .where("bulk_order.accessGrantId", "in", grantIds)
+      .orderBy("order.createdAt", "desc")
+      .execute(),
+  ]);
   const enrollmentReferences = learners.map((learner) => ({
     enrollmentId: learner.enrollmentId,
     courseVersionId: learner.courseVersionId,
@@ -238,6 +261,28 @@ export async function findAccessOwnerDashboard(
     string,
     AccessOwnerDashboard["grants"][number]["learners"]
   >();
+  const orderGroups = new Map<
+    string,
+    AccessOwnerDashboard["grants"][number]["orders"]
+  >();
+  for (const order of orders) {
+    if (!order.accessGrantId || order.kind === "individual_purchase") continue;
+    orderGroups.set(order.accessGrantId, [
+      ...(orderGroups.get(order.accessGrantId) ?? []),
+      {
+        id: order.id,
+        kind: order.kind,
+        quantity: order.quantity,
+        unitPriceCents: order.unitPriceCents,
+        totalCents: order.totalCents,
+        refundedCents: order.refundedCents,
+        currency: order.currency,
+        status: order.status,
+        hasInvoice: Boolean(order.stripeInvoiceId),
+        createdAt: order.createdAt.toISOString(),
+      },
+    ]);
+  }
   for (const learner of learners) {
     if (!learner.accessGrantId) continue;
     const progressPercent = enrollmentProgressPercent(
@@ -266,25 +311,65 @@ export async function findAccessOwnerDashboard(
     ]);
   }
   return {
-    grants: grants.map((grant) => ({
-      id: grant.id,
-      label: grant.label ?? "Organisation access",
-      organizationName: grant.organizationName,
-      courseTitle: grant.courseTitle,
-      kind:
-        grant.kind === "enterprise_contract"
-          ? "enterprise_contract"
-          : "bulk_purchase",
-      quantity: grant.quantity,
-      redeemed: grant.redeemed,
-      remaining: Math.max(0, grant.quantity - grant.redeemed),
-      customerExtendable: grant.customerExtendable,
-      fulfillmentMode: grant.fulfillmentMode ?? "shared_code",
-      expiresAt: grant.expiresAt?.toISOString() ?? null,
-      state: grantState(grant),
-      learners: learnerGroups.get(grant.id) ?? [],
-    })),
+    grants: grants.map((grant) => {
+      const state = grantState(grant);
+      const content = courseContentSchema.parse(grant.content);
+      return {
+        id: grant.id,
+        label: grant.label ?? "Organisation access",
+        organizationName: grant.organizationName,
+        courseTitle: grant.courseTitle,
+        kind:
+          grant.kind === "enterprise_contract"
+            ? "enterprise_contract"
+            : "bulk_purchase",
+        quantity: grant.quantity,
+        redeemed: grant.redeemed,
+        remaining: Math.max(0, grant.quantity - grant.redeemed),
+        customerExtendable: grant.customerExtendable,
+        canReorder:
+          grant.kind === "bulk_purchase" &&
+          grant.customerExtendable &&
+          state !== "expired" &&
+          state !== "revoked" &&
+          content.bulkPricing.enabled,
+        pricingTiers: content.bulkPricing.tiers,
+        fulfillmentMode: grant.fulfillmentMode ?? "shared_code",
+        expiresAt: grant.expiresAt?.toISOString() ?? null,
+        state,
+        learners: learnerGroups.get(grant.id) ?? [],
+        orders: orderGroups.get(grant.id) ?? [],
+      };
+    }),
   };
+}
+
+export async function findAccessOwnerInvoiceUrl(
+  orderId: string,
+  user: AuthenticatedUser,
+): Promise<{ status: "ready"; url: string } | { status: "not-found" }> {
+  const order = await getDatabase()
+    .selectFrom("bulk_order")
+    .innerJoin("order", "order.id", "bulk_order.orderId")
+    .innerJoin(
+      "access_grant_owner_assignment as assignment",
+      "assignment.accessGrantId",
+      "bulk_order.accessGrantId",
+    )
+    .select("order.stripeInvoiceId")
+    .where("order.id", "=", orderId)
+    .where("assignment.userId", "=", user.id)
+    .where("assignment.activatedAt", "is not", null)
+    .where("assignment.revokedAt", "is", null)
+    .executeTakeFirst();
+  if (!order?.stripeInvoiceId) return { status: "not-found" };
+  const { stripeClient } = await import("#/server/stripe/stripe-client.server");
+  const invoice = await stripeClient.invoices.retrieve(order.stripeInvoiceId);
+  if (!invoice.hosted_invoice_url) return { status: "not-found" };
+  const url = new URL(invoice.hosted_invoice_url);
+  if (url.protocol !== "https:" || !url.hostname.endsWith(".stripe.com"))
+    throw new Error("Stripe returned an unexpected invoice URL");
+  return { status: "ready", url: url.toString() };
 }
 
 async function findActiveOwnerAssignment(

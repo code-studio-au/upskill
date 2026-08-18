@@ -1,5 +1,6 @@
 import { Badge } from "#/features/shared/Badge";
 import {
+  Button,
   Container,
   Group,
   Paper,
@@ -7,7 +8,7 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
-import { createFileRoute, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { PurchaseCourseButton } from "#/features/checkout/PurchaseCourseButton";
 import { getCourse } from "#/server/functions/catalog";
 import classes from "./courses.$slug.module.css";
@@ -186,6 +187,21 @@ function CourseDetail() {
                 </Text>
               </div>
               <PurchaseCourseButton slug={course.slug} />
+              {course.bulkPricing.enabled ? (
+                <Link
+                  to="/courses/$slug/bulk-order"
+                  params={{ slug: course.slug }}
+                >
+                  <Button
+                    component="span"
+                    variant="default"
+                    size="lg"
+                    fullWidth
+                  >
+                    Purchase bulk access
+                  </Button>
+                </Link>
+              ) : null}
               {course.hasCompletionCertificate ? (
                 <Text size="sm" c="dimmed">
                   Includes a downloadable completion certificate.

@@ -18,7 +18,12 @@ export async function findCheckoutStatus(
       "order_item.courseVersionId",
     )
     .innerJoin("course", "course.id", "course_version.courseId")
-    .select(["order.status", "course.slug", "course_version.content"])
+    .select([
+      "order.status",
+      "order.kind",
+      "course.slug",
+      "course_version.content",
+    ])
     .where("order.stripeCheckoutSessionId", "=", sessionId)
     .where("order.purchaserUserId", "=", user.id)
     .executeTakeFirst();
@@ -26,6 +31,7 @@ export async function findCheckoutStatus(
   const content = courseContentSchema.parse(row.content);
   return {
     status: row.status,
+    kind: row.kind,
     courseTitle: content.title,
     courseSlug: row.slug,
   };

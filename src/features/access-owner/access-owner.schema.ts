@@ -6,6 +6,10 @@ export const accessOwnerGrantInputSchema = z.object({
   accessGrantId: identifier,
 });
 
+export const accessOwnerInvoiceInputSchema = z.object({
+  orderId: identifier,
+});
+
 export interface AccessOwnerDashboard {
   grants: Array<{
     id: string;
@@ -18,6 +22,11 @@ export interface AccessOwnerDashboard {
     redeemed: number;
     remaining: number;
     customerExtendable: boolean;
+    canReorder: boolean;
+    pricingTiers: Array<{
+      minimumQuantity: number;
+      unitPriceCents: number;
+    }>;
     expiresAt: string | null;
     state: "active" | "exhausted" | "expired" | "revoked";
     learners: Array<{
@@ -28,6 +37,18 @@ export interface AccessOwnerDashboard {
       progressPercent: number;
       completionState: "complete" | "incomplete";
       codeNumber: number | null;
+    }>;
+    orders: Array<{
+      id: string;
+      kind: "bulk_purchase" | "capacity_extension";
+      quantity: number;
+      unitPriceCents: number;
+      totalCents: number;
+      refundedCents: number;
+      currency: string;
+      status: "pending" | "paid" | "failed" | "partially_refunded" | "refunded";
+      hasInvoice: boolean;
+      createdAt: string;
     }>;
   }>;
 }

@@ -316,8 +316,16 @@ async function createCourseFixture(
     description: input.description,
     topic: "safety",
     durationMinutes: input.durationMinutes,
-    priceCents: 0,
+    priceCents: 9_900,
     salePriceCents: null,
+    bulkPricing: {
+      enabled: true,
+      tiers: [
+        { minimumQuantity: 5, unitPriceCents: 8_900 },
+        { minimumQuantity: 20, unitPriceCents: 7_900 },
+        { minimumQuantity: 50, unitPriceCents: 6_900 },
+      ],
+    },
     featured: true,
     listInStore: true,
     hasCompletionCertificate: true,

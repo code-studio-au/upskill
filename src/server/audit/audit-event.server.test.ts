@@ -56,6 +56,7 @@ describe("audit event boundary", () => {
       "order.checkout_failed",
       "order.checkout_paid",
       "order.paid_existing_enrollment",
+      "order.refund_recorded",
       "resource.uploaded",
       "resource.version_removed",
       "scorm.package_uploaded",

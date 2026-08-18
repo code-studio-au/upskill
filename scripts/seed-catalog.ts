@@ -24,6 +24,14 @@ const seeds = [
       durationMinutes: 75,
       priceCents: 14_900,
       salePriceCents: null,
+      bulkPricing: {
+        enabled: true,
+        tiers: [
+          { minimumQuantity: 5, unitPriceCents: 12_900 },
+          { minimumQuantity: 20, unitPriceCents: 10_900 },
+          { minimumQuantity: 50, unitPriceCents: 8_900 },
+        ],
+      },
       currency: "AUD",
       featured: true,
       listInStore: true,
@@ -65,6 +73,14 @@ const seeds = [
       durationMinutes: 50,
       priceCents: 9_900,
       salePriceCents: 7_900,
+      bulkPricing: {
+        enabled: true,
+        tiers: [
+          { minimumQuantity: 5, unitPriceCents: 6_900 },
+          { minimumQuantity: 20, unitPriceCents: 5_900 },
+          { minimumQuantity: 50, unitPriceCents: 4_900 },
+        ],
+      },
       currency: "AUD",
       featured: true,
       listInStore: true,
@@ -106,6 +122,14 @@ const seeds = [
       durationMinutes: 90,
       priceCents: 17_900,
       salePriceCents: null,
+      bulkPricing: {
+        enabled: true,
+        tiers: [
+          { minimumQuantity: 5, unitPriceCents: 15_900 },
+          { minimumQuantity: 20, unitPriceCents: 13_900 },
+          { minimumQuantity: 50, unitPriceCents: 11_900 },
+        ],
+      },
       currency: "AUD",
       featured: true,
       listInStore: true,

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { checkoutSessionSearchSchema } from "./checkout.schema";
+import {
+  bulkOrderCheckoutInputSchema,
+  capacityExtensionCheckoutInputSchema,
+  checkoutSessionSearchSchema,
+} from "./checkout.schema";
 
 describe("checkout session search", () => {
   it.each(["cs_test_123", "cs_live_ABC_def"])(
@@ -19,4 +23,42 @@ describe("checkout session search", () => {
       ).toThrow();
     },
   );
+});
+
+describe("bulk Checkout input", () => {
+  it("accepts a bounded initial shared-code order", () => {
+    expect(
+      bulkOrderCheckoutInputSchema.parse({
+        slug: "leadership-course",
+        organizationName: "Example Health",
+        quantity: 20,
+        fulfillmentMode: "shared_code",
+      }),
+    ).toEqual({
+      slug: "leadership-course",
+      organizationName: "Example Health",
+      quantity: 20,
+      fulfillmentMode: "shared_code",
+    });
+  });
+
+  it("requires at least two seats for an initial bulk order", () => {
+    expect(() =>
+      bulkOrderCheckoutInputSchema.parse({
+        slug: "leadership-course",
+        organizationName: "Example Health",
+        quantity: 1,
+        fulfillmentMode: "single_use_codes",
+      }),
+    ).toThrow();
+  });
+
+  it("allows a one-seat extension of an eligible existing grant", () => {
+    expect(
+      capacityExtensionCheckoutInputSchema.parse({
+        accessGrantId: "access_grant_1",
+        quantity: 1,
+      }),
+    ).toEqual({ accessGrantId: "access_grant_1", quantity: 1 });
+  });
 });
