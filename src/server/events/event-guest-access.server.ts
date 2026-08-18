@@ -15,10 +15,16 @@ import { logServerEvent } from "#/server/logging/server-logger";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
+import {
+  consumeFixedWindowRateLimit,
+  forwardedClientAddress,
+  type FixedWindowRateLimitEntry,
+} from "#/features/event-guest/event-guest-rate-limit";
 
 const RATE_LIMIT_WINDOW_MS = 15 * 60_000;
 const RATE_LIMIT_MAXIMUM = 10;
-const rateLimit = new Map<string, { count: number; resetAt: number }>();
+const RATE_LIMIT_MAXIMUM_ENTRIES = 10_000;
+const rateLimit = new Map<string, FixedWindowRateLimitEntry>();
 
 function issuePublicReference(): string {
   return randomBytes(24).toString("base64url");
@@ -26,10 +32,7 @@ function issuePublicReference(): string {
 
 function requestFingerprint(publicReference: string): string {
   const headers = getRequestHeaders();
-  const address =
-    headers.get("cf-connecting-ip") ??
-    headers.get("x-forwarded-for")?.split(",").at(-1)?.trim() ??
-    "unknown";
+  const address = forwardedClientAddress(headers);
   return createHash("sha256")
     .update(`${publicReference}:${address}`)
     .digest("base64url");
@@ -40,20 +43,12 @@ function consumeRateLimit(
   rateLimitKey?: string,
 ): boolean {
   const now = Date.now();
-  if (rateLimit.size > 10_000)
-    for (const [key, entry] of rateLimit) {
-      if (entry.resetAt <= now) rateLimit.delete(key);
-      if (rateLimit.size <= 10_000) break;
-    }
   const key = rateLimitKey ?? requestFingerprint(publicReference);
-  const current = rateLimit.get(key);
-  if (!current && rateLimit.size >= 10_000) return false;
-  if (!current || current.resetAt <= now) {
-    rateLimit.set(key, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return true;
-  }
-  current.count += 1;
-  return current.count <= RATE_LIMIT_MAXIMUM;
+  return consumeFixedWindowRateLimit(rateLimit, key, now, {
+    maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
+    maximumRequests: RATE_LIMIT_MAXIMUM,
+    windowMs: RATE_LIMIT_WINDOW_MS,
+  });
 }
 
 export async function ensureEventGuestAccessRecord(

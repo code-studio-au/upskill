@@ -74,7 +74,7 @@ export function AdminEventRegistrationRegionDialog({
     (region) => region.regionId === registration.profileRegionId,
   );
   const [destinationRegionId, setDestinationRegionId] = useState(
-    () => profileDestination?.id ?? registration.regionId ?? "",
+    () => registration.regionId ?? profileDestination?.id ?? "",
   );
   const actionId = `reassign-region-${registration.id}`;
   const acknowledgeActionId = `acknowledge-region-${registration.id}`;
@@ -85,12 +85,15 @@ export function AdminEventRegistrationRegionDialog({
     processingId === acknowledgeActionId ||
     processingId === guestActionId ||
     processingId === alignProfileActionId;
-  const destination = registration.regionMismatch
+  const regionDecisionComplete = registration.regionDecision !== null;
+  const unresolvedMismatch =
+    registration.regionMismatch && !regionDecisionComplete;
+  const destination = unresolvedMismatch
     ? profileDestination
     : workspace.regions.find((region) => region.id === destinationRegionId);
   const resolvedDestinationRegionId = destination?.id ?? "";
   const canUseProfileRegion = Boolean(
-    registration.regionMismatch &&
+    unresolvedMismatch &&
     profileDestination &&
     profileDestination.id !== registration.regionId,
   );
@@ -101,7 +104,6 @@ export function AdminEventRegistrationRegionDialog({
     destination?.effectivelyLocked && !registration.finalDecidedAt,
   );
   const profileIsUnregional = registration.profileRegionId === null;
-  const regionDecisionComplete = registration.regionDecision !== null;
   const canResolveAsRegionGuest =
     registration.regionMismatch &&
     !regionDecisionComplete &&
@@ -184,8 +186,9 @@ export function AdminEventRegistrationRegionDialog({
             registration can only retain its registered region.
           </Text>
         ) : null}
-        {!registration.regionMismatch &&
-        !registration.regionMismatchAcknowledged ? (
+        {regionDecisionComplete ||
+        (!registration.regionMismatch &&
+          !registration.regionMismatchAcknowledged) ? (
           <MantineNativeSelect
             label="Registration region"
             value={destinationRegionId}
@@ -278,8 +281,9 @@ export function AdminEventRegistrationRegionDialog({
               Set profile to {registration.regionName}
             </Button>
           ) : null}
-          {!regionDecisionComplete &&
-          (!registration.regionMismatch || canUseProfileRegion) ? (
+          {!registration.regionMismatch ||
+          canUseProfileRegion ||
+          regionDecisionComplete ? (
             <Button
               loading={processingId === actionId}
               disabled={
@@ -310,7 +314,7 @@ export function AdminEventRegistrationRegionDialog({
                 );
               }}
             >
-              {registration.regionMismatch
+              {unresolvedMismatch
                 ? "Use current profile region"
                 : registration.finalDecidedAt || lockedDestinationOverride
                   ? "Confirm region change"
