@@ -13,7 +13,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env.local scripts/start-development.mjs",
+    "dev": "zsh -lc 'source \"$NVM_DIR/nvm.sh\" && nvm use 26 && exec node --env-file-if-exists=.env.local scripts/start-development.mjs'",
     "dev:web": "vite dev --port 3000",
     "dev:learning": "vite dev --port 3001",
     "generate:routes": "tsr generate",

@@ -14,8 +14,7 @@
 .cardHeader,
 .editorHeader,
 .editorActions,
-.versionBar,
-.variables {
+.versionBar {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -46,20 +45,11 @@
   line-height: 1.55;
 }
 
-.variableButton {
-  border: 1px solid var(--mantine-color-gray-3);
-  border-radius: 0.45rem;
-  background: var(--mantine-color-gray-0);
-  color: var(--mantine-color-dark-7);
-  padding: 0.35rem 0.55rem;
-  font: inherit;
-  font-size: 0.82rem;
-  cursor: pointer;
-}
-
-.variableButton:hover {
-  border-color: var(--mantine-color-indigo-4);
-  background: var(--mantine-color-indigo-0);
+.variablePicker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
 }
 
 .versionSelect {
@@ -91,5 +81,9 @@
 
   .versionSelect {
     min-width: 0;
+  }
+
+  .variablePicker {
+    grid-template-columns: 1fr;
   }
 }

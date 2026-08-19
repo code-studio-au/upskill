@@ -3,6 +3,7 @@ import {
   type ChangeEventHandler,
   type FocusEventHandler,
   type ReactNode,
+  type Ref,
 } from "react";
 import classes from "./MantineTextInput.module.css";
 
@@ -21,6 +22,7 @@ interface MantineTextInputProps {
     "decimal" | "email" | "numeric" | "search" | "tel" | "text" | "url";
   label?: string;
   list?: string;
+  inputRef?: Ref<HTMLInputElement | HTMLTextAreaElement>;
   max?: number | undefined;
   maxLength?: number;
   min?: number | undefined;
@@ -45,6 +47,7 @@ export function MantineTextInput({
   description,
   error,
   flex,
+  inputRef,
   label,
   required,
   withAsterisk,
@@ -87,9 +90,15 @@ export function MantineTextInput({
         </span>
       ) : null}
       {component === "textarea" ? (
-        <textarea {...common} />
+        <textarea
+          {...common}
+          ref={inputRef as Ref<HTMLTextAreaElement> | undefined}
+        />
       ) : (
-        <input {...common} />
+        <input
+          {...common}
+          ref={inputRef as Ref<HTMLInputElement> | undefined}
+        />
       )}
       {children}
       {error ? (

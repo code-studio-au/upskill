@@ -1140,11 +1140,20 @@ test("platform administrators can inspect learner progress", async ({
       page.getByRole("heading", { name: "E2E event confirmation" }),
     ).toBeVisible();
     await page.getByLabel("Subject").fill("Confirmed: {{event.title}}");
-    await page
-      .getByLabel("Email body")
-      .fill(
-        "Hello {{user.fullName}},\n\nYour event starts {{event.startsAt}}.\n\n{{event.dashboardUrl}}",
-      );
+    const emailBody = page.getByLabel("Email body");
+    await emailBody.fill(
+      "Hello ,\n\nYour event starts {{event.startsAt}}.\n\n{{event.dashboardUrl}}",
+    );
+    await emailBody.evaluate((element) => {
+      const textarea = element as HTMLTextAreaElement;
+      textarea.focus();
+      textarea.setSelectionRange(6, 6);
+    });
+    await page.getByLabel("Available variables").selectOption("user.fullName");
+    await page.getByRole("button", { name: "Add variable" }).click();
+    await expect(emailBody).toHaveValue(
+      "Hello {{user.fullName}},\n\nYour event starts {{event.startsAt}}.\n\n{{event.dashboardUrl}}",
+    );
     await page.getByRole("button", { name: "Preview" }).click();
     await expect(
       page.getByText("Confirmed: Regional learning workshop"),

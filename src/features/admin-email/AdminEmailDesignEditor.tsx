@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type {
   AdminEmailDesignDetail,
   AdminEmailPreview,
@@ -33,11 +33,33 @@ interface Props {
   detail: AdminEmailDesignDetail;
 }
 
+function variableSelectData(variables: AdminEmailDesignDetail["variables"]) {
+  const groups = new Map<string, Array<{ label: string; value: string }>>();
+  for (const variable of variables) {
+    const items = groups.get(variable.category) ?? [];
+    items.push({
+      value: variable.key,
+      label: `${variable.label}${variable.required ? " *" : ""}`,
+    });
+    groups.set(variable.category, items);
+  }
+  return [
+    { value: "", label: "Select a variable" },
+    ...Array.from(groups, ([group, items]) => ({ group, items })),
+  ];
+}
+
 export function AdminEmailDesignEditor({ detail }: Props) {
   const router = useRouter();
+  const bodyInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const bodySelectionRef = useRef({
+    start: detail.version.textBody.length,
+    end: detail.version.textBody.length,
+  });
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
   const [preview, setPreview] = useState<AdminEmailPreview | null>(null);
+  const [selectedVariable, setSelectedVariable] = useState("");
   const [confirmation, setConfirmation] = useState<
     "activate" | "delete" | "publish" | null
   >(null);
@@ -338,44 +360,89 @@ export function AdminEmailDesignEditor({ detail }: Props) {
                   <MantineTextInput
                     component="textarea"
                     label="Email body"
+                    inputRef={bodyInputRef}
                     value={field.state.value}
                     error={firstFormError(field.state.meta.errors)}
                     disabled={!detail.version.editable}
                     maxLength={20_000}
                     classNames={{ input: classes.bodyInput }}
-                    onBlur={field.handleBlur}
+                    onBlur={(event) => {
+                      bodySelectionRef.current = {
+                        start:
+                          event.currentTarget.selectionStart ??
+                          event.currentTarget.value.length,
+                        end:
+                          event.currentTarget.selectionEnd ??
+                          event.currentTarget.value.length,
+                      };
+                      field.handleBlur();
+                    }}
                     onChange={(event) => {
+                      bodySelectionRef.current = {
+                        start:
+                          event.currentTarget.selectionStart ??
+                          event.currentTarget.value.length,
+                        end:
+                          event.currentTarget.selectionEnd ??
+                          event.currentTarget.value.length,
+                      };
                       field.handleChange(event.currentTarget.value);
                     }}
                     required
                   />
                 )}
               </form.Field>
-              <div>
-                <Text fw={700} size="sm">
-                  Available variables
-                </Text>
-                <div className={classes.variables}>
-                  {detail.variables.map((variable) => (
-                    <button
-                      className={classes.variableButton}
-                      type="button"
-                      key={variable.key}
-                      disabled={!detail.version.editable}
-                      title={`{{${variable.key}}}`}
-                      onClick={() => {
-                        const current = form.getFieldValue("textBody");
-                        form.setFieldValue(
-                          "textBody",
-                          `${current}${current.endsWith("\n") ? "" : "\n"}{{${variable.key}}}`,
-                        );
-                      }}
-                    >
-                      + {variable.category}: {variable.label}
-                      {variable.required ? " *" : ""}
-                    </button>
-                  ))}
-                </div>
+              <div className={classes.variablePicker}>
+                <MantineNativeSelect
+                  label="Available variables"
+                  value={selectedVariable}
+                  disabled={!detail.version.editable}
+                  data={variableSelectData(detail.variables)}
+                  onChange={(event) => {
+                    setSelectedVariable(event.currentTarget.value);
+                  }}
+                />
+                <Button
+                  type="button"
+                  variant="light"
+                  disabled={!detail.version.editable || !selectedVariable}
+                  onClick={() => {
+                    const variable = detail.variables.find(
+                      (candidate) => candidate.key === selectedVariable,
+                    );
+                    if (!variable) return;
+                    const current = form.getFieldValue("textBody");
+                    const start = Math.min(
+                      bodySelectionRef.current.start,
+                      current.length,
+                    );
+                    const end = Math.min(
+                      Math.max(bodySelectionRef.current.end, start),
+                      current.length,
+                    );
+                    const token = `{{${variable.key}}}`;
+                    form.setFieldValue(
+                      "textBody",
+                      [current.slice(0, start), token, current.slice(end)].join(
+                        "",
+                      ),
+                    );
+                    const nextCaret = start + token.length;
+                    bodySelectionRef.current = {
+                      start: nextCaret,
+                      end: nextCaret,
+                    };
+                    requestAnimationFrame(() => {
+                      bodyInputRef.current?.focus();
+                      bodyInputRef.current?.setSelectionRange(
+                        nextCaret,
+                        nextCaret,
+                      );
+                    });
+                  }}
+                >
+                  Add variable
+                </Button>
               </div>
               {detail.version.editable ? (
                 <Group justify="flex-end">
