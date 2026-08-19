@@ -4,6 +4,8 @@ import { FileMigrationProvider, Migrator } from "kysely/migration";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { Pool } from "pg";
+import { down as rollbackGovernedEmailDesigner } from "#/server/db/migrations/0052_governed_email_designer";
+import { down as rollbackOfferingCommunicationPlans } from "#/server/db/migrations/0053_offering_communication_plans";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -517,6 +519,35 @@ try {
       db,
     );
   }
+  const rollbackSentinel = "verify communication migration rollback";
+  await assert.rejects(
+    db.transaction().execute(async (transaction) => {
+      await sql`insert into audit_event
+        (id, "actorUserId", action, "subjectType", "subjectId", reason, metadata)
+        values
+          ('verify_email_design_migration_rollback', null, 'email_design.created',
+           'email_design', 'verify_email_design_migration_rollback', null, '{}'::jsonb),
+          ('verify_communication_migration_rollback', null, 'communication_plan.created',
+           'communication_plan', 'verify_communication_migration_rollback', null, '{}'::jsonb)`.execute(
+        transaction,
+      );
+      await rollbackOfferingCommunicationPlans(transaction);
+      await rollbackGovernedEmailDesigner(transaction);
+      const retainedAuditRows = await sql<{ action: string }>`select action
+        from audit_event
+        where id in (
+          'verify_email_design_migration_rollback',
+          'verify_communication_migration_rollback'
+        )
+        order by action`.execute(transaction);
+      assert.deepEqual(
+        retainedAuditRows.rows.map((row) => row.action),
+        ["communication_plan.created", "email_design.created"],
+      );
+      throw new Error(rollbackSentinel);
+    }),
+    new RegExp(rollbackSentinel, "u"),
+  );
   console.log(
     `Verified ${String(migrations.length)} migrations, ${String(expectedTables.length)} foundational tables and ${String(expectedIndexes.length)} required indexes`,
   );

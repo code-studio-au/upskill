@@ -84,7 +84,7 @@ try {
       ...eventEmail,
       subject: "Reminder: {{event.title}}",
       textBody:
-        "Hello {{user.firstName}},\n\n{{event.title}} begins {{event.startsAt}}.",
+        "Hello {{user.firstName}},\n\n{{event.title}} begins {{event.startsAt}}.\n\n{{section.title}}: {{session.title}} starts {{session.startsAt}} at {{session.locationSummary}} with {{session.presenterNames}}.",
     }),
     "saved",
   );
@@ -412,9 +412,11 @@ try {
     .select("sessionDefinitionId")
     .where("id", "=", eventSessionItemId)
     .executeTakeFirstOrThrow();
+  const recreatedSessionDefinitionId = recreatedSession.sessionDefinitionId;
+  assert.ok(recreatedSessionDefinitionId);
   assert.equal(
     eventPlanAfterDraftSave.sessionDefinitionId,
-    recreatedSession.sessionDefinitionId,
+    recreatedSessionDefinitionId,
   );
   await database
     .updateTable("event_template_version")
@@ -439,6 +441,7 @@ try {
   assert.ok(copiedEventPlan.sessionDefinitionId);
 
   const eventOccurrenceId = `verify_communication_occurrence_${suffix}`;
+  const eventSessionId = `verify_communication_occurrence_session_${suffix}`;
   await database.transaction().execute(async (transaction) => {
     await transaction
       .insertInto("event_occurrence")
@@ -472,6 +475,39 @@ try {
         updatedAt: now,
       })
       .execute();
+    await transaction
+      .insertInto("event_session")
+      .values({
+        id: eventSessionId,
+        eventOccurrenceId,
+        sessionDefinitionId: recreatedSessionDefinitionId,
+        position: 0,
+        title: "Sydney workshop",
+        localStartsAt: "2026-09-15T10:00:00",
+        localEndsAt: "2026-09-15T12:30:00",
+        startsAt: new Date("2026-09-15T00:00:00.000Z"),
+        endsAt: new Date("2026-09-15T02:30:00.000Z"),
+        presenterRequired: true,
+        venueName: "Session room",
+        venueAddress: "1 Preview Street",
+        virtualJoinUrl: null,
+      })
+      .execute();
+    await transaction
+      .insertInto("event_presenter_assignment")
+      .values({
+        id: `verify_communication_presenter_${suffix}`,
+        eventOccurrenceId,
+        eventSessionId,
+        userId: actor.id,
+        scopeKey: eventSessionId,
+        source: "occurrence_local",
+        assignedByUserId: actor.id,
+        assignedAt: now,
+        endedAt: null,
+        endReason: null,
+      })
+      .execute();
     await materializeEventOccurrenceCommunications(
       transaction,
       eventOccurrenceId,
@@ -496,6 +532,10 @@ try {
   assert.equal(
     occurrencePreview?.subject,
     "Your event: Communication event - Sydney",
+  );
+  assert.match(
+    occurrencePreview.textBody,
+    /Renamed pre-event: Sydney workshop starts 15 September 2026 at 10:00 am at Session room, 1 Preview Street with Communication plan verifier\./u,
   );
   assert.equal(
     await overrideOccurrenceCommunication(

@@ -32,7 +32,6 @@ const baseAuditActionSql = `
   'entitlement.information_release_accepted'
 `;
 
-const baseAuditActions = sql.raw(baseAuditActionSql);
 const nextAuditActions = sql.raw(`
   ${baseAuditActionSql},
   'communication_plan.created', 'communication_plan.updated', 'communication_plan.deleted',
@@ -221,7 +220,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
 }
 
 export async function down(db: Kysely<unknown>): Promise<void> {
-  await replaceAuditActions(db, baseAuditActions);
+  // Audit records are append-only, so the expanded action constraint must remain valid.
   for (const table of [
     "event_occurrence_communication_revision",
     "event_template_version_communication",

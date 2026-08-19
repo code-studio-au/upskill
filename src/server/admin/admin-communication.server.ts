@@ -166,6 +166,20 @@ function formatDateTime(value: Date | null, timezone: string): string {
   }).format(value);
 }
 
+function formatDate(value: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    dateStyle: "long",
+    timeZone: timezone,
+  }).format(value);
+}
+
+function formatTime(value: Date, timezone: string): string {
+  return new Intl.DateTimeFormat("en-AU", {
+    timeStyle: "short",
+    timeZone: timezone,
+  }).format(value);
+}
+
 function offeringPrice(cents: number | null): string {
   if (cents === null) return "Not priced";
   return new Intl.NumberFormat("en-AU", {
@@ -538,6 +552,7 @@ export async function previewOfferingCommunication(
         "occurrence.venueName",
         "occurrence.venueAddress",
         "occurrence.virtualJoinUrl",
+        "version.id as eventTemplateVersionId",
         "version.summary",
         "version.description",
       ])
@@ -581,6 +596,87 @@ export async function previewOfferingCommunication(
       event.virtualJoinUrl ?? `${baseUrl}/my-events/${event.id}`;
     variables["event.dashboardUrl"] = `${baseUrl}/my-events/${event.id}`;
     variables["event.publicUrl"] = `${baseUrl}/events/${event.slug}`;
+
+    if (item?.sectionId) {
+      const section = await database
+        .selectFrom("event_template_version_section")
+        .select("title")
+        .where("id", "=", item.sectionId)
+        .where("eventTemplateVersionId", "=", event.eventTemplateVersionId)
+        .executeTakeFirst();
+      if (section) variables["section.title"] = section.title;
+    }
+
+    if (item?.sessionDefinitionId) {
+      const session = await database
+        .selectFrom("event_session")
+        .select([
+          "id",
+          "title",
+          "startsAt",
+          "endsAt",
+          "venueName",
+          "venueAddress",
+          "virtualJoinUrl",
+        ])
+        .where("eventOccurrenceId", "=", event.id)
+        .where("sessionDefinitionId", "=", item.sessionDefinitionId)
+        .executeTakeFirst();
+      if (session) {
+        const presenters = await database
+          .selectFrom("event_presenter_assignment as assignment")
+          .innerJoin("user", "user.id", "assignment.userId")
+          .select(["user.name", "user.email"])
+          .where("assignment.eventOccurrenceId", "=", event.id)
+          .where("assignment.eventSessionId", "=", session.id)
+          .where("assignment.endedAt", "is", null)
+          .orderBy("user.name")
+          .orderBy("user.email")
+          .execute();
+        const presenterNames = presenters.map(
+          (presenter) => presenter.name.trim() || presenter.email,
+        );
+        const venueName = session.venueName ?? event.venueName;
+        const venueAddress = session.venueAddress ?? event.venueAddress;
+        variables["session.title"] = session.title;
+        variables["session.startsAt"] = formatDateTime(
+          session.startsAt,
+          event.timezone,
+        );
+        variables["session.endsAt"] = formatDateTime(
+          session.endsAt,
+          event.timezone,
+        );
+        variables["session.date"] = formatDate(
+          session.startsAt,
+          event.timezone,
+        );
+        variables["session.startTime"] = formatTime(
+          session.startsAt,
+          event.timezone,
+        );
+        variables["session.endTime"] = formatTime(
+          session.endsAt,
+          event.timezone,
+        );
+        variables["session.locationSummary"] =
+          [venueName, venueAddress].filter(Boolean).join(", ") ||
+          "Virtual session";
+        variables["session.venueName"] = venueName ?? "Not applicable";
+        variables["session.venueAddress"] = venueAddress ?? "Not applicable";
+        variables["session.virtualJoinUrl"] =
+          session.virtualJoinUrl ??
+          event.virtualJoinUrl ??
+          `${baseUrl}/my-events/${event.id}`;
+        variables["session.presenterNames"] =
+          presenterNames.length > 0
+            ? new Intl.ListFormat("en-AU", {
+                style: "long",
+                type: "conjunction",
+              }).format(presenterNames)
+            : "To be confirmed";
+      }
+    }
   }
   try {
     return renderEmailTemplate({
