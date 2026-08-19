@@ -395,6 +395,12 @@ export async function findAdminCourse(
     ]);
 
   const now = new Date();
+  const communications = await database
+    .selectFrom("course_version_communication")
+    .select(["id", "sectionId", "label", "trigger", "audience"])
+    .where("courseVersionId", "=", version.id)
+    .orderBy("position")
+    .execute();
 
   return {
     course: {
@@ -445,6 +451,7 @@ export async function findAdminCourse(
       }),
     },
     draft,
+    communications,
     library: { modules, resources, surveys },
   };
 }
@@ -520,6 +527,11 @@ async function replaceDraftStructure(
   transaction: Transaction<Database>,
   draft: AdminCourseDraft,
 ): Promise<void> {
+  const communicationSections = await transaction
+    .selectFrom("course_version_communication")
+    .select(["id", "sectionId"])
+    .where("courseVersionId", "=", draft.versionId)
+    .execute();
   await transaction
     .deleteFrom("course_version_item")
     .where("courseVersionId", "=", draft.versionId)
@@ -566,6 +578,19 @@ async function replaceDraftStructure(
         .execute();
     }
   }
+  const retainedSectionIds = new Set(
+    draft.sections.map((section) => section.id),
+  );
+  for (const communication of communicationSections)
+    if (
+      communication.sectionId &&
+      retainedSectionIds.has(communication.sectionId)
+    )
+      await transaction
+        .updateTable("course_version_communication")
+        .set({ sectionId: communication.sectionId })
+        .where("id", "=", communication.id)
+        .executeTakeFirstOrThrow();
 }
 
 export async function createAdminCourse(
@@ -760,6 +785,35 @@ export async function createAdminCourseVersion(
         })),
       };
       await replaceDraftStructure(transaction, draft);
+      const sectionIds = new Map(
+        sourceDraft.sections.map((section, index) => [
+          section.id,
+          draft.sections[index]?.id ?? null,
+        ]),
+      );
+      const communications = await transaction
+        .selectFrom("course_version_communication")
+        .selectAll()
+        .where("courseVersionId", "=", source.id)
+        .orderBy("position")
+        .execute();
+      if (communications.length)
+        await transaction
+          .insertInto("course_version_communication")
+          .values(
+            communications.map((communication) => ({
+              ...communication,
+              id: `course_communication_${randomUUID()}`,
+              courseVersionId: versionId,
+              sectionId: communication.sectionId
+                ? (sectionIds.get(communication.sectionId) ?? null)
+                : null,
+              createdByUserId: administrator.id,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })),
+          )
+          .execute();
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "course.version_created",

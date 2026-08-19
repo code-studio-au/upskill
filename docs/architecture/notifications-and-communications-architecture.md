@@ -28,11 +28,17 @@ architecture.
   worker delivery are implemented for provisional accounts created by an Event
   administrator. Development and test use an idempotent database capture
   provider by default; explicit local opt-in and deployed environments use
-  Mailgun. Provisional accounts receive a 72-hour, single-use setup link carried
-  outside the request URL, set a Better Auth credential, become verified/active
-  and can sign in. Administrators can supersede an outstanding link and queue a
-  replacement. A governed template catalogue and scheduled reminder system are
-  not yet implemented.
+  Mailgun. A governed Email Designer provides separate System/Offering
+  catalogues, typed variables, fixture preview, immutable publication,
+  active-version rollback and exact version/render snapshot history. The
+  code-owned Account Setup contract is seeded and delivered through this path.
+  Provisional accounts receive a 72-hour, single-use setup link, set a Better
+  Auth credential, become verified/active and can sign in. Administrators can
+  supersede an outstanding link and queue a replacement. Course/Event Template
+  communication plans, Section/Session placement, exact Email Design Version
+  binding, new-version inheritance, Event Occurrence materialization and
+  revisioned local override/reset are implemented. Durable scheduling and
+  trigger-driven recipient delivery are not yet implemented.
 - **Target Product:** committed domain-event subscriptions create idempotent
   notification records, resolve bounded recipients/templates and deliver
   transactional email with observable retry/failure behaviour. A governed Email
@@ -750,14 +756,15 @@ real email.
 - notification table/state model; **foundation implemented**
 - provider adapter interface; **implemented with local/test capture and Mailgun adapters**
 - Email Designer with Offering/System catalogues, immutable publication,
-  contract validation, preview and rollback;
-- seeded safe System Email defaults and dedicated Platform Administrator
-  capability;
+  contract validation, preview and rollback; **implemented**
+- seeded safe Account Setup System Email and Platform Administrator boundary;
+  **implemented**
 - idempotent immediate delivery worker; **implemented for account-setup intent**
 - delivery attempt/status recording; **implemented**
 - expiring one-time provisional-account activation and administrator resend;
   **implemented**
-- exact version/render-snapshot history with privacy-scoped access;
+- exact version/render-snapshot persistence; **implemented for delivery records;
+  dedicated support-history UI and retention controls remain pending**
 - metrics and failure visibility.
 
 ### Phase 2 --- Event communications

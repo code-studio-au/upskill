@@ -1,0 +1,95 @@
+.catalogueGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 0.875rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.cardHeader,
+.editorHeader,
+.editorActions,
+.versionBar,
+.variables {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.75fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.editorPanel,
+.previewPanel {
+  min-width: 0;
+}
+
+.previewPanel {
+  position: sticky;
+  top: 1rem;
+}
+
+.previewBody {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.variableButton {
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: 0.45rem;
+  background: var(--mantine-color-gray-0);
+  color: var(--mantine-color-dark-7);
+  padding: 0.35rem 0.55rem;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.variableButton:hover {
+  border-color: var(--mantine-color-indigo-4);
+  background: var(--mantine-color-indigo-0);
+}
+
+.versionSelect {
+  min-width: 13rem;
+}
+
+.bodyInput {
+  min-height: 18rem;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+@media (max-width: 62rem) {
+  .editor {
+    grid-template-columns: 1fr;
+  }
+
+  .previewPanel {
+    position: static;
+  }
+}
+
+@media (max-width: 36rem) {
+  .editorActions > *,
+  .editorActions button,
+  .versionBar > * {
+    width: 100%;
+  }
+
+  .versionSelect {
+    min-width: 0;
+  }
+}

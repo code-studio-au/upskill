@@ -9,7 +9,7 @@ interface SelectOption {
 
 interface MantineNativeSelectProps {
   "aria-label"?: string;
-  data: Array<SelectOption>;
+  data: ReadonlyArray<SelectOption>;
   defaultValue?: string;
   disabled?: boolean;
   error?: string | undefined;

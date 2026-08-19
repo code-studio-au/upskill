@@ -33,7 +33,7 @@ is complete.
 | 0024 | [Event prerequisite recovery and passwordless access](0024-event-prerequisite-recovery-and-passwordless-access.md)         | Accepted target; implementation pending                    |
 | 0025 | [Event registration finalisation and staged section release](0025-event-registration-finalisation-and-section-release.md)  | Accepted and implemented                                   |
 | 0026 | [Regional Event review, selection and late invitations](0026-regional-event-registration-selection.md)                     | Accepted; regional review implemented, invitations pending |
-| 0027 | [Section-embedded automated email plans and occurrence overrides](0027-section-embedded-automated-emails.md)               | Accepted target; implementation pending                    |
+| 0027 | [Section-embedded automated email plans and occurrence overrides](0027-section-embedded-automated-emails.md)               | Email Designer foundation implemented; automation pending  |
 | 0028 | [Versioned Event Templates and resilient staff coverage](0028-versioned-event-templates-and-admin-ownership.md)            | Accepted; foundation and initial authoring implemented     |
 | 0029 | [Survey-backed versioned user onboarding](0029-survey-backed-versioned-user-onboarding.md)                                 | Accepted and initially implemented                         |
 | 0030 | [Standard Survey question types and option authoring](0030-standard-survey-question-types-and-option-authoring.md)         | Accepted and implemented                                   |

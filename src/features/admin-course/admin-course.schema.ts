@@ -259,6 +259,13 @@ export interface AdminCourseDetail {
     }>;
   };
   draft: AdminCourseDraft;
+  communications: Array<{
+    id: string;
+    sectionId: string | null;
+    label: string;
+    trigger: string;
+    audience: string;
+  }>;
   library: {
     modules: Array<AdminCourseModuleOption>;
     resources: Array<AdminCourseResourceOption>;

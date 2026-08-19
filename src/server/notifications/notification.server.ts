@@ -16,6 +16,18 @@ export async function enqueueAccountSetupNotification(
     createdAt: Date;
   },
 ): Promise<string> {
+  const emailDesignVersion = await transaction
+    .selectFrom("email_design")
+    .innerJoin(
+      "email_design_version",
+      "email_design_version.id",
+      "email_design.activeVersionId",
+    )
+    .select("email_design_version.id")
+    .where("email_design.systemKey", "=", "account_setup_requested")
+    .where("email_design.catalogue", "=", "system")
+    .where("email_design_version.publishedAt", "is not", null)
+    .executeTakeFirstOrThrow();
   const notificationId = `notification_${randomUUID()}`;
   const notification = await transaction
     .insertInto("notification")
@@ -26,11 +38,16 @@ export async function enqueueAccountSetupNotification(
       recipientUserId: input.userId,
       recipientName: input.name,
       recipientEmail: input.email,
+      emailDesignVersionId: emailDesignVersion.id,
       deduplicationKey: input.deduplicationKey,
       payload: { version: 1, setupUrl: input.setupUrl },
       lastErrorCode: null,
       deliveredAt: null,
       supersededAt: null,
+      renderedSubject: null,
+      renderedTextBody: null,
+      renderedHtmlBody: null,
+      renderedAt: null,
       createdAt: input.createdAt,
       updatedAt: input.createdAt,
     })

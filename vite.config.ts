@@ -10,6 +10,12 @@ export default defineConfig({
     },
   },
   build: {
+    minify: "terser",
+    terserOptions: {
+      compress: { passes: 3 },
+      format: { comments: false },
+      module: true,
+    },
     // Runtime artifacts stay non-symbolic. A future Datadog CI step must
     // generate and upload private maps before packaging the release.
     sourcemap: false,

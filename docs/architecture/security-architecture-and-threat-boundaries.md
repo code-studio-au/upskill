@@ -146,13 +146,14 @@ and preference classification. Administrative drafts cannot publish unless they
 remain contract compatible, and the previous valid active version remains
 available for rollback.
 
-Treat administrator-authored email as untrusted rich content. Sanitize against a
-strict allowlist; reject scripts, event handlers, active embeds, arbitrary CSS,
-unsafe URL schemes, executable template expressions and unrestricted object
-traversal. Variables are typed allowlisted values, and generated application
-links use server-owned route builders. Preview never sends, clearly identifies
-fixture versus actual data and requires recipient/occurrence scope for resolved
-personal content.
+Treat administrator-authored email as untrusted content. The current designer
+accepts plain text and generates escaped HTML with only code-owned paragraph and
+line-break markup. It rejects unknown or missing required variables, executable
+template expressions and unrestricted object traversal. Variables are typed
+allowlisted values, and generated application links use server-owned route
+builders. Preview never sends and uses labelled fixture values. Any future rich
+content editor must introduce and verify a strict HTML/CSS/URL allowlist before
+it can replace this safer boundary.
 
 Platform Administrators ordinarily override only the Communication Plan for an
 instance they own and only permitted content/timing fields; an unassigned

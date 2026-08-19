@@ -13,7 +13,7 @@ import {
 } from "#/features/shared/mantine";
 import { useForm, useStore } from "@tanstack/react-form";
 import { useNavigate } from "@tanstack/react-router";
-import { useRef, useState, type SetStateAction } from "react";
+import { lazy, Suspense, useRef, useState, type SetStateAction } from "react";
 import {
   createAdminEventVersion,
   deleteAdminEventVersion,
@@ -30,6 +30,13 @@ import classes from "./AdminEventTemplateEditor.module.css";
 import { PageTabs } from "#/features/shared/PageTabs";
 import { EligibleStaffPicker } from "./EligibleStaffPicker";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
+
+const AdminCommunicationPlanEditor = lazy(async () => {
+  const module =
+    await import("#/features/admin-email/AdminCommunicationPlanEditor");
+  return { default: module.AdminCommunicationPlanEditor };
+});
 
 function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
   const destination = index + direction;
@@ -52,7 +59,7 @@ export function AdminEventTemplateEditor({
   const [error, setError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editorView, setEditorView] = useState<
-    "details" | "program" | "staffing"
+    "communications" | "details" | "program" | "staffing"
   >("details");
   const intent = useRef<"save" | "publish">("save");
   const form = useForm({
@@ -345,6 +352,7 @@ export function AdminEventTemplateEditor({
             label: `Program (${String(draft.sections.length)})`,
           },
           { value: "staffing", label: "Staffing and regions" },
+          { value: "communications", label: "Communications" },
         ]}
         onChange={setEditorView}
       />
@@ -767,6 +775,39 @@ export function AdminEventTemplateEditor({
                     }}
                   />
                 ) : null}
+                {detail.communications.some(
+                  (communication) => communication.sectionId === section.id,
+                ) ? (
+                  <Stack gap="xs">
+                    <Text fw={600} size="sm">
+                      Automated emails
+                    </Text>
+                    {detail.communications
+                      .filter(
+                        (communication) =>
+                          communication.sectionId === section.id,
+                      )
+                      .map((communication) => (
+                        <Group key={communication.id} gap="xs">
+                          <Text size="sm">{communication.label}</Text>
+                          <Badge variant="outline">
+                            {communication.trigger.replaceAll("_", " ")}
+                          </Badge>
+                        </Group>
+                      ))}
+                  </Stack>
+                ) : null}
+                <Group>
+                  <Button
+                    size="xs"
+                    variant="subtle"
+                    onClick={() => {
+                      setEditorView("communications");
+                    }}
+                  >
+                    Manage automated emails
+                  </Button>
+                </Group>
               </Stack>
             </Paper>
           ))}
@@ -891,6 +932,18 @@ export function AdminEventTemplateEditor({
             </Stack>
           </Paper>
         </Stack>
+      ) : null}
+
+      {editorView === "communications" ? (
+        <Suspense fallback={<LoadingSpinner label="Loading communications" />}>
+          <AdminCommunicationPlanEditor
+            scope={{
+              kind: "event_template",
+              eventTemplateVersionId: detail.version.id,
+            }}
+            onChanged={onChanged}
+          />
+        </Suspense>
       ) : null}
     </Stack>
   );

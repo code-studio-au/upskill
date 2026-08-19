@@ -37,6 +37,7 @@ try {
     "course",
     "course_version",
     "course_version_item",
+    "course_version_communication",
     "course_version_section",
     "coordination_region",
     "enrollment",
@@ -46,6 +47,7 @@ try {
     "event_coordinator_assignment",
     "event_guest_access",
     "event_occurrence",
+    "event_occurrence_communication_revision",
     "event_occurrence_domain",
     "event_occurrence_region",
     "event_participation",
@@ -59,6 +61,7 @@ try {
     "event_template",
     "event_template_session_definition",
     "event_template_version",
+    "event_template_version_communication",
     "event_template_version_admin_default",
     "event_template_version_coordinator_default",
     "event_template_version_item",
@@ -73,6 +76,8 @@ try {
     "notification",
     "notification_delivery_attempt",
     "email_delivery_capture",
+    "email_design",
+    "email_design_version",
     "order",
     "order_item",
     "order_refund",
@@ -150,6 +155,12 @@ try {
     "event_guest_access_active_occurrence_uq",
     "user_email_normalized_uq",
     "notification_pending_idx",
+    "email_design_catalogue_name_idx",
+    "email_design_version_one_draft_uq",
+    "course_version_communication_position_uq",
+    "event_template_communication_position_uq",
+    "event_occurrence_communication_active_uq",
+    "event_occurrence_communication_occurrence_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -163,6 +174,52 @@ try {
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
+  const emailDesignerConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'email_design_catalogue_ck',
+          'email_design_context_ck',
+          'email_design_system_identity_ck',
+          'email_design_active_version_fk',
+          'email_design_version_publication_ck',
+          'notification_render_snapshot_ck'
+        )`.execute(db);
+  assert.equal(
+    emailDesignerConstraints.rows.length,
+    6,
+    "Governed Email Designer identity, version and snapshot constraints must exist",
+  );
+  const communicationPlanConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'course_version_communication_audience_ck',
+          'course_version_communication_trigger_ck',
+          'event_template_communication_audience_ck',
+          'event_template_communication_trigger_ck',
+          'event_occurrence_communication_revision_number_ck',
+          'event_occurrence_communication_override_ck'
+        )`.execute(db);
+  assert.equal(
+    communicationPlanConstraints.rows.length,
+    6,
+    "Offering communication plan scope, trigger and revision constraints must exist",
+  );
+  const accountSetupEmail = await sql<{
+    activeVersionId: string | null;
+    publishedAt: Date | null;
+  }>`select design."activeVersionId", version."publishedAt"
+      from email_design design
+      join email_design_version version on version.id = design."activeVersionId"
+      where design."systemKey" = 'account_setup_requested'`.execute(db);
+  assert.equal(accountSetupEmail.rows.length, 1);
+  const accountSetupEmailRow = accountSetupEmail.rows[0];
+  assert.ok(accountSetupEmailRow);
+  assert.ok(accountSetupEmailRow.activeVersionId);
+  assert.ok(accountSetupEmailRow.publishedAt);
   const eventDirectoryConstraints = await sql<{
     constraint_name: string;
   }>`select constraint_name from information_schema.table_constraints

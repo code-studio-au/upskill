@@ -29,6 +29,7 @@ import { ensureEventGuestAccessRecord } from "#/server/events/event-guest-access
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.server";
+import { materializeEventOccurrenceCommunications } from "#/server/admin/admin-communication.server";
 import {
   addElapsedDuration,
   dateToInstant,
@@ -1107,6 +1108,12 @@ export async function findAdminEventTemplate(
       .orderBy("learning_activity_version.version", "desc")
       .execute(),
   ]);
+  const communications = await database
+    .selectFrom("event_template_version_communication")
+    .select(["id", "sectionId", "label", "trigger", "audience"])
+    .where("eventTemplateVersionId", "=", version.id)
+    .orderBy("position")
+    .execute();
   return {
     template,
     version: {
@@ -1121,6 +1128,7 @@ export async function findAdminEventTemplate(
       publishedAt: candidate.publishedAt?.toISOString() ?? null,
     })),
     draft,
+    communications,
     people: { platformAdministrators, coordinators, presenters, users },
     regions,
     library: { modules, surveys, resources },
@@ -1227,6 +1235,24 @@ async function replaceEventDraftStructure(
   transaction: Transaction<Database>,
   draft: AdminEventTemplateDraft,
 ): Promise<void> {
+  const [communicationLocations, sessionItems] = await Promise.all([
+    transaction
+      .selectFrom("event_template_version_communication")
+      .select(["id", "sectionId", "sessionDefinitionId"])
+      .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+      .execute(),
+    transaction
+      .selectFrom("event_template_version_item")
+      .select(["id", "sessionDefinitionId"])
+      .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+      .where("kind", "=", "session")
+      .execute(),
+  ]);
+  const itemIdBySessionDefinitionId = new Map(
+    sessionItems.flatMap((item) =>
+      item.sessionDefinitionId ? [[item.sessionDefinitionId, item.id]] : [],
+    ),
+  );
   await transaction
     .deleteFrom("event_template_version_item")
     .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
@@ -1286,6 +1312,7 @@ async function replaceEventDraftStructure(
       .execute();
   }
   let sessionPosition = 0;
+  const nextSessionDefinitionIdByItemId = new Map<string, string>();
   for (const [sectionPosition, section] of draft.sections.entries()) {
     await transaction
       .insertInto("event_template_version_section")
@@ -1307,6 +1334,7 @@ async function replaceEventDraftStructure(
           ? `event_session_definition_${randomUUID()}`
           : null;
       if (item.kind === "session" && sessionDefinitionId) {
+        nextSessionDefinitionIdByItemId.set(item.id, sessionDefinitionId);
         await transaction
           .insertInto("event_template_session_definition")
           .values({
@@ -1348,6 +1376,28 @@ async function replaceEventDraftStructure(
         })
         .execute();
     }
+  }
+  const retainedSectionIds = new Set(
+    draft.sections.map((section) => section.id),
+  );
+  for (const communication of communicationLocations) {
+    const previousSessionItemId = communication.sessionDefinitionId
+      ? itemIdBySessionDefinitionId.get(communication.sessionDefinitionId)
+      : null;
+    await transaction
+      .updateTable("event_template_version_communication")
+      .set({
+        sectionId:
+          communication.sectionId &&
+          retainedSectionIds.has(communication.sectionId)
+            ? communication.sectionId
+            : null,
+        sessionDefinitionId: previousSessionItemId
+          ? (nextSessionDefinitionIdByItemId.get(previousSessionItemId) ?? null)
+          : null,
+      })
+      .where("id", "=", communication.id)
+      .executeTakeFirstOrThrow();
   }
 }
 
@@ -1472,6 +1522,74 @@ export async function createAdminEventTemplateVersion(
         })),
       };
       await replaceEventDraftStructure(transaction, draft);
+      const sectionIds = new Map(
+        sourceDraft.sections.map((section, index) => [
+          section.id,
+          draft.sections[index]?.id ?? null,
+        ]),
+      );
+      const copiedItemIds = new Map<string, string>();
+      for (const [sectionIndex, section] of sourceDraft.sections.entries())
+        for (const [itemIndex, item] of section.items.entries()) {
+          const copied = draft.sections[sectionIndex]?.items[itemIndex];
+          if (item.kind === "session" && copied?.kind === "session")
+            copiedItemIds.set(item.id, copied.id);
+        }
+      const [sourceSessionItems, copiedSessionItems] = await Promise.all([
+        transaction
+          .selectFrom("event_template_version_item")
+          .select(["id", "sessionDefinitionId"])
+          .where("eventTemplateVersionId", "=", source.id)
+          .where("kind", "=", "session")
+          .execute(),
+        transaction
+          .selectFrom("event_template_version_item")
+          .select(["id", "sessionDefinitionId"])
+          .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+          .where("kind", "=", "session")
+          .execute(),
+      ]);
+      const copiedSessionByItemId = new Map(
+        copiedSessionItems.flatMap((item) =>
+          item.sessionDefinitionId ? [[item.id, item.sessionDefinitionId]] : [],
+        ),
+      );
+      const sessionIds = new Map<string, string>();
+      for (const sourceItem of sourceSessionItems) {
+        if (!sourceItem.sessionDefinitionId) continue;
+        const copiedItemId = copiedItemIds.get(sourceItem.id);
+        const copiedSessionId = copiedItemId
+          ? copiedSessionByItemId.get(copiedItemId)
+          : null;
+        if (copiedSessionId)
+          sessionIds.set(sourceItem.sessionDefinitionId, copiedSessionId);
+      }
+      const communications = await transaction
+        .selectFrom("event_template_version_communication")
+        .selectAll()
+        .where("eventTemplateVersionId", "=", source.id)
+        .orderBy("position")
+        .execute();
+      if (communications.length)
+        await transaction
+          .insertInto("event_template_version_communication")
+          .values(
+            communications.map((communication) => ({
+              ...communication,
+              id: `event_template_communication_${randomUUID()}`,
+              eventTemplateVersionId,
+              sectionId: communication.sectionId
+                ? (sectionIds.get(communication.sectionId) ?? null)
+                : null,
+              sessionDefinitionId: communication.sessionDefinitionId
+                ? (sessionIds.get(communication.sessionDefinitionId) ?? null)
+                : null,
+              createdByUserId: administrator.id,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })),
+          )
+          .execute();
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "event_template.version_created",
@@ -1910,6 +2028,13 @@ export async function createAdminEventOccurrence(
           updatedAt: now,
         })
         .execute();
+      await materializeEventOccurrenceCommunications(
+        transaction,
+        eventOccurrenceId,
+        version.id,
+        administrator.id,
+        now,
+      );
       await ensureEventSurveyAccessRecords(
         transaction,
         eventOccurrenceId,

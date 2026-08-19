@@ -57,6 +57,12 @@ const AdminCourseBulkPricingEditor = lazy(async () => {
   return { default: module.AdminCourseBulkPricingEditor };
 });
 
+const AdminCommunicationPlanEditor = lazy(async () => {
+  const module =
+    await import("#/features/admin-email/AdminCommunicationPlanEditor");
+  return { default: module.AdminCommunicationPlanEditor };
+});
+
 type Confirmation =
   | { action: "archive" }
   | { action: "delete-course" }
@@ -91,7 +97,7 @@ export function AdminCourseEditor({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editorView, setEditorView] = useState<
-    "details" | "program" | "learners" | "settings"
+    "communications" | "details" | "program" | "learners" | "settings"
   >("details");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [itemSectionId, setItemSectionId] = useState<string | null>(null);
@@ -403,6 +409,7 @@ export function AdminCourseEditor({
             value: "learners",
             label: `Learners (${String(detail.course.enrollmentCount)})`,
           },
+          { value: "communications", label: "Communications" },
           { value: "settings", label: "Settings" },
         ]}
         onChange={setEditorView}
@@ -773,6 +780,39 @@ export function AdminCourseEditor({
                       </Button>
                     </Group>
                   ) : null}
+                  {detail.communications.some(
+                    (communication) => communication.sectionId === section.id,
+                  ) ? (
+                    <Stack gap="xs">
+                      <Text fw={600} size="sm">
+                        Automated emails
+                      </Text>
+                      {detail.communications
+                        .filter(
+                          (communication) =>
+                            communication.sectionId === section.id,
+                        )
+                        .map((communication) => (
+                          <Group key={communication.id} gap="xs">
+                            <Text size="sm">{communication.label}</Text>
+                            <Badge variant="outline">
+                              {communication.trigger.replaceAll("_", " ")}
+                            </Badge>
+                          </Group>
+                        ))}
+                    </Stack>
+                  ) : null}
+                  <Group>
+                    <Button
+                      size="xs"
+                      variant="subtle"
+                      onClick={() => {
+                        setEditorView("communications");
+                      }}
+                    >
+                      Manage automated emails
+                    </Button>
+                  </Group>
                 </Stack>
               </Stack>
             </Paper>
@@ -792,6 +832,15 @@ export function AdminCourseEditor({
           }
         >
           <AdminCourseRoster detail={detail} onChanged={onChanged} />
+        </Suspense>
+      ) : null}
+
+      {editorView === "communications" ? (
+        <Suspense fallback={<LoadingSpinner label="Loading communications" />}>
+          <AdminCommunicationPlanEditor
+            scope={{ kind: "course", courseVersionId: detail.version.id }}
+            onChanged={onChanged}
+          />
         </Suspense>
       ) : null}
 

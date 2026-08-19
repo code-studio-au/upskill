@@ -1126,6 +1126,40 @@ test("platform administrators can inspect learner progress", async ({
       `insert into "user" (id, name, email, "emailVerified") values ($1, $2, $3, true)`,
       [eventPresenter.id, eventPresenter.name, eventPresenter.email],
     );
+    await openAdminPage("Email designer");
+    await expect(
+      page.getByRole("heading", { name: "Email designer", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Account setup", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Create offering email" }).click();
+    await page.getByLabel("Email name").fill("E2E event confirmation");
+    await page.getByRole("button", { name: "Create draft" }).click();
+    await expect(
+      page.getByRole("heading", { name: "E2E event confirmation" }),
+    ).toBeVisible();
+    await page.getByLabel("Subject").fill("Confirmed: {{event.title}}");
+    await page
+      .getByLabel("Email body")
+      .fill(
+        "Hello {{user.fullName}},\n\nYour event starts {{event.startsAt}}.\n\n{{event.dashboardUrl}}",
+      );
+    await page.getByRole("button", { name: "Preview" }).click();
+    await expect(
+      page.getByText("Confirmed: Regional learning workshop"),
+    ).toBeVisible();
+    const emailAccessibility = await new AxeBuilder({ page }).analyze();
+    expect(emailAccessibility.violations).toEqual([]);
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByRole("button", { name: "Publish" }).click();
+    await page
+      .getByRole("dialog", { name: "Publish version 1?" })
+      .getByRole("button", { name: "Publish version" })
+      .click();
+    await expect(
+      page.getByRole("button", { name: "Create new version" }),
+    ).toBeVisible();
     await openAdminPage("Courses");
     await expect(
       page.getByRole("heading", { name: "Courses", exact: true }),
@@ -1427,6 +1461,40 @@ test("platform administrators can inspect learner progress", async ({
       .getByLabel("Published activity")
       .selectOption({ label: `${surveyTitles[0] ?? ""} · v1` });
     await page.getByRole("button", { name: "Add activity" }).click();
+    await page.getByRole("button", { name: "Save draft" }).click();
+    await page.getByRole("button", { name: "Communications" }).click();
+    await page.getByRole("button", { name: "Add automated email" }).click();
+    const communicationDialog = page.getByRole("dialog", {
+      name: "Add automated email",
+    });
+    await communicationDialog
+      .getByLabel("Plan label")
+      .fill("E2E registration confirmation");
+    await communicationDialog
+      .getByLabel("Email template")
+      .selectOption({ label: "E2E event confirmation · v1" });
+    await communicationDialog
+      .getByLabel("Trigger")
+      .selectOption("registration_selected");
+    await communicationDialog
+      .getByLabel("Section timeline")
+      .selectOption({ label: "Event session" });
+    await communicationDialog.getByRole("button", { name: "Save" }).click();
+    await expect(
+      page.getByRole("heading", { name: "E2E registration confirmation" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Preview" }).click();
+    const communicationPreview = page.getByRole("dialog", {
+      name: "Email preview",
+    });
+    await expect(
+      communicationPreview.getByText(`Confirmed: ${eventTemplateTitle}`),
+    ).toBeVisible();
+    await communicationPreview
+      .getByRole("button", { name: "Close dialog" })
+      .click();
+    await page.getByRole("button", { name: /Program/u }).click();
+    await expect(page.getByText("E2E registration confirmation")).toBeVisible();
     await page.getByRole("button", { name: "Staffing and regions" }).click();
     await expect(
       page.getByRole("combobox", { name: "Add administrator" }),
@@ -1494,13 +1562,15 @@ test("platform administrators can inspect learner progress", async ({
       administratorCount: number;
       presenterCount: number;
       surveyAccessCount: number;
+      communicationCount: number;
     }>(
       `select occurrence.id, occurrence."eventTemplateVersionId", occurrence.slug, occurrence.status,
         occurrence.timezone, occurrence."startsAt",
         (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
         (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
         (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount",
-        (select count(*)::integer from event_survey_access where "eventOccurrenceId" = occurrence.id and "revokedAt" is null) as "surveyAccessCount"
+        (select count(*)::integer from event_survey_access where "eventOccurrenceId" = occurrence.id and "revokedAt" is null) as "surveyAccessCount",
+        (select count(*)::integer from event_occurrence_communication_revision where "eventOccurrenceId" = occurrence.id and active) as "communicationCount"
        from event_occurrence occurrence where occurrence.title = $1`,
       [eventOccurrenceTitle],
     );
@@ -1513,6 +1583,7 @@ test("platform administrators can inspect learner progress", async ({
       administratorCount: 1,
       presenterCount: 1,
       surveyAccessCount: 1,
+      communicationCount: 1,
     });
     const occurrenceId = storedOccurrence.rows[0]?.id;
     if (!occurrenceId) throw new Error("Expected the E2E Event Occurrence");
