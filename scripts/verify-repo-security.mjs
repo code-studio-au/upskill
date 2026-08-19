@@ -73,10 +73,10 @@ if (!packageJson.scripts.build.includes("vite.worker.config.ts"))
   failures.push("Production builds must include the asynchronous worker");
 if (
   packageJson.scripts.dev !==
-  "node --env-file-if-exists=.env.local scripts/start-development.mjs"
+  "zsh -lc 'source \"$NVM_DIR/nvm.sh\" && nvm use 26 && exec node --env-file-if-exists=.env.local scripts/start-development.mjs'"
 )
   failures.push(
-    "Local development must load local configuration and start the supervised services",
+    "Local development must select Node 26, load local configuration and start the supervised services",
   );
 const disposablePostgres = fs.readFileSync(
   path.join(root, "scripts/disposable-postgres.mjs"),

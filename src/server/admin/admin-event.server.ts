@@ -32,6 +32,7 @@ import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.se
 import { materializeEventOccurrenceCommunications } from "#/server/admin/admin-communication.server";
 import {
   addElapsedDuration,
+  addElapsedMilliseconds,
   dateToInstant,
   instantToDate,
   instantToLocalDateTime,
@@ -2245,17 +2246,17 @@ export async function updateAdminEventOccurrence(
         .execute();
 
       for (const session of sessions) {
-        const startOffsetMinutes =
-          (session.startsAt.getTime() - occurrence.startsAt.getTime()) / 60_000;
-        const durationMinutes =
-          (session.endsAt.getTime() - session.startsAt.getTime()) / 60_000;
-        const nextSessionStartsAt = addElapsedMinutes(
+        const startOffsetMilliseconds =
+          session.startsAt.getTime() - occurrence.startsAt.getTime();
+        const durationMilliseconds =
+          session.endsAt.getTime() - session.startsAt.getTime();
+        const nextSessionStartsAt = addElapsedMilliseconds(
           startsAt,
-          startOffsetMinutes,
+          startOffsetMilliseconds,
         );
-        const nextSessionEndsAt = addElapsedMinutes(
+        const nextSessionEndsAt = addElapsedMilliseconds(
           nextSessionStartsAt,
-          durationMinutes,
+          durationMilliseconds,
         );
         await transaction
           .updateTable("event_session")
@@ -2966,17 +2967,17 @@ export async function rescheduleAdminEventOccurrence(
         .execute();
 
       for (const session of sessions) {
-        const startOffsetMinutes =
-          (session.startsAt.getTime() - occurrence.startsAt.getTime()) / 60_000;
-        const durationMinutes =
-          (session.endsAt.getTime() - session.startsAt.getTime()) / 60_000;
-        const nextSessionStartsAt = addElapsedMinutes(
+        const startOffsetMilliseconds =
+          session.startsAt.getTime() - occurrence.startsAt.getTime();
+        const durationMilliseconds =
+          session.endsAt.getTime() - session.startsAt.getTime();
+        const nextSessionStartsAt = addElapsedMilliseconds(
           nextStartsAt,
-          startOffsetMinutes,
+          startOffsetMilliseconds,
         );
-        const nextSessionEndsAt = addElapsedMinutes(
+        const nextSessionEndsAt = addElapsedMilliseconds(
           nextSessionStartsAt,
-          durationMinutes,
+          durationMilliseconds,
         );
         await transaction
           .updateTable("event_session")
