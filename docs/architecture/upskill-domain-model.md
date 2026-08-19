@@ -119,11 +119,14 @@ rules, covered offerings, and organisational access relationships.
 
 ### Notifications
 
-Target capability owning reusable Offering/System Email designs and versions,
-Section-embedded automation policy, Occurrence Communication Plans, schedules,
-delivery channels, preferences, immutable delivery evidence and asynchronous
-delivery. Additional channels and sophisticated preference policy remain future
-possibilities.
+Currently owns reusable Offering/System Email designs and immutable versions,
+typed template contracts, active-version selection, exact delivery snapshots,
+provider-neutral email delivery and asynchronous account-setup notification
+work. It also owns version-pinned Course/Event Template communication plans,
+Section/Session placement, Event Occurrence plan materialization and revisioned
+local overrides. Durable schedule execution, committed-event recipient
+resolution and preferences remain Target Product capabilities. Additional
+channels and sophisticated preference policy remain future possibilities.
 
 ### Reporting and Projections
 

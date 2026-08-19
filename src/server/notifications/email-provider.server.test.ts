@@ -49,6 +49,7 @@ describe("email provider boundary", () => {
         recipientEmail: "learner@example.com",
         subject: "Subject",
         textBody: "Body",
+        htmlBody: "<p>Body</p>",
       }),
     ).resolves.toEqual({ messageId: "local:notification_1" });
     expect(mocks.insertInto).toHaveBeenCalledWith("email_delivery_capture");
@@ -99,6 +100,7 @@ describe("email provider boundary", () => {
         recipientEmail: "learner@example.com",
         subject: "Set up your account",
         textBody: "Follow the link",
+        htmlBody: "<p>Follow the link</p>",
       }),
     ).resolves.toEqual({ messageId: "<message@example.com>" });
     expect(mocks.fetch).toHaveBeenCalledOnce();
@@ -114,6 +116,7 @@ describe("email provider boundary", () => {
     expect(form.get("to")).toBe("learner@example.com");
     expect(form.get("subject")).toBe("Set up your account");
     expect(form.get("text")).toBe("Follow the link");
+    expect(form.get("html")).toBe("<p>Follow the link</p>");
   });
 
   it("does not expose Mailgun response bodies when delivery is rejected", async () => {
@@ -135,6 +138,7 @@ describe("email provider boundary", () => {
         recipientEmail: "learner@example.com",
         subject: "Subject",
         textBody: "Body",
+        htmlBody: "<p>Body</p>",
       }),
     ).rejects.toThrow("EMAIL_PROVIDER_REJECTED");
   });

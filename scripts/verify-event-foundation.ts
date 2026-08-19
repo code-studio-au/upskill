@@ -2027,9 +2027,10 @@ try {
     .set({ releaseAnchor: "final_session_end" })
     .where("id", "=", templateSection.id)
     .executeTakeFirstOrThrow();
-  const elapsedStart = new Date(Date.now() - 2 * 60 * 60 * 1000);
-  const elapsedEnd = new Date(Date.now() - 60 * 60 * 1000);
-  const ongoingOccurrenceEnd = new Date(Date.now() + 60 * 60 * 1000);
+  const elapsedReference = Date.now();
+  const elapsedStart = new Date(elapsedReference - 2 * 60 * 60 * 1000);
+  const elapsedEnd = new Date(elapsedStart.getTime() + 60 * 60 * 1000 + 1);
+  const ongoingOccurrenceEnd = new Date(elapsedReference + 60 * 60 * 1000);
   await database
     .updateTable("event_occurrence")
     .set({ startsAt: elapsedStart, endsAt: ongoingOccurrenceEnd })

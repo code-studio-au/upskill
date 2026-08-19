@@ -1,0 +1,72 @@
+.catalogueGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+  gap: 0.875rem;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.cardHeader,
+.editorHeader,
+.editorActions,
+.versionBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.75fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.editorPanel,
+.previewPanel {
+  min-width: 0;
+}
+
+.previewPanel {
+  position: sticky;
+  top: 1rem;
+}
+
+.previewBody {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.versionSelect {
+  min-width: 13rem;
+}
+
+@media (max-width: 62rem) {
+  .editor {
+    grid-template-columns: 1fr;
+  }
+
+  .previewPanel {
+    position: static;
+  }
+}
+
+@media (max-width: 36rem) {
+  .editorActions > *,
+  .editorActions button,
+  .versionBar > * {
+    width: 100%;
+  }
+
+  .versionSelect {
+    min-width: 0;
+  }
+}

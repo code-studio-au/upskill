@@ -156,13 +156,28 @@ try {
   });
   const delivered = await database
     .selectFrom("notification")
-    .select(["status", "attempts", "deliveredAt", "payload"])
+    .select([
+      "status",
+      "attempts",
+      "deliveredAt",
+      "payload",
+      "emailDesignVersionId",
+      "renderedSubject",
+      "renderedTextBody",
+      "renderedHtmlBody",
+      "renderedAt",
+    ])
     .where("id", "=", replacement.id)
     .executeTakeFirstOrThrow();
   assert.equal(delivered.status, "delivered");
   assert.equal(delivered.attempts, 2);
   assert.ok(delivered.deliveredAt);
   assert.deepEqual(delivered.payload, { version: 1 });
+  assert.ok(delivered.emailDesignVersionId);
+  assert.equal(delivered.renderedSubject, "Set up your Upskill account");
+  assert.match(delivered.renderedTextBody ?? "", /Provisional Learner/u);
+  assert.match(delivered.renderedHtmlBody ?? "", /<p>/u);
+  assert.ok(delivered.renderedAt);
   const deliveryAttemptCount = await database
     .selectFrom("notification_delivery_attempt")
     .select(({ fn }) => fn.countAll<number>().as("count"))

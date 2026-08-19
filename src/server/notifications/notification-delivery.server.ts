@@ -5,6 +5,7 @@ import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { z } from "#/validation/zod.server";
 import { getEmailProvider } from "./email-provider.server";
+import { renderEmailTemplate } from "./email-template-contracts";
 
 export type NotificationDeliveryOutcome =
   | { status: "delivered" }
@@ -37,6 +38,12 @@ export async function deliverNotification(
     .selectFrom("notification")
     .selectAll()
     .where("id", "=", notificationId)
+    .executeTakeFirstOrThrow();
+  const emailDesignVersion = await database
+    .selectFrom("email_design_version")
+    .select(["contractKey", "contractVersion", "subject", "textBody"])
+    .where("id", "=", notification.emailDesignVersionId)
+    .where("publishedAt", "is not", null)
     .executeTakeFirstOrThrow();
   if (notification.status === "delivered")
     return { status: "already-delivered" };
@@ -78,11 +85,35 @@ export async function deliverNotification(
     const activeProvider = getEmailProvider(database);
     provider = activeProvider;
     const payload = accountSetupPayloadSchema.parse(notification.payload);
+    const rendered = renderEmailTemplate({
+      contractKey: emailDesignVersion.contractKey,
+      contractVersion: emailDesignVersion.contractVersion,
+      subject: emailDesignVersion.subject,
+      textBody: emailDesignVersion.textBody,
+      variables: {
+        "user.fullName": notification.recipientName,
+        "account.setupUrl": payload.setupUrl,
+      },
+    });
+    const renderedAt = new Date();
+    await database
+      .updateTable("notification")
+      .set({
+        renderedSubject: rendered.subject,
+        renderedTextBody: rendered.textBody,
+        renderedHtmlBody: rendered.htmlBody,
+        renderedAt,
+        updatedAt: renderedAt,
+      })
+      .where("id", "=", notification.id)
+      .where("status", "=", "processing")
+      .executeTakeFirstOrThrow();
     const delivery = await activeProvider.send({
       notificationId: notification.id,
       recipientEmail: notification.recipientEmail,
-      subject: "Set up your Upskill account",
-      textBody: `Hello ${notification.recipientName},\n\nAn Upskill account has been created for you. Set your password within 72 hours:\n\n${payload.setupUrl}\n\nIf you were not expecting this message, you can ignore it.`,
+      subject: rendered.subject,
+      textBody: rendered.textBody,
+      htmlBody: rendered.htmlBody,
     });
     const deliveredAt = new Date();
     const recorded = await database

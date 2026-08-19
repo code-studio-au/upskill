@@ -872,6 +872,7 @@ interface NotificationTable {
   recipientUserId: string;
   recipientName: string;
   recipientEmail: string;
+  emailDesignVersionId: string;
   status: Generated<
     "pending" | "processing" | "delivered" | "failed" | "superseded"
   >;
@@ -881,6 +882,10 @@ interface NotificationTable {
   lastErrorCode: string | null;
   deliveredAt: Timestamp | null;
   supersededAt: Timestamp | null;
+  renderedSubject: string | null;
+  renderedTextBody: string | null;
+  renderedHtmlBody: string | null;
+  renderedAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -901,6 +906,116 @@ interface EmailDeliveryCaptureTable {
   recipientEmail: string;
   subject: string;
   textBody: string;
+  htmlBody: string | null;
+  createdAt: Timestamp;
+}
+
+interface EmailDesignTable {
+  id: string;
+  catalogue: "offering" | "system";
+  name: string;
+  contextKey: "system_account_setup" | "offering_course" | "offering_event";
+  systemKey: string | null;
+  activeVersionId: string | null;
+  createdByUserId: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface EmailDesignVersionTable {
+  id: string;
+  emailDesignId: string;
+  version: number;
+  contractKey: string;
+  contractVersion: number;
+  subject: string;
+  textBody: string;
+  referencedVariables: Json;
+  createdByUserId: string | null;
+  publishedByUserId: string | null;
+  publishedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+type CommunicationOffsetUnit = "minute" | "hour" | "day" | "week";
+type CourseCommunicationAudience = "active_enrollees" | "affected_learner";
+type CourseCommunicationTrigger =
+  | "course_incomplete"
+  | "enrollment_completed"
+  | "enrollment_created"
+  | "enrollment_expiring";
+type EventCommunicationAudience =
+  | "administrators"
+  | "affected_learner"
+  | "confirmed_participants"
+  | "coordinators"
+  | "presenters";
+type EventCommunicationTrigger =
+  | "event_completed"
+  | "event_end"
+  | "event_start"
+  | "registration_selected"
+  | "registration_submitted"
+  | "section_release"
+  | "session_start";
+
+interface CourseVersionCommunicationTable {
+  id: string;
+  courseVersionId: string;
+  sectionId: string | null;
+  position: number;
+  label: string;
+  emailDesignVersionId: string;
+  audience: CourseCommunicationAudience;
+  trigger: CourseCommunicationTrigger;
+  offsetAmount: number;
+  offsetUnit: CommunicationOffsetUnit;
+  subjectOverride: string | null;
+  textBodyOverride: string | null;
+  createdByUserId: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface EventTemplateVersionCommunicationTable {
+  id: string;
+  eventTemplateVersionId: string;
+  sectionId: string | null;
+  sessionDefinitionId: string | null;
+  position: number;
+  label: string;
+  emailDesignVersionId: string;
+  audience: EventCommunicationAudience;
+  trigger: EventCommunicationTrigger;
+  offsetAmount: number;
+  offsetUnit: CommunicationOffsetUnit;
+  subjectOverride: string | null;
+  textBodyOverride: string | null;
+  createdByUserId: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface EventOccurrenceCommunicationRevisionTable {
+  id: string;
+  logicalId: string;
+  eventOccurrenceId: string;
+  sourceTemplateCommunicationId: string;
+  revision: number;
+  active: boolean;
+  overrideState: "inherited" | "overridden";
+  emailDesignVersionId: string;
+  sectionId: string | null;
+  sessionDefinitionId: string | null;
+  position: number;
+  label: string;
+  audience: EventCommunicationAudience;
+  trigger: EventCommunicationTrigger;
+  offsetAmount: number;
+  offsetUnit: CommunicationOffsetUnit;
+  subject: string;
+  textBody: string;
+  createdByUserId: string | null;
   createdAt: Timestamp;
 }
 
@@ -918,6 +1033,16 @@ export type AuditEventAction =
   | "course.deleted"
   | "course.published"
   | "course.version_created"
+  | "communication_plan.created"
+  | "communication_plan.deleted"
+  | "communication_plan.overridden"
+  | "communication_plan.reset"
+  | "communication_plan.updated"
+  | "email_design.created"
+  | "email_design.draft_created"
+  | "email_design.draft_deleted"
+  | "email_design.published"
+  | "email_design.rolled_back"
   | "event_occurrence.created"
   | "event_occurrence.guest_access_rotated"
   | "event_occurrence.updated"
@@ -992,17 +1117,21 @@ export interface Database {
   audit_event: AuditEventTable;
   course: CourseTable;
   course_version: CourseVersionTable;
+  course_version_communication: CourseVersionCommunicationTable;
   course_version_item: CourseVersionItemTable;
   course_version_section: CourseVersionSectionTable;
   coordination_region: CoordinationRegionTable;
   enrollment: EnrollmentTable;
   entitlement: EntitlementTable;
   email_delivery_capture: EmailDeliveryCaptureTable;
+  email_design: EmailDesignTable;
+  email_design_version: EmailDesignVersionTable;
   event_admin_assignment: EventAdminAssignmentTable;
   event_attendance: EventAttendanceTable;
   event_coordinator_assignment: EventCoordinatorAssignmentTable;
   event_guest_access: EventGuestAccessTable;
   event_occurrence: EventOccurrenceTable;
+  event_occurrence_communication_revision: EventOccurrenceCommunicationRevisionTable;
   event_occurrence_domain: EventOccurrenceDomainTable;
   event_occurrence_region: EventOccurrenceRegionTable;
   event_occurrence_reschedule: EventOccurrenceRescheduleTable;
@@ -1021,6 +1150,7 @@ export interface Database {
   event_template: EventTemplateTable;
   event_template_session_definition: EventTemplateSessionDefinitionTable;
   event_template_version: EventTemplateVersionTable;
+  event_template_version_communication: EventTemplateVersionCommunicationTable;
   event_template_version_admin_default: EventTemplateVersionAdminDefaultTable;
   event_template_version_coordinator_default: EventTemplateVersionCoordinatorDefaultTable;
   event_template_version_presenter_default: EventTemplateVersionPresenterDefaultTable;

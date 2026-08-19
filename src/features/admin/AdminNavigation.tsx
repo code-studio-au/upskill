@@ -14,6 +14,7 @@ interface NavigationItem {
     | "/admin/surveys"
     | "/admin/resources"
     | "/admin/access"
+    | "/admin/emails"
     | "/admin/onboarding";
 }
 
@@ -34,6 +35,10 @@ const groups: Array<{ label: string; items: Array<NavigationItem> }> = [
       { label: "Scheduled events", to: "/admin/events/scheduled" },
       { label: "Event settings", to: "/admin/events/settings" },
     ],
+  },
+  {
+    label: "Communications",
+    items: [{ label: "Email designer", to: "/admin/emails" }],
   },
   {
     label: "Learning content",

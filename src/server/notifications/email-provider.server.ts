@@ -10,6 +10,7 @@ interface EmailDelivery {
   recipientEmail: string;
   subject: string;
   textBody: string;
+  htmlBody: string;
 }
 
 const mailgunResponseSchema = z.object({ id: z.string().min(1) });
@@ -32,6 +33,7 @@ class LocalCaptureEmailProvider implements EmailProvider {
         recipientEmail: message.recipientEmail,
         subject: message.subject,
         textBody: message.textBody,
+        htmlBody: message.htmlBody,
         createdAt: new Date(),
       })
       .onConflict((conflict) => conflict.column("notificationId").doNothing())
@@ -58,6 +60,7 @@ class MailgunEmailProvider implements EmailProvider {
     form.set("to", message.recipientEmail);
     form.set("subject", message.subject);
     form.set("text", message.textBody);
+    form.set("html", message.htmlBody);
     const response = await fetch(
       `${this.configuration.apiBaseUrl}/v3/${encodeURIComponent(this.configuration.domain)}/messages`,
       {

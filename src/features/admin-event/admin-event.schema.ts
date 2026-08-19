@@ -671,6 +671,13 @@ export interface AdminEventTemplateDetail {
     publishedAt: string | null;
   }>;
   draft: AdminEventTemplateDraft;
+  communications: Array<{
+    id: string;
+    sectionId: string | null;
+    label: string;
+    trigger: string;
+    audience: string;
+  }>;
   people: {
     platformAdministrators: Array<AdminEventPersonOption>;
     coordinators: Array<AdminEventCoordinatorOption>;

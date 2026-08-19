@@ -35,6 +35,8 @@ import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmen
 import { Route as MyEventsEventOccurrenceIdRouteImport } from './routes/my-events_.$eventOccurrenceId'
 import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
 import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
+import { Route as AdminEmailsIndexRouteImport } from './routes/admin.emails.index'
+import { Route as AdminEmailsEmailDesignIdRouteImport } from './routes/admin.emails.$emailDesignId'
 import { Route as AdminEventsIndexRouteImport } from './routes/admin.events.index'
 import { Route as AdminEventsEventTemplateIdRouteImport } from './routes/admin.events.$eventTemplateId'
 import { Route as AdminEventsScheduledRouteImport } from './routes/admin.events.scheduled'
@@ -201,6 +203,17 @@ const AdminCoursesCourseIdRoute = AdminCoursesCourseIdRouteImport.update({
   path: '/courses/$courseId',
   getParentRoute: () => AdminRoute,
 } as any)
+const AdminEmailsIndexRoute = AdminEmailsIndexRouteImport.update({
+  id: '/emails/',
+  path: '/emails/',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminEmailsEmailDesignIdRoute =
+  AdminEmailsEmailDesignIdRouteImport.update({
+    id: '/emails/$emailDesignId',
+    path: '/emails/$emailDesignId',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const AdminEventsIndexRoute = AdminEventsIndexRouteImport.update({
   id: '/events/',
   path: '/events/',
@@ -400,6 +413,7 @@ export interface FileRoutesByFullPath {
   '/courses/': typeof CoursesIndexRoute
   '/event-operations/': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/emails/$emailDesignId': typeof AdminEmailsEmailDesignIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/events/scheduled': typeof AdminEventsScheduledRoute
   '/admin/events/settings': typeof AdminEventsSettingsRoute
@@ -414,6 +428,7 @@ export interface FileRoutesByFullPath {
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
+  '/admin/emails/': typeof AdminEmailsIndexRoute
   '/admin/events/': typeof AdminEventsIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
@@ -457,6 +472,7 @@ export interface FileRoutesByTo {
   '/courses': typeof CoursesIndexRoute
   '/event-operations': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/emails/$emailDesignId': typeof AdminEmailsEmailDesignIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/events/scheduled': typeof AdminEventsScheduledRoute
   '/admin/events/settings': typeof AdminEventsSettingsRoute
@@ -471,6 +487,7 @@ export interface FileRoutesByTo {
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/admin/courses': typeof AdminCoursesIndexRoute
+  '/admin/emails': typeof AdminEmailsIndexRoute
   '/admin/events': typeof AdminEventsIndexRoute
   '/admin/learners': typeof AdminLearnersIndexRoute
   '/admin/surveys': typeof AdminSurveysIndexRoute
@@ -517,6 +534,7 @@ export interface FileRoutesById {
   '/courses/': typeof CoursesIndexRoute
   '/event-operations/': typeof EventOperationsIndexRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
+  '/admin/emails/$emailDesignId': typeof AdminEmailsEmailDesignIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
   '/admin/events/scheduled': typeof AdminEventsScheduledRoute
   '/admin/events/settings': typeof AdminEventsSettingsRoute
@@ -531,6 +549,7 @@ export interface FileRoutesById {
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/courses/$slug_/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
+  '/admin/emails/': typeof AdminEmailsIndexRoute
   '/admin/events/': typeof AdminEventsIndexRoute
   '/admin/learners/': typeof AdminLearnersIndexRoute
   '/admin/surveys/': typeof AdminSurveysIndexRoute
@@ -578,6 +597,7 @@ export interface FileRouteTypes {
     | '/courses/'
     | '/event-operations/'
     | '/admin/courses/$courseId'
+    | '/admin/emails/$emailDesignId'
     | '/admin/events/$eventTemplateId'
     | '/admin/events/scheduled'
     | '/admin/events/settings'
@@ -592,6 +612,7 @@ export interface FileRouteTypes {
     | '/api/stripe/webhook'
     | '/courses/$slug/bulk-order'
     | '/admin/courses/'
+    | '/admin/emails/'
     | '/admin/events/'
     | '/admin/learners/'
     | '/admin/surveys/'
@@ -635,6 +656,7 @@ export interface FileRouteTypes {
     | '/courses'
     | '/event-operations'
     | '/admin/courses/$courseId'
+    | '/admin/emails/$emailDesignId'
     | '/admin/events/$eventTemplateId'
     | '/admin/events/scheduled'
     | '/admin/events/settings'
@@ -649,6 +671,7 @@ export interface FileRouteTypes {
     | '/api/stripe/webhook'
     | '/courses/$slug/bulk-order'
     | '/admin/courses'
+    | '/admin/emails'
     | '/admin/events'
     | '/admin/learners'
     | '/admin/surveys'
@@ -694,6 +717,7 @@ export interface FileRouteTypes {
     | '/courses/'
     | '/event-operations/'
     | '/admin/courses/$courseId'
+    | '/admin/emails/$emailDesignId'
     | '/admin/events/$eventTemplateId'
     | '/admin/events/scheduled'
     | '/admin/events/settings'
@@ -708,6 +732,7 @@ export interface FileRouteTypes {
     | '/api/stripe/webhook'
     | '/courses/$slug_/bulk-order'
     | '/admin/courses/'
+    | '/admin/emails/'
     | '/admin/events/'
     | '/admin/learners/'
     | '/admin/surveys/'
@@ -949,6 +974,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminCoursesCourseIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/emails/': {
+      id: '/admin/emails/'
+      path: '/emails'
+      fullPath: '/admin/emails/'
+      preLoaderRoute: typeof AdminEmailsIndexRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/emails/$emailDesignId': {
+      id: '/admin/emails/$emailDesignId'
+      path: '/emails/$emailDesignId'
+      fullPath: '/admin/emails/$emailDesignId'
+      preLoaderRoute: typeof AdminEmailsEmailDesignIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/admin/events/': {
       id: '/admin/events/'
       path: '/events'
@@ -1176,6 +1215,7 @@ interface AdminRouteChildren {
   AdminResourcesRoute: typeof AdminResourcesRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
+  AdminEmailsEmailDesignIdRoute: typeof AdminEmailsEmailDesignIdRoute
   AdminEventsEventTemplateIdRoute: typeof AdminEventsEventTemplateIdRoute
   AdminEventsScheduledRoute: typeof AdminEventsScheduledRoute
   AdminEventsSettingsRoute: typeof AdminEventsSettingsRoute
@@ -1183,6 +1223,7 @@ interface AdminRouteChildren {
   AdminLearnersUserIdRoute: typeof AdminLearnersUserIdRoute
   AdminSurveysSurveyIdRoute: typeof AdminSurveysSurveyIdRoute
   AdminCoursesIndexRoute: typeof AdminCoursesIndexRoute
+  AdminEmailsIndexRoute: typeof AdminEmailsIndexRoute
   AdminEventsIndexRoute: typeof AdminEventsIndexRoute
   AdminLearnersIndexRoute: typeof AdminLearnersIndexRoute
   AdminSurveysIndexRoute: typeof AdminSurveysIndexRoute
@@ -1198,6 +1239,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminResourcesRoute: AdminResourcesRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
+  AdminEmailsEmailDesignIdRoute: AdminEmailsEmailDesignIdRoute,
   AdminEventsEventTemplateIdRoute: AdminEventsEventTemplateIdRoute,
   AdminEventsScheduledRoute: AdminEventsScheduledRoute,
   AdminEventsSettingsRoute: AdminEventsSettingsRoute,
@@ -1205,6 +1247,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminLearnersUserIdRoute: AdminLearnersUserIdRoute,
   AdminSurveysSurveyIdRoute: AdminSurveysSurveyIdRoute,
   AdminCoursesIndexRoute: AdminCoursesIndexRoute,
+  AdminEmailsIndexRoute: AdminEmailsIndexRoute,
   AdminEventsIndexRoute: AdminEventsIndexRoute,
   AdminLearnersIndexRoute: AdminLearnersIndexRoute,
   AdminSurveysIndexRoute: AdminSurveysIndexRoute,

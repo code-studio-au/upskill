@@ -7,9 +7,14 @@ interface SelectOption {
   value: string;
 }
 
+interface SelectOptionGroup {
+  group: string;
+  items: ReadonlyArray<SelectOption>;
+}
+
 interface MantineNativeSelectProps {
   "aria-label"?: string;
-  data: Array<SelectOption>;
+  data: ReadonlyArray<SelectOption | SelectOptionGroup>;
   defaultValue?: string;
   disabled?: boolean;
   error?: string | undefined;
@@ -48,15 +53,29 @@ export function MantineNativeSelect({
         aria-describedby={error ? errorId : undefined}
         required={required}
       >
-        {data.map((option) => (
-          <option
-            value={option.value}
-            disabled={option.disabled}
-            key={option.value}
-          >
-            {option.label}
-          </option>
-        ))}
+        {data.map((option) =>
+          "group" in option ? (
+            <optgroup label={option.group} key={option.group}>
+              {option.items.map((item) => (
+                <option
+                  value={item.value}
+                  disabled={item.disabled}
+                  key={item.value}
+                >
+                  {item.label}
+                </option>
+              ))}
+            </optgroup>
+          ) : (
+            <option
+              value={option.value}
+              disabled={option.disabled}
+              key={option.value}
+            >
+              {option.label}
+            </option>
+          ),
+        )}
       </select>
       {error ? (
         <span className={classes.error} id={errorId}>

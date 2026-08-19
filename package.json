@@ -13,7 +13,7 @@
     "#/*": "./src/*"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env.local scripts/start-development.mjs",
+    "dev": "zsh -lc 'source \"$NVM_DIR/nvm.sh\" && nvm use 26 && exec node --env-file-if-exists=.env.local scripts/start-development.mjs'",
     "dev:web": "vite dev --port 3000",
     "dev:learning": "vite dev --port 3001",
     "generate:routes": "tsr generate",
@@ -55,6 +55,8 @@
     "db:verify:access-codes": "node --env-file-if-exists=.env.local --import tsx scripts/verify-access-code-redemption.ts",
     "db:verify:checkout": "node --env-file-if-exists=.env.local --import tsx scripts/verify-course-checkout.ts",
     "db:verify:bulk-commerce": "node --env-file-if-exists=.env.local --import tsx scripts/verify-bulk-order-commerce.ts",
+    "db:verify:email-designer": "node --env-file-if-exists=.env.local --import tsx scripts/verify-email-designer.ts",
+    "db:verify:offering-communications": "node --env-file-if-exists=.env.local --import tsx scripts/verify-offering-communications.ts",
     "db:verify:learner-workspace": "node --env-file-if-exists=.env.local --import tsx scripts/verify-learner-workspace.ts",
     "db:verify:scorm-attempts": "node --env-file-if-exists=.env.local --import tsx scripts/verify-scorm-attempts.ts",
     "db:verify:admin-visibility": "node --env-file-if-exists=.env.local --import tsx scripts/verify-admin-visibility.ts",
@@ -122,6 +124,7 @@
     "postcss-simple-vars": "7.0.1",
     "prettier": "3.9.6",
     "react-doctor": "0.9.7",
+    "terser": "5.50.0",
     "tsx": "4.23.11",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.66.0",

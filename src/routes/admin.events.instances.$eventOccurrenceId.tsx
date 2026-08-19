@@ -49,6 +49,7 @@ const searchSchema = z.object({
       "registrations",
       "staffing",
       "activity",
+      "communications",
       "configuration",
     ]),
     "overview",
@@ -70,6 +71,12 @@ const AdminEventOccurrenceEditor = lazy(async () => {
 const AdminEventActivityTable = lazy(async () => {
   const module = await import("#/features/admin-event/AdminEventActivityTable");
   return { default: module.AdminEventActivityTable };
+});
+
+const AdminCommunicationPlanEditor = lazy(async () => {
+  const module =
+    await import("#/features/admin-email/AdminCommunicationPlanEditor");
+  return { default: module.AdminCommunicationPlanEditor };
 });
 
 export const Route = createFileRoute(
@@ -288,6 +295,7 @@ function EventInstanceOperationsPage() {
           },
           { value: "staffing", label: "Sessions & staff" },
           { value: "activity", label: "Activity" },
+          { value: "communications", label: "Communications" },
         ]}
         onChange={(view) => void navigate({ search: { view } })}
       />
@@ -658,6 +666,17 @@ function EventInstanceOperationsPage() {
             history.
           </Alert>
         )
+      ) : null}
+
+      {search.view === "communications" ? (
+        <Suspense fallback={<LoadingSpinner label="Loading communications" />}>
+          <AdminCommunicationPlanEditor
+            scope={{
+              kind: "event_occurrence",
+              eventOccurrenceId: workspace.occurrence.id,
+            }}
+          />
+        </Suspense>
       ) : null}
 
       {addOpen ? (
