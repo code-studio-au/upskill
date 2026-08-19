@@ -1473,35 +1473,33 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: "Save draft" }).click();
     await page.getByRole("button", { name: "Communications" }).click();
     await page.getByRole("button", { name: "Add automated email" }).click();
-    const communicationDialog = page.getByRole("dialog", {
-      name: "Add automated email",
-    });
-    await communicationDialog
-      .getByLabel("Plan label")
-      .fill("E2E registration confirmation");
-    await communicationDialog
+    await expect(
+      page.getByRole("heading", { name: "Add automated email" }),
+    ).toBeVisible();
+    await page.getByLabel("Plan label").fill("E2E registration confirmation");
+    await page
       .getByLabel("Email template")
       .selectOption({ label: "E2E event confirmation · v1" });
-    await communicationDialog
-      .getByLabel("Trigger")
-      .selectOption("registration_selected");
-    await communicationDialog
+    await expect(page.getByLabel("Subject")).toHaveValue(
+      "Confirmed: {{event.title}}",
+    );
+    await expect(page.getByLabel("Email body")).toHaveValue(
+      /Your event starts \{\{event\.startsAt\}\}\./u,
+    );
+    await page.getByLabel("Trigger").selectOption("registration_selected");
+    await page
       .getByLabel("Section timeline")
       .selectOption({ label: "Event session" });
-    await communicationDialog.getByRole("button", { name: "Save" }).click();
+    await page.getByRole("button", { name: "Save automated email" }).click();
     await expect(
       page.getByRole("heading", { name: "E2E registration confirmation" }),
     ).toBeVisible();
+    await page.getByRole("button", { name: "Edit" }).click();
     await page.getByRole("button", { name: "Preview" }).click();
-    const communicationPreview = page.getByRole("dialog", {
-      name: "Email preview",
-    });
     await expect(
-      communicationPreview.getByText(`Confirmed: ${eventTemplateTitle}`),
+      page.getByText(`Confirmed: ${eventTemplateTitle}`),
     ).toBeVisible();
-    await communicationPreview
-      .getByRole("button", { name: "Close dialog" })
-      .click();
+    await page.getByRole("button", { name: "Back to communications" }).click();
     await page.getByRole("button", { name: /Program/u }).click();
     await expect(page.getByText("E2E registration confirmation")).toBeVisible();
     await page.getByRole("button", { name: "Staffing and regions" }).click();

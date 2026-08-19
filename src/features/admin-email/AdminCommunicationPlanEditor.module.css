@@ -15,10 +15,21 @@
   overflow-wrap: anywhere;
 }
 
-.dialogBody {
-  max-height: min(70vh, 48rem);
-  overflow-y: auto;
-  padding-inline-end: 0.25rem;
+.editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(18rem, 0.75fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.editorPanel,
+.previewPanel {
+  min-width: 0;
+}
+
+.previewPanel {
+  position: sticky;
+  top: 1rem;
 }
 
 .timingGrid {
@@ -30,5 +41,15 @@
 @media (max-width: 36rem) {
   .timingGrid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 62rem) {
+  .editor {
+    grid-template-columns: 1fr;
+  }
+
+  .previewPanel {
+    position: static;
   }
 }

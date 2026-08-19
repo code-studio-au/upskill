@@ -14,6 +14,8 @@ import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import {
   fixtureEmailContext,
+  emailVariableGroups,
+  getEmailTemplateContract,
   renderEmailTemplate,
   validateEmailTemplate,
 } from "#/server/notifications/email-template-contracts";
@@ -78,6 +80,8 @@ async function templateOptions(
       "version.id as versionId",
       "design.name as designName",
       "version.version",
+      "version.subject",
+      "version.textBody",
     ])
     .where("design.catalogue", "=", "offering")
     .where("design.contextKey", "=", contextKey)
@@ -181,6 +185,9 @@ export async function findAdminCommunicationWorkspace(
 ): Promise<AdminCommunicationWorkspace | null> {
   const database = getDatabase();
   if (scope.kind === "course") {
+    const variableGroups = emailVariableGroups(
+      getEmailTemplateContract("offering.course").variables,
+    );
     const version = await database
       .selectFrom("course_version as version")
       .innerJoin("course", "course.id", "version.courseId")
@@ -244,6 +251,7 @@ export async function findAdminCommunicationWorkspace(
       sections,
       sessions: [],
       templates,
+      variableGroups,
       items: rows.map((row) =>
         effectiveItem({ ...row, sessionDefinitionId: null }),
       ),
@@ -251,6 +259,9 @@ export async function findAdminCommunicationWorkspace(
   }
 
   if (scope.kind === "event_template") {
+    const variableGroups = emailVariableGroups(
+      getEmailTemplateContract("offering.event").variables,
+    );
     const version = await database
       .selectFrom("event_template_version as version")
       .innerJoin(
@@ -325,6 +336,7 @@ export async function findAdminCommunicationWorkspace(
       sections,
       sessions,
       templates,
+      variableGroups,
       items: rows.map(effectiveItem),
     };
   }
@@ -346,6 +358,9 @@ export async function findAdminCommunicationWorkspace(
     .where("occurrence.id", "=", scope.eventOccurrenceId)
     .executeTakeFirst();
   if (!occurrence) return null;
+  const variableGroups = emailVariableGroups(
+    getEmailTemplateContract("offering.event").variables,
+  );
   const [sections, sessions, rows] = await Promise.all([
     database
       .selectFrom("event_template_version_section")
@@ -401,6 +416,7 @@ export async function findAdminCommunicationWorkspace(
     sections,
     sessions,
     templates: [],
+    variableGroups,
     items: rows.map((row) => ({
       ...row,
       emailDesignName: row.designName,
@@ -413,18 +429,29 @@ export async function findAdminCommunicationWorkspace(
 
 export async function previewOfferingCommunication(
   scope: CommunicationScope,
-  communicationId: string,
+  input: {
+    communicationId?: string | undefined;
+    emailDesignVersionId?: string | undefined;
+    subject?: string | undefined;
+    textBody?: string | undefined;
+  },
 ): Promise<AdminEmailPreview | null> {
   const workspace = await findAdminCommunicationWorkspace(scope);
-  const item = workspace?.items.find(
-    (candidate) => candidate.id === communicationId,
-  );
-  if (!item) return null;
+  const item = input.communicationId
+    ? workspace?.items.find(
+        (candidate) => candidate.id === input.communicationId,
+      )
+    : null;
+  const emailDesignVersionId =
+    input.emailDesignVersionId ?? item?.emailDesignVersionId;
+  const subject = input.subject ?? item?.subject;
+  const textBody = input.textBody ?? item?.textBody;
+  if (!workspace || !emailDesignVersionId || !subject || !textBody) return null;
   const database = getDatabase();
   const emailVersion = await database
     .selectFrom("email_design_version")
     .select(["contractKey", "contractVersion"])
-    .where("id", "=", item.emailDesignVersionId)
+    .where("id", "=", emailDesignVersionId)
     .executeTakeFirst();
   if (!emailVersion) return null;
   const variables: Record<string, string> = {
@@ -559,8 +586,8 @@ export async function previewOfferingCommunication(
     return renderEmailTemplate({
       contractKey: emailVersion.contractKey,
       contractVersion: emailVersion.contractVersion,
-      subject: item.subject,
-      textBody: item.textBody,
+      subject,
+      textBody,
       variables,
       requireMandatoryVariables: false,
     });

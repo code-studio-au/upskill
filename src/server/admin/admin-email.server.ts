@@ -12,6 +12,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import {
   emailContractKeyForContext,
+  emailVariableGroups,
   fixtureEmailContext,
   getEmailTemplateContract,
   renderEmailTemplate,
@@ -113,7 +114,7 @@ export async function findAdminEmailDesign(
       publishedAt: version.publishedAt?.toISOString() ?? null,
       active: version.id === design.activeVersionId,
     })),
-    variables: contract.variables,
+    variableGroups: emailVariableGroups(contract.variables),
   };
 }
 

@@ -1,3 +1,4 @@
+import type { EmailTemplateVariableGroup } from "./admin-email.schema";
 import { z } from "#/validation/zod";
 
 const id = z.string().check(z.trim(), z.minLength(1), z.maxLength(255));
@@ -123,13 +124,18 @@ export const adminCommunicationMutationSchema = z.discriminatedUnion("action", [
 
 export const previewCommunicationSchema = z.object({
   scope: communicationScopeSchema,
-  communicationId: id,
+  communicationId: z.optional(id),
+  emailDesignVersionId: z.optional(id),
+  subject: z.optional(subject),
+  textBody: z.optional(body),
 });
 
 interface AdminCommunicationTemplateOption {
   versionId: string;
   designName: string;
   version: number;
+  subject: string;
+  textBody: string;
 }
 
 export interface AdminCommunicationPlanItem {
@@ -163,6 +169,7 @@ export interface AdminCommunicationWorkspace {
   sections: Array<{ id: string; title: string }>;
   sessions: Array<{ id: string; title: string }>;
   templates: Array<AdminCommunicationTemplateOption>;
+  variableGroups: Array<EmailTemplateVariableGroup>;
   items: Array<AdminCommunicationPlanItem>;
 }
 

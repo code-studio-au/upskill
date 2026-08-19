@@ -45,21 +45,8 @@
   line-height: 1.55;
 }
 
-.variablePicker {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.75rem;
-  align-items: end;
-}
-
 .versionSelect {
   min-width: 13rem;
-}
-
-.bodyInput {
-  min-height: 18rem;
-  resize: vertical;
-  line-height: 1.5;
 }
 
 @media (max-width: 62rem) {
@@ -81,9 +68,5 @@
 
   .versionSelect {
     min-width: 0;
-  }
-
-  .variablePicker {
-    grid-template-columns: 1fr;
   }
 }

@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import type {
   EmailTemplateVariableCategory,
   EmailTemplateVariableDefinition,
+  EmailTemplateVariableGroup,
 } from "#/features/admin-email/admin-email.schema";
 
 const TOKEN_PATTERN = /\{\{\s*([a-z][A-Za-z0-9]*(?:\.[A-Za-z0-9]+)+)\s*\}\}/gu;
@@ -645,6 +646,21 @@ export function getEmailTemplateContract(
   if (contract.version !== version)
     throw new Error("EMAIL_TEMPLATE_CONTRACT_NOT_FOUND");
   return contract;
+}
+
+export function emailVariableGroups(
+  variables: ReadonlyArray<EmailTemplateVariableDefinition>,
+): Array<EmailTemplateVariableGroup> {
+  const groups = new Map<string, EmailTemplateVariableGroup["items"]>();
+  for (const variable of variables) {
+    const items = groups.get(variable.category) ?? [];
+    items.push({
+      value: variable.key,
+      label: `${variable.label}${variable.required ? " *" : ""}`,
+    });
+    groups.set(variable.category, items);
+  }
+  return Array.from(groups, ([group, items]) => ({ group, items }));
 }
 
 export function referencedEmailVariables(input: {

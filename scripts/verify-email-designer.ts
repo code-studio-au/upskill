@@ -49,9 +49,10 @@ try {
   assert.equal(systemDetail.version.active, true);
   assert.equal(systemDetail.version.version, 1);
   assert.deepEqual(
-    systemDetail.variables
-      .filter((variable) => variable.required)
-      .map((variable) => variable.key)
+    systemDetail.variableGroups
+      .flatMap((group) => group.items)
+      .filter((variable) => variable.label.endsWith(" *"))
+      .map((variable) => variable.value)
       .sort(),
     ["account.setupUrl", "user.fullName"],
   );

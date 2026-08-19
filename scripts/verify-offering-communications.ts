@@ -183,14 +183,36 @@ try {
   });
   assert.ok(courseWorkspace);
   assert.equal(courseWorkspace.items.length, 1);
+  assert.ok(
+    courseWorkspace.variableGroups.some(
+      (group) =>
+        group.group === "Course" &&
+        group.items.some((variable) => variable.value === "course.title"),
+    ),
+  );
+  assert.equal(
+    courseWorkspace.templates.find(
+      (template) => template.versionId === courseEmail.versionId,
+    )?.textBody,
+    "Hello {{user.firstName}},\n\nYou are {{enrolment.progressPercent}} through {{course.title}}.",
+  );
   const courseItem = courseWorkspace.items[0];
   assert.ok(courseItem);
   assert.equal(courseItem.sectionId, courseSectionId);
   const coursePreview = await previewOfferingCommunication(
     { kind: "course", courseVersionId },
-    courseItem.id,
+    { communicationId: courseItem.id },
   );
   assert.equal(coursePreview?.subject, "Continue Communication course");
+  const unsavedCoursePreview = await previewOfferingCommunication(
+    { kind: "course", courseVersionId },
+    {
+      emailDesignVersionId: courseEmail.versionId,
+      subject: "Reminder: {{course.title}}",
+      textBody: "Return to {{course.dashboardUrl}}.",
+    },
+  );
+  assert.equal(unsavedCoursePreview?.subject, "Reminder: Communication course");
   await database
     .updateTable("course_version")
     .set({ publishedAt: now })
@@ -469,7 +491,7 @@ try {
   assert.equal(inherited.subject, "Your event: {{event.title}}");
   const occurrencePreview = await previewOfferingCommunication(
     { kind: "event_occurrence", eventOccurrenceId },
-    inherited.id,
+    { communicationId: inherited.id },
   );
   assert.equal(
     occurrencePreview?.subject,

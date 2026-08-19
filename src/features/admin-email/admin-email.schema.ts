@@ -71,6 +71,11 @@ export interface EmailTemplateVariableDefinition {
   fixtureValue: string;
 }
 
+export interface EmailTemplateVariableGroup {
+  group: string;
+  items: Array<{ label: string; value: string }>;
+}
+
 export interface AdminEmailDesignSummary {
   id: string;
   catalogue: "offering" | "system";
@@ -108,7 +113,7 @@ export interface AdminEmailDesignDetail {
     editable: boolean;
   };
   versions: Array<AdminEmailDesignVersionSummary>;
-  variables: Array<EmailTemplateVariableDefinition>;
+  variableGroups: Array<EmailTemplateVariableGroup>;
 }
 
 export interface AdminEmailPreview {

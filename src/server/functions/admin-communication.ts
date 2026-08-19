@@ -38,10 +38,16 @@ export const previewAdminCommunication = createServerFn({ method: "POST" })
     if (request.status !== "ready") return request;
     const { previewOfferingCommunication } =
       await import("#/server/admin/admin-communication.server");
-    const preview = await previewOfferingCommunication(
-      data.scope,
-      data.communicationId,
-    );
+    const preview = await previewOfferingCommunication(data.scope, {
+      ...(data.communicationId
+        ? { communicationId: data.communicationId }
+        : {}),
+      ...(data.emailDesignVersionId
+        ? { emailDesignVersionId: data.emailDesignVersionId }
+        : {}),
+      ...(data.subject ? { subject: data.subject } : {}),
+      ...(data.textBody ? { textBody: data.textBody } : {}),
+    });
     return preview
       ? { status: "ready", data: preview }
       : { status: "conflict", reason: "invalid_template" };

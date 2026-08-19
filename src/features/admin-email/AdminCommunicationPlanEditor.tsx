@@ -5,7 +5,7 @@ import type {
   AdminCommunicationWorkspace,
   CommunicationScope,
 } from "./admin-communication.schema";
-import { AppDialog } from "#/features/shared/AppDialog";
+import { EmailBodyEditor } from "./EmailBodyEditor";
 import { Badge } from "#/features/shared/Badge";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
@@ -29,15 +29,15 @@ import classes from "./AdminCommunicationPlanEditor.module.css";
 
 interface Draft {
   label: string;
-  emailDesignVersionId: string;
+  templateId: string;
   sectionId: string;
-  sessionDefinitionId: string;
+  sessionId: string;
   audience: string;
   trigger: string;
   offsetAmount: number;
   offsetUnit: "minute" | "hour" | "day" | "week";
-  subjectOverride: string;
-  textBodyOverride: string;
+  subject: string;
+  textBody: string;
 }
 
 const courseAudiences = [
@@ -67,24 +67,21 @@ const eventTriggers = [
   { value: "event_completed", label: "Event completed" },
 ] as const;
 
-function selectedValue<const Options extends ReadonlyArray<{ value: string }>>(
-  options: Options,
-  value: string,
-  fallback: Options[number]["value"],
-): Options[number]["value"] {
-  return options.find((option) => option.value === value)?.value ?? fallback;
-}
-
 function emptyDraft(
   workspace: AdminCommunicationWorkspace,
   item?: AdminCommunicationPlanItem,
 ): Draft {
+  const template = workspace.templates.find(
+    (candidate) =>
+      candidate.versionId ===
+      (item?.emailDesignVersionId ?? workspace.templates[0]?.versionId),
+  );
   return {
     label: item?.label ?? "New automated email",
-    emailDesignVersionId:
+    templateId:
       item?.emailDesignVersionId ?? workspace.templates[0]?.versionId ?? "",
     sectionId: item?.sectionId ?? "",
-    sessionDefinitionId: item?.sessionDefinitionId ?? "",
+    sessionId: item?.sessionDefinitionId ?? "",
     audience:
       item?.audience ??
       (workspace.scope.kind === "course"
@@ -95,18 +92,8 @@ function emptyDraft(
       (workspace.scope.kind === "course" ? "course_incomplete" : "event_start"),
     offsetAmount: item?.offsetAmount ?? 0,
     offsetUnit: item?.offsetUnit ?? "day",
-    subjectOverride:
-      workspace.scope.kind === "event_occurrence"
-        ? (item?.subject ?? "")
-        : item?.subjectOverridden
-          ? item.subject
-          : "",
-    textBodyOverride:
-      workspace.scope.kind === "event_occurrence"
-        ? (item?.textBody ?? "")
-        : item?.textBodyOverridden
-          ? item.textBody
-          : "",
+    subject: item?.subject ?? template?.subject ?? "",
+    textBody: item?.textBody ?? template?.textBody ?? "",
   };
 }
 
@@ -134,7 +121,6 @@ export function AdminCommunicationPlanEditor({
 }) {
   const [workspace, setWorkspace] =
     useState<AdminCommunicationWorkspace | null>(null);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<
     AdminCommunicationPlanItem | "new" | null
@@ -142,10 +128,6 @@ export function AdminCommunicationPlanEditor({
   const [deleting, setDeleting] = useState<AdminCommunicationPlanItem | null>(
     null,
   );
-  const [preview, setPreview] = useState<{
-    subject: string;
-    textBody: string;
-  } | null>(null);
 
   const scopeKey =
     scope.kind === "course"
@@ -153,14 +135,16 @@ export function AdminCommunicationPlanEditor({
       : scope.kind === "event_template"
         ? scope.eventTemplateVersionId
         : scope.eventOccurrenceId;
-  const load = useCallback(async () => {
-    const result = await getAdminCommunicationWorkspace({
+  const requestWorkspace = useCallback(() => {
+    return getAdminCommunicationWorkspace({
       data: communicationScope(scope.kind, scopeKey),
     });
+  }, [scope.kind, scopeKey]);
+  const load = useCallback(async () => {
+    const result = await requestWorkspace();
     if (result.status === "ready") setWorkspace(result.data);
     else setError("The communication plan could not be loaded.");
-    setLoading(false);
-  }, [scope.kind, scopeKey]);
+  }, [requestWorkspace]);
 
   const refresh = useCallback(async () => {
     await load();
@@ -169,37 +153,37 @@ export function AdminCommunicationPlanEditor({
 
   useEffect(() => {
     let active = true;
-    void getAdminCommunicationWorkspace({
-      data: communicationScope(scope.kind, scopeKey),
-    }).then((result) => {
+    void requestWorkspace().then((result) => {
       if (!active) return;
       if (result.status === "ready") setWorkspace(result.data);
       else setError("The communication plan could not be loaded.");
-      setLoading(false);
     });
     return () => {
       active = false;
     };
-  }, [scope.kind, scopeKey]);
+  }, [requestWorkspace]);
 
-  async function previewItem(item: AdminCommunicationPlanItem) {
-    setError(null);
-    const result = await previewAdminCommunication({
-      data: {
-        scope,
-        communicationId: item.id,
-      },
-    });
-    if (result.status === "ready") setPreview(result.data);
-    else setError("The email preview could not be generated.");
+  if (!workspace)
+    return error ? (
+      <Alert color="red">{error}</Alert>
+    ) : (
+      <LoadingSpinner label="Loading communications" />
+    );
+  if (editing) {
+    return (
+      <CommunicationPlanForm
+        workspace={workspace}
+        {...(editing === "new" ? {} : { item: editing })}
+        onClose={() => {
+          setEditing(null);
+        }}
+        onSaved={async () => {
+          setEditing(null);
+          await refresh();
+        }}
+      />
+    );
   }
-
-  if (loading) return <LoadingSpinner label="Loading communications" />;
-  if (!workspace) return <Alert color="red">{error}</Alert>;
-  const eventOccurrenceId =
-    workspace.scope.kind === "event_occurrence"
-      ? workspace.scope.eventOccurrenceId
-      : null;
 
   return (
     <Stack gap="lg">
@@ -266,45 +250,17 @@ export function AdminCommunicationPlanEditor({
                 </Text>
                 <Group gap="sm">
                   <Button
-                    variant="default"
-                    onClick={() => void previewItem(item)}
+                    variant={workspace.scope.editable ? "light" : "default"}
+                    onClick={() => {
+                      setEditing(item);
+                    }}
                   >
-                    Preview
-                  </Button>
-                  {workspace.scope.editable ? (
-                    <Button
-                      variant="light"
-                      onClick={() => {
-                        setEditing(item);
-                      }}
-                    >
-                      {workspace.scope.kind === "event_occurrence"
+                    {workspace.scope.editable
+                      ? workspace.scope.kind === "event_occurrence"
                         ? "Customise"
-                        : "Edit"}
-                    </Button>
-                  ) : null}
-                  {workspace.scope.kind === "event_occurrence" &&
-                  item.overrideState === "overridden" ? (
-                    <Button
-                      variant="light"
-                      onClick={() => {
-                        if (!eventOccurrenceId) return;
-                        void mutateAdminCommunication({
-                          data: {
-                            action: "reset_occurrence",
-                            payload: {
-                              eventOccurrenceId,
-                              logicalId: item.logicalId,
-                            },
-                          },
-                        }).then(async (result) => {
-                          if (result.status === "ready") await refresh();
-                        });
-                      }}
-                    >
-                      Reset to inherited
-                    </Button>
-                  ) : null}
+                        : "Edit"
+                      : "Preview"}
+                  </Button>
                   {workspace.scope.kind !== "event_occurrence" &&
                   workspace.scope.editable ? (
                     <Button
@@ -323,20 +279,6 @@ export function AdminCommunicationPlanEditor({
           })}
         </div>
       )}
-
-      {editing ? (
-        <CommunicationPlanDialog
-          workspace={workspace}
-          {...(editing === "new" ? {} : { item: editing })}
-          onClose={() => {
-            setEditing(null);
-          }}
-          onSaved={async () => {
-            setEditing(null);
-            await refresh();
-          }}
-        />
-      ) : null}
 
       {deleting ? (
         <ConfirmationDialog
@@ -372,28 +314,11 @@ export function AdminCommunicationPlanEditor({
           }}
         />
       ) : null}
-
-      {preview ? (
-        <AppDialog
-          title="Email preview"
-          onClose={() => {
-            setPreview(null);
-          }}
-        >
-          <Stack gap="md">
-            <Text size="sm" c="dimmed">
-              {workspace.scope.title} · Example recipient
-            </Text>
-            <Text fw={700}>{preview.subject}</Text>
-            <Text className={classes.body}>{preview.textBody}</Text>
-          </Stack>
-        </AppDialog>
-      ) : null}
     </Stack>
   );
 }
 
-function CommunicationPlanDialog({
+function CommunicationPlanForm({
   workspace,
   item,
   onClose,
@@ -406,6 +331,10 @@ function CommunicationPlanDialog({
 }) {
   const occurrence = workspace.scope.kind === "event_occurrence";
   const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<{
+    subject: string;
+    textBody: string;
+  } | null>(null);
   const form = useForm({
     defaultValues: emptyDraft(workspace, item),
     onSubmit: async ({ value }) => {
@@ -417,8 +346,8 @@ function CommunicationPlanDialog({
             payload: {
               eventOccurrenceId: workspace.scope.eventOccurrenceId,
               logicalId: item.logicalId,
-              subject: value.subjectOverride || item.subject,
-              textBody: value.textBodyOverride || item.textBody,
+              subject: value.subject,
+              textBody: value.textBody,
               offsetAmount: value.offsetAmount,
               offsetUnit: value.offsetUnit,
             },
@@ -431,20 +360,29 @@ function CommunicationPlanDialog({
         setError("The occurrence override could not be saved.");
         return;
       }
-      if (!value.emailDesignVersionId) {
+      if (!value.templateId) {
         setError("Select an email template.");
+        return;
+      }
+      const selectedTemplate = workspace.templates.find(
+        (template) => template.versionId === value.templateId,
+      );
+      if (!selectedTemplate) {
+        setError("The selected email template is unavailable.");
         return;
       }
       const common = {
         ...(item ? { communicationId: item.id } : {}),
         label: value.label,
-        emailDesignVersionId: value.emailDesignVersionId,
+        emailDesignVersionId: value.templateId,
         sectionId: value.sectionId || null,
-        sessionDefinitionId: value.sessionDefinitionId || null,
+        sessionDefinitionId: value.sessionId || null,
         offsetAmount: value.offsetAmount,
         offsetUnit: value.offsetUnit,
-        subjectOverride: value.subjectOverride || null,
-        textBodyOverride: value.textBodyOverride || null,
+        subjectOverride:
+          value.subject === selectedTemplate.subject ? null : value.subject,
+        textBodyOverride:
+          value.textBody === selectedTemplate.textBody ? null : value.textBody,
       };
       let result;
       if (workspace.scope.kind === "course") {
@@ -454,16 +392,10 @@ function CommunicationPlanDialog({
             payload: {
               ...common,
               courseVersionId: workspace.scope.courseVersionId,
-              audience: selectedValue(
-                courseAudiences,
-                value.audience,
-                "affected_learner",
-              ),
-              trigger: selectedValue(
-                courseTriggers,
-                value.trigger,
-                "course_incomplete",
-              ),
+              audience:
+                value.audience as (typeof courseAudiences)[number]["value"],
+              trigger:
+                value.trigger as (typeof courseTriggers)[number]["value"],
             },
           },
         });
@@ -474,16 +406,9 @@ function CommunicationPlanDialog({
             payload: {
               ...common,
               eventTemplateVersionId: workspace.scope.eventTemplateVersionId,
-              audience: selectedValue(
-                eventAudiences,
-                value.audience,
-                "confirmed_participants",
-              ),
-              trigger: selectedValue(
-                eventTriggers,
-                value.trigger,
-                "event_start",
-              ),
+              audience:
+                value.audience as (typeof eventAudiences)[number]["value"],
+              trigger: value.trigger as (typeof eventTriggers)[number]["value"],
             },
           },
         });
@@ -503,6 +428,25 @@ function CommunicationPlanDialog({
   const audiences =
     workspace.scope.kind === "course" ? courseAudiences : eventAudiences;
 
+  async function loadPreview(values: Draft) {
+    if (!values.subject.trim() || !values.textBody.trim()) {
+      setError("Enter a subject and email body before previewing.");
+      return;
+    }
+    setError(null);
+    const result = await previewAdminCommunication({
+      data: {
+        scope: workspace.scope,
+        ...(item ? { communicationId: item.id } : {}),
+        emailDesignVersionId: values.templateId,
+        subject: values.subject,
+        textBody: values.textBody,
+      },
+    });
+    if (result.status === "ready") setPreview(result.data);
+    else setError("The email preview could not be generated.");
+  }
+
   return (
     <form.Subscribe
       selector={(state) => ({
@@ -510,176 +454,261 @@ function CommunicationPlanDialog({
         values: state.values,
       })}
     >
-      {({ pending, values }) => (
-        <AppDialog
-          title={
-            occurrence
-              ? "Customise occurrence email"
-              : item
-                ? "Edit automated email"
-                : "Add automated email"
-          }
-          closeDisabled={pending}
-          onClose={onClose}
-        >
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              void form.handleSubmit();
-            }}
-          >
-            <Stack gap="md" className={classes.dialogBody}>
-              {!occurrence ? (
-                <>
-                  <MantineTextInput
-                    label="Plan label"
-                    value={values.label}
-                    onChange={(event) => {
-                      form.setFieldValue("label", event.currentTarget.value);
-                    }}
-                    required
-                  />
-                  <MantineNativeSelect
-                    label="Email template"
-                    value={values.emailDesignVersionId}
-                    data={workspace.templates.map((template) => ({
-                      value: template.versionId,
-                      label: `${template.designName} · v${String(template.version)}`,
-                    }))}
-                    onChange={(event) => {
-                      form.setFieldValue(
-                        "emailDesignVersionId",
-                        event.currentTarget.value,
-                      );
-                    }}
-                    required
-                  />
-                  <MantineNativeSelect
-                    label="Audience"
-                    value={values.audience}
-                    data={audiences}
-                    onChange={(event) => {
-                      form.setFieldValue("audience", event.currentTarget.value);
-                    }}
-                    required
-                  />
-                  <MantineNativeSelect
-                    label="Trigger"
-                    value={values.trigger}
-                    data={triggers}
-                    onChange={(event) => {
-                      form.setFieldValue("trigger", event.currentTarget.value);
-                    }}
-                    required
-                  />
-                  <MantineNativeSelect
-                    label="Section timeline"
-                    value={values.sectionId}
-                    data={[
-                      { value: "", label: "No section" },
-                      ...workspace.sections.map((section) => ({
-                        value: section.id,
-                        label: section.title,
-                      })),
-                    ]}
-                    onChange={(event) => {
-                      form.setFieldValue(
-                        "sectionId",
-                        event.currentTarget.value,
-                      );
-                    }}
-                  />
-                  {workspace.sessions.length ? (
-                    <MantineNativeSelect
-                      label="Session"
-                      value={values.sessionDefinitionId}
-                      data={[
-                        { value: "", label: "No session" },
-                        ...workspace.sessions.map((session) => ({
-                          value: session.id,
-                          label: session.title,
-                        })),
-                      ]}
-                      onChange={(event) => {
-                        form.setFieldValue(
-                          "sessionDefinitionId",
-                          event.currentTarget.value,
+      {({ pending, values }) => {
+        return (
+          <Stack gap="lg">
+            <Group justify="space-between" align="center">
+              <Title order={2}>
+                {!workspace.scope.editable
+                  ? "Preview automated email"
+                  : occurrence
+                    ? "Customise occurrence email"
+                    : item
+                      ? "Edit automated email"
+                      : "Add automated email"}
+              </Title>
+              <Button variant="default" disabled={pending} onClick={onClose}>
+                Back to communications
+              </Button>
+            </Group>
+            {error ? <Alert color="red">{error}</Alert> : null}
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void form.handleSubmit();
+              }}
+            >
+              <Stack gap="lg">
+                <Paper withBorder radius="lg" p="md">
+                  <Stack gap="md">
+                    <Title order={3} size="h4">
+                      Delivery
+                    </Title>
+                    {!occurrence ? (
+                      <>
+                        <MantineTextInput
+                          label="Plan label"
+                          value={values.label}
+                          onChange={(event) => {
+                            form.setFieldValue(
+                              "label",
+                              event.currentTarget.value,
+                            );
+                          }}
+                          required
+                        />
+                        <MantineNativeSelect
+                          label="Email template"
+                          value={values.templateId}
+                          data={workspace.templates.map((template) => ({
+                            value: template.versionId,
+                            label: `${template.designName} · v${String(template.version)}`,
+                          }))}
+                          onChange={(event) => {
+                            const template = workspace.templates.find(
+                              (candidate) =>
+                                candidate.versionId ===
+                                event.currentTarget.value,
+                            );
+                            form.setFieldValue(
+                              "templateId",
+                              event.currentTarget.value,
+                            );
+                            if (template) {
+                              form.setFieldValue("subject", template.subject);
+                              form.setFieldValue("textBody", template.textBody);
+                            }
+                          }}
+                          required
+                        />
+                        <MantineNativeSelect
+                          label="Audience"
+                          value={values.audience}
+                          data={audiences}
+                          onChange={(event) => {
+                            form.setFieldValue(
+                              "audience",
+                              event.currentTarget.value,
+                            );
+                          }}
+                          required
+                        />
+                        <MantineNativeSelect
+                          label="Trigger"
+                          value={values.trigger}
+                          data={triggers}
+                          onChange={(event) => {
+                            form.setFieldValue(
+                              "trigger",
+                              event.currentTarget.value,
+                            );
+                          }}
+                          required
+                        />
+                        <MantineNativeSelect
+                          label="Section timeline"
+                          value={values.sectionId}
+                          data={[
+                            { value: "", label: "No section" },
+                            ...workspace.sections.map((section) => ({
+                              value: section.id,
+                              label: section.title,
+                            })),
+                          ]}
+                          onChange={(event) => {
+                            form.setFieldValue(
+                              "sectionId",
+                              event.currentTarget.value,
+                            );
+                          }}
+                        />
+                        {workspace.sessions.length ? (
+                          <MantineNativeSelect
+                            label="Session"
+                            value={values.sessionId}
+                            data={[
+                              { value: "", label: "No session" },
+                              ...workspace.sessions.map((session) => ({
+                                value: session.id,
+                                label: session.title,
+                              })),
+                            ]}
+                            onChange={(event) => {
+                              form.setFieldValue(
+                                "sessionId",
+                                event.currentTarget.value,
+                              );
+                            }}
+                          />
+                        ) : null}
+                      </>
+                    ) : null}
+                    <div className={classes.timingGrid}>
+                      <MantineTextInput
+                        type="number"
+                        label="Timing offset"
+                        value={String(values.offsetAmount)}
+                        onChange={(event) => {
+                          form.setFieldValue(
+                            "offsetAmount",
+                            Number(event.currentTarget.value),
+                          );
+                        }}
+                        required
+                      />
+                      <MantineNativeSelect
+                        label="Offset unit"
+                        value={values.offsetUnit}
+                        data={[
+                          { value: "minute", label: "Minutes" },
+                          { value: "hour", label: "Hours" },
+                          { value: "day", label: "Days" },
+                          { value: "week", label: "Weeks" },
+                        ]}
+                        onChange={(event) => {
+                          form.setFieldValue(
+                            "offsetUnit",
+                            event.currentTarget.value as Draft["offsetUnit"],
+                          );
+                        }}
+                        required
+                      />
+                    </div>
+                  </Stack>
+                </Paper>
+
+                <div className={classes.editor}>
+                  <Paper
+                    withBorder
+                    radius="lg"
+                    p="md"
+                    className={classes.editorPanel}
+                  >
+                    <Stack gap="md">
+                      <Title order={3} size="h4">
+                        Content
+                      </Title>
+                      <MantineTextInput
+                        label="Subject"
+                        value={values.subject}
+                        maxLength={180}
+                        onChange={(event) => {
+                          form.setFieldValue(
+                            "subject",
+                            event.currentTarget.value,
+                          );
+                        }}
+                        required
+                      />
+                      <EmailBodyEditor
+                        body={values.textBody}
+                        variableGroups={workspace.variableGroups}
+                        onChange={(value) => {
+                          form.setFieldValue("textBody", value);
+                        }}
+                      />
+                    </Stack>
+                  </Paper>
+                  {preview ? (
+                    <Paper
+                      withBorder
+                      radius="lg"
+                      p="md"
+                      className={classes.previewPanel}
+                    >
+                      <Stack gap="md">
+                        <Text fw={700}>{preview.subject}</Text>
+                        <Text className={classes.body}>{preview.textBody}</Text>
+                      </Stack>
+                    </Paper>
+                  ) : null}
+                </div>
+                <Group justify="flex-end">
+                  <Button
+                    type="button"
+                    variant="default"
+                    disabled={pending}
+                    onClick={() => void loadPreview(values)}
+                  >
+                    Preview
+                  </Button>
+                  {occurrence && item?.overrideState === "overridden" ? (
+                    <Button
+                      type="button"
+                      variant="default"
+                      disabled={pending}
+                      onClick={() => {
+                        if (workspace.scope.kind !== "event_occurrence") return;
+                        void mutateAdminCommunication({
+                          data: {
+                            action: "reset_occurrence",
+                            payload: {
+                              eventOccurrenceId:
+                                workspace.scope.eventOccurrenceId,
+                              logicalId: item.logicalId,
+                            },
+                          },
+                        }).then((result) =>
+                          result.status === "ready" ? onSaved() : undefined,
                         );
                       }}
-                    />
+                    >
+                      Reset to inherited email
+                    </Button>
                   ) : null}
-                </>
-              ) : null}
-              <div className={classes.timingGrid}>
-                <MantineTextInput
-                  type="number"
-                  label="Timing offset"
-                  value={String(values.offsetAmount)}
-                  onChange={(event) => {
-                    form.setFieldValue(
-                      "offsetAmount",
-                      Number(event.currentTarget.value),
-                    );
-                  }}
-                  required
-                />
-                <MantineNativeSelect
-                  label="Offset unit"
-                  value={values.offsetUnit}
-                  data={[
-                    { value: "minute", label: "Minutes" },
-                    { value: "hour", label: "Hours" },
-                    { value: "day", label: "Days" },
-                    { value: "week", label: "Weeks" },
-                  ]}
-                  onChange={(event) => {
-                    form.setFieldValue(
-                      "offsetUnit",
-                      event.currentTarget.value as Draft["offsetUnit"],
-                    );
-                  }}
-                  required
-                />
-              </div>
-              <MantineTextInput
-                label={occurrence ? "Subject" : "Subject override"}
-                value={values.subjectOverride}
-                onChange={(event) => {
-                  form.setFieldValue(
-                    "subjectOverride",
-                    event.currentTarget.value,
-                  );
-                }}
-              />
-              <MantineTextInput
-                component="textarea"
-                label={occurrence ? "Email body" : "Body override"}
-                value={values.textBodyOverride}
-                onChange={(event) => {
-                  form.setFieldValue(
-                    "textBodyOverride",
-                    event.currentTarget.value,
-                  );
-                }}
-              />
-              {error ? <Alert color="red">{error}</Alert> : null}
-              <Group justify="flex-end">
-                <Button
-                  type="button"
-                  variant="default"
-                  disabled={pending}
-                  onClick={onClose}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" loading={pending}>
-                  Save
-                </Button>
-              </Group>
-            </Stack>
-          </form>
-        </AppDialog>
-      )}
+                  {workspace.scope.editable ? (
+                    <Button type="submit" loading={pending}>
+                      {occurrence
+                        ? "Save occurrence email"
+                        : "Save automated email"}
+                    </Button>
+                  ) : null}
+                </Group>
+              </Stack>
+            </form>
+          </Stack>
+        );
+      }}
     </form.Subscribe>
   );
 }
