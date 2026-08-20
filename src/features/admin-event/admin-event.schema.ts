@@ -1,5 +1,10 @@
 import { z } from "#/validation/zod";
 import { isIanaTimeZone } from "#/features/shared/iana-timezone";
+import {
+  eventScheduleEmailItemSchema,
+  type AdminCommunicationTemplateOption,
+} from "#/features/admin-email/admin-communication.schema";
+import type { EmailTemplateVariableGroup } from "#/features/admin-email/admin-email.schema";
 
 const identifierSchema = z
   .string()
@@ -188,6 +193,7 @@ const adminEventTemplateItemSchema = z.discriminatedUnion("kind", [
       .check(z.int(), z.minimum(1), z.maximum(100_000)),
     learningActivityVersionId: identifierSchema,
   }),
+  eventScheduleEmailItemSchema,
   z.object({
     ...eventTemplateItemBase,
     kind: z.literal("survey"),
@@ -265,6 +271,13 @@ export const adminEventTemplateDraftSchema = z
   .check(
     z.superRefine((draft, context) => {
       const identifiers = new Set<string>();
+      const sessionItemIds = new Set(
+        draft.sections.flatMap((section) =>
+          section.items.flatMap((item) =>
+            item.kind === "session" ? [item.id] : [],
+          ),
+        ),
+      );
       if (
         new Set(draft.defaultAdministratorIds).size !==
         draft.defaultAdministratorIds.length
@@ -308,6 +321,39 @@ export const adminEventTemplateDraftSchema = z
               message: "Item identifiers must be unique.",
             });
           identifiers.add(item.id);
+          if (
+            item.kind === "automated_email" &&
+            item.sessionItemId &&
+            !sessionItemIds.has(item.sessionItemId)
+          ) {
+            context.addIssue({
+              code: "custom",
+              path: [
+                "sections",
+                sectionIndex,
+                "items",
+                itemIndex,
+                "sessionItemId",
+              ],
+              message: "Select a session from this event template.",
+            });
+          }
+          if (
+            item.kind === "automated_email" &&
+            item.trigger === "session_start" &&
+            !item.sessionItemId
+          )
+            context.addIssue({
+              code: "custom",
+              path: [
+                "sections",
+                sectionIndex,
+                "items",
+                itemIndex,
+                "sessionItemId",
+              ],
+              message: "Select the session that anchors this email.",
+            });
           if (
             item.kind === "session" &&
             item.presenterRequired &&
@@ -671,13 +717,8 @@ export interface AdminEventTemplateDetail {
     publishedAt: string | null;
   }>;
   draft: AdminEventTemplateDraft;
-  communications: Array<{
-    id: string;
-    sectionId: string | null;
-    label: string;
-    trigger: string;
-    audience: string;
-  }>;
+  emailTemplates: Array<AdminCommunicationTemplateOption>;
+  emailVariableGroups: Array<EmailTemplateVariableGroup>;
   people: {
     platformAdministrators: Array<AdminEventPersonOption>;
     coordinators: Array<AdminEventCoordinatorOption>;

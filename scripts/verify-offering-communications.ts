@@ -93,6 +93,7 @@ try {
   const courseId = `verify_communication_course_${suffix}`;
   const courseVersionId = `verify_communication_course_version_${suffix}`;
   const courseSectionId = `verify_communication_course_section_${suffix}`;
+  const courseCommunicationId = `verify_communication_course_plan_${suffix}`;
   await database
     .insertInto("course")
     .values({
@@ -127,25 +128,6 @@ try {
     })
     .execute();
   assert.equal(
-    await saveCourseCommunicationPlan(
-      {
-        courseVersionId,
-        label: "Incomplete course reminder",
-        emailDesignVersionId: courseEmail.versionId,
-        sectionId: courseSectionId,
-        sessionDefinitionId: null,
-        audience: "active_enrollees",
-        trigger: "course_incomplete",
-        offsetAmount: 7,
-        offsetUnit: "day",
-        subjectOverride: null,
-        textBodyOverride: null,
-      },
-      actor,
-    ),
-    "saved",
-  );
-  assert.equal(
     await saveAdminCourseDraft(
       {
         courseId,
@@ -169,7 +151,20 @@ try {
             id: courseSectionId,
             title: "Renamed course section",
             description: "",
-            items: [],
+            items: [
+              {
+                id: courseCommunicationId,
+                kind: "automated_email",
+                title: "Incomplete course reminder",
+                emailDesignVersionId: courseEmail.versionId,
+                audience: "active_enrollees",
+                trigger: "course_incomplete",
+                offsetAmount: 7,
+                offsetUnit: "day",
+                subjectOverride: null,
+                textBodyOverride: null,
+              },
+            ],
           },
         ],
       },
@@ -199,6 +194,7 @@ try {
   const courseItem = courseWorkspace.items[0];
   assert.ok(courseItem);
   assert.equal(courseItem.sectionId, courseSectionId);
+  assert.equal(courseItem.position, 0);
   const coursePreview = await previewOfferingCommunication(
     { kind: "course", courseVersionId },
     { communicationId: courseItem.id },
@@ -258,6 +254,7 @@ try {
   const eventTemplateVersionId = `verify_communication_event_version_${suffix}`;
   const eventSectionId = `verify_communication_event_section_${suffix}`;
   const eventSessionItemId = `verify_communication_event_item_${suffix}`;
+  const eventCommunicationId = `verify_communication_event_plan_${suffix}`;
   const eventSessionDefinitionId = `verify_communication_event_session_${suffix}`;
   await database
     .insertInto("event_template")
@@ -345,25 +342,6 @@ try {
     "conflict",
   );
   assert.equal(
-    await saveEventTemplateCommunicationPlan(
-      {
-        eventTemplateVersionId,
-        label: "Event starts tomorrow",
-        emailDesignVersionId: eventEmail.versionId,
-        sectionId: eventSectionId,
-        sessionDefinitionId: eventSessionDefinitionId,
-        audience: "confirmed_participants",
-        trigger: "event_start",
-        offsetAmount: -1,
-        offsetUnit: "day",
-        subjectOverride: "Your event: {{event.title}}",
-        textBodyOverride: null,
-      },
-      actor,
-    ),
-    "saved",
-  );
-  assert.equal(
     await saveAdminEventTemplateDraft(
       {
         eventTemplateId,
@@ -385,6 +363,19 @@ try {
             releaseOffsetUnit: "minute",
             items: [
               {
+                id: eventCommunicationId,
+                kind: "automated_email",
+                title: "Event starts tomorrow",
+                emailDesignVersionId: eventEmail.versionId,
+                audience: "confirmed_participants",
+                trigger: "event_start",
+                sessionItemId: eventSessionItemId,
+                offsetAmount: -1,
+                offsetUnit: "day",
+                subjectOverride: "Your event: {{event.title}}",
+                textBodyOverride: null,
+              },
+              {
                 id: eventSessionItemId,
                 kind: "session",
                 title: "Workshop session",
@@ -403,10 +394,11 @@ try {
   );
   const eventPlanAfterDraftSave = await database
     .selectFrom("event_template_version_communication")
-    .select(["sectionId", "sessionDefinitionId"])
+    .select(["sectionId", "sessionDefinitionId", "position"])
     .where("eventTemplateVersionId", "=", eventTemplateVersionId)
     .executeTakeFirstOrThrow();
   assert.equal(eventPlanAfterDraftSave.sectionId, eventSectionId);
+  assert.equal(eventPlanAfterDraftSave.position, 0);
   const recreatedSession = await database
     .selectFrom("event_template_version_item")
     .select("sessionDefinitionId")
@@ -418,6 +410,13 @@ try {
     eventPlanAfterDraftSave.sessionDefinitionId,
     recreatedSessionDefinitionId,
   );
+  const eventActivityPosition = await database
+    .selectFrom("event_template_version_item")
+    .select("position")
+    .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+    .executeTakeFirstOrThrow();
+  assert.equal(eventPlanAfterDraftSave.sectionId, eventSectionId);
+  assert.equal(eventActivityPosition.position, 1);
   await database
     .updateTable("event_template_version")
     .set({ publishedAt: now })

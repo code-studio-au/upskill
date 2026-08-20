@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 877000,
+  "clientJavaScriptBytes": 883000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 257000,
+  "clientJavaScriptBrotliBytes": 261000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
@@ -19,7 +19,8 @@
     "FullscreenScormLauncher": 2048,
     "LearnerEventSection": 2304,
     "LearnerSurveyExperience": 3072,
-    "ResponsiveDataTable": 11264
+    "ResponsiveDataTable": 11264,
+    "ScheduleEmailEditor": 2304
   },
   "routeJavaScriptGzipBytes": {
     "/event-operations/": 8192,

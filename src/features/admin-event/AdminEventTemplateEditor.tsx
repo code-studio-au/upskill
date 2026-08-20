@@ -31,11 +31,11 @@ import { PageTabs } from "#/features/shared/PageTabs";
 import { EligibleStaffPicker } from "./EligibleStaffPicker";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
+import { formatCommunicationTiming } from "#/features/admin-email/communication-options";
 
-const AdminCommunicationPlanEditor = lazy(async () => {
-  const module =
-    await import("#/features/admin-email/AdminCommunicationPlanEditor");
-  return { default: module.AdminCommunicationPlanEditor };
+const ScheduleEmailEditor = lazy(async () => {
+  const module = await import("#/features/admin-email/ScheduleEmailEditor");
+  return { default: module.ScheduleEmailEditor };
 });
 
 function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
@@ -59,8 +59,12 @@ export function AdminEventTemplateEditor({
   const [error, setError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [editorView, setEditorView] = useState<
-    "communications" | "details" | "program" | "staffing"
+    "details" | "email" | "program" | "staffing"
   >("details");
+  const [emailSelection, setEmailSelection] = useState<{
+    sectionId: string;
+    itemId: string;
+  } | null>(null);
   const intent = useRef<"save" | "publish">("save");
   const form = useForm({
     defaultValues: { draft: detail.draft },
@@ -344,7 +348,7 @@ export function AdminEventTemplateEditor({
 
       <PageTabs
         label="Event template workspace"
-        value={editorView}
+        value={editorView === "email" ? "program" : editorView}
         tabs={[
           { value: "details", label: "Details" },
           {
@@ -352,10 +356,58 @@ export function AdminEventTemplateEditor({
             label: `Program (${String(draft.sections.length)})`,
           },
           { value: "staffing", label: "Staffing and regions" },
-          { value: "communications", label: "Communications" },
         ]}
         onChange={setEditorView}
       />
+
+      {editorView === "email" && emailSelection ? (
+        <Suspense fallback={<LoadingSpinner label="Loading email editor" />}>
+          {(() => {
+            const section = draft.sections.find(
+              (candidate) => candidate.id === emailSelection.sectionId,
+            );
+            const item = section?.items.find(
+              (candidate) => candidate.id === emailSelection.itemId,
+            );
+            return section && item?.kind === "automated_email" ? (
+              <ScheduleEmailEditor
+                scope={{
+                  kind: "event_template",
+                  eventTemplateVersionId: detail.version.id,
+                }}
+                item={item}
+                templates={detail.emailTemplates}
+                variableGroups={detail.emailVariableGroups}
+                sessions={draft.sections.flatMap((candidate) =>
+                  candidate.items.flatMap((candidateItem) =>
+                    candidateItem.kind === "session"
+                      ? [{ id: candidateItem.id, title: candidateItem.title }]
+                      : [],
+                  ),
+                )}
+                offeringTitle={draft.title}
+                sectionTitle={section.title}
+                editable={detail.version.editable}
+                onChange={(next) => {
+                  if (!("sessionItemId" in next)) return;
+                  updateSection(section.id, (current) => ({
+                    ...current,
+                    items: current.items.map((candidate) =>
+                      candidate.id === next.id ? next : candidate,
+                    ),
+                  }));
+                }}
+                onClose={() => {
+                  setEmailSelection(null);
+                  setEditorView("program");
+                }}
+              />
+            ) : (
+              <Alert color="red">The automated email is unavailable.</Alert>
+            );
+          })()}
+        </Suspense>
+      ) : null}
 
       {editorView === "details" ? (
         <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
@@ -620,82 +672,116 @@ export function AdminEventTemplateEditor({
                     <Stack gap="sm">
                       <Group justify="space-between" align="start">
                         <div>
-                          <Text fw={700}>{item.title}</Text>
+                          <Group gap="xs">
+                            <Text fw={700}>{item.title}</Text>
+                            {item.kind === "automated_email" ? (
+                              <Badge variant="outline">Automated email</Badge>
+                            ) : null}
+                          </Group>
                           <Text size="xs" c="dimmed">
-                            {item.kind === "session"
-                              ? "Event session"
-                              : item.kind}
+                            {item.kind === "automated_email"
+                              ? formatCommunicationTiming(
+                                  item.trigger,
+                                  item.offsetAmount,
+                                  item.offsetUnit,
+                                )
+                              : item.kind === "session"
+                                ? "Event session"
+                                : item.kind}
                           </Text>
                         </div>
-                        {detail.version.editable ? (
-                          <Group gap="xs">
+                        <Group gap="xs">
+                          {item.kind === "automated_email" ? (
                             <Button
                               size="xs"
-                              variant="default"
-                              disabled={itemIndex === 0}
+                              variant="light"
                               onClick={() => {
-                                updateSection(section.id, (current) => ({
-                                  ...current,
-                                  items: move(current.items, itemIndex, -1),
-                                }));
+                                setEmailSelection({
+                                  sectionId: section.id,
+                                  itemId: item.id,
+                                });
+                                setEditorView("email");
                               }}
                             >
-                              Up
+                              {detail.version.editable ? "Edit" : "Preview"}
                             </Button>
-                            <Button
-                              size="xs"
-                              variant="default"
-                              disabled={itemIndex === section.items.length - 1}
-                              onClick={() => {
-                                updateSection(section.id, (current) => ({
-                                  ...current,
-                                  items: move(current.items, itemIndex, 1),
-                                }));
-                              }}
-                            >
-                              Down
-                            </Button>
-                            <Button
-                              size="xs"
-                              color="red"
-                              variant="subtle"
-                              onClick={() => {
-                                updateSection(section.id, (current) => ({
-                                  ...current,
-                                  items: current.items.filter(
-                                    (candidate) => candidate.id !== item.id,
-                                  ),
-                                }));
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </Group>
-                        ) : null}
+                          ) : null}
+                          {detail.version.editable ? (
+                            <>
+                              <Button
+                                size="xs"
+                                variant="default"
+                                disabled={itemIndex === 0}
+                                onClick={() => {
+                                  updateSection(section.id, (current) => ({
+                                    ...current,
+                                    items: move(current.items, itemIndex, -1),
+                                  }));
+                                }}
+                              >
+                                Up
+                              </Button>
+                              <Button
+                                size="xs"
+                                variant="default"
+                                disabled={
+                                  itemIndex === section.items.length - 1
+                                }
+                                onClick={() => {
+                                  updateSection(section.id, (current) => ({
+                                    ...current,
+                                    items: move(current.items, itemIndex, 1),
+                                  }));
+                                }}
+                              >
+                                Down
+                              </Button>
+                              <Button
+                                size="xs"
+                                color="red"
+                                variant="subtle"
+                                onClick={() => {
+                                  updateSection(section.id, (current) => ({
+                                    ...current,
+                                    items: current.items.filter(
+                                      (candidate) => candidate.id !== item.id,
+                                    ),
+                                  }));
+                                }}
+                              >
+                                Remove
+                              </Button>
+                            </>
+                          ) : null}
+                        </Group>
                       </Group>
-                      <MantineTextInput
-                        label="Display title"
-                        value={item.title}
-                        disabled={!detail.version.editable}
-                        onChange={(event) => {
-                          const value = event.currentTarget.value;
-                          updateItem(section.id, item.id, (current) => ({
-                            ...current,
-                            title: value,
-                          }));
-                        }}
-                      />
-                      <MantineCheckbox
-                        label="Required for section completion"
-                        checked={item.required}
-                        disabled={!detail.version.editable}
-                        onChange={(checked) => {
-                          updateItem(section.id, item.id, (current) => ({
-                            ...current,
-                            required: checked,
-                          }));
-                        }}
-                      />
+                      {item.kind !== "automated_email" ? (
+                        <>
+                          <MantineTextInput
+                            label="Display title"
+                            value={item.title}
+                            disabled={!detail.version.editable}
+                            onChange={(event) => {
+                              const value = event.currentTarget.value;
+                              updateItem(section.id, item.id, (current) => ({
+                                ...current,
+                                title: value,
+                              }));
+                            }}
+                          />
+                          <MantineCheckbox
+                            label="Required for section completion"
+                            checked={item.required}
+                            disabled={!detail.version.editable}
+                            onChange={(checked) => {
+                              updateItem(section.id, item.id, (current) => ({
+                                ...current,
+                                required: checked,
+                              }));
+                            }}
+                          />
+                        </>
+                      ) : null}
                       {item.kind === "session" ? (
                         <>
                           <MantineTextInput
@@ -751,63 +837,73 @@ export function AdminEventTemplateEditor({
                 ))}
 
                 {detail.version.editable ? (
-                  <ActivityAdder
-                    detail={detail}
-                    onAddSession={() => {
-                      updateSection(section.id, (current) => ({
-                        ...current,
-                        items: [
-                          ...current.items,
-                          {
-                            id: `event_item_${crypto.randomUUID()}`,
-                            kind: "session",
-                            title: "Event session",
-                            required: true,
-                            durationMinutes: 60,
-                            presenterRequired: true,
-                            presenterIds: [],
-                          },
-                        ],
-                      }));
-                    }}
-                    onAdd={(kind, id) => {
-                      addActivity(section.id, kind, id);
-                    }}
-                  />
-                ) : null}
-                {detail.communications.some(
-                  (communication) => communication.sectionId === section.id,
-                ) ? (
                   <Stack gap="xs">
-                    <Text fw={600} size="sm">
-                      Automated emails
-                    </Text>
-                    {detail.communications
-                      .filter(
-                        (communication) =>
-                          communication.sectionId === section.id,
-                      )
-                      .map((communication) => (
-                        <Group key={communication.id} gap="xs">
-                          <Text size="sm">{communication.label}</Text>
-                          <Badge variant="outline">
-                            {communication.trigger.replaceAll("_", " ")}
-                          </Badge>
-                        </Group>
-                      ))}
+                    <ActivityAdder
+                      detail={detail}
+                      onAddSession={() => {
+                        updateSection(section.id, (current) => ({
+                          ...current,
+                          items: [
+                            ...current.items,
+                            {
+                              id: `event_item_${crypto.randomUUID()}`,
+                              kind: "session",
+                              title: "Event session",
+                              required: true,
+                              durationMinutes: 60,
+                              presenterRequired: true,
+                              presenterIds: [],
+                            },
+                          ],
+                        }));
+                      }}
+                      onAdd={(kind, id) => {
+                        addActivity(section.id, kind, id);
+                      }}
+                    />
+                    <Group>
+                      <Button
+                        size="xs"
+                        variant="default"
+                        disabled={
+                          !detail.emailTemplates.some(
+                            (template) => template.selectable !== false,
+                          )
+                        }
+                        onClick={() => {
+                          const template = detail.emailTemplates.find(
+                            (candidate) => candidate.selectable !== false,
+                          );
+                          if (!template) return;
+                          const item: AdminEventTemplateItem = {
+                            id: `event_template_communication_${crypto.randomUUID()}`,
+                            kind: "automated_email",
+                            title: template.designName,
+                            emailDesignVersionId: template.versionId,
+                            audience: "confirmed_participants",
+                            trigger: "event_start",
+                            sessionItemId: null,
+                            offsetAmount: 0,
+                            offsetUnit: "day",
+                            subjectOverride: null,
+                            textBodyOverride: null,
+                          };
+                          updateSection(section.id, (current) => ({
+                            ...current,
+                            items: [...current.items, item],
+                          }));
+                          setEmailSelection({
+                            sectionId: section.id,
+                            itemId: item.id,
+                          });
+                          setEditorView("email");
+                        }}
+                      >
+                        Add automated email
+                      </Button>
+                    </Group>
                   </Stack>
                 ) : null}
-                <Group>
-                  <Button
-                    size="xs"
-                    variant="subtle"
-                    onClick={() => {
-                      setEditorView("communications");
-                    }}
-                  >
-                    Manage automated emails
-                  </Button>
-                </Group>
               </Stack>
             </Paper>
           ))}
@@ -932,18 +1028,6 @@ export function AdminEventTemplateEditor({
             </Stack>
           </Paper>
         </Stack>
-      ) : null}
-
-      {editorView === "communications" ? (
-        <Suspense fallback={<LoadingSpinner label="Loading communications" />}>
-          <AdminCommunicationPlanEditor
-            scope={{
-              kind: "event_template",
-              eventTemplateVersionId: detail.version.id,
-            }}
-            onChanged={onChanged}
-          />
-        </Suspense>
       ) : null}
     </Stack>
   );

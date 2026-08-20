@@ -1470,13 +1470,13 @@ test("platform administrators can inspect learner progress", async ({
       .getByLabel("Published activity")
       .selectOption({ label: `${surveyTitles[0] ?? ""} · v1` });
     await page.getByRole("button", { name: "Add activity" }).click();
-    await page.getByRole("button", { name: "Save draft" }).click();
-    await page.getByRole("button", { name: "Communications" }).click();
     await page.getByRole("button", { name: "Add automated email" }).click();
     await expect(
-      page.getByRole("heading", { name: "Add automated email" }),
+      page.getByRole("heading", { name: "Automated email", exact: true }),
     ).toBeVisible();
-    await page.getByLabel("Plan label").fill("E2E registration confirmation");
+    await page
+      .getByLabel("Schedule label")
+      .fill("E2E registration confirmation");
     await page
       .getByLabel("Email template")
       .selectOption({ label: "E2E event confirmation · v1" });
@@ -1487,21 +1487,13 @@ test("platform administrators can inspect learner progress", async ({
       /Your event starts \{\{event\.startsAt\}\}\./u,
     );
     await page.getByLabel("Trigger").selectOption("registration_selected");
-    await page
-      .getByLabel("Section timeline")
-      .selectOption({ label: "Event session" });
-    await page.getByRole("button", { name: "Save automated email" }).click();
-    await expect(
-      page.getByRole("heading", { name: "E2E registration confirmation" }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Edit" }).click();
     await page.getByRole("button", { name: "Preview" }).click();
     await expect(
       page.getByText(`Confirmed: ${eventTemplateTitle}`),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Back to communications" }).click();
-    await page.getByRole("button", { name: /Program/u }).click();
+    await page.getByRole("button", { name: "Apply email" }).click();
     await expect(page.getByText("E2E registration confirmation")).toBeVisible();
+    await page.getByRole("button", { name: "Save draft" }).click();
     await page.getByRole("button", { name: "Staffing and regions" }).click();
     await expect(
       page.getByRole("combobox", { name: "Add administrator" }),

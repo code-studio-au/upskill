@@ -2,8 +2,9 @@
 
 ## Status
 
-Accepted; governed Email Designer, Offering communication plans and Event
-Occurrence overrides implemented. Scheduled delivery execution remains pending.
+Accepted; governed Email Designer, Section-embedded Offering communication
+plans and Event Occurrence overrides implemented. Scheduled delivery execution
+remains pending.
 
 ## Current implementation scope
 
@@ -22,8 +23,10 @@ used by this decision:
   exact published, context-compatible Email Design Version;
 - Section/Session placement, typed audience and trigger policy, signed timing
   offsets and per-offering subject/body overrides;
-- plan projection in both the dedicated Communications tab and the associated
-  authored Section;
+- one ordered Section timeline containing Learning Activities and Automated
+  Emails, with shared up/down/remove controls and a full-page email editor;
+- a single transactional draft save that preserves cross-item ordering while
+  persisting communications behind their separate delivery boundary;
 - plan inheritance into new Course/Event Template Versions with remapped Section
   and Session identities;
 - immutable published-parent plans and exact Occurrence Communication Plan
@@ -40,9 +43,9 @@ not expose arbitrary HTML, CSS, URL attributes or executable expressions.
 
 Durable schedule creation, committed-event subscription, recipient resolution,
 delivery suppression/recheck, sent-message history UI and broader System Email
-contracts remain target work. Communication placement is currently managed in a
-dedicated plan ordered within its Section projection; fully interleaving email
-and Learning Activity ordering is deferred until delivery semantics require it.
+contracts remain target work. Event Occurrence overrides retain their dedicated
+operational workspace because they revise an already materialized plan rather
+than authoring the reusable Section journey.
 
 ## Context
 

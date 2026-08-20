@@ -6,6 +6,7 @@ import path from "node:path";
 import { Pool } from "pg";
 import { down as rollbackGovernedEmailDesigner } from "#/server/db/migrations/0052_governed_email_designer";
 import { down as rollbackOfferingCommunicationPlans } from "#/server/db/migrations/0053_offering_communication_plans";
+import { down as rollbackEmbeddedScheduleEmails } from "#/server/db/migrations/0054_embedded_schedule_emails";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -531,6 +532,7 @@ try {
            'communication_plan', 'verify_communication_migration_rollback', null, '{}'::jsonb)`.execute(
         transaction,
       );
+      await rollbackEmbeddedScheduleEmails(transaction);
       await rollbackOfferingCommunicationPlans(transaction);
       await rollbackGovernedEmailDesigner(transaction);
       const retainedAuditRows = await sql<{ action: string }>`select action

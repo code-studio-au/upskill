@@ -1,5 +1,10 @@
 import { z } from "#/validation/zod";
 import type { AdminCourseResourceOption } from "#/features/resource/resource.schema";
+import {
+  courseScheduleEmailItemSchema,
+  type AdminCommunicationTemplateOption,
+} from "#/features/admin-email/admin-communication.schema";
+import type { EmailTemplateVariableGroup } from "#/features/admin-email/admin-email.schema";
 
 const identifierSchema = z
   .string()
@@ -95,6 +100,7 @@ const adminCourseItemSchema = z.discriminatedUnion("kind", [
     durationMinutes: z.null(),
     resourceVersionId: identifierSchema,
   }),
+  courseScheduleEmailItemSchema,
 ]);
 
 const adminCourseSectionSchema = z.object({
@@ -259,13 +265,8 @@ export interface AdminCourseDetail {
     }>;
   };
   draft: AdminCourseDraft;
-  communications: Array<{
-    id: string;
-    sectionId: string | null;
-    label: string;
-    trigger: string;
-    audience: string;
-  }>;
+  emailTemplates: Array<AdminCommunicationTemplateOption>;
+  emailVariableGroups: Array<EmailTemplateVariableGroup>;
   library: {
     modules: Array<AdminCourseModuleOption>;
     resources: Array<AdminCourseResourceOption>;

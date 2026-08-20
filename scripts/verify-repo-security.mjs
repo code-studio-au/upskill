@@ -108,6 +108,12 @@ if (
   failures.push(
     "The database verification gate must use a disposable database",
   );
+for (const [scriptName, command] of Object.entries(packageJson.scripts))
+  if (
+    scriptName.startsWith("db:verify:") &&
+    !command.includes("scripts/run-database-verification.mjs")
+  )
+    failures.push(`${scriptName} must use a disposable database`);
 const playwrightConfig = fs.readFileSync(
   path.join(root, "playwright.config.ts"),
   "utf8",

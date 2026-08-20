@@ -25,6 +25,21 @@ const verificationScripts = [
   "scripts/verify-offering-communications.ts",
   "scripts/verify-provisional-account-notifications.ts",
 ];
+const migrationScript = verificationScripts[0];
+const requestedScripts = process.argv.slice(2);
+const unknownScripts = requestedScripts.filter(
+  (script) => !verificationScripts.includes(script),
+);
+if (unknownScripts.length)
+  throw new Error(
+    `Unknown database verification script${unknownScripts.length === 1 ? "" : "s"}: ${unknownScripts.join(", ")}`,
+  );
+const scriptsToRun = requestedScripts.length
+  ? [
+      migrationScript,
+      ...requestedScripts.filter((script) => script !== migrationScript),
+    ]
+  : verificationScripts;
 
 let activeChild;
 let interruptedSignal;
@@ -79,7 +94,7 @@ try {
     DATABASE_URL: disposableDatabase.databaseUrl,
     EMAIL_PROVIDER: "local_capture",
   };
-  for (const script of verificationScripts) {
+  for (const script of scriptsToRun) {
     if (interruptedSignal) break;
     await run(script, environment);
   }

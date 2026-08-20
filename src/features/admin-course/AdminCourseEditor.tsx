@@ -45,6 +45,7 @@ import { firstFormError } from "#/features/shared/form-errors";
 import { createFriendlySlug } from "#/features/shared/friendly-slug";
 import { PageTabs } from "#/features/shared/PageTabs";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
+import { formatCommunicationTiming } from "#/features/admin-email/communication-options";
 import classes from "./AdminCourseEditor.module.css";
 
 const AdminCourseRoster = lazy(async () => {
@@ -57,10 +58,9 @@ const AdminCourseBulkPricingEditor = lazy(async () => {
   return { default: module.AdminCourseBulkPricingEditor };
 });
 
-const AdminCommunicationPlanEditor = lazy(async () => {
-  const module =
-    await import("#/features/admin-email/AdminCommunicationPlanEditor");
-  return { default: module.AdminCommunicationPlanEditor };
+const ScheduleEmailEditor = lazy(async () => {
+  const module = await import("#/features/admin-email/ScheduleEmailEditor");
+  return { default: module.ScheduleEmailEditor };
 });
 
 type Confirmation =
@@ -97,8 +97,12 @@ export function AdminCourseEditor({
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editorView, setEditorView] = useState<
-    "communications" | "details" | "program" | "learners" | "settings"
+    "details" | "email" | "program" | "learners" | "settings"
   >("details");
+  const [emailSelection, setEmailSelection] = useState<{
+    sectionId: string;
+    itemId: string;
+  } | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [itemSectionId, setItemSectionId] = useState<string | null>(null);
   const [itemKind, setItemKind] = useState<ItemKind>("scorm");
@@ -398,7 +402,7 @@ export function AdminCourseEditor({
 
       <PageTabs
         label="Course workspace"
-        value={editorView}
+        value={editorView === "email" ? "program" : editorView}
         tabs={[
           { value: "details", label: "Details" },
           {
@@ -409,11 +413,53 @@ export function AdminCourseEditor({
             value: "learners",
             label: `Learners (${String(detail.course.enrollmentCount)})`,
           },
-          { value: "communications", label: "Communications" },
           { value: "settings", label: "Settings" },
         ]}
         onChange={setEditorView}
       />
+
+      {editorView === "email" && emailSelection ? (
+        <Suspense fallback={<LoadingSpinner label="Loading email editor" />}>
+          {(() => {
+            const section = draft.sections.find(
+              (candidate) => candidate.id === emailSelection.sectionId,
+            );
+            const item = section?.items.find(
+              (candidate) => candidate.id === emailSelection.itemId,
+            );
+            return section && item?.kind === "automated_email" ? (
+              <ScheduleEmailEditor
+                scope={{
+                  kind: "course",
+                  courseVersionId: detail.version.id,
+                }}
+                item={item}
+                templates={detail.emailTemplates}
+                variableGroups={detail.emailVariableGroups}
+                sessions={[]}
+                offeringTitle={draft.title}
+                sectionTitle={section.title}
+                editable={editable}
+                onChange={(next) => {
+                  if ("sessionItemId" in next) return;
+                  updateSection(section.id, (current) => ({
+                    ...current,
+                    items: current.items.map((candidate) =>
+                      candidate.id === next.id ? next : candidate,
+                    ),
+                  }));
+                }}
+                onClose={() => {
+                  setEmailSelection(null);
+                  setEditorView("program");
+                }}
+              />
+            ) : (
+              <Alert color="red">The automated email is unavailable.</Alert>
+            );
+          })()}
+        </Suspense>
+      ) : null}
 
       {editorView === "details" ? (
         <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
@@ -700,59 +746,91 @@ export function AdminCourseEditor({
                       className={classes.item}
                     >
                       <div>
-                        <Text fw={600}>{item.title}</Text>
+                        <Group gap="xs">
+                          <Text fw={600}>{item.title}</Text>
+                          {item.kind === "automated_email" ? (
+                            <Badge variant="outline">Automated email</Badge>
+                          ) : null}
+                        </Group>
                         <Text size="xs" c="dimmed" tt="capitalize">
-                          {item.kind} ·{" "}
-                          {item.required ? "Required" : "Optional"}
-                          {item.durationMinutes
-                            ? ` · ${String(item.durationMinutes)} min`
-                            : ""}
+                          {item.kind === "automated_email" ? (
+                            formatCommunicationTiming(
+                              item.trigger,
+                              item.offsetAmount,
+                              item.offsetUnit,
+                            )
+                          ) : (
+                            <>
+                              {item.kind} ·{" "}
+                              {item.required ? "Required" : "Optional"}
+                              {item.durationMinutes
+                                ? ` · ${String(item.durationMinutes)} min`
+                                : ""}
+                            </>
+                          )}
                         </Text>
                       </div>
-                      {editable ? (
-                        <Group gap="xs">
+                      <Group gap="xs">
+                        {item.kind === "automated_email" ? (
                           <Button
                             size="compact-xs"
-                            variant="default"
-                            disabled={itemIndex === 0}
+                            variant="light"
                             onClick={() => {
-                              updateSection(section.id, (current) => ({
-                                ...current,
-                                items: move(current.items, itemIndex, -1),
-                              }));
-                            }}
-                          >
-                            Up
-                          </Button>
-                          <Button
-                            size="compact-xs"
-                            variant="default"
-                            disabled={itemIndex === section.items.length - 1}
-                            onClick={() => {
-                              updateSection(section.id, (current) => ({
-                                ...current,
-                                items: move(current.items, itemIndex, 1),
-                              }));
-                            }}
-                          >
-                            Down
-                          </Button>
-                          <Button
-                            size="compact-xs"
-                            color="red"
-                            variant="subtle"
-                            onClick={() => {
-                              setConfirmation({
-                                action: "delete-item",
+                              setEmailSelection({
                                 sectionId: section.id,
                                 itemId: item.id,
                               });
+                              setEditorView("email");
                             }}
                           >
-                            Remove
+                            {editable ? "Edit" : "Preview"}
                           </Button>
-                        </Group>
-                      ) : null}
+                        ) : null}
+                        {editable ? (
+                          <>
+                            <Button
+                              size="compact-xs"
+                              variant="default"
+                              disabled={itemIndex === 0}
+                              onClick={() => {
+                                updateSection(section.id, (current) => ({
+                                  ...current,
+                                  items: move(current.items, itemIndex, -1),
+                                }));
+                              }}
+                            >
+                              Up
+                            </Button>
+                            <Button
+                              size="compact-xs"
+                              variant="default"
+                              disabled={itemIndex === section.items.length - 1}
+                              onClick={() => {
+                                updateSection(section.id, (current) => ({
+                                  ...current,
+                                  items: move(current.items, itemIndex, 1),
+                                }));
+                              }}
+                            >
+                              Down
+                            </Button>
+                            <Button
+                              size="compact-xs"
+                              color="red"
+                              variant="subtle"
+                              onClick={() => {
+                                setConfirmation({
+                                  action: "delete-item",
+                                  sectionId: section.id,
+                                  itemId: item.id,
+                                });
+                              }}
+                            >
+                              Remove
+                            </Button>
+                          </>
+                        ) : null}
+                      </Group>
                     </Paper>
                   ))}
                   {editable ? (
@@ -778,41 +856,46 @@ export function AdminCourseEditor({
                       >
                         Upload PDF
                       </Button>
+                      <Button
+                        size="xs"
+                        variant="default"
+                        disabled={
+                          !detail.emailTemplates.some(
+                            (template) => template.selectable !== false,
+                          )
+                        }
+                        onClick={() => {
+                          const template = detail.emailTemplates.find(
+                            (candidate) => candidate.selectable !== false,
+                          );
+                          if (!template) return;
+                          const item: AdminCourseItem = {
+                            id: `course_communication_${crypto.randomUUID()}`,
+                            kind: "automated_email",
+                            title: template.designName,
+                            emailDesignVersionId: template.versionId,
+                            audience: "affected_learner",
+                            trigger: "course_incomplete",
+                            offsetAmount: 0,
+                            offsetUnit: "day",
+                            subjectOverride: null,
+                            textBodyOverride: null,
+                          };
+                          updateSection(section.id, (current) => ({
+                            ...current,
+                            items: [...current.items, item],
+                          }));
+                          setEmailSelection({
+                            sectionId: section.id,
+                            itemId: item.id,
+                          });
+                          setEditorView("email");
+                        }}
+                      >
+                        Add automated email
+                      </Button>
                     </Group>
                   ) : null}
-                  {detail.communications.some(
-                    (communication) => communication.sectionId === section.id,
-                  ) ? (
-                    <Stack gap="xs">
-                      <Text fw={600} size="sm">
-                        Automated emails
-                      </Text>
-                      {detail.communications
-                        .filter(
-                          (communication) =>
-                            communication.sectionId === section.id,
-                        )
-                        .map((communication) => (
-                          <Group key={communication.id} gap="xs">
-                            <Text size="sm">{communication.label}</Text>
-                            <Badge variant="outline">
-                              {communication.trigger.replaceAll("_", " ")}
-                            </Badge>
-                          </Group>
-                        ))}
-                    </Stack>
-                  ) : null}
-                  <Group>
-                    <Button
-                      size="xs"
-                      variant="subtle"
-                      onClick={() => {
-                        setEditorView("communications");
-                      }}
-                    >
-                      Manage automated emails
-                    </Button>
-                  </Group>
                 </Stack>
               </Stack>
             </Paper>
@@ -832,15 +915,6 @@ export function AdminCourseEditor({
           }
         >
           <AdminCourseRoster detail={detail} onChanged={onChanged} />
-        </Suspense>
-      ) : null}
-
-      {editorView === "communications" ? (
-        <Suspense fallback={<LoadingSpinner label="Loading communications" />}>
-          <AdminCommunicationPlanEditor
-            scope={{ kind: "course", courseVersionId: detail.version.id }}
-            onChanged={onChanged}
-          />
         </Suspense>
       ) : null}
 
