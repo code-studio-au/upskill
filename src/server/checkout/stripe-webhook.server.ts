@@ -25,6 +25,7 @@ function snapshotSession(
     orderKind: session.metadata?.orderKind ?? null,
     userId: session.metadata?.userId ?? null,
     courseVersionId: session.metadata?.courseVersionId ?? null,
+    eventOccurrenceId: session.metadata?.eventOccurrenceId ?? null,
     clientReferenceId: session.client_reference_id,
     amountTotal: session.amount_total,
     currency: session.currency,

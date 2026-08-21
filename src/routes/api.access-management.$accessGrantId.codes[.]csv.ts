@@ -56,7 +56,7 @@ export const Route = createFileRoute(
             "access-owner-codes-v1",
             result.data.accessGrantId,
             result.data.organizationName,
-            result.data.courseTitle,
+            result.data.offeringTitle,
             code.codeNumber,
             code.accessCode,
             code.status,

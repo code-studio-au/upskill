@@ -1,0 +1,48 @@
+.card {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.fields {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.logoField {
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 500;
+}
+
+.uploadedLogo {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  align-items: end;
+}
+
+.statementRow {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  align-items: end;
+}
+
+.statement {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+@media (min-width: 48em) {
+  .fields {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 2fr) minmax(8rem, 1fr);
+  }
+
+  .statementRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .uploadedLogo {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+}

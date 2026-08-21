@@ -7,6 +7,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { issueCourseEntitlement } from "#/server/learning/course-entitlement.server";
+import { issueConfirmedEventRegistration } from "#/server/events/confirmed-event-registration.server";
 
 export interface CheckoutSessionSnapshot {
   id: string;
@@ -15,6 +16,7 @@ export interface CheckoutSessionSnapshot {
   orderKind: string | null;
   userId: string | null;
   courseVersionId: string | null;
+  eventOccurrenceId: string | null;
   clientReferenceId: string | null;
   amountTotal: number | null;
   currency: string | null;
@@ -34,7 +36,9 @@ function assertUpskillSession(session: CheckoutSessionSnapshot): string | null {
     !session.orderId ||
     session.clientReferenceId !== session.orderId ||
     !session.userId ||
-    !session.courseVersionId
+    Number(Boolean(session.courseVersionId)) +
+      Number(Boolean(session.eventOccurrenceId)) !==
+      1
   ) {
     throw new Error("Upskill Checkout metadata is incomplete");
   }
@@ -91,9 +95,10 @@ async function fulfillBulkOrder(
       purchaserUserId: string;
     };
     item: {
-      courseVersionId: string;
+      courseVersionId: string | null;
+      eventOccurrenceId: string | null;
       quantity: number;
-      enrollmentDurationDays: number;
+      enrollmentDurationDays: number | null;
     };
     now: Date;
   },
@@ -112,6 +117,7 @@ async function fulfillBulkOrder(
       .select([
         "id",
         "courseVersionId",
+        "eventOccurrenceId",
         "quantity",
         "kind",
         "fulfillmentMode",
@@ -123,6 +129,7 @@ async function fulfillBulkOrder(
     if (
       grant.kind !== "bulk_purchase" ||
       grant.courseVersionId !== input.item.courseVersionId ||
+      grant.eventOccurrenceId !== input.item.eventOccurrenceId ||
       grant.fulfillmentMode !== purchase.fulfillmentMode ||
       !grant.codePrefix
     )
@@ -158,6 +165,7 @@ async function fulfillBulkOrder(
       organizationId,
       orderId: input.order.id,
       courseVersionId: input.item.courseVersionId,
+      eventOccurrenceId: input.item.eventOccurrenceId,
       label: purchase.grantLabel,
       createdByUserId: input.order.purchaserUserId,
       enrollmentDurationDays: input.item.enrollmentDurationDays,
@@ -269,14 +277,97 @@ export async function fulfillCheckoutSession(
         throw new Error("Single-course Checkout has invalid order items");
       const item = items[0];
       if (!item) throw new Error("Single-course Checkout has no order item");
-      if (item.courseVersionId !== session.courseVersionId)
-        throw new Error("Upskill Checkout course does not match the order");
       if (session.orderKind && session.orderKind !== order.kind)
         throw new Error("Upskill Checkout kind does not match the order");
 
+      if (order.kind === "event_registration") {
+        if (
+          item.quantity !== 1 ||
+          !item.eventOccurrenceId ||
+          item.courseVersionId !== null ||
+          item.eventOccurrenceId !== session.eventOccurrenceId
+        )
+          throw new Error(
+            "Paid Event Checkout target does not match the order",
+          );
+        const purchaser = await transaction
+          .selectFrom("user")
+          .select(["id", "name", "email", "emailVerified"])
+          .where("id", "=", purchaserUserId)
+          .executeTakeFirstOrThrow();
+        const registration = await issueConfirmedEventRegistration(
+          transaction,
+          {
+            eventOccurrenceId: item.eventOccurrenceId,
+            user: purchaser,
+            source: "paid_checkout",
+            eligibilitySource: "paid",
+            createdAt: new Date(),
+          },
+        );
+        const now = new Date();
+        await transaction
+          .updateTable("order")
+          .set({
+            status: "paid",
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: session.paymentIntentId,
+            stripeInvoiceId: session.invoiceId,
+            updatedAt: now,
+          })
+          .where("id", "=", order.id)
+          .executeTakeFirstOrThrow();
+        if (session.customerId)
+          await transaction
+            .updateTable("user")
+            .set({ stripeCustomerId: session.customerId, updatedAt: now })
+            .where("id", "=", purchaserUserId)
+            .where("stripeCustomerId", "is", null)
+            .execute();
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: purchaserUserId,
+          action: "order.checkout_paid",
+          subjectType: "order",
+          subjectId: order.id,
+          metadata: {
+            stripeCheckoutSessionId: session.id,
+            eventOccurrenceId: item.eventOccurrenceId,
+            registrationStatus: registration.status,
+          },
+          createdAt: now,
+        });
+        if (registration.status !== "created") {
+          await transaction
+            .insertInto("outbox_event")
+            .values({
+              id: randomUUID(),
+              topic: "order.review_required",
+              aggregateId: order.id,
+              payload: {
+                orderId: order.id,
+                eventOccurrenceId: item.eventOccurrenceId,
+                reason: registration.status,
+              },
+              availableAt: now,
+              processedAt: null,
+              createdAt: now,
+            })
+            .execute();
+          return "review-required";
+        }
+        return "fulfilled";
+      }
+
       const now = new Date();
       if (order.kind !== "individual_purchase") {
-        if (item.quantity < 1)
+        if (
+          item.quantity < 1 ||
+          item.courseVersionId !== session.courseVersionId ||
+          item.eventOccurrenceId !== session.eventOccurrenceId ||
+          Number(Boolean(item.courseVersionId)) +
+            Number(Boolean(item.eventOccurrenceId)) !==
+            1
+        )
           throw new Error("Bulk Checkout has invalid order quantity");
         const accessGrantId = await fulfillBulkOrder(transaction, {
           order: {
@@ -337,6 +428,11 @@ export async function fulfillCheckoutSession(
           .execute();
         return "fulfilled";
       }
+      if (
+        !item.courseVersionId ||
+        item.courseVersionId !== session.courseVersionId
+      )
+        throw new Error("Upskill Checkout course does not match the order");
       if (item.quantity !== 1)
         throw new Error("Individual Checkout has invalid order quantity");
       const existingEnrollment = await transaction
@@ -476,11 +572,14 @@ export async function markCheckoutSessionFailed(
       }
       const item = await transaction
         .selectFrom("order_item")
-        .select("courseVersionId")
+        .select(["courseVersionId", "eventOccurrenceId"])
         .where("orderId", "=", order.id)
         .executeTakeFirstOrThrow();
-      if (item.courseVersionId !== session.courseVersionId)
-        throw new Error("Failed Checkout course does not match the order");
+      if (
+        item.courseVersionId !== session.courseVersionId ||
+        item.eventOccurrenceId !== session.eventOccurrenceId
+      )
+        throw new Error("Failed Checkout offering does not match the order");
       const now = new Date();
       await transaction
         .updateTable("order")

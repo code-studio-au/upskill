@@ -3,8 +3,18 @@
   gap: var(--mantine-spacing-md);
 }
 
-@media (min-width: 62em) {
-  .courseGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.cardIdentity {
+  min-width: 0;
+}
+
+.cardTitleLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cardTitleLink:hover,
+.cardTitleLink:focus-visible {
+  color: var(--mantine-color-indigo-7);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
 }

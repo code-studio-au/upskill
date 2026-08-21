@@ -1,24 +1,23 @@
-import { useId, useState, type FocusEventHandler } from "react";
+import { useId, useMemo, useState, type FocusEventHandler } from "react";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import {
+  createEventTimezoneOptions,
   resolveEventTimezoneInput,
-  type EventTimezoneOption,
 } from "./event-timezones";
 
 export function EventTimezoneAutocomplete({
-  options,
   value,
   error,
   onBlur,
   onChange,
 }: {
-  options: Array<EventTimezoneOption>;
   value: string;
   error?: string | undefined;
   onBlur?:
     FocusEventHandler<HTMLInputElement | HTMLTextAreaElement> | undefined;
   onChange: (timezone: string) => void;
 }) {
+  const options = useMemo(() => createEventTimezoneOptions(value), [value]);
   const suggestionsId = useId();
   const [query, setQuery] = useState(
     () => options.find((option) => option.value === value)?.label ?? value,

@@ -77,7 +77,8 @@ export const adminAccessGrantCreateSchema = z.object({
       return normalizedLength >= 8 && normalizedLength <= 64;
     }, "Use between eight and 64 letters or numbers."),
   ),
-  courseVersionId: identifierSchema,
+  targetType: z.enum(["course", "event"]),
+  targetId: identifierSchema,
   quantity: z
     .number()
     .check(
@@ -120,6 +121,11 @@ export const adminAccessGrantRevealSchema = z.object({
   accessGrantId: identifierSchema,
 });
 
+export const adminAccessGrantRedemptionsSchema = z.object({
+  accessGrantId: identifierSchema,
+  page: z.number().check(z.int(), z.minimum(1), z.maximum(1_000)),
+});
+
 export const adminAccessGrantCapacitySchema = z.object({
   accessGrantId: identifierSchema,
   quantity: z
@@ -140,25 +146,30 @@ export type AdminAccessGrantRevokeInput = z.infer<
 export type AdminAccessGrantRevealInput = z.infer<
   typeof adminAccessGrantRevealSchema
 >;
+export type AdminAccessGrantRedemptionsInput = z.infer<
+  typeof adminAccessGrantRedemptionsSchema
+>;
 export type AdminAccessGrantCapacityInput = z.infer<
   typeof adminAccessGrantCapacitySchema
 >;
 
 export interface AdminAccessGrantDirectory {
   targets: Array<{
-    courseVersionId: string;
-    courseTitle: string;
-    version: number;
+    type: "course" | "event";
+    id: string;
+    title: string;
+    detail: string;
   }>;
   grants: Array<{
     id: string;
     label: string;
     organizationName: string | null;
-    courseTitle: string;
-    courseVersion: number;
+    offeringType: "course" | "event";
+    offeringTitle: string;
+    offeringDetail: string;
     quantity: number;
     redeemed: number;
-    enrollmentDurationDays: number;
+    enrollmentDurationDays: number | null;
     domains: Array<string>;
     expiresAt: string | null;
     revokedAt: string | null;
@@ -172,15 +183,21 @@ export interface AdminAccessGrantDirectory {
       email: string;
       status: "pending" | "active";
     }>;
-    redemptions: Array<{
-      enrollmentId: string;
-      learnerId: string;
-      learnerName: string;
-      learnerEmail: string;
-      enrolledAt: string;
-      state: "active" | "completed" | "expired" | "removed";
-    }>;
   }>;
+}
+
+export interface AdminAccessGrantRedemptionPage {
+  rows: Array<{
+    enrollmentId: string;
+    learnerId: string;
+    learnerName: string;
+    learnerEmail: string;
+    enrolledAt: string;
+    state: "active" | "completed" | "expired" | "removed";
+  }>;
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export type AdminAccessGrant = AdminAccessGrantDirectory["grants"][number];
@@ -190,6 +207,10 @@ export type AdminAccessGrantResult<T> =
   | { status: "unauthenticated" }
   | { status: "forbidden" };
 
+export type AdminAccessGrantRedemptionsResult =
+  | AdminAccessGrantResult<AdminAccessGrantRedemptionPage>
+  | { status: "not-found" };
+
 export type AdminAccessGrantMutationResult =
   | AdminAccessGrantResult<{
       outcome: "created" | "revoked" | "unchanged" | "capacity-updated";
@@ -197,7 +218,7 @@ export type AdminAccessGrantMutationResult =
       accessCode?: string;
       generatedCodeCount?: number;
     }>
-  | { status: "not-found"; entity: "access-grant" | "course-version" }
+  | { status: "not-found"; entity: "access-grant" | "offering" }
   | {
       status: "conflict";
       reason:

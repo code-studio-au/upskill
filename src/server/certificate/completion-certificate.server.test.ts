@@ -11,6 +11,17 @@ describe("completion certificate PDF", () => {
       completionReference: "COMPLETION-1",
       learnerName: "Zoë 🚀 Learner",
       learningTitle: "Safe meal support",
+      learningSummary:
+        "Practical guidance for supporting people with eating disorders before, during and after meals.",
+      accreditations: [
+        {
+          name: "Clinical education",
+          cpdPoints: 2.5,
+          blurb: "Recognised professional learning.",
+          logoAssetId: null,
+          logoName: "",
+        },
+      ],
       completedAt: new Date("2026-08-10T00:00:00.000Z"),
     });
     expect(new TextDecoder().decode(bytes.slice(0, 5))).toBe("%PDF-");
@@ -56,6 +67,18 @@ describe("completion certificate PDF", () => {
       completionReference: "COMPLETION-WITH-LONG-TEXT",
       learnerName,
       learningTitle: courseTitle,
+      learningSummary:
+        "A comprehensive learning activity covering evidence-informed clinical practice across multidisciplinary care settings and professional contexts.",
+      accreditations: [
+        {
+          name: "Australian professional development accreditation programme",
+          cpdPoints: 12,
+          blurb:
+            "Completion of this learning activity contributes to continuing professional development.",
+          logoAssetId: null,
+          logoName: "",
+        },
+      ],
       completedAt: new Date("2026-08-10T00:00:00.000Z"),
     });
     expect((await PDFDocument.load(bytes)).getPageCount()).toBe(1);

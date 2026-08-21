@@ -12,27 +12,48 @@ export async function findCheckoutStatus(
   const row = await getDatabase()
     .selectFrom("order")
     .innerJoin("order_item", "order_item.orderId", "order.id")
-    .innerJoin(
+    .leftJoin(
       "course_version",
       "course_version.id",
       "order_item.courseVersionId",
     )
-    .innerJoin("course", "course.id", "course_version.courseId")
+    .leftJoin("course", "course.id", "course_version.courseId")
+    .leftJoin(
+      "event_occurrence",
+      "event_occurrence.id",
+      "order_item.eventOccurrenceId",
+    )
     .select([
       "order.status",
       "order.kind",
       "course.slug",
       "course_version.content",
+      "event_occurrence.title as eventTitle",
+      "event_occurrence.slug as eventSlug",
     ])
     .where("order.stripeCheckoutSessionId", "=", sessionId)
     .where("order.purchaserUserId", "=", user.id)
     .executeTakeFirst();
   if (!row) return null;
+  if (row.eventTitle && row.eventSlug) {
+    if (!row.eventTitle || !row.eventSlug) return null;
+    return {
+      status: row.status,
+      kind:
+        row.kind === "individual_purchase" ? "event_registration" : row.kind,
+      offeringType: "event",
+      offeringTitle: row.eventTitle,
+      offeringSlug: row.eventSlug,
+    };
+  }
+  if (!row.content || !row.slug) return null;
+  if (row.kind === "event_registration") return null;
   const content = courseContentSchema.parse(row.content);
   return {
     status: row.status,
     kind: row.kind,
-    courseTitle: content.title,
-    courseSlug: row.slug,
+    offeringType: "course",
+    offeringTitle: content.title,
+    offeringSlug: row.slug,
   };
 }

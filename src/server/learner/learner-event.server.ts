@@ -43,7 +43,8 @@ export async function registerLearnerForEvent(
       if (
         !occurrence ||
         occurrence.status !== "published" ||
-        occurrence.registrationMode === "open_entry"
+        occurrence.registrationMode === "open_entry" ||
+        occurrence.registrationMode === "paid_entry"
       )
         return { status: "unavailable" } as const;
 

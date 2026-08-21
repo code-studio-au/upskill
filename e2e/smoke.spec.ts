@@ -541,9 +541,6 @@ test("server-rendered navigation and actions stay visible before hydration", asy
     "light",
   );
   await expect(
-    page.getByRole("link", { name: "Browse learning", exact: true }),
-  ).toBeVisible();
-  await expect(
     page.getByRole("link", { name: "Sign in", exact: true }),
   ).toBeVisible();
   const exploreCourses = page.getByRole("link", { name: "Explore courses" });
@@ -563,9 +560,19 @@ test("server-rendered navigation and actions stay visible before hydration", asy
   await expect(signIn).toBeVisible();
   await expect(signIn).not.toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
 
-  const favicon = await page.request.get("/favicon.svg");
+  const favicon = await page.request.get("/favicon.ico");
   expect(favicon.status()).toBe(200);
-  expect(favicon.headers()["content-type"]).toContain("image/svg+xml");
+  expect(favicon.headers()["content-type"]).toContain("image/x-icon");
+  const homepageBackground = await page.request.get(
+    "/brand/home-arrow-background.jpg",
+  );
+  expect(homepageBackground.status()).toBe(200);
+  expect(homepageBackground.headers()["content-type"]).toContain("image/jpeg");
+  const manifest = await page.request.get("/site.webmanifest");
+  expect(manifest.status()).toBe(200);
+  expect(manifest.headers()["content-type"]).toContain(
+    "application/manifest+json",
+  );
   await context.close();
 });
 
@@ -592,12 +599,14 @@ test("validated catalogue search remains navigable", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Clear search filter: safety" }),
   ).toHaveCount(0);
-  await page.locator('a[href="/courses/psychological-safety-at-work"]').click();
+  await page
+    .getByRole("link", { name: "Psychological safety at work", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "Psychological safety at work" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: "What you will complete" }),
+    page.getByRole("heading", { name: "Course outline" }),
   ).toBeVisible();
   await expect(page.getByText(/1 CPD point/)).toBeVisible();
   await page.getByRole("button", { name: "Enrol in this course" }).click();
@@ -976,7 +985,11 @@ test("learners can end their authenticated session", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 
-  await page.locator("header details summary").click();
+  const mobileNavigation = page.locator(
+    'header summary[aria-label="Navigation menu"]',
+  );
+  if (await mobileNavigation.isVisible()) await mobileNavigation.click();
+  else await page.locator('header summary[aria-label$="account menu"]').click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/$/);
   await page.goto("/dashboard");

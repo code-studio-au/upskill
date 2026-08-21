@@ -31,6 +31,7 @@ import { Route as EventAccessPublicReferenceRouteImport } from './routes/event-a
 import { Route as EventOperationsIndexRouteImport } from './routes/event-operations.index'
 import { Route as EventOperationsEventOccurrenceIdRouteImport } from './routes/event-operations.$eventOccurrenceId'
 import { Route as EventSurveysPublicReferenceRouteImport } from './routes/event-surveys.$publicReference'
+import { Route as EventsSlugRouteImport } from './routes/events.$slug'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
 import { Route as MyEventsEventOccurrenceIdRouteImport } from './routes/my-events_.$eventOccurrenceId'
 import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
@@ -46,6 +47,8 @@ import { Route as AdminLearnersIndexRouteImport } from './routes/admin.learners.
 import { Route as AdminLearnersUserIdRouteImport } from './routes/admin.learners.$userId'
 import { Route as AdminSurveysIndexRouteImport } from './routes/admin.surveys.index'
 import { Route as AdminSurveysSurveyIdRouteImport } from './routes/admin.surveys.$surveyId'
+import { Route as ApiAdminAccreditationLogosRouteImport } from './routes/api.admin.accreditation-logos'
+import { Route as ApiAdminOfferingImagesRouteImport } from './routes/api.admin.offering-images'
 import { Route as ApiAdminResourcesRouteImport } from './routes/api.admin.resources'
 import { Route as ApiAdminScormPackagesRouteImport } from './routes/api.admin.scorm-packages'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
@@ -53,10 +56,12 @@ import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 import { Route as CoursesSlugBulkOrderRouteImport } from './routes/courses.$slug_.bulk-order'
+import { Route as EventsSlugBulkOrderRouteImport } from './routes/events.$slug_.bulk-order'
 import { Route as AdminEventsInstancesEventOccurrenceIdRouteImport } from './routes/admin.events.instances.$eventOccurrenceId'
 import { Route as AdminEventsInstancesNewRouteImport } from './routes/admin.events.instances_.new'
 import { Route as ApiAccessManagementAccessGrantIdCodesDotcsvRouteImport } from './routes/api.access-management.$accessGrantId.codes[.]csv'
 import { Route as ApiAccessManagementAccessGrantIdLearnersDotcsvRouteImport } from './routes/api.access-management.$accessGrantId.learners[.]csv'
+import { Route as ApiAdminOfferingImagesAssetIdRouteImport } from './routes/api.admin.offering-images.$assetId'
 import { Route as ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport } from './routes/api.event-operations.$eventOccurrenceId.progress[.]csv'
 import { Route as ApiEventSurveysPublicReferenceQrDotsvgRouteImport } from './routes/api.event-surveys.$publicReference.qr[.]svg'
 import { Route as ApiLearningCertificatesEnrollmentIdRouteImport } from './routes/api.learning.certificates.$enrollmentId'
@@ -67,6 +72,10 @@ import { Route as EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRou
 import { Route as LearnEnrollmentIdSurveysCourseVersionItemIdRouteImport } from './routes/learn.$enrollmentId_.surveys.$courseVersionItemId'
 import { Route as MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRouteImport } from './routes/my-events_.$eventOccurrenceId_.surveys.$eventTemplateVersionItemId'
 import { Route as AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport } from './routes/admin.learners.$userId_.enrollments.$enrollmentId'
+import { Route as ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.courses.$slug.accreditation-logos.$assetId'
+import { Route as ApiCatalogCoursesSlugCoverImagesAssetIdRouteImport } from './routes/api.catalog.courses.$slug.cover-images.$assetId'
+import { Route as ApiCatalogEventsSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.events.$slug.accreditation-logos.$assetId'
+import { Route as ApiCatalogEventsSlugCoverImagesAssetIdRouteImport } from './routes/api.catalog.events.$slug.cover-images.$assetId'
 import { Route as ApiScormAttemptsAttemptIdContentSplatRouteImport } from './routes/api.scorm.attempts.$attemptId.content.$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -182,6 +191,11 @@ const EventSurveysPublicReferenceRoute =
     path: '/event-surveys/$publicReference',
     getParentRoute: () => rootRouteImport,
   } as any)
+const EventsSlugRoute = EventsSlugRouteImport.update({
+  id: '/events/$slug',
+  path: '/events/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LearnEnrollmentIdRoute = LearnEnrollmentIdRouteImport.update({
   id: '/learn/$enrollmentId',
   path: '/learn/$enrollmentId',
@@ -260,6 +274,17 @@ const AdminSurveysSurveyIdRoute = AdminSurveysSurveyIdRouteImport.update({
   path: '/surveys/$surveyId',
   getParentRoute: () => AdminRoute,
 } as any)
+const ApiAdminAccreditationLogosRoute =
+  ApiAdminAccreditationLogosRouteImport.update({
+    id: '/api/admin/accreditation-logos',
+    path: '/api/admin/accreditation-logos',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAdminOfferingImagesRoute = ApiAdminOfferingImagesRouteImport.update({
+  id: '/api/admin/offering-images',
+  path: '/api/admin/offering-images',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAdminResourcesRoute = ApiAdminResourcesRouteImport.update({
   id: '/api/admin/resources',
   path: '/api/admin/resources',
@@ -295,6 +320,11 @@ const CoursesSlugBulkOrderRoute = CoursesSlugBulkOrderRouteImport.update({
   path: '/courses/$slug/bulk-order',
   getParentRoute: () => rootRouteImport,
 } as any)
+const EventsSlugBulkOrderRoute = EventsSlugBulkOrderRouteImport.update({
+  id: '/events/$slug_/bulk-order',
+  path: '/events/$slug/bulk-order',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminEventsInstancesEventOccurrenceIdRoute =
   AdminEventsInstancesEventOccurrenceIdRouteImport.update({
     id: '/events/instances/$eventOccurrenceId',
@@ -317,6 +347,12 @@ const ApiAccessManagementAccessGrantIdLearnersDotcsvRoute =
     id: '/api/access-management/$accessGrantId/learners.csv',
     path: '/api/access-management/$accessGrantId/learners.csv',
     getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAdminOfferingImagesAssetIdRoute =
+  ApiAdminOfferingImagesAssetIdRouteImport.update({
+    id: '/$assetId',
+    path: '/$assetId',
+    getParentRoute: () => ApiAdminOfferingImagesRoute,
   } as any)
 const ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute =
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRouteImport.update({
@@ -380,6 +416,30 @@ const AdminLearnersUserIdEnrollmentsEnrollmentIdRoute =
     path: '/learners/$userId/enrollments/$enrollmentId',
     getParentRoute: () => AdminRoute,
   } as any)
+const ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute =
+  ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport.update({
+    id: '/api/catalog/courses/$slug/accreditation-logos/$assetId',
+    path: '/api/catalog/courses/$slug/accreditation-logos/$assetId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCatalogCoursesSlugCoverImagesAssetIdRoute =
+  ApiCatalogCoursesSlugCoverImagesAssetIdRouteImport.update({
+    id: '/api/catalog/courses/$slug/cover-images/$assetId',
+    path: '/api/catalog/courses/$slug/cover-images/$assetId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCatalogEventsSlugAccreditationLogosAssetIdRoute =
+  ApiCatalogEventsSlugAccreditationLogosAssetIdRouteImport.update({
+    id: '/api/catalog/events/$slug/accreditation-logos/$assetId',
+    path: '/api/catalog/events/$slug/accreditation-logos/$assetId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiCatalogEventsSlugCoverImagesAssetIdRoute =
+  ApiCatalogEventsSlugCoverImagesAssetIdRouteImport.update({
+    id: '/api/catalog/events/$slug/cover-images/$assetId',
+    path: '/api/catalog/events/$slug/cover-images/$assetId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiScormAttemptsAttemptIdContentSplatRoute =
   ApiScormAttemptsAttemptIdContentSplatRouteImport.update({
     id: '/content/$',
@@ -407,6 +467,7 @@ export interface FileRoutesByFullPath {
   '/event-access/$publicReference': typeof EventAccessPublicReferenceRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
+  '/events/$slug': typeof EventsSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
   '/admin/': typeof AdminIndexRoute
@@ -420,6 +481,8 @@ export interface FileRoutesByFullPath {
   '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
+  '/api/admin/accreditation-logos': typeof ApiAdminAccreditationLogosRoute
+  '/api/admin/offering-images': typeof ApiAdminOfferingImagesRouteWithChildren
   '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -427,6 +490,7 @@ export interface FileRoutesByFullPath {
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
+  '/events/$slug/bulk-order': typeof EventsSlugBulkOrderRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
   '/admin/emails/': typeof AdminEmailsIndexRoute
   '/admin/events/': typeof AdminEventsIndexRoute
@@ -436,6 +500,7 @@ export interface FileRoutesByFullPath {
   '/admin/events/instances/new': typeof AdminEventsInstancesNewRoute
   '/api/access-management/$accessGrantId/codes.csv': typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
   '/api/access-management/$accessGrantId/learners.csv': typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
+  '/api/admin/offering-images/$assetId': typeof ApiAdminOfferingImagesAssetIdRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -446,6 +511,10 @@ export interface FileRoutesByFullPath {
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
+  '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
+  '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
+  '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
+  '/api/catalog/events/$slug/cover-images/$assetId': typeof ApiCatalogEventsSlugCoverImagesAssetIdRoute
   '/api/scorm/attempts/$attemptId/content/$': typeof ApiScormAttemptsAttemptIdContentSplatRoute
 }
 export interface FileRoutesByTo {
@@ -466,6 +535,7 @@ export interface FileRoutesByTo {
   '/event-access/$publicReference': typeof EventAccessPublicReferenceRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
+  '/events/$slug': typeof EventsSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
   '/admin': typeof AdminIndexRoute
@@ -479,6 +549,8 @@ export interface FileRoutesByTo {
   '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
+  '/api/admin/accreditation-logos': typeof ApiAdminAccreditationLogosRoute
+  '/api/admin/offering-images': typeof ApiAdminOfferingImagesRouteWithChildren
   '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -486,6 +558,7 @@ export interface FileRoutesByTo {
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
+  '/events/$slug/bulk-order': typeof EventsSlugBulkOrderRoute
   '/admin/courses': typeof AdminCoursesIndexRoute
   '/admin/emails': typeof AdminEmailsIndexRoute
   '/admin/events': typeof AdminEventsIndexRoute
@@ -495,6 +568,7 @@ export interface FileRoutesByTo {
   '/admin/events/instances/new': typeof AdminEventsInstancesNewRoute
   '/api/access-management/$accessGrantId/codes.csv': typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
   '/api/access-management/$accessGrantId/learners.csv': typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
+  '/api/admin/offering-images/$assetId': typeof ApiAdminOfferingImagesAssetIdRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -505,6 +579,10 @@ export interface FileRoutesByTo {
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
+  '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
+  '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
+  '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
+  '/api/catalog/events/$slug/cover-images/$assetId': typeof ApiCatalogEventsSlugCoverImagesAssetIdRoute
   '/api/scorm/attempts/$attemptId/content/$': typeof ApiScormAttemptsAttemptIdContentSplatRoute
 }
 export interface FileRoutesById {
@@ -528,6 +606,7 @@ export interface FileRoutesById {
   '/event-access/$publicReference': typeof EventAccessPublicReferenceRoute
   '/event-operations/$eventOccurrenceId': typeof EventOperationsEventOccurrenceIdRoute
   '/event-surveys/$publicReference': typeof EventSurveysPublicReferenceRoute
+  '/events/$slug': typeof EventsSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events_/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
   '/admin/': typeof AdminIndexRoute
@@ -541,6 +620,8 @@ export interface FileRoutesById {
   '/admin/events/templates': typeof AdminEventsTemplatesRoute
   '/admin/learners/$userId': typeof AdminLearnersUserIdRoute
   '/admin/surveys/$surveyId': typeof AdminSurveysSurveyIdRoute
+  '/api/admin/accreditation-logos': typeof ApiAdminAccreditationLogosRoute
+  '/api/admin/offering-images': typeof ApiAdminOfferingImagesRouteWithChildren
   '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -548,6 +629,7 @@ export interface FileRoutesById {
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/courses/$slug_/bulk-order': typeof CoursesSlugBulkOrderRoute
+  '/events/$slug_/bulk-order': typeof EventsSlugBulkOrderRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
   '/admin/emails/': typeof AdminEmailsIndexRoute
   '/admin/events/': typeof AdminEventsIndexRoute
@@ -557,6 +639,7 @@ export interface FileRoutesById {
   '/admin/events/instances_/new': typeof AdminEventsInstancesNewRoute
   '/api/access-management/$accessGrantId/codes.csv': typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
   '/api/access-management/$accessGrantId/learners.csv': typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
+  '/api/admin/offering-images/$assetId': typeof ApiAdminOfferingImagesAssetIdRoute
   '/api/event-operations/$eventOccurrenceId/progress.csv': typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
   '/api/event-surveys/$publicReference/qr.svg': typeof ApiEventSurveysPublicReferenceQrDotsvgRoute
   '/api/learning/certificates/$enrollmentId': typeof ApiLearningCertificatesEnrollmentIdRoute
@@ -567,6 +650,10 @@ export interface FileRoutesById {
   '/learn/$enrollmentId_/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId_/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
+  '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
+  '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
+  '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
+  '/api/catalog/events/$slug/cover-images/$assetId': typeof ApiCatalogEventsSlugCoverImagesAssetIdRoute
   '/api/scorm/attempts/$attemptId/content/$': typeof ApiScormAttemptsAttemptIdContentSplatRoute
 }
 export interface FileRouteTypes {
@@ -591,6 +678,7 @@ export interface FileRouteTypes {
     | '/event-access/$publicReference'
     | '/event-operations/$eventOccurrenceId'
     | '/event-surveys/$publicReference'
+    | '/events/$slug'
     | '/learn/$enrollmentId'
     | '/my-events/$eventOccurrenceId'
     | '/admin/'
@@ -604,6 +692,8 @@ export interface FileRouteTypes {
     | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
+    | '/api/admin/accreditation-logos'
+    | '/api/admin/offering-images'
     | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
@@ -611,6 +701,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
     | '/courses/$slug/bulk-order'
+    | '/events/$slug/bulk-order'
     | '/admin/courses/'
     | '/admin/emails/'
     | '/admin/events/'
@@ -620,6 +711,7 @@ export interface FileRouteTypes {
     | '/admin/events/instances/new'
     | '/api/access-management/$accessGrantId/codes.csv'
     | '/api/access-management/$accessGrantId/learners.csv'
+    | '/api/admin/offering-images/$assetId'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -630,6 +722,10 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
+    | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
+    | '/api/catalog/courses/$slug/cover-images/$assetId'
+    | '/api/catalog/events/$slug/accreditation-logos/$assetId'
+    | '/api/catalog/events/$slug/cover-images/$assetId'
     | '/api/scorm/attempts/$attemptId/content/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -650,6 +746,7 @@ export interface FileRouteTypes {
     | '/event-access/$publicReference'
     | '/event-operations/$eventOccurrenceId'
     | '/event-surveys/$publicReference'
+    | '/events/$slug'
     | '/learn/$enrollmentId'
     | '/my-events/$eventOccurrenceId'
     | '/admin'
@@ -663,6 +760,8 @@ export interface FileRouteTypes {
     | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
+    | '/api/admin/accreditation-logos'
+    | '/api/admin/offering-images'
     | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
@@ -670,6 +769,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
     | '/courses/$slug/bulk-order'
+    | '/events/$slug/bulk-order'
     | '/admin/courses'
     | '/admin/emails'
     | '/admin/events'
@@ -679,6 +779,7 @@ export interface FileRouteTypes {
     | '/admin/events/instances/new'
     | '/api/access-management/$accessGrantId/codes.csv'
     | '/api/access-management/$accessGrantId/learners.csv'
+    | '/api/admin/offering-images/$assetId'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -689,6 +790,10 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
+    | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
+    | '/api/catalog/courses/$slug/cover-images/$assetId'
+    | '/api/catalog/events/$slug/accreditation-logos/$assetId'
+    | '/api/catalog/events/$slug/cover-images/$assetId'
     | '/api/scorm/attempts/$attemptId/content/$'
   id:
     | '__root__'
@@ -711,6 +816,7 @@ export interface FileRouteTypes {
     | '/event-access/$publicReference'
     | '/event-operations/$eventOccurrenceId'
     | '/event-surveys/$publicReference'
+    | '/events/$slug'
     | '/learn/$enrollmentId'
     | '/my-events_/$eventOccurrenceId'
     | '/admin/'
@@ -724,6 +830,8 @@ export interface FileRouteTypes {
     | '/admin/events/templates'
     | '/admin/learners/$userId'
     | '/admin/surveys/$surveyId'
+    | '/api/admin/accreditation-logos'
+    | '/api/admin/offering-images'
     | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
@@ -731,6 +839,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
     | '/courses/$slug_/bulk-order'
+    | '/events/$slug_/bulk-order'
     | '/admin/courses/'
     | '/admin/emails/'
     | '/admin/events/'
@@ -740,6 +849,7 @@ export interface FileRouteTypes {
     | '/admin/events/instances_/new'
     | '/api/access-management/$accessGrantId/codes.csv'
     | '/api/access-management/$accessGrantId/learners.csv'
+    | '/api/admin/offering-images/$assetId'
     | '/api/event-operations/$eventOccurrenceId/progress.csv'
     | '/api/event-surveys/$publicReference/qr.svg'
     | '/api/learning/certificates/$enrollmentId'
@@ -750,6 +860,10 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId_/surveys/$courseVersionItemId'
     | '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId_/enrollments/$enrollmentId'
+    | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
+    | '/api/catalog/courses/$slug/cover-images/$assetId'
+    | '/api/catalog/events/$slug/accreditation-logos/$assetId'
+    | '/api/catalog/events/$slug/cover-images/$assetId'
     | '/api/scorm/attempts/$attemptId/content/$'
   fileRoutesById: FileRoutesById
 }
@@ -768,9 +882,12 @@ export interface RootRouteChildren {
   CoursesSlugRoute: typeof CoursesSlugRoute
   EventAccessPublicReferenceRoute: typeof EventAccessPublicReferenceRoute
   EventSurveysPublicReferenceRoute: typeof EventSurveysPublicReferenceRoute
+  EventsSlugRoute: typeof EventsSlugRoute
   LearnEnrollmentIdRoute: typeof LearnEnrollmentIdRoute
   MyEventsEventOccurrenceIdRoute: typeof MyEventsEventOccurrenceIdRoute
   CoursesIndexRoute: typeof CoursesIndexRoute
+  ApiAdminAccreditationLogosRoute: typeof ApiAdminAccreditationLogosRoute
+  ApiAdminOfferingImagesRoute: typeof ApiAdminOfferingImagesRouteWithChildren
   ApiAdminResourcesRoute: typeof ApiAdminResourcesRoute
   ApiAdminScormPackagesRoute: typeof ApiAdminScormPackagesRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -778,6 +895,7 @@ export interface RootRouteChildren {
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   CoursesSlugBulkOrderRoute: typeof CoursesSlugBulkOrderRoute
+  EventsSlugBulkOrderRoute: typeof EventsSlugBulkOrderRoute
   ApiAccessManagementAccessGrantIdCodesDotcsvRoute: typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
   ApiAccessManagementAccessGrantIdLearnersDotcsvRoute: typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRoute
   ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute: typeof ApiEventOperationsEventOccurrenceIdProgressDotcsvRoute
@@ -788,6 +906,10 @@ export interface RootRouteChildren {
   ApiScormAttemptsAttemptIdRoute: typeof ApiScormAttemptsAttemptIdRouteWithChildren
   LearnEnrollmentIdSurveysCourseVersionItemIdRoute: typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute: typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
+  ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute: typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
+  ApiCatalogCoursesSlugCoverImagesAssetIdRoute: typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
+  ApiCatalogEventsSlugAccreditationLogosAssetIdRoute: typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
+  ApiCatalogEventsSlugCoverImagesAssetIdRoute: typeof ApiCatalogEventsSlugCoverImagesAssetIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -946,6 +1068,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof EventSurveysPublicReferenceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/events/$slug': {
+      id: '/events/$slug'
+      path: '/events/$slug'
+      fullPath: '/events/$slug'
+      preLoaderRoute: typeof EventsSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/learn/$enrollmentId': {
       id: '/learn/$enrollmentId'
       path: '/learn/$enrollmentId'
@@ -1051,6 +1180,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminSurveysSurveyIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/admin/accreditation-logos': {
+      id: '/api/admin/accreditation-logos'
+      path: '/api/admin/accreditation-logos'
+      fullPath: '/api/admin/accreditation-logos'
+      preLoaderRoute: typeof ApiAdminAccreditationLogosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/offering-images': {
+      id: '/api/admin/offering-images'
+      path: '/api/admin/offering-images'
+      fullPath: '/api/admin/offering-images'
+      preLoaderRoute: typeof ApiAdminOfferingImagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/admin/resources': {
       id: '/api/admin/resources'
       path: '/api/admin/resources'
@@ -1100,6 +1243,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CoursesSlugBulkOrderRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/events/$slug_/bulk-order': {
+      id: '/events/$slug_/bulk-order'
+      path: '/events/$slug/bulk-order'
+      fullPath: '/events/$slug/bulk-order'
+      preLoaderRoute: typeof EventsSlugBulkOrderRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/events/instances/$eventOccurrenceId': {
       id: '/admin/events/instances/$eventOccurrenceId'
       path: '/events/instances/$eventOccurrenceId'
@@ -1127,6 +1277,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/access-management/$accessGrantId/learners.csv'
       preLoaderRoute: typeof ApiAccessManagementAccessGrantIdLearnersDotcsvRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/offering-images/$assetId': {
+      id: '/api/admin/offering-images/$assetId'
+      path: '/$assetId'
+      fullPath: '/api/admin/offering-images/$assetId'
+      preLoaderRoute: typeof ApiAdminOfferingImagesAssetIdRouteImport
+      parentRoute: typeof ApiAdminOfferingImagesRoute
     }
     '/api/event-operations/$eventOccurrenceId/progress.csv': {
       id: '/api/event-operations/$eventOccurrenceId/progress.csv'
@@ -1197,6 +1354,34 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/learners/$userId/enrollments/$enrollmentId'
       preLoaderRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport
       parentRoute: typeof AdminRoute
+    }
+    '/api/catalog/courses/$slug/accreditation-logos/$assetId': {
+      id: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
+      path: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
+      fullPath: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
+      preLoaderRoute: typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/catalog/courses/$slug/cover-images/$assetId': {
+      id: '/api/catalog/courses/$slug/cover-images/$assetId'
+      path: '/api/catalog/courses/$slug/cover-images/$assetId'
+      fullPath: '/api/catalog/courses/$slug/cover-images/$assetId'
+      preLoaderRoute: typeof ApiCatalogCoursesSlugCoverImagesAssetIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/catalog/events/$slug/accreditation-logos/$assetId': {
+      id: '/api/catalog/events/$slug/accreditation-logos/$assetId'
+      path: '/api/catalog/events/$slug/accreditation-logos/$assetId'
+      fullPath: '/api/catalog/events/$slug/accreditation-logos/$assetId'
+      preLoaderRoute: typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/catalog/events/$slug/cover-images/$assetId': {
+      id: '/api/catalog/events/$slug/cover-images/$assetId'
+      path: '/api/catalog/events/$slug/cover-images/$assetId'
+      fullPath: '/api/catalog/events/$slug/cover-images/$assetId'
+      preLoaderRoute: typeof ApiCatalogEventsSlugCoverImagesAssetIdRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/scorm/attempts/$attemptId/content/$': {
       id: '/api/scorm/attempts/$attemptId/content/$'
@@ -1277,6 +1462,20 @@ const EventOperationsRouteWithChildren = EventOperationsRoute._addFileChildren(
   EventOperationsRouteChildren,
 )
 
+interface ApiAdminOfferingImagesRouteChildren {
+  ApiAdminOfferingImagesAssetIdRoute: typeof ApiAdminOfferingImagesAssetIdRoute
+}
+
+const ApiAdminOfferingImagesRouteChildren: ApiAdminOfferingImagesRouteChildren =
+  {
+    ApiAdminOfferingImagesAssetIdRoute: ApiAdminOfferingImagesAssetIdRoute,
+  }
+
+const ApiAdminOfferingImagesRouteWithChildren =
+  ApiAdminOfferingImagesRoute._addFileChildren(
+    ApiAdminOfferingImagesRouteChildren,
+  )
+
 interface ApiScormAttemptsAttemptIdRouteChildren {
   ApiScormAttemptsAttemptIdContentSplatRoute: typeof ApiScormAttemptsAttemptIdContentSplatRoute
 }
@@ -1307,9 +1506,12 @@ const rootRouteChildren: RootRouteChildren = {
   CoursesSlugRoute: CoursesSlugRoute,
   EventAccessPublicReferenceRoute: EventAccessPublicReferenceRoute,
   EventSurveysPublicReferenceRoute: EventSurveysPublicReferenceRoute,
+  EventsSlugRoute: EventsSlugRoute,
   LearnEnrollmentIdRoute: LearnEnrollmentIdRoute,
   MyEventsEventOccurrenceIdRoute: MyEventsEventOccurrenceIdRoute,
   CoursesIndexRoute: CoursesIndexRoute,
+  ApiAdminAccreditationLogosRoute: ApiAdminAccreditationLogosRoute,
+  ApiAdminOfferingImagesRoute: ApiAdminOfferingImagesRouteWithChildren,
   ApiAdminResourcesRoute: ApiAdminResourcesRoute,
   ApiAdminScormPackagesRoute: ApiAdminScormPackagesRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
@@ -1317,6 +1519,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   CoursesSlugBulkOrderRoute: CoursesSlugBulkOrderRoute,
+  EventsSlugBulkOrderRoute: EventsSlugBulkOrderRoute,
   ApiAccessManagementAccessGrantIdCodesDotcsvRoute:
     ApiAccessManagementAccessGrantIdCodesDotcsvRoute,
   ApiAccessManagementAccessGrantIdLearnersDotcsvRoute:
@@ -1336,6 +1539,14 @@ const rootRouteChildren: RootRouteChildren = {
     LearnEnrollmentIdSurveysCourseVersionItemIdRoute,
   MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute:
     MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute,
+  ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute:
+    ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute,
+  ApiCatalogCoursesSlugCoverImagesAssetIdRoute:
+    ApiCatalogCoursesSlugCoverImagesAssetIdRoute,
+  ApiCatalogEventsSlugAccreditationLogosAssetIdRoute:
+    ApiCatalogEventsSlugAccreditationLogosAssetIdRoute,
+  ApiCatalogEventsSlugCoverImagesAssetIdRoute:
+    ApiCatalogEventsSlugCoverImagesAssetIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

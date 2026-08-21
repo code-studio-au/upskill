@@ -1,12 +1,28 @@
+.page {
+  min-height: calc(100dvh - 3.75rem);
+  background-color: #f4f7ff;
+  background-image:
+    linear-gradient(to bottom, transparent 58%, #f4f7ff 100%),
+    url("/brand/home-arrow-background.jpg");
+  background-repeat: no-repeat;
+  background-position: top center;
+  background-size:
+    100% 43.72vw,
+    100% auto;
+}
+
 .section {
   display: grid;
-  min-height: calc(100dvh - 8rem);
+  min-height: calc(100dvh - 3.75rem);
   place-items: center;
   padding-block: clamp(2.5rem, 8vw, 5rem);
 }
 
 .card {
   width: min(100%, 30rem);
+  background: rgb(255 255 255 / 94%);
+  box-shadow: 0 1.25rem 3.5rem rgb(34 65 133 / 13%);
+  transform: translateY(clamp(-3rem, -5vh, -1.5rem));
 }
 
 .intro {

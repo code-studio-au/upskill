@@ -1,11 +1,37 @@
 .cardGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+  grid-template-columns: 1fr;
   gap: var(--mantine-spacing-md);
 }
 
-@media (max-width: 48em) {
-  .cardGrid {
-    grid-template-columns: 1fr;
-  }
+.scheduledGrid {
+  grid-template-columns: 1fr;
+}
+
+.scheduledCard {
+  min-width: 0;
+}
+
+.cardIdentity {
+  min-width: 0;
+}
+
+.cardTitleLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cardTitleLink:hover,
+.cardTitleLink:focus-visible {
+  color: var(--mantine-color-indigo-7);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
+.eventDate {
+  line-height: 1.45;
+}
+
+.eventMeta {
+  min-height: 1.625rem;
 }

@@ -30,6 +30,7 @@ interface MantineTextInputProps {
   onBlur?: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   onChange?: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   placeholder?: string;
+  readOnly?: boolean;
   required?: boolean;
   spellCheck?: boolean;
   step?: string;

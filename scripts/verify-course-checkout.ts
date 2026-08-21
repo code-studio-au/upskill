@@ -112,6 +112,7 @@ function sessionFor(
     orderKind: "individual_purchase",
     userId: ids.user,
     courseVersionId: ids.version,
+    eventOccurrenceId: null,
     clientReferenceId: orderId,
     amountTotal: 12_900,
     currency: "aud",
@@ -291,8 +292,9 @@ try {
   assert.deepEqual(await findCheckoutStatus(`cs_test_${ids.paidOrder}`, user), {
     status: "paid",
     kind: "individual_purchase",
-    courseTitle: "Verified Checkout course",
-    courseSlug: "verify-checkout-course",
+    offeringType: "course",
+    offeringTitle: "Verified Checkout course",
+    offeringSlug: "verify-checkout-course",
   });
   assert.equal(await findCheckoutStatus("cs_test_unknown", user), null);
 

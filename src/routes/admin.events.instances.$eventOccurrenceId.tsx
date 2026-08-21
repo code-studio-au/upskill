@@ -79,6 +79,25 @@ const AdminCommunicationPlanEditor = lazy(async () => {
   return { default: module.AdminCommunicationPlanEditor };
 });
 
+function DetailList({
+  items,
+}: {
+  items: Array<readonly [string, string | number] | null>;
+}) {
+  return (
+    <dl className={classes.detailList}>
+      {items.map((item) =>
+        item ? (
+          <div key={item[0]}>
+            <dt>{item[0]}</dt>
+            <dd>{item[1]}</dd>
+          </div>
+        ) : null,
+      )}
+    </dl>
+  );
+}
+
 export const Route = createFileRoute(
   "/admin/events/instances/$eventOccurrenceId",
 )({
@@ -170,7 +189,6 @@ function EventInstanceOperationsPage() {
   const workspace = result.data;
   const registrationMutationsAvailable =
     workspace.occurrence.status === "published";
-
   if (search.view === "configuration")
     return (
       <Suspense fallback={<LoadingSpinner label="Loading event editor" />}>
@@ -198,6 +216,7 @@ function EventInstanceOperationsPage() {
               workspace.occurrence.localRegistrationClosesAt ?? "",
             localCoordinatorLockAt:
               workspace.occurrence.localCoordinatorLockAt ?? "",
+            regions: workspace.regions.map((region) => region.name).join(", "),
           }}
           regionalCoverage={{
             availableRegions: workspace.availableRegions,
@@ -227,18 +246,36 @@ function EventInstanceOperationsPage() {
 
   return (
     <Stack gap="lg">
-      <Group justify="space-between" align="end" wrap="wrap">
-        <div>
+      <div className={classes.pageHeader}>
+        <div className={classes.headerIdentity}>
           <Text c="indigo.7" fw={700}>
-            Event instance
+            Scheduled event
           </Text>
-          <Title order={1}>{workspace.occurrence.title}</Title>
-          <Text c="dimmed" mt="xs">
-            {workspace.occurrence.templateTitle} · Version{" "}
+          <Group gap="sm" align="center">
+            <Title order={1}>{workspace.occurrence.title}</Title>
+            <Badge
+              color={
+                workspace.occurrence.status === "cancelled" ? "red" : "blue"
+              }
+              variant="light"
+            >
+              {workspace.occurrence.status}
+            </Badge>
+          </Group>
+          <Text c="dimmed" size="sm">
+            {formatLocalDateTime(workspace.occurrence.startsAt, {
+              timeZone: workspace.occurrence.timezone,
+            })}
+            {" · "}
+            {workspace.occurrence.deliveryMode === "in_person"
+              ? "In person"
+              : "Virtual"}
+            {" · "}
+            {workspace.occurrence.templateTitle} · v
             {workspace.occurrence.templateVersion}
           </Text>
         </div>
-        <Group gap="sm">
+        <Group gap="sm" className={classes.headerActions}>
           {workspace.occurrence.status === "draft" ||
           registrationMutationsAvailable ? (
             <Button
@@ -249,7 +286,7 @@ function EventInstanceOperationsPage() {
                 });
               }}
             >
-              Edit schedule & policy
+              Edit event
             </Button>
           ) : null}
           {registrationMutationsAvailable &&
@@ -263,28 +300,31 @@ function EventInstanceOperationsPage() {
             </Button>
           ) : null}
         </Group>
-      </Group>
+      </div>
 
       {error ? <Alert color="red">{error}</Alert> : null}
       {success ? <Alert color="green">{success}</Alert> : null}
 
-      <div className={classes.metrics}>
-        {[
-          ["Registrations", workspace.metrics.total],
-          ["Awaiting review", workspace.metrics.submitted],
-          ["Candidates", workspace.metrics.candidates],
-          ["Places remaining", workspace.metrics.remainingCapacity],
-        ].map(([label, value]) => (
-          <Paper withBorder radius="lg" p="md" key={label}>
-            <Text c="dimmed" size="sm">
-              {label}
-            </Text>
-            <Text className={classes.metricValue}>{value}</Text>
-          </Paper>
-        ))}
-      </div>
+      {search.view === "overview" || search.view === "registrations" ? (
+        <Paper withBorder radius="lg" className={classes.metrics}>
+          {[
+            ["Registrations", workspace.metrics.total],
+            ["Awaiting review", workspace.metrics.submitted],
+            ["Candidates", workspace.metrics.candidates],
+            ["Places remaining", workspace.metrics.remainingCapacity],
+          ].map(([label, value]) => (
+            <div className={classes.metric} key={label}>
+              <Text c="dimmed" size="xs">
+                {label}
+              </Text>
+              <Text className={classes.metricValue}>{value}</Text>
+            </div>
+          ))}
+        </Paper>
+      ) : null}
 
       <PageTabs
+        className={classes.workspaceTabs}
         label="Event instance workspace"
         value={search.view}
         tabs={[
@@ -293,8 +333,8 @@ function EventInstanceOperationsPage() {
             value: "registrations",
             label: `Registrations (${String(workspace.metrics.total)})`,
           },
-          { value: "staffing", label: "Sessions & staff" },
-          { value: "activity", label: "Activity" },
+          { value: "staffing", label: "Sessions & attendance" },
+          { value: "activity", label: "History" },
           { value: "communications", label: "Communications" },
         ]}
         onChange={(view) => void navigate({ search: { view } })}
@@ -302,16 +342,87 @@ function EventInstanceOperationsPage() {
 
       {search.view === "overview" ? (
         <Stack gap="lg">
-          <div className={classes.cards}>
+          <div className={classes.overviewGrid}>
+            <Paper withBorder radius="lg" p="md">
+              <Stack gap="sm">
+                <Title order={2}>Event details</Title>
+                <DetailList
+                  items={[
+                    [
+                      "Starts",
+                      formatLocalDateTime(workspace.occurrence.startsAt, {
+                        timeZone: workspace.occurrence.timezone,
+                      }),
+                    ],
+                    [
+                      "Ends",
+                      formatLocalDateTime(workspace.occurrence.endsAt, {
+                        timeZone: workspace.occurrence.timezone,
+                      }),
+                    ],
+                    ["Timezone", workspace.occurrence.timezone],
+                    [
+                      "Delivery",
+                      workspace.occurrence.deliveryMode === "in_person"
+                        ? workspace.occurrence.venueName || "In person"
+                        : "Virtual",
+                    ],
+                  ]}
+                />
+              </Stack>
+            </Paper>
+
+            <Paper withBorder radius="lg" p="md">
+              <Stack gap="sm">
+                <Title order={2}>Registration</Title>
+                <DetailList
+                  items={[
+                    [
+                      "Access",
+                      workspace.occurrence.registrationMode
+                        .replaceAll("_", " ")
+                        .replace(/^./, (value) => value.toUpperCase()),
+                    ],
+                    [
+                      "Approval",
+                      workspace.occurrence.approvalMode === "manual"
+                        ? "Manual"
+                        : "Automatic",
+                    ],
+                    [
+                      "Confirmed",
+                      `${String(workspace.occurrence.confirmedCount)} of ${String(workspace.occurrence.capacity)}`,
+                    ],
+                    workspace.occurrence.registrationClosesAt
+                      ? [
+                          "Registration closes",
+                          formatLocalDateTime(
+                            workspace.occurrence.registrationClosesAt,
+                            { timeZone: workspace.occurrence.timezone },
+                          ),
+                        ]
+                      : null,
+                  ]}
+                />
+              </Stack>
+            </Paper>
+
             {workspace.guestAccess ? (
-              <Paper withBorder radius="lg" p="md">
-                <Stack gap="sm">
-                  <Title order={2}>Guest access</Title>
-                  <Text className={classes.guestLink}>
-                    /event-access/{workspace.guestAccess.publicReference}
-                  </Text>
+              <Paper
+                withBorder
+                radius="lg"
+                p="md"
+                className={classes.fullWidthCard}
+              >
+                <div className={classes.guestAccessLayout}>
+                  <div>
+                    <Title order={2}>Guest access</Title>
+                    <Text className={classes.guestLink} mt="xs">
+                      /event-access/{workspace.guestAccess.publicReference}
+                    </Text>
+                  </div>
                   <MantineNativeSelect
-                    label="Guest self check-in"
+                    label="Self check-in records"
                     value={workspace.occurrence.openEntryAttendanceMode}
                     disabled={processingId === "guest-attendance-mode"}
                     data={[
@@ -321,7 +432,7 @@ function EventInstanceOperationsPage() {
                       },
                       {
                         value: "attended",
-                        label: "Record attendance automatically",
+                        label: "Attended automatically",
                       },
                     ]}
                     onChange={(event) => {
@@ -337,12 +448,13 @@ function EventInstanceOperationsPage() {
                       );
                     }}
                   />
-                  <Group gap="sm">
+                  <Group gap="sm" className={classes.guestActions}>
                     <Button
                       variant="light"
                       onClick={() => {
                         const url = new URL(
-                          `/event-access/${workspace.guestAccess?.publicReference ?? ""}`,
+                          "/event-access/" +
+                            (workspace.guestAccess?.publicReference ?? ""),
                           window.location.origin,
                         ).toString();
                         void navigator.clipboard.writeText(url).then(() => {
@@ -371,134 +483,113 @@ function EventInstanceOperationsPage() {
                       Replace link
                     </Button>
                   </Group>
-                </Stack>
+                </div>
               </Paper>
             ) : null}
-            <Paper withBorder radius="lg" p="md">
-              <Stack gap="sm">
-                <Title order={2}>Schedule</Title>
-                <Text>
-                  {formatLocalDateTime(workspace.occurrence.startsAt, {
-                    timeZone: workspace.occurrence.timezone,
-                  })}
-                </Text>
-                <Text c="dimmed">
-                  to{" "}
-                  {formatLocalDateTime(workspace.occurrence.endsAt, {
-                    timeZone: workspace.occurrence.timezone,
-                  })}
-                </Text>
-                <Text size="sm">{workspace.occurrence.timezone}</Text>
-              </Stack>
-            </Paper>
-            <Paper withBorder radius="lg" p="md">
-              <Stack gap="sm">
-                <Title order={2}>Registration policy</Title>
-                <Text>
-                  {workspace.occurrence.registrationMode.replaceAll("_", " ")}
-                </Text>
-                <Text c="dimmed">
-                  {workspace.occurrence.approvalMode} approval · capacity{" "}
-                  {workspace.occurrence.confirmedCount}/
-                  {workspace.occurrence.capacity}
-                </Text>
-                {workspace.occurrence.registrationClosesAt ? (
-                  <Text size="sm">
-                    Closes{" "}
-                    {formatLocalDateTime(
-                      workspace.occurrence.registrationClosesAt,
-                      { timeZone: workspace.occurrence.timezone },
-                    )}
-                  </Text>
-                ) : null}
-              </Stack>
-            </Paper>
-            {workspace.regions.map((region) => (
-              <Paper withBorder radius="lg" p="md" key={region.id}>
-                <Stack gap="sm">
-                  <Group justify="space-between">
-                    <Title order={3}>{region.name}</Title>
-                    <Badge
-                      color={region.effectivelyLocked ? "gray" : "blue"}
-                      variant="light"
-                    >
-                      {region.effectivelyLocked ? "Locked" : "Review open"}
-                    </Badge>
-                  </Group>
-                  <Text size="sm">
-                    {region.registrationCount} registrations
-                  </Text>
-                  <Text c="dimmed" size="sm">
-                    {region.coordinators
-                      .map((person) => person.name)
-                      .join(", ") || "No coordinators assigned"}
-                  </Text>
-                  {registrationMutationsAvailable &&
-                  !region.effectivelyLocked ? (
-                    <Button
-                      variant="light"
-                      loading={processingId === `lock-${region.id}`}
-                      onClick={() =>
-                        void action(`lock-${region.id}`, () =>
-                          lockAdminEventRegion({
-                            data: {
-                              eventOccurrenceId: workspace.occurrence.id,
-                              eventOccurrenceRegionId: region.id,
-                            },
-                          }),
-                        )
-                      }
-                    >
-                      Lock regional list
-                    </Button>
-                  ) : null}
-                </Stack>
-              </Paper>
-            ))}
           </div>
-          <Paper withBorder radius="lg" p="md">
-            <Stack gap="sm">
-              <Title order={2}>Instance lifecycle</Title>
-              <Group gap="sm">
-                {workspace.occurrence.status === "published" ? (
-                  <>
-                    <Button
-                      variant="light"
-                      onClick={() => {
-                        setLifecycleTarget("completed");
-                      }}
-                    >
-                      Mark completed
-                    </Button>
-                    <Button
-                      variant="subtle"
-                      color="red"
-                      onClick={() => {
-                        setLifecycleTarget("cancelled");
-                      }}
-                    >
-                      Cancel instance
-                    </Button>
-                  </>
-                ) : null}
-                {workspace.occurrence.status === "completed" ||
-                workspace.occurrence.status === "cancelled" ? (
+
+          {workspace.regions.length ? (
+            <section>
+              <Group justify="space-between" align="center" mb={4}>
+                <Title order={2}>Regional review</Title>
+                <Badge variant="light">
+                  {workspace.regions.length} regions
+                </Badge>
+              </Group>
+              <div className={classes.regionGrid}>
+                {workspace.regions.map((region) => (
+                  <Paper withBorder radius="lg" p="md" key={region.id}>
+                    <Stack gap="sm">
+                      <Group justify="space-between" align="start">
+                        <Title order={3} size="h4">
+                          {region.name}
+                        </Title>
+                        <Badge
+                          color={region.effectivelyLocked ? "gray" : "blue"}
+                          variant="light"
+                        >
+                          {region.effectivelyLocked ? "Locked" : "Open"}
+                        </Badge>
+                      </Group>
+                      <Text size="sm">
+                        {region.registrationCount} registrations
+                      </Text>
+                      <Text c="dimmed" size="sm">
+                        {region.coordinators
+                          .map((person) => person.name)
+                          .join(", ") || "No coordinators assigned"}
+                      </Text>
+                      {registrationMutationsAvailable &&
+                      !region.effectivelyLocked ? (
+                        <Button
+                          size="compact-sm"
+                          variant="light"
+                          loading={processingId === "lock-" + region.id}
+                          onClick={() =>
+                            void action("lock-" + region.id, () =>
+                              lockAdminEventRegion({
+                                data: {
+                                  eventOccurrenceId: workspace.occurrence.id,
+                                  eventOccurrenceRegionId: region.id,
+                                },
+                              }),
+                            )
+                          }
+                        >
+                          Lock regional list
+                        </Button>
+                      ) : null}
+                    </Stack>
+                  </Paper>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <details className={classes.managementPanel}>
+            <summary>Event lifecycle</summary>
+            <Group gap="sm" className={classes.managementActions}>
+              {workspace.occurrence.status === "published" ? (
+                <>
                   <Button
                     variant="light"
                     onClick={() => {
-                      setLifecycleTarget("archived");
+                      setLifecycleTarget("completed");
                     }}
                   >
-                    Archive instance
+                    Mark completed
                   </Button>
-                ) : null}
-              </Group>
-            </Stack>
-          </Paper>
+                  <Button
+                    variant="subtle"
+                    color="red"
+                    onClick={() => {
+                      setLifecycleTarget("cancelled");
+                    }}
+                  >
+                    Cancel event
+                  </Button>
+                </>
+              ) : null}
+              {workspace.occurrence.status === "completed" ||
+              workspace.occurrence.status === "cancelled" ? (
+                <Button
+                  variant="light"
+                  onClick={() => {
+                    setLifecycleTarget("archived");
+                  }}
+                >
+                  Archive event
+                </Button>
+              ) : null}
+            </Group>
+          </details>
+
           {workspace.reschedules.length ? (
-            <Paper withBorder radius="lg" p="md">
-              <Stack gap="xs">
-                <Title order={2}>Reschedule history</Title>
+            <details className={classes.managementPanel}>
+              <summary>
+                Reschedule history ({workspace.reschedules.length})
+              </summary>
+              <Stack gap="xs" className={classes.historyList}>
                 {workspace.reschedules.map((reschedule) => (
                   <Text size="sm" key={reschedule.id}>
                     {formatLocalDateTime(reschedule.createdAt, {
@@ -513,16 +604,14 @@ function EventInstanceOperationsPage() {
                     {formatLocalDateTime(reschedule.nextStartsAt, {
                       timeZone: workspace.occurrence.timezone,
                     })}{" "}
-                    · {reschedule.actorName} · {reschedule.regionCount} regions
-                    · {reschedule.coordinatorCount} coordinators
+                    · {reschedule.actorName}
                   </Text>
                 ))}
               </Stack>
-            </Paper>
+            </details>
           ) : null}
         </Stack>
       ) : null}
-
       {search.view === "registrations" ? (
         workspace.registrations.length ? (
           <Suspense fallback={<LoadingSpinner label="Loading registrations" />}>
@@ -536,135 +625,136 @@ function EventInstanceOperationsPage() {
             />
           </Suspense>
         ) : (
-          <Alert title="No registrations">
-            Learner registrations will appear here for regional review and final
-            selection.
-          </Alert>
+          <Alert title="No registrations" />
         )
       ) : null}
 
       {search.view === "staffing" ? (
-        <div className={classes.cards}>
+        <Stack gap="lg">
           <Paper withBorder radius="lg" p="md">
-            <Stack gap="sm">
-              <Title order={2}>Instance administrators</Title>
-              {workspace.administrators.map((person) => (
-                <div key={person.id}>
-                  <Text fw={600}>{person.name}</Text>
-                  <Text c="dimmed" size="sm">
-                    {person.email}
-                  </Text>
-                </div>
-              ))}
-            </Stack>
+            <div className={classes.teamBar}>
+              <Text fw={700}>Event administrators</Text>
+              <div className={classes.peopleList}>
+                {workspace.administrators.map((person) => (
+                  <div className={classes.person} key={person.id}>
+                    <Text fw={600} size="sm">
+                      {person.name}
+                    </Text>
+                    <Text c="dimmed" size="xs">
+                      {person.email}
+                    </Text>
+                  </div>
+                ))}
+              </div>
+            </div>
           </Paper>
-          {workspace.sessions.map((session) => (
-            <Paper withBorder radius="lg" p="md" key={session.id}>
-              <Stack gap="md">
-                <Title order={3}>{session.title}</Title>
-                <Text size="sm">
-                  {formatLocalDateTime(session.startsAt, {
-                    timeZone: workspace.occurrence.timezone,
-                  })}
-                </Text>
-                <Text c="dimmed" size="sm">
-                  Presenters:{" "}
-                  {session.presenters.map((person) => person.name).join(", ") ||
-                    "None assigned"}
-                </Text>
-                {session.attendance.length ? (
-                  <Stack gap="sm">
-                    <Text fw={700}>Attendance</Text>
-                    {session.attendance.map((participant) => (
-                      <Group
-                        key={participant.eventParticipationId}
-                        justify="space-between"
-                        align="end"
-                        wrap="wrap"
-                      >
-                        <div>
-                          <Text fw={600}>{participant.name}</Text>
-                          <Text c="dimmed" size="sm">
-                            {participant.email}
-                          </Text>
-                          {participant.mode === "open_entry" ? (
-                            <Text c="dimmed" size="xs">
-                              Guest · details{" "}
-                              {participant.detailsSubmittedAt
-                                ? formatLocalDateTime(
-                                    participant.detailsSubmittedAt,
-                                    {
-                                      timeZone: workspace.occurrence.timezone,
-                                    },
-                                  )
-                                : "not submitted"}
-                              {participant.joinDisclosedAt
-                                ? " · join disclosed"
-                                : ""}
+          <div className={classes.sessionGrid}>
+            {workspace.sessions.map((session) => (
+              <Paper withBorder radius="lg" p="md" key={session.id}>
+                <Stack gap="md">
+                  <div>
+                    <Title order={3} size="h4">
+                      {session.title}
+                    </Title>
+                    <Text size="sm" mt="xs">
+                      {formatLocalDateTime(session.startsAt, {
+                        timeZone: workspace.occurrence.timezone,
+                      })}
+                    </Text>
+                    <Text c="dimmed" size="sm">
+                      {session.presenters
+                        .map((person) => person.name)
+                        .join(", ") || "No presenters assigned"}
+                    </Text>
+                  </div>
+                  {session.attendance.length ? (
+                    <div className={classes.attendanceList}>
+                      {session.attendance.map((participant) => (
+                        <div
+                          className={classes.attendanceRow}
+                          key={participant.eventParticipationId}
+                        >
+                          <div className={classes.attendeeIdentity}>
+                            <Text fw={600} size="sm">
+                              {participant.name}
                             </Text>
-                          ) : null}
+                            <Text c="dimmed" size="xs">
+                              {participant.email}
+                            </Text>
+                            {participant.mode === "open_entry" ? (
+                              <Badge color="gray" variant="light">
+                                Guest
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <MantineNativeSelect
+                            aria-label={"Attendance for " + participant.name}
+                            value={participant.state}
+                            disabled={
+                              processingId ===
+                              "attendance-" +
+                                session.id +
+                                "-" +
+                                participant.eventParticipationId
+                            }
+                            data={[
+                              { value: "not_recorded", label: "Not recorded" },
+                              { value: "checked_in", label: "Checked in" },
+                              { value: "attended", label: "Attended" },
+                              { value: "absent", label: "Absent" },
+                            ]}
+                            onChange={(event) => {
+                              const state = event.currentTarget.value as
+                                | "not_recorded"
+                                | "checked_in"
+                                | "attended"
+                                | "absent";
+                              void action(
+                                "attendance-" +
+                                  session.id +
+                                  "-" +
+                                  participant.eventParticipationId,
+                                () =>
+                                  recordAdminEventAttendance({
+                                    data: {
+                                      eventOccurrenceId:
+                                        workspace.occurrence.id,
+                                      eventSessionId: session.id,
+                                      eventParticipationId:
+                                        participant.eventParticipationId,
+                                      state,
+                                    },
+                                  }),
+                              );
+                            }}
+                          />
                         </div>
-                        <MantineNativeSelect
-                          aria-label={`Attendance for ${participant.name}`}
-                          value={participant.state}
-                          disabled={
-                            processingId ===
-                            `attendance-${session.id}-${participant.eventParticipationId}`
-                          }
-                          data={[
-                            { value: "not_recorded", label: "Not recorded" },
-                            { value: "checked_in", label: "Checked in" },
-                            { value: "attended", label: "Attended" },
-                            { value: "absent", label: "Absent" },
-                          ]}
-                          onChange={(event) => {
-                            const state = event.currentTarget.value as
-                              | "not_recorded"
-                              | "checked_in"
-                              | "attended"
-                              | "absent";
-                            void action(
-                              `attendance-${session.id}-${participant.eventParticipationId}`,
-                              () =>
-                                recordAdminEventAttendance({
-                                  data: {
-                                    eventOccurrenceId: workspace.occurrence.id,
-                                    eventSessionId: session.id,
-                                    eventParticipationId:
-                                      participant.eventParticipationId,
-                                    state,
-                                  },
-                                }),
-                            );
-                          }}
-                        />
-                      </Group>
-                    ))}
-                  </Stack>
-                ) : (
-                  <Alert title="No confirmed participants">
-                    Attendance becomes available after a learner is confirmed.
-                  </Alert>
-                )}
-              </Stack>
-            </Paper>
-          ))}
-        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <Text c="dimmed" size="sm">
+                      No confirmed participants
+                    </Text>
+                  )}
+                </Stack>
+              </Paper>
+            ))}
+          </div>
+        </Stack>
       ) : null}
-
       {search.view === "activity" ? (
         workspace.activity.length ? (
-          <Suspense fallback={<LoadingSpinner label="Loading activity" />}>
-            <AdminEventActivityTable
-              activity={workspace.activity}
-              timezone={workspace.occurrence.timezone}
-            />
-          </Suspense>
+          <Stack gap="md">
+            <Title order={2}>Registration history</Title>
+            <Suspense fallback={<LoadingSpinner label="Loading history" />}>
+              <AdminEventActivityTable
+                activity={workspace.activity}
+                timezone={workspace.occurrence.timezone}
+              />
+            </Suspense>
+          </Stack>
         ) : (
-          <Alert title="No activity yet">
-            Registration decisions will appear here as a retained operational
-            history.
-          </Alert>
+          <Alert title="No registration history yet" />
         )
       ) : null}
 

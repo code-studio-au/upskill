@@ -6,6 +6,8 @@ import type {
   AdminAccessGrantCapacityInput,
   AdminAccessGrantCreateInput,
   AdminAccessGrantDirectory,
+  AdminAccessGrantRedemptionPage,
+  AdminAccessGrantRedemptionsInput,
   AdminAccessGrantRevealInput,
   AdminAccessGrantRevokeInput,
 } from "#/features/admin-access/admin-access.schema";
@@ -24,7 +26,7 @@ import { instantToDate, utcEndOfDate } from "#/server/time/time.server";
 import { provisionUser } from "#/server/identity/provisional-user.server";
 
 const DIRECTORY_LIMIT = 100;
-const REDEMPTIONS_PER_GRANT = 20;
+const REDEMPTION_PAGE_SIZE = 100;
 function organizationSlug(name: string, id: string): string {
   const base = name
     .toLocaleLowerCase("en-AU")
@@ -49,7 +51,7 @@ function accessState(row: {
 
 export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory> {
   const database = getDatabase();
-  const [targets, grants] = await Promise.all([
+  const [courseTargets, eventTargets, grants] = await Promise.all([
     database
       .selectFrom("course_version")
       .innerJoin("course", "course.id", "course_version.courseId")
@@ -64,13 +66,25 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
       .orderBy("course_version.version", "desc")
       .execute(),
     database
+      .selectFrom("event_occurrence")
+      .select(["id", "title", "startsAt"])
+      .where("status", "=", "published")
+      .where("startsAt", ">", new Date())
+      .orderBy("startsAt")
+      .execute(),
+    database
       .selectFrom("access_grant")
-      .innerJoin(
+      .leftJoin(
         "course_version",
         "course_version.id",
         "access_grant.courseVersionId",
       )
-      .innerJoin("course", "course.id", "course_version.courseId")
+      .leftJoin("course", "course.id", "course_version.courseId")
+      .leftJoin(
+        "event_occurrence",
+        "event_occurrence.id",
+        "access_grant.eventOccurrenceId",
+      )
       .leftJoin(
         "organization",
         "organization.id",
@@ -91,6 +105,8 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
         "organization.name as organizationName",
         "course.title as courseTitle",
         "course_version.version as courseVersion",
+        "event_occurrence.title as eventTitle",
+        "event_occurrence.startsAt as eventStartsAt",
       ])
       .where("access_grant.kind", "in", [
         "bulk_purchase",
@@ -101,32 +117,29 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
       .execute(),
   ]);
 
+  const targets: AdminAccessGrantDirectory["targets"] = [
+    ...courseTargets.map((target) => ({
+      type: "course" as const,
+      id: target.courseVersionId,
+      title: target.courseTitle,
+      detail: `Version ${String(target.version)}`,
+    })),
+    ...eventTargets.map((target) => ({
+      type: "event" as const,
+      id: target.id,
+      title: target.title,
+      detail: target.startsAt.toISOString(),
+    })),
+  ];
+
   const grantIds = grants.map((grant) => grant.id);
   if (grantIds.length === 0) return { targets, grants: [] };
-  const [domainRows, enrollmentRows, ownerRows] = await Promise.all([
+  const [domainRows, ownerRows] = await Promise.all([
     database
       .selectFrom("access_grant_domain")
       .select(["accessGrantId", "domain"])
       .where("accessGrantId", "in", grantIds)
       .orderBy("domain")
-      .execute(),
-    database
-      .selectFrom("enrollment")
-      .innerJoin("user", "user.id", "enrollment.userId")
-      .select([
-        "enrollment.id as enrollmentId",
-        "enrollment.accessGrantId",
-        "enrollment.status",
-        "enrollment.enrolledAt",
-        "enrollment.completedAt",
-        "enrollment.expiresAt",
-        "enrollment.removedAt",
-        "user.id as learnerId",
-        "user.name as learnerName",
-        "user.email as learnerEmail",
-      ])
-      .where("enrollment.accessGrantId", "in", grantIds)
-      .orderBy("enrollment.enrolledAt", "desc")
       .execute(),
     database
       .selectFrom("access_grant_owner_assignment as assignment")
@@ -149,10 +162,6 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
       ...(domains.get(row.accessGrantId) ?? []),
       row.domain,
     ]);
-  const redemptions = new Map<
-    string,
-    AdminAccessGrantDirectory["grants"][number]["redemptions"]
-  >();
   const owners = new Map<
     string,
     AdminAccessGrantDirectory["grants"][number]["owners"]
@@ -167,29 +176,18 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
         status: owner.activatedAt ? "active" : "pending",
       },
     ]);
-  for (const row of enrollmentRows) {
-    if (!row.accessGrantId) continue;
-    const current = redemptions.get(row.accessGrantId) ?? [];
-    if (current.length >= REDEMPTIONS_PER_GRANT) continue;
-    current.push({
-      enrollmentId: row.enrollmentId,
-      learnerId: row.learnerId,
-      learnerName: row.learnerName,
-      learnerEmail: row.learnerEmail,
-      enrolledAt: row.enrolledAt.toISOString(),
-      state: accessState(row),
-    });
-    redemptions.set(row.accessGrantId, current);
-  }
-
   return {
     targets,
     grants: grants.map((grant) => ({
       id: grant.id,
       label: grant.label ?? "Purchased access",
       organizationName: grant.organizationName,
-      courseTitle: grant.courseTitle,
-      courseVersion: grant.courseVersion,
+      offeringType: grant.eventTitle ? "event" : "course",
+      offeringTitle:
+        grant.eventTitle ?? grant.courseTitle ?? "Unavailable offering",
+      offeringDetail: grant.eventStartsAt
+        ? grant.eventStartsAt.toISOString()
+        : `Version ${String(grant.courseVersion ?? "unknown")}`,
       quantity: grant.quantity,
       redeemed: grant.redeemed,
       enrollmentDurationDays: grant.enrollmentDurationDays,
@@ -201,8 +199,103 @@ export async function findAdminAccessGrants(): Promise<AdminAccessGrantDirectory
       customerExtendable: grant.customerExtendable,
       fulfillmentMode: grant.fulfillmentMode ?? "shared_code",
       owners: owners.get(grant.id) ?? [],
-      redemptions: redemptions.get(grant.id) ?? [],
     })),
+  };
+}
+
+export async function findAdminAccessGrantRedemptions(
+  input: AdminAccessGrantRedemptionsInput,
+): Promise<AdminAccessGrantRedemptionPage | null> {
+  const database = getDatabase();
+  const grant = await database
+    .selectFrom("access_grant")
+    .select(["id", "eventOccurrenceId"])
+    .where("id", "=", input.accessGrantId)
+    .executeTakeFirst();
+  if (!grant) return null;
+  const offset = (input.page - 1) * REDEMPTION_PAGE_SIZE;
+  if (grant.eventOccurrenceId) {
+    const [count, rows] = await Promise.all([
+      database
+        .selectFrom("event_access_redemption")
+        .select(sql<number>`count(*)::integer`.as("total"))
+        .where("accessGrantId", "=", input.accessGrantId)
+        .executeTakeFirstOrThrow(),
+      database
+        .selectFrom("event_access_redemption as redemption")
+        .innerJoin("user", "user.id", "redemption.userId")
+        .innerJoin(
+          "event_participation as participation",
+          "participation.id",
+          "redemption.eventParticipationId",
+        )
+        .select([
+          "redemption.eventRegistrationId",
+          "redemption.redeemedAt",
+          "participation.completedAt",
+          "user.id as learnerId",
+          "user.name as learnerName",
+          "user.email as learnerEmail",
+        ])
+        .where("redemption.accessGrantId", "=", input.accessGrantId)
+        .orderBy("redemption.redeemedAt", "desc")
+        .limit(REDEMPTION_PAGE_SIZE)
+        .offset(offset)
+        .execute(),
+    ]);
+    return {
+      rows: rows.map((row) => ({
+        enrollmentId: row.eventRegistrationId,
+        learnerId: row.learnerId,
+        learnerName: row.learnerName,
+        learnerEmail: row.learnerEmail,
+        enrolledAt: row.redeemedAt.toISOString(),
+        state: row.completedAt ? "completed" : "active",
+      })),
+      page: input.page,
+      pageSize: REDEMPTION_PAGE_SIZE,
+      total: count.total,
+    };
+  }
+  const [count, rows] = await Promise.all([
+    database
+      .selectFrom("enrollment")
+      .select(sql<number>`count(*)::integer`.as("total"))
+      .where("accessGrantId", "=", input.accessGrantId)
+      .executeTakeFirstOrThrow(),
+    database
+      .selectFrom("enrollment")
+      .innerJoin("user", "user.id", "enrollment.userId")
+      .select([
+        "enrollment.id as enrollmentId",
+        "enrollment.status",
+        "enrollment.enrolledAt",
+        "enrollment.completedAt",
+        "enrollment.expiresAt",
+        "enrollment.removedAt",
+        "user.id as learnerId",
+        "user.name as learnerName",
+        "user.email as learnerEmail",
+      ])
+      .where("enrollment.accessGrantId", "=", input.accessGrantId)
+      .orderBy("enrollment.enrolledAt", "desc")
+      .orderBy("enrollment.id")
+      .limit(REDEMPTION_PAGE_SIZE)
+      .offset(offset)
+      .execute(),
+  ]);
+  return {
+    rows: rows.map((row) => ({
+      enrollmentId: row.enrollmentId,
+      learnerId: row.learnerId,
+      learnerName: row.learnerName,
+      learnerEmail: row.learnerEmail,
+      enrolledAt: row.enrolledAt.toISOString(),
+      state: accessState(row),
+    })),
+    page: input.page,
+    pageSize: REDEMPTION_PAGE_SIZE,
+    total: count.total,
   };
 }
 
@@ -213,7 +306,7 @@ type CreateOutcome =
       accessCode: string | null;
       generatedCodeCount: number;
     }
-  | { status: "not-found"; entity: "course-version" }
+  | { status: "not-found"; entity: "offering" }
   | {
       status: "conflict";
       reason: "expiry_not_future";
@@ -242,19 +335,33 @@ export async function createAdminAccessGrant(
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
-      const target = await transaction
-        .selectFrom("course_version")
-        .innerJoin("course", "course.id", "course_version.courseId")
-        .select([
-          "course_version.id",
-          "course_version.version",
-          "course.id as courseId",
-        ])
-        .where("course_version.id", "=", input.courseVersionId)
-        .where("course_version.publishedAt", "is not", null)
-        .where("course.status", "=", "published")
-        .executeTakeFirst();
-      if (!target) return { status: "not-found", entity: "course-version" };
+      const courseTarget =
+        input.targetType === "course"
+          ? await transaction
+              .selectFrom("course_version")
+              .innerJoin("course", "course.id", "course_version.courseId")
+              .select([
+                "course_version.id",
+                "course_version.version",
+                "course.id as courseId",
+              ])
+              .where("course_version.id", "=", input.targetId)
+              .where("course_version.publishedAt", "is not", null)
+              .where("course.status", "=", "published")
+              .executeTakeFirst()
+          : null;
+      const eventTarget =
+        input.targetType === "event"
+          ? await transaction
+              .selectFrom("event_occurrence")
+              .select(["id", "title", "startsAt"])
+              .where("id", "=", input.targetId)
+              .where("status", "=", "published")
+              .where("startsAt", ">", now)
+              .executeTakeFirst()
+          : null;
+      if (!courseTarget && !eventTarget)
+        return { status: "not-found", entity: "offering" };
 
       const organizationName = input.organizationName.trim();
       const organizationLock = organizationName.toLocaleLowerCase("en-AU");
@@ -288,10 +395,13 @@ export async function createAdminAccessGrant(
           id: accessGrantId,
           organizationId: organization.id,
           orderId: null,
-          courseVersionId: target.id,
+          courseVersionId: courseTarget?.id ?? null,
+          eventOccurrenceId: eventTarget?.id ?? null,
           label: input.label.trim(),
           createdByUserId: administrator.id,
-          enrollmentDurationDays: input.enrollmentDurationDays,
+          enrollmentDurationDays: courseTarget
+            ? input.enrollmentDurationDays
+            : null,
           quantity: input.quantity,
           redeemed: 0,
           expiresAt,
@@ -374,9 +484,11 @@ export async function createAdminAccessGrant(
         subjectType: "access_grant",
         subjectId: accessGrantId,
         metadata: {
-          courseId: target.courseId,
-          courseVersionId: target.id,
-          courseVersion: target.version,
+          targetType: input.targetType,
+          courseId: courseTarget?.courseId ?? null,
+          courseVersionId: courseTarget?.id ?? null,
+          courseVersion: courseTarget?.version ?? null,
+          eventOccurrenceId: eventTarget?.id ?? null,
           organizationId: organization.id,
           quantity: input.quantity,
           domainRestrictionCount: domainRestrictions.length,

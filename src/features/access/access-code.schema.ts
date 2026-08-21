@@ -21,17 +21,30 @@ export const accessCodeRedemptionSchema = z.object({
 export type AccessCodePreviewResult =
   | {
       status: "ready";
-      courseTitle: string;
+      offeringTitle: string;
+      offeringType: "course" | "event";
       organizationName: string;
       accessKind: "bulk_purchase" | "enterprise_contract";
       noticeVersion: typeof INFORMATION_RELEASE_NOTICE_VERSION;
     }
-  | { status: "already-enrolled"; courseTitle: string }
+  | {
+      status: "already-enrolled";
+      offeringTitle: string;
+      offeringType: "course" | "event";
+    }
   | { status: "invalid" }
   | { status: "unauthenticated" };
 
 export type AccessCodeRedemptionResult =
-  | { status: "enrolled"; courseTitle: string }
-  | { status: "already-enrolled"; courseTitle: string }
+  | {
+      status: "enrolled";
+      offeringTitle: string;
+      offeringType: "course" | "event";
+    }
+  | {
+      status: "already-enrolled";
+      offeringTitle: string;
+      offeringType: "course" | "event";
+    }
   | { status: "invalid" }
   | { status: "unauthenticated" };

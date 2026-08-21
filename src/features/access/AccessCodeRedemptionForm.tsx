@@ -35,14 +35,14 @@ function resultMessage(result: AccessCodeRedemptionResult): Message | null {
     return {
       color: "green",
       title: "Access code applied",
-      body: `You're enrolled in ${result.courseTitle}.`,
+      body: `You now have access to ${result.offeringTitle}.`,
     };
   }
   if (result.status === "already-enrolled") {
     return {
       color: "blue",
       title: "Already enrolled",
-      body: `${result.courseTitle} is already in your learning area.`,
+      body: `${result.offeringTitle} is already in your ${result.offeringType === "event" ? "events" : "learning"} area.`,
     };
   }
   if (result.status === "invalid") {
@@ -195,7 +195,7 @@ export function AccessCodeRedemptionForm() {
               <Title order={3} size="h4">
                 Information release confirmation
               </Title>
-              <Text fw={600}>{preview.courseTitle}</Text>
+              <Text fw={600}>{preview.offeringTitle}</Text>
               <Text size="sm" c="dimmed">
                 {preview.accessKind === "enterprise_contract"
                   ? "Enterprise access"
@@ -206,9 +206,9 @@ export function AccessCodeRedemptionForm() {
             <Alert color="blue">
               By continuing, you allow {preview.organizationName} and its
               assigned Access Owners to view your name, the email used for this
-              redemption, this course, your progress and your completion status.
-              They cannot view your survey answers, detailed SCORM data, other
-              learning, or unrelated profile information.
+              redemption, this {preview.offeringType}, your progress and your
+              completion status. They cannot view your survey answers, detailed
+              SCORM data, other learning, or unrelated profile information.
             </Alert>
             <MantineCheckbox
               checked={accepted}

@@ -90,40 +90,47 @@ function AdminCoursesPage() {
           {courses.map((course) => (
             <Paper key={course.id} withBorder radius="lg" p="md">
               <Stack gap="sm">
-                <Group justify="space-between" align="start">
-                  <div>
-                    <Title order={2} size="h3">
-                      {course.title}
-                    </Title>
+                <Group justify="space-between" align="start" wrap="nowrap">
+                  <div className={classes.cardIdentity}>
+                    <Link
+                      to="/admin/courses/$courseId"
+                      params={{ courseId: course.id }}
+                      className={classes.cardTitleLink}
+                    >
+                      <Title order={2} size="h3">
+                        {course.title}
+                      </Title>
+                    </Link>
                     <Text c="dimmed" size="sm">
                       /courses/{course.slug}
                     </Text>
                   </div>
-                  <Badge
-                    color={course.status === "archived" ? "gray" : "indigo"}
-                    variant="light"
-                  >
-                    {course.status}
-                  </Badge>
+                  <Group gap="xs" wrap="wrap" justify="flex-end">
+                    {course.status === "archived" ? (
+                      <Badge color="gray">
+                        Archived v
+                        {course.publishedVersion ?? course.latestVersion}
+                      </Badge>
+                    ) : (
+                      <>
+                        {course.publishedVersion ? (
+                          <Badge color="green">
+                            Published v{course.publishedVersion}
+                          </Badge>
+                        ) : null}
+                        {course.draftVersion ? (
+                          <Badge color="gray">
+                            Draft v{course.draftVersion}
+                          </Badge>
+                        ) : null}
+                      </>
+                    )}
+                  </Group>
                 </Group>
-                <Text size="sm">
-                  Version {course.latestVersion}
-                  {course.draftVersion
-                    ? ` · Draft v${String(course.draftVersion)}`
-                    : " · Published"}
-                </Text>
                 <Text size="sm" c="dimmed">
-                  {course.enrollmentCount} enrolments ·{" "}
-                  {course.commerceReferenceCount} commerce references
+                  {course.enrollmentCount} enrolment
+                  {course.enrollmentCount === 1 ? "" : "s"}
                 </Text>
-                <Link
-                  to="/admin/courses/$courseId"
-                  params={{ courseId: course.id }}
-                >
-                  <Button component="span" variant="light" fullWidth>
-                    Open course
-                  </Button>
-                </Link>
               </Stack>
             </Paper>
           ))}

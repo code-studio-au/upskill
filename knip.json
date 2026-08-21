@@ -7,6 +7,8 @@
         "src/server.ts",
         "src/start.ts",
         "src/routes/**/*.{ts,tsx}",
+        "scripts/verify-offering-communications.ts",
+        "scripts/verify-scorm-attempts.ts",
         "e2e/**/*.ts",
         "postcss.config.cjs"
       ],

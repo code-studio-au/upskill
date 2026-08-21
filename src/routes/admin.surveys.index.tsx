@@ -26,6 +26,7 @@ import {
   createAdminSurvey,
   getAdminSurveys,
 } from "#/server/functions/admin-survey";
+import classes from "./admin.surveys.module.css";
 
 interface SurveyCreateValues {
   title: string;
@@ -100,35 +101,34 @@ function AdminSurveysPage() {
         <Stack gap="md">
           {result.data.map((survey) => (
             <Paper key={survey.id} withBorder radius="lg" p="md">
-              <Group justify="space-between" align="center" wrap="wrap">
-                <div>
-                  <Group gap="sm">
+              <Stack gap="sm">
+                <Group justify="space-between" align="start" wrap="nowrap">
+                  <Link
+                    className={classes.cardTitleLink}
+                    to="/admin/surveys/$surveyId"
+                    params={{ surveyId: survey.id }}
+                  >
                     <Title order={2} size="h3">
                       {survey.title}
                     </Title>
-                    {survey.draftVersion ? (
-                      <Badge>Draft v{survey.draftVersion}</Badge>
+                  </Link>
+                  <Group gap="xs" wrap="wrap" justify="flex-end">
+                    {survey.publishedVersion ? (
+                      <Badge color="green">
+                        Published v{survey.publishedVersion}
+                      </Badge>
                     ) : null}
-                    <Badge variant="light">
-                      {survey.usage === "onboarding"
-                        ? "Onboarding"
-                        : "Learning"}
-                    </Badge>
+                    {survey.draftVersion ? (
+                      <Badge color="gray">Draft v{survey.draftVersion}</Badge>
+                    ) : null}
                   </Group>
-                  <Text c="dimmed" size="sm">
-                    {survey.publishedVersions} published versions · Latest v
-                    {survey.latestVersion}
-                  </Text>
-                </div>
-                <Link
-                  to="/admin/surveys/$surveyId"
-                  params={{ surveyId: survey.id }}
-                >
-                  <Button component="span" variant="light">
-                    Open survey
-                  </Button>
-                </Link>
-              </Group>
+                </Group>
+                <Text c="dimmed" size="sm">
+                  {survey.usage === "onboarding"
+                    ? "Onboarding survey"
+                    : "Learning survey"}
+                </Text>
+              </Stack>
             </Paper>
           ))}
         </Stack>

@@ -23,6 +23,7 @@ const validDraft = {
   bulkPricing: { enabled: false, tiers: [] },
   featured: false,
   listInStore: true,
+  coverImage: null,
   hasCompletionCertificate: false,
   prerequisites: [],
   accreditations: [],
@@ -75,6 +76,18 @@ describe("admin course authoring inputs", () => {
         salePriceCents: validDraft.priceCents,
       }),
     ).toThrow();
+  });
+
+  it("accepts custom topics and reserves the all-filter label", () => {
+    expect(
+      adminCourseDraftSchema.parse({
+        ...validDraft,
+        topic: "Eating disorder treatment",
+      }).topic,
+    ).toBe("Eating disorder treatment");
+    expect(
+      adminCourseDraftSchema.safeParse({ ...validDraft, topic: "All" }).success,
+    ).toBe(false);
   });
 
   it("requires bounded PDF upload metadata and a safe display name", () => {

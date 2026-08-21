@@ -7,6 +7,9 @@ import { Pool } from "pg";
 import { down as rollbackGovernedEmailDesigner } from "#/server/db/migrations/0052_governed_email_designer";
 import { down as rollbackOfferingCommunicationPlans } from "#/server/db/migrations/0053_offering_communication_plans";
 import { down as rollbackEmbeddedScheduleEmails } from "#/server/db/migrations/0054_embedded_schedule_emails";
+import { down as rollbackEventTemplateAccreditations } from "#/server/db/migrations/0055_event_template_accreditations";
+import { down as rollbackPrivateAccreditationLogoReferences } from "#/server/db/migrations/0056_private_accreditation_logo_references";
+import { down as rollbackEventTemplateAssetShapes } from "#/server/db/migrations/0059_event_template_asset_shapes";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -31,6 +34,7 @@ try {
     );
 
   const expectedTables = [
+    "accreditation_logo_asset",
     "access_grant",
     "access_grant_code",
     "access_grant_domain",
@@ -46,6 +50,7 @@ try {
     "enrollment",
     "entitlement",
     "event_admin_assignment",
+    "event_access_redemption",
     "event_attendance",
     "event_coordinator_assignment",
     "event_guest_access",
@@ -125,6 +130,7 @@ try {
     "access_grant_code_lookup_id_uq",
     "access_grant_domain_lookup_idx",
     "access_grant_admin_lookup_idx",
+    "access_grant_event_occurrence_idx",
     "audit_event_action_created_idx",
     "audit_event_actor_created_idx",
     "audit_event_subject_created_idx",
@@ -135,6 +141,7 @@ try {
     "event_admin_assignment_active_idx",
     "event_coordinator_assignment_active_idx",
     "event_occurrence_schedule_idx",
+    "event_occurrence_catalogue_idx",
     "event_occurrence_slug_uq",
     "event_presenter_assignment_active_idx",
     "event_registration_selection_idx",
@@ -143,6 +150,7 @@ try {
     "learning_progress_override_latest_idx",
     "learning_item_progress_enrollment_idx",
     "order_purchaser_status_idx",
+    "order_item_event_uq",
     "order_refund_order_idx",
     "order_stripe_payment_intent_uq",
     "bulk_order_access_grant_idx",
@@ -296,6 +304,24 @@ try {
     3,
     "Event registration reporting-region decisions must be constrained",
   );
+  const eventCommerceConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_occurrence_paid_pricing_ck',
+          'event_occurrence_currency_ck',
+          'event_occurrence_bulk_pricing_shape_ck',
+          'order_item_target_ck',
+          'order_item_duration_ck',
+          'access_grant_target_ck',
+          'access_grant_duration_ck'
+        )`.execute(db);
+  assert.equal(
+    eventCommerceConstraints.rows.length,
+    7,
+    "Paid Event pricing and exact offering-target constraints must exist",
+  );
   const eventTemplateColumns = await sql<{
     column_name: string;
   }>`select column_name from information_schema.columns where table_schema = 'public' and table_name = 'event_template'`.execute(
@@ -315,6 +341,38 @@ try {
     )
   )
     throw new Error("Event occurrences must own a required public URL slug");
+  const eventTemplateVersionColumns = await sql<{
+    column_name: string;
+    data_type: string;
+    is_nullable: string;
+  }>`select column_name, data_type, is_nullable
+      from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'event_template_version'`.execute(db);
+  if (
+    !eventTemplateVersionColumns.rows.some(
+      (column) =>
+        column.column_name === "accreditations" &&
+        column.data_type === "jsonb" &&
+        column.is_nullable === "NO",
+    )
+  )
+    throw new Error(
+      "Event Template versions must own versioned accreditation data",
+    );
+  const eventTemplateAssetConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_template_version_accreditations_shape_ck',
+          'event_template_version_cover_image_shape_ck'
+        )`.execute(db);
+  assert.equal(
+    eventTemplateAssetConstraints.rows.length,
+    2,
+    "Event Template accreditation and cover-image JSON shapes must be constrained",
+  );
   for (const columnName of ["localStartsAt", "localEndsAt"]) {
     if (
       !eventOccurrenceColumns.rows.some(
@@ -532,6 +590,9 @@ try {
            'communication_plan', 'verify_communication_migration_rollback', null, '{}'::jsonb)`.execute(
         transaction,
       );
+      await rollbackEventTemplateAssetShapes(transaction);
+      await rollbackPrivateAccreditationLogoReferences(transaction);
+      await rollbackEventTemplateAccreditations(transaction);
       await rollbackEmbeddedScheduleEmails(transaction);
       await rollbackOfferingCommunicationPlans(transaction);
       await rollbackGovernedEmailDesigner(transaction);

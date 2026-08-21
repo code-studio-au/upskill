@@ -2,6 +2,7 @@ import { z } from "#/validation/zod";
 import { courseSlugSchema } from "#/features/catalog/catalog.schema";
 
 export const checkoutCourseInputSchema = courseSlugSchema;
+export const checkoutEventInputSchema = courseSlugSchema;
 
 const checkoutSessionIdSchema = z
   .string()
@@ -51,16 +52,40 @@ export type CourseCheckoutResult =
   | { status: "unavailable" }
   | { status: "unauthenticated" };
 
+export type EventCheckoutResult =
+  | { status: "redirect"; url: string }
+  | { status: "already-registered" }
+  | { status: "unavailable" }
+  | { status: "unauthenticated" };
+
 export type BulkCheckoutResult =
   | { status: "redirect"; url: string }
   | {
       status: "unavailable";
-      reason: "course" | "quantity" | "grant" | "payment" | "unauthenticated";
+      reason:
+        | "course"
+        | "event"
+        | "quantity"
+        | "grant"
+        | "payment"
+        | "unauthenticated";
     };
 
-export interface CheckoutStatus {
-  status: "pending" | "paid" | "failed" | "partially_refunded" | "refunded";
-  kind: "individual_purchase" | "bulk_purchase" | "capacity_extension";
-  courseTitle: string;
-  courseSlug: string;
-}
+type PaymentState =
+  "pending" | "paid" | "failed" | "partially_refunded" | "refunded";
+
+export type CheckoutStatus =
+  | {
+      status: PaymentState;
+      kind: "individual_purchase" | "bulk_purchase" | "capacity_extension";
+      offeringType: "course";
+      offeringTitle: string;
+      offeringSlug: string;
+    }
+  | {
+      status: PaymentState;
+      kind: "event_registration" | "bulk_purchase" | "capacity_extension";
+      offeringType: "event";
+      offeringTitle: string;
+      offeringSlug: string;
+    };

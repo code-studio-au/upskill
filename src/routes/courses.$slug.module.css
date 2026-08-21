@@ -1,20 +1,31 @@
 .page {
-  padding-block: clamp(2.5rem, 7vw, 5rem);
+  padding-block: clamp(2rem, 6vw, 4.5rem);
 }
 
 .layout {
   display: grid;
-  gap: clamp(2rem, 6vw, 5rem);
+  gap: clamp(2rem, 5vw, 4rem);
 }
 
-.content {
+.hero,
+.details {
   min-width: 0;
 }
 
+.coverImage {
+  display: block;
+  width: 100%;
+  max-height: 22rem;
+  aspect-ratio: 16 / 7;
+  border-radius: var(--mantine-radius-lg);
+  object-fit: cover;
+}
+
 .title {
-  max-width: 18ch;
-  font-size: clamp(2.25rem, 7vw, 4.5rem);
-  line-height: 1;
+  max-width: 20ch;
+  font-size: clamp(2.2rem, 5vw, 3.75rem);
+  letter-spacing: -0.045em;
+  line-height: 1.04;
 }
 
 .summary,
@@ -22,32 +33,103 @@
   max-width: 45rem;
 }
 
+.summary {
+  font-size: clamp(1.05rem, 2vw, 1.25rem);
+  line-height: 1.55;
+}
+
+.facts {
+  flex-wrap: wrap;
+}
+
+.facts p {
+  font-size: 0.9rem;
+}
+
 .description {
+  line-height: 1.7;
   white-space: pre-line;
+}
+
+.details > section h2 {
+  margin-bottom: 0.25rem;
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  letter-spacing: -0.025em;
 }
 
 .moduleList,
 .plainList {
   margin: 0;
-  padding-inline-start: 1.4rem;
 }
 
 .moduleList {
   display: grid;
-  gap: var(--mantine-spacing-md);
+  gap: var(--mantine-spacing-sm);
+  margin-block-start: var(--mantine-spacing-sm);
+  padding: 0;
+  list-style: none;
 }
 
 .moduleList li {
-  padding-inline-start: var(--mantine-spacing-xs);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  padding: var(--mantine-spacing-md);
+  background: var(--mantine-color-white);
 }
 
 .plainList {
   display: grid;
   gap: var(--mantine-spacing-xs);
+  padding-inline-start: 1.25rem;
+}
+
+.accreditationList {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+}
+
+.accreditations {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  margin-block-start: var(--mantine-spacing-md);
+}
+
+.accreditation {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--mantine-spacing-md);
+}
+
+.accreditationLogo {
+  display: block;
+  width: auto;
+  max-width: min(10rem, 100%);
+  height: 4rem;
+  object-fit: contain;
+  object-position: left center;
 }
 
 .enrolment {
   min-width: 0;
+}
+
+.purchaseCard {
+  box-shadow: 0 1rem 3rem rgb(34 65 133 / 8%);
+}
+
+.bulkLink {
+  text-decoration: none;
+}
+
+.inclusion {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-xs);
+}
+
+.inclusion span {
+  color: var(--mantine-color-indigo-7);
+  font-weight: 800;
 }
 
 .price {
@@ -58,14 +140,52 @@
 @media (min-width: 62em) {
   .layout {
     grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
+    grid-template-areas:
+      "hero enrolment"
+      "details enrolment";
     align-items: start;
   }
 
+  .hero {
+    grid-area: hero;
+  }
+
+  .details {
+    grid-area: details;
+  }
+
   .enrolment {
+    grid-area: enrolment;
     position: sticky;
     top: 6rem;
   }
 }
+
+@media (min-width: 36em) {
+  .accreditation {
+    grid-template-columns: 10rem minmax(0, 1fr);
+    align-items: center;
+  }
+}
+
+@media (max-width: 35.99em) {
+  .page {
+    padding-block: 1.75rem 3rem;
+  }
+
+  .title {
+    font-size: clamp(2.1rem, 11vw, 2.8rem);
+  }
+
+  .coverImage {
+    aspect-ratio: 16 / 9;
+  }
+
+  .moduleList li {
+    padding: var(--mantine-spacing-sm);
+  }
+}
+
 .divider {
   width: 100%;
   margin: 0;

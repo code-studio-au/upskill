@@ -223,6 +223,10 @@ declined, waitlisted, withdrawn, or cancelled.
 Each occurrence has an explicit participation/registration mode:
 
 - **Open entry** requires no registration record.
+- **Paid entry** requires a successful individual Checkout or a valid
+  occurrence-specific bulk/enterprise access code. Fulfilment creates a
+  selected Registration and Participation automatically, without Coordinator
+  ranking, list lock-in, or Event Administrator approval.
 - **Registration required, unrestricted** requires a registration but permits
   any otherwise eligible authenticated learner regardless of email domain.
 - **Registration required, restricted** requires a registration and the
@@ -234,8 +238,9 @@ Each occurrence has an explicit participation/registration mode:
   and add that specific user despite not matching the occurrence's allowed
   domains.
 
-This mode is independent of in-person/virtual delivery, price or
-entitlement, capacity, registration dates, and automatic or manual approval.
+The mode is independent of in-person/virtual delivery. Paid entry binds payment
+or occurrence-specific entitlement to automatic approval; the other modes keep
+commercial access independent from their registration policy.
 
 ### Event participation
 
@@ -561,12 +566,12 @@ cancelled Registration.
 Registration mode is occurrence policy, not an organisation role or an
 access-code requirement.
 
-| Dimension         | Options                                                | Independent of                          |
-| ----------------- | ------------------------------------------------------ | --------------------------------------- |
-| Delivery mode     | In-person, virtual                                     | Registration mode                       |
-| Registration mode | Open entry; required/unrestricted; required/restricted | Delivery mode and approval workflow     |
-| Approval workflow | Automatic, manual approval                             | Delivery mode and registration mode     |
-| Commercial access | Free, paid, entitlement-covered                        | Registration mode and approval workflow |
+| Dimension         | Options                                                            | Independent of                          |
+| ----------------- | ------------------------------------------------------------------ | --------------------------------------- |
+| Delivery mode     | In-person, virtual                                                 | Registration mode                       |
+| Registration mode | Open entry; paid entry; required/unrestricted; required/restricted | Delivery mode                           |
+| Approval workflow | Automatic, manual approval                                         | Delivery mode and registration mode     |
+| Commercial access | Free, paid, entitlement-covered                                    | Registration mode and approval workflow |
 
 A registration-required restricted occurrence stores one or more normalised
 allowed domains. The server requires a verified learner email and performs an
@@ -575,10 +580,10 @@ a later manual transition, eligibility is rechecked at acceptance so changed
 identity or policy cannot bypass the restriction. Client visibility or a
 disabled button is never the authorisation boundary.
 
-Every required registration retains an eligibility source such as
-`unrestricted`, `verified_domain`, or `administrator_override`. Open-entry
-participation has no registration eligibility source because it has no
-registration record.
+Every Registration retains an eligibility source such as `unrestricted`,
+`paid`, `access_code`, `verified_domain`, or `administrator_override`.
+Open-entry participation has no registration eligibility source because it has
+no Registration record.
 
 Domain configuration should follow the access-grant discipline: support
 multiple domains, avoid substring matching, define subdomain behaviour

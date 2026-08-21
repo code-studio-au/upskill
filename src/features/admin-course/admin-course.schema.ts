@@ -5,6 +5,9 @@ import {
   type AdminCommunicationTemplateOption,
 } from "#/features/admin-email/admin-communication.schema";
 import type { EmailTemplateVariableGroup } from "#/features/admin-email/admin-email.schema";
+import { certificateAccreditationsSchema } from "#/features/catalog/accreditation";
+import { offeringTopicSchema } from "#/features/shared/offering-topic";
+import { offeringImageSchema } from "#/features/shared/offering-image";
 
 const identifierSchema = z
   .string()
@@ -33,6 +36,11 @@ export const adminCourseParamsSchema = z.object({
   courseId: identifierSchema,
 });
 
+export const adminCourseSelectionSchema = z.object({
+  courseId: identifierSchema,
+  courseVersionId: z.optional(identifierSchema),
+});
+
 export const adminCourseVersionParamsSchema = z.object({
   courseId: identifierSchema,
   versionId: identifierSchema,
@@ -58,6 +66,15 @@ export const adminCourseEnrollmentRemoveSchema = z.object({
   enrollmentId: identifierSchema,
 });
 
+export const adminCourseRosterSearchSchema = z.object({
+  courseId: identifierSchema,
+  q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
+  page: z.catch(
+    z.coerce.number().check(z.int(), z.minimum(1), z.maximum(100_000)),
+    1,
+  ),
+});
+
 const adminCourseCreateSchema = z.object({
   title: boundedText(160),
   slug: z
@@ -68,11 +85,6 @@ const adminCourseCreateSchema = z.object({
       z.maxLength(100),
       z.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
     ),
-});
-
-const accreditationSchema = z.object({
-  name: boundedText(160),
-  cpdPoints: z.nullable(z.number().check(z.nonnegative(), z.maximum(10_000))),
 });
 
 const itemBase = {
@@ -118,7 +130,7 @@ export const adminCourseDraftSchema = z
     title: boundedText(160),
     summary: boundedText(320),
     description: boundedText(10_000),
-    topic: z.enum(["leadership", "safety", "technology"]),
+    topic: offeringTopicSchema,
     durationMinutes: durationSchema,
     priceCents: moneySchema,
     salePriceCents: z.nullable(moneySchema),
@@ -128,9 +140,10 @@ export const adminCourseDraftSchema = z
     }),
     featured: z.boolean(),
     listInStore: z.boolean(),
+    coverImage: z._default(offeringImageSchema, null),
     hasCompletionCertificate: z.boolean(),
     prerequisites: z.array(boundedText(240)).check(z.maxLength(20)),
-    accreditations: z.array(accreditationSchema).check(z.maxLength(20)),
+    accreditations: certificateAccreditationsSchema,
     sections: z.array(adminCourseSectionSchema).check(z.maxLength(100)),
   })
   .check(
@@ -199,6 +212,9 @@ export type AdminCourseEnrollmentCreateInput = z.infer<
 export type AdminCourseEnrollmentRemoveInput = z.infer<
   typeof adminCourseEnrollmentRemoveSchema
 >;
+export type AdminCourseRosterSearch = z.infer<
+  typeof adminCourseRosterSearchSchema
+>;
 export type AdminCourseItem = z.infer<typeof adminCourseItemSchema>;
 
 export interface AdminCourseSummary {
@@ -208,8 +224,8 @@ export interface AdminCourseSummary {
   status: "draft" | "published" | "archived";
   latestVersion: number;
   draftVersion: number | null;
+  publishedVersion: number | null;
   enrollmentCount: number;
-  commerceReferenceCount: number;
   canDelete: boolean;
 }
 
@@ -234,7 +250,6 @@ export interface AdminCourseDetail {
     title: string;
     status: "draft" | "published" | "archived";
     enrollmentCount: number;
-    commerceReferenceCount: number;
     canDelete: boolean;
   };
   version: {
@@ -248,22 +263,6 @@ export interface AdminCourseDetail {
     version: number;
     publishedAt: string | null;
   }>;
-  roster: {
-    total: number;
-    limit: number;
-    enrollments: Array<{
-      enrollmentId: string;
-      learnerId: string;
-      learnerName: string;
-      learnerEmail: string;
-      courseVersion: number;
-      state: "active" | "completed" | "expired" | "removed";
-      enrolledAt: string;
-      completedAt: string | null;
-      expiresAt: string | null;
-      removedAt: string | null;
-    }>;
-  };
   draft: AdminCourseDraft;
   emailTemplates: Array<AdminCommunicationTemplateOption>;
   emailVariableGroups: Array<EmailTemplateVariableGroup>;
@@ -274,6 +273,23 @@ export interface AdminCourseDetail {
   };
 }
 
+export interface AdminCourseRosterDirectory {
+  enrollments: Array<{
+    enrollmentId: string;
+    learnerId: string;
+    learnerName: string;
+    learnerEmail: string;
+    courseVersion: number;
+    state: "active" | "completed" | "expired" | "removed";
+    enrolledAt: string;
+    completedAt: string | null;
+    expiresAt: string | null;
+    removedAt: string | null;
+  }>;
+  pagination: { page: number; pages: number; total: number; pageSize: number };
+  query: string;
+}
+
 export type AdminCourseResult<T> =
   | { status: "ready"; data: T }
   | { status: "unauthenticated" }
@@ -281,6 +297,9 @@ export type AdminCourseResult<T> =
 
 export type AdminCourseDetailResult =
   AdminCourseResult<AdminCourseDetail> | { status: "not-found" };
+
+export type AdminCourseRosterResult =
+  AdminCourseResult<AdminCourseRosterDirectory> | { status: "not-found" };
 
 export type AdminCourseMutationResult =
   | AdminCourseResult<{

@@ -437,9 +437,8 @@ export interface AdminSurveySummary {
   id: string;
   title: string;
   usage: "learning" | "onboarding";
-  latestVersion: number;
   draftVersion: number | null;
-  publishedVersions: number;
+  publishedVersion: number | null;
   versions: Array<{
     id: string;
     version: number;

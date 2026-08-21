@@ -1,4 +1,7 @@
 import type { ColumnType, Generated } from "kysely";
+import type { CertificateAccreditation } from "#/features/catalog/accreditation";
+import type { OfferingImage } from "#/features/shared/offering-image";
+import type { BulkPricing } from "#/features/catalog/catalog.schema";
 
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 type OptionalTimestamp = ColumnType<
@@ -7,6 +10,12 @@ type OptionalTimestamp = ColumnType<
   Date | string | null
 >;
 type Json = ColumnType<unknown, unknown, unknown>;
+type JsonDocument<T> = ColumnType<T, string | undefined, string>;
+type NullableJsonDocument<T> = ColumnType<
+  T | null,
+  string | null | undefined,
+  string | null
+>;
 
 interface UserTable {
   id: string;
@@ -365,10 +374,35 @@ interface EventTemplateVersionTable {
   id: string;
   eventTemplateId: string;
   version: number;
+  topic: Generated<string>;
   summary: string;
   description: string;
+  coverImage: NullableJsonDocument<NonNullable<OfferingImage>>;
   hasCompletionCertificate: boolean;
+  accreditations: JsonDocument<Array<CertificateAccreditation>>;
   publishedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface AccreditationLogoAssetTable {
+  id: string;
+  displayName: string;
+  objectKey: string;
+  mediaType: "image/png" | "image/jpeg";
+  sourceBytes: number;
+  sha256: string;
+  createdByUserId: string;
+  createdAt: Timestamp;
+}
+
+interface OfferingImageAssetTable {
+  id: string;
+  displayName: string;
+  objectKey: string;
+  mediaType: "image/png" | "image/jpeg";
+  sourceBytes: number;
+  sha256: string;
+  createdByUserId: string;
   createdAt: Timestamp;
 }
 
@@ -458,7 +492,10 @@ interface EventOccurrenceTable {
   status: "draft" | "published" | "cancelled" | "completed" | "archived";
   deliveryMode: "in_person" | "virtual";
   registrationMode:
-    "open_entry" | "required_unrestricted" | "required_restricted";
+    | "open_entry"
+    | "paid_entry"
+    | "required_unrestricted"
+    | "required_restricted";
   approvalMode: "automatic" | "manual";
   timezone: string;
   localStartsAt: string;
@@ -476,6 +513,12 @@ interface EventOccurrenceTable {
   venueName: string | null;
   venueAddress: string | null;
   virtualJoinUrl: string | null;
+  priceCents: number | null;
+  salePriceCents: number | null;
+  currency: "AUD";
+  bulkPricing: JsonDocument<BulkPricing>;
+  listInStore: boolean;
+  featured: boolean;
   openEntryAttendanceMode: Generated<"checked_in" | "attended">;
   administratorAttentionRequired: Generated<boolean>;
   coordinatorAttentionRequired: Generated<boolean>;
@@ -626,9 +669,18 @@ interface EventRegistrationTable {
   reviewRoundId: string | null;
   nameSnapshot: string;
   emailSnapshot: string;
-  source: "ordinary" | "late_invitation" | "administrator_override";
+  source:
+    | "ordinary"
+    | "paid_checkout"
+    | "access_code"
+    | "late_invitation"
+    | "administrator_override";
   eligibilitySource:
-    "unrestricted" | "verified_domain" | "administrator_override";
+    | "unrestricted"
+    | "paid"
+    | "access_code"
+    | "verified_domain"
+    | "administrator_override";
   status:
     | "submitted"
     | "coordinator_approved"
@@ -703,6 +755,19 @@ interface EventParticipationTable {
   createdAt: Timestamp;
 }
 
+interface EventAccessRedemptionTable {
+  id: string;
+  accessGrantId: string;
+  accessGrantCodeId: string | null;
+  eventRegistrationId: string;
+  eventParticipationId: string;
+  userId: string;
+  redemptionEmailSnapshot: string;
+  informationReleaseNoticeVersion: string;
+  informationReleaseAcceptedAt: Timestamp;
+  redeemedAt: Timestamp;
+}
+
 interface EventGuestAccessTable {
   id: string;
   eventOccurrenceId: string;
@@ -747,7 +812,10 @@ interface OrderTable {
   stripePaymentIntentId: string | null;
   stripeInvoiceId: string | null;
   kind: Generated<
-    "individual_purchase" | "bulk_purchase" | "capacity_extension"
+    | "individual_purchase"
+    | "bulk_purchase"
+    | "capacity_extension"
+    | "event_registration"
   >;
   status: "pending" | "paid" | "failed" | "partially_refunded" | "refunded";
   currency: string;
@@ -760,10 +828,11 @@ interface OrderTable {
 interface OrderItemTable {
   id: string;
   orderId: string;
-  courseVersionId: string;
+  courseVersionId: string | null;
+  eventOccurrenceId: string | null;
   quantity: number;
   unitPriceCents: number;
-  enrollmentDurationDays: number;
+  enrollmentDurationDays: number | null;
   createdAt: Timestamp;
 }
 
@@ -793,10 +862,11 @@ interface AccessGrantTable {
   id: string;
   organizationId: string | null;
   orderId: string | null;
-  courseVersionId: string;
+  courseVersionId: string | null;
+  eventOccurrenceId: string | null;
   label: Generated<string | null>;
   createdByUserId: Generated<string | null>;
-  enrollmentDurationDays: number;
+  enrollmentDurationDays: number | null;
   quantity: number;
   redeemed: Generated<number>;
   expiresAt: Timestamp | null;
@@ -1109,6 +1179,8 @@ interface AuditEventTable {
 }
 
 export interface Database {
+  accreditation_logo_asset: AccreditationLogoAssetTable;
+  offering_image_asset: OfferingImageAssetTable;
   account: AccountTable;
   access_grant: AccessGrantTable;
   access_grant_code: AccessGrantCodeTable;
@@ -1127,6 +1199,7 @@ export interface Database {
   email_design: EmailDesignTable;
   email_design_version: EmailDesignVersionTable;
   event_admin_assignment: EventAdminAssignmentTable;
+  event_access_redemption: EventAccessRedemptionTable;
   event_attendance: EventAttendanceTable;
   event_coordinator_assignment: EventCoordinatorAssignmentTable;
   event_guest_access: EventGuestAccessTable;

@@ -40,6 +40,14 @@ import {
   instantToDate,
   instantToLocalDateTime,
 } from "#/server/time/time.server";
+import {
+  certificateAccreditationsSchema,
+  type CertificateAccreditation,
+} from "#/features/catalog/accreditation";
+import {
+  offeringImageSchema,
+  type OfferingImage,
+} from "#/features/shared/offering-image";
 
 function optionalDate(value: string): Date | null {
   return value ? instantToDate(instantIsoSchema.parse(value)) : null;
@@ -128,11 +136,25 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         "event_occurrence.registrationClosesAt",
         "event_occurrence.coordinatorLockAt",
         "event_occurrence.capacity",
+        "event_occurrence.priceCents",
+        "event_occurrence.salePriceCents",
+        "event_occurrence.currency",
+        "event_occurrence.bulkPricing",
+        "event_occurrence.listInStore",
+        "event_occurrence.featured",
         "event_occurrence.confirmedCount",
         "event_occurrence.venueName",
         "event_occurrence.venueAddress",
         "event_occurrence.virtualJoinUrl",
         "event_occurrence.openEntryAttendanceMode",
+        sql<string>`coalesce((
+          select string_agg(region.name, ', ' order by occurrence_region.position)
+          from event_occurrence_region as occurrence_region
+          inner join coordination_region as region
+            on region.id = occurrence_region."regionId"
+          where occurrence_region."eventOccurrenceId" = event_occurrence.id
+            and occurrence_region."retiredAt" is null
+        ), '')`.as("regions"),
         sql<number>`(
           select count(*)::integer from event_session
           where event_session."eventOccurrenceId" = event_occurrence.id
@@ -699,9 +721,12 @@ export async function createAdminEventTemplate(
           id: eventTemplateVersionId,
           eventTemplateId,
           version: 1,
+          topic: "General",
           summary: "Event summary to be completed.",
           description: "Event description to be completed.",
+          coverImage: null,
           hasCompletionCertificate: false,
+          accreditations: JSON.stringify([]),
           publishedAt: null,
         })
         .execute();
@@ -795,9 +820,12 @@ async function loadEventTemplateDraft(
   template: { id: string; title: string },
   version: {
     id: string;
+    topic: string;
     summary: string;
     description: string;
+    coverImage: OfferingImage;
     hasCompletionCertificate: boolean;
+    accreditations: Array<CertificateAccreditation>;
   },
 ): Promise<AdminEventTemplateDraft> {
   const [
@@ -977,9 +1005,14 @@ async function loadEventTemplateDraft(
     eventTemplateId: template.id,
     eventTemplateVersionId: version.id,
     title: template.title,
+    topic: version.topic,
     summary: version.summary,
     description: version.description,
+    coverImage: offeringImageSchema.parse(version.coverImage),
     hasCompletionCertificate: version.hasCompletionCertificate,
+    accreditations: certificateAccreditationsSchema.parse(
+      version.accreditations,
+    ),
     defaultAdministratorIds: administratorRows.map((row) => row.userId),
     regions: [...regions].map(([regionId, coordinatorIds]) => ({
       regionId,
@@ -1005,9 +1038,12 @@ export async function findAdminEventTemplate(
     .select([
       "id",
       "version",
+      "topic",
       "summary",
       "description",
+      "coverImage",
       "hasCompletionCertificate",
+      "accreditations",
       "publishedAt",
     ])
     .where("eventTemplateId", "=", eventTemplateId)
@@ -1228,6 +1264,10 @@ async function validateEventDraftReferences(
     ),
   );
   const regionIds = new Set(draft.regions.map((region) => region.regionId));
+  const accreditationLogoIds = draft.accreditations.flatMap((accreditation) =>
+    accreditation.logoAssetId ? [accreditation.logoAssetId] : [],
+  );
+  const coverImageIds = draft.coverImage ? [draft.coverImage.assetId] : [];
   const [
     administrators,
     coordinators,
@@ -1235,6 +1275,8 @@ async function validateEventDraftReferences(
     activities,
     regions,
     emailVersions,
+    accreditationLogos,
+    coverImages,
   ] = await Promise.all([
     transaction
       .selectFrom("platform_admin")
@@ -1300,6 +1342,20 @@ async function validateEventDraftReferences(
           .where("design.contextKey", "=", "offering_event")
           .execute()
       : [],
+    accreditationLogoIds.length
+      ? transaction
+          .selectFrom("accreditation_logo_asset")
+          .select("id")
+          .where("id", "in", accreditationLogoIds)
+          .execute()
+      : [],
+    coverImageIds.length
+      ? transaction
+          .selectFrom("offering_image_asset")
+          .select("id")
+          .where("id", "in", coverImageIds)
+          .execute()
+      : [],
   ]);
   return (
     new Set(administrators.map((row) => row.userId)).size ===
@@ -1316,7 +1372,11 @@ async function validateEventDraftReferences(
       new Set(activityIds).size &&
     new Set(regions.map((row) => row.id)).size === regionIds.size &&
     new Set(emailVersions.map((row) => row.id)).size ===
-      new Set(emailVersionIds).size
+      new Set(emailVersionIds).size &&
+    new Set(accreditationLogos.map((row) => row.id)).size ===
+      new Set(accreditationLogoIds).size &&
+    new Set(coverImages.map((row) => row.id)).size ===
+      new Set(coverImageIds).size
   );
 }
 
@@ -1547,9 +1607,13 @@ export async function saveAdminEventTemplateDraft(
       await transaction
         .updateTable("event_template_version")
         .set({
+          topic: draft.topic,
           summary: draft.summary,
           description: draft.description,
+          coverImage:
+            draft.coverImage === null ? null : JSON.stringify(draft.coverImage),
           hasCompletionCertificate: draft.hasCompletionCertificate,
+          accreditations: JSON.stringify(draft.accreditations),
         })
         .where("id", "=", draft.eventTemplateVersionId)
         .executeTakeFirstOrThrow();
@@ -1593,9 +1657,12 @@ export async function createAdminEventTemplateVersion(
         .select([
           "id",
           "version",
+          "topic",
           "summary",
           "description",
+          "coverImage",
           "hasCompletionCertificate",
+          "accreditations",
           "publishedAt",
         ])
         .where("eventTemplateId", "=", eventTemplateId)
@@ -1612,9 +1679,15 @@ export async function createAdminEventTemplateVersion(
           id: eventTemplateVersionId,
           eventTemplateId,
           version: source.version + 1,
+          topic: source.topic,
           summary: source.summary,
           description: source.description,
+          coverImage:
+            source.coverImage === null
+              ? null
+              : JSON.stringify(source.coverImage),
           hasCompletionCertificate: source.hasCompletionCertificate,
+          accreditations: JSON.stringify(source.accreditations),
           publishedAt: null,
         })
         .execute();
@@ -1907,6 +1980,11 @@ export async function createAdminEventOccurrence(
   | { status: "created"; eventOccurrenceId: string }
   | { status: "not-found" }
   | { status: "conflict" }
+  | {
+      status: "conflict";
+      reason: "occurrence-window-too-short";
+      minimumDurationMinutes: number;
+    }
   | { status: "slug-in-use" }
 > {
   if (!isIanaTimeZone(input.timezone) || !isAdminEventScheduleConsistent(input))
@@ -2052,7 +2130,11 @@ export async function createAdminEventOccurrence(
         0,
       );
       if (endsAt.getTime() - startsAt.getTime() < totalSessionMinutes * 60_000)
-        return { status: "conflict" } as const;
+        return {
+          status: "conflict",
+          reason: "occurrence-window-too-short",
+          minimumDurationMinutes: totalSessionMinutes,
+        } as const;
       const now = new Date();
       await transaction
         .insertInto("event_occurrence")
@@ -2081,6 +2163,12 @@ export async function createAdminEventOccurrence(
           registrationClosesAt: optionalDate(input.registrationClosesAt),
           coordinatorLockAt: optionalDate(input.coordinatorLockAt),
           capacity: input.capacity,
+          priceCents: input.priceCents,
+          salePriceCents: input.salePriceCents,
+          currency: input.currency,
+          bulkPricing: JSON.stringify(input.bulkPricing),
+          listInStore: input.listInStore,
+          featured: input.featured,
           venueName: optionalText(input.venueName),
           venueAddress: optionalText(input.venueAddress),
           virtualJoinUrl: optionalText(input.virtualJoinUrl),
@@ -2299,6 +2387,12 @@ export async function updateAdminEventOccurrence(
           registrationClosesAt: optionalDate(input.registrationClosesAt),
           coordinatorLockAt: optionalDate(input.coordinatorLockAt),
           capacity: input.capacity,
+          priceCents: input.priceCents,
+          salePriceCents: input.salePriceCents,
+          currency: input.currency,
+          bulkPricing: JSON.stringify(input.bulkPricing),
+          listInStore: input.listInStore,
+          featured: input.featured,
           venueName: optionalText(input.venueName),
           venueAddress: optionalText(input.venueAddress),
           virtualJoinUrl: optionalText(input.virtualJoinUrl),
@@ -3019,6 +3113,12 @@ export async function rescheduleAdminEventOccurrence(
           registrationClosesAt: nextClosesAt,
           coordinatorLockAt: nextLockAt,
           capacity: next.capacity,
+          priceCents: next.priceCents,
+          salePriceCents: next.salePriceCents,
+          currency: next.currency,
+          bulkPricing: JSON.stringify(next.bulkPricing),
+          listInStore: next.listInStore,
+          featured: next.featured,
           venueName: optionalText(next.venueName),
           venueAddress: optionalText(next.venueAddress),
           virtualJoinUrl: optionalText(next.virtualJoinUrl),

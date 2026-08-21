@@ -11,10 +11,47 @@ describe("catalog input", () => {
     expect(
       catalogSearchSchema.parse({
         q: "  safety ",
-        topic: "invalid",
+        topic: "x".repeat(81),
         page: "-2",
       }),
     ).toEqual({ q: "safety", topic: "all", page: 1 });
+  });
+
+  it("accepts custom catalogue topics", () => {
+    expect(
+      catalogSearchSchema.parse({
+        q: "",
+        topic: "Eating disorder treatment",
+        page: 1,
+      }),
+    ).toEqual({ q: "", topic: "Eating disorder treatment", page: 1 });
+  });
+
+  it("accepts a versioned private cover-image reference", () => {
+    const content = courseContentSchema.parse({
+      title: "Course",
+      summary: "Summary",
+      description: "Description",
+      topic: "Clinical education",
+      durationMinutes: 30,
+      priceCents: 10_000,
+      salePriceCents: null,
+      currency: "AUD",
+      featured: false,
+      listInStore: true,
+      coverImage: {
+        assetId: "offering_image_example",
+        altText: "Clinicians working together",
+      },
+      hasCompletionCertificate: false,
+      prerequisites: [],
+      accreditations: [],
+      modules: [],
+    });
+    expect(content.coverImage).toEqual({
+      assetId: "offering_image_example",
+      altText: "Clinicians working together",
+    });
   });
 
   it("rejects a path-like slug", () => {
@@ -60,6 +97,85 @@ describe("catalog input", () => {
       modules: [],
     });
     expect(content.bulkPricing).toEqual({ enabled: false, tiers: [] });
+  });
+
+  it("defaults legacy accreditation entries without losing their claims", () => {
+    const content = courseContentSchema.parse({
+      title: "Course",
+      summary: "Summary",
+      description: "Description",
+      topic: "leadership",
+      durationMinutes: 30,
+      priceCents: 10_000,
+      salePriceCents: null,
+      currency: "AUD",
+      featured: false,
+      listInStore: true,
+      hasCompletionCertificate: true,
+      prerequisites: [],
+      accreditations: [{ name: "CPD", cpdPoints: 2 }],
+      modules: [],
+    });
+    expect(content.accreditations).toEqual([
+      {
+        name: "CPD",
+        cpdPoints: 2,
+        blurb: "",
+        logoAssetId: null,
+        logoName: "",
+      },
+    ]);
+  });
+
+  it("accepts only bounded custom accreditation logo references", () => {
+    const base = {
+      name: "Example accreditation",
+      cpdPoints: null,
+      blurb: "Accreditation statement",
+    };
+    expect(
+      courseContentSchema.shape.accreditations.safeParse([
+        {
+          ...base,
+          logoAssetId: "accreditation_logo_example",
+          logoName: "Example logo",
+        },
+      ]).success,
+    ).toBe(true);
+    expect(
+      courseContentSchema.shape.accreditations.safeParse([
+        { ...base, logoAssetId: "accreditation_logo_example" },
+      ]).success,
+    ).toBe(false);
+    expect(
+      courseContentSchema.shape.accreditations.safeParse([
+        {
+          ...base,
+          logoAssetId: "untrusted-logo-reference",
+          logoName: "Example logo",
+        },
+      ]).success,
+    ).toBe(false);
+  });
+
+  it("bounds accreditations to a legible single-page certificate", () => {
+    const accreditation = {
+      name: "Example accreditation",
+      cpdPoints: 1,
+      blurb: "Accreditation statement",
+      logoAssetId: null,
+      logoName: "",
+    };
+    expect(
+      courseContentSchema.shape.accreditations.safeParse(
+        Array.from({ length: 5 }, () => accreditation),
+      ).success,
+    ).toBe(true);
+    expect(
+      courseContentSchema.shape.accreditations.safeParse(
+        Array.from({ length: 6 }, () => accreditation),
+      ).success,
+    ).toBe(false);
   });
 
   it("resolves the highest reached immutable bulk-pricing tier", () => {

@@ -1,10 +1,8 @@
 import { Button, Group, Paper, Stack, Title } from "#/features/shared/mantine";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
-import type { AdminCourseDraft } from "./admin-course.schema";
+import type { BulkPricing } from "#/features/catalog/catalog.schema";
 import classes from "./AdminCourseBulkPricingEditor.module.css";
-
-type BulkPricing = AdminCourseDraft["bulkPricing"];
 
 function numericValue(value: string): number {
   const parsed = Number(value);

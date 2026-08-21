@@ -303,6 +303,15 @@ try {
     administrator,
   );
   assert.equal(versioned.status, "created");
+  const publishedSelection = await authoring.findAdminCourse(
+    created.courseId,
+    created.versionId,
+  );
+  assert.equal(publishedSelection?.version.id, created.versionId);
+  assert.equal(
+    await authoring.findAdminCourse(created.courseId, "missing_version"),
+    null,
+  );
   const second = await authoring.findAdminCourse(created.courseId);
   assert.ok(second);
   const [preparationSection, learningSection] = second.draft.sections;
@@ -425,10 +434,14 @@ try {
       removedAt: null,
     })
     .execute();
-  const courseWithRoster = await authoring.findAdminCourse(created.courseId);
+  const courseWithRoster = await authoring.findAdminCourseRoster({
+    courseId: created.courseId,
+    q: "",
+    page: 1,
+  });
   assert.ok(courseWithRoster);
-  assert.equal(courseWithRoster.roster.total, 1);
-  assert.deepEqual(courseWithRoster.roster.enrollments, [
+  assert.equal(courseWithRoster.pagination.total, 1);
+  assert.deepEqual(courseWithRoster.enrollments, [
     {
       enrollmentId: ids.enrollment,
       learnerId: ids.user,
@@ -457,7 +470,7 @@ try {
   assert.equal(await authoring.findAdminCourse(created.courseId), null);
 
   console.log(
-    "Verified course archive/delete safety, bounded learner roster, immutable version creation, section ordering and linked exact-version module, survey and PDF usage",
+    "Verified course archive/delete safety, paginated learner roster, immutable version creation, section ordering and linked exact-version module, survey and PDF usage",
   );
 } finally {
   await cleanup();

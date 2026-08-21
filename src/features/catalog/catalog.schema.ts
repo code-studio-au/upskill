@@ -1,6 +1,8 @@
 import { z } from "#/validation/zod";
+import { certificateAccreditationsSchema } from "./accreditation";
+import { offeringTopicSchema } from "#/features/shared/offering-topic";
+import { offeringImageSchema } from "#/features/shared/offering-image";
 
-const courseTopicSchema = z.enum(["leadership", "safety", "technology"]);
 const boundedText = (maximum: number) =>
   z.string().check(z.trim(), z.minLength(1), z.maxLength(maximum));
 const moneySchema = z
@@ -10,7 +12,7 @@ const bulkPriceTierSchema = z.object({
   minimumQuantity: z.number().check(z.int(), z.minimum(2), z.maximum(100_000)),
   unitPriceCents: moneySchema.check(z.positive()),
 });
-const bulkPricingSchema = z
+export const bulkPricingSchema = z
   .object({
     enabled: z.boolean(),
     tiers: z.array(bulkPriceTierSchema).check(z.maxLength(20)),
@@ -77,8 +79,12 @@ const courseSectionSummarySchema = z.object({
 });
 
 export const catalogSearchSchema = z.object({
+  offering: z.optional(z.catch(z.enum(["courses", "events"]), "courses")),
   q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
-  topic: z.catch(z.union([z.literal("all"), courseTopicSchema]), "all"),
+  topic: z.catch(
+    z.union([z.literal("all"), z.string().check(z.trim(), z.maxLength(80))]),
+    "all",
+  ),
   page: z.catch(
     z.coerce.number().check(z.int(), z.minimum(1), z.maximum(100)),
     1,
@@ -92,14 +98,14 @@ export const courseSlugSchema = z.object({
 });
 
 export type CatalogSearch = z.infer<typeof catalogSearchSchema>;
-type CourseTopic = z.infer<typeof courseTopicSchema>;
+type CourseTopic = z.infer<typeof offeringTopicSchema>;
 
 export const courseContentSchema = z
   .object({
     title: boundedText(160),
     summary: boundedText(320),
     description: boundedText(10_000),
-    topic: courseTopicSchema,
+    topic: offeringTopicSchema,
     durationMinutes: z
       .number()
       .check(z.int(), z.positive(), z.maximum(100_000)),
@@ -109,18 +115,10 @@ export const courseContentSchema = z
     currency: z.literal("AUD"),
     featured: z.boolean(),
     listInStore: z.boolean(),
+    coverImage: z._default(offeringImageSchema, null),
     hasCompletionCertificate: z.boolean(),
     prerequisites: z.array(boundedText(240)).check(z.maxLength(20)),
-    accreditations: z
-      .array(
-        z.object({
-          name: boundedText(160),
-          cpdPoints: z.nullable(
-            z.number().check(z.nonnegative(), z.maximum(10_000)),
-          ),
-        }),
-      )
-      .check(z.maxLength(20)),
+    accreditations: certificateAccreditationsSchema,
     modules: z
       .array(
         z.object({
@@ -174,6 +172,7 @@ export interface CourseSummary {
   priceCents: number;
   salePriceCents: number | null;
   featured: boolean;
+  coverImage: z.infer<typeof offeringImageSchema>;
 }
 
 export interface CourseDetail extends CourseSummary {
@@ -186,4 +185,43 @@ export interface CourseDetail extends CourseSummary {
   sections: NonNullable<CourseContent["sections"]>;
   publishedVersion: number;
   bulkPricing: BulkPricing;
+}
+
+export interface EventSummary {
+  slug: string;
+  title: string;
+  summary: string;
+  topic: CourseTopic;
+  coverImage: z.infer<typeof offeringImageSchema>;
+  deliveryMode: "in_person" | "virtual";
+  registrationMode:
+    | "open_entry"
+    | "paid_entry"
+    | "required_unrestricted"
+    | "required_restricted";
+  startsAt: string;
+  endsAt: string;
+  timezone: string;
+  priceCents: number | null;
+  salePriceCents: number | null;
+  currency: "AUD";
+  featured: boolean;
+  remainingPlaces: number;
+}
+
+export interface EventDetail extends EventSummary {
+  description: string;
+  venueName: string | null;
+  venueAddress: string | null;
+  hasCompletionCertificate: boolean;
+  accreditations: CourseContent["accreditations"];
+  bulkPricing: BulkPricing;
+  publicAccessReference: string | null;
+  regions: Array<{ code: string; name: string; groupName: string | null }>;
+  sessions: Array<{
+    title: string;
+    startsAt: string;
+    endsAt: string;
+    venueName: string | null;
+  }>;
 }

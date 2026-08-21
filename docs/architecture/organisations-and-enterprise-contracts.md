@@ -23,9 +23,10 @@ eligible workforce.
 
 ## Architecture Horizons
 
-- **Current Product:** organisation identity/membership, course-specific access
-  grants, explicit course entitlements, learner information-release evidence,
-  and scoped Access Owner self-service for assigned grants.
+- **Current Product:** organisation identity/membership, exact course-version
+  and Event Occurrence access grants, explicit learning access/redemptions,
+  learner information-release evidence, and scoped Access Owner self-service
+  for assigned grants.
 - **Target Product:** first-class enterprise contracts, covered-offering scope,
   eligibility rules, effective periods, source-neutral entitlements and scoped
   Access Owner self-service for assigned grants/contracts.
@@ -49,12 +50,13 @@ is part of the commercial entitlement model.
 ## Current Product
 
 The repository already contains organisation-aware access grants,
-organisation membership/role concepts, source-neutral course entitlements and
-scoped Access Owner assignments. Access grants can represent an
-exact published course version, capacity, redeemed quantity, enrolment
-duration, expiry, revocation, and optional verified-email-domain
-restrictions. Individual checkout, code redemption and administrator assignment
-use a common transactional entitlement/enrolment issuer. Access-code redemption
+organisation membership/role concepts, source-neutral course entitlements,
+exact-occurrence Event redemptions and scoped Access Owner assignments. Access
+grants can target exactly one published course version or future Event
+Occurrence and retain capacity, redeemed quantity, expiry, revocation, and
+optional verified-email-domain restrictions. Course grants additionally retain
+an enrolment duration. Individual Checkout, code redemption and administrator
+assignment use transactional offering-specific issuers. Access-code redemption
 records the learner's explicit information-release notice version, acceptance
 time and redemption-email snapshot before an assigned owner can see bounded
 progress.
@@ -474,12 +476,13 @@ may register for a covered event without individual payment.
 Event registration, capacity, approval, and attendance remain owned by
 the Events domain.
 
-An occurrence may independently use open entry, require unrestricted
-registration, or require registration restricted to one or more verified email
-domains, whether delivery is in-person or virtual. Contract coverage and
-domain eligibility answer different questions: coverage determines who need not
-pay, while the Event registration policy determines who may register. Where both
-apply, both checks must pass.
+An occurrence may use open entry, paid entry, unrestricted registration, or
+registration restricted to one or more verified email domains, whether delivery
+is in-person or virtual. An exact-occurrence bulk or enterprise access code
+confirms its redeemer automatically and consumes one capacity-controlled place.
+Broader future contract coverage and domain eligibility answer different
+questions: coverage determines who need not pay, while the Event registration
+policy determines who may register. Where both apply, both checks must pass.
 
 A platform administrator may make a learner-specific, audited exception to a
 restricted Event's domain policy. That exception belongs to the Event
@@ -566,7 +569,7 @@ entitlements/enrolments for the same intended access.
 - Keep organisation role semantics separate from event/platform roles.
 - Ensure grant origin and organisation relationships remain explicit.
 
-### Implemented --- course entitlement and assigned-grant owner foundation
+### Implemented --- offering access and assigned-grant owner foundation
 
 - Source-neutral course entitlements make enrolment origin directly traceable.
 - Access grants act as entitlement producers and serialized capacity pools.
@@ -576,10 +579,12 @@ entitlements/enrolments for the same intended access.
 - Email-bound Access Owner assignments, audited code reveal, bounded progress,
   consent-filtered learner lists and CSV export are implemented.
 - New Access Owner emails use the provisional account/setup-email workflow.
-
-### Next --- customer extensions and contracts
-
-- Add Stripe-backed capacity-extension orders for eligible finite grants.
+- Grants may target an exact future Event Occurrence. Redemption creates the
+  selected Registration, Participation and consent-bound Event redemption
+  record atomically, and the Access Owner dashboard reports those learners.
+- Stripe-backed initial bulk purchases and customer-extendable capacity orders
+  support both courses and paid Events while preserving distributed and redeemed
+  codes after refunds.
 
 ### Enterprise contract phase
 

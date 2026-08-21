@@ -36,8 +36,8 @@ export function AdminAccessGrantForm({
   const targetOptions = useMemo(
     () =>
       targets.map((target) => ({
-        value: target.courseVersionId,
-        label: `${target.courseTitle} · Version ${String(target.version)}`,
+        value: `${target.type}:${target.id}`,
+        label: `${target.type === "event" ? "Event" : "Course"} · ${target.title} · ${target.detail}`,
       })),
     [targets],
   );
@@ -46,7 +46,8 @@ export function AdminAccessGrantForm({
       label: "",
       organizationName: "",
       accessCode: "",
-      courseVersionId: targets[0]?.courseVersionId ?? "",
+      targetType: targets[0]?.type ?? "course",
+      targetId: targets[0]?.id ?? "",
       quantity: 10,
       enrollmentDurationDays: 365,
       expiresOn: "",
@@ -210,22 +211,30 @@ export function AdminAccessGrantForm({
                 </grantForm.Field>
               )}
             </grantForm.Subscribe>
-            <grantForm.Field name="courseVersionId">
-              {(field) => (
+            <grantForm.Subscribe
+              selector={(state) =>
+                `${state.values.targetType}:${state.values.targetId}`
+              }
+            >
+              {(selectedTarget) => (
                 <MantineNativeSelect
-                  label="Published course version"
+                  label="Course or scheduled event"
                   data={targetOptions}
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
+                  value={selectedTarget}
                   onChange={(event) => {
-                    field.handleChange(event.currentTarget.value);
+                    const [targetType, targetId] =
+                      event.currentTarget.value.split(":", 2);
+                    grantForm.setFieldValue(
+                      "targetType",
+                      targetType === "event" ? "event" : "course",
+                    );
+                    grantForm.setFieldValue("targetId", targetId ?? "");
                   }}
-                  error={firstFormError(field.state.meta.errors)}
                   disabled={!canCreate}
                   required
                 />
               )}
-            </grantForm.Field>
+            </grantForm.Subscribe>
             <grantForm.Field name="kind">
               {(field) => (
                 <MantineNativeSelect
@@ -291,24 +300,30 @@ export function AdminAccessGrantForm({
                 />
               )}
             </grantForm.Field>
-            <grantForm.Field name="enrollmentDurationDays">
-              {(field) => (
-                <MantineTextInput
-                  label="Learner access duration (days)"
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={3650}
-                  value={String(field.state.value)}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => {
-                    field.handleChange(Number(event.currentTarget.value));
-                  }}
-                  error={firstFormError(field.state.meta.errors)}
-                  required
-                />
-              )}
-            </grantForm.Field>
+            <grantForm.Subscribe selector={(state) => state.values.targetType}>
+              {(targetType) =>
+                targetType === "course" ? (
+                  <grantForm.Field name="enrollmentDurationDays">
+                    {(field) => (
+                      <MantineTextInput
+                        label="Learner access duration (days)"
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        max={3650}
+                        value={String(field.state.value)}
+                        onBlur={field.handleBlur}
+                        onChange={(event) => {
+                          field.handleChange(Number(event.currentTarget.value));
+                        }}
+                        error={firstFormError(field.state.meta.errors)}
+                        required
+                      />
+                    )}
+                  </grantForm.Field>
+                ) : null
+              }
+            </grantForm.Subscribe>
             <grantForm.Field name="expiresOn">
               {(field) => (
                 <MantineTextInput

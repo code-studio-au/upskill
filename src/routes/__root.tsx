@@ -31,7 +31,15 @@ export const Route = createRootRoute({
         content: "Discover practical courses, events and learning programs.",
       },
     ],
-    links: [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }],
+    links: [
+      { rel: "icon", href: "/favicon.ico", sizes: "any" },
+      {
+        rel: "apple-touch-icon",
+        href: "/apple-touch-icon.png",
+        sizes: "180x180",
+      },
+      { rel: "manifest", href: "/site.webmanifest" },
+    ],
   }),
   component: RootOutlet,
   notFoundComponent: NotFoundPage,
@@ -58,7 +66,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <footer className={classes.footer}>
             <Container size="xl">
               <Group justify="space-between">
-                <Text size="sm">Upskill learning platform</Text>
+                <img
+                  src="/brand/upskill-footer-logo.png"
+                  alt="Upskill Institute"
+                  width="420"
+                  height="79"
+                  className={classes.footerLogo}
+                />
                 <Text size="sm" c="dimmed">
                   Secure by default
                 </Text>

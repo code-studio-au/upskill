@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import { bulkPricingSchema } from "#/features/catalog/catalog.schema";
 import type {
   AccessOwnerCodeExport,
   AccessOwnerDashboard,
@@ -125,12 +126,17 @@ export async function findAccessOwnerDashboard(
     .selectFrom("access_grant_owner_assignment as assignment")
     .innerJoin("access_grant", "access_grant.id", "assignment.accessGrantId")
     .innerJoin("organization", "organization.id", "access_grant.organizationId")
-    .innerJoin(
+    .leftJoin(
       "course_version",
       "course_version.id",
       "access_grant.courseVersionId",
     )
-    .innerJoin("course", "course.id", "course_version.courseId")
+    .leftJoin("course", "course.id", "course_version.courseId")
+    .leftJoin(
+      "event_occurrence",
+      "event_occurrence.id",
+      "access_grant.eventOccurrenceId",
+    )
     .select([
       "access_grant.id",
       "access_grant.label",
@@ -144,16 +150,18 @@ export async function findAccessOwnerDashboard(
       "organization.name as organizationName",
       "course.title as courseTitle",
       "course_version.content",
+      "event_occurrence.title as eventTitle",
+      "event_occurrence.bulkPricing as eventBulkPricing",
     ])
     .where("assignment.userId", "=", user.id)
     .where("assignment.activatedAt", "is not", null)
     .where("assignment.revokedAt", "is", null)
     .orderBy("organization.name")
-    .orderBy("course.title")
+    .orderBy("access_grant.createdAt")
     .execute();
   if (grants.length === 0) return null;
   const grantIds = grants.map((grant) => grant.id);
-  const [learners, orders] = await Promise.all([
+  const [learners, eventLearners, orders] = await Promise.all([
     database
       .selectFrom("entitlement")
       .innerJoin("enrollment", "enrollment.id", "entitlement.enrollmentId")
@@ -183,6 +191,31 @@ export async function findAccessOwnerDashboard(
       .where("entitlement.informationReleaseAcceptedAt", "is not", null)
       .where("entitlement.revokedAt", "is", null)
       .orderBy("entitlement.grantedAt", "desc")
+      .execute(),
+    database
+      .selectFrom("event_access_redemption as redemption")
+      .innerJoin(
+        "event_participation as participation",
+        "participation.id",
+        "redemption.eventParticipationId",
+      )
+      .innerJoin("user", "user.id", "redemption.userId")
+      .leftJoin(
+        "access_grant_code",
+        "access_grant_code.id",
+        "redemption.accessGrantCodeId",
+      )
+      .select([
+        "redemption.accessGrantId",
+        "redemption.eventRegistrationId",
+        "redemption.redemptionEmailSnapshot as email",
+        "redemption.redeemedAt",
+        "participation.completedAt",
+        "user.name",
+        "access_grant_code.ordinal as codeNumber",
+      ])
+      .where("redemption.accessGrantId", "in", grantIds)
+      .orderBy("redemption.redeemedAt", "desc")
       .execute(),
     database
       .selectFrom("bulk_order")
@@ -266,7 +299,12 @@ export async function findAccessOwnerDashboard(
     AccessOwnerDashboard["grants"][number]["orders"]
   >();
   for (const order of orders) {
-    if (!order.accessGrantId || order.kind === "individual_purchase") continue;
+    if (
+      !order.accessGrantId ||
+      order.kind === "individual_purchase" ||
+      order.kind === "event_registration"
+    )
+      continue;
     orderGroups.set(order.accessGrantId, [
       ...(orderGroups.get(order.accessGrantId) ?? []),
       {
@@ -310,15 +348,37 @@ export async function findAccessOwnerDashboard(
       },
     ]);
   }
+  for (const learner of eventLearners) {
+    learnerGroups.set(learner.accessGrantId, [
+      ...(learnerGroups.get(learner.accessGrantId) ?? []),
+      {
+        enrollmentId: learner.eventRegistrationId,
+        name: learner.name,
+        email: learner.email,
+        enrolledAt: learner.redeemedAt.toISOString(),
+        progressPercent: learner.completedAt ? 100 : 0,
+        completionState: learner.completedAt ? "complete" : "incomplete",
+        codeNumber: learner.codeNumber,
+      },
+    ]);
+  }
   return {
     grants: grants.map((grant) => {
       const state = grantState(grant);
-      const content = courseContentSchema.parse(grant.content);
+      const offeringType = grant.eventTitle
+        ? ("event" as const)
+        : ("course" as const);
+      const pricing =
+        offeringType === "event"
+          ? bulkPricingSchema.parse(grant.eventBulkPricing)
+          : courseContentSchema.parse(grant.content).bulkPricing;
       return {
         id: grant.id,
         label: grant.label ?? "Organisation access",
         organizationName: grant.organizationName,
-        courseTitle: grant.courseTitle,
+        offeringType,
+        offeringTitle:
+          grant.eventTitle ?? grant.courseTitle ?? "Unavailable offering",
         kind:
           grant.kind === "enterprise_contract"
             ? "enterprise_contract"
@@ -332,8 +392,8 @@ export async function findAccessOwnerDashboard(
           grant.customerExtendable &&
           state !== "expired" &&
           state !== "revoked" &&
-          content.bulkPricing.enabled,
-        pricingTiers: content.bulkPricing.tiers,
+          pricing.enabled,
+        pricingTiers: pricing.tiers,
         fulfillmentMode: grant.fulfillmentMode ?? "shared_code",
         expiresAt: grant.expiresAt?.toISOString() ?? null,
         state,
@@ -452,16 +512,22 @@ export async function exportAccessOwnerCodes(
           "organization.id",
           "access_grant.organizationId",
         )
-        .innerJoin(
+        .leftJoin(
           "course_version",
           "course_version.id",
           "access_grant.courseVersionId",
         )
-        .innerJoin("course", "course.id", "course_version.courseId")
+        .leftJoin("course", "course.id", "course_version.courseId")
+        .leftJoin(
+          "event_occurrence",
+          "event_occurrence.id",
+          "access_grant.eventOccurrenceId",
+        )
         .select([
           "access_grant.id",
           "organization.name as organizationName",
           "course.title as courseTitle",
+          "event_occurrence.title as eventTitle",
         ])
         .where("access_grant.id", "=", accessGrantId)
         .executeTakeFirst();
@@ -474,6 +540,12 @@ export async function exportAccessOwnerCodes(
           "access_grant_code.id",
         )
         .leftJoin("user", "user.id", "entitlement.userId")
+        .leftJoin(
+          "event_access_redemption as eventRedemption",
+          "eventRedemption.accessGrantCodeId",
+          "access_grant_code.id",
+        )
+        .leftJoin("user as eventUser", "eventUser.id", "eventRedemption.userId")
         .select([
           "access_grant_code.lookupId",
           "access_grant_code.encryptedAccessCode",
@@ -482,6 +554,10 @@ export async function exportAccessOwnerCodes(
           "entitlement.grantedAt as redeemedAt",
           "entitlement.redemptionEmailSnapshot as redemptionEmail",
           "user.name as learnerName",
+          "eventRedemption.id as eventRedemptionId",
+          "eventRedemption.redeemedAt as eventRedeemedAt",
+          "eventRedemption.redemptionEmailSnapshot as eventRedemptionEmail",
+          "eventUser.name as eventLearnerName",
         ])
         .where("access_grant_code.accessGrantId", "=", accessGrantId)
         .orderBy("access_grant_code.ordinal", "asc")
@@ -499,7 +575,8 @@ export async function exportAccessOwnerCodes(
         data: {
           accessGrantId: grant.id,
           organizationName: grant.organizationName,
-          courseTitle: grant.courseTitle,
+          offeringTitle:
+            grant.eventTitle ?? grant.courseTitle ?? "Unavailable offering",
           codes: codes.map((code) => ({
             codeNumber: code.codeNumber,
             accessCode: decryptAccessCode({
@@ -507,10 +584,16 @@ export async function exportAccessOwnerCodes(
               lookupId: code.lookupId,
               encryptedAccessCode: code.encryptedAccessCode,
             }),
-            status: code.entitlementId ? "redeemed" : "available",
-            redeemedAt: code.redeemedAt?.toISOString() ?? null,
-            learnerName: code.learnerName,
-            redemptionEmail: code.redemptionEmail,
+            status:
+              code.entitlementId || code.eventRedemptionId
+                ? "redeemed"
+                : "available",
+            redeemedAt:
+              code.redeemedAt?.toISOString() ??
+              code.eventRedeemedAt?.toISOString() ??
+              null,
+            learnerName: code.learnerName ?? code.eventLearnerName,
+            redemptionEmail: code.redemptionEmail ?? code.eventRedemptionEmail,
           })),
         },
       } as const;

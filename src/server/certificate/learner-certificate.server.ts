@@ -2,10 +2,16 @@ import "@tanstack/react-start/server-only";
 
 import { createHash } from "node:crypto";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import {
+  certificateAccreditationsSchema,
+  type CertificateAccreditation,
+} from "#/features/catalog/accreditation";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { renderCompletionCertificate } from "#/server/certificate/completion-certificate-pdf.server";
 import { getDatabase } from "#/server/db/database.server";
 import { logServerEvent } from "#/server/logging/server-logger";
+import { getServerEnv } from "#/server/env.server";
+import { getObjectBytes } from "#/server/storage/object-storage.server";
 
 export type LearnerCertificateResult =
   | { status: "generated"; bytes: Uint8Array; displayName: string }
@@ -19,6 +25,42 @@ function safeFilename(value: string): string {
     .replaceAll(/\s+/gu, "-")
     .slice(0, 100);
   return `${filename || "course"}-completion-certificate.pdf`;
+}
+
+async function hydrateAccreditationLogos(
+  accreditations: Array<CertificateAccreditation>,
+) {
+  const customIds = [
+    ...new Set(
+      accreditations.flatMap((accreditation) =>
+        accreditation.logoAssetId ? [accreditation.logoAssetId] : [],
+      ),
+    ),
+  ];
+  if (customIds.length === 0) return accreditations;
+  const assets = await getDatabase()
+    .selectFrom("accreditation_logo_asset")
+    .select(["id", "objectKey", "mediaType"])
+    .where("id", "in", customIds)
+    .execute();
+  const assetById = new Map(assets.map((asset) => [asset.id, asset]));
+  const bucket = getServerEnv().S3_PRIVATE_RESOURCES_BUCKET;
+  return Promise.all(
+    accreditations.map(async (accreditation) => {
+      if (!accreditation.logoAssetId) return accreditation;
+      const asset = assetById.get(accreditation.logoAssetId);
+      if (!asset) return accreditation;
+      return {
+        ...accreditation,
+        logoMediaType: asset.mediaType,
+        logoBytes: await getObjectBytes(
+          bucket,
+          asset.objectKey,
+          2 * 1024 * 1024,
+        ),
+      };
+    }),
+  );
 }
 
 export async function getLearnerCompletionCertificate(
@@ -61,6 +103,8 @@ export async function getLearnerCompletionCertificate(
         completionReference,
         learnerName: completion.learnerName,
         learningTitle: content.title,
+        learningSummary: content.summary,
+        accreditations: await hydrateAccreditationLogos(content.accreditations),
         completedAt: completion.completedAt,
       }),
       displayName: safeFilename(content.title),
@@ -97,6 +141,8 @@ export async function getLearnerEventCompletionCertificate(
       "participation.completedAt",
       "occurrence.title",
       "version.hasCompletionCertificate",
+      "version.summary",
+      "version.accreditations",
       "user.name as learnerName",
     ])
     .where("participation.id", "=", eventParticipationId)
@@ -111,12 +157,17 @@ export async function getLearnerEventCompletionCertificate(
     .slice(0, 24)
     .toUpperCase();
   try {
+    const accreditations = certificateAccreditationsSchema.parse(
+      completion.accreditations,
+    );
     return {
       status: "generated",
       bytes: await renderCompletionCertificate({
         completionReference,
         learnerName: completion.learnerName,
         learningTitle: completion.title,
+        learningSummary: completion.summary,
+        accreditations: await hydrateAccreditationLogos(accreditations),
         completedAt: completion.completedAt,
       }),
       displayName: safeFilename(completion.title),

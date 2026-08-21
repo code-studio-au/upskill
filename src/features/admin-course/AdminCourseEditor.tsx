@@ -45,8 +45,23 @@ import { firstFormError } from "#/features/shared/form-errors";
 import { createFriendlySlug } from "#/features/shared/friendly-slug";
 import { PageTabs } from "#/features/shared/PageTabs";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
-import { formatCommunicationTiming } from "#/features/admin-email/communication-options";
 import classes from "./AdminCourseEditor.module.css";
+
+const CertificateAccreditationEditor = lazy(async () => {
+  const module =
+    await import("#/features/shared/CertificateAccreditationEditor");
+  return { default: module.CertificateAccreditationEditor };
+});
+
+const OfferingImageEditor = lazy(async () => {
+  const module = await import("#/features/shared/OfferingImageEditor");
+  return { default: module.OfferingImageEditor };
+});
+
+const AdminCourseProgramEditor = lazy(async () => {
+  const module = await import("./AdminCourseProgramEditor");
+  return { default: module.AdminCourseProgramEditor };
+});
 
 const AdminCourseRoster = lazy(async () => {
   const module = await import("./AdminCourseRoster");
@@ -70,14 +85,6 @@ type Confirmation =
   | { action: "delete-item"; sectionId: string; itemId: string };
 
 type ItemKind = AdminCourseItem["kind"];
-
-function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
-  const target = index + direction;
-  if (target < 0 || target >= values.length) return values;
-  const next = [...values];
-  [next[index], next[target]] = [next[target] as T, next[index] as T];
-  return next;
-}
 
 function numericValue(value: string | number): number {
   const parsed = typeof value === "number" ? value : Number(value);
@@ -162,6 +169,11 @@ export function AdminCourseEditor({
     },
   });
   const draft = useStore(courseForm.store, (state) => state.values.draft);
+  const saleDiscountPercent =
+    draft.salePriceCents === null || draft.priceCents === 0
+      ? 10
+      : Math.round((1 - draft.salePriceCents / draft.priceCents) * 10_000) /
+        100;
   const resourceForm = useForm({
     defaultValues: {
       title: "",
@@ -304,31 +316,67 @@ export function AdminCourseEditor({
     }
   }
 
+  async function createVersion(): Promise<void> {
+    setPending("new-version");
+    setError(null);
+    try {
+      const result = await createAdminCourseVersion({
+        data: { courseId: detail.course.id },
+      });
+      if (result.status !== "ready" || !result.data.versionId) {
+        setError("A draft version already exists.");
+        return;
+      }
+      await router.navigate({
+        to: "/admin/courses/$courseId",
+        params: { courseId: detail.course.id },
+        search: { version: result.data.versionId },
+      });
+    } finally {
+      setPending(null);
+    }
+  }
+
   const editable = detail.version.editable;
+  const availableDraft = detail.versions.find(
+    (version) => version.publishedAt === null,
+  );
   return (
     <Stack gap="xl">
-      <Group justify="space-between" align="end" wrap="wrap">
-        <div>
-          <Button component={Link} to="/admin/courses" variant="subtle" px={0}>
-            Back to courses
-          </Button>
-          <Group gap="sm" mt="xs">
-            <Title order={1}>{detail.course.title}</Title>
-            <Badge variant="light">Version {detail.version.version}</Badge>
-            <Badge
-              color={detail.course.status === "archived" ? "gray" : "indigo"}
-              variant="light"
-            >
-              {detail.course.status}
-            </Badge>
-          </Group>
+      <div className={classes.header}>
+        <Button component={Link} to="/admin/courses" variant="subtle" px={0}>
+          Back to courses
+        </Button>
+        <Group gap="sm" align="center">
+          <Title order={1}>{detail.course.title}</Title>
+          <Badge variant="light">Version {detail.version.version}</Badge>
+        </Group>
+      </div>
+
+      <Paper withBorder radius="lg" p="sm" className={classes.commandBar}>
+        <div className={classes.versionPicker}>
+          <MantineNativeSelect
+            label="Course version"
+            value={detail.version.id}
+            data={detail.versions.map((version) => ({
+              value: version.id,
+              label: `Version ${String(version.version)} · ${version.publishedAt ? "Published" : "Draft"}`,
+            }))}
+            onChange={(event) => {
+              void router.navigate({
+                to: "/admin/courses/$courseId",
+                params: { courseId: detail.course.id },
+                search: { version: event.currentTarget.value },
+              });
+            }}
+          />
         </div>
-        <Group>
+        <div className={classes.commandActions}>
           {editable &&
           (editorView === "details" || editorView === "program") ? (
             <courseForm.Subscribe selector={(state) => state.isSubmitting}>
               {(isSubmitting) => (
-                <>
+                <Group>
                   <Button
                     variant="default"
                     loading={isSubmitting && submitIntent.current === "save"}
@@ -348,40 +396,36 @@ export function AdminCourseEditor({
                       void courseForm.handleSubmit();
                     }}
                   >
-                    Publish version
+                    Save and publish
                   </Button>
-                </>
+                </Group>
               )}
             </courseForm.Subscribe>
+          ) : !editable &&
+            detail.course.status !== "archived" &&
+            availableDraft ? (
+            <Button
+              variant="light"
+              onClick={() => {
+                void router.navigate({
+                  to: "/admin/courses/$courseId",
+                  params: { courseId: detail.course.id },
+                  search: { version: availableDraft.id },
+                });
+              }}
+            >
+              Open draft
+            </Button>
           ) : !editable && detail.course.status !== "archived" ? (
             <Button
               loading={pending === "new-version"}
-              onClick={() => {
-                setPending("new-version");
-                setError(null);
-                void createAdminCourseVersion({
-                  data: { courseId: detail.course.id },
-                })
-                  .then(async (result) => {
-                    if (result.status !== "ready") {
-                      setError("A draft version already exists.");
-                      return;
-                    }
-                    await onChanged();
-                    setMessage(
-                      "A new draft version was created. Published enrolments remain unchanged.",
-                    );
-                  })
-                  .finally(() => {
-                    setPending(null);
-                  });
-              }}
+              onClick={() => void createVersion()}
             >
-              Create version {detail.version.version + 1}
+              Create new version
             </Button>
           ) : null}
-        </Group>
-      </Group>
+        </div>
+      </Paper>
 
       {!editable && detail.course.status !== "archived" ? (
         <Alert color="indigo" title="Published versions are immutable">
@@ -523,18 +567,13 @@ export function AdminCourseEditor({
               required
             />
             <div className={classes.threeColumns}>
-              <MantineNativeSelect
+              <MantineTextInput
                 label="Topic"
                 value={draft.topic}
                 disabled={!editable}
-                data={[
-                  { value: "leadership", label: "Leadership" },
-                  { value: "safety", label: "Safety" },
-                  { value: "technology", label: "Technology" },
-                ]}
+                maxLength={80}
                 onChange={(event) => {
-                  const value = event.currentTarget
-                    .value as AdminCourseDraft["topic"];
+                  const value = event.currentTarget.value;
                   setDraft((current) => ({
                     ...current,
                     topic: value,
@@ -556,22 +595,15 @@ export function AdminCourseEditor({
                   }));
                 }}
               />
-              <MantineTextInput
-                label="Price (AUD)"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="0.01"
-                value={String(draft.priceCents / 100)}
-                disabled={!editable}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  setDraft((current) => ({
-                    ...current,
-                    priceCents: Math.round(numericValue(value) * 100),
-                  }));
-                }}
-              />
+              <Suspense fallback={<LoadingSpinner label="Loading image" />}>
+                <OfferingImageEditor
+                  image={draft.coverImage}
+                  editable={editable}
+                  onChange={(coverImage) => {
+                    setDraft((current) => ({ ...current, coverImage }));
+                  }}
+                />
+              </Suspense>
             </div>
             <Group>
               <MantineCheckbox
@@ -607,7 +639,102 @@ export function AdminCourseEditor({
                   }));
                 }}
               />
+              <MantineCheckbox
+                label="On sale"
+                checked={draft.salePriceCents !== null}
+                disabled={!editable || draft.priceCents === 0}
+                onChange={(checked) => {
+                  setDraft((current) => ({
+                    ...current,
+                    salePriceCents: checked
+                      ? Math.round(current.priceCents * 0.9)
+                      : null,
+                  }));
+                }}
+              />
             </Group>
+            {draft.hasCompletionCertificate ? (
+              <Suspense
+                fallback={<LoadingSpinner label="Loading accreditations" />}
+              >
+                <CertificateAccreditationEditor
+                  accreditations={draft.accreditations}
+                  editable={editable}
+                  onChange={(accreditations) => {
+                    setDraft((current) => ({ ...current, accreditations }));
+                  }}
+                />
+              </Suspense>
+            ) : null}
+            <Paper withBorder radius="md" p="md">
+              <Stack gap="md">
+                <Title order={3} size="h4">
+                  Individual pricing
+                </Title>
+                <div className={classes.pricingColumns}>
+                  <MantineTextInput
+                    label="Original price (AUD)"
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={String(draft.priceCents / 100)}
+                    disabled={!editable}
+                    onChange={(event) => {
+                      const priceCents = Math.round(
+                        numericValue(event.currentTarget.value) * 100,
+                      );
+                      setDraft((current) => ({
+                        ...current,
+                        priceCents,
+                        salePriceCents:
+                          current.salePriceCents === null || priceCents === 0
+                            ? null
+                            : Math.round(
+                                priceCents * (1 - saleDiscountPercent / 100),
+                              ),
+                      }));
+                    }}
+                  />
+                  <MantineTextInput
+                    label="Sale discount (%)"
+                    type="number"
+                    inputMode="decimal"
+                    min={0.01}
+                    max={100}
+                    step="0.01"
+                    value={
+                      draft.salePriceCents === null
+                        ? ""
+                        : String(saleDiscountPercent)
+                    }
+                    placeholder="Enable On sale"
+                    disabled={!editable || draft.salePriceCents === null}
+                    onChange={(event) => {
+                      const discount = Math.min(
+                        100,
+                        Math.max(0, numericValue(event.currentTarget.value)),
+                      );
+                      setDraft((current) => ({
+                        ...current,
+                        salePriceCents: Math.round(
+                          current.priceCents * (1 - discount / 100),
+                        ),
+                      }));
+                    }}
+                  />
+                  <MantineTextInput
+                    label="Sale price (AUD)"
+                    value={
+                      draft.salePriceCents === null
+                        ? "Not on sale"
+                        : (draft.salePriceCents / 100).toFixed(2)
+                    }
+                    readOnly
+                  />
+                </div>
+              </Stack>
+            </Paper>
             <Suspense fallback={<LoadingSpinner />}>
               <AdminCourseBulkPricingEditor
                 bulkPricing={draft.bulkPricing}
@@ -623,284 +750,33 @@ export function AdminCourseEditor({
       ) : null}
 
       {editorView === "program" ? (
-        <Stack gap="md">
-          <Group justify="space-between">
-            <Title order={2}>Sections and items</Title>
-            {editable ? (
-              <Button
-                variant="light"
-                onClick={() => {
-                  setDraft((current) => ({
-                    ...current,
-                    sections: [
-                      ...current.sections,
-                      {
-                        id: `section_${crypto.randomUUID()}`,
-                        title: `Section ${String(current.sections.length + 1)}`,
-                        description: "",
-                        items: [],
-                      },
-                    ],
-                  }));
-                }}
-              >
-                Add section
-              </Button>
-            ) : null}
-          </Group>
-
-          {draft.sections.length === 0 ? (
-            <Alert title="No sections">
-              Add a section to organise the course.
-            </Alert>
-          ) : null}
-          {draft.sections.map((section, sectionIndex) => (
-            <Paper
-              key={section.id}
-              withBorder
-              radius="lg"
-              p={{ base: "md", sm: "lg" }}
-            >
-              <Stack gap="md">
-                <Group justify="space-between" align="start" wrap="wrap">
-                  <div className={classes.sectionFields}>
-                    <MantineTextInput
-                      label={`Section ${String(sectionIndex + 1)} title`}
-                      value={section.title}
-                      disabled={!editable}
-                      onChange={(event) => {
-                        const value = event.currentTarget.value;
-                        updateSection(section.id, (current) => ({
-                          ...current,
-                          title: value,
-                        }));
-                      }}
-                    />
-                    <MantineTextInput
-                      component="textarea"
-                      label="Description"
-                      value={section.description}
-                      disabled={!editable}
-                      classNames={{ input: classes.textArea }}
-                      onChange={(event) => {
-                        const value = event.currentTarget.value;
-                        updateSection(section.id, (current) => ({
-                          ...current,
-                          description: value,
-                        }));
-                      }}
-                    />
-                  </div>
-                  {editable ? (
-                    <Group gap="xs">
-                      <Button
-                        size="xs"
-                        variant="default"
-                        disabled={sectionIndex === 0}
-                        onClick={() => {
-                          setDraft((current) => ({
-                            ...current,
-                            sections: move(current.sections, sectionIndex, -1),
-                          }));
-                        }}
-                      >
-                        Up
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="default"
-                        disabled={sectionIndex === draft.sections.length - 1}
-                        onClick={() => {
-                          setDraft((current) => ({
-                            ...current,
-                            sections: move(current.sections, sectionIndex, 1),
-                          }));
-                        }}
-                      >
-                        Down
-                      </Button>
-                      <Button
-                        size="xs"
-                        color="red"
-                        variant="subtle"
-                        onClick={() => {
-                          setConfirmation({
-                            action: "delete-section",
-                            sectionId: section.id,
-                          });
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </Group>
-                  ) : null}
-                </Group>
-
-                <Stack gap="xs">
-                  {section.items.map((item, itemIndex) => (
-                    <Paper
-                      key={item.id}
-                      withBorder
-                      radius="md"
-                      p="sm"
-                      className={classes.item}
-                    >
-                      <div>
-                        <Group gap="xs">
-                          <Text fw={600}>{item.title}</Text>
-                          {item.kind === "automated_email" ? (
-                            <Badge variant="outline">Automated email</Badge>
-                          ) : null}
-                        </Group>
-                        <Text size="xs" c="dimmed" tt="capitalize">
-                          {item.kind === "automated_email" ? (
-                            formatCommunicationTiming(
-                              item.trigger,
-                              item.offsetAmount,
-                              item.offsetUnit,
-                            )
-                          ) : (
-                            <>
-                              {item.kind} ·{" "}
-                              {item.required ? "Required" : "Optional"}
-                              {item.durationMinutes
-                                ? ` · ${String(item.durationMinutes)} min`
-                                : ""}
-                            </>
-                          )}
-                        </Text>
-                      </div>
-                      <Group gap="xs">
-                        {item.kind === "automated_email" ? (
-                          <Button
-                            size="compact-xs"
-                            variant="light"
-                            onClick={() => {
-                              setEmailSelection({
-                                sectionId: section.id,
-                                itemId: item.id,
-                              });
-                              setEditorView("email");
-                            }}
-                          >
-                            {editable ? "Edit" : "Preview"}
-                          </Button>
-                        ) : null}
-                        {editable ? (
-                          <>
-                            <Button
-                              size="compact-xs"
-                              variant="default"
-                              disabled={itemIndex === 0}
-                              onClick={() => {
-                                updateSection(section.id, (current) => ({
-                                  ...current,
-                                  items: move(current.items, itemIndex, -1),
-                                }));
-                              }}
-                            >
-                              Up
-                            </Button>
-                            <Button
-                              size="compact-xs"
-                              variant="default"
-                              disabled={itemIndex === section.items.length - 1}
-                              onClick={() => {
-                                updateSection(section.id, (current) => ({
-                                  ...current,
-                                  items: move(current.items, itemIndex, 1),
-                                }));
-                              }}
-                            >
-                              Down
-                            </Button>
-                            <Button
-                              size="compact-xs"
-                              color="red"
-                              variant="subtle"
-                              onClick={() => {
-                                setConfirmation({
-                                  action: "delete-item",
-                                  sectionId: section.id,
-                                  itemId: item.id,
-                                });
-                              }}
-                            >
-                              Remove
-                            </Button>
-                          </>
-                        ) : null}
-                      </Group>
-                    </Paper>
-                  ))}
-                  {editable ? (
-                    <Group>
-                      <Button
-                        size="xs"
-                        variant="light"
-                        onClick={() => {
-                          setItemSectionId(section.id);
-                          setItemKind("scorm");
-                          setItemReference(null);
-                        }}
-                      >
-                        Add item
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="default"
-                        onClick={() => {
-                          setResourceSectionId(section.id);
-                          resourceForm.reset();
-                        }}
-                      >
-                        Upload PDF
-                      </Button>
-                      <Button
-                        size="xs"
-                        variant="default"
-                        disabled={
-                          !detail.emailTemplates.some(
-                            (template) => template.selectable !== false,
-                          )
-                        }
-                        onClick={() => {
-                          const template = detail.emailTemplates.find(
-                            (candidate) => candidate.selectable !== false,
-                          );
-                          if (!template) return;
-                          const item: AdminCourseItem = {
-                            id: `course_communication_${crypto.randomUUID()}`,
-                            kind: "automated_email",
-                            title: template.designName,
-                            emailDesignVersionId: template.versionId,
-                            audience: "affected_learner",
-                            trigger: "course_incomplete",
-                            offsetAmount: 0,
-                            offsetUnit: "day",
-                            subjectOverride: null,
-                            textBodyOverride: null,
-                          };
-                          updateSection(section.id, (current) => ({
-                            ...current,
-                            items: [...current.items, item],
-                          }));
-                          setEmailSelection({
-                            sectionId: section.id,
-                            itemId: item.id,
-                          });
-                          setEditorView("email");
-                        }}
-                      >
-                        Add automated email
-                      </Button>
-                    </Group>
-                  ) : null}
-                </Stack>
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
+        <Suspense fallback={<LoadingSpinner label="Loading programme" />}>
+          <AdminCourseProgramEditor
+            detail={detail}
+            draft={draft}
+            editable={editable}
+            setDraft={setDraft}
+            onAddItem={(sectionId) => {
+              setItemSectionId(sectionId);
+              setItemKind("scorm");
+              setItemReference(null);
+            }}
+            onUploadPdf={(sectionId) => {
+              setResourceSectionId(sectionId);
+              resourceForm.reset();
+            }}
+            onEditEmail={(sectionId, itemId) => {
+              setEmailSelection({ sectionId, itemId });
+              setEditorView("email");
+            }}
+            onRemoveSection={(sectionId) => {
+              setConfirmation({ action: "delete-section", sectionId });
+            }}
+            onRemoveItem={(sectionId, itemId) => {
+              setConfirmation({ action: "delete-item", sectionId, itemId });
+            }}
+          />
+        </Suspense>
       ) : null}
 
       {editorView === "learners" ? (

@@ -52,7 +52,7 @@ export const Route = createFileRoute(
             "access-owner-learners-v1",
             grant.id,
             grant.organizationName,
-            grant.courseTitle,
+            grant.offeringTitle,
             learner.codeNumber,
             learner.name,
             learner.email,

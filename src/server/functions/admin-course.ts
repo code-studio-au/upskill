@@ -4,10 +4,13 @@ import {
   adminCourseEnrollmentCreateSchema,
   adminCourseEnrollmentRemoveSchema,
   adminCourseParamsSchema,
+  adminCourseRosterSearchSchema,
+  adminCourseSelectionSchema,
   adminCourseVersionParamsSchema,
   type AdminCourseDetailResult,
   type AdminCourseEnrollmentMutationResult,
   type AdminCourseMutationResult,
+  type AdminCourseRosterResult,
   type AdminCourseResult,
   type AdminCourseSummary,
 } from "#/features/admin-course/admin-course.schema";
@@ -25,7 +28,7 @@ export const getAdminCourses = createServerFn({ method: "GET" }).handler(
 );
 
 export const getAdminCourse = createServerFn({ method: "GET" })
-  .validator(adminCourseParamsSchema)
+  .validator(adminCourseSelectionSchema)
   .handler(async ({ data }): Promise<AdminCourseDetailResult> => {
     const { getAdministratorRequest } =
       await import("#/server/admin/admin-access.server");
@@ -33,8 +36,21 @@ export const getAdminCourse = createServerFn({ method: "GET" })
     if (request.status !== "ready") return request;
     const { findAdminCourse } =
       await import("#/server/admin/admin-course.server");
-    const course = await findAdminCourse(data.courseId);
+    const course = await findAdminCourse(data.courseId, data.courseVersionId);
     return course ? { status: "ready", data: course } : { status: "not-found" };
+  });
+
+export const getAdminCourseRoster = createServerFn({ method: "GET" })
+  .validator(adminCourseRosterSearchSchema)
+  .handler(async ({ data }): Promise<AdminCourseRosterResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { findAdminCourseRoster } =
+      await import("#/server/admin/admin-course.server");
+    const roster = await findAdminCourseRoster(data);
+    return roster ? { status: "ready", data: roster } : { status: "not-found" };
   });
 
 export const startAdminCourse = createServerFn({ method: "POST" }).handler(

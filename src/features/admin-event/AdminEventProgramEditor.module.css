@@ -1,0 +1,211 @@
+.sectionList,
+.itemList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.sectionCard {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+}
+
+.sectionCard[open] {
+  border-color: var(--mantine-color-indigo-2);
+  box-shadow: var(--mantine-shadow-xs);
+}
+
+.sectionSummary {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.875rem 1rem;
+  background: var(--mantine-color-white);
+  cursor: pointer;
+  list-style: none;
+}
+
+.sectionSummary::-webkit-details-marker,
+.itemSummary::-webkit-details-marker {
+  display: none;
+}
+
+.sectionSummary::after,
+.itemSummary::after {
+  color: var(--mantine-color-indigo-7);
+  content: "Open";
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+}
+
+.sectionCard[open] > .sectionSummary::after,
+.item[open] > .itemSummary::after {
+  content: "Close";
+}
+
+.sectionNumber {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--mantine-color-indigo-2);
+  border-radius: 50%;
+  color: var(--mantine-color-indigo-8);
+  background: var(--mantine-color-indigo-0);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 800;
+}
+
+.sectionIdentity,
+.itemIdentity {
+  min-width: 0;
+}
+
+.sectionBody {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border-top: 1px solid var(--mantine-color-gray-2);
+  background: var(--mantine-color-gray-0);
+}
+
+.settingsDisclosure {
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-white);
+}
+
+.settingsSummary {
+  padding: 0.75rem 0.875rem;
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+}
+
+.settingsSummary::-webkit-details-marker {
+  display: none;
+}
+
+.settingsSummary::after {
+  float: right;
+  color: var(--mantine-color-indigo-7);
+  content: "Open";
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 800;
+}
+
+.settingsDisclosure[open] > .settingsSummary {
+  border-bottom: 1px solid var(--mantine-color-gray-2);
+}
+
+.settingsDisclosure[open] > .settingsSummary::after {
+  content: "Close";
+}
+
+.sectionSettings {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  background: var(--mantine-color-white);
+}
+
+.timingGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.item {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-inline-start: 0.2rem solid var(--mantine-color-indigo-4);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-white);
+}
+
+.itemSummary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.75rem 0.875rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.itemEditor {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.875rem;
+  border-top: 1px solid var(--mantine-color-gray-2);
+  background: var(--mantine-color-gray-0);
+}
+
+.emptySection {
+  padding: 1rem;
+  border: 1px dashed var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-md);
+  color: var(--mantine-color-gray-6);
+  text-align: center;
+}
+
+.adder {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.875rem;
+  border: 1px dashed var(--mantine-color-indigo-3);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-indigo-0);
+}
+
+.adderGrid {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.6fr) minmax(0, 1.4fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.removeSection {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (max-width: 64rem) {
+  .timingGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 48rem) {
+  .sectionSummary,
+  .itemSummary {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .sectionNumber {
+    display: none;
+  }
+
+  .adderGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .adderGrid > div:empty {
+    display: none;
+  }
+}
+
+@media (max-width: 34rem) {
+  .timingGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .sectionSummary,
+  .sectionBody {
+    padding: 0.75rem;
+  }
+}

@@ -7,6 +7,7 @@ import {
   createAdminEventOccurrence,
   createAdminEventTemplate,
   deleteAdminEventTemplateVersion,
+  findAdminEventTemplate,
   findAdminEventStaffCandidates,
   grantAdminEventStaffEligibility,
   publishAdminEventOccurrence,
@@ -687,16 +688,29 @@ try {
   assert.equal(createdTemplate.status, "created");
   eventTemplateId = createdTemplate.eventTemplateId;
   eventTemplateVersionId = createdTemplate.eventTemplateVersionId;
+  const initialTemplate = await findAdminEventTemplate(
+    eventTemplateId,
+    eventTemplateVersionId,
+  );
+  assert.ok(initialTemplate);
+  assert.deepEqual(
+    initialTemplate.draft.accreditations,
+    [],
+    "A new Event Template must persist accreditations as a JSON array",
+  );
   assert.equal(
     await saveAdminEventTemplateDraft(
       {
         eventTemplateId,
         eventTemplateVersionId,
         title: "Verification workshop",
+        topic: "Clinical workshops",
         summary: "A versioned Event Template verification fixture.",
         description:
           "Verifies exact-version occurrence provenance and durable staff attribution.",
+        coverImage: null,
         hasCompletionCertificate: true,
+        accreditations: [],
         defaultAdministratorIds: [administrator.id],
         regions: [
           {
@@ -812,11 +826,35 @@ try {
     registrationClosesAt: registrationClosesAt.toISOString(),
     coordinatorLockAt: coordinatorLockAt.toISOString(),
     capacity: 2,
+    priceCents: null,
+    salePriceCents: null,
+    currency: "AUD" as const,
+    bulkPricing: { enabled: false, tiers: [] },
+    listInStore: false,
+    featured: false,
     venueName: "Verification Centre",
     venueAddress: "1 Test Street, Sydney NSW",
     virtualJoinUrl: "",
     domains: "example.com, health.example.org",
   };
+  assert.deepEqual(
+    await createAdminEventOccurrence(
+      {
+        ...occurrenceInput,
+        slug: `verification-workshop-too-short-${suffix}`,
+        localEndsAt: localVerificationTime(
+          new Date(startsAt.getTime() + 60 * 60 * 1000),
+        ),
+        endsAt: new Date(startsAt.getTime() + 60 * 60 * 1000).toISOString(),
+      },
+      administrator,
+    ),
+    {
+      status: "conflict",
+      reason: "occurrence-window-too-short",
+      minimumDurationMinutes: 120,
+    },
+  );
   const createdOccurrence = await createAdminEventOccurrence(
     occurrenceInput,
     administrator,
@@ -877,6 +915,12 @@ try {
         venueName: "Updated Verification Centre",
         venueAddress: "2 Test Street, Sydney NSW",
         virtualJoinUrl: "",
+        priceCents: null,
+        salePriceCents: null,
+        currency: "AUD",
+        bulkPricing: { enabled: false, tiers: [] },
+        listInStore: false,
+        featured: false,
         domains: "health.example.org",
       },
       administrator,
