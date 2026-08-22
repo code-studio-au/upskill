@@ -9,6 +9,7 @@ import { ianaTimeZoneSchema } from "#/features/shared/time.schema";
 import {
   parseSurveyVersionContent,
   type AdminSurveyDraft,
+  type SurveyAnswerValue,
   type SurveyVersionContent,
 } from "#/features/survey/survey.schema";
 import {
@@ -45,6 +46,7 @@ import {
   findLearnerOnboarding,
   saveLearnerOnboardingStep,
 } from "#/server/onboarding/learner-onboarding.server";
+import { completeOnboardingIfVerified } from "#/server/onboarding/onboarding-contact-verification.server";
 import {
   dateToInstant,
   instantToLocalDateTime,
@@ -194,13 +196,13 @@ const administrators = [
     id: "user_local_admin",
     accountId: "account_local_admin",
     name: "Avery Event Administrator",
-    email: "admin@example.com",
+    email: "admin@codestudio.au",
   },
   {
     id: "user_local_admin_2",
     accountId: "account_local_admin_2",
     name: "Morgan Platform Administrator",
-    email: "admin2@example.com",
+    email: "admin2@codestudio.au",
   },
 ] satisfies Array<SeedCredentialUser>;
 
@@ -210,7 +212,7 @@ const learnerProfiles = Array.from({ length: 20 }, (_, index) => {
     id: `user_local_learner_${String(number)}`,
     accountId: `account_local_learner_${String(number)}`,
     name: `Learner ${String(number)}`,
-    email: `learner${String(number)}@example.com`,
+    email: `learner${String(number)}@codestudio.au`,
   };
 }) satisfies Array<SeedCredentialUser>;
 
@@ -218,7 +220,7 @@ const coordinatorProfiles = regions.map((region) => ({
   id: `user_local_coordinator_${region.code.toLocaleLowerCase("en-AU")}`,
   accountId: `account_local_coordinator_${region.code.toLocaleLowerCase("en-AU")}`,
   name: `${region.code} Coordinator`,
-  email: `coordinator.${region.code.toLocaleLowerCase("en-AU")}@example.com`,
+  email: `coordinator.${region.code.toLocaleLowerCase("en-AU")}@codestudio.au`,
 })) satisfies Array<SeedCredentialUser>;
 
 const presenterProfiles = [
@@ -226,31 +228,31 @@ const presenterProfiles = [
     id: "user_local_presenter_cbte",
     accountId: "account_local_presenter_cbte",
     name: "CBT-E Presenter",
-    email: "presenter.cbte@example.com",
+    email: "presenter.cbte@codestudio.au",
   },
   {
     id: "user_local_presenter_imed_adults",
     accountId: "account_local_presenter_imed_adults",
     name: "IMED Adults Presenter",
-    email: "presenter.imed_adults@example.com",
+    email: "presenter.imed_adults@codestudio.au",
   },
   {
     id: "user_local_presenter_sscm",
     accountId: "account_local_presenter_sscm",
     name: "SSCM Presenter",
-    email: "presenter.sscm@example.com",
+    email: "presenter.sscm@codestudio.au",
   },
   {
     id: "user_local_presenter_fbt",
     accountId: "account_local_presenter_fbt",
     name: "FBT Presenter",
-    email: "presenter.fbt@example.com",
+    email: "presenter.fbt@codestudio.au",
   },
   {
     id: "user_local_presenter_imed_paediatric",
     accountId: "account_local_presenter_imed_paediatric",
     name: "IMED Paediatric Presenter",
-    email: "presenter.imed_paediatric@example.com",
+    email: "presenter.imed_paediatric@codestudio.au",
   },
 ] satisfies Array<SeedCredentialUser>;
 
@@ -259,13 +261,13 @@ const accessOwnerProfiles = [
     id: "user_local_access_owner_shared",
     accountId: "account_local_access_owner_shared",
     name: "Shared Code Access Owner",
-    email: "owner.shared@example.com",
+    email: "owner.shared@codestudio.au",
   },
   {
     id: "user_local_access_owner_unique",
     accountId: "account_local_access_owner_unique",
     name: "Unique Code Access Owner",
-    email: "owner.unique@example.com",
+    email: "owner.unique@codestudio.au",
   },
 ] satisfies Array<SeedCredentialUser>;
 
@@ -300,6 +302,7 @@ async function seedCredentialUser(
       name: profile.name,
       email: profile.email,
       emailVerified: true,
+      emailVerifiedAt: now,
       image: null,
       stripeCustomerId: null,
       phone: null,
@@ -413,7 +416,7 @@ async function assertScenarioIsAbsent(): Promise<void> {
     database
       .selectFrom("user")
       .select("id")
-      .where("email", "=", "admin@example.com")
+      .where("email", "=", "admin@codestudio.au")
       .executeTakeFirst(),
   ]);
   if (course || template || user)
@@ -549,6 +552,30 @@ async function createOnboardingFixture(
             prompt: "Full name",
             required: true,
             maximumLength: 240,
+            profileField: "name",
+          },
+          {
+            id: "onboarding_mobile_number",
+            kind: "short_text",
+            format: "phone",
+            prompt: "Mobile number in international format",
+            required: true,
+            maximumLength: 32,
+            profileField: "phone",
+          },
+          {
+            id: "onboarding_email_enabled",
+            kind: "checkbox",
+            prompt: "Enable email access codes",
+            required: false,
+            profileField: "emailEnabled",
+          },
+          {
+            id: "onboarding_sms_enabled",
+            kind: "checkbox",
+            prompt: "Enable SMS access codes",
+            required: false,
+            profileField: "smsEnabled",
           },
           {
             id: "onboarding_age",
@@ -778,13 +805,7 @@ async function createOnboardingFixture(
       privacyNotice:
         "Upskill Institute understands the importance of keeping personal information private. We collect profile and employment information to provide learning, event coordination and reporting services. We disclose personal information only with consent or where required or permitted by law. Contact admin@upskill.institute with questions about how information is handled.",
       privacyNoticeVersion: "1",
-      profileMappings: [
-        { questionId: "onboarding_full_name", destination: "name" },
-        {
-          questionId: "onboarding_operational_region",
-          destination: "currentRegionId",
-        },
-      ],
+      contactVerificationRequired: false,
     },
     administrator,
   );
@@ -801,8 +822,14 @@ async function completeLearnerOnboarding(
   assert.equal(typeof assignment, "object");
   if (typeof assignment === "string")
     throw new Error("Expected onboarding assignment");
-  const steps: Array<[string, string | number | undefined]> = [
+  const steps: Array<[string, SurveyAnswerValue | undefined]> = [
     ["onboarding_full_name", learner.name],
+    [
+      "onboarding_mobile_number",
+      `+61491570${String(6 + learnerIndex).padStart(3, "0")}`,
+    ],
+    ["onboarding_email_enabled", true],
+    ["onboarding_sms_enabled", learnerIndex === 3 ? true : undefined],
     ["onboarding_age", 25 + (learnerIndex % 30)],
     [
       "onboarding_gender",
@@ -846,6 +873,23 @@ async function completeLearnerOnboarding(
       `Onboarding step ${questionId} failed for ${learner.email}: ${result.status}`,
     );
   }
+  if (learnerIndex === 3)
+    await database.transaction().execute(async (transaction) => {
+      await transaction
+        .updateTable("user")
+        .set({ smsVerifiedAt: now, updatedAt: now })
+        .where("id", "=", learner.id)
+        .execute();
+      assert.equal(
+        await completeOnboardingIfVerified(
+          transaction,
+          assignment.assignmentId,
+          learner.id,
+          now,
+        ),
+        true,
+      );
+    });
 }
 
 async function createPublishedEmail(

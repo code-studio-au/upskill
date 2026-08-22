@@ -42,6 +42,11 @@ export const adminEmailDesignCreateSchema = z.object({
   contextKey: emailDesignContextSchema,
 });
 
+export const adminEmailDesignMoveSchema = z.object({
+  emailDesignId: identifierSchema,
+  direction: z.enum(["up", "down"]),
+});
+
 export const adminEmailDesignDraftSchema = z.object({
   emailDesignId: identifierSchema,
   versionId: identifierSchema,
@@ -81,6 +86,7 @@ export interface AdminEmailDesignSummary {
   catalogue: "offering" | "system";
   name: string;
   contextKey: string;
+  position: number;
   systemKey: string | null;
   activeVersion: number | null;
   draftVersion: number | null;
@@ -137,6 +143,7 @@ export type AdminEmailMutationResult =
         | "created"
         | "deleted"
         | "draft-created"
+        | "moved"
         | "published"
         | "rolled-back"
         | "saved";

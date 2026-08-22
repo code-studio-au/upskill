@@ -61,8 +61,10 @@ capabilities.
   occurrence. Assigned staff have region/session-scoped Event operations,
   confirmed participants have staged blended-learning workspaces, and each
   occurrence has a persisted exact-Survey QR catalogue with participant-free
-  presentation and guarded authenticated resolution. Open-entry check-in,
-  passwordless/shared-device recovery and communications remain target work.
+  presentation, guarded authenticated resolution and email- or mobile-verified
+  exact-Survey task sessions. Open-entry check-in and durable Event
+  communications are also implemented; facilitated recovery remains target
+  work.
 
 ### Target Product
 

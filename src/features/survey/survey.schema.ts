@@ -17,6 +17,8 @@ const optionalText = (maximum: number) =>
 export const REGION_GROUP_OPTION_SOURCE = "coordination_region_groups" as const;
 export const OPERATIONAL_REGION_OPTION_SOURCE =
   "coordination_operational_regions" as const;
+export type SurveyProfileField =
+  "name" | "phone" | "emailEnabled" | "smsEnabled";
 
 const surveyOptionSchema = z.object({
   id: identifierSchema,
@@ -30,6 +32,9 @@ const questionBase = {
   id: identifierSchema,
   prompt: boundedText(500),
   required: z.boolean(),
+  profileField: z.optional(
+    z.enum(["name", "phone", "emailEnabled", "smsEnabled"]),
+  ),
 };
 
 const optionQuestionBase = {
@@ -489,6 +494,12 @@ export function isOperationalRegionQuestion(item: SurveyItem): item is Extract<
   );
 }
 
+export function surveyProfileField(
+  item: SurveyItem,
+): SurveyProfileField | null {
+  return item.kind === "instruction" ? null : (item.profileField ?? null);
+}
+
 export function applyRegionDirectoryOptions(
   content: SurveyVersionContent,
   options: {
@@ -568,6 +579,8 @@ export interface LearnerEventSurvey {
   content: SurveyVersionContent;
   progress: LearnerSurveyProgress;
   submittedAt: string | null;
+  accessMode?: "authenticated" | "event_task";
+  recoveryPublicReference?: string | null;
 }
 
 export type LearnerSurveyResult =

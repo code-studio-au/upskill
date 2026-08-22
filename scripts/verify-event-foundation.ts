@@ -44,6 +44,10 @@ import {
   resolveLearnerEventSurveyReference,
 } from "#/server/events/event-survey-access.server";
 import {
+  requestEventRecoveryCode,
+  verifyEventRecoveryCode,
+} from "#/server/events/event-prerequisite-recovery.server";
+import {
   ensureEventGuestAccessRecord,
   findPublicEventGuestAccess,
   rotateEventGuestAccessRecord,
@@ -70,6 +74,7 @@ const minutePrecision = (value: Date) => {
   return value;
 };
 const suffix = randomUUID();
+const administratorPhone = "+61491570150";
 const administrator: AuthenticatedUser = {
   id: `verify_event_admin_${suffix}`,
   name: "Event verifier",
@@ -376,6 +381,9 @@ try {
       name: administrator.name,
       email: administrator.email,
       emailVerified: true,
+      phone: administratorPhone,
+      smsEnabled: true,
+      smsVerifiedAt: new Date(),
     })
     .execute();
   await database
@@ -1930,6 +1938,122 @@ try {
       eventTemplateVersionItemId: `event_survey_item_${suffix}`,
     },
   );
+  const recoveryRequest = await requestEventRecoveryCode(
+    {
+      publicReference: eventSurveyAccess.publicReference,
+      identifier: administrator.email,
+    },
+    "f".repeat(43),
+  );
+  assert.equal(recoveryRequest.status, "accepted");
+  const recoveryChallenge = await database
+    .selectFrom("event_prerequisite_recovery_challenge as challenge")
+    .innerJoin(
+      "event_prerequisite_email_capture as capture",
+      "capture.challengeId",
+      "challenge.id",
+    )
+    .select([
+      "challenge.id",
+      "challenge.codeDigest",
+      "challenge.identifierDigest",
+      "capture.textBody",
+    ])
+    .where("challenge.reference", "=", recoveryRequest.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.match(recoveryChallenge.codeDigest, /^[A-Za-z0-9_-]{43}$/u);
+  assert.match(recoveryChallenge.identifierDigest, /^[A-Za-z0-9_-]{43}$/u);
+  assert.equal(recoveryChallenge.textBody.includes(administrator.email), false);
+  const recoveryCode = recoveryChallenge.textBody.match(/\b\d{6}\b/u)?.[0];
+  assert.ok(recoveryCode);
+  assert.deepEqual(
+    await verifyEventRecoveryCode({
+      publicReference: eventSurveyAccess.publicReference,
+      challengeReference: recoveryRequest.challengeReference,
+      code: "000000" === recoveryCode ? "999999" : "000000",
+    }),
+    { status: "invalid" },
+  );
+  const recoveryVerification = await verifyEventRecoveryCode({
+    publicReference: eventSurveyAccess.publicReference,
+    challengeReference: recoveryRequest.challengeReference,
+    code: recoveryCode,
+  });
+  assert.equal(recoveryVerification.status, "ready");
+  assert.match(
+    recoveryVerification.taskSessionToken ?? "",
+    /^[A-Za-z0-9_-]{43}$/u,
+  );
+  const taskSession = await database
+    .selectFrom("event_prerequisite_task_session")
+    .select([
+      "id",
+      "eventSurveyAccessId",
+      "eventParticipationId",
+      "userId",
+      "tokenDigest",
+      "completedAt",
+      "revokedAt",
+    ])
+    .where("challengeId", "=", recoveryChallenge.id)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(taskSession, {
+    id: taskSession.id,
+    eventSurveyAccessId: eventSurveyAccess.id,
+    eventParticipationId: participationId,
+    userId: administrator.id,
+    tokenDigest: taskSession.tokenDigest,
+    completedAt: null,
+    revokedAt: null,
+  });
+  assert.match(taskSession.tokenDigest, /^[A-Za-z0-9_-]{43}$/u);
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select("action")
+      .where("action", "=", "event_prerequisite.recovery_verified")
+      .where("subjectId", "=", taskSession.id)
+      .executeTakeFirst()
+      .then((row) => row?.action),
+    "event_prerequisite.recovery_verified",
+  );
+  const smsRecoveryRequest = await requestEventRecoveryCode(
+    {
+      publicReference: eventSurveyAccess.publicReference,
+      identifier: administratorPhone,
+    },
+    "s".repeat(43),
+  );
+  assert.equal(smsRecoveryRequest.status, "accepted");
+  const smsRecoveryChallenge = await database
+    .selectFrom("event_prerequisite_recovery_challenge as challenge")
+    .innerJoin(
+      "event_prerequisite_sms_capture as capture",
+      "capture.challengeId",
+      "challenge.id",
+    )
+    .select([
+      "challenge.reference",
+      "challenge.deliveryChannel",
+      "capture.recipientPhone",
+      "capture.message",
+    ])
+    .where("challenge.reference", "=", smsRecoveryRequest.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.equal(smsRecoveryChallenge.deliveryChannel, "sms");
+  assert.equal(smsRecoveryChallenge.recipientPhone, administratorPhone);
+  const smsRecoveryCode = smsRecoveryChallenge.message.match(/\b\d{6}\b/u)?.[0];
+  assert.ok(smsRecoveryCode);
+  assert.equal(
+    (
+      await verifyEventRecoveryCode({
+        publicReference: eventSurveyAccess.publicReference,
+        challengeReference: smsRecoveryChallenge.reference,
+        code: smsRecoveryCode,
+      })
+    ).status,
+    "ready",
+  );
   const { advanceLearnerEventSurvey, findLearnerEventSurvey } =
     await import("#/server/learning/learner-event-survey.server");
   const eventSurvey = await findLearnerEventSurvey(
@@ -2300,7 +2424,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, coverage-safe Coordinator eligibility revocation, staff/session snapshots, scoped coordinator and presenter operations, occurrence-owned guarded Survey QR access, restricted-domain administrator addition, acknowledged profile-region mismatches, region-guest overrides, audited profile-region alignment, exceptional locked-list reassignment, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, coverage-safe Coordinator eligibility revocation, staff/session snapshots, scoped coordinator and presenter operations, occurrence-owned guarded Survey QR access, verified email/SMS OTP exact-Survey task recovery, restricted-domain administrator addition, acknowledged profile-region mismatches, region-guest overrides, audited profile-region alignment, exceptional locked-list reassignment, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
   );
 } finally {
   await cleanup();

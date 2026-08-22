@@ -29,6 +29,7 @@ describe("audit event boundary", () => {
       "email_design.draft_created",
       "email_design.draft_deleted",
       "email_design.published",
+      "email_design.reordered",
       "email_design.rolled_back",
       "event_occurrence.created",
       "event_occurrence.guest_access_rotated",
@@ -43,6 +44,7 @@ describe("audit event boundary", () => {
       "coordination_region.retired",
       "coordination_region.reactivated",
       "event_attendance.recorded",
+      "event_prerequisite.recovery_verified",
       "event_region_review.locked",
       "event_registration.administrator_added",
       "event_registration.coordinator_reviewed",
@@ -79,6 +81,7 @@ describe("audit event boundary", () => {
       "user.account_setup_resent",
       "user.provisional_created",
       "user.onboarding_reassigned",
+      "user.phone_verification_transferred",
       "user.region_updated",
     ]);
   });

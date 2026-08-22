@@ -24,6 +24,39 @@
   text-underline-offset: 0.18em;
 }
 
+.catalogueOrder {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--mantine-spacing-sm);
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--mantine-color-default-border);
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.catalogueOrder button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.catalogueOrder button:hover:not(:disabled) {
+  background: var(--mantine-color-default-hover);
+}
+
+.catalogueOrder button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .editorHeader,
 .editorActions,
 .versionBar {

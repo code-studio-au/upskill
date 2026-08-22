@@ -1035,7 +1035,8 @@ transactional queries demonstrate real pressure.
   Evidence-derived participant/Section progress, scoped Coordinator visibility,
   filtered/all-authorized Event Section progress CSV, and an occurrence-owned
   exact-Survey QR catalogue with participant-free presentation are implemented.
-  Passwordless/shared-device recovery and assignment-alert work remain.
+  Email and verified-mobile SMS shared-device recovery for the exact Survey are
+  implemented; facilitated recovery and assignment-alert work remain.
 - Assigned-administrator consolidated final-selection controls in the focused
   workspace (the current full final-selection controls remain in Administration).
 - Presenter printable/minimal attendance export and time-windowed QR actions.
@@ -1044,8 +1045,10 @@ transactional queries demonstrate real pressure.
 - Attendance evidence and corrections.
 - Minimal offline attendance export.
 - Presenter-controlled exact-prerequisite QR recovery windows.
-- Password/email OTP/verified-mobile SMS OTP return to the exact activity.
-- Shared-device event-task sessions and audited one-survey assisted fallback.
+- Verified-mobile SMS OTP return to the exact activity; password and email OTP
+  return are implemented.
+- Audited one-survey assisted fallback; email-verified shared-device task
+  sessions are implemented.
 - Server-side resource-scoped authorisation tests.
 
 ### Implemented blended-learning foundation

@@ -44,15 +44,6 @@ export const Route = createFileRoute("/admin/notifications")({
   component: AdminNotificationsPage,
 });
 
-const statusOptions = [
-  { value: "all", label: "All statuses" },
-  { value: "pending", label: "Pending / scheduled" },
-  { value: "processing", label: "Processing" },
-  { value: "delivered", label: "Delivered" },
-  { value: "failed", label: "Failed" },
-  { value: "superseded", label: "Superseded" },
-] as const;
-
 const notificationTableFeatures = tableFeatures({});
 type NotificationRow = AdminNotificationOperations["notifications"][number];
 const notificationColumn = createColumnHelper<
@@ -69,8 +60,8 @@ async function retry(notificationId: string) {
 
 const notificationColumns = notificationColumn.columns([
   notificationColumn.accessor("recipientName", { header: "Recipient" }),
+  notificationColumn.accessor("channelLabel", { header: "Channel" }),
   notificationColumn.accessor("statusLabel", { header: "Status" }),
-  notificationColumn.accessor("attempts", { header: "Attempts" }),
 ]);
 function AdminNotificationsPage() {
   const result = Route.useLoaderData();
@@ -96,12 +87,11 @@ function AdminNotificationDirectoryPage({
 
   return (
     <AdminDirectory
-      eyebrow="Email operations"
-      title="Notification delivery"
+      title="Email and SMS delivery"
       countNames={{ singular: "delivery", plural: "deliveries" }}
       pagination={directory.pagination}
       table={table}
-      caption="Email notification delivery history"
+      caption="Deliveries"
       emptyText="No deliveries found."
       navigating={navigating}
       onPageChange={(page) => {
@@ -110,7 +100,7 @@ function AdminNotificationDirectoryPage({
       renderExpandedRow={({ original }) => (
         <div className={classes.deliveryDetails}>
           <pre>{original.detailSummary}</pre>
-          {original.status === "failed" ? (
+          {original.canRequeue ? (
             <Button
               size="compact-xs"
               variant="light"
@@ -125,34 +115,43 @@ function AdminNotificationDirectoryPage({
       <section className={classes.health}>
         <h2>Delivery health</h2>
         <p>{directory.healthSummary}</p>
-        <p className={classes.muted}>{directory.oldestSummary}</p>
       </section>
 
       <AdminDirectorySearch
-        key={`${search.q}:${search.status}`}
+        key={`${search.q}:${search.channel}:${search.status}`}
+        className={classes.deliverySearch}
         query={search.q}
         label="Search deliveries"
-        placeholder="Recipient, email, or subject"
+        placeholder="Recipient, address, subject, or batch"
         navigating={navigating}
         submitLabel="Apply filters"
         onSubmit={(form) => {
           const validated = adminNotificationSearchSchema.parse({
             q: form.get("q"),
             status: form.get("status"),
+            channel: form.get("channel"),
             page: 1,
           });
           void navigate({ search: validated });
         }}
         secondary={
-          <MantineNativeSelect
-            name="status"
-            label="Status"
-            defaultValue={search.status}
-            data={statusOptions}
-          />
+          <div className={classes.secondaryFilters}>
+            <MantineNativeSelect
+              name="channel"
+              label="Channel"
+              defaultValue={search.channel}
+              data={directory.channelOptions}
+            />
+            <MantineNativeSelect
+              name="status"
+              label="Status"
+              defaultValue={search.status}
+              data={directory.statusOptions}
+            />
+          </div>
         }
       />
-      {search.q || search.status !== "all" ? (
+      {search.q || search.channel !== "all" || search.status !== "all" ? (
         <AdminDirectoryFilters>
           {search.q ? (
             <RemovableFilterChip
@@ -163,17 +162,20 @@ function AdminNotificationDirectoryPage({
               }}
             />
           ) : null}
-          {search.status !== "all" ? (
-            <RemovableFilterChip
-              label="Status"
-              value={search.status}
-              onRemove={() => {
-                void navigate({
-                  search: { ...search, status: "all", page: 1 },
-                });
-              }}
-            />
-          ) : null}
+          {(["status", "channel"] as const).map((field) =>
+            search[field] === "all" ? null : (
+              <RemovableFilterChip
+                key={field}
+                label={field === "status" ? "Status" : "Channel"}
+                value={search[field]}
+                onRemove={() => {
+                  void navigate({
+                    search: { ...search, [field]: "all", page: 1 },
+                  });
+                }}
+              />
+            ),
+          )}
         </AdminDirectoryFilters>
       ) : null}
     </AdminDirectory>

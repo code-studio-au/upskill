@@ -115,6 +115,87 @@ describe("survey contracts", () => {
     ).toBe(true);
   });
 
+  it("accepts one locked question for each profile field", () => {
+    expect(
+      surveyVersionContentSchema.safeParse({
+        title: "Profile",
+        description: "",
+        sections: [
+          {
+            id: "profile",
+            title: "Profile",
+            description: "",
+            items: [
+              {
+                id: "name",
+                kind: "short_text",
+                prompt: "Full name",
+                required: true,
+                maximumLength: 160,
+                format: "plain",
+                profileField: "name",
+              },
+              {
+                id: "phone",
+                kind: "short_text",
+                prompt: "Mobile phone number",
+                required: true,
+                maximumLength: 32,
+                format: "phone",
+                profileField: "phone",
+              },
+              {
+                id: "email_enabled",
+                kind: "checkbox",
+                prompt: "Enable email",
+                required: false,
+                profileField: "emailEnabled",
+              },
+              {
+                id: "sms_enabled",
+                kind: "checkbox",
+                prompt: "Enable SMS",
+                required: false,
+                profileField: "smsEnabled",
+              },
+            ],
+          },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
+  it("retains profile metadata for server-side usage validation", () => {
+    const item = {
+      kind: "short_text",
+      prompt: "Mobile phone number",
+      required: false,
+      maximumLength: 32,
+      format: "plain",
+      profileField: "phone",
+    } as const;
+    const parsed = surveyVersionContentSchema.safeParse({
+      title: "Profile",
+      description: "",
+      sections: [
+        {
+          id: "profile",
+          title: "Profile",
+          description: "",
+          items: [
+            { ...item, id: "phone_1" },
+            { ...item, id: "phone_2" },
+          ],
+        },
+      ],
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success)
+      expect(parsed.data.sections[0]?.items[0]).toMatchObject({
+        profileField: "phone",
+      });
+  });
+
   it("accepts locked region directory questions and their parent relationship", () => {
     const parsed = surveyVersionContentSchema.safeParse({
       title: "Onboarding",

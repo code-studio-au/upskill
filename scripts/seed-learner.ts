@@ -16,31 +16,32 @@ interface CredentialProfile {
   accountId: string;
   name: string;
   email: string;
+  phone?: string;
 }
 
 const learner: CredentialProfile = {
   id: "user_local_learner",
   accountId: "account_local_learner",
   name: "Alex Learner",
-  email: "learner@example.com",
+  email: "learner@codestudio.au",
 };
 const redeemer: CredentialProfile = {
   id: "user_local_redeemer",
   accountId: "account_local_redeemer",
   name: "Riley Redeemer",
-  email: "redeemer@example.com",
+  email: "redeemer@codestudio.au",
 };
 const bulkAccessOwner: CredentialProfile = {
   id: "user_local_redeemer_2",
   accountId: "account_local_redeemer_2",
   name: "Redeemer 2",
-  email: "redeemer2@example.com",
+  email: "redeemer2@codestudio.au",
 };
 const administrator: CredentialProfile = {
   id: "user_local_admin",
   accountId: "account_local_admin",
   name: "Avery Administrator",
-  email: "admin@example.com",
+  email: "admin@codestudio.au",
 };
 const scenarioLearners: Array<CredentialProfile> = Array.from(
   { length: 10 },
@@ -50,7 +51,8 @@ const scenarioLearners: Array<CredentialProfile> = Array.from(
       id: `user_local_learner_${String(number)}`,
       accountId: `account_local_learner_${String(number)}`,
       name: `Learner ${String(number)}`,
-      email: `learner${String(number)}@example.com`,
+      email: `learner${String(number)}@codestudio.au`,
+      ...(number === 4 ? { phone: "+61491570009" } : {}),
     };
   },
 );
@@ -62,7 +64,7 @@ const scenarioCoordinators: Array<CredentialProfile> = Array.from(
       id: `user_local_coordinator_${String(number)}`,
       accountId: `account_local_coordinator_${String(number)}`,
       name: `Coordinator ${String(number)}`,
-      email: `coordinator${String(number)}@example.com`,
+      email: `coordinator${String(number)}@codestudio.au`,
     };
   },
 );
@@ -90,6 +92,7 @@ async function seedCredentialUser(
   profile: CredentialProfile,
   passwordHash: string,
 ): Promise<string> {
+  const now = new Date();
   await transaction
     .insertInto("user")
     .values({
@@ -97,6 +100,11 @@ async function seedCredentialUser(
       name: profile.name,
       email: profile.email,
       emailVerified: true,
+      emailEnabled: true,
+      emailVerifiedAt: now,
+      phone: profile.phone ?? null,
+      smsEnabled: Boolean(profile.phone),
+      smsVerifiedAt: profile.phone ? now : null,
       image: null,
       stripeCustomerId: null,
     })
@@ -104,7 +112,12 @@ async function seedCredentialUser(
       conflict.column("email").doUpdateSet({
         name: profile.name,
         emailVerified: true,
-        updatedAt: new Date(),
+        emailEnabled: true,
+        emailVerifiedAt: now,
+        phone: profile.phone ?? null,
+        smsEnabled: Boolean(profile.phone),
+        smsVerifiedAt: profile.phone ? now : null,
+        updatedAt: now,
       }),
     )
     .execute();
@@ -311,7 +324,7 @@ try {
       .insertInto("access_grant_domain")
       .values({
         accessGrantId: "access_grant_example_psychological_safety",
-        domain: "example.com",
+        domain: "codestudio.au",
       })
       .onConflict((conflict) => conflict.doNothing())
       .execute();

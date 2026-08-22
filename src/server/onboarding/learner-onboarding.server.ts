@@ -13,6 +13,7 @@ import {
   type SurveyAnswerValue,
   type SurveyQuestion,
 } from "#/features/survey/survey.schema";
+import { normalizeInternationalPhone } from "#/features/profile/phone-number";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
@@ -26,6 +27,11 @@ import { validateAnswer } from "#/server/learning/survey-answer-validation";
 import { logServerEvent } from "#/server/logging/server-logger";
 import type { Transaction } from "kysely";
 import { z } from "#/validation/zod";
+import {
+  completeOnboardingIfVerified,
+  findOnboardingContactVerification,
+  onboardingContactVerificationIsRequired,
+} from "./onboarding-contact-verification.server";
 
 const DEFINITION_ID = "onboarding_definition_default";
 
@@ -173,6 +179,13 @@ export async function findLearnerOnboarding(
   if (assignment === "complete" || assignment === "not-configured")
     return assignment;
   const content = parseSurveyVersionContent(assignment.content);
+  const [verification, verificationRequired] = await Promise.all([
+    findOnboardingContactVerification(getDatabase(), user.id),
+    onboardingContactVerificationIsRequired(
+      getDatabase(),
+      assignment.assignmentId,
+    ),
+  ]);
   const progress = deriveProgress(content, {
     answers: storedAnswers(assignment.answers),
     visitedItemIds: storedVisited(assignment.visitedItemIds),
@@ -186,6 +199,7 @@ export async function findLearnerOnboarding(
     content,
     progress,
     submittedAt: assignment.submittedAt?.toISOString() ?? null,
+    verification: { required: verificationRequired, ...verification },
   };
 }
 
@@ -260,9 +274,30 @@ export async function saveLearnerOnboardingStep(
       const validation = validateAnswer(item, answer);
       if (!validation.valid)
         return { status: "invalid", message: validation.message };
+      let validatedAnswer = validation.answer;
+      const mappedDestination = z
+        .array(onboardingProfileMappingSchema)
+        .safeParse(row.profileMappings);
+      if (
+        mappedDestination.success &&
+        mappedDestination.data.some(
+          (mapping) =>
+            mapping.questionId === item.id && mapping.destination === "phone",
+        ) &&
+        typeof validatedAnswer === "string"
+      ) {
+        const phone = normalizeInternationalPhone(validatedAnswer);
+        if (!phone)
+          return {
+            status: "invalid",
+            message:
+              "Enter a mobile number in international format, for example +61400123456.",
+          };
+        validatedAnswer = phone;
+      }
       if (
         isOperationalRegionQuestion(item) &&
-        typeof validation.answer === "string"
+        typeof validatedAnswer === "string"
       ) {
         const groupQuestion = items.find(isRegionGroupQuestion);
         const groupAnswer = groupQuestion
@@ -274,7 +309,7 @@ export async function saveLearnerOnboardingStep(
                 ?.externalValue
             : undefined;
         const selectedRegion = item.options.find(
-          (option) => option.id === validation.answer,
+          (option) => option.id === validatedAnswer,
         );
         if (!groupId || selectedRegion?.parentExternalValue !== groupId)
           return {
@@ -283,21 +318,21 @@ export async function saveLearnerOnboardingStep(
               "Choose an operational region from the selected region group.",
           };
       }
-      if (typeof validation.answer === "undefined")
+      if (typeof validatedAnswer === "undefined")
         answers = Object.fromEntries(
           Object.entries(answers).filter(
             ([questionId]) => questionId !== item.id,
           ),
         );
-      else answers[item.id] = validation.answer;
+      else answers[item.id] = validatedAnswer;
       if (isRegionGroupQuestion(item)) {
         const operationalQuestion = items.find(isOperationalRegionQuestion);
         const operationalAnswer = operationalQuestion
           ? answers[operationalQuestion.id]
           : undefined;
         const selectedGroup =
-          typeof validation.answer === "string"
-            ? item.options.find((option) => option.id === validation.answer)
+          typeof validatedAnswer === "string"
+            ? item.options.find((option) => option.id === validatedAnswer)
                 ?.externalValue
             : undefined;
         const selectedOperationalRegion =
@@ -353,13 +388,15 @@ export async function saveLearnerOnboardingStep(
     await transaction
       .updateTable("onboarding_assignment")
       .set({
-        status: completed ? "completed" : "in_progress",
+        status: "in_progress",
         startedAt: row.status === "assigned" ? now : undefined,
-        completedAt: completed ? now : null,
+        completedAt: null,
+        verificationSkippedAt: null,
       })
       .where("id", "=", assignmentId)
       .execute();
-    if (completed)
+    let onboardingCompleted = false;
+    if (completed) {
       await applyProfileMappings(
         transaction,
         user.id,
@@ -367,13 +404,20 @@ export async function saveLearnerOnboardingStep(
         answers,
         row.profileMappings,
       );
+      onboardingCompleted = await completeOnboardingIfVerified(
+        transaction,
+        assignmentId,
+        user.id,
+        now,
+      );
+    }
     const progress = deriveProgress(content, {
       answers,
       visitedItemIds,
       currentItemId,
       completedAt: completed ? now : null,
     });
-    if (completed)
+    if (onboardingCompleted)
       logServerEvent({
         level: "info",
         event: "onboarding.completed",
@@ -411,6 +455,10 @@ async function applyProfileMappings(
     name?: string;
     phone?: string | null;
     currentRegionId?: string | null;
+    emailEnabled?: boolean;
+    smsEnabled?: boolean;
+    smsVerifiedAt?: Date | null;
+    updatedAt?: Date;
   } = {};
   const regionMapping = parsed.data.find(
     (mapping) => mapping.destination === "currentRegionId",
@@ -444,15 +492,42 @@ async function applyProfileMappings(
     if (!question) continue;
     if (mapping.destination === "name" && typeof answer === "string")
       update.name = answer;
-    if (mapping.destination === "phone" && typeof answer === "string")
-      update.phone = answer;
+    if (mapping.destination === "phone" && typeof answer === "string") {
+      const phone = normalizeInternationalPhone(answer);
+      if (phone) update.phone = phone;
+    }
+    if (mapping.destination === "emailEnabled")
+      update.emailEnabled = answer === true;
+    if (mapping.destination === "smsEnabled")
+      update.smsEnabled = answer === true;
     if (mapping.destination === "currentRegionId")
       update.currentRegionId = mappedRegionId ?? null;
   }
-  if (Object.keys(update).length > 0)
+  if (update.phone) {
+    const existing = await transaction
+      .selectFrom("user")
+      .select("phone")
+      .where("id", "=", userId)
+      .executeTakeFirstOrThrow();
+    if (normalizeInternationalPhone(existing.phone ?? "") !== update.phone) {
+      update.smsVerifiedAt = null;
+      await transaction
+        .updateTable("phone_verification_claim")
+        .set({
+          releasedAt: new Date(),
+          releaseReason: "phone_changed",
+        })
+        .where("userId", "=", userId)
+        .where("releasedAt", "is", null)
+        .execute();
+    }
+  }
+  if (Object.keys(update).length > 0) {
+    update.updatedAt = new Date();
     await transaction
       .updateTable("user")
       .set(update)
       .where("id", "=", userId)
       .execute();
+  }
 }

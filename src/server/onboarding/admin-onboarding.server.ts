@@ -12,6 +12,7 @@ import {
 import {
   isOperationalRegionQuestion,
   parseSurveyVersionContent,
+  surveyProfileField,
 } from "#/features/survey/survey.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
@@ -20,7 +21,6 @@ import { z } from "#/validation/zod";
 
 const DEFINITION_ID = "onboarding_definition_default";
 type ProfileMapping = z.infer<typeof onboardingProfileMappingSchema>;
-
 function parseMappings(value: unknown): Array<ProfileMapping> {
   const parsed = z.array(onboardingProfileMappingSchema).safeParse(value);
   return parsed.success ? parsed.data : [];
@@ -72,6 +72,7 @@ export async function findAdminOnboarding(): Promise<AdminOnboardingData> {
         "onboarding_definition_version.privacyNotice",
         "onboarding_definition_version.privacyNoticeVersion",
         "onboarding_definition_version.profileMappings",
+        "onboarding_definition_version.contactVerificationRequired",
         "onboarding_definition_version.activatedAt",
         "onboarding_definition_version.deactivatedAt",
         "learning_activity.title as surveyTitle",
@@ -91,6 +92,7 @@ export async function findAdminOnboarding(): Promise<AdminOnboardingData> {
       privacyNotice: row.privacyNotice,
       privacyNoticeVersion: row.privacyNoticeVersion,
       profileMappings: parseMappings(row.profileMappings),
+      contactVerificationRequired: row.contactVerificationRequired,
       activatedAt: row.activatedAt?.toISOString() ?? "",
       deactivatedAt: row.deactivatedAt?.toISOString() ?? null,
     }),
@@ -101,13 +103,11 @@ export async function findAdminOnboarding(): Promise<AdminOnboardingData> {
         (configuration) =>
           configuration.activatedAt && !configuration.deactivatedAt,
       ) ?? null,
-    history,
     surveyVersions: surveyRows.map((row) => ({
       id: row.id,
       surveyId: row.surveyId,
       title: row.title,
       version: row.version,
-      content: parseSurveyVersionContent(row.content),
     })),
   };
 }
@@ -166,20 +166,26 @@ export async function activateOnboardingConfiguration(
         message:
           "The onboarding survey has more than one current region question.",
       };
-    const currentRegionQuestion = currentRegionQuestions[0];
-    const profileMappings = currentRegionQuestion
-      ? [
-          ...parsed.profileMappings.filter(
-            (mapping) =>
-              mapping.destination !== "currentRegionId" &&
-              mapping.questionId !== currentRegionQuestion.id,
-          ),
-          {
-            questionId: currentRegionQuestion.id,
-            destination: "currentRegionId" as const,
-          },
-        ]
-      : parsed.profileMappings;
+    const automaticMappings: Array<ProfileMapping> = [];
+    for (const question of questions.values()) {
+      const destination = surveyProfileField(question);
+      if (destination)
+        automaticMappings.push({ questionId: question.id, destination });
+      else if (isOperationalRegionQuestion(question))
+        automaticMappings.push({
+          questionId: question.id,
+          destination: "currentRegionId",
+        });
+    }
+    const profileMappings = automaticMappings;
+    if (
+      profileMappings.some((mapping) => mapping.destination === "smsEnabled") &&
+      !profileMappings.some((mapping) => mapping.destination === "phone")
+    )
+      return {
+        status: "invalid",
+        message: "SMS enablement requires a mapped mobile number question.",
+      };
     for (const mapping of profileMappings) {
       const question = questions.get(mapping.questionId);
       if (!question)
@@ -191,14 +197,21 @@ export async function activateOnboardingConfiguration(
         (mapping.destination === "name" &&
           question.kind !== "short_text" &&
           question.kind !== "long_text") ||
-        (mapping.destination === "phone" && question.kind !== "short_text") ||
+        (mapping.destination === "phone" &&
+          (question.kind !== "short_text" ||
+            question.format !== "phone" ||
+            !question.required)) ||
+        ((mapping.destination === "emailEnabled" ||
+          mapping.destination === "smsEnabled") &&
+          question.kind !== "checkbox") ||
         (mapping.destination === "currentRegionId" &&
           question.kind !== "single_choice" &&
           question.kind !== "dropdown")
       )
         return {
           status: "invalid",
-          message: "A profile mapping does not match its question type.",
+          message:
+            "Profile mappings must use compatible question types; mobile number questions must be required and use phone format.",
         };
       if (
         mapping.destination === "currentRegionId" &&
@@ -264,6 +277,7 @@ export async function activateOnboardingConfiguration(
         privacyNotice: parsed.privacyNotice,
         privacyNoticeVersion: parsed.privacyNoticeVersion,
         profileMappings: JSON.stringify(profileMappings),
+        contactVerificationRequired: parsed.contactVerificationRequired,
         publishedAt: now,
         activatedAt: now,
         deactivatedAt: null,

@@ -174,10 +174,10 @@ try {
     .selectFrom("user")
     .innerJoin("platform_admin", "platform_admin.userId", "user.id")
     .select("user.id")
-    .where("user.email", "=", "admin@example.com")
+    .where("user.email", "=", "admin@codestudio.au")
     .executeTakeFirst();
   if (!administrator)
-    throw new Error("Seed admin@example.com before local SCORM verification");
+    throw new Error("Seed admin@codestudio.au before local SCORM verification");
 
   for (const [index, fixturePath] of fixturePaths.entries()) {
     const sharedInput = {

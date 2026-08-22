@@ -56,6 +56,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
+import { Route as ApiTextbeeWebhookRouteImport } from './routes/api.textbee.webhook'
 import { Route as CoursesSlugBulkOrderRouteImport } from './routes/courses.$slug_.bulk-order'
 import { Route as EventsSlugBulkOrderRouteImport } from './routes/events.$slug_.bulk-order'
 import { Route as AdminEventsInstancesEventOccurrenceIdRouteImport } from './routes/admin.events.instances.$eventOccurrenceId'
@@ -321,6 +322,11 @@ const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
   path: '/api/stripe/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiTextbeeWebhookRoute = ApiTextbeeWebhookRouteImport.update({
+  id: '/api/textbee/webhook',
+  path: '/api/textbee/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CoursesSlugBulkOrderRoute = CoursesSlugBulkOrderRouteImport.update({
   id: '/courses/$slug_/bulk-order',
   path: '/courses/$slug/bulk-order',
@@ -496,6 +502,7 @@ export interface FileRoutesByFullPath {
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/api/textbee/webhook': typeof ApiTextbeeWebhookRoute
   '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/events/$slug/bulk-order': typeof EventsSlugBulkOrderRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
@@ -565,6 +572,7 @@ export interface FileRoutesByTo {
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/api/textbee/webhook': typeof ApiTextbeeWebhookRoute
   '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/events/$slug/bulk-order': typeof EventsSlugBulkOrderRoute
   '/admin/courses': typeof AdminCoursesIndexRoute
@@ -637,6 +645,7 @@ export interface FileRoutesById {
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
+  '/api/textbee/webhook': typeof ApiTextbeeWebhookRoute
   '/courses/$slug_/bulk-order': typeof CoursesSlugBulkOrderRoute
   '/events/$slug_/bulk-order': typeof EventsSlugBulkOrderRoute
   '/admin/courses/': typeof AdminCoursesIndexRoute
@@ -710,6 +719,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/api/textbee/webhook'
     | '/courses/$slug/bulk-order'
     | '/events/$slug/bulk-order'
     | '/admin/courses/'
@@ -779,6 +789,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/api/textbee/webhook'
     | '/courses/$slug/bulk-order'
     | '/events/$slug/bulk-order'
     | '/admin/courses'
@@ -850,6 +861,7 @@ export interface FileRouteTypes {
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/stripe/webhook'
+    | '/api/textbee/webhook'
     | '/courses/$slug_/bulk-order'
     | '/events/$slug_/bulk-order'
     | '/admin/courses/'
@@ -906,6 +918,7 @@ export interface RootRouteChildren {
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
+  ApiTextbeeWebhookRoute: typeof ApiTextbeeWebhookRoute
   CoursesSlugBulkOrderRoute: typeof CoursesSlugBulkOrderRoute
   EventsSlugBulkOrderRoute: typeof EventsSlugBulkOrderRoute
   ApiAccessManagementAccessGrantIdCodesDotcsvRoute: typeof ApiAccessManagementAccessGrantIdCodesDotcsvRoute
@@ -1255,6 +1268,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiStripeWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/textbee/webhook': {
+      id: '/api/textbee/webhook'
+      path: '/api/textbee/webhook'
+      fullPath: '/api/textbee/webhook'
+      preLoaderRoute: typeof ApiTextbeeWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/courses/$slug_/bulk-order': {
       id: '/courses/$slug_/bulk-order'
       path: '/courses/$slug/bulk-order'
@@ -1539,6 +1559,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
+  ApiTextbeeWebhookRoute: ApiTextbeeWebhookRoute,
   CoursesSlugBulkOrderRoute: CoursesSlugBulkOrderRoute,
   EventsSlugBulkOrderRoute: EventsSlugBulkOrderRoute,
   ApiAccessManagementAccessGrantIdCodesDotcsvRoute:

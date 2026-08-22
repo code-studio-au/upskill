@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
+import { sql } from "kysely";
 import type {
   AdminEmailDesignDetail,
   AdminEmailDesignSummary,
@@ -48,8 +49,9 @@ export async function findAdminEmailDesigns(): Promise<
     database
       .selectFrom("email_design")
       .selectAll()
-      .orderBy("catalogue", "desc")
-      .orderBy("name")
+      .orderBy("contextKey")
+      .orderBy("position")
+      .orderBy("id")
       .execute(),
     database
       .selectFrom("email_design_version")
@@ -66,6 +68,7 @@ export async function findAdminEmailDesigns(): Promise<
       catalogue: design.catalogue,
       name: design.name,
       contextKey: design.contextKey,
+      position: design.position,
       systemKey: design.systemKey,
       activeVersion:
         designVersions.find((version) => version.id === design.activeVersionId)
@@ -168,6 +171,14 @@ export async function createAdminOfferingEmail(
   await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(
+        hashtext(${`email_design_order:${input.contextKey}`})
+      )`.execute(transaction);
+      const last = await transaction
+        .selectFrom("email_design")
+        .select(({ fn }) => fn.max<number | null>("position").as("position"))
+        .where("contextKey", "=", input.contextKey)
+        .executeTakeFirstOrThrow();
       await transaction
         .insertInto("email_design")
         .values({
@@ -175,6 +186,7 @@ export async function createAdminOfferingEmail(
           catalogue: "offering",
           name: input.name.trim(),
           contextKey: input.contextKey,
+          position: (last.position ?? -1) + 1,
           systemKey: null,
           activeVersionId: null,
           createdByUserId: user.id,
@@ -212,6 +224,63 @@ export async function createAdminOfferingEmail(
       });
     });
   return { emailDesignId, versionId };
+}
+
+export async function moveAdminEmailDesign(
+  input: { emailDesignId: string; direction: "down" | "up" },
+  user: AuthenticatedUser,
+): Promise<"boundary" | "moved" | "not-found"> {
+  return getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const candidate = await transaction
+        .selectFrom("email_design")
+        .select(["id", "contextKey"])
+        .where("id", "=", input.emailDesignId)
+        .executeTakeFirst();
+      if (!candidate) return "not-found";
+      await sql`select pg_advisory_xact_lock(
+        hashtext(${`email_design_order:${candidate.contextKey}`})
+      )`.execute(transaction);
+      const designs = await transaction
+        .selectFrom("email_design")
+        .select(["id", "position"])
+        .where("contextKey", "=", candidate.contextKey)
+        .orderBy("position")
+        .orderBy("id")
+        .forUpdate()
+        .execute();
+      const index = designs.findIndex((design) => design.id === candidate.id);
+      const target = designs[index + (input.direction === "up" ? -1 : 1)];
+      const current = designs[index];
+      if (!current) return "not-found";
+      if (!target) return "boundary";
+      const now = new Date();
+      await transaction
+        .updateTable("email_design")
+        .set({ position: target.position, updatedAt: now })
+        .where("id", "=", current.id)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable("email_design")
+        .set({ position: current.position, updatedAt: now })
+        .where("id", "=", target.id)
+        .executeTakeFirstOrThrow();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: user.id,
+        action: "email_design.reordered",
+        subjectType: "email_design",
+        subjectId: current.id,
+        aggregateId: current.id,
+        metadata: {
+          direction: input.direction,
+          fromPosition: current.position,
+          toPosition: target.position,
+        },
+        createdAt: now,
+      });
+      return "moved";
+    });
 }
 
 export async function createAdminEmailDraft(

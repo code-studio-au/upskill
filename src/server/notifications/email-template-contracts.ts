@@ -597,6 +597,44 @@ const contracts = {
       },
     ],
   },
+  "system.phone_verification_transferred": {
+    key: "system.phone_verification_transferred",
+    version: 1,
+    variables: [
+      emailVariable(
+        "Recipient",
+        "user.fullName",
+        "User full name",
+        "Alex Learner",
+        "text",
+        true,
+      ),
+      emailVariable(
+        "Account",
+        "phone.lastFour",
+        "Mobile number last four digits",
+        "0000",
+        "text",
+        true,
+      ),
+      emailVariable(
+        "Account",
+        "account.profileUrl",
+        "Profile link",
+        "https://upskill.example/profile",
+        "url",
+        true,
+      ),
+      emailVariable(
+        "Platform",
+        "platform.supportEmail",
+        "Support email",
+        "support@upskill.example",
+        "text",
+        true,
+      ),
+    ],
+  },
   "offering.course": {
     key: "offering.course",
     version: 1,
@@ -631,6 +669,8 @@ export function emailContractKeyForContext(
 ): EmailTemplateContractKey | null {
   if (contextKey === "system_account_setup")
     return "system.account_setup_requested";
+  if (contextKey === "system_phone_verification")
+    return "system.phone_verification_transferred";
   if (contextKey === "offering_course") return "offering.course";
   if (contextKey === "offering_event") return "offering.event";
   return null;

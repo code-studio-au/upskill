@@ -30,17 +30,17 @@ All credential accounts use `SEED_LEARNER_PASSWORD` from `.env.local`.
 
 ### Administrators
 
-| Email                | Event responsibility                                                  |
-| -------------------- | --------------------------------------------------------------------- |
-| `admin@example.com`  | Default and active administrator for every seeded event.              |
-| `admin2@example.com` | Platform administrator with no event template or instance assignment. |
+| Email                  | Event responsibility                                                  |
+| ---------------------- | --------------------------------------------------------------------- |
+| `admin@codestudio.au`  | Default and active administrator for every seeded event.              |
+| `admin2@codestudio.au` | Platform administrator with no event template or instance assignment. |
 
 The separation is intentional: it verifies that platform administration does
 not implicitly make a person responsible for every Event Instance.
 
 ### Learners
 
-`learner1@example.com` through `learner20@example.com` exercise mixed
+`learner1@codestudio.au` through `learner20@codestudio.au` exercise mixed
 onboarding, course, entitlement, registration and attendance states.
 
 - Learners 1–16 are onboarded and have course or event activity.
@@ -51,8 +51,8 @@ onboarding, course, entitlement, registration and attendance states.
 ### Coordinators
 
 Each operational region has exactly one eligible coordinator. The address is
-`coordinator.<lowercase LHD code>@example.com`, for example
-`coordinator.slhd@example.com`.
+`coordinator.<lowercase LHD code>@codestudio.au`, for example
+`coordinator.slhd@codestudio.au`.
 
 | Code    | Operational region                          |
 | ------- | ------------------------------------------- |
@@ -78,15 +78,15 @@ the enforced group code `NSW-HEALTH`. Names follow the
 
 ### Presenters and Access Owners
 
-| Email                                   | Seeded responsibility         |
-| --------------------------------------- | ----------------------------- |
-| `presenter.cbte@example.com`            | CBT-E                         |
-| `presenter.imed_adults@example.com`     | IMED Adults                   |
-| `presenter.sscm@example.com`            | SSCM                          |
-| `presenter.fbt@example.com`             | FBT                           |
-| `presenter.imed_paediatric@example.com` | IMED Paediatric               |
-| `owner.shared@example.com`              | Shared-code access grants     |
-| `owner.unique@example.com`              | Single-use-code access grants |
+| Email                                     | Seeded responsibility         |
+| ----------------------------------------- | ----------------------------- |
+| `presenter.cbte@codestudio.au`            | CBT-E                         |
+| `presenter.imed_adults@codestudio.au`     | IMED Adults                   |
+| `presenter.sscm@codestudio.au`            | SSCM                          |
+| `presenter.fbt@codestudio.au`             | FBT                           |
+| `presenter.imed_paediatric@codestudio.au` | IMED Paediatric               |
+| `owner.shared@codestudio.au`              | Shared-code access grants     |
+| `owner.unique@codestudio.au`              | Single-use-code access grants |
 
 Each Event Template has one presenter and both of its full-day sessions retain
 that presenter when Event Instances are scheduled.
@@ -102,6 +102,11 @@ The active seeded onboarding version preserves the current product flow:
 
 The operational-region response maps to the user's current profile region. A
 learner who does not work for a health service skips region selection.
+The seeded profile section also collects a required mobile number and optional
+email/SMS security-code preferences. Learner 4 uses the reserved synthetic
+mobile `+61491570009`, has SMS enabled and is seeded as SMS verified so the
+fixture remains deterministic without contacting a real device. Other seeded
+mobile values are also reserved development data.
 
 ## eLearning catalog
 
@@ -157,7 +162,7 @@ Every template contains:
 - one template-specific presenter;
 - post-event feedback surveys and completion email;
 - multiple LHD regions with the matching region coordinator; and
-- only `admin@example.com` as its default Event Administrator.
+- only `admin@codestudio.au` as its default Event Administrator.
 
 Seven published Event Instances reproduce useful operational stages around the
 August–November 2026 schedule:

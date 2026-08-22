@@ -83,7 +83,11 @@ describe("governed email template contracts", () => {
   });
 
   it("provides valid fixture values for every governed variable", () => {
-    for (const contractKey of ["offering.course", "offering.event"]) {
+    for (const contractKey of [
+      "system.phone_verification_transferred",
+      "offering.course",
+      "offering.event",
+    ]) {
       const contract = getEmailTemplateContract(contractKey, 1);
       const fixtures = fixtureEmailContext(contractKey, 1);
       for (const variable of contract.variables) {

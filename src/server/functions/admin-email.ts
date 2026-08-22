@@ -3,6 +3,7 @@ import {
   adminEmailDesignCreateSchema,
   adminEmailDesignDetailParamsSchema,
   adminEmailDesignDraftSchema,
+  adminEmailDesignMoveSchema,
   adminEmailDesignParamsSchema,
   adminEmailDesignVersionParamsSchema,
   type AdminEmailDesignSummary,
@@ -53,6 +54,23 @@ export const createAdminOfferingEmail = createServerFn({ method: "POST" })
     return {
       status: "ready",
       data: { outcome: "created", ...created },
+    };
+  });
+
+export const moveAdminEmailDesign = createServerFn({ method: "POST" })
+  .validator(adminEmailDesignMoveSchema)
+  .handler(async ({ data }): Promise<AdminEmailMutationResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { moveAdminEmailDesign: moveDesign } =
+      await import("#/server/admin/admin-email.server");
+    const outcome = await moveDesign(data, request.user);
+    if (outcome === "not-found") return { status: "not-found" };
+    return {
+      status: "ready",
+      data: { outcome: "moved", emailDesignId: data.emailDesignId },
     };
   });
 

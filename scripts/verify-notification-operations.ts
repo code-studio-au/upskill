@@ -17,6 +17,7 @@ const ids = {
   learner: "verify_notification_operations_learner",
   notification: "verify_notification_operations_delivery",
   attempt: "verify_notification_operations_attempt",
+  sms: "verify_notification_operations_sms",
 };
 const administrator: AuthenticatedUser = {
   id: ids.administrator,
@@ -31,6 +32,7 @@ const database = new Kysely<Database>({
 });
 
 async function cleanup(): Promise<void> {
+  await database.deleteFrom("sms_delivery").where("id", "=", ids.sms).execute();
   await database
     .deleteFrom("outbox_event")
     .where("aggregateId", "=", ids.notification)
@@ -60,6 +62,7 @@ try {
   const baseline = await findAdminNotificationOperations({
     q: "",
     status: "all",
+    channel: "all",
     page: 1,
   });
   await database
@@ -139,10 +142,29 @@ try {
       createdAt: failedAt,
     })
     .execute();
+  await database
+    .insertInto("sms_delivery")
+    .values({
+      id: ids.sms,
+      purpose: "onboarding_contact_verification",
+      recipientPhone: "+61491570456",
+      provider: "textbee",
+      providerBatchId: "verify_notification_operations_batch",
+      status: "delivered",
+      lastErrorCode: null,
+      acceptedAt: failedAt,
+      sentAt: failedAt,
+      deliveredAt: failedAt,
+      failedAt: null,
+      createdAt: failedAt,
+      updatedAt: failedAt,
+    })
+    .execute();
 
   const failedDirectory = await findAdminNotificationOperations({
     q: "notification-operations-learner@example.com",
     status: "failed",
+    channel: "email",
     page: 1,
   });
   assert.equal(
@@ -154,10 +176,8 @@ try {
   assert.ok(failedNotification);
   assert.equal(failedNotification.id, ids.notification);
   assert.equal(failedNotification.statusLabel, "Failed");
-  assert.equal(failedNotification.deliveryAttempts.length, 1);
-  const failedAttempt = failedNotification.deliveryAttempts[0];
-  assert.ok(failedAttempt);
-  assert.equal(failedAttempt.errorCode, "EMAIL_PROVIDER_REJECTED");
+  assert.match(failedNotification.detailSummary, /#1 · verification · failed/u);
+  assert.match(failedNotification.detailSummary, /EMAIL_PROVIDER_REJECTED/u);
 
   assert.equal(
     await requeueFailedNotification(ids.notification, administrator),
@@ -208,6 +228,7 @@ try {
   const pendingDirectory = await findAdminNotificationOperations({
     q: "notification-operations-learner@example.com",
     status: "pending",
+    channel: "email",
     page: 1,
   });
   assert.equal(
@@ -243,12 +264,12 @@ try {
   const scheduledDirectory = await findAdminNotificationOperations({
     q: "scheduled verification",
     status: "pending",
+    channel: "email",
     page: 1,
   });
   const scheduledNotification = scheduledDirectory.notifications[0];
   assert.ok(scheduledNotification);
   assert.equal(scheduledNotification.statusLabel, "Scheduled");
-  assert.equal(scheduledNotification.scheduledFor, scheduledFor.toISOString());
   assert.match(
     scheduledNotification.detailSummary,
     /Scheduled verification subject/,
@@ -258,8 +279,25 @@ try {
     /template; renders when delivery begins/,
   );
   assert.match(scheduledNotification.detailSummary, /Scheduled for .* UTC/);
+  const smsDirectory = await findAdminNotificationOperations({
+    q: "+61491570456",
+    status: "delivered",
+    channel: "sms",
+    page: 1,
+  });
+  const smsDelivery = smsDirectory.notifications[0];
+  assert.ok(smsDelivery);
+  assert.equal(smsDelivery.id, ids.sms);
+  assert.equal(smsDelivery.channelLabel, "SMS");
+  assert.equal(smsDelivery.statusLabel, "Delivered");
+  assert.equal(smsDelivery.canRequeue, false);
+  assert.match(smsDelivery.detailSummary, /onboarding contact verification/u);
+  assert.match(
+    smsDelivery.detailSummary,
+    /verify_notification_operations_batch/u,
+  );
   console.log(
-    "Verified notification operations health, scheduled delivery labels, filtered history, attempt detail and audited safe requeue",
+    "Verified email and SMS operations health, filters, delivery detail and audited safe email requeue",
   );
 } finally {
   await cleanup();

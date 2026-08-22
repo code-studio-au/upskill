@@ -11,6 +11,7 @@ import { down as rollbackEventTemplateAccreditations } from "#/server/db/migrati
 import { down as rollbackPrivateAccreditationLogoReferences } from "#/server/db/migrations/0056_private_accreditation_logo_references";
 import { down as rollbackEventTemplateAssetShapes } from "#/server/db/migrations/0059_event_template_asset_shapes";
 import { down as rollbackDurableEventCommunications } from "#/server/db/migrations/0061_durable_event_communications";
+import { down as rollbackTransferableVerifiedPhoneClaims } from "#/server/db/migrations/0069_transferable_verified_phone_claims";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -61,6 +62,10 @@ try {
     "event_occurrence_domain",
     "event_occurrence_region",
     "event_participation",
+    "event_prerequisite_email_capture",
+    "event_prerequisite_recovery_challenge",
+    "event_prerequisite_sms_capture",
+    "event_prerequisite_task_session",
     "event_presenter_assignment",
     "event_region_review_round",
     "event_registration",
@@ -85,19 +90,25 @@ try {
     "learning_resource_version",
     "notification",
     "notification_delivery_attempt",
+    "onboarding_contact_verification_challenge",
     "email_delivery_capture",
     "email_design",
     "email_design_version",
     "order",
     "order_item",
     "order_refund",
+    "onboarding_email_verification_capture",
+    "onboarding_sms_verification_capture",
     "organization",
     "platform_admin",
+    "phone_verification_claim",
     "outbox_event",
     "scorm_attempt",
     "scorm_attempt_session",
     "scorm_launch_token",
     "scorm_package_version",
+    "sms_delivery",
+    "sms_delivery_webhook_event",
     "survey_progress",
     "survey_response",
     "survey_version",
@@ -169,6 +180,8 @@ try {
     "user_email_normalized_uq",
     "notification_pending_idx",
     "email_design_catalogue_name_idx",
+    "email_design_catalogue_position_idx",
+    "email_design_context_position_uq",
     "email_design_version_one_draft_uq",
     "course_version_communication_position_uq",
     "event_template_communication_position_uq",
@@ -177,6 +190,14 @@ try {
     "event_communication_schedule_active_uq",
     "event_communication_schedule_due_idx",
     "notification_operations_idx",
+    "onboarding_contact_verification_rate_idx",
+    "sms_delivery_provider_batch_uq",
+    "sms_delivery_operations_idx",
+    "sms_delivery_recipient_user_idx",
+    "sms_delivery_webhook_batch_idx",
+    "phone_verification_claim_active_phone_uq",
+    "phone_verification_claim_user_history_idx",
+    "user_sms_verified_phone_uq",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -198,13 +219,15 @@ try {
           'email_design_catalogue_ck',
           'email_design_context_ck',
           'email_design_system_identity_ck',
+          'email_design_position_ck',
+          'email_design_context_position_uq',
           'email_design_active_version_fk',
           'email_design_version_publication_ck',
           'notification_render_snapshot_ck'
         )`.execute(db);
   assert.equal(
     emailDesignerConstraints.rows.length,
-    6,
+    8,
     "Governed Email Designer identity, version and snapshot constraints must exist",
   );
   const communicationPlanConstraints = await sql<{
@@ -261,7 +284,7 @@ try {
     assert.match(scheduleTriggerDefinition, new RegExp(trigger, "iu"));
   assert.match(
     executionDefinition.get("notification_template_ck") ?? "",
-    /offering_course.*offering_event/iu,
+    /phone_verification_transferred.*offering_course.*offering_event/iu,
   );
   const auditActionConstraint = await sql<{
     definition: string;
@@ -275,6 +298,10 @@ try {
     auditActionDefinition.definition,
     /notification\.delivery_requeued/u,
   );
+  assert.match(
+    auditActionDefinition.definition,
+    /user\.phone_verification_transferred/u,
+  );
   const accountSetupEmail = await sql<{
     activeVersionId: string | null;
     publishedAt: Date | null;
@@ -287,6 +314,18 @@ try {
   assert.ok(accountSetupEmailRow);
   assert.ok(accountSetupEmailRow.activeVersionId);
   assert.ok(accountSetupEmailRow.publishedAt);
+  const phoneTransferEmail = await sql<{
+    activeVersionId: string | null;
+    publishedAt: Date | null;
+  }>`select design."activeVersionId", version."publishedAt"
+      from email_design design
+      join email_design_version version on version.id = design."activeVersionId"
+      where design."systemKey" = 'phone_verification_transferred'`.execute(db);
+  assert.equal(phoneTransferEmail.rows.length, 1);
+  const phoneTransferEmailRow = phoneTransferEmail.rows[0];
+  assert.ok(phoneTransferEmailRow);
+  assert.ok(phoneTransferEmailRow.activeVersionId);
+  assert.ok(phoneTransferEmailRow.publishedAt);
   const eventDirectoryConstraints = await sql<{
     constraint_name: string;
   }>`select constraint_name from information_schema.table_constraints
@@ -316,6 +355,55 @@ try {
     eventSurveyAccessConstraints.rows.length,
     4,
     "Event Survey access identity, rotation and policy constraints must exist",
+  );
+  const contactVerificationConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'user_email_verified_at_ck',
+          'user_sms_verified_at_ck',
+          'onboarding_assignment_verification_skip_ck',
+          'onboarding_contact_verification_channel_ck',
+          'onboarding_contact_verification_reference_ck',
+          'onboarding_contact_verification_digest_ck',
+          'onboarding_contact_verification_attempts_ck',
+          'onboarding_contact_verification_expiry_ck',
+          'onboarding_contact_verification_consumed_ck',
+          'onboarding_sms_verification_capture_phone_ck'
+        )`.execute(db);
+  assert.equal(
+    contactVerificationConstraints.rows.length,
+    10,
+    "Onboarding email and SMS verification state and challenges must be constrained",
+  );
+  const contactVerificationColumns = await sql<{
+    column_name: string;
+  }>`select column_name from information_schema.columns
+      where table_schema = 'public' and table_name = 'user'
+        and column_name in ('emailEnabled', 'emailVerifiedAt', 'smsEnabled', 'smsVerifiedAt')`.execute(
+    db,
+  );
+  assert.equal(contactVerificationColumns.rows.length, 4);
+  const smsDeliveryConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'sms_delivery_purpose_ck',
+          'sms_delivery_phone_ck',
+          'sms_delivery_provider_ck',
+          'sms_delivery_status_ck',
+          'sms_delivery_error_code_ck',
+          'sms_delivery_timeline_ck',
+          'sms_delivery_recipient_name_ck',
+          'sms_delivery_webhook_event_type_ck',
+          'sms_delivery_webhook_digest_ck'
+        )`.execute(db);
+  assert.equal(
+    smsDeliveryConstraints.rows.length,
+    9,
+    "SMS delivery state and authenticated webhook receipts must be constrained",
   );
   const eventGuestAccessConstraints = await sql<{
     constraint_name: string;
@@ -634,6 +722,14 @@ try {
       db,
     );
   }
+  const phoneClaimRollbackSentinel = "verify phone claim migration rollback";
+  await assert.rejects(
+    db.transaction().execute(async (transaction) => {
+      await rollbackTransferableVerifiedPhoneClaims(transaction);
+      throw new Error(phoneClaimRollbackSentinel);
+    }),
+    new RegExp(phoneClaimRollbackSentinel, "u"),
+  );
   const rollbackSentinel = "verify communication migration rollback";
   await assert.rejects(
     db.transaction().execute(async (transaction) => {

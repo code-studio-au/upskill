@@ -66,6 +66,13 @@ function AdminLearnerProfilePage() {
             {profile.learner.email}
           </Text>
           <Text c="dimmed" size="sm">
+            Email: {profile.learner.emailEnabled ? "enabled" : "disabled"},{" "}
+            {profile.learner.emailVerified ? "verified" : "unverified"} · SMS:{" "}
+            {profile.learner.smsEnabled ? "enabled" : "disabled"},{" "}
+            {profile.learner.smsVerifiedAt ? "verified" : "unverified"} ·{" "}
+            {profile.learner.phone ?? "No mobile number"}
+          </Text>
+          <Text c="dimmed" size="sm">
             Joined {formatLocalDate(profile.learner.joinedAt)}
           </Text>
         </div>

@@ -12,6 +12,7 @@ import type {
   SurveyOption,
   SurveyItem,
   SurveyQuestion,
+  SurveyProfileField,
   SurveySection,
 } from "./survey.schema";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
@@ -25,7 +26,9 @@ function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
   return next;
 }
 
-function newItem(kind: SurveyItem["kind"]): SurveyItem {
+function newItem(kind: SurveyItem["kind"] | SurveyProfileField): SurveyItem {
+  if (kind === "name" || kind === "phone" || kind.endsWith("Enabled"))
+    return newProfileItem(kind as SurveyProfileField);
   if (kind === "instruction")
     return {
       id: `instruction_${crypto.randomUUID()}`,
@@ -56,7 +59,7 @@ function newItem(kind: SurveyItem["kind"]): SurveyItem {
     };
   return {
     ...base,
-    kind,
+    kind: kind as "dropdown" | "multiple_choice" | "single_choice",
     options: [
       { id: `option_${crypto.randomUUID()}`, label: "" },
       { id: `option_${crypto.randomUUID()}`, label: "" },
@@ -79,6 +82,28 @@ function newRegionDirectoryItem(
         : "Operational region",
     required: true,
     options,
+  };
+}
+
+function newProfileItem(profileField: SurveyProfileField): SurveyItem {
+  const id = `question_${crypto.randomUUID()}`;
+  if (profileField === "emailEnabled" || profileField === "smsEnabled")
+    return {
+      id,
+      kind: "checkbox",
+      prompt: profileField === "emailEnabled" ? "Enable email" : "Enable SMS",
+      required: false,
+      profileField,
+    };
+  const phone = profileField === "phone";
+  return {
+    id,
+    kind: "short_text",
+    prompt: phone ? "Mobile phone number" : "Full name",
+    required: true,
+    profileField,
+    maximumLength: phone ? 32 : 160,
+    format: phone ? "phone" : "plain",
   };
 }
 
@@ -345,8 +370,16 @@ export function SurveySectionsEditor({
                     </Button>
                   </>
                 ) : null}
-                {(
-                  [
+                {[
+                  ...(usage === "onboarding"
+                    ? ([
+                        ["name", "Profile full name"],
+                        ["phone", "Profile mobile phone"],
+                        ["emailEnabled", "Profile email enabled"],
+                        ["smsEnabled", "Profile SMS enabled"],
+                      ] as const)
+                    : []),
+                  ...([
                     ["single_choice", "Add single choice"],
                     ["multiple_choice", "Add multiple choice"],
                     ["dropdown", "Add dropdown"],
@@ -357,8 +390,8 @@ export function SurveySectionsEditor({
                     ["date", "Add date"],
                     ["rating", "Add rating"],
                     ["instruction", "Add instruction block"],
-                  ] as const
-                ).map(([kind, label]) => (
+                  ] as const),
+                ].map(([kind, label]) => (
                   <Button
                     key={kind}
                     variant="light"

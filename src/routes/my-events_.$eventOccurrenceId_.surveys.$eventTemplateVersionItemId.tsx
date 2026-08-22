@@ -1,11 +1,6 @@
 import { Button } from "#/features/shared/mantine";
 import { LearnerSurveyExperience } from "#/features/survey/LearnerSurveyExperience";
-import {
-  createFileRoute,
-  Link,
-  notFound,
-  redirect,
-} from "@tanstack/react-router";
+import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { learnerEventSurveyParamsSchema } from "#/features/survey/survey.schema";
 import {
   advanceLearnerEventSurveyStep,
@@ -49,19 +44,23 @@ export const Route = createFileRoute(
 
 function LearnerEventSurveyPage() {
   const survey = Route.useLoaderData();
+  const taskAccess = survey.accessMode === "event_task";
   return (
     <LearnerSurveyExperience
       survey={survey}
       completionDescription="Your response was submitted and this event activity is complete."
       returnAction={
-        <Link
-          to="/my-events/$eventOccurrenceId"
-          params={{ eventOccurrenceId: survey.eventOccurrenceId }}
+        <Button
+          component="a"
+          href={
+            taskAccess
+              ? "/"
+              : `/my-events/${encodeURIComponent(survey.eventOccurrenceId)}`
+          }
+          variant="light"
         >
-          <Button component="span" variant="light">
-            Return to event
-          </Button>
-        </Link>
+          {taskAccess ? "Finish on this device" : "Return to event"}
+        </Button>
       }
       onAdvance={async (itemId, answer) =>
         await advanceLearnerEventSurveyStep({

@@ -27,6 +27,54 @@ a {
   outline-offset: 3px;
 }
 
+#recovery {
+  display: grid;
+  width: min(calc(100% - 2rem), 30rem);
+  margin: clamp(2rem, 10vh, 6rem) auto;
+  padding: clamp(1.5rem, 5vw, 2.5rem);
+  gap: var(--mantine-spacing-lg);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: white;
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+#recovery h1 {
+  margin: 0;
+  font-size: clamp(1.75rem, 7vw, 2.25rem);
+}
+
+#recovery form,
+#recovery label {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+}
+
+#recovery label {
+  font-weight: 600;
+}
+
+#recovery input,
+#recovery button {
+  min-height: 2.75rem;
+  padding-inline: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-sm);
+  font: inherit;
+}
+
+#recovery button {
+  border-color: var(--mantine-color-indigo-6);
+  background: var(--mantine-color-indigo-6);
+  color: white;
+  cursor: pointer;
+}
+
+#recovery > a {
+  color: var(--mantine-color-indigo-7);
+  font-weight: 600;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

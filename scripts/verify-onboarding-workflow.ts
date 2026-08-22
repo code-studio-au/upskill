@@ -14,6 +14,12 @@ const user: AuthenticatedUser = {
   email: "onboarding-verifier@example.com",
   emailVerified: true,
 };
+const transferUser: AuthenticatedUser = {
+  id: "verify_onboarding_transfer_user",
+  name: "Onboarding Transfer Verifier",
+  email: "onboarding-transfer-verifier@example.com",
+  emailVerified: true,
+};
 const regionId = "verify_onboarding_region";
 const otherRegionId = "verify_onboarding_region_other";
 const regionGroupId = "verify_onboarding_region_group";
@@ -25,11 +31,54 @@ const database = new Kysely<Database>({
 });
 let surveyId: string | undefined;
 
+async function verifySmsContact(
+  assignmentId: string,
+  recipient: AuthenticatedUser = user,
+): Promise<{ complete: boolean | undefined }> {
+  const { requestOnboardingContactVerification, verifyOnboardingContactCode } =
+    await import("#/server/onboarding/onboarding-contact-verification.server");
+  const request = await requestOnboardingContactVerification(
+    { assignmentId, channel: "sms" },
+    recipient,
+  );
+  assert.equal(request.status, "sent");
+  const challenge = await database
+    .selectFrom("onboarding_contact_verification_challenge as challenge")
+    .innerJoin(
+      "onboarding_sms_verification_capture as capture",
+      "capture.challengeId",
+      "challenge.id",
+    )
+    .select(["challenge.reference", "capture.message"])
+    .where("challenge.reference", "=", request.challengeReference)
+    .executeTakeFirstOrThrow();
+  const code = challenge.message.match(/\b\d{6}\b/u)?.[0];
+  assert.ok(code);
+  assert.deepEqual(
+    await verifyOnboardingContactCode(
+      {
+        assignmentId,
+        challengeReference: challenge.reference,
+        code: code === "000000" ? "999999" : "000000",
+      },
+      recipient,
+    ),
+    { status: "invalid" },
+  );
+  const result = await verifyOnboardingContactCode(
+    { assignmentId, challengeReference: challenge.reference, code },
+    recipient,
+  );
+  assert.equal(result.status, "verified");
+  return { complete: result.complete };
+}
+
 async function cleanup(): Promise<void> {
+  const userIds = [user.id, transferUser.id];
   const assignments = await database
     .selectFrom("onboarding_assignment")
     .select("id")
-    .where("userId", "=", user.id)
+    .where("userId", "in", userIds)
     .execute();
   if (assignments.length > 0)
     await database
@@ -42,7 +91,35 @@ async function cleanup(): Promise<void> {
       .execute();
   await database
     .deleteFrom("onboarding_assignment")
-    .where("userId", "=", user.id)
+    .where("userId", "in", userIds)
+    .execute();
+  const notifications = await database
+    .selectFrom("notification")
+    .select("id")
+    .where("recipientUserId", "in", userIds)
+    .execute();
+  const notificationIds = notifications.map((notification) => notification.id);
+  if (notificationIds.length > 0) {
+    await database
+      .deleteFrom("outbox_event")
+      .where("aggregateId", "in", notificationIds)
+      .execute();
+    await database
+      .deleteFrom("notification_delivery_attempt")
+      .where("notificationId", "in", notificationIds)
+      .execute();
+    await database
+      .deleteFrom("email_delivery_capture")
+      .where("notificationId", "in", notificationIds)
+      .execute();
+    await database
+      .deleteFrom("notification")
+      .where("id", "in", notificationIds)
+      .execute();
+  }
+  await database
+    .deleteFrom("sms_delivery")
+    .where("recipientUserId", "in", userIds)
     .execute();
   await database
     .deleteFrom("onboarding_definition")
@@ -62,11 +139,21 @@ async function cleanup(): Promise<void> {
     await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
       transaction,
     );
-    await sql`delete from audit_event where "actorUserId" = ${user.id}`.execute(
-      transaction,
-    );
+    await transaction
+      .deleteFrom("outbox_event")
+      .where("aggregateId", "in", userIds)
+      .execute();
+    await transaction
+      .deleteFrom("audit_event")
+      .where((expression) =>
+        expression.or([
+          expression("actorUserId", "in", userIds),
+          expression("subjectId", "in", userIds),
+        ]),
+      )
+      .execute();
   });
-  await database.deleteFrom("user").where("id", "=", user.id).execute();
+  await database.deleteFrom("user").where("id", "in", userIds).execute();
   await database
     .deleteFrom("coordination_region")
     .where("id", "in", [
@@ -167,6 +254,7 @@ try {
             required: true,
             maximumLength: 160,
             format: "plain",
+            profileField: "name",
           },
           {
             id: "onboarding_phone",
@@ -175,6 +263,21 @@ try {
             required: true,
             maximumLength: 40,
             format: "phone",
+            profileField: "phone",
+          },
+          {
+            id: "onboarding_email_enabled",
+            kind: "checkbox",
+            prompt: "Enable email access codes",
+            required: false,
+            profileField: "emailEnabled",
+          },
+          {
+            id: "onboarding_sms_enabled",
+            kind: "checkbox",
+            prompt: "Enable SMS access codes",
+            required: false,
+            profileField: "smsEnabled",
           },
           {
             id: "onboarding_works_in_region",
@@ -242,7 +345,9 @@ try {
     ],
   };
   const unsafeDraft = structuredClone(draft);
-  const unsafeBranchQuestion = unsafeDraft.sections[0]?.items[2];
+  const unsafeBranchQuestion = unsafeDraft.sections[0]?.items.find(
+    (item) => item.id === "onboarding_works_in_region",
+  );
   if (!unsafeBranchQuestion || unsafeBranchQuestion.kind !== "single_choice")
     throw new Error("Expected onboarding branch question");
   const unsafeYesOption = unsafeBranchQuestion.options[0];
@@ -251,6 +356,17 @@ try {
     ...unsafeYesOption,
     nextSectionId: "onboarding_operational_region",
   };
+  const invalidProfileDraft = structuredClone(draft);
+  const invalidPhoneQuestion = invalidProfileDraft.sections
+    .flatMap((section) => section.items)
+    .find((item) => item.id === "onboarding_phone");
+  if (!invalidPhoneQuestion || invalidPhoneQuestion.kind !== "short_text")
+    throw new Error("Expected onboarding mobile phone question");
+  invalidPhoneQuestion.required = false;
+  assert.equal(
+    await saveAdminSurveyDraft(invalidProfileDraft, user),
+    "invalid",
+  );
   assert.equal(await saveAdminSurveyDraft(unsafeDraft, user), "saved");
   assert.equal(
     await publishAdminSurveyVersion(surveyId, created.versionId, user),
@@ -268,14 +384,22 @@ try {
       surveyVersionId: created.versionId,
       privacyNotice: "Verification privacy notice",
       privacyNoticeVersion: "1",
-      profileMappings: [
-        { questionId: "onboarding_name", destination: "name" },
-        { questionId: "onboarding_phone", destination: "phone" },
-      ],
+      contactVerificationRequired: false,
     },
     user,
   );
   assert.equal(activation.status, "activated");
+  const automaticMappings = await database
+    .selectFrom("onboarding_definition_version")
+    .select("profileMappings")
+    .where("id", "=", activation.configurationId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    (automaticMappings.profileMappings as Array<{ destination: string }>)
+      .map((mapping) => mapping.destination)
+      .sort(),
+    ["currentRegionId", "emailEnabled", "name", "phone", "smsEnabled"],
+  );
   const { findLearnerOnboarding, saveLearnerOnboardingStep } =
     await import("#/server/onboarding/learner-onboarding.server");
   const onboarding = await findLearnerOnboarding(user);
@@ -304,7 +428,7 @@ try {
       surveyVersionId: created.versionId,
       privacyNotice: "Updated verification privacy notice",
       privacyNoticeVersion: "2",
-      profileMappings: [],
+      contactVerificationRequired: true,
     },
     user,
   );
@@ -325,6 +449,28 @@ try {
         onboarding.assignmentId,
         "onboarding_phone",
         "+61 400 000 000",
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        onboarding.assignmentId,
+        "onboarding_email_enabled",
+        true,
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        onboarding.assignmentId,
+        "onboarding_sms_enabled",
+        true,
         user,
       )
     ).status,
@@ -384,14 +530,33 @@ try {
   assert.ok(repeatedCompletion.progress.completedAt);
   const updated = await database
     .selectFrom("user")
-    .select(["name", "phone", "currentRegionId"])
+    .select([
+      "name",
+      "phone",
+      "currentRegionId",
+      "emailEnabled",
+      "smsEnabled",
+      "smsVerifiedAt",
+    ])
     .where("id", "=", user.id)
     .executeTakeFirstOrThrow();
   assert.deepEqual(updated, {
     name: "Updated Learner",
-    phone: "+61 400 000 000",
+    phone: "+61400000000",
     currentRegionId: regionId,
+    emailEnabled: true,
+    smsEnabled: true,
+    smsVerifiedAt: null,
   });
+  const pendingVerification = await findLearnerOnboarding(user);
+  assert.equal(typeof pendingVerification, "object");
+  if (typeof pendingVerification === "string")
+    throw new Error("Expected onboarding contact verification");
+  assert.ok(pendingVerification.submittedAt);
+  assert.equal(
+    (await verifySmsContact(onboarding.assignmentId)).complete,
+    true,
+  );
   assert.equal(await findLearnerOnboarding(user), "complete");
   const { requireAdminReOnboarding } =
     await import("#/server/admin/admin-learner.server");
@@ -425,6 +590,11 @@ try {
       source: "administrator",
     },
   ]);
+  await database
+    .updateTable("user")
+    .set({ smsVerifiedAt: null })
+    .where("id", "=", user.id)
+    .execute();
   assert.equal(
     (
       await saveLearnerOnboardingStep(
@@ -447,6 +617,28 @@ try {
     ).status,
     "advanced",
   );
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        reassigned.assignmentId,
+        "onboarding_email_enabled",
+        true,
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        reassigned.assignmentId,
+        "onboarding_sms_enabled",
+        true,
+        user,
+      )
+    ).status,
+    "advanced",
+  );
   const skippedRegion = await saveLearnerOnboardingStep(
     reassigned.assignmentId,
     "onboarding_works_in_region",
@@ -458,7 +650,7 @@ try {
     skippedRegion.progress.currentItemId,
     "onboarding_finish_information",
   );
-  assert.equal(skippedRegion.progress.totalItems, 4);
+  assert.equal(skippedRegion.progress.totalItems, 6);
   assert.equal(
     (
       await saveLearnerOnboardingStep(
@@ -470,6 +662,138 @@ try {
     ).status,
     "submitted",
   );
+  const { skipOnboardingContactVerification } =
+    await import("#/server/onboarding/onboarding-contact-verification.server");
+  assert.equal(
+    await skipOnboardingContactVerification(reassigned.assignmentId, user),
+    "unavailable",
+  );
+  assert.equal(
+    (await verifySmsContact(reassigned.assignmentId)).complete,
+    true,
+  );
+  const transferNow = new Date();
+  const transferAssignmentId = "verify_onboarding_transfer_assignment";
+  await database
+    .insertInto("user")
+    .values({
+      id: transferUser.id,
+      name: transferUser.name,
+      email: transferUser.email,
+      emailVerified: true,
+      emailEnabled: true,
+      emailVerifiedAt: transferNow,
+      image: null,
+      stripeCustomerId: null,
+      phone: "+61400000000",
+      smsEnabled: true,
+      smsVerifiedAt: null,
+    })
+    .execute();
+  await database
+    .insertInto("onboarding_assignment")
+    .values({
+      id: transferAssignmentId,
+      userId: transferUser.id,
+      definitionVersionId: secondActivation.configurationId,
+      status: "in_progress",
+      source: "automatic",
+      assignedAt: transferNow,
+      startedAt: transferNow,
+      completedAt: null,
+      supersededAt: null,
+      verificationSkippedAt: null,
+    })
+    .execute();
+  await database
+    .insertInto("onboarding_response")
+    .values({
+      id: "verify_onboarding_transfer_response",
+      assignmentId: transferAssignmentId,
+      surveyVersionId: created.versionId,
+      answers: {},
+      visitedItemIds: [],
+      currentItemId: null,
+      startedAt: transferNow,
+      updatedAt: transferNow,
+      submittedAt: transferNow,
+      redactedAt: null,
+    })
+    .execute();
+  assert.equal(
+    (await verifySmsContact(transferAssignmentId, transferUser)).complete,
+    true,
+  );
+  const verifiedOwners = await database
+    .selectFrom("user")
+    .select(["id", "smsVerifiedAt"])
+    .where("id", "in", [user.id, transferUser.id])
+    .orderBy("id")
+    .execute();
+  assert.equal(
+    verifiedOwners.find((recipient) => recipient.id === user.id)?.smsVerifiedAt,
+    null,
+  );
+  assert.ok(
+    verifiedOwners.find((recipient) => recipient.id === transferUser.id)
+      ?.smsVerifiedAt,
+  );
+  const phoneClaims = await database
+    .selectFrom("phone_verification_claim")
+    .select(["userId", "releasedAt", "releaseReason"])
+    .where("phone", "=", "+61400000000")
+    .where("userId", "in", [user.id, transferUser.id])
+    .orderBy("claimedAt")
+    .execute();
+  assert.ok(phoneClaims.length >= 2);
+  assert.equal(phoneClaims.at(-2)?.userId, user.id);
+  assert.equal(phoneClaims.at(-2)?.releaseReason, "transferred");
+  assert.ok(phoneClaims.at(-2)?.releasedAt);
+  assert.deepEqual(phoneClaims.at(-1), {
+    userId: transferUser.id,
+    releasedAt: null,
+    releaseReason: null,
+  });
+  const transferNotification = await database
+    .selectFrom("notification")
+    .select("id")
+    .where("templateKey", "=", "phone_verification_transferred")
+    .where("recipientUserId", "=", user.id)
+    .executeTakeFirstOrThrow();
+  const { deliverNotification } =
+    await import("#/server/notifications/notification-delivery.server");
+  assert.deepEqual(await deliverNotification(transferNotification.id), {
+    status: "delivered",
+  });
+  const transferEmail = await database
+    .selectFrom("email_delivery_capture")
+    .select(["subject", "textBody"])
+    .where("notificationId", "=", transferNotification.id)
+    .executeTakeFirstOrThrow();
+  assert.match(transferEmail.subject, /verified on another account/iu);
+  assert.match(transferEmail.textBody, /ending in 0000/iu);
+  assert.doesNotMatch(transferEmail.textBody, /Transfer Verifier/u);
+  const smsDeliveries = await database
+    .selectFrom("sms_delivery")
+    .select(["recipientUserId", "recipientNameSnapshot"])
+    .where("purpose", "=", "onboarding_contact_verification")
+    .where("recipientUserId", "in", [user.id, transferUser.id])
+    .orderBy("createdAt")
+    .execute();
+  assert.ok(
+    smsDeliveries.some(
+      (delivery) =>
+        delivery.recipientUserId === user.id &&
+        delivery.recipientNameSnapshot === "Updated Learner",
+    ),
+  );
+  assert.ok(
+    smsDeliveries.some(
+      (delivery) =>
+        delivery.recipientUserId === transferUser.id &&
+        delivery.recipientNameSnapshot === transferUser.name,
+    ),
+  );
   assert.equal(
     await database
       .selectFrom("user")
@@ -480,7 +804,7 @@ try {
     null,
   );
   console.log(
-    "Verified version-pinned onboarding, conditional section branching, profile projection, completion gate and retained administrator re-onboarding",
+    "Verified version-pinned onboarding, profile projection, contact verification, transferable phone ownership, immutable SMS attribution and displaced-account email",
   );
 } finally {
   await cleanup();

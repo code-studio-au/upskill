@@ -61,6 +61,50 @@ describe("email provider boundary", () => {
     );
   });
 
+  it("keeps recovery codes in the dedicated local security capture", async () => {
+    const { sendEventPrerequisiteRecoveryEmail } =
+      await import("./email-provider.server");
+    const database = { insertInto: mocks.insertInto };
+    await expect(
+      sendEventPrerequisiteRecoveryEmail(database as never, {
+        challengeId: "challenge_1",
+        recipientEmail: "learner@example.com",
+        subject: "Your access code",
+        textBody: "123456",
+        htmlBody: "<p>123456</p>",
+      }),
+    ).resolves.toEqual({ messageId: "local:challenge_1" });
+    expect(mocks.insertInto).toHaveBeenCalledWith(
+      "event_prerequisite_email_capture",
+    );
+    expect(mocks.values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        challengeId: "challenge_1",
+        recipientEmail: "learner@example.com",
+      }),
+    );
+  });
+
+  it("keeps onboarding codes in their own local security capture", async () => {
+    const { sendOnboardingVerificationEmail } =
+      await import("./email-provider.server");
+    await expect(
+      sendOnboardingVerificationEmail(
+        { insertInto: mocks.insertInto } as never,
+        {
+          challengeId: "onboarding_challenge_1",
+          recipientEmail: "learner@example.com",
+          subject: "Verify email",
+          textBody: "123456",
+          htmlBody: "<p>123456</p>",
+        },
+      ),
+    ).resolves.toEqual({ messageId: "local:onboarding_challenge_1" });
+    expect(mocks.insertInto).toHaveBeenCalledWith(
+      "onboarding_email_verification_capture",
+    );
+  });
+
   it("fails closed when Mailgun is selected without complete configuration", async () => {
     const { getEmailProvider } = await import("./email-provider.server");
     const database = { insertInto: mocks.insertInto };

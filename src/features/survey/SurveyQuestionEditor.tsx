@@ -115,7 +115,7 @@ export function SurveyQuestionEditor({
         <MantineCheckbox
           label="A response is required"
           checked={question.required}
-          disabled={disabled}
+          disabled={disabled || question.profileField !== undefined}
           onChange={(required) => {
             onChange({ ...question, required });
           }}
@@ -142,6 +142,7 @@ function QuestionSettings({
   onChange: (question: SurveyQuestion) => void;
   question: SurveyQuestion;
 }) {
+  if (question.profileField) return null;
   if (
     question.kind === "single_choice" ||
     question.kind === "multiple_choice" ||

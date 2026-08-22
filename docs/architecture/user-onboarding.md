@@ -39,12 +39,18 @@ identity onboarding.
 Better Auth account/session mechanics, secure provisional-account activation
 and Survey-backed onboarding are implemented. Administrators can classify and
 publish onboarding questionnaires, activate an immutable onboarding definition
-version with a versioned privacy notice and allowlisted profile mappings, and
-review configuration history. The learner flow creates or resumes an exact
-version-pinned assignment, validates each answer server-side, applies mapped
-name, phone and canonical current-region fields transactionally, and gates My
-Learning/My Events until completion. Onboarding responses remain separate from
-Learning Evidence and course/event progress.
+version with a versioned privacy notice, allowlisted profile mappings and an
+optional contact-verification completion policy, and review configuration
+status. Published settings are immutable; the administrator uses the same
+explicit Create new version workflow as Survey authoring to make a change. The
+learner flow creates or resumes an exact version-pinned assignment,
+validates each answer server-side, applies mapped name, canonical mobile,
+email/SMS enablement and current-region fields transactionally, and gates My
+Learning/My Events until completion. Enabled, unverified contact methods can be
+verified with a six-digit code after questionnaire submission. Verification is
+recommended and skippable by default; an administrator can require every
+enabled method for a newly activated immutable version. Onboarding responses
+remain separate from Learning Evidence and course/event progress.
 
 Explicit re-onboarding campaigns, privacy-scoped answer support/reporting,
 answer retention/redaction jobs, profession mappings and a durable
@@ -58,7 +64,8 @@ answer retention/redaction jobs, profession mappings and a durable
   programme. Upskill initially needs one default definition.
 - **Onboarding Definition Version:** immutable published policy that references
   one exact published Survey Version and snapshots its privacy notice/version,
-  completion rule, approved profile mappings and activation policy.
+  completion rule, approved profile mappings, contact-verification requirement
+  and activation policy.
 - **Onboarding Assignment:** one User's requirement to complete one exact
   Onboarding Definition Version. It records assignment source and timestamps,
   with `assigned`, `in_progress` or `completed` state.
@@ -85,6 +92,8 @@ The supported content includes:
 - required and optional questions;
 - Short/Long text, Single/Multiple choice, Dropdown,
   Checkbox/acknowledgement, Number, Date and Rating/Likert questions;
+- onboarding-only Profile full name and Profile mobile phone variants of Short
+  text, plus Profile email enabled and Profile SMS enabled variants of Checkbox;
 - directory-backed Region group and Operational region dropdowns whose options
   cannot be edited in the Survey Designer;
 - individual or bulk-pasted option authoring, including spreadsheet region
@@ -135,7 +144,9 @@ soft account created/reused
   -> onboarding form started/resumed
   -> answer-based conditional paths skip inapplicable sections
   -> final answers validated against pinned Survey Version
-  -> approved profile mappings + response + completion committed atomically
+  -> approved profile mappings + response committed atomically
+  -> enabled contact methods verified, or optional verification explicitly skipped
+  -> assignment completion committed
   -> onboarding.completed fact placed in the outbox
   -> learner dashboard becomes available
 ```
@@ -153,10 +164,18 @@ complete.
 ### Profile-field mappings
 
 Some onboarding answers initialise current User/Profile values such as display
-name, phone candidate, profession and current region. Each published onboarding
-version snapshots an allowlisted, typed mapping from question key to profile
-field. Final submission validates and writes those mapped values in the same
-transaction as completion.
+name, canonical mobile, contact-channel enablement, profession and current
+region. Authors select the Profile full name, Profile mobile phone, Profile
+email enabled and Profile SMS enabled question types directly. These types are
+constrained variants of the shared Short text and Checkbox renderers and are
+automatically mapped to their matching profile fields. Operational region is
+also mapped automatically. This removes a second mapping decision from
+activation. Each published onboarding version snapshots the resolved, typed
+mapping from question key to profile field. Final submission validates and
+writes those mapped values in the same transaction as the submitted response.
+Mobile numbers use normalized E.164 storage; Profile mobile phone is required
+and phone-formatted, while the two enablement questions are optional
+Checkboxes.
 
 Dropdown options store stable IDs rather than labels. The Region group question
 snapshots active Region Groups, and the Operational region question snapshots
@@ -171,9 +190,39 @@ update supported profile fields without rewriting their onboarding response.
 Changing current region or email never rewrites Course Enrolment, Event
 Registration, Attendance or other historical snapshots.
 
-Entering a phone number does not prove possession. It remains unverified until a
-separate SMS verification flow succeeds and must not become an SMS sign-in
-factor merely because it appeared in onboarding.
+Entering or changing a phone number does not prove possession. A change clears
+the retained SMS verification timestamp and closes any active phone claim. Email
+and SMS enablement are learner profile preferences; their verified states are
+system-owned and cannot be set by a questionnaire answer. Each enabled
+unverified channel can receive a six-digit, 10-minute one-time code after
+questionnaire submission. Challenges store only digests, are single-use, permit
+at most five attempts and are limited to three sends per channel and assignment
+in 15 minutes.
+
+A canonical mobile number has at most one verified owner, but ownership is
+transferable. Successful verification creates a new append-only phone claim. In
+the same transaction, Upskill closes the previous claim, clears the former
+owner's verification timestamp, invalidates their outstanding SMS recovery
+challenges and sessions, and queues a security email without disclosing the new
+account. The former profile retains the number as unverified so its User can
+replace or reverify it. A per-number lock plus partial unique indexes prevent
+concurrent challenges from producing two active verified owners. Historical SMS
+deliveries retain the recipient User and name snapshot captured when sent; a
+later transfer never relabels those rows.
+
+The immutable Onboarding Definition Version records whether contact verification
+is required. When optional, the learner sees it as recommended and may explicitly
+skip; the assignment records the skip timestamp before completion. When required,
+the skip action is unavailable and every enabled channel must be verified before
+the dashboard gate opens. A verified and enabled contact method may later be
+used for narrow event Survey recovery; merely collecting or enabling it is never
+an authentication factor.
+
+SMS verification delivery is visible to platform administrators in the shared
+email/SMS delivery operations table. Provider acceptance is shown separately
+from device-sent and carrier-delivered state. The expanded row exposes only safe
+operational metadata such as purpose, provider batch and timestamps; it never
+exposes the verification code or message body.
 
 ### Privacy and authorisation
 
@@ -216,6 +265,7 @@ Administration provides:
 - a clear impact summary before activation;
 - separate confirmation for an explicit re-onboarding campaign;
 - User-level assignment state and support diagnostics; and
+- a versioned toggle requiring verification of every enabled contact method;
 - audited access to any separately authorised answer view/export.
 
 Administrators may resend account-setup messages or help correct the User's
@@ -234,13 +284,16 @@ editing the derived state.
 5. `userOnboarded` requires verified identity and a completion satisfying the
    User's applicable assignment; it is false for provisional Users.
 6. Profile mappings are typed, allowlisted and versioned; entered phone numbers
-   are not verified sign-in factors.
-7. Sensitive answer content never enters logs, generic audit events, generic
+   are normalized but are not verified sign-in factors.
+7. Verification state is system-owned. A changed mobile clears SMS verification,
+   and required verification blocks completion until every enabled channel is
+   verified.
+8. Sensitive answer content never enters logs, generic audit events, generic
    exports or ordinary administrator views.
-8. Privacy retention may remove answer content without removing the minimal
+9. Privacy retention may remove answer content without removing the minimal
    historical completion fact.
-9. Provisional/open-entry access never becomes an authenticated dashboard
-   session and remains governed by ADR 0023.
+10. Provisional/open-entry access never becomes an authenticated dashboard
+    session and remains governed by ADR 0023.
 
 ## Implementation Sequence
 
@@ -250,11 +303,15 @@ editing the derived state.
    persistence with version-pinned completion state.
 3. **Implemented:** add the server-side pre-dashboard resolver and mobile
    onboarding route.
-4. **Partly implemented:** typed name, phone and current-region mappings are
-   transactional; durable completion outbox dispatch remains pending.
-5. **Partly implemented:** version activation and explicit User-level
+4. **Partly implemented:** typed name, canonical phone, contact enablement and
+   current-region mappings are transactional; durable completion outbox dispatch
+   remains pending.
+5. **Implemented:** optional or administrator-required email/SMS possession
+   verification, bounded OTP challenges, explicit skip recording and dashboard
+   completion gating.
+6. **Partly implemented:** version activation and explicit User-level
    administrator re-onboarding exist; bulk/cohort campaigns remain pending.
-6. **Pending:** privacy-scoped support/reporting and retention/redaction.
+7. **Pending:** privacy-scoped support/reporting and retention/redaction.
 
 ## Related Decisions
 

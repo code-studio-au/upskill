@@ -96,3 +96,61 @@ export function getEmailProvider(database: Kysely<Database>): EmailProvider {
     from: environment.MAILGUN_FROM,
   });
 }
+
+export async function sendEventPrerequisiteRecoveryEmail(
+  database: Kysely<Database>,
+  message: Omit<EmailDelivery, "notificationId"> & { challengeId: string },
+): Promise<{ messageId: string }> {
+  const environment = getServerEnv();
+  if (environment.EMAIL_PROVIDER === "local_capture") {
+    await database
+      .insertInto("event_prerequisite_email_capture")
+      .values({
+        challengeId: message.challengeId,
+        recipientEmail: message.recipientEmail,
+        subject: message.subject,
+        textBody: message.textBody,
+        htmlBody: message.htmlBody,
+        createdAt: new Date(),
+      })
+      .onConflict((conflict) => conflict.column("challengeId").doNothing())
+      .execute();
+    return { messageId: `local:${message.challengeId}` };
+  }
+  return await getEmailProvider(database).send({
+    notificationId: message.challengeId,
+    recipientEmail: message.recipientEmail,
+    subject: message.subject,
+    textBody: message.textBody,
+    htmlBody: message.htmlBody,
+  });
+}
+
+export async function sendOnboardingVerificationEmail(
+  database: Kysely<Database>,
+  message: Omit<EmailDelivery, "notificationId"> & { challengeId: string },
+): Promise<{ messageId: string }> {
+  const environment = getServerEnv();
+  if (environment.EMAIL_PROVIDER === "local_capture") {
+    await database
+      .insertInto("onboarding_email_verification_capture")
+      .values({
+        challengeId: message.challengeId,
+        recipientEmail: message.recipientEmail,
+        subject: message.subject,
+        textBody: message.textBody,
+        htmlBody: message.htmlBody,
+        createdAt: new Date(),
+      })
+      .onConflict((conflict) => conflict.column("challengeId").doNothing())
+      .execute();
+    return { messageId: `local:${message.challengeId}` };
+  }
+  return await getEmailProvider(database).send({
+    notificationId: message.challengeId,
+    recipientEmail: message.recipientEmail,
+    subject: message.subject,
+    textBody: message.textBody,
+    htmlBody: message.htmlBody,
+  });
+}

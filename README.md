@@ -28,16 +28,28 @@ exposes its S3 API on port 9020 and console on 9021, and initializes private
 quarantine, learning-content and resource buckets. ElasticMQ
 exposes its SQS-compatible API on port 9324 and web UI on 9325; its work queue,
 15-minute visibility timeout and five-receive DLQ policy match CDK. `pnpm dev`
-starts Vite for the application on port 3000, the isolated learning origin on
-port 3001 and the local SCORM worker, so asynchronous uploads are processed and
-modules run inside the learner workspace. Use `pnpm dev:web` only when
-deliberately running the learning origin and worker separately.
+applies pending database migrations before it starts Vite for the application
+on port 3000, the isolated learning origin on port 3001 and the local SCORM
+worker. Startup stops if a migration fails, so the application cannot run
+against a stale schema. Use `pnpm dev:web` only when deliberately running the
+learning origin and worker separately.
+
+Initial setup runs `db:migrate` explicitly because the seed commands need the
+schema before the development supervisor starts. Later `pnpm dev` runs apply
+only pending migrations.
 
 Local email is captured in PostgreSQL by default. To send it through Mailgun,
 set `EMAIL_PROVIDER=mailgun`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN` and
 `MAILGUN_FROM` in `.env.local`; use `MAILGUN_API_BASE_URL` for an EU-region
 domain. `pnpm dev` already runs the notification consumer. Never commit the
 domain sending key.
+
+Event recovery SMS is also captured in PostgreSQL by default. To send it
+through TextBee, set `SMS_PROVIDER=textbee`, `TEXTBEE_API_KEY` and
+`TEXTBEE_WEBHOOK_SECRET` in `.env.local`. The webhook secret must be the same
+20-or-more-character value configured for the TextBee endpoint.
+`TEXTBEE_DEVICE_ID` is optional; when omitted, TextBee selects the default or
+most recently active device. Never commit either TextBee secret.
 
 The project is currently pre-production with no real data. Accepted breaking
 domain changes may rebase the migration chain and require a reset of only
@@ -76,9 +88,9 @@ The public catalog reads immutable published course versions from PostgreSQL.
 The catalog and account seed commands install
 deterministic local and browser-test data; they are never run by production
 deployment. `db:seed:learner` requires `SEED_LEARNER_PASSWORD`; it creates
-verified `learner@example.com` and
-`redeemer@example.com` accounts, the platform administrator
-`admin@example.com`, and the local code
+verified `learner@codestudio.au` and
+`redeemer@codestudio.au` accounts, the platform administrator
+`admin@codestudio.au`, and the local code
 `EXAMPLE-LEARN-2026-EXAMP7E26X`. All three local
 accounts use `SEED_LEARNER_PASSWORD`; administration starts at `/admin`.
 For the complete multi-region event and eLearning fixture set, including real
@@ -170,7 +182,8 @@ See the [architecture specification](docs/architecture.md), broader
 Before the first AWS release, populate the application configuration secret
 output by the CDK application stack with the real application/learning origins,
 support email address, restricted Stripe key, Stripe webhook signing secret,
-Mailgun domain sending key, sending domain and From address. Use
+Mailgun domain sending key, sending domain and From address, TextBee API key and
+TextBee webhook signing secret. Use
 Mailgun's EU API base URL when the sending domain is hosted in the EU region.
 EC2 combines that application secret with the RDS secret in a private systemd
 environment file on boot and at every atomic deployment. A
@@ -190,6 +203,15 @@ Configure Stripe to send `checkout.session.completed`,
 to `POST /api/stripe/webhook`. For local test-mode forwarding, use the Stripe
 CLI webhook secret as `STRIPE_WEBHOOK_SECRET`; the redirect success page never
 fulfils an order by itself.
+
+Configure TextBee to send `MESSAGE_SENT`, `MESSAGE_DELIVERED` and
+`MESSAGE_FAILED` events to `POST /api/textbee/webhook` on the public application
+origin (for production, `https://upskill.institute/api/textbee/webhook`). Set
+the endpoint signing secret as `TEXTBEE_WEBHOOK_SECRET`. The handler verifies
+the `X-Signature` HMAC over the exact request bytes, deduplicates callbacks and
+updates SMS delivery operations without retaining the OTP message or raw
+webhook body. Do not subscribe this endpoint to inbound `MESSAGE_RECEIVED`
+events.
 
 The restricted `STRIPE_SECRET_KEY` needs write access to Checkout Sessions and
 Customers plus read access to Invoices. Bulk Checkout enables post-purchase
