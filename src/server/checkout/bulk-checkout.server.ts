@@ -18,6 +18,7 @@ import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { stripeClient } from "#/server/stripe/stripe-client.server";
 import { findReservedEventPlaces } from "./event-commerce-capacity.server";
+import { eventReservationExpiresAt } from "./event-reservation";
 
 const ENROLLMENT_DURATION_DAYS = 365;
 const MAX_ORDER_TOTAL_CENTS = 2_000_000_000;
@@ -80,6 +81,7 @@ async function createStripeCheckout(input: {
   unitPriceCents: number;
   currency: string;
   cancelPath: string;
+  expiresAt?: number;
 }): Promise<{ id: string; url: string }> {
   const metadata = {
     application: "upskill",
@@ -100,6 +102,7 @@ async function createStripeCheckout(input: {
             customer_creation: "always" as const,
             customer_email: input.purchaser.email,
           }),
+      ...(input.expiresAt ? { expires_at: input.expiresAt } : {}),
       line_items: [
         {
           quantity: input.quantity,
@@ -308,9 +311,10 @@ export async function createInitialEventBulkCheckout(
     const createdOrderId = randomUUID();
     orderId = createdOrderId;
     const organizationName = input.organizationName.trim();
-    const orderReserved = await database
+    const reservation = await database
       .transaction()
       .execute(async (transaction) => {
+        const reservedAt = new Date();
         const locked = await transaction
           .selectFrom("event_occurrence")
           .select(["capacity", "confirmedCount"])
@@ -320,13 +324,13 @@ export async function createInitialEventBulkCheckout(
         const reservedPlaces = await findReservedEventPlaces(
           transaction,
           event.id,
-          new Date(),
+          reservedAt,
         );
         if (
           locked.confirmedCount + reservedPlaces + input.quantity >
           locked.capacity
         )
-          return false;
+          return null;
         await transaction
           .insertInto("order")
           .values({
@@ -366,9 +370,9 @@ export async function createInitialEventBulkCheckout(
             customerExtendable: true,
           })
           .execute();
-        return true;
+        return { expiresAt: eventReservationExpiresAt(reservedAt) };
       });
-    if (!orderReserved) {
+    if (!reservation) {
       orderId = null;
       return { status: "unavailable", reason: "quantity" };
     }
@@ -384,6 +388,7 @@ export async function createInitialEventBulkCheckout(
       unitPriceCents,
       currency: event.currency,
       cancelPath: `/events/${input.slug}/bulk-order`,
+      expiresAt: reservation.expiresAt,
     });
     await database
       .updateTable("order")
@@ -524,9 +529,10 @@ export async function createCapacityExtensionCheckout(
       return { status: "unavailable", reason: "quantity" };
     const createdOrderId = randomUUID();
     orderId = createdOrderId;
-    const orderReserved = await database
+    const reservation = await database
       .transaction()
       .execute(async (transaction) => {
+        const reservedAt = new Date();
         if (target.type === "event") {
           const locked = await transaction
             .selectFrom("event_occurrence")
@@ -537,13 +543,13 @@ export async function createCapacityExtensionCheckout(
           const reservedPlaces = await findReservedEventPlaces(
             transaction,
             target.id,
-            new Date(),
+            reservedAt,
           );
           if (
             locked.confirmedCount + reservedPlaces + input.quantity >
             locked.capacity
           )
-            return false;
+            return null;
         }
         await transaction
           .insertInto("order")
@@ -585,9 +591,14 @@ export async function createCapacityExtensionCheckout(
             customerExtendable: true,
           })
           .execute();
-        return true;
+        return {
+          expiresAt:
+            target.type === "event"
+              ? eventReservationExpiresAt(reservedAt)
+              : undefined,
+        };
       });
-    if (!orderReserved) {
+    if (!reservation) {
       orderId = null;
       return { status: "unavailable", reason: "quantity" };
     }
@@ -603,6 +614,7 @@ export async function createCapacityExtensionCheckout(
       unitPriceCents,
       currency: target.currency,
       cancelPath: "/access-management",
+      ...(reservation.expiresAt ? { expiresAt: reservation.expiresAt } : {}),
     });
     await database
       .updateTable("order")

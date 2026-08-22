@@ -16,6 +16,10 @@ import { certificateAccreditationsSchema } from "#/features/catalog/accreditatio
 import { offeringImageSchema } from "#/features/shared/offering-image";
 import { offeringTopicSchema } from "#/features/shared/offering-topic";
 import { getDatabase } from "#/server/db/database.server";
+import {
+  findReservedEventPlaces,
+  findReservedEventPlacesByOccurrence,
+} from "#/server/checkout/event-commerce-capacity.server";
 
 interface PublishedCourse {
   slug: string;
@@ -214,7 +218,10 @@ type PublishedEventRow = {
   publicAccessReference: string | null;
 };
 
-function toEventSummary(event: PublishedEventRow): EventSummary {
+function toEventSummary(
+  event: PublishedEventRow,
+  reservedPlaces: number,
+): EventSummary {
   return {
     slug: event.slug,
     title: event.title,
@@ -230,7 +237,10 @@ function toEventSummary(event: PublishedEventRow): EventSummary {
     salePriceCents: event.salePriceCents,
     currency: event.currency,
     featured: event.featured,
-    remainingPlaces: Math.max(0, event.capacity - event.confirmedCount),
+    remainingPlaces: Math.max(
+      0,
+      event.capacity - event.confirmedCount - reservedPlaces,
+    ),
   };
 }
 
@@ -289,6 +299,12 @@ export async function findEvents(search: CatalogSearch): Promise<{
   const rows = (await publishedEventQuery()
     .orderBy("occurrence.startsAt")
     .execute()) as Array<PublishedEventRow>;
+  const now = new Date();
+  const reservedPlaces = await findReservedEventPlacesByOccurrence(
+    getDatabase(),
+    rows.map((event) => event.id),
+    now,
+  );
   const query = search.q.toLocaleLowerCase("en-AU");
   const topics = [
     ...new Map(
@@ -314,7 +330,9 @@ export async function findEvents(search: CatalogSearch): Promise<{
   const pageSize = 12;
   const offset = (search.page - 1) * pageSize;
   return {
-    events: matches.slice(offset, offset + pageSize).map(toEventSummary),
+    events: matches
+      .slice(offset, offset + pageSize)
+      .map((event) => toEventSummary(event, reservedPlaces.get(event.id) ?? 0)),
     page: search.page,
     pageSize,
     total: matches.length,
@@ -330,7 +348,7 @@ export async function findEventBySlug(
     .executeTakeFirst()) as PublishedEventRow | undefined;
   if (!row) return null;
   const database = getDatabase();
-  const [sessions, regions] = await Promise.all([
+  const [sessions, regions, reservedPlaces] = await Promise.all([
     database
       .selectFrom("event_session")
       .select(["title", "startsAt", "endsAt", "venueName"])
@@ -350,9 +368,10 @@ export async function findEventBySlug(
       .where("occurrenceRegion.retiredAt", "is", null)
       .orderBy("occurrenceRegion.position")
       .execute(),
+    findReservedEventPlaces(database, row.id, new Date()),
   ]);
   return {
-    ...toEventSummary(row),
+    ...toEventSummary(row, reservedPlaces),
     description: row.description,
     venueName: row.venueName,
     venueAddress: row.venueAddress,

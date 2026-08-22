@@ -68,7 +68,11 @@ export function AdminAccessGrantForm({
         return;
       }
       if (response.status === "conflict") {
-        setError("The access-code expiry must be in the future.");
+        setError(
+          response.reason === "event_capacity_unavailable"
+            ? "The event does not have enough unreserved places for this grant."
+            : "The access-code expiry must be in the future.",
+        );
         return;
       }
       if (response.status !== "ready") {

@@ -24,6 +24,7 @@ import { localDateIsoSchema } from "#/features/shared/time.schema";
 import { getDatabase } from "#/server/db/database.server";
 import { instantToDate, utcEndOfDate } from "#/server/time/time.server";
 import { provisionUser } from "#/server/identity/provisional-user.server";
+import { findReservedEventPlaces } from "#/server/checkout/event-commerce-capacity.server";
 
 const DIRECTORY_LIMIT = 100;
 const REDEMPTION_PAGE_SIZE = 100;
@@ -309,7 +310,7 @@ type CreateOutcome =
   | { status: "not-found"; entity: "offering" }
   | {
       status: "conflict";
-      reason: "expiry_not_future";
+      reason: "event_capacity_unavailable" | "expiry_not_future";
     };
 
 export async function createAdminAccessGrant(
@@ -354,14 +355,27 @@ export async function createAdminAccessGrant(
         input.targetType === "event"
           ? await transaction
               .selectFrom("event_occurrence")
-              .select(["id", "title", "startsAt"])
+              .select(["id", "title", "startsAt", "capacity", "confirmedCount"])
               .where("id", "=", input.targetId)
               .where("status", "=", "published")
               .where("startsAt", ">", now)
+              .forUpdate()
               .executeTakeFirst()
           : null;
       if (!courseTarget && !eventTarget)
         return { status: "not-found", entity: "offering" };
+      if (eventTarget) {
+        const reservedPlaces = await findReservedEventPlaces(
+          transaction,
+          eventTarget.id,
+          now,
+        );
+        if (
+          eventTarget.confirmedCount + reservedPlaces + input.quantity >
+          eventTarget.capacity
+        )
+          return { status: "conflict", reason: "event_capacity_unavailable" };
+      }
 
       const organizationName = input.organizationName.trim();
       const organizationLock = organizationName.toLocaleLowerCase("en-AU");

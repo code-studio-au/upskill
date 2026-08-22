@@ -81,6 +81,7 @@ export type CheckoutStatus =
       offeringType: "course";
       offeringTitle: string;
       offeringSlug: string;
+      reviewRequired: boolean;
     }
   | {
       status: PaymentState;
@@ -88,4 +89,5 @@ export type CheckoutStatus =
       offeringType: "event";
       offeringTitle: string;
       offeringSlug: string;
+      reviewRequired: boolean;
     };

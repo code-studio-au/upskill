@@ -1146,7 +1146,7 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Account setup", exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Create offering email" }).click();
+    await page.getByRole("button", { name: "Create email" }).click();
     await page.getByLabel("Email name").fill("E2E event confirmation");
     await page.getByRole("button", { name: "Create draft" }).click();
     await expect(
@@ -1205,13 +1205,23 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("button", { name: "Add learner" }),
     ).toBeVisible();
-    await expect(page.getByText("learner@example.com")).toBeVisible();
-    await expect(page.getByText(/Version 1 · Enrolled/)).toBeVisible();
+    const learnerRow = page.getByRole("row", {
+      name: /learner@example\.com/u,
+    });
     await expect(
-      page.getByRole("link", { name: "Review learner progress" }),
+      learnerRow.getByRole("cell", { name: "Version 1", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Remove access" }),
+      learnerRow.getByRole("cell", { name: "Status active", exact: true }),
+    ).toBeVisible();
+    await expect(
+      learnerRow.getByRole("link", { name: "Alex Learner" }),
+    ).toHaveAttribute(
+      "href",
+      "/admin/learners/user_local_learner/enrollments/enrollment_local_leading_change",
+    );
+    await expect(
+      learnerRow.getByRole("button", { name: "Remove access" }),
     ).toBeVisible();
     await page.goto("/admin/courses");
     await page.getByRole("button", { name: "Create course" }).click();
@@ -1227,8 +1237,10 @@ test("platform administrators can inspect learner progress", async ({
     );
     await page.getByRole("button", { name: "Program (0)" }).click();
     await page.getByRole("button", { name: "Add section" }).click();
-    await page.getByLabel("Section 1 title").fill("E2E edited section title");
-    await expect(page.getByLabel("Section 1 title")).toHaveValue(
+    await page.getByRole("heading", { name: "Section 1" }).click();
+    await page.getByText("Section details", { exact: true }).click();
+    await page.getByLabel("Section title").fill("E2E edited section title");
+    await expect(page.getByLabel("Section title")).toHaveValue(
       "E2E edited section title",
     );
     await page.getByRole("button", { name: "Save draft" }).click();
@@ -1353,13 +1365,13 @@ test("platform administrators can inspect learner progress", async ({
       /^E2E-ACCESS-2027-[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{10}$/u,
     );
     const accessCode = await issuedCodeElement.innerText();
+    await page.getByRole("button", { name: "Done" }).click();
     const grantCard = page.getByRole("article").filter({
       has: page.getByRole("heading", { name: accessGrantLabel }),
     });
     await expect(grantCard.getByText("0 of 3")).toBeVisible();
-    await expect(
-      grantCard.getByText("Restricted to e2e.example.com"),
-    ).toBeVisible();
+    await grantCard.getByText("Grant details", { exact: true }).click();
+    await expect(grantCard.getByText("Domains: e2e.example.com")).toBeVisible();
     const storedGrant = await authoringDatabase.query<{
       encryptedAccessCode: string | null;
       fulfillmentMode: string;
@@ -1384,7 +1396,6 @@ test("platform administrators can inspect learner progress", async ({
     expect(storedGrant.rows[0]?.kind).toBe("bulk_purchase");
     expect(storedGrant.rows[0]?.fulfillmentMode).toBe("shared_code");
     expect(storedGrant.rows[0]?.revokedAt).toBeNull();
-    await page.getByRole("button", { name: "Done" }).click();
     await grantCard.getByRole("button", { name: "Show code" }).click();
     await expect(grantCard.locator("code")).toHaveText(accessCode);
     await grantCard.getByRole("button", { name: "Manage capacity" }).click();
@@ -1414,6 +1425,7 @@ test("platform administrators can inspect learner progress", async ({
     });
     await expect(revocationDialog).toBeVisible();
     await revocationDialog.getByRole("button", { name: "Revoke code" }).click();
+    await page.getByRole("button", { name: "Revoked (1)" }).click();
     await expect(grantCard.getByText("revoked", { exact: true })).toBeVisible();
     const revokedGrant = await authoringDatabase.query<{
       revokedAt: Date | null;
@@ -1464,11 +1476,22 @@ test("platform administrators can inspect learner progress", async ({
       .fill("Exercises exact-version Event Occurrence scheduling.");
     await page.getByRole("button", { name: "Program (0)" }).click();
     await page.getByRole("button", { name: "Add section" }).click();
+    await page.getByRole("heading", { name: "New section" }).click();
+    await page.getByText("Section details", { exact: true }).click();
     await page.getByLabel("Section title").fill("Event session");
     await page
       .getByLabel("Release relative to")
       .selectOption("occurrence_start");
-    await page.getByRole("button", { name: "Add event session" }).click();
+    const eventItemAdder = page
+      .getByText("Add item", { exact: true })
+      .locator("..");
+    await eventItemAdder.getByLabel("Type").selectOption("session");
+    await eventItemAdder.getByRole("button", { name: "Add" }).click();
+    await page
+      .locator("summary")
+      .filter({ hasText: "Event session" })
+      .last()
+      .click();
     await page.getByLabel("Display title").fill("Live workshop");
     await page.getByLabel("Duration (minutes)").fill("90");
     await page
@@ -1477,13 +1500,20 @@ test("platform administrators can inspect learner progress", async ({
     await page
       .getByRole("option", { name: new RegExp(eventPresenter.email, "u") })
       .click();
-    await page.getByRole("button", { name: "Add", exact: true }).click();
-    await page.getByLabel("Activity type").selectOption("survey");
     await page
-      .getByLabel("Published activity")
+      .getByRole("button", { name: "Add", exact: true })
+      .first()
+      .click();
+    await eventItemAdder.getByLabel("Type").selectOption("survey");
+    await eventItemAdder
+      .getByLabel("Item")
       .selectOption({ label: `${surveyTitles[0] ?? ""} · v1` });
-    await page.getByRole("button", { name: "Add activity" }).click();
-    await page.getByRole("button", { name: "Add automated email" }).click();
+    await eventItemAdder.getByRole("button", { name: "Add" }).click();
+    await eventItemAdder.getByLabel("Type").selectOption("automated_email");
+    await eventItemAdder
+      .getByLabel("Email template")
+      .selectOption({ label: "E2E event confirmation" });
+    await eventItemAdder.getByRole("button", { name: "Add" }).click();
     await expect(
       page.getByRole("heading", { name: "Automated email", exact: true }),
     ).toBeVisible();
@@ -1505,6 +1535,7 @@ test("platform administrators can inspect learner progress", async ({
       page.getByText(`Confirmed: ${eventTemplateTitle}`),
     ).toBeVisible();
     await page.getByRole("button", { name: "Apply email" }).click();
+    await page.getByRole("heading", { name: "Event session" }).click();
     await expect(page.getByText("E2E registration confirmation")).toBeVisible();
     await page.getByRole("button", { name: "Save draft" }).click();
     await page.getByRole("button", { name: "Staffing and regions" }).click();
@@ -1965,9 +1996,9 @@ test("platform administrators can inspect learner progress", async ({
       `update learning_activity_version set "publishedAt" = now() where id = $1`,
       [packageVersionId],
     );
-    await expect(moduleCard.getByText("Ready", { exact: true })).toBeVisible({
-      timeout: 5_000,
-    });
+    await expect(
+      moduleCard.getByText("Published v1", { exact: true }),
+    ).toBeVisible({ timeout: 5_000 });
     await expect(moduleCard.getByTestId("verification-spinner")).toHaveCount(0);
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const accessibility = await new AxeBuilder({ page }).analyze();

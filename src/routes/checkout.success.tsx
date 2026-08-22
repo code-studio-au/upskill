@@ -48,10 +48,12 @@ function CheckoutSuccessPage() {
   const checkout = Route.useLoaderData();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
-  const isFulfilled =
+  const paymentCompleted =
     checkout.status === "paid" ||
     checkout.status === "partially_refunded" ||
     checkout.status === "refunded";
+  const isReviewRequired = paymentCompleted && checkout.reviewRequired;
+  const isFulfilled = paymentCompleted && !isReviewRequired;
   const isPending = checkout.status === "pending";
   const isEvent = checkout.offeringType === "event";
   const isBulk =
@@ -91,24 +93,32 @@ function CheckoutSuccessPage() {
               Checkout status
             </Text>
             <Title order={1}>
-              {isFulfilled
-                ? isEvent
-                  ? "Your event registration is confirmed"
-                  : isBulk
+              {isReviewRequired
+                ? "Your payment needs review"
+                : isFulfilled
+                  ? isBulk
                     ? "Your access codes are ready"
-                    : "Your course is ready"
-                : isPending
-                  ? "Payment is processing"
-                  : "Checkout was not completed"}
+                    : isEvent
+                      ? "Your event registration is confirmed"
+                      : "Your course is ready"
+                  : isPending
+                    ? "Payment is processing"
+                    : "Checkout was not completed"}
             </Title>
           </div>
 
-          {isFulfilled ? (
-            <Alert color="green" title="Enrolment confirmed" role="status">
+          {isReviewRequired ? (
+            <Alert color="orange" title="Payment received" role="status">
               {isEvent
-                ? `${checkout.offeringTitle} is now available in My events.`
-                : isBulk
-                  ? `Bulk access for ${checkout.offeringTitle} is now available in Access management.`
+                ? `We received your payment for ${checkout.offeringTitle}, but could not confirm the registration automatically. The Upskill team will review it.`
+                : `We received your payment for ${checkout.offeringTitle}, but could not create a new enrolment automatically. The Upskill team will review it.`}
+            </Alert>
+          ) : isFulfilled ? (
+            <Alert color="green" title="Enrolment confirmed" role="status">
+              {isBulk
+                ? `Bulk access for ${checkout.offeringTitle} is now available in Access management.`
+                : isEvent
+                  ? `${checkout.offeringTitle} is now available in My events.`
                   : `${checkout.offeringTitle} is now available in your learning area.`}
             </Alert>
           ) : isPending ? (

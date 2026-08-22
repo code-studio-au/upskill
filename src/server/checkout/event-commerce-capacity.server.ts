@@ -2,32 +2,53 @@ import "@tanstack/react-start/server-only";
 
 import { sql, type Kysely } from "kysely";
 import type { Database } from "#/server/db/types";
-
-const PENDING_RESERVATION_MINUTES = 31;
+import { EVENT_RESERVATION_MINUTES } from "./event-reservation";
 
 export async function findReservedEventPlaces(
   database: Kysely<Database>,
   eventOccurrenceId: string,
   now: Date,
 ): Promise<number> {
+  return (
+    (
+      await findReservedEventPlacesByOccurrence(
+        database,
+        [eventOccurrenceId],
+        now,
+      )
+    ).get(eventOccurrenceId) ?? 0
+  );
+}
+
+export async function findReservedEventPlacesByOccurrence(
+  database: Kysely<Database>,
+  eventOccurrenceIds: Array<string>,
+  now: Date,
+): Promise<Map<string, number>> {
+  if (eventOccurrenceIds.length === 0) return new Map();
   const pendingBoundary = new Date(
-    now.getTime() - PENDING_RESERVATION_MINUTES * 60_000,
+    now.getTime() - EVENT_RESERVATION_MINUTES * 60_000,
   );
   const [pending, grants] = await Promise.all([
     database
       .selectFrom("order_item as item")
       .innerJoin("order", "order.id", "item.orderId")
-      .select(sql<number>`coalesce(sum(item.quantity), 0)::integer`.as("count"))
-      .where("item.eventOccurrenceId", "=", eventOccurrenceId)
+      .select([
+        "item.eventOccurrenceId",
+        sql<number>`sum(item.quantity)::integer`.as("count"),
+      ])
+      .where("item.eventOccurrenceId", "in", eventOccurrenceIds)
       .where("order.status", "=", "pending")
       .where("order.createdAt", ">", pendingBoundary)
-      .executeTakeFirstOrThrow(),
+      .groupBy("item.eventOccurrenceId")
+      .execute(),
     database
       .selectFrom("access_grant")
-      .select(
-        sql<number>`coalesce(sum(quantity - redeemed), 0)::integer`.as("count"),
-      )
-      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .select([
+        "eventOccurrenceId",
+        sql<number>`sum(quantity - redeemed)::integer`.as("count"),
+      ])
+      .where("eventOccurrenceId", "in", eventOccurrenceIds)
       .where("revokedAt", "is", null)
       .where((expression) =>
         expression.or([
@@ -35,7 +56,18 @@ export async function findReservedEventPlaces(
           expression("expiresAt", ">", now),
         ]),
       )
-      .executeTakeFirstOrThrow(),
+      .groupBy("eventOccurrenceId")
+      .execute(),
   ]);
-  return pending.count + grants.count;
+  const reservations = new Map(
+    eventOccurrenceIds.map((eventOccurrenceId) => [eventOccurrenceId, 0]),
+  );
+  for (const row of [...pending, ...grants]) {
+    if (!row.eventOccurrenceId) continue;
+    reservations.set(
+      row.eventOccurrenceId,
+      (reservations.get(row.eventOccurrenceId) ?? 0) + row.count,
+    );
+  }
+  return reservations;
 }

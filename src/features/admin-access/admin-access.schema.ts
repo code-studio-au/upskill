@@ -224,6 +224,7 @@ export type AdminAccessGrantMutationResult =
       reason:
         | "capacity_below_redeemed"
         | "batch_capacity_reduction"
+        | "event_capacity_unavailable"
         | "expiry_not_future";
     };
 

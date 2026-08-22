@@ -295,7 +295,25 @@ try {
     offeringType: "course",
     offeringTitle: "Verified Checkout course",
     offeringSlug: "verify-checkout-course",
+    reviewRequired: false,
   });
+  await database
+    .insertInto("outbox_event")
+    .values({
+      id: `${ids.paidOrder}_review_required`,
+      topic: "order.review_required",
+      aggregateId: ids.paidOrder,
+      payload: { orderId: ids.paidOrder, reason: "verification" },
+      availableAt: new Date(),
+      processedAt: null,
+      createdAt: new Date(),
+    })
+    .execute();
+  assert.equal(
+    (await findCheckoutStatus(`cs_test_${ids.paidOrder}`, user))
+      ?.reviewRequired,
+    true,
+  );
   assert.equal(await findCheckoutStatus("cs_test_unknown", user), null);
 
   console.log(

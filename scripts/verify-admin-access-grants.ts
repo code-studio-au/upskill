@@ -303,7 +303,7 @@ try {
       salePriceCents: null,
       currency: "AUD",
       bulkPricing: JSON.stringify({ enabled: false, tiers: [] }),
-      listInStore: false,
+      listInStore: true,
       featured: false,
       venueName: null,
       venueAddress: null,
@@ -646,6 +646,32 @@ try {
   );
   assert.equal(eventGrant.status, "created");
   assert.ok(eventGrant.accessCode);
+  const { findEventBySlug } = await import("#/server/catalog/catalog.server");
+  assert.equal(
+    (await findEventBySlug("verify-admin-access-event"))?.remainingPlaces,
+    18,
+  );
+  assert.deepEqual(
+    await createAdminAccessGrant(
+      {
+        label: "Event capacity overflow",
+        organizationName,
+        accessCode: "verify event capacity overflow",
+        targetType: "event",
+        targetId: ids.eventOccurrence,
+        quantity: 19,
+        enrollmentDurationDays: 365,
+        expiresOn: "",
+        domains: "",
+        kind: "enterprise_contract",
+        fulfillmentMode: "shared_code",
+        customerExtendable: false,
+        ownerEmails: administrator.email,
+      },
+      administrator,
+    ),
+    { status: "conflict", reason: "event_capacity_unavailable" },
+  );
   const { previewAccessCode } =
     await import("#/server/access/redeem-access-code.server");
   assert.deepEqual(

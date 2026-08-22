@@ -31,6 +31,17 @@ export async function findCheckoutStatus(
       "event_occurrence.title as eventTitle",
       "event_occurrence.slug as eventSlug",
     ])
+    .select((expression) =>
+      expression
+        .exists(
+          expression
+            .selectFrom("outbox_event")
+            .select("outbox_event.id")
+            .whereRef("outbox_event.aggregateId", "=", "order.id")
+            .where("outbox_event.topic", "=", "order.review_required"),
+        )
+        .as("reviewRequired"),
+    )
     .where("order.stripeCheckoutSessionId", "=", sessionId)
     .where("order.purchaserUserId", "=", user.id)
     .executeTakeFirst();
@@ -44,6 +55,7 @@ export async function findCheckoutStatus(
       offeringType: "event",
       offeringTitle: row.eventTitle,
       offeringSlug: row.eventSlug,
+      reviewRequired: Boolean(row.reviewRequired),
     };
   }
   if (!row.content || !row.slug) return null;
@@ -55,5 +67,6 @@ export async function findCheckoutStatus(
     offeringType: "course",
     offeringTitle: content.title,
     offeringSlug: row.slug,
+    reviewRequired: Boolean(row.reviewRequired),
   };
 }
