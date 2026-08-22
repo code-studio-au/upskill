@@ -3,9 +3,11 @@ import {
   adminAccessGrantCapacitySchema,
   adminAccessGrantCreateSchema,
   adminAccessGrantRevealSchema,
+  adminAccessGrantRedemptionsSchema,
   adminAccessGrantRevokeSchema,
   type AdminAccessGrantDirectory,
   type AdminAccessGrantMutationResult,
+  type AdminAccessGrantRedemptionsResult,
   type AdminAccessGrantResult,
   type AdminAccessGrantRevealResult,
 } from "#/features/admin-access/admin-access.schema";
@@ -21,6 +23,19 @@ export const getAdminAccessGrants = createServerFn({ method: "GET" }).handler(
     return { status: "ready", data: await findAdminAccessGrants() };
   },
 );
+
+export const getAdminAccessGrantRedemptions = createServerFn({ method: "GET" })
+  .validator(adminAccessGrantRedemptionsSchema)
+  .handler(async ({ data }): Promise<AdminAccessGrantRedemptionsResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { findAdminAccessGrantRedemptions } =
+      await import("#/server/admin/admin-access-grant.server");
+    const page = await findAdminAccessGrantRedemptions(data);
+    return page ? { status: "ready", data: page } : { status: "not-found" };
+  });
 
 export const createAdminAccessGrant = createServerFn({ method: "POST" })
   .validator(adminAccessGrantCreateSchema)

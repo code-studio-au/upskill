@@ -15,7 +15,8 @@ export interface AccessOwnerDashboard {
     id: string;
     label: string;
     organizationName: string;
-    courseTitle: string;
+    offeringType: "course" | "event";
+    offeringTitle: string;
     kind: "bulk_purchase" | "enterprise_contract";
     fulfillmentMode: "shared_code" | "single_use_codes";
     quantity: number;
@@ -56,7 +57,7 @@ export interface AccessOwnerDashboard {
 export interface AccessOwnerCodeExport {
   accessGrantId: string;
   organizationName: string;
-  courseTitle: string;
+  offeringTitle: string;
   codes: Array<{
     codeNumber: number | null;
     accessCode: string;

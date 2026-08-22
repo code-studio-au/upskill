@@ -145,7 +145,7 @@ function AccessGrantPanel({
               {grant.label}
             </Title>
             <Text size="sm" c="dimmed">
-              {grant.courseTitle}
+              {grant.offeringTitle}
             </Text>
           </div>
           <Badge color={grant.state === "active" ? "green" : "gray"}>

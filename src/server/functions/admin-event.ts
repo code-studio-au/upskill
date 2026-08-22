@@ -322,6 +322,12 @@ export const createAdminEventOccurrence = createServerFn({ method: "POST" })
     if (outcome.status === "not-found") return { status: "not-found" };
     if (outcome.status === "slug-in-use")
       return { status: "conflict", reason: "slug_in_use" };
+    if (outcome.status === "conflict" && "reason" in outcome)
+      return {
+        status: "conflict",
+        reason: "event_too_short",
+        minimumDurationMinutes: outcome.minimumDurationMinutes,
+      };
     if (outcome.status === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {

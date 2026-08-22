@@ -23,6 +23,23 @@ function storedVariableKeys(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function renderPreview(input: {
+  contractKey: string;
+  contractVersion: number;
+  subject: string;
+  textBody: string;
+}): AdminEmailPreview | null {
+  try {
+    return renderEmailTemplate({
+      ...input,
+      variables: fixtureEmailContext(input.contractKey, input.contractVersion),
+      requireMandatoryVariables: false,
+    });
+  } catch {
+    return null;
+  }
+}
+
 export async function findAdminEmailDesigns(): Promise<
   Array<AdminEmailDesignSummary>
 > {
@@ -115,6 +132,12 @@ export async function findAdminEmailDesign(
       active: version.id === design.activeVersionId,
     })),
     variableGroups: emailVariableGroups(contract.variables),
+    preview: renderPreview({
+      contractKey: selected.contractKey,
+      contractVersion: selected.contractVersion,
+      subject: selected.subject,
+      textBody: selected.textBody,
+    }),
   };
 }
 
@@ -321,21 +344,12 @@ export async function previewAdminEmail(input: {
     .where("emailDesignId", "=", input.emailDesignId)
     .executeTakeFirst();
   if (!version) return null;
-  try {
-    return renderEmailTemplate({
-      contractKey: version.contractKey,
-      contractVersion: version.contractVersion,
-      subject: input.subject,
-      textBody: input.textBody,
-      variables: fixtureEmailContext(
-        version.contractKey,
-        version.contractVersion,
-      ),
-      requireMandatoryVariables: false,
-    });
-  } catch {
-    return null;
-  }
+  return renderPreview({
+    contractKey: version.contractKey,
+    contractVersion: version.contractVersion,
+    subject: input.subject,
+    textBody: input.textBody,
+  });
 }
 
 export async function publishAdminEmailVersion(

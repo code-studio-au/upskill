@@ -17,6 +17,7 @@ import { AppDialog } from "#/features/shared/AppDialog";
 import { Badge } from "#/features/shared/Badge";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { PageTabs } from "#/features/shared/PageTabs";
 import { firstFormError } from "#/features/shared/form-errors";
 import {
   Alert,
@@ -56,24 +57,15 @@ export const Route = createFileRoute("/admin/emails/")({
   component: AdminEmailsPage,
 });
 
-function contextLabel(contextKey: string): string {
-  if (contextKey === "system_account_setup") return "Account setup";
-  if (contextKey === "offering_course") return "Course";
-  return "Event";
-}
-
 function EmailCatalogue({
   designs,
   empty,
-  title,
 }: {
   designs: Array<AdminEmailDesignSummary>;
   empty: string;
-  title: string;
 }) {
   return (
     <Stack gap="md">
-      <Title order={2}>{title}</Title>
       {designs.length === 0 ? (
         <Alert>{empty}</Alert>
       ) : (
@@ -87,33 +79,28 @@ function EmailCatalogue({
               p="md"
               className={classes.card}
             >
-              <div className={classes.cardHeader}>
-                <Title order={3} size="h3">
-                  {design.name}
-                </Title>
-                <Badge variant="outline">
-                  {contextLabel(design.contextKey)}
-                </Badge>
-              </div>
-              <Group gap="sm">
-                {design.activeVersion ? (
-                  <Badge color="green">Active v{design.activeVersion}</Badge>
-                ) : (
-                  <Badge color="gray">Not published</Badge>
-                )}
-                {design.draftVersion ? (
-                  <Badge>Draft v{design.draftVersion}</Badge>
-                ) : null}
+              <Group justify="space-between" align="start" wrap="nowrap">
+                <Link
+                  to="/admin/emails/$emailDesignId"
+                  params={{ emailDesignId: design.id }}
+                  search={{ versionId: undefined }}
+                  className={classes.cardTitleLink}
+                >
+                  <Title order={3} size="h3">
+                    {design.name}
+                  </Title>
+                </Link>
+                <Group gap="xs" wrap="wrap" justify="flex-end">
+                  {design.activeVersion ? (
+                    <Badge color="green">Active v{design.activeVersion}</Badge>
+                  ) : (
+                    <Badge color="gray">Not published</Badge>
+                  )}
+                  {design.draftVersion ? (
+                    <Badge color="gray">Draft v{design.draftVersion}</Badge>
+                  ) : null}
+                </Group>
               </Group>
-              <Link
-                to="/admin/emails/$emailDesignId"
-                params={{ emailDesignId: design.id }}
-                search={{ versionId: undefined }}
-              >
-                <Button component="span" variant="light">
-                  Open email
-                </Button>
-              </Link>
             </Paper>
           ))}
         </div>
@@ -126,6 +113,9 @@ function AdminEmailsPage() {
   const result = Route.useLoaderData();
   const router = useRouter();
   const [opened, setOpened] = useState(false);
+  const [catalogue, setCatalogue] = useState<"system" | "course" | "events">(
+    "system",
+  );
   const [error, setError] = useState<string | null>(null);
   const form = useForm({
     defaultValues,
@@ -149,9 +139,18 @@ function AdminEmailsPage() {
   const systemEmails = result.data.filter(
     (design) => design.catalogue === "system",
   );
-  const offeringEmails = result.data.filter(
-    (design) => design.catalogue === "offering",
+  const courseEmails = result.data.filter(
+    (design) => design.contextKey === "offering_course",
   );
+  const eventEmails = result.data.filter(
+    (design) => design.contextKey === "offering_event",
+  );
+  const visibleEmails =
+    catalogue === "system"
+      ? systemEmails
+      : catalogue === "course"
+        ? courseEmails
+        : eventEmails;
 
   return (
     <Stack gap="xl">
@@ -169,26 +168,39 @@ function AdminEmailsPage() {
             setOpened(true);
           }}
         >
-          Create offering email
+          Create email
         </Button>
       </Group>
 
-      <EmailCatalogue
-        title="System emails"
-        designs={systemEmails}
-        empty="No system emails available."
+      <PageTabs
+        label="Email catalogue"
+        value={catalogue}
+        tabs={[
+          {
+            value: "system",
+            label: `System (${String(systemEmails.length)})`,
+          },
+          {
+            value: "course",
+            label: `Course (${String(courseEmails.length)})`,
+          },
+          {
+            value: "events",
+            label: `Events (${String(eventEmails.length)})`,
+          },
+        ]}
+        onChange={setCatalogue}
       />
       <EmailCatalogue
-        title="Offering emails"
-        designs={offeringEmails}
-        empty="No offering emails yet."
+        designs={visibleEmails}
+        empty={`No ${catalogue} emails yet.`}
       />
 
       {opened ? (
         <form.Subscribe selector={(state) => state.isSubmitting}>
           {(isSubmitting) => (
             <AppDialog
-              title="Create offering email"
+              title="Create email"
               closeDisabled={isSubmitting}
               onClose={() => {
                 if (!isSubmitting) setOpened(false);
@@ -219,7 +231,7 @@ function AdminEmailsPage() {
                   <form.Field name="contextKey">
                     {(field) => (
                       <MantineNativeSelect
-                        label="Offering type"
+                        label="Email type"
                         value={field.state.value}
                         data={[
                           { value: "offering_event", label: "Event" },

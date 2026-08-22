@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 877000,
+  "clientJavaScriptBytes": 932000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 257000,
+  "clientJavaScriptBrotliBytes": 280000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
@@ -10,16 +10,25 @@
   "routeIncrementalCssGzipBytes": 12288,
   "conditionalJavaScriptGzipBytes": {
     "AdminCoordinationRegionDirectory": 2304,
+    "AdminAccessGrantRedemptionTable": 1280,
+    "AdminCourseProgramEditor": 2304,
+    "AdminCourseRoster": 3072,
+    "AdminEventProgramEditor": 3328,
+    "AdminPaidEventPricingEditor": 3072,
+    "CertificateAccreditationEditor": 2048,
+    "OfferingImageEditor": 2048,
     "AdminEventStaffRoster": 34816,
     "AdminEventOccurrenceEditor": 5376,
     "AdminEventRegionalCoverageEditor": 1536,
     "EligibleStaffPicker": 1024,
     "EventOperationsProgress": 2560,
     "EventOperationsSurveyQrCatalogue": 1536,
+    "EventTimezoneAutocomplete": 1024,
     "FullscreenScormLauncher": 2048,
     "LearnerEventSection": 2304,
     "LearnerSurveyExperience": 3072,
-    "ResponsiveDataTable": 11264
+    "ResponsiveDataTable": 11264,
+    "ScheduleEmailEditor": 2304
   },
   "routeJavaScriptGzipBytes": {
     "/event-operations/": 8192,

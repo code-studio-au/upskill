@@ -7,39 +7,43 @@
   backdrop-filter: blur(12px);
 }
 
+.header a {
+  text-decoration: none;
+}
+
 .headerInner {
   display: grid;
-  min-height: 3.75rem;
-  grid-template-columns: auto 1fr auto;
+  min-height: 4.5rem;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: center;
   gap: var(--mantine-spacing-lg);
 }
 
 .brand {
   display: inline-flex;
+  min-width: 0;
   align-items: center;
-  gap: 0.55rem;
-  color: var(--mantine-color-gray-9);
-  font-size: var(--mantine-font-size-lg);
-  font-weight: 800;
-  letter-spacing: -0.02em;
+  justify-self: start;
+  gap: 0.7rem;
   text-decoration: none;
   white-space: nowrap;
 }
 
-.brandMark {
-  display: grid;
-  width: 1.9rem;
-  height: 1.9rem;
-  place-items: center;
-  border-radius: 0.55rem;
-  color: var(--mantine-color-white);
-  background: var(--mantine-color-indigo-7);
-  font-size: var(--mantine-font-size-sm);
+.brandIcon {
+  width: 2.65rem;
+  height: 2.65rem;
+  object-fit: contain;
+}
+
+.brandWordmark {
+  width: 10rem;
+  height: auto;
+  object-fit: contain;
 }
 
 .desktopNav {
   display: flex;
+  grid-column: 2;
   align-items: center;
   justify-content: center;
   gap: 0.25rem;
@@ -71,6 +75,7 @@
 .accountMenu {
   position: relative;
   width: max-content;
+  grid-column: 3;
   justify-self: end;
 }
 
@@ -100,8 +105,8 @@
   height: 2rem;
   place-items: center;
   border-radius: 50%;
-  color: var(--mantine-color-indigo-9);
-  background: var(--mantine-color-indigo-1);
+  color: var(--mantine-color-white);
+  background: var(--mantine-color-indigo-7);
   font-size: var(--mantine-font-size-xs);
   font-weight: 800;
 }
@@ -117,7 +122,8 @@
 
 .chevron {
   color: var(--mantine-color-gray-6);
-  font-size: 0.7rem;
+  font-size: 1.2rem;
+  line-height: 1;
 }
 
 .accountPopover {
@@ -148,12 +154,13 @@
   text-overflow: ellipsis;
 }
 
-.mobileAccountLinks {
-  display: none;
-}
-
 .menuLink {
-  padding: 0.65rem 0.75rem;
+  display: flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem;
 }
 
 .signOut {
@@ -161,8 +168,101 @@
   margin-top: 0.15rem;
 }
 
+.signInAction {
+  grid-column: 3;
+  justify-self: end;
+  text-decoration: none;
+}
+
+.mobileMenu {
+  display: none;
+}
+
+.mobileMenuTrigger {
+  display: grid;
+  width: 2.75rem;
+  height: 2.75rem;
+  place-items: center;
+  border-radius: var(--mantine-radius-md);
+  cursor: pointer;
+  list-style: none;
+}
+
+.mobileMenuTrigger::-webkit-details-marker {
+  display: none;
+}
+
+.mobileMenuTrigger:hover,
+.mobileMenu[open] .mobileMenuTrigger {
+  background: var(--mantine-color-gray-1);
+}
+
+.menuOpenIcon,
+.menuCloseIcon {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+
+.menuCloseIcon,
+.mobileMenu[open] .menuOpenIcon {
+  display: none;
+}
+
+.mobileMenu[open] .menuCloseIcon {
+  display: block;
+}
+
+.mobileMenuPanel {
+  position: fixed;
+  z-index: 101;
+  top: 4rem;
+  right: 0;
+  display: grid;
+  width: min(24rem, 100vw);
+  max-height: calc(100dvh - 4rem);
+  gap: 0.75rem;
+  overflow-y: auto;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-top: 0;
+  border-radius: 0 0 0 var(--mantine-radius-xl);
+  padding: 1rem;
+  background: var(--mantine-color-white);
+  box-shadow: var(--mantine-shadow-xl);
+}
+
+.mobileIdentity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.25rem 0.5rem 1rem;
+  border-bottom: 1px solid var(--mantine-color-gray-2);
+}
+
+.mobileIdentityCopy {
+  display: grid;
+  min-width: 0;
+}
+
+.mobileIdentityCopy span {
+  overflow: hidden;
+  color: var(--mantine-color-gray-6);
+  font-size: var(--mantine-font-size-xs);
+  text-overflow: ellipsis;
+}
+
+.mobileNav {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.mobileSignOut {
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
 .main {
-  min-height: calc(100dvh - 7.5rem);
+  min-height: calc(100dvh - 8.25rem);
 }
 
 .footer {
@@ -171,39 +271,39 @@
   background: var(--mantine-color-white);
 }
 
-@media (max-width: 48em) {
+.footerLogo {
+  width: 10.5rem;
+  height: auto;
+  object-fit: contain;
+}
+
+@media (max-width: 64em) {
   .headerInner {
-    min-height: 3.5rem;
+    min-height: 4rem;
+    grid-template-columns: auto 1fr auto;
     gap: var(--mantine-spacing-sm);
   }
 
-  .desktopNav[data-authenticated="true"] {
+  .desktopNav,
+  .accountMenu {
     display: none;
   }
 
-  .desktopNav[data-authenticated="false"] {
-    justify-content: flex-end;
+  .mobileMenu {
+    display: block;
+    grid-column: 3;
+    justify-self: end;
   }
+}
 
-  .desktopNav[data-authenticated="false"] .headerLink {
-    padding-inline: 0.4rem;
-  }
-
-  .accountName {
+@media (max-width: 48em) {
+  .brandWordmark {
     display: none;
-  }
-
-  .mobileAccountLinks {
-    display: grid;
-  }
-
-  .accountTrigger {
-    padding-inline: 0;
   }
 }
 
 @media (max-width: 25em) {
-  .brand span:last-child {
-    display: none;
+  .footerLogo {
+    width: 8.75rem;
   }
 }

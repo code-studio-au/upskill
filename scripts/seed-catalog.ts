@@ -35,10 +35,17 @@ const seeds = [
       currency: "AUD",
       featured: true,
       listInStore: true,
+      coverImage: null,
       hasCompletionCertificate: true,
       prerequisites: [],
       accreditations: [
-        { name: "Continuing Professional Development", cpdPoints: 1.25 },
+        {
+          name: "Continuing Professional Development",
+          cpdPoints: 1.25,
+          blurb: "",
+          logoAssetId: null,
+          logoName: "",
+        },
       ],
       modules: [
         {
@@ -84,10 +91,17 @@ const seeds = [
       currency: "AUD",
       featured: true,
       listInStore: true,
+      coverImage: null,
       hasCompletionCertificate: true,
       prerequisites: ["Suitable for people leaders and team facilitators"],
       accreditations: [
-        { name: "Continuing Professional Development", cpdPoints: 1 },
+        {
+          name: "Continuing Professional Development",
+          cpdPoints: 1,
+          blurb: "",
+          logoAssetId: null,
+          logoName: "",
+        },
       ],
       modules: [
         {
@@ -133,6 +147,7 @@ const seeds = [
       currency: "AUD",
       featured: true,
       listInStore: true,
+      coverImage: null,
       hasCompletionCertificate: true,
       prerequisites: ["Basic familiarity with workplace digital tools"],
       accreditations: [],

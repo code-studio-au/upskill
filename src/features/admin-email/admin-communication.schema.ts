@@ -44,11 +44,11 @@ const eventCommunicationTriggerSchema = z.enum([
 ]);
 const communicationOffsetUnitSchema = z.enum(["minute", "hour", "day", "week"]);
 
-const planFields = {
-  label,
+const scheduleEmailFields = {
+  id,
+  kind: z.literal("automated_email"),
+  title: label,
   emailDesignVersionId: id,
-  sectionId: optionalId,
-  sessionDefinitionId: optionalId,
   offsetAmount: z
     .number()
     .check(z.int(), z.minimum(-10_000), z.maximum(10_000)),
@@ -57,34 +57,25 @@ const planFields = {
   textBodyOverride: z.nullable(body),
 };
 
-const saveCourseCommunicationSchema = z.object({
-  courseVersionId: id,
-  communicationId: z.optional(id),
-  ...planFields,
+export const courseScheduleEmailItemSchema = z.object({
+  ...scheduleEmailFields,
   audience: courseCommunicationAudienceSchema,
   trigger: courseCommunicationTriggerSchema,
 });
 
-const saveEventTemplateCommunicationSchema = z.object({
-  eventTemplateVersionId: id,
-  communicationId: z.optional(id),
-  ...planFields,
+export const eventScheduleEmailItemSchema = z.object({
+  ...scheduleEmailFields,
   audience: eventCommunicationAudienceSchema,
   trigger: eventCommunicationTriggerSchema,
+  sessionItemId: optionalId,
 });
 
-const deleteCommunicationSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("course"),
-    courseVersionId: id,
-    communicationId: id,
-  }),
-  z.object({
-    kind: z.literal("event_template"),
-    eventTemplateVersionId: id,
-    communicationId: id,
-  }),
-]);
+export type CourseScheduleEmailItem = z.infer<
+  typeof courseScheduleEmailItemSchema
+>;
+export type EventScheduleEmailItem = z.infer<
+  typeof eventScheduleEmailItemSchema
+>;
 
 const overrideOccurrenceCommunicationSchema = z.object({
   eventOccurrenceId: id,
@@ -104,15 +95,6 @@ const resetOccurrenceCommunicationSchema = z.object({
 
 export const adminCommunicationMutationSchema = z.discriminatedUnion("action", [
   z.object({
-    action: z.literal("save_course"),
-    payload: saveCourseCommunicationSchema,
-  }),
-  z.object({
-    action: z.literal("save_event_template"),
-    payload: saveEventTemplateCommunicationSchema,
-  }),
-  z.object({ action: z.literal("delete"), payload: deleteCommunicationSchema }),
-  z.object({
     action: z.literal("override_occurrence"),
     payload: overrideOccurrenceCommunicationSchema,
   }),
@@ -128,14 +110,18 @@ export const previewCommunicationSchema = z.object({
   emailDesignVersionId: z.optional(id),
   subject: z.optional(subject),
   textBody: z.optional(body),
+  offeringTitle: z.optional(label),
+  sectionTitle: z.optional(label),
+  sessionTitle: z.optional(label),
 });
 
-interface AdminCommunicationTemplateOption {
+export interface AdminCommunicationTemplateOption {
   versionId: string;
   designName: string;
   version: number;
   subject: string;
   textBody: string;
+  selectable?: boolean;
 }
 
 export interface AdminCommunicationPlanItem {

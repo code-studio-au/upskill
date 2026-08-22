@@ -48,12 +48,16 @@ function CheckoutSuccessPage() {
   const checkout = Route.useLoaderData();
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
-  const isFulfilled =
+  const paymentCompleted =
     checkout.status === "paid" ||
     checkout.status === "partially_refunded" ||
     checkout.status === "refunded";
+  const isReviewRequired = paymentCompleted && checkout.reviewRequired;
+  const isFulfilled = paymentCompleted && !isReviewRequired;
   const isPending = checkout.status === "pending";
-  const isBulk = checkout.kind !== "individual_purchase";
+  const isEvent = checkout.offeringType === "event";
+  const isBulk =
+    checkout.kind === "bulk_purchase" || checkout.kind === "capacity_extension";
 
   async function refreshStatus(): Promise<void> {
     if (refreshing) return;
@@ -89,21 +93,33 @@ function CheckoutSuccessPage() {
               Checkout status
             </Text>
             <Title order={1}>
-              {isFulfilled
-                ? isBulk
-                  ? "Your access codes are ready"
-                  : "Your course is ready"
-                : isPending
-                  ? "Payment is processing"
-                  : "Checkout was not completed"}
+              {isReviewRequired
+                ? "Your payment needs review"
+                : isFulfilled
+                  ? isBulk
+                    ? "Your access codes are ready"
+                    : isEvent
+                      ? "Your event registration is confirmed"
+                      : "Your course is ready"
+                  : isPending
+                    ? "Payment is processing"
+                    : "Checkout was not completed"}
             </Title>
           </div>
 
-          {isFulfilled ? (
+          {isReviewRequired ? (
+            <Alert color="orange" title="Payment received" role="status">
+              {isEvent
+                ? `We received your payment for ${checkout.offeringTitle}, but could not confirm the registration automatically. The Upskill team will review it.`
+                : `We received your payment for ${checkout.offeringTitle}, but could not create a new enrolment automatically. The Upskill team will review it.`}
+            </Alert>
+          ) : isFulfilled ? (
             <Alert color="green" title="Enrolment confirmed" role="status">
               {isBulk
-                ? `Bulk access for ${checkout.courseTitle} is now available in Access management.`
-                : `${checkout.courseTitle} is now available in your learning area.`}
+                ? `Bulk access for ${checkout.offeringTitle} is now available in Access management.`
+                : isEvent
+                  ? `${checkout.offeringTitle} is now available in My events.`
+                  : `${checkout.offeringTitle} is now available in your learning area.`}
             </Alert>
           ) : isPending ? (
             <Alert color="blue" title="Awaiting confirmation" role="status">
@@ -126,10 +142,20 @@ function CheckoutSuccessPage() {
           {isFulfilled ? (
             <Button
               component={Link}
-              to={isBulk ? "/access-management" : "/dashboard"}
+              to={
+                isBulk
+                  ? "/access-management"
+                  : isEvent
+                    ? "/my-events"
+                    : "/dashboard"
+              }
               size="lg"
             >
-              {isBulk ? "Manage access" : "Go to my learning"}
+              {isBulk
+                ? "Manage access"
+                : isEvent
+                  ? "Go to my events"
+                  : "Go to my learning"}
             </Button>
           ) : isPending ? (
             <Button
@@ -150,12 +176,18 @@ function CheckoutSuccessPage() {
             </Link>
           ) : (
             <Link
-              to={isBulk ? "/courses/$slug/bulk-order" : "/courses/$slug"}
-              params={{ slug: checkout.courseSlug }}
+              to={
+                isEvent
+                  ? "/events/$slug"
+                  : isBulk
+                    ? "/courses/$slug/bulk-order"
+                    : "/courses/$slug"
+              }
+              params={{ slug: checkout.offeringSlug }}
               className={classes.link}
             >
               <Button component="span" size="lg" fullWidth>
-                Return to course
+                Return to {isEvent ? "event" : "course"}
               </Button>
             </Link>
           )}

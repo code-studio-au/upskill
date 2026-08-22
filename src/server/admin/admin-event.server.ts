@@ -29,7 +29,10 @@ import { ensureEventGuestAccessRecord } from "#/server/events/event-guest-access
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.server";
-import { materializeEventOccurrenceCommunications } from "#/server/admin/admin-communication.server";
+import {
+  findScheduleEmailAuthoringContext,
+  materializeEventOccurrenceCommunications,
+} from "#/server/admin/admin-communication.server";
 import {
   addElapsedDuration,
   addElapsedMilliseconds,
@@ -37,6 +40,14 @@ import {
   instantToDate,
   instantToLocalDateTime,
 } from "#/server/time/time.server";
+import {
+  certificateAccreditationsSchema,
+  type CertificateAccreditation,
+} from "#/features/catalog/accreditation";
+import {
+  offeringImageSchema,
+  type OfferingImage,
+} from "#/features/shared/offering-image";
 
 function optionalDate(value: string): Date | null {
   return value ? instantToDate(instantIsoSchema.parse(value)) : null;
@@ -125,11 +136,25 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         "event_occurrence.registrationClosesAt",
         "event_occurrence.coordinatorLockAt",
         "event_occurrence.capacity",
+        "event_occurrence.priceCents",
+        "event_occurrence.salePriceCents",
+        "event_occurrence.currency",
+        "event_occurrence.bulkPricing",
+        "event_occurrence.listInStore",
+        "event_occurrence.featured",
         "event_occurrence.confirmedCount",
         "event_occurrence.venueName",
         "event_occurrence.venueAddress",
         "event_occurrence.virtualJoinUrl",
         "event_occurrence.openEntryAttendanceMode",
+        sql<string>`coalesce((
+          select string_agg(region.name, ', ' order by occurrence_region.position)
+          from event_occurrence_region as occurrence_region
+          inner join coordination_region as region
+            on region.id = occurrence_region."regionId"
+          where occurrence_region."eventOccurrenceId" = event_occurrence.id
+            and occurrence_region."retiredAt" is null
+        ), '')`.as("regions"),
         sql<number>`(
           select count(*)::integer from event_session
           where event_session."eventOccurrenceId" = event_occurrence.id
@@ -696,9 +721,12 @@ export async function createAdminEventTemplate(
           id: eventTemplateVersionId,
           eventTemplateId,
           version: 1,
+          topic: "General",
           summary: "Event summary to be completed.",
           description: "Event description to be completed.",
+          coverImage: null,
           hasCompletionCertificate: false,
+          accreditations: JSON.stringify([]),
           publishedAt: null,
         })
         .execute();
@@ -792,85 +820,115 @@ async function loadEventTemplateDraft(
   template: { id: string; title: string },
   version: {
     id: string;
+    topic: string;
     summary: string;
     description: string;
+    coverImage: OfferingImage;
     hasCompletionCertificate: boolean;
+    accreditations: Array<CertificateAccreditation>;
   },
 ): Promise<AdminEventTemplateDraft> {
-  const [sectionRows, presenterRows, administratorRows, regionRows] =
-    await Promise.all([
-      database
-        .selectFrom("event_template_version_section as sections")
-        .leftJoin("event_template_version_item as items", (join) =>
+  const [
+    sectionRows,
+    communicationRows,
+    presenterRows,
+    administratorRows,
+    regionRows,
+  ] = await Promise.all([
+    database
+      .selectFrom("event_template_version_section as sections")
+      .leftJoin("event_template_version_item as items", (join) =>
+        join
+          .onRef("items.sectionId", "=", "sections.id")
+          .onRef(
+            "items.eventTemplateVersionId",
+            "=",
+            "sections.eventTemplateVersionId",
+          ),
+      )
+      .leftJoin(
+        "event_template_session_definition as sessions",
+        "sessions.id",
+        "items.sessionDefinitionId",
+      )
+      .select([
+        "sections.id as sectionId",
+        "sections.title as sectionTitle",
+        "sections.description as sectionDescription",
+        "sections.phase as sectionPhase",
+        "sections.releaseAnchor as sectionReleaseAnchor",
+        "sections.releaseOffsetAmount as sectionReleaseOffsetAmount",
+        "sections.releaseOffsetUnit as sectionReleaseOffsetUnit",
+        "items.id as itemId",
+        "items.position as itemPosition",
+        "items.kind as itemKind",
+        "items.title as itemTitle",
+        "items.required as itemRequired",
+        "items.durationMinutes",
+        "items.learningActivityVersionId",
+        "items.sessionDefinitionId",
+        "sessions.presenterRequired",
+      ])
+      .where("sections.eventTemplateVersionId", "=", version.id)
+      .orderBy("sections.position")
+      .orderBy("items.position")
+      .execute(),
+    database
+      .selectFrom("event_template_version_communication")
+      .select([
+        "id",
+        "sectionId",
+        "sessionDefinitionId",
+        "position",
+        "label",
+        "emailDesignVersionId",
+        "audience",
+        "trigger",
+        "offsetAmount",
+        "offsetUnit",
+        "subjectOverride",
+        "textBodyOverride",
+      ])
+      .where("eventTemplateVersionId", "=", version.id)
+      .orderBy("position")
+      .execute(),
+    database
+      .selectFrom("event_template_version_presenter_default")
+      .select(["sessionDefinitionId", "userId"])
+      .where("eventTemplateVersionId", "=", version.id)
+      .execute(),
+    database
+      .selectFrom("event_template_version_admin_default")
+      .select("userId")
+      .where("eventTemplateVersionId", "=", version.id)
+      .orderBy("userId")
+      .execute(),
+    database
+      .selectFrom("event_template_version_region as regions")
+      .leftJoin(
+        "event_template_version_coordinator_default as coordinators",
+        (join) =>
           join
-            .onRef("items.sectionId", "=", "sections.id")
             .onRef(
-              "items.eventTemplateVersionId",
+              "coordinators.eventTemplateVersionId",
               "=",
-              "sections.eventTemplateVersionId",
-            ),
-        )
-        .leftJoin(
-          "event_template_session_definition as sessions",
-          "sessions.id",
-          "items.sessionDefinitionId",
-        )
-        .select([
-          "sections.id as sectionId",
-          "sections.title as sectionTitle",
-          "sections.description as sectionDescription",
-          "sections.phase as sectionPhase",
-          "sections.releaseAnchor as sectionReleaseAnchor",
-          "sections.releaseOffsetAmount as sectionReleaseOffsetAmount",
-          "sections.releaseOffsetUnit as sectionReleaseOffsetUnit",
-          "items.id as itemId",
-          "items.kind as itemKind",
-          "items.title as itemTitle",
-          "items.required as itemRequired",
-          "items.durationMinutes",
-          "items.learningActivityVersionId",
-          "items.sessionDefinitionId",
-          "sessions.presenterRequired",
-        ])
-        .where("sections.eventTemplateVersionId", "=", version.id)
-        .orderBy("sections.position")
-        .orderBy("items.position")
-        .execute(),
-      database
-        .selectFrom("event_template_version_presenter_default")
-        .select(["sessionDefinitionId", "userId"])
-        .where("eventTemplateVersionId", "=", version.id)
-        .execute(),
-      database
-        .selectFrom("event_template_version_admin_default")
-        .select("userId")
-        .where("eventTemplateVersionId", "=", version.id)
-        .orderBy("userId")
-        .execute(),
-      database
-        .selectFrom("event_template_version_region as regions")
-        .leftJoin(
-          "event_template_version_coordinator_default as coordinators",
-          (join) =>
-            join
-              .onRef(
-                "coordinators.eventTemplateVersionId",
-                "=",
-                "regions.eventTemplateVersionId",
-              )
-              .onRef("coordinators.regionId", "=", "regions.regionId"),
-        )
-        .select(["regions.regionId", "coordinators.userId"])
-        .where("regions.eventTemplateVersionId", "=", version.id)
-        .orderBy("regions.position")
-        .orderBy("coordinators.userId")
-        .execute(),
-    ]);
+              "regions.eventTemplateVersionId",
+            )
+            .onRef("coordinators.regionId", "=", "regions.regionId"),
+      )
+      .select(["regions.regionId", "coordinators.userId"])
+      .where("regions.eventTemplateVersionId", "=", version.id)
+      .orderBy("regions.position")
+      .orderBy("coordinators.userId")
+      .execute(),
+  ]);
 
   const sections = new Map<
     string,
     AdminEventTemplateDraft["sections"][number]
   >();
+  const itemPositions = new Map<string, number>();
+  const sessionItemByDefinitionId = new Map<string, string>();
   for (const row of sectionRows) {
     let section = sections.get(row.sectionId);
     if (!section) {
@@ -886,7 +944,7 @@ async function loadEventTemplateDraft(
       };
       sections.set(row.sectionId, section);
     }
-    if (row.itemId && row.itemKind && row.itemTitle)
+    if (row.itemId && row.itemKind && row.itemTitle) {
       section.items.push(
         eventItemFromRow({
           id: row.itemId,
@@ -905,7 +963,38 @@ async function loadEventTemplateDraft(
             .map((presenter) => presenter.userId),
         }),
       );
+      itemPositions.set(row.itemId, row.itemPosition ?? 0);
+      if (row.sessionDefinitionId)
+        sessionItemByDefinitionId.set(row.sessionDefinitionId, row.itemId);
+    }
   }
+  for (const communication of communicationRows) {
+    if (!communication.sectionId) continue;
+    const section = sections.get(communication.sectionId);
+    if (!section) continue;
+    section.items.push({
+      id: communication.id,
+      kind: "automated_email",
+      title: communication.label,
+      emailDesignVersionId: communication.emailDesignVersionId,
+      audience: communication.audience,
+      trigger: communication.trigger,
+      offsetAmount: communication.offsetAmount,
+      offsetUnit: communication.offsetUnit,
+      subjectOverride: communication.subjectOverride,
+      textBodyOverride: communication.textBodyOverride,
+      sessionItemId: communication.sessionDefinitionId
+        ? (sessionItemByDefinitionId.get(communication.sessionDefinitionId) ??
+          null)
+        : null,
+    });
+    itemPositions.set(communication.id, communication.position);
+  }
+  for (const section of sections.values())
+    section.items.sort(
+      (left, right) =>
+        (itemPositions.get(left.id) ?? 0) - (itemPositions.get(right.id) ?? 0),
+    );
   const regions = new Map<string, Array<string>>();
   for (const row of regionRows) {
     const coordinators = regions.get(row.regionId) ?? [];
@@ -916,9 +1005,14 @@ async function loadEventTemplateDraft(
     eventTemplateId: template.id,
     eventTemplateVersionId: version.id,
     title: template.title,
+    topic: version.topic,
     summary: version.summary,
     description: version.description,
+    coverImage: offeringImageSchema.parse(version.coverImage),
     hasCompletionCertificate: version.hasCompletionCertificate,
+    accreditations: certificateAccreditationsSchema.parse(
+      version.accreditations,
+    ),
     defaultAdministratorIds: administratorRows.map((row) => row.userId),
     regions: [...regions].map(([regionId, coordinatorIds]) => ({
       regionId,
@@ -944,9 +1038,12 @@ export async function findAdminEventTemplate(
     .select([
       "id",
       "version",
+      "topic",
       "summary",
       "description",
+      "coverImage",
       "hasCompletionCertificate",
+      "accreditations",
       "publishedAt",
     ])
     .where("eventTemplateId", "=", eventTemplateId)
@@ -977,6 +1074,7 @@ export async function findAdminEventTemplate(
     modules,
     surveys,
     resources,
+    emailAuthoring,
   ] = await Promise.all([
     database
       .selectFrom("platform_admin")
@@ -1108,13 +1206,8 @@ export async function findAdminEventTemplate(
       .orderBy("learning_activity.title")
       .orderBy("learning_activity_version.version", "desc")
       .execute(),
+    findScheduleEmailAuthoringContext("offering_event"),
   ]);
-  const communications = await database
-    .selectFrom("event_template_version_communication")
-    .select(["id", "sectionId", "label", "trigger", "audience"])
-    .where("eventTemplateVersionId", "=", version.id)
-    .orderBy("position")
-    .execute();
   return {
     template,
     version: {
@@ -1129,7 +1222,8 @@ export async function findAdminEventTemplate(
       publishedAt: candidate.publishedAt?.toISOString() ?? null,
     })),
     draft,
-    communications,
+    emailTemplates: emailAuthoring.templates,
+    emailVariableGroups: emailAuthoring.variableGroups,
     people: { platformAdministrators, coordinators, presenters, users },
     regions,
     library: { modules, surveys, resources },
@@ -1159,62 +1253,110 @@ async function validateEventDraftReferences(
   );
   const activityIds = draft.sections.flatMap((section) =>
     section.items.flatMap((item) =>
-      item.kind === "session" ? [] : [item.learningActivityVersionId],
+      item.kind === "session" || item.kind === "automated_email"
+        ? []
+        : [item.learningActivityVersionId],
+    ),
+  );
+  const emailVersionIds = draft.sections.flatMap((section) =>
+    section.items.flatMap((item) =>
+      item.kind === "automated_email" ? [item.emailDesignVersionId] : [],
     ),
   );
   const regionIds = new Set(draft.regions.map((region) => region.regionId));
-  const [administrators, coordinators, presenters, activities, regions] =
-    await Promise.all([
-      transaction
-        .selectFrom("platform_admin")
-        .select("userId")
-        .where("userId", "in", [...administratorIds])
-        .execute(),
-      coordinatorIds.size
-        ? transaction
-            .selectFrom("event_staff_eligibility")
-            .select(["userId", "regionId"])
-            .where("userId", "in", [...coordinatorIds])
-            .where("responsibility", "=", "coordinator")
-            .where("revokedAt", "is", null)
-            .execute()
-        : [],
-      presenterIds.size
-        ? transaction
-            .selectFrom("event_staff_eligibility")
-            .select("userId")
-            .where("userId", "in", [...presenterIds])
-            .where("responsibility", "=", "presenter")
-            .where("revokedAt", "is", null)
-            .execute()
-        : [],
-      activityIds.length
-        ? transaction
-            .selectFrom("learning_activity_version")
-            .innerJoin(
-              "learning_activity",
-              "learning_activity.id",
-              "learning_activity_version.activityId",
-            )
-            .select("learning_activity_version.id")
-            .where("learning_activity_version.id", "in", activityIds)
-            .where((expression) =>
-              expression.or([
-                expression("learning_activity_version.kind", "!=", "survey"),
-                expression("learning_activity.surveyUsage", "=", "learning"),
-              ]),
-            )
-            .execute()
-        : [],
-      regionIds.size
-        ? transaction
-            .selectFrom("coordination_region")
-            .select("id")
-            .where("id", "in", [...regionIds])
-            .where("status", "=", "active")
-            .execute()
-        : [],
-    ]);
+  const accreditationLogoIds = draft.accreditations.flatMap((accreditation) =>
+    accreditation.logoAssetId ? [accreditation.logoAssetId] : [],
+  );
+  const coverImageIds = draft.coverImage ? [draft.coverImage.assetId] : [];
+  const [
+    administrators,
+    coordinators,
+    presenters,
+    activities,
+    regions,
+    emailVersions,
+    accreditationLogos,
+    coverImages,
+  ] = await Promise.all([
+    transaction
+      .selectFrom("platform_admin")
+      .select("userId")
+      .where("userId", "in", [...administratorIds])
+      .execute(),
+    coordinatorIds.size
+      ? transaction
+          .selectFrom("event_staff_eligibility")
+          .select(["userId", "regionId"])
+          .where("userId", "in", [...coordinatorIds])
+          .where("responsibility", "=", "coordinator")
+          .where("revokedAt", "is", null)
+          .execute()
+      : [],
+    presenterIds.size
+      ? transaction
+          .selectFrom("event_staff_eligibility")
+          .select("userId")
+          .where("userId", "in", [...presenterIds])
+          .where("responsibility", "=", "presenter")
+          .where("revokedAt", "is", null)
+          .execute()
+      : [],
+    activityIds.length
+      ? transaction
+          .selectFrom("learning_activity_version")
+          .innerJoin(
+            "learning_activity",
+            "learning_activity.id",
+            "learning_activity_version.activityId",
+          )
+          .select("learning_activity_version.id")
+          .where("learning_activity_version.id", "in", activityIds)
+          .where((expression) =>
+            expression.or([
+              expression("learning_activity_version.kind", "!=", "survey"),
+              expression("learning_activity.surveyUsage", "=", "learning"),
+            ]),
+          )
+          .execute()
+      : [],
+    regionIds.size
+      ? transaction
+          .selectFrom("coordination_region")
+          .select("id")
+          .where("id", "in", [...regionIds])
+          .where("status", "=", "active")
+          .execute()
+      : [],
+    emailVersionIds.length
+      ? transaction
+          .selectFrom("email_design_version as version")
+          .innerJoin(
+            "email_design as design",
+            "design.id",
+            "version.emailDesignId",
+          )
+          .select("version.id")
+          .where("version.id", "in", emailVersionIds)
+          .where("version.publishedAt", "is not", null)
+          .where("design.catalogue", "=", "offering")
+          .where("design.contextKey", "=", "offering_event")
+          .execute()
+      : [],
+    accreditationLogoIds.length
+      ? transaction
+          .selectFrom("accreditation_logo_asset")
+          .select("id")
+          .where("id", "in", accreditationLogoIds)
+          .execute()
+      : [],
+    coverImageIds.length
+      ? transaction
+          .selectFrom("offering_image_asset")
+          .select("id")
+          .where("id", "in", coverImageIds)
+          .execute()
+      : [],
+  ]);
   return (
     new Set(administrators.map((row) => row.userId)).size ===
       administratorIds.size &&
@@ -1228,32 +1370,30 @@ async function validateEventDraftReferences(
     new Set(presenters.map((row) => row.userId)).size === presenterIds.size &&
     new Set(activities.map((row) => row.id)).size ===
       new Set(activityIds).size &&
-    new Set(regions.map((row) => row.id)).size === regionIds.size
+    new Set(regions.map((row) => row.id)).size === regionIds.size &&
+    new Set(emailVersions.map((row) => row.id)).size ===
+      new Set(emailVersionIds).size &&
+    new Set(accreditationLogos.map((row) => row.id)).size ===
+      new Set(accreditationLogoIds).size &&
+    new Set(coverImages.map((row) => row.id)).size ===
+      new Set(coverImageIds).size
   );
 }
 
 async function replaceEventDraftStructure(
   transaction: Transaction<Database>,
   draft: AdminEventTemplateDraft,
+  actorUserId: string,
 ): Promise<void> {
-  const [communicationLocations, sessionItems] = await Promise.all([
-    transaction
-      .selectFrom("event_template_version_communication")
-      .select(["id", "sectionId", "sessionDefinitionId"])
-      .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
-      .execute(),
-    transaction
-      .selectFrom("event_template_version_item")
-      .select(["id", "sessionDefinitionId"])
-      .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
-      .where("kind", "=", "session")
-      .execute(),
-  ]);
-  const itemIdBySessionDefinitionId = new Map(
-    sessionItems.flatMap((item) =>
-      item.sessionDefinitionId ? [[item.sessionDefinitionId, item.id]] : [],
-    ),
-  );
+  const previousCommunications = await transaction
+    .selectFrom("event_template_version_communication")
+    .select("id")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
+  await transaction
+    .deleteFrom("event_template_version_communication")
+    .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
+    .execute();
   await transaction
     .deleteFrom("event_template_version_item")
     .where("eventTemplateVersionId", "=", draft.eventTemplateVersionId)
@@ -1312,8 +1452,6 @@ async function replaceEventDraftStructure(
       )
       .execute();
   }
-  let sessionPosition = 0;
-  const nextSessionDefinitionIdByItemId = new Map<string, string>();
   for (const [sectionPosition, section] of draft.sections.entries()) {
     await transaction
       .insertInto("event_template_version_section")
@@ -1329,37 +1467,69 @@ async function replaceEventDraftStructure(
         releaseOffsetUnit: section.releaseOffsetUnit,
       })
       .execute();
-    for (const [itemPosition, item] of section.items.entries()) {
-      const sessionDefinitionId =
-        item.kind === "session"
-          ? `event_session_definition_${randomUUID()}`
-          : null;
-      if (item.kind === "session" && sessionDefinitionId) {
-        nextSessionDefinitionIdByItemId.set(item.id, sessionDefinitionId);
+  }
+  let sessionPosition = 0;
+  const sessionDefinitionIdByItemId = new Map<string, string>();
+  for (const section of draft.sections)
+    for (const item of section.items) {
+      if (item.kind !== "session") continue;
+      const sessionDefinitionId = `event_session_definition_${randomUUID()}`;
+      sessionDefinitionIdByItemId.set(item.id, sessionDefinitionId);
+      await transaction
+        .insertInto("event_template_session_definition")
+        .values({
+          id: sessionDefinitionId,
+          eventTemplateVersionId: draft.eventTemplateVersionId,
+          position: sessionPosition++,
+          title: item.title,
+          durationMinutes: item.durationMinutes,
+          presenterRequired: item.presenterRequired,
+        })
+        .execute();
+      if (item.presenterIds.length)
         await transaction
-          .insertInto("event_template_session_definition")
+          .insertInto("event_template_version_presenter_default")
+          .values(
+            item.presenterIds.map((userId) => ({
+              eventTemplateVersionId: draft.eventTemplateVersionId,
+              sessionDefinitionId,
+              userId,
+              scopeKey: sessionDefinitionId,
+            })),
+          )
+          .execute();
+    }
+  for (const section of draft.sections)
+    for (const [itemPosition, item] of section.items.entries()) {
+      if (item.kind === "automated_email") {
+        await transaction
+          .insertInto("event_template_version_communication")
           .values({
-            id: sessionDefinitionId,
+            id: item.id,
             eventTemplateVersionId: draft.eventTemplateVersionId,
-            position: sessionPosition++,
-            title: item.title,
-            durationMinutes: item.durationMinutes,
-            presenterRequired: item.presenterRequired,
+            sectionId: section.id,
+            sessionDefinitionId: item.sessionItemId
+              ? (sessionDefinitionIdByItemId.get(item.sessionItemId) ?? null)
+              : null,
+            position: itemPosition,
+            label: item.title,
+            emailDesignVersionId: item.emailDesignVersionId,
+            audience: item.audience,
+            trigger: item.trigger,
+            offsetAmount: item.offsetAmount,
+            offsetUnit: item.offsetUnit,
+            subjectOverride: item.subjectOverride,
+            textBodyOverride: item.textBodyOverride,
+            createdByUserId: actorUserId,
+            updatedAt: new Date(),
           })
           .execute();
-        if (item.presenterIds.length)
-          await transaction
-            .insertInto("event_template_version_presenter_default")
-            .values(
-              item.presenterIds.map((userId) => ({
-                eventTemplateVersionId: draft.eventTemplateVersionId,
-                sessionDefinitionId,
-                userId,
-                scopeKey: sessionDefinitionId,
-              })),
-            )
-            .execute();
+        continue;
       }
+      const sessionDefinitionId =
+        item.kind === "session"
+          ? (sessionDefinitionIdByItemId.get(item.id) ?? null)
+          : null;
       await transaction
         .insertInto("event_template_version_item")
         .values({
@@ -1377,29 +1547,32 @@ async function replaceEventDraftStructure(
         })
         .execute();
     }
-  }
-  const retainedSectionIds = new Set(
-    draft.sections.map((section) => section.id),
+  const previousIds = new Set(previousCommunications.map(({ id }) => id));
+  const nextEmailItems = draft.sections.flatMap((section) =>
+    section.items.filter((item) => item.kind === "automated_email"),
   );
-  for (const communication of communicationLocations) {
-    const previousSessionItemId = communication.sessionDefinitionId
-      ? itemIdBySessionDefinitionId.get(communication.sessionDefinitionId)
-      : null;
-    await transaction
-      .updateTable("event_template_version_communication")
-      .set({
-        sectionId:
-          communication.sectionId &&
-          retainedSectionIds.has(communication.sectionId)
-            ? communication.sectionId
-            : null,
-        sessionDefinitionId: previousSessionItemId
-          ? (nextSessionDefinitionIdByItemId.get(previousSessionItemId) ?? null)
-          : null,
-      })
-      .where("id", "=", communication.id)
-      .executeTakeFirstOrThrow();
-  }
+  const nextIds = new Set(nextEmailItems.map(({ id }) => id));
+  for (const item of nextEmailItems)
+    await recordDurableAuditEvent(transaction, {
+      actorUserId,
+      action: previousIds.has(item.id)
+        ? "communication_plan.updated"
+        : "communication_plan.created",
+      subjectType: "event_template_version_communication",
+      subjectId: item.id,
+      aggregateId: draft.eventTemplateVersionId,
+      metadata: { placement: "section_schedule" },
+    });
+  for (const { id } of previousCommunications)
+    if (!nextIds.has(id))
+      await recordDurableAuditEvent(transaction, {
+        actorUserId,
+        action: "communication_plan.deleted",
+        subjectType: "event_template_version_communication",
+        subjectId: id,
+        aggregateId: draft.eventTemplateVersionId,
+        metadata: { placement: "section_schedule" },
+      });
 }
 
 export async function saveAdminEventTemplateDraft(
@@ -1434,13 +1607,17 @@ export async function saveAdminEventTemplateDraft(
       await transaction
         .updateTable("event_template_version")
         .set({
+          topic: draft.topic,
           summary: draft.summary,
           description: draft.description,
+          coverImage:
+            draft.coverImage === null ? null : JSON.stringify(draft.coverImage),
           hasCompletionCertificate: draft.hasCompletionCertificate,
+          accreditations: JSON.stringify(draft.accreditations),
         })
         .where("id", "=", draft.eventTemplateVersionId)
         .executeTakeFirstOrThrow();
-      await replaceEventDraftStructure(transaction, draft);
+      await replaceEventDraftStructure(transaction, draft, administrator.id);
       return "saved" as const;
     });
   if (result === "saved")
@@ -1480,9 +1657,12 @@ export async function createAdminEventTemplateVersion(
         .select([
           "id",
           "version",
+          "topic",
           "summary",
           "description",
+          "coverImage",
           "hasCompletionCertificate",
+          "accreditations",
           "publishedAt",
         ])
         .where("eventTemplateId", "=", eventTemplateId)
@@ -1499,9 +1679,15 @@ export async function createAdminEventTemplateVersion(
           id: eventTemplateVersionId,
           eventTemplateId,
           version: source.version + 1,
+          topic: source.topic,
           summary: source.summary,
           description: source.description,
+          coverImage:
+            source.coverImage === null
+              ? null
+              : JSON.stringify(source.coverImage),
           hasCompletionCertificate: source.hasCompletionCertificate,
+          accreditations: JSON.stringify(source.accreditations),
           publishedAt: null,
         })
         .execute();
@@ -1513,84 +1699,33 @@ export async function createAdminEventTemplateVersion(
       const draft: AdminEventTemplateDraft = {
         ...sourceDraft,
         eventTemplateVersionId,
-        sections: sourceDraft.sections.map((section) => ({
-          ...section,
-          id: `event_section_${randomUUID()}`,
-          items: section.items.map((item) => ({
-            ...item,
-            id: `event_item_${randomUUID()}`,
-          })),
-        })),
-      };
-      await replaceEventDraftStructure(transaction, draft);
-      const sectionIds = new Map(
-        sourceDraft.sections.map((section, index) => [
-          section.id,
-          draft.sections[index]?.id ?? null,
-        ]),
-      );
-      const copiedItemIds = new Map<string, string>();
-      for (const [sectionIndex, section] of sourceDraft.sections.entries())
-        for (const [itemIndex, item] of section.items.entries()) {
-          const copied = draft.sections[sectionIndex]?.items[itemIndex];
-          if (item.kind === "session" && copied?.kind === "session")
-            copiedItemIds.set(item.id, copied.id);
-        }
-      const [sourceSessionItems, copiedSessionItems] = await Promise.all([
-        transaction
-          .selectFrom("event_template_version_item")
-          .select(["id", "sessionDefinitionId"])
-          .where("eventTemplateVersionId", "=", source.id)
-          .where("kind", "=", "session")
-          .execute(),
-        transaction
-          .selectFrom("event_template_version_item")
-          .select(["id", "sessionDefinitionId"])
-          .where("eventTemplateVersionId", "=", eventTemplateVersionId)
-          .where("kind", "=", "session")
-          .execute(),
-      ]);
-      const copiedSessionByItemId = new Map(
-        copiedSessionItems.flatMap((item) =>
-          item.sessionDefinitionId ? [[item.id, item.sessionDefinitionId]] : [],
-        ),
-      );
-      const sessionIds = new Map<string, string>();
-      for (const sourceItem of sourceSessionItems) {
-        if (!sourceItem.sessionDefinitionId) continue;
-        const copiedItemId = copiedItemIds.get(sourceItem.id);
-        const copiedSessionId = copiedItemId
-          ? copiedSessionByItemId.get(copiedItemId)
-          : null;
-        if (copiedSessionId)
-          sessionIds.set(sourceItem.sessionDefinitionId, copiedSessionId);
-      }
-      const communications = await transaction
-        .selectFrom("event_template_version_communication")
-        .selectAll()
-        .where("eventTemplateVersionId", "=", source.id)
-        .orderBy("position")
-        .execute();
-      if (communications.length)
-        await transaction
-          .insertInto("event_template_version_communication")
-          .values(
-            communications.map((communication) => ({
-              ...communication,
-              id: `event_template_communication_${randomUUID()}`,
-              eventTemplateVersionId,
-              sectionId: communication.sectionId
-                ? (sectionIds.get(communication.sectionId) ?? null)
-                : null,
-              sessionDefinitionId: communication.sessionDefinitionId
-                ? (sessionIds.get(communication.sessionDefinitionId) ?? null)
-                : null,
-              createdByUserId: administrator.id,
-              createdAt: new Date(),
-              updatedAt: new Date(),
+        sections: sourceDraft.sections.map((section) => {
+          const copiedIds = new Map(
+            section.items.map((item) => [
+              item.id,
+              item.kind === "automated_email"
+                ? `event_template_communication_${randomUUID()}`
+                : `event_item_${randomUUID()}`,
+            ]),
+          );
+          return {
+            ...section,
+            id: `event_section_${randomUUID()}`,
+            items: section.items.map((item) => ({
+              ...item,
+              id: copiedIds.get(item.id) as string,
+              ...(item.kind === "automated_email"
+                ? {
+                    sessionItemId: item.sessionItemId
+                      ? (copiedIds.get(item.sessionItemId) ?? null)
+                      : null,
+                  }
+                : {}),
             })),
-          )
-          .execute();
+          };
+        }),
+      };
+      await replaceEventDraftStructure(transaction, draft, administrator.id);
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "event_template.version_created",
@@ -1845,6 +1980,11 @@ export async function createAdminEventOccurrence(
   | { status: "created"; eventOccurrenceId: string }
   | { status: "not-found" }
   | { status: "conflict" }
+  | {
+      status: "conflict";
+      reason: "occurrence-window-too-short";
+      minimumDurationMinutes: number;
+    }
   | { status: "slug-in-use" }
 > {
   if (!isIanaTimeZone(input.timezone) || !isAdminEventScheduleConsistent(input))
@@ -1990,7 +2130,11 @@ export async function createAdminEventOccurrence(
         0,
       );
       if (endsAt.getTime() - startsAt.getTime() < totalSessionMinutes * 60_000)
-        return { status: "conflict" } as const;
+        return {
+          status: "conflict",
+          reason: "occurrence-window-too-short",
+          minimumDurationMinutes: totalSessionMinutes,
+        } as const;
       const now = new Date();
       await transaction
         .insertInto("event_occurrence")
@@ -2019,6 +2163,12 @@ export async function createAdminEventOccurrence(
           registrationClosesAt: optionalDate(input.registrationClosesAt),
           coordinatorLockAt: optionalDate(input.coordinatorLockAt),
           capacity: input.capacity,
+          priceCents: input.priceCents,
+          salePriceCents: input.salePriceCents,
+          currency: input.currency,
+          bulkPricing: JSON.stringify(input.bulkPricing),
+          listInStore: input.listInStore,
+          featured: input.featured,
           venueName: optionalText(input.venueName),
           venueAddress: optionalText(input.venueAddress),
           virtualJoinUrl: optionalText(input.virtualJoinUrl),
@@ -2237,6 +2387,12 @@ export async function updateAdminEventOccurrence(
           registrationClosesAt: optionalDate(input.registrationClosesAt),
           coordinatorLockAt: optionalDate(input.coordinatorLockAt),
           capacity: input.capacity,
+          priceCents: input.priceCents,
+          salePriceCents: input.salePriceCents,
+          currency: input.currency,
+          bulkPricing: JSON.stringify(input.bulkPricing),
+          listInStore: input.listInStore,
+          featured: input.featured,
           venueName: optionalText(input.venueName),
           venueAddress: optionalText(input.venueAddress),
           virtualJoinUrl: optionalText(input.virtualJoinUrl),
@@ -2957,6 +3113,12 @@ export async function rescheduleAdminEventOccurrence(
           registrationClosesAt: nextClosesAt,
           coordinatorLockAt: nextLockAt,
           capacity: next.capacity,
+          priceCents: next.priceCents,
+          salePriceCents: next.salePriceCents,
+          currency: next.currency,
+          bulkPricing: JSON.stringify(next.bulkPricing),
+          listInStore: next.listInStore,
+          featured: next.featured,
           venueName: optionalText(next.venueName),
           venueAddress: optionalText(next.venueAddress),
           virtualJoinUrl: optionalText(next.virtualJoinUrl),

@@ -1,5 +1,17 @@
 import { z } from "#/validation/zod";
 import { isIanaTimeZone } from "#/features/shared/iana-timezone";
+import {
+  eventScheduleEmailItemSchema,
+  type AdminCommunicationTemplateOption,
+} from "#/features/admin-email/admin-communication.schema";
+import type { EmailTemplateVariableGroup } from "#/features/admin-email/admin-email.schema";
+import { certificateAccreditationsSchema } from "#/features/catalog/accreditation";
+import { offeringTopicSchema } from "#/features/shared/offering-topic";
+import { offeringImageSchema } from "#/features/shared/offering-image";
+import {
+  bulkPricingSchema,
+  type BulkPricing,
+} from "#/features/catalog/catalog.schema";
 
 const identifierSchema = z
   .string()
@@ -188,6 +200,7 @@ const adminEventTemplateItemSchema = z.discriminatedUnion("kind", [
       .check(z.int(), z.minimum(1), z.maximum(100_000)),
     learningActivityVersionId: identifierSchema,
   }),
+  eventScheduleEmailItemSchema,
   z.object({
     ...eventTemplateItemBase,
     kind: z.literal("survey"),
@@ -250,9 +263,12 @@ export const adminEventTemplateDraftSchema = z
     eventTemplateId: identifierSchema,
     eventTemplateVersionId: identifierSchema,
     title: boundedText(160, "Enter an event template title."),
+    topic: offeringTopicSchema,
     summary: boundedText(320, "Enter a short summary."),
     description: boundedText(10_000, "Enter an event description."),
+    coverImage: z._default(offeringImageSchema, null),
     hasCompletionCertificate: z.boolean(),
+    accreditations: z._default(certificateAccreditationsSchema, []),
     defaultAdministratorIds: z
       .array(identifierSchema)
       .check(
@@ -265,6 +281,13 @@ export const adminEventTemplateDraftSchema = z
   .check(
     z.superRefine((draft, context) => {
       const identifiers = new Set<string>();
+      const sessionItemIds = new Set(
+        draft.sections.flatMap((section) =>
+          section.items.flatMap((item) =>
+            item.kind === "session" ? [item.id] : [],
+          ),
+        ),
+      );
       if (
         new Set(draft.defaultAdministratorIds).size !==
         draft.defaultAdministratorIds.length
@@ -308,6 +331,39 @@ export const adminEventTemplateDraftSchema = z
               message: "Item identifiers must be unique.",
             });
           identifiers.add(item.id);
+          if (
+            item.kind === "automated_email" &&
+            item.sessionItemId &&
+            !sessionItemIds.has(item.sessionItemId)
+          ) {
+            context.addIssue({
+              code: "custom",
+              path: [
+                "sections",
+                sectionIndex,
+                "items",
+                itemIndex,
+                "sessionItemId",
+              ],
+              message: "Select a session from this event template.",
+            });
+          }
+          if (
+            item.kind === "automated_email" &&
+            item.trigger === "session_start" &&
+            !item.sessionItemId
+          )
+            context.addIssue({
+              code: "custom",
+              path: [
+                "sections",
+                sectionIndex,
+                "items",
+                itemIndex,
+                "sessionItemId",
+              ],
+              message: "Select the session that anchors this email.",
+            });
           if (
             item.kind === "session" &&
             item.presenterRequired &&
@@ -364,6 +420,7 @@ export const adminEventOccurrenceCreateSchema = z
     deliveryMode: z.enum(["in_person", "virtual"]),
     registrationMode: z.enum([
       "open_entry",
+      "paid_entry",
       "required_unrestricted",
       "required_restricted",
     ]),
@@ -375,6 +432,16 @@ export const adminEventOccurrenceCreateSchema = z
     registrationClosesAt: z.union([z.literal(""), dateTime]),
     coordinatorLockAt: z.union([z.literal(""), dateTime]),
     capacity: z.number().check(z.int(), z.minimum(1), z.maximum(100_000)),
+    priceCents: z.nullable(
+      z.number().check(z.int(), z.positive(), z.maximum(100_000_000)),
+    ),
+    salePriceCents: z.nullable(
+      z.number().check(z.int(), z.positive(), z.maximum(100_000_000)),
+    ),
+    currency: z.literal("AUD"),
+    bulkPricing: bulkPricingSchema,
+    listInStore: z.boolean(),
+    featured: z.boolean(),
     venueName: optionalText(240),
     venueAddress: optionalText(1_000),
     virtualJoinUrl: absoluteUrl,
@@ -398,14 +465,15 @@ export const adminEventOccurrenceCreateSchema = z
         });
       const domains = normalizeEventDomains(value.domains) ?? [];
       if (
-        value.registrationMode === "open_entry" &&
+        (value.registrationMode === "open_entry" ||
+          value.registrationMode === "paid_entry") &&
         value.approvalMode !== "automatic"
       )
         context.addIssue({
           code: "custom",
           path: ["approvalMode"],
           message:
-            "Open-entry events do not have a registration approval step.",
+            "Open-entry and paid-entry events do not have a registration approval step.",
         });
       if (value.registrationMode === "required_restricted" && !domains.length)
         context.addIssue({
@@ -467,12 +535,52 @@ export const adminEventOccurrenceCreateSchema = z
           path: ["coordinatorLockAt"],
           message: "Coordinator lock cannot precede registration close.",
         });
-      if (value.registrationMode !== "open_entry" && (!opens || !closes))
+      if (
+        value.registrationMode !== "open_entry" &&
+        value.registrationMode !== "paid_entry" &&
+        (!opens || !closes)
+      )
         context.addIssue({
           code: "custom",
           path: ["registrationOpensAt"],
           message:
             "Registration-required events need an opening and closing time.",
+        });
+      if (value.registrationMode === "paid_entry") {
+        if (value.priceCents === null)
+          context.addIssue({
+            code: "custom",
+            path: ["priceCents"],
+            message: "Enter the paid-entry price.",
+          });
+        if (
+          value.priceCents !== null &&
+          value.salePriceCents !== null &&
+          value.salePriceCents >= value.priceCents
+        )
+          context.addIssue({
+            code: "custom",
+            path: ["salePriceCents"],
+            message: "Sale price must be lower than the original price.",
+          });
+        const individualPrice = value.salePriceCents ?? value.priceCents ?? 0;
+        for (const [index, tier] of value.bulkPricing.tiers.entries())
+          if (tier.unitPriceCents >= individualPrice)
+            context.addIssue({
+              code: "custom",
+              path: ["bulkPricing", "tiers", index, "unitPriceCents"],
+              message:
+                "Bulk seat prices must be lower than the individual price.",
+            });
+      } else if (
+        value.priceCents !== null ||
+        value.salePriceCents !== null ||
+        value.bulkPricing.enabled
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["registrationMode"],
+          message: "Pricing applies only to paid-entry events.",
         });
     }),
   );
@@ -671,13 +779,8 @@ export interface AdminEventTemplateDetail {
     publishedAt: string | null;
   }>;
   draft: AdminEventTemplateDraft;
-  communications: Array<{
-    id: string;
-    sectionId: string | null;
-    label: string;
-    trigger: string;
-    audience: string;
-  }>;
+  emailTemplates: Array<AdminCommunicationTemplateOption>;
+  emailVariableGroups: Array<EmailTemplateVariableGroup>;
   people: {
     platformAdministrators: Array<AdminEventPersonOption>;
     coordinators: Array<AdminEventCoordinatorOption>;
@@ -738,7 +841,10 @@ export interface AdminEventWorkspace {
     status: "draft" | "published" | "cancelled" | "completed" | "archived";
     deliveryMode: "in_person" | "virtual";
     registrationMode:
-      "open_entry" | "required_unrestricted" | "required_restricted";
+      | "open_entry"
+      | "paid_entry"
+      | "required_unrestricted"
+      | "required_restricted";
     approvalMode: "automatic" | "manual";
     timezone: string;
     localStartsAt: string;
@@ -752,11 +858,18 @@ export interface AdminEventWorkspace {
     registrationClosesAt: string;
     coordinatorLockAt: string;
     capacity: number;
+    priceCents: number | null;
+    salePriceCents: number | null;
+    currency: "AUD";
+    bulkPricing: BulkPricing;
+    listInStore: boolean;
+    featured: boolean;
     venueName: string;
     venueAddress: string;
     virtualJoinUrl: string;
     openEntryAttendanceMode: "checked_in" | "attended";
     domains: string;
+    regions: string;
     confirmedCount: number;
     sessionCount: number;
     assignedAdminCount: number;
@@ -805,8 +918,10 @@ export type AdminEventMutationResult =
         | "region_code_in_use"
         | "region_not_retirable"
         | "coordinator_coverage_required"
+        | "event_too_short"
         | "occurrence_not_publishable";
       coordinatorCoverage?: Array<AdminEventCoordinatorCoverageImpact>;
+      minimumDurationMinutes?: number;
     };
 
 export type AdminEventTemplateDetailResult =

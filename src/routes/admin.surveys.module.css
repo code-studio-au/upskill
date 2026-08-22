@@ -1,0 +1,12 @@
+.cardTitleLink {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.cardTitleLink:hover,
+.cardTitleLink:focus-visible {
+  color: var(--mantine-color-indigo-7);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}

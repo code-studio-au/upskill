@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  Link,
+  redirect,
+  useRouter,
+} from "@tanstack/react-router";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { Badge } from "#/features/shared/Badge";
 import {
@@ -88,32 +93,39 @@ function EventTemplatesPage() {
             >
               <Stack gap="md">
                 <Group justify="space-between" align="start" wrap="nowrap">
-                  <Title order={3}>{template.title}</Title>
-                  <Badge
-                    color={template.status === "published" ? "green" : "gray"}
-                    variant="light"
+                  <Link
+                    to="/admin/events/$eventTemplateId"
+                    params={{ eventTemplateId: template.id }}
+                    className={classes.cardTitleLink}
                   >
-                    {template.status}
-                  </Badge>
+                    <Title order={3}>{template.title}</Title>
+                  </Link>
+                  <Group gap="xs" wrap="wrap" justify="flex-end">
+                    {template.status === "archived" ? (
+                      <Badge color="gray">
+                        Archived v
+                        {template.publishedVersion ?? template.latestVersion}
+                      </Badge>
+                    ) : (
+                      <>
+                        {template.publishedVersion ? (
+                          <Badge color="green">
+                            Published v{template.publishedVersion}
+                          </Badge>
+                        ) : null}
+                        {template.draftVersionId ? (
+                          <Badge color="gray">
+                            Draft v{template.latestVersion}
+                          </Badge>
+                        ) : null}
+                      </>
+                    )}
+                  </Group>
                 </Group>
                 <Text size="sm">
-                  Latest version {template.latestVersion} ·{" "}
                   {template.occurrenceCount} scheduled event
                   {template.occurrenceCount === 1 ? "" : "s"}
                 </Text>
-                <Button
-                  variant="light"
-                  onClick={() => {
-                    void router.navigate({
-                      to: "/admin/events/$eventTemplateId",
-                      params: { eventTemplateId: template.id },
-                    });
-                  }}
-                >
-                  {template.draftVersionId
-                    ? `Edit version ${String(template.latestVersion)}`
-                    : "Open template"}
-                </Button>
               </Stack>
             </Paper>
           ))}

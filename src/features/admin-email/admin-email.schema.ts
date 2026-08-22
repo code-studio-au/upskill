@@ -114,6 +114,7 @@ export interface AdminEmailDesignDetail {
   };
   versions: Array<AdminEmailDesignVersionSummary>;
   variableGroups: Array<EmailTemplateVariableGroup>;
+  preview: AdminEmailPreview | null;
 }
 
 export interface AdminEmailPreview {

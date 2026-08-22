@@ -2,29 +2,19 @@ import {
   Alert,
   Button,
   Group,
-  Paper,
   Stack,
   Text,
   Title,
 } from "#/features/shared/mantine";
 import { Badge } from "#/features/shared/Badge";
 import { useForm } from "@tanstack/react-form";
-import {
-  lazy,
-  Suspense,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { firstFormError } from "#/features/shared/form-errors";
 import { createFriendlySlug } from "#/features/shared/friendly-slug";
 import { EventLocalDateTimeInput } from "./EventLocalDateTimeInput";
-import { createEventTimezoneOptions } from "./event-timezones";
-import { EventTimezoneAutocomplete } from "./EventTimezoneAutocomplete";
 import {
   adminEventOccurrenceFormSchema,
   type AdminEventOccurrenceFormInput,
@@ -42,6 +32,14 @@ import classes from "./AdminEventOccurrenceEditor.module.css";
 const AdminEventRegionalCoverageEditor = lazy(async () => {
   const module = await import("./AdminEventRegionalCoverageEditor");
   return { default: module.AdminEventRegionalCoverageEditor };
+});
+const AdminPaidEventPricingEditor = lazy(async () => {
+  const module = await import("./AdminPaidEventPricingEditor");
+  return { default: module.AdminPaidEventPricingEditor };
+});
+const EventTimezoneAutocomplete = lazy(async () => {
+  const module = await import("./EventTimezoneAutocomplete");
+  return { default: module.EventTimezoneAutocomplete };
 });
 
 const defaultTimezone =
@@ -68,7 +66,7 @@ function EditorSection({
   children: ReactNode;
 }) {
   return (
-    <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
+    <section className={classes.editorSection}>
       <Stack gap="lg">
         <div className={classes.sectionHeader}>
           <span className={classes.sectionNumber} aria-hidden="true">
@@ -78,7 +76,7 @@ function EditorSection({
         </div>
         {children}
       </Stack>
-    </Paper>
+    </section>
   );
 }
 
@@ -126,6 +124,12 @@ export function AdminEventOccurrenceEditor({
         registrationClosesAt: initialTime(occurrence.localRegistrationClosesAt),
         coordinatorLockAt: initialTime(occurrence.localCoordinatorLockAt),
         capacity: occurrence.capacity,
+        priceCents: occurrence.priceCents,
+        salePriceCents: occurrence.salePriceCents,
+        currency: occurrence.currency,
+        bulkPricing: occurrence.bulkPricing,
+        listInStore: occurrence.listInStore,
+        featured: occurrence.featured,
         venueName: occurrence.venueName,
         venueAddress: occurrence.venueAddress,
         virtualJoinUrl: occurrence.virtualJoinUrl,
@@ -146,6 +150,12 @@ export function AdminEventOccurrenceEditor({
         registrationClosesAt: "",
         coordinatorLockAt: "",
         capacity: 30,
+        priceCents: null,
+        salePriceCents: null,
+        currency: "AUD",
+        bulkPricing: { enabled: false, tiers: [] },
+        listInStore: false,
+        featured: false,
         venueName: "",
         venueAddress: "",
         virtualJoinUrl: "",
@@ -163,10 +173,6 @@ export function AdminEventOccurrenceEditor({
     : occurrence
       ? "Save changes"
       : "Create draft event";
-  const timezoneOptions = useMemo(
-    () => createEventTimezoneOptions(occurrence?.timezone ?? defaultTimezone),
-    [occurrence?.timezone],
-  );
   const form = useForm({
     defaultValues,
     validators: { onSubmit: adminEventOccurrenceFormSchema },
@@ -176,9 +182,7 @@ export function AdminEventOccurrenceEditor({
         occurrence?.status === "published" &&
         (!regionsConfirmed || !regionalCoverage)
       ) {
-        setError(
-          "Review and confirm the event's active regional coverage before rescheduling.",
-        );
+        setError("Confirm the active regional coverage before rescheduling.");
         return;
       }
       const result = occurrence
@@ -202,16 +206,19 @@ export function AdminEventOccurrenceEditor({
       if (result.status !== "ready") {
         setError(
           result.status === "conflict" && result.reason === "slug_in_use"
-            ? "That friendly URL is already used by another event instance. Choose a unique value."
+            ? "That friendly URL is in use."
             : result.status === "conflict" &&
-                result.reason === "registration_window_policy_invalid"
-              ? "The selected registration-window policy is not valid for the current deadlines and review state."
+                result.reason === "event_too_short"
+              ? "Event dates are too short for its sessions."
               : result.status === "conflict" &&
-                  result.reason === "regions_not_confirmed"
-                ? "Regional coverage changed or is incomplete. Review and confirm every active region before rescheduling."
-                : result.status === "conflict"
-                  ? "The occurrence could not be saved with this configuration."
-                  : "The occurrence could not be saved.",
+                  result.reason === "registration_window_policy_invalid"
+                ? "That registration window is unavailable."
+                : result.status === "conflict" &&
+                    result.reason === "regions_not_confirmed"
+                  ? "Review and confirm regional coverage."
+                  : result.status === "conflict"
+                    ? "The event cannot be saved with this configuration."
+                    : "The event could not be saved.",
         );
         return;
       }
@@ -354,13 +361,14 @@ export function AdminEventOccurrenceEditor({
                 <div className={classes.scheduleSettings}>
                   <form.Field name="timezone">
                     {(field) => (
-                      <EventTimezoneAutocomplete
-                        options={timezoneOptions}
-                        value={field.state.value}
-                        onBlur={field.handleBlur}
-                        onChange={field.handleChange}
-                        error={firstFormError(field.state.meta.errors)}
-                      />
+                      <Suspense fallback={null}>
+                        <EventTimezoneAutocomplete
+                          value={field.state.value}
+                          onBlur={field.handleBlur}
+                          onChange={field.handleChange}
+                          error={firstFormError(field.state.meta.errors)}
+                        />
+                      </Suspense>
                     )}
                   </form.Field>
                   <form.Field name="capacity">
@@ -476,6 +484,7 @@ export function AdminEventOccurrenceEditor({
                         label="Registration access"
                         data={[
                           { value: "open_entry", label: "Open entry" },
+                          { value: "paid_entry", label: "Paid entry" },
                           {
                             value: "required_unrestricted",
                             label: "Registration required · unrestricted",
@@ -494,11 +503,24 @@ export function AdminEventOccurrenceEditor({
                           field.handleChange(value);
                           if (value !== "required_restricted")
                             form.setFieldValue("domains", "");
-                          if (value === "open_entry") {
+                          if (
+                            value === "open_entry" ||
+                            value === "paid_entry"
+                          ) {
                             form.setFieldValue("approvalMode", "automatic");
                             form.setFieldValue("registrationOpensAt", "");
                             form.setFieldValue("registrationClosesAt", "");
                             form.setFieldValue("coordinatorLockAt", "");
+                          }
+                          if (value === "paid_entry") {
+                            form.setFieldValue("priceCents", 10_000);
+                          } else {
+                            form.setFieldValue("priceCents", null);
+                            form.setFieldValue("salePriceCents", null);
+                            form.setFieldValue("bulkPricing", {
+                              enabled: false,
+                              tiers: [],
+                            });
                           }
                         }}
                         error={firstFormError(field.state.meta.errors)}
@@ -510,7 +532,8 @@ export function AdminEventOccurrenceEditor({
                     selector={(state) => state.values.registrationMode}
                   >
                     {(registrationMode) =>
-                      registrationMode === "open_entry" ? null : (
+                      registrationMode === "open_entry" ||
+                      registrationMode === "paid_entry" ? null : (
                         <form.Field name="approvalMode">
                           {(field) => (
                             <MantineNativeSelect
@@ -567,7 +590,8 @@ export function AdminEventOccurrenceEditor({
                       selector={(state) => state.values.registrationMode}
                     >
                       {(registrationMode) =>
-                        registrationMode === "open_entry" ? null : (
+                        registrationMode === "open_entry" ||
+                        registrationMode === "paid_entry" ? null : (
                           <MantineNativeSelect
                             label="Registration-window policy"
                             value={registrationWindowPolicy}
@@ -626,7 +650,8 @@ export function AdminEventOccurrenceEditor({
                   selector={(state) => state.values.registrationMode}
                 >
                   {(registrationMode) =>
-                    registrationMode === "open_entry" ? null : (
+                    registrationMode === "open_entry" ||
+                    registrationMode === "paid_entry" ? null : (
                       <div className={classes.registrationTimeline}>
                         <Text fw={700}>Registration timetable</Text>
                         <div className={classes.scheduleGrid}>
@@ -660,6 +685,60 @@ export function AdminEventOccurrenceEditor({
                         </div>
                       </div>
                     )
+                  }
+                </form.Subscribe>
+                <Group gap="md">
+                  <form.Field name="listInStore">
+                    {(field) => (
+                      <MantineCheckbox
+                        label="List in public catalogue"
+                        checked={field.state.value}
+                        onChange={field.handleChange}
+                      />
+                    )}
+                  </form.Field>
+                  <form.Field name="featured">
+                    {(field) => (
+                      <MantineCheckbox
+                        label="Featured"
+                        checked={field.state.value}
+                        onChange={field.handleChange}
+                      />
+                    )}
+                  </form.Field>
+                </Group>
+                <form.Subscribe
+                  selector={(state) => ({
+                    registrationMode: state.values.registrationMode,
+                    priceCents: state.values.priceCents,
+                    salePriceCents: state.values.salePriceCents,
+                    bulkPricing: state.values.bulkPricing,
+                  })}
+                >
+                  {({
+                    registrationMode,
+                    priceCents,
+                    salePriceCents,
+                    bulkPricing,
+                  }) =>
+                    registrationMode === "paid_entry" ? (
+                      <Suspense fallback={null}>
+                        <AdminPaidEventPricingEditor
+                          priceCents={priceCents}
+                          salePriceCents={salePriceCents}
+                          bulkPricing={bulkPricing}
+                          onPriceChange={(value) => {
+                            form.setFieldValue("priceCents", value);
+                          }}
+                          onSalePriceChange={(value) => {
+                            form.setFieldValue("salePriceCents", value);
+                          }}
+                          onBulkPricingChange={(value) => {
+                            form.setFieldValue("bulkPricing", value);
+                          }}
+                        />
+                      </Suspense>
+                    ) : null
                   }
                 </form.Subscribe>
               </Stack>

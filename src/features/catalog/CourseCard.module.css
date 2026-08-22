@@ -1,5 +1,6 @@
 .card {
   display: flex;
+  overflow: hidden;
   height: 100%;
   flex-direction: column;
   border-color: var(--mantine-color-gray-3);
@@ -8,13 +9,57 @@
     box-shadow 160ms ease;
 }
 
+.imageLink {
+  display: block;
+  margin: calc(var(--mantine-spacing-md) * -1)
+    calc(var(--mantine-spacing-md) * -1) 0;
+}
+
+.image {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  transition: transform 220ms ease;
+}
+
+.card:hover .image {
+  transform: scale(1.015);
+}
+
 .card:hover {
   transform: translateY(-2px);
   box-shadow: var(--mantine-shadow-md);
 }
 
+.card:focus-within {
+  border-color: var(--mantine-color-indigo-4);
+  box-shadow: 0 0 0 0.2rem var(--mantine-color-indigo-1);
+}
+
+.titleLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.titleLink h2,
+.titleLink h3 {
+  font-size: clamp(1.25rem, 2vw, 1.5rem);
+  letter-spacing: -0.025em;
+  line-height: 1.18;
+}
+
+.titleLink:hover {
+  color: var(--mantine-color-indigo-8);
+}
+
 .summary {
   flex: 1;
+}
+
+.durationIcon {
+  color: var(--mantine-color-indigo-7);
+  font-weight: 800;
 }
 
 .price {
@@ -23,4 +68,16 @@
 
 .link {
   text-decoration: none;
+}
+
+@media (max-width: 30em) {
+  .footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .link,
+  .link > * {
+    width: 100%;
+  }
 }

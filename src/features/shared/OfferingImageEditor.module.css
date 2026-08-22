@@ -1,0 +1,11 @@
+.layout {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+}
+
+@media (min-width: 48em) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: end;
+  }
+}

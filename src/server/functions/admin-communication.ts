@@ -47,6 +47,9 @@ export const previewAdminCommunication = createServerFn({ method: "POST" })
         : {}),
       ...(data.subject ? { subject: data.subject } : {}),
       ...(data.textBody ? { textBody: data.textBody } : {}),
+      ...(data.offeringTitle ? { offeringTitle: data.offeringTitle } : {}),
+      ...(data.sectionTitle ? { sectionTitle: data.sectionTitle } : {}),
+      ...(data.sessionTitle ? { sessionTitle: data.sessionTitle } : {}),
     });
     return preview
       ? { status: "ready", data: preview }
@@ -62,35 +65,16 @@ export const mutateAdminCommunication = createServerFn({
     if (request.status !== "ready") return request;
     const communication =
       await import("#/server/admin/admin-communication.server");
-    let outcome;
-    if (data.action === "save_course") {
-      const { communicationId, ...plan } = data.payload;
-      outcome = await communication.saveCourseCommunicationPlan(
-        { ...plan, ...(communicationId ? { communicationId } : {}) },
-        request.user,
-      );
-    } else if (data.action === "save_event_template") {
-      const { communicationId, ...plan } = data.payload;
-      outcome = await communication.saveEventTemplateCommunicationPlan(
-        { ...plan, ...(communicationId ? { communicationId } : {}) },
-        request.user,
-      );
-    } else if (data.action === "delete") {
-      outcome = await communication.deleteCommunicationPlan(
-        data.payload,
-        request.user,
-      );
-    } else if (data.action === "override_occurrence") {
-      outcome = await communication.overrideOccurrenceCommunication(
-        data.payload,
-        request.user,
-      );
-    } else {
-      outcome = await communication.resetOccurrenceCommunication(
-        data.payload,
-        request.user,
-      );
-    }
+    const outcome =
+      data.action === "override_occurrence"
+        ? await communication.overrideOccurrenceCommunication(
+            data.payload,
+            request.user,
+          )
+        : await communication.resetOccurrenceCommunication(
+            data.payload,
+            request.user,
+          );
     if (outcome === "not-found") return { status: "not-found" };
     if (outcome === "conflict")
       return { status: "conflict", reason: "invalid_plan" };

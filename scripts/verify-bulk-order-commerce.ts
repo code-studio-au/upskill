@@ -105,6 +105,7 @@ function session(
     orderKind,
     userId: ids.user,
     courseVersionId: ids.version,
+    eventOccurrenceId: null,
     clientReferenceId: orderId,
     amountTotal: total,
     currency: "aud",

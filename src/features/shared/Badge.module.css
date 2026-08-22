@@ -5,12 +5,15 @@
   border-radius: 999px;
   color: var(--mantine-color-indigo-8);
   display: inline-flex;
-  font-size: var(--mantine-font-size-xs);
+  min-height: 1.5rem;
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
   font-weight: 700;
   gap: 0.35rem;
-  line-height: 1;
-  padding: 0.35rem 0.625rem;
+  line-height: 1.1;
+  padding: 0.25rem 0.5rem;
   text-transform: uppercase;
+  vertical-align: middle;
   white-space: nowrap;
 }
 

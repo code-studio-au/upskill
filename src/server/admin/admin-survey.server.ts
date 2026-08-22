@@ -133,13 +133,12 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
       id: survey.id,
       title: survey.title,
       usage: survey.surveyUsage === "onboarding" ? "onboarding" : "learning",
-      latestVersion: surveyVersions[0]?.version ?? 0,
       draftVersion:
         surveyVersions.find((version) => version.publishedAt === null)
           ?.version ?? null,
-      publishedVersions: surveyVersions.filter(
-        (version) => version.publishedAt !== null,
-      ).length,
+      publishedVersion:
+        surveyVersions.find((version) => version.publishedAt !== null)
+          ?.version ?? null,
       versions: surveyVersions.map((version) => ({
         id: version.id,
         version: version.version,

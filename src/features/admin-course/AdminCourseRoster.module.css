@@ -3,19 +3,15 @@
   gap: var(--mantine-spacing-md);
 }
 
-.header,
-.cardHeader {
-  align-items: flex-start;
+.header {
   display: flex;
-  gap: var(--mantine-spacing-md);
+  align-items: center;
   justify-content: space-between;
+  gap: var(--mantine-spacing-md);
 }
 
 .heading,
 .formHeading,
-.learnerName,
-.email,
-.details,
 .empty {
   margin: 0;
 }
@@ -31,137 +27,82 @@
 }
 
 .enrollmentForm {
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-lg);
   background: var(--mantine-color-gray-0);
-  border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-lg);
-  padding: var(--mantine-spacing-lg);
 }
 
-.formFields {
+.formFields,
+.searchForm {
   display: grid;
   gap: var(--mantine-spacing-md);
 }
 
-.learnerName {
-  font-size: var(--mantine-h3-font-size);
-  line-height: var(--mantine-h3-line-height);
+.searchForm {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
 }
 
-.email,
-.details {
-  color: var(--mantine-color-dimmed);
-}
-
-.rosterGrid {
-  display: grid;
-  gap: var(--mantine-spacing-md);
-}
-
-.rosterCard,
-.empty {
-  border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-lg);
-  padding: var(--mantine-spacing-lg);
-}
-
-.rosterCard {
-  display: grid;
-  gap: var(--mantine-spacing-md);
-}
-
-.identity {
-  min-width: 0;
-}
-
-.email {
-  font-size: var(--mantine-font-size-sm);
-  overflow-wrap: anywhere;
-}
-
-.details {
-  font-size: var(--mantine-font-size-sm);
-}
-
-.count,
-.state {
-  background: var(--mantine-color-blue-0);
+.count {
+  padding: 0.35rem 0.625rem;
   border-radius: 999px;
   color: var(--mantine-color-blue-8);
+  background: var(--mantine-color-blue-0);
   font-size: var(--mantine-font-size-xs);
   font-weight: 700;
-  padding: 0.35rem 0.625rem;
   text-transform: uppercase;
   white-space: nowrap;
 }
 
-.state[data-state="completed"] {
-  background: var(--mantine-color-green-0);
-  color: var(--mantine-color-green-8);
-}
-
-.state[data-state="expired"] {
-  background: var(--mantine-color-orange-0);
-  color: var(--mantine-color-orange-8);
-}
-
-.state[data-state="removed"] {
-  background: var(--mantine-color-gray-1);
-  color: var(--mantine-color-gray-7);
-}
-
-.actionLink {
-  background: var(--mantine-color-indigo-light);
-  border-radius: var(--mantine-radius-sm);
-  color: var(--mantine-color-indigo-light-color);
-  font-weight: 600;
-  min-height: 2.25rem;
-  padding: 0.5rem 0.75rem;
-  text-align: center;
+.learnerLink {
+  color: var(--mantine-color-indigo-7);
+  font-weight: 700;
   text-decoration: none;
 }
 
-.cardActions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--mantine-spacing-sm);
+.learnerLink:hover {
+  text-decoration: underline;
 }
 
-.cardActions .actionLink {
-  flex: 1 1 14rem;
-}
-
-.actionLink:focus-visible {
+.learnerLink:focus-visible {
   outline: 2px solid var(--mantine-color-indigo-6);
   outline-offset: 2px;
 }
 
-@media (max-width: 32em) {
-  .header,
-  .cardHeader {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .count,
-  .state {
-    width: fit-content;
-  }
-
-  .cardActions {
-    align-items: stretch;
-    flex-direction: column;
-  }
+.empty {
+  padding: var(--mantine-spacing-lg);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-lg);
 }
 
-@media (min-width: 42em) {
+.pagination {
+  padding-top: var(--mantine-spacing-xs);
+}
+
+@media (min-width: 42rem) {
   .formFields {
     grid-template-columns: minmax(0, 2fr) minmax(10rem, 1fr);
   }
 }
 
-@media (min-width: 56em) {
-  .rosterGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+@media (max-width: 36rem) {
+  .header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .searchForm {
+    grid-template-columns: 1fr;
+  }
+
+  .searchForm button,
+  .pagination button {
+    width: 100%;
+  }
+
+  .pagination {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

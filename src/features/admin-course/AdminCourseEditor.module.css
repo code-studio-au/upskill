@@ -1,20 +1,42 @@
-.twoColumns,
+.header {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.header > button {
+  justify-self: start;
+}
+
+.commandBar {
+  position: sticky;
+  z-index: 20;
+  top: 4.25rem;
+  display: grid;
+  grid-template-columns: minmax(14rem, 28rem) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: end;
+  background: color-mix(in srgb, var(--mantine-color-white) 96%, transparent);
+  backdrop-filter: blur(12px);
+  box-shadow: var(--mantine-shadow-xs);
+}
+
+.commandActions {
+  display: flex;
+  justify-content: flex-end;
+  padding-bottom: 0.05rem;
+}
+
+.versionPicker {
+  min-width: 0;
+}
+
 .threeColumns {
   display: grid;
   gap: var(--mantine-spacing-md);
 }
 
-.sectionFields {
+.pricingColumns {
   display: grid;
-  flex: 1;
-  gap: var(--mantine-spacing-sm);
-  min-width: min(100%, 20rem);
-}
-
-.item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
   gap: var(--mantine-spacing-md);
 }
 
@@ -28,19 +50,27 @@
   resize: vertical;
 }
 
-@media (max-width: 40em) {
-  .item {
-    align-items: stretch;
-    flex-direction: column;
+@media (max-width: 52rem) {
+  .commandBar {
+    position: static;
+    grid-template-columns: 1fr;
+  }
+
+  .commandActions {
+    justify-content: flex-start;
+  }
+}
+
+@media (max-width: 36rem) {
+  .commandActions > div,
+  .commandActions button {
+    width: 100%;
   }
 }
 
 @media (min-width: 48em) {
-  .twoColumns {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .threeColumns {
+  .threeColumns,
+  .pricingColumns {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

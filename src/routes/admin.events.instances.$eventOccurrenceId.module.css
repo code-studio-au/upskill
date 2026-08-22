@@ -1,29 +1,262 @@
+.pageHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.headerIdentity {
+  min-width: 0;
+}
+
+.headerActions {
+  flex: 0 0 auto;
+}
+
+.eventMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.4rem;
+  color: var(--mantine-color-gray-5);
+}
+
 .metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.metric {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+}
+
+.metric + .metric {
+  border-inline-start: 1px solid var(--mantine-color-gray-2);
 }
 
 .metricValue {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 800;
   line-height: 1;
 }
 
-.cards {
+.overviewGrid,
+.regionGrid,
+.sessionGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1rem;
+  gap: 0.875rem;
 }
 
-@media (max-width: 48rem) {
-  .metrics,
-  .cards {
-    grid-template-columns: 1fr;
-  }
+.regionGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
+
+.fullWidthCard {
+  grid-column: 1 / -1;
+}
+
+.detailList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.875rem;
+  margin: 0;
+}
+
+.detailList div {
+  min-width: 0;
+}
+
+.detailList dt {
+  color: var(--mantine-color-gray-6);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 650;
+}
+
+.detailList dd {
+  margin: 0.2rem 0 0;
+  overflow-wrap: anywhere;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+.guestAccessLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(15rem, 0.7fr) auto;
+  gap: 1rem;
+  align-items: end;
+}
+
+.guestActions {
+  flex-wrap: nowrap;
+}
+
 .guestLink {
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: var(--mantine-font-size-sm);
+}
+
+.managementPanel {
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-white);
+}
+
+.managementPanel summary {
+  padding: 0.875rem 1rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.managementPanel summary:hover {
+  background: var(--mantine-color-gray-0);
+}
+
+.managementActions,
+.historyList {
+  padding: 0 1rem 1rem;
+}
+
+.teamBar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+}
+
+.peopleList {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.person {
+  min-width: 12rem;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.attendanceList {
+  display: grid;
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.attendanceRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(9rem, 11rem);
+  gap: 0.75rem;
+  align-items: center;
+  padding-block: 0.75rem;
+}
+
+.attendanceRow + .attendanceRow {
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.attendeeIdentity {
+  display: grid;
+  min-width: 0;
+  gap: 0.15rem;
+  justify-items: start;
+}
+
+@media (max-width: 70rem) {
+  .regionGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .guestAccessLayout {
+    grid-template-columns: minmax(0, 1fr) minmax(15rem, 1fr);
+  }
+
+  .guestActions {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 54rem) {
+  .pageHeader {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric:nth-child(3) {
+    border-inline-start: 0;
+    border-top: 1px solid var(--mantine-color-gray-2);
+  }
+
+  .metric:nth-child(4) {
+    border-top: 1px solid var(--mantine-color-gray-2);
+  }
+
+  .overviewGrid,
+  .sessionGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .teamBar {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 40rem) {
+  .workspaceTabs.workspaceTabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
+  }
+
+  .workspaceTabs > button {
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .workspaceTabs > button:last-child:nth-child(odd) {
+    grid-column: 1 / -1;
+  }
+
+  .headerActions,
+  .headerActions > * {
+    width: 100%;
+  }
+
+  .eventMeta {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .eventMeta > span {
+    display: none;
+  }
+
+  .regionGrid,
+  .guestAccessLayout,
+  .detailList {
+    grid-template-columns: 1fr;
+  }
+
+  .guestActions {
+    grid-column: auto;
+    flex-wrap: wrap;
+  }
+
+  .attendanceRow {
+    grid-template-columns: 1fr;
+  }
 }

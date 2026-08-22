@@ -5,9 +5,21 @@ import type {
   CourseContent,
   CourseDetail,
   CourseSummary,
+  EventDetail,
+  EventSummary,
 } from "#/features/catalog/catalog.schema";
-import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import {
+  courseContentSchema,
+  bulkPricingSchema,
+} from "#/features/catalog/catalog.schema";
+import { certificateAccreditationsSchema } from "#/features/catalog/accreditation";
+import { offeringImageSchema } from "#/features/shared/offering-image";
+import { offeringTopicSchema } from "#/features/shared/offering-topic";
 import { getDatabase } from "#/server/db/database.server";
+import {
+  findReservedEventPlaces,
+  findReservedEventPlacesByOccurrence,
+} from "#/server/checkout/event-commerce-capacity.server";
 
 interface PublishedCourse {
   slug: string;
@@ -25,6 +37,7 @@ function toSummary(course: PublishedCourse): CourseSummary {
     priceCents: course.content.priceCents,
     salePriceCents: course.content.salePriceCents,
     featured: course.content.featured,
+    coverImage: course.content.coverImage,
   };
 }
 
@@ -104,18 +117,32 @@ async function listLatestPublishedCourses(): Promise<Array<PublishedCourse>> {
   return publishedCourses;
 }
 
-export async function findCourses(
-  search: CatalogSearch,
-): Promise<Array<CourseSummary>> {
+export async function findCourses(search: CatalogSearch): Promise<{
+  courses: Array<CourseSummary>;
+  page: number;
+  pageSize: number;
+  total: number;
+  topics: Array<string>;
+}> {
   const query = search.q.toLocaleLowerCase("en-AU");
   const pageSize = 12;
   const offset = (search.page - 1) * pageSize;
   const courses = await listLatestPublishedCourses();
-
-  return courses
+  const topics = [
+    ...new Map(
+      courses.map((course) => [
+        course.content.topic.toLocaleLowerCase("en-AU"),
+        course.content.topic,
+      ]),
+    ).values(),
+  ].sort((left, right) => left.localeCompare(right, "en-AU"));
+  const matchingCourses = courses
     .filter((course) => {
       const topicMatches =
-        search.topic === "all" || course.content.topic === search.topic;
+        search.topic === "all" ||
+        course.content.topic.localeCompare(search.topic, "en-AU", {
+          sensitivity: "base",
+        }) === 0;
       const textMatches =
         query.length === 0 ||
         `${course.content.title} ${course.content.summary}`
@@ -125,9 +152,15 @@ export async function findCourses(
     })
     .sort((left, right) =>
       left.content.title.localeCompare(right.content.title, "en-AU"),
-    )
-    .slice(offset, offset + pageSize)
-    .map(toSummary);
+    );
+
+  return {
+    courses: matchingCourses.slice(offset, offset + pageSize).map(toSummary),
+    page: search.page,
+    pageSize,
+    total: matchingCourses.length,
+    topics,
+  };
 }
 
 export async function findFeaturedCourses(): Promise<Array<CourseSummary>> {
@@ -156,4 +189,201 @@ export async function findCourseBySlug(
   if (!row) return null;
   const course = parsePublishedCourse(row);
   return course.content.listInStore ? toDetail(course) : null;
+}
+
+type PublishedEventRow = {
+  id: string;
+  slug: string;
+  title: string;
+  summary: string;
+  description: string;
+  topic: string;
+  coverImage: unknown;
+  hasCompletionCertificate: boolean;
+  accreditations: unknown;
+  deliveryMode: EventSummary["deliveryMode"];
+  registrationMode: EventSummary["registrationMode"];
+  startsAt: Date;
+  endsAt: Date;
+  timezone: string;
+  priceCents: number | null;
+  salePriceCents: number | null;
+  currency: "AUD";
+  bulkPricing: unknown;
+  featured: boolean;
+  capacity: number;
+  confirmedCount: number;
+  venueName: string | null;
+  venueAddress: string | null;
+  publicAccessReference: string | null;
+};
+
+function toEventSummary(
+  event: PublishedEventRow,
+  reservedPlaces: number,
+): EventSummary {
+  return {
+    slug: event.slug,
+    title: event.title,
+    summary: event.summary,
+    topic: offeringTopicSchema.parse(event.topic),
+    coverImage: offeringImageSchema.parse(event.coverImage),
+    deliveryMode: event.deliveryMode,
+    registrationMode: event.registrationMode,
+    startsAt: event.startsAt.toISOString(),
+    endsAt: event.endsAt.toISOString(),
+    timezone: event.timezone,
+    priceCents: event.priceCents,
+    salePriceCents: event.salePriceCents,
+    currency: event.currency,
+    featured: event.featured,
+    remainingPlaces: Math.max(
+      0,
+      event.capacity - event.confirmedCount - reservedPlaces,
+    ),
+  };
+}
+
+function publishedEventQuery() {
+  return getDatabase()
+    .selectFrom("event_occurrence as occurrence")
+    .innerJoin(
+      "event_template_version as version",
+      "version.id",
+      "occurrence.eventTemplateVersionId",
+    )
+    .leftJoin("event_guest_access as guestAccess", (join) =>
+      join
+        .onRef("guestAccess.eventOccurrenceId", "=", "occurrence.id")
+        .on("guestAccess.revokedAt", "is", null),
+    )
+    .select([
+      "occurrence.id",
+      "occurrence.slug",
+      "occurrence.title",
+      "occurrence.deliveryMode",
+      "occurrence.registrationMode",
+      "occurrence.startsAt",
+      "occurrence.endsAt",
+      "occurrence.timezone",
+      "occurrence.priceCents",
+      "occurrence.salePriceCents",
+      "occurrence.currency",
+      "occurrence.bulkPricing",
+      "occurrence.featured",
+      "occurrence.capacity",
+      "occurrence.confirmedCount",
+      "occurrence.venueName",
+      "occurrence.venueAddress",
+      "version.topic",
+      "version.summary",
+      "version.description",
+      "version.coverImage",
+      "version.hasCompletionCertificate",
+      "version.accreditations",
+      "guestAccess.publicReference as publicAccessReference",
+    ])
+    .where("occurrence.status", "=", "published")
+    .where("occurrence.listInStore", "=", true)
+    .where("occurrence.startsAt", ">", new Date())
+    .where("version.publishedAt", "is not", null);
+}
+
+export async function findEvents(search: CatalogSearch): Promise<{
+  events: Array<EventSummary>;
+  page: number;
+  pageSize: number;
+  total: number;
+  topics: Array<string>;
+}> {
+  const rows = (await publishedEventQuery()
+    .orderBy("occurrence.startsAt")
+    .execute()) as Array<PublishedEventRow>;
+  const now = new Date();
+  const reservedPlaces = await findReservedEventPlacesByOccurrence(
+    getDatabase(),
+    rows.map((event) => event.id),
+    now,
+  );
+  const query = search.q.toLocaleLowerCase("en-AU");
+  const topics = [
+    ...new Map(
+      rows.map((event) => [
+        event.topic.toLocaleLowerCase("en-AU"),
+        event.topic,
+      ]),
+    ).values(),
+  ].sort((left, right) => left.localeCompare(right, "en-AU"));
+  const matches = rows.filter((event) => {
+    const topicMatches =
+      search.topic === "all" ||
+      event.topic.localeCompare(search.topic, "en-AU", {
+        sensitivity: "base",
+      }) === 0;
+    const textMatches =
+      query.length === 0 ||
+      `${event.title} ${event.summary}`
+        .toLocaleLowerCase("en-AU")
+        .includes(query);
+    return topicMatches && textMatches;
+  });
+  const pageSize = 12;
+  const offset = (search.page - 1) * pageSize;
+  return {
+    events: matches
+      .slice(offset, offset + pageSize)
+      .map((event) => toEventSummary(event, reservedPlaces.get(event.id) ?? 0)),
+    page: search.page,
+    pageSize,
+    total: matches.length,
+    topics,
+  };
+}
+
+export async function findEventBySlug(
+  slug: string,
+): Promise<EventDetail | null> {
+  const row = (await publishedEventQuery()
+    .where("occurrence.slug", "=", slug)
+    .executeTakeFirst()) as PublishedEventRow | undefined;
+  if (!row) return null;
+  const database = getDatabase();
+  const [sessions, regions, reservedPlaces] = await Promise.all([
+    database
+      .selectFrom("event_session")
+      .select(["title", "startsAt", "endsAt", "venueName"])
+      .where("eventOccurrenceId", "=", row.id)
+      .orderBy("position")
+      .execute(),
+    database
+      .selectFrom("event_occurrence_region as occurrenceRegion")
+      .innerJoin(
+        "coordination_region as region",
+        "region.id",
+        "occurrenceRegion.regionId",
+      )
+      .leftJoin("coordination_region as parent", "parent.id", "region.parentId")
+      .select(["region.code", "region.name", "parent.name as groupName"])
+      .where("occurrenceRegion.eventOccurrenceId", "=", row.id)
+      .where("occurrenceRegion.retiredAt", "is", null)
+      .orderBy("occurrenceRegion.position")
+      .execute(),
+    findReservedEventPlaces(database, row.id, new Date()),
+  ]);
+  return {
+    ...toEventSummary(row, reservedPlaces),
+    description: row.description,
+    venueName: row.venueName,
+    venueAddress: row.venueAddress,
+    hasCompletionCertificate: row.hasCompletionCertificate,
+    accreditations: certificateAccreditationsSchema.parse(row.accreditations),
+    bulkPricing: bulkPricingSchema.parse(row.bulkPricing),
+    publicAccessReference: row.publicAccessReference,
+    regions,
+    sessions: sessions.map((session) => ({
+      ...session,
+      startsAt: session.startsAt.toISOString(),
+      endsAt: session.endsAt.toISOString(),
+    })),
+  };
 }

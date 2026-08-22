@@ -112,6 +112,7 @@ function sessionFor(
     orderKind: "individual_purchase",
     userId: ids.user,
     courseVersionId: ids.version,
+    eventOccurrenceId: null,
     clientReferenceId: orderId,
     amountTotal: 12_900,
     currency: "aud",
@@ -291,9 +292,28 @@ try {
   assert.deepEqual(await findCheckoutStatus(`cs_test_${ids.paidOrder}`, user), {
     status: "paid",
     kind: "individual_purchase",
-    courseTitle: "Verified Checkout course",
-    courseSlug: "verify-checkout-course",
+    offeringType: "course",
+    offeringTitle: "Verified Checkout course",
+    offeringSlug: "verify-checkout-course",
+    reviewRequired: false,
   });
+  await database
+    .insertInto("outbox_event")
+    .values({
+      id: `${ids.paidOrder}_review_required`,
+      topic: "order.review_required",
+      aggregateId: ids.paidOrder,
+      payload: { orderId: ids.paidOrder, reason: "verification" },
+      availableAt: new Date(),
+      processedAt: null,
+      createdAt: new Date(),
+    })
+    .execute();
+  assert.equal(
+    (await findCheckoutStatus(`cs_test_${ids.paidOrder}`, user))
+      ?.reviewRequired,
+    true,
+  );
   assert.equal(await findCheckoutStatus("cs_test_unknown", user), null);
 
   console.log(

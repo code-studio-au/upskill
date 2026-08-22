@@ -13,8 +13,12 @@ const ids = {
   firstLearner: "verify_admin_access_learner_a",
   secondLearner: "verify_admin_access_learner_b",
   thirdLearner: "verify_admin_access_learner_c",
+  eventLearner: "verify_admin_access_event_learner",
   course: "verify_admin_access_course",
   version: "verify_admin_access_version",
+  eventTemplate: "verify_admin_access_event_template",
+  eventTemplateVersion: "verify_admin_access_event_version",
+  eventOccurrence: "verify_admin_access_event_occurrence",
 };
 const administrator: AuthenticatedUser = {
   id: ids.administrator,
@@ -40,7 +44,18 @@ const thirdLearner: AuthenticatedUser = {
   email: "access-grant-c@third-domain.example.net",
   emailVerified: true,
 };
-const learnerIds = [ids.firstLearner, ids.secondLearner, ids.thirdLearner];
+const eventLearner: AuthenticatedUser = {
+  id: ids.eventLearner,
+  name: "Access Grant Event Learner",
+  email: "access-grant-event@verified.example.com",
+  emailVerified: true,
+};
+const learnerIds = [
+  ids.firstLearner,
+  ids.secondLearner,
+  ids.thirdLearner,
+  ids.eventLearner,
+];
 const organizationName = "Access Grant Verification Organisation";
 const database = new Kysely<Database>({
   dialect: new PostgresDialect({
@@ -64,6 +79,17 @@ async function cleanup(): Promise<void> {
     .where("userId", "in", learnerIds)
     .execute();
   const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+  const eventRedemptions = await database
+    .selectFrom("event_access_redemption")
+    .select(["id", "eventRegistrationId", "eventParticipationId"])
+    .where("userId", "in", learnerIds)
+    .execute();
+  const eventRegistrationIds = eventRedemptions.map(
+    (redemption) => redemption.eventRegistrationId,
+  );
+  const eventParticipationIds = eventRedemptions.map(
+    (redemption) => redemption.eventParticipationId,
+  );
   if (enrollmentIds.length > 0)
     await database
       .deleteFrom("entitlement")
@@ -79,6 +105,7 @@ async function cleanup(): Promise<void> {
       .where((expression) =>
         expression.or([
           expression("actorUserId", "=", ids.administrator),
+          expression("actorUserId", "in", learnerIds),
           expression("subjectId", "in", [...enrollmentIds, "none"]),
         ]),
       )
@@ -88,6 +115,28 @@ async function cleanup(): Promise<void> {
     .deleteFrom("enrollment")
     .where("userId", "in", learnerIds)
     .execute();
+  if (eventRedemptions.length > 0) {
+    await database
+      .deleteFrom("event_access_redemption")
+      .where(
+        "id",
+        "in",
+        eventRedemptions.map((redemption) => redemption.id),
+      )
+      .execute();
+    await database
+      .deleteFrom("event_registration_transition")
+      .where("eventRegistrationId", "in", eventRegistrationIds)
+      .execute();
+    await database
+      .deleteFrom("event_participation")
+      .where("id", "in", eventParticipationIds)
+      .execute();
+    await database
+      .deleteFrom("event_registration")
+      .where("id", "in", eventRegistrationIds)
+      .execute();
+  }
   if (grantIds.length > 0) {
     await database
       .deleteFrom("access_grant_owner_assignment")
@@ -111,6 +160,18 @@ async function cleanup(): Promise<void> {
       .deleteFrom("organization")
       .where("id", "in", organizationIds)
       .execute();
+  await database
+    .deleteFrom("event_occurrence")
+    .where("id", "=", ids.eventOccurrence)
+    .execute();
+  await database
+    .deleteFrom("event_template_version")
+    .where("id", "=", ids.eventTemplateVersion)
+    .execute();
+  await database
+    .deleteFrom("event_template")
+    .where("id", "=", ids.eventTemplate)
+    .execute();
   await database
     .deleteFrom("course_version")
     .where("id", "=", ids.version)
@@ -149,16 +210,20 @@ try {
   await database
     .insertInto("user")
     .values(
-      [administrator, firstLearner, secondLearner, thirdLearner].map(
-        (user) => ({
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          emailVerified: user.emailVerified,
-          image: null,
-          stripeCustomerId: null,
-        }),
-      ),
+      [
+        administrator,
+        firstLearner,
+        secondLearner,
+        thirdLearner,
+        eventLearner,
+      ].map((user) => ({
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        emailVerified: user.emailVerified,
+        image: null,
+        stripeCustomerId: null,
+      })),
     )
     .execute();
   await database
@@ -184,9 +249,75 @@ try {
       publishedAt: new Date(),
     })
     .execute();
+  const now = new Date();
+  await database
+    .insertInto("event_template")
+    .values({
+      id: ids.eventTemplate,
+      title: "Access grant verification event",
+      status: "published",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("event_template_version")
+    .values({
+      id: ids.eventTemplateVersion,
+      eventTemplateId: ids.eventTemplate,
+      version: 1,
+      topic: "clinical-practice",
+      summary: "Verifies event enterprise access.",
+      description: "A published event used by the access-grant verifier.",
+      coverImage: null,
+      hasCompletionCertificate: true,
+      accreditations: JSON.stringify([]),
+      publishedAt: now,
+      createdAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("event_occurrence")
+    .values({
+      id: ids.eventOccurrence,
+      eventTemplateVersionId: ids.eventTemplateVersion,
+      title: "Access grant verification event — Sydney",
+      slug: "verify-admin-access-event",
+      status: "published",
+      deliveryMode: "virtual",
+      registrationMode: "required_unrestricted",
+      approvalMode: "automatic",
+      timezone: "Australia/Sydney",
+      localStartsAt: "2027-11-15T09:00:00",
+      localEndsAt: "2027-11-15T17:00:00",
+      localRegistrationOpensAt: null,
+      localRegistrationClosesAt: null,
+      localCoordinatorLockAt: null,
+      startsAt: new Date("2027-11-14T22:00:00.000Z"),
+      endsAt: new Date("2027-11-15T06:00:00.000Z"),
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+      coordinatorLockAt: null,
+      capacity: 20,
+      priceCents: null,
+      salePriceCents: null,
+      currency: "AUD",
+      bulkPricing: JSON.stringify({ enabled: false, tiers: [] }),
+      listInStore: true,
+      featured: false,
+      venueName: null,
+      venueAddress: null,
+      virtualJoinUrl: "https://meet.example.test/access-grant-verification",
+      publishedAt: now,
+      createdByUserId: administrator.id,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute();
 
   const {
     createAdminAccessGrant,
+    findAdminAccessGrantRedemptions,
     findAdminAccessGrants,
     revealAdminAccessGrantCode,
     revokeAdminAccessGrant,
@@ -197,7 +328,8 @@ try {
       label: "Verification cohort",
       organizationName,
       accessCode: "verify organisation 2027",
-      courseVersionId: ids.version,
+      targetType: "course",
+      targetId: ids.version,
       quantity: 2,
       enrollmentDurationDays: 60,
       expiresOn: "",
@@ -220,7 +352,8 @@ try {
       label: "Independent code with the same memorable base",
       organizationName,
       accessCode: "verify organisation 2027",
-      courseVersionId: ids.version,
+      targetType: "course",
+      targetId: ids.version,
       quantity: 1,
       enrollmentDurationDays: 60,
       expiresOn: "",
@@ -280,9 +413,7 @@ try {
     },
   );
   const directory = await findAdminAccessGrants();
-  assert.ok(
-    directory.targets.some((target) => target.courseVersionId === ids.version),
-  );
+  assert.ok(directory.targets.some((target) => target.id === ids.version));
   assert.deepEqual(
     directory.grants.find((grant) => grant.id === created.accessGrantId)
       ?.domains,
@@ -347,6 +478,15 @@ try {
       .status,
     "enrolled",
   );
+  const redemptionPage = await findAdminAccessGrantRedemptions({
+    accessGrantId: created.accessGrantId,
+    page: 1,
+  });
+  assert.equal(redemptionPage?.total, 2);
+  assert.deepEqual(
+    redemptionPage.rows.map((row) => row.learnerEmail).sort(),
+    [firstLearner.email, secondLearner.email].sort(),
+  );
   const {
     exportAccessOwnerCodes,
     findAccessOwnerDashboard,
@@ -409,7 +549,8 @@ try {
       label: "Third-party single-use resale codes",
       organizationName,
       accessCode: "verify reseller 2027",
-      courseVersionId: ids.version,
+      targetType: "course",
+      targetId: ids.version,
       quantity: 2,
       enrollmentDurationDays: 60,
       expiresOn: "",
@@ -484,6 +625,105 @@ try {
     await revealAccessOwnerCode(batch.accessGrantId, administrator),
     { status: "not-found" },
   );
+
+  const eventGrant = await createAdminAccessGrant(
+    {
+      label: "Event enterprise access",
+      organizationName,
+      accessCode: "verify event enterprise",
+      targetType: "event",
+      targetId: ids.eventOccurrence,
+      quantity: 2,
+      enrollmentDurationDays: 365,
+      expiresOn: "",
+      domains: "",
+      kind: "enterprise_contract",
+      fulfillmentMode: "shared_code",
+      customerExtendable: true,
+      ownerEmails: administrator.email,
+    },
+    administrator,
+  );
+  assert.equal(eventGrant.status, "created");
+  assert.ok(eventGrant.accessCode);
+  const { findEventBySlug } = await import("#/server/catalog/catalog.server");
+  assert.equal(
+    (await findEventBySlug("verify-admin-access-event"))?.remainingPlaces,
+    18,
+  );
+  assert.deepEqual(
+    await createAdminAccessGrant(
+      {
+        label: "Event capacity overflow",
+        organizationName,
+        accessCode: "verify event capacity overflow",
+        targetType: "event",
+        targetId: ids.eventOccurrence,
+        quantity: 19,
+        enrollmentDurationDays: 365,
+        expiresOn: "",
+        domains: "",
+        kind: "enterprise_contract",
+        fulfillmentMode: "shared_code",
+        customerExtendable: false,
+        ownerEmails: administrator.email,
+      },
+      administrator,
+    ),
+    { status: "conflict", reason: "event_capacity_unavailable" },
+  );
+  const { previewAccessCode } =
+    await import("#/server/access/redeem-access-code.server");
+  assert.deepEqual(
+    await previewAccessCode(eventGrant.accessCode, eventLearner),
+    {
+      status: "ready",
+      offeringTitle: "Access grant verification event — Sydney",
+      offeringType: "event",
+      organizationName,
+      accessKind: "enterprise_contract",
+      noticeVersion: "access-owner-v1",
+    },
+  );
+  assert.deepEqual(
+    await redeemAccessCode(redemption(eventGrant.accessCode), eventLearner),
+    {
+      status: "enrolled",
+      offeringTitle: "Access grant verification event — Sydney",
+      offeringType: "event",
+    },
+  );
+  const eventRegistration = await database
+    .selectFrom("event_registration")
+    .select(["id", "status", "source", "eligibilitySource"])
+    .where("eventOccurrenceId", "=", ids.eventOccurrence)
+    .where("userId", "=", eventLearner.id)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    {
+      status: eventRegistration.status,
+      source: eventRegistration.source,
+      eligibilitySource: eventRegistration.eligibilitySource,
+    },
+    {
+      status: "selected",
+      source: "access_code",
+      eligibilitySource: "access_code",
+    },
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_access_redemption")
+      .select("id")
+      .where("eventRegistrationId", "=", eventRegistration.id)
+      .executeTakeFirst(),
+  );
+  const eventRedemptionPage = await findAdminAccessGrantRedemptions({
+    accessGrantId: eventGrant.accessGrantId,
+    page: 1,
+  });
+  assert.equal(eventRedemptionPage?.total, 1);
+  assert.equal(eventRedemptionPage.rows[0]?.learnerEmail, eventLearner.email);
   assert.ok(
     await database
       .selectFrom("enrollment")
@@ -501,7 +741,7 @@ try {
     6,
   );
   console.log(
-    "Verified encrypted shared and single-use codes, scoped Access Owner assignments, audited batch export, consent-bounded learner progress, capacity extension and non-destructive revocation",
+    "Verified encrypted course and event enterprise codes, shared and single-use fulfilment, Access Owner assignments, consent-bounded progress, capacity extension and non-destructive revocation",
   );
 } finally {
   await cleanup();

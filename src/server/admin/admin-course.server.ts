@@ -8,6 +8,8 @@ import {
   type AdminCourseDetail,
   type AdminCourseDraft,
   type AdminCourseItem,
+  type AdminCourseRosterDirectory,
+  type AdminCourseRosterSearch,
   type AdminCourseSummary,
 } from "#/features/admin-course/admin-course.schema";
 import {
@@ -19,8 +21,13 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { logServerEvent } from "#/server/logging/server-logger";
+import { findScheduleEmailAuthoringContext } from "#/server/admin/admin-communication.server";
 
-const ADMIN_COURSE_ROSTER_LIMIT = 100;
+const ADMIN_COURSE_ROSTER_PAGE_SIZE = 20;
+
+function searchPattern(query: string): string {
+  return `%${query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+}
 
 function isUniqueViolation(error: unknown): boolean {
   return (
@@ -35,7 +42,7 @@ function blankCourseContent(title: string): CourseContent {
     title,
     summary: "Course summary to be completed.",
     description: "Course description to be completed.",
-    topic: "leadership",
+    topic: "General",
     durationMinutes: 60,
     priceCents: 0,
     salePriceCents: null,
@@ -43,6 +50,7 @@ function blankCourseContent(title: string): CourseContent {
     currency: "AUD",
     featured: false,
     listInStore: false,
+    coverImage: null,
     hasCompletionCertificate: false,
     prerequisites: [],
     accreditations: [],
@@ -77,6 +85,7 @@ function contentFromDraft(draft: AdminCourseDraft): CourseContent {
     currency: "AUD",
     featured: draft.featured,
     listInStore: draft.listInStore,
+    coverImage: draft.coverImage,
     hasCompletionCertificate: draft.hasCompletionCertificate,
     prerequisites: draft.prerequisites,
     accreditations: draft.accreditations,
@@ -84,12 +93,18 @@ function contentFromDraft(draft: AdminCourseDraft): CourseContent {
     sections: draft.sections.map((section) => ({
       title: section.title,
       description: section.description,
-      items: section.items.map((item) => ({
-        title: item.title,
-        kind: item.kind,
-        required: item.required,
-        durationMinutes: item.durationMinutes,
-      })),
+      items: section.items.flatMap((item) =>
+        item.kind === "automated_email"
+          ? []
+          : [
+              {
+                title: item.title,
+                kind: item.kind,
+                required: item.required,
+                durationMinutes: item.durationMinutes,
+              },
+            ],
+      ),
     })),
   });
 }
@@ -137,32 +152,53 @@ async function loadDraftStructure(
   slug: string,
   content: CourseContent,
 ): Promise<AdminCourseDraft> {
-  const rows = await transaction
-    .selectFrom("course_version_section")
-    .leftJoin(
-      "course_version_item",
-      "course_version_item.sectionId",
-      "course_version_section.id",
-    )
-    .select([
-      "course_version_section.id as sectionId",
-      "course_version_section.title as sectionTitle",
-      "course_version_section.description as sectionDescription",
-      "course_version_section.position as sectionPosition",
-      "course_version_item.id as itemId",
-      "course_version_item.kind as itemKind",
-      "course_version_item.title as itemTitle",
-      "course_version_item.required as itemRequired",
-      "course_version_item.durationMinutes",
-      "course_version_item.position as itemPosition",
-      "course_version_item.learningActivityVersionId",
-    ])
-    .where("course_version_section.courseVersionId", "=", versionId)
-    .orderBy("course_version_section.position")
-    .orderBy("course_version_item.position")
-    .execute();
+  const [rows, communicationRows] = await Promise.all([
+    transaction
+      .selectFrom("course_version_section")
+      .leftJoin(
+        "course_version_item",
+        "course_version_item.sectionId",
+        "course_version_section.id",
+      )
+      .select([
+        "course_version_section.id as sectionId",
+        "course_version_section.title as sectionTitle",
+        "course_version_section.description as sectionDescription",
+        "course_version_section.position as sectionPosition",
+        "course_version_item.id as itemId",
+        "course_version_item.kind as itemKind",
+        "course_version_item.title as itemTitle",
+        "course_version_item.required as itemRequired",
+        "course_version_item.durationMinutes",
+        "course_version_item.position as itemPosition",
+        "course_version_item.learningActivityVersionId",
+      ])
+      .where("course_version_section.courseVersionId", "=", versionId)
+      .orderBy("course_version_section.position")
+      .orderBy("course_version_item.position")
+      .execute(),
+    transaction
+      .selectFrom("course_version_communication")
+      .select([
+        "id",
+        "sectionId",
+        "position",
+        "label",
+        "emailDesignVersionId",
+        "audience",
+        "trigger",
+        "offsetAmount",
+        "offsetUnit",
+        "subjectOverride",
+        "textBodyOverride",
+      ])
+      .where("courseVersionId", "=", versionId)
+      .orderBy("position")
+      .execute(),
+  ]);
 
   const sections = new Map<string, AdminCourseDraft["sections"][number]>();
+  const itemPositions = new Map<string, number>();
   for (const row of rows) {
     let section = sections.get(row.sectionId);
     if (!section) {
@@ -179,7 +215,7 @@ async function loadDraftStructure(
       row.itemKind &&
       row.itemTitle &&
       row.learningActivityVersionId
-    )
+    ) {
       section.items.push(
         itemFromRow({
           id: row.itemId,
@@ -190,7 +226,32 @@ async function loadDraftStructure(
           learningActivityVersionId: row.learningActivityVersionId,
         }),
       );
+      itemPositions.set(row.itemId, row.itemPosition ?? 0);
+    }
   }
+  for (const communication of communicationRows) {
+    if (!communication.sectionId) continue;
+    const section = sections.get(communication.sectionId);
+    if (!section) continue;
+    section.items.push({
+      id: communication.id,
+      kind: "automated_email",
+      title: communication.label,
+      emailDesignVersionId: communication.emailDesignVersionId,
+      audience: communication.audience,
+      trigger: communication.trigger,
+      offsetAmount: communication.offsetAmount,
+      offsetUnit: communication.offsetUnit,
+      subjectOverride: communication.subjectOverride,
+      textBodyOverride: communication.textBodyOverride,
+    });
+    itemPositions.set(communication.id, communication.position);
+  }
+  for (const section of sections.values())
+    section.items.sort(
+      (left, right) =>
+        (itemPositions.get(left.id) ?? 0) - (itemPositions.get(right.id) ?? 0),
+    );
 
   return adminCourseDraftSchema.parse({
     courseId,
@@ -206,6 +267,7 @@ async function loadDraftStructure(
     bulkPricing: content.bulkPricing,
     featured: content.featured,
     listInStore: content.listInStore,
+    coverImage: content.coverImage,
     hasCompletionCertificate: content.hasCompletionCertificate,
     prerequisites: content.prerequisites,
     accreditations: content.accreditations,
@@ -253,6 +315,11 @@ export async function findAdminCourses(): Promise<Array<AdminCourseSummary>> {
       >`max(course_version.version) filter (where course_version."publishedAt" is null)::integer`.as(
         "draftVersion",
       ),
+      sql<
+        number | null
+      >`max(course_version.version) filter (where course_version."publishedAt" is not null)::integer`.as(
+        "publishedVersion",
+      ),
     ])
     .groupBy(["course.id", "course.slug", "course.title", "course.status"])
     .orderBy("course.title")
@@ -264,7 +331,6 @@ export async function findAdminCourses(): Promise<Array<AdminCourseSummary>> {
       return {
         ...course,
         enrollmentCount: counts.enrollments,
-        commerceReferenceCount: counts.commerce,
         canDelete:
           course.status === "archived" &&
           counts.enrollments === 0 &&
@@ -276,6 +342,7 @@ export async function findAdminCourses(): Promise<Array<AdminCourseSummary>> {
 
 export async function findAdminCourse(
   courseId: string,
+  courseVersionId?: string,
 ): Promise<AdminCourseDetail | null> {
   const database = getDatabase();
   const course = await database
@@ -290,39 +357,17 @@ export async function findAdminCourse(
     .where("courseId", "=", courseId)
     .orderBy("version", "desc")
     .execute();
-  const version =
-    versions.find((candidate) => candidate.publishedAt === null) ?? versions[0];
+  const version = courseVersionId
+    ? versions.find((candidate) => candidate.id === courseVersionId)
+    : (versions.find((candidate) => candidate.publishedAt === null) ??
+      versions[0]);
+  if (courseVersionId && !version) return null;
   if (!version) throw new Error("Course has no version");
   const content = courseContentSchema.parse(version.content);
-  const [draft, counts, rosterRows, modules, resources, surveys] =
+  const [draft, counts, modules, resources, surveys, emailAuthoring] =
     await Promise.all([
       loadDraftStructure(database, course.id, version.id, course.slug, content),
       referenceCounts(database, course.id),
-      database
-        .selectFrom("enrollment")
-        .innerJoin(
-          "course_version",
-          "course_version.id",
-          "enrollment.courseVersionId",
-        )
-        .innerJoin("user", "user.id", "enrollment.userId")
-        .select([
-          "enrollment.id as enrollmentId",
-          "enrollment.status",
-          "enrollment.enrolledAt",
-          "enrollment.completedAt",
-          "enrollment.expiresAt",
-          "enrollment.removedAt",
-          "course_version.version as courseVersion",
-          "user.id as learnerId",
-          "user.name as learnerName",
-          "user.email as learnerEmail",
-        ])
-        .where("course_version.courseId", "=", course.id)
-        .orderBy("enrollment.enrolledAt", "desc")
-        .orderBy("enrollment.id")
-        .limit(ADMIN_COURSE_ROSTER_LIMIT)
-        .execute(),
       database
         .selectFrom("scorm_package_version")
         .innerJoin(
@@ -392,21 +437,12 @@ export async function findAdminCourse(
         .orderBy("learning_activity.title")
         .orderBy("learning_activity_version.version", "desc")
         .execute(),
+      findScheduleEmailAuthoringContext("offering_course"),
     ]);
-
-  const now = new Date();
-  const communications = await database
-    .selectFrom("course_version_communication")
-    .select(["id", "sectionId", "label", "trigger", "audience"])
-    .where("courseVersionId", "=", version.id)
-    .orderBy("position")
-    .execute();
-
   return {
     course: {
       ...course,
       enrollmentCount: counts.enrollments,
-      commerceReferenceCount: counts.commerce,
       canDelete:
         course.status === "archived" &&
         counts.enrollments === 0 &&
@@ -423,36 +459,98 @@ export async function findAdminCourse(
       version: candidate.version,
       publishedAt: candidate.publishedAt?.toISOString() ?? null,
     })),
-    roster: {
-      total: counts.enrollments,
-      limit: ADMIN_COURSE_ROSTER_LIMIT,
-      enrollments: rosterRows.map((enrollment) => {
-        const state =
-          enrollment.removedAt || enrollment.status === "cancelled"
-            ? "removed"
-            : enrollment.status === "expired" ||
-                (enrollment.expiresAt !== null && enrollment.expiresAt <= now)
-              ? "expired"
-              : enrollment.status === "completed"
-                ? "completed"
-                : "active";
-        return {
-          enrollmentId: enrollment.enrollmentId,
-          learnerId: enrollment.learnerId,
-          learnerName: enrollment.learnerName,
-          learnerEmail: enrollment.learnerEmail,
-          courseVersion: enrollment.courseVersion,
-          state,
-          enrolledAt: enrollment.enrolledAt.toISOString(),
-          completedAt: enrollment.completedAt?.toISOString() ?? null,
-          expiresAt: enrollment.expiresAt?.toISOString() ?? null,
-          removedAt: enrollment.removedAt?.toISOString() ?? null,
-        };
-      }),
-    },
     draft,
-    communications,
+    emailTemplates: emailAuthoring.templates,
+    emailVariableGroups: emailAuthoring.variableGroups,
     library: { modules, resources, surveys },
+  };
+}
+
+export async function findAdminCourseRoster(
+  input: AdminCourseRosterSearch,
+): Promise<AdminCourseRosterDirectory | null> {
+  const database = getDatabase();
+  const course = await database
+    .selectFrom("course")
+    .select("id")
+    .where("id", "=", input.courseId)
+    .executeTakeFirst();
+  if (!course) return null;
+
+  const pattern = searchPattern(input.q);
+  const baseQuery = database
+    .selectFrom("enrollment")
+    .innerJoin(
+      "course_version",
+      "course_version.id",
+      "enrollment.courseVersionId",
+    )
+    .innerJoin("user", "user.id", "enrollment.userId")
+    .where("course_version.courseId", "=", input.courseId)
+    .$if(input.q.length > 0, (builder) =>
+      builder.where((expression) =>
+        expression.or([
+          expression("user.name", "ilike", pattern),
+          expression("user.email", "ilike", pattern),
+        ]),
+      ),
+    );
+  const count = await baseQuery
+    .select(sql<number>`count(*)::integer`.as("count"))
+    .executeTakeFirstOrThrow();
+  const pages = Math.max(
+    1,
+    Math.ceil(count.count / ADMIN_COURSE_ROSTER_PAGE_SIZE),
+  );
+  const page = Math.min(input.page, pages);
+  const rows = await baseQuery
+    .select([
+      "enrollment.id as enrollmentId",
+      "enrollment.status",
+      "enrollment.enrolledAt",
+      "enrollment.completedAt",
+      "enrollment.expiresAt",
+      "enrollment.removedAt",
+      "course_version.version as courseVersion",
+      "user.id as learnerId",
+      "user.name as learnerName",
+      "user.email as learnerEmail",
+    ])
+    .orderBy("enrollment.enrolledAt", "desc")
+    .orderBy("enrollment.id")
+    .limit(ADMIN_COURSE_ROSTER_PAGE_SIZE)
+    .offset((page - 1) * ADMIN_COURSE_ROSTER_PAGE_SIZE)
+    .execute();
+  const now = new Date();
+
+  return {
+    enrollments: rows.map((enrollment) => ({
+      enrollmentId: enrollment.enrollmentId,
+      learnerId: enrollment.learnerId,
+      learnerName: enrollment.learnerName,
+      learnerEmail: enrollment.learnerEmail,
+      courseVersion: enrollment.courseVersion,
+      state:
+        enrollment.removedAt || enrollment.status === "cancelled"
+          ? "removed"
+          : enrollment.status === "expired" ||
+              (enrollment.expiresAt !== null && enrollment.expiresAt <= now)
+            ? "expired"
+            : enrollment.status === "completed"
+              ? "completed"
+              : "active",
+      enrolledAt: enrollment.enrolledAt.toISOString(),
+      completedAt: enrollment.completedAt?.toISOString() ?? null,
+      expiresAt: enrollment.expiresAt?.toISOString() ?? null,
+      removedAt: enrollment.removedAt?.toISOString() ?? null,
+    })),
+    pagination: {
+      page,
+      pages,
+      total: count.count,
+      pageSize: ADMIN_COURSE_ROSTER_PAGE_SIZE,
+    },
+    query: input.q,
   };
 }
 
@@ -475,7 +573,23 @@ async function validateDraftReferences(
       item.kind === "survey" ? [item.surveyVersionId] : [],
     ),
   );
-  const [modules, resources, surveys] = await Promise.all([
+  const emailVersionIds = draft.sections.flatMap((section) =>
+    section.items.flatMap((item) =>
+      item.kind === "automated_email" ? [item.emailDesignVersionId] : [],
+    ),
+  );
+  const accreditationLogoIds = draft.accreditations.flatMap((accreditation) =>
+    accreditation.logoAssetId ? [accreditation.logoAssetId] : [],
+  );
+  const coverImageIds = draft.coverImage ? [draft.coverImage.assetId] : [];
+  const [
+    modules,
+    resources,
+    surveys,
+    emailVersions,
+    accreditationLogos,
+    coverImages,
+  ] = await Promise.all([
     moduleIds.length === 0
       ? []
       : transaction
@@ -515,21 +629,61 @@ async function validateDraftReferences(
           .where("learning_activity_version.publishedAt", "is not", null)
           .where("learning_activity.surveyUsage", "=", "learning")
           .execute(),
+    emailVersionIds.length === 0
+      ? []
+      : transaction
+          .selectFrom("email_design_version as version")
+          .innerJoin(
+            "email_design as design",
+            "design.id",
+            "version.emailDesignId",
+          )
+          .select("version.id")
+          .where("version.id", "in", emailVersionIds)
+          .where("version.publishedAt", "is not", null)
+          .where("design.catalogue", "=", "offering")
+          .where("design.contextKey", "=", "offering_course")
+          .execute(),
+    accreditationLogoIds.length === 0
+      ? []
+      : transaction
+          .selectFrom("accreditation_logo_asset")
+          .select("id")
+          .where("id", "in", accreditationLogoIds)
+          .execute(),
+    coverImageIds.length === 0
+      ? []
+      : transaction
+          .selectFrom("offering_image_asset")
+          .select("id")
+          .where("id", "in", coverImageIds)
+          .execute(),
   ]);
   return (
     new Set(modules.map(({ id }) => id)).size === new Set(moduleIds).size &&
     new Set(resources.map(({ id }) => id)).size === new Set(resourceIds).size &&
-    new Set(surveys.map(({ id }) => id)).size === new Set(surveyIds).size
+    new Set(surveys.map(({ id }) => id)).size === new Set(surveyIds).size &&
+    new Set(emailVersions.map(({ id }) => id)).size ===
+      new Set(emailVersionIds).size &&
+    new Set(accreditationLogos.map(({ id }) => id)).size ===
+      new Set(accreditationLogoIds).size &&
+    new Set(coverImages.map(({ id }) => id)).size ===
+      new Set(coverImageIds).size
   );
 }
 
 async function replaceDraftStructure(
   transaction: Transaction<Database>,
   draft: AdminCourseDraft,
+  actorUserId: string,
 ): Promise<void> {
-  const communicationSections = await transaction
+  const previousCommunications = await transaction
     .selectFrom("course_version_communication")
-    .select(["id", "sectionId"])
+    .select("id")
+    .where("courseVersionId", "=", draft.versionId)
+    .execute();
+  await transaction
+    .deleteFrom("course_version_communication")
     .where("courseVersionId", "=", draft.versionId)
     .execute();
   await transaction
@@ -554,6 +708,28 @@ async function replaceDraftStructure(
       })
       .execute();
     for (const [itemPosition, item] of section.items.entries()) {
+      if (item.kind === "automated_email") {
+        await transaction
+          .insertInto("course_version_communication")
+          .values({
+            id: item.id,
+            courseVersionId: draft.versionId,
+            sectionId: section.id,
+            position: itemPosition,
+            label: item.title,
+            emailDesignVersionId: item.emailDesignVersionId,
+            audience: item.audience,
+            trigger: item.trigger,
+            offsetAmount: item.offsetAmount,
+            offsetUnit: item.offsetUnit,
+            subjectOverride: item.subjectOverride,
+            textBodyOverride: item.textBodyOverride,
+            createdByUserId: actorUserId,
+            updatedAt: new Date(),
+          })
+          .execute();
+        continue;
+      }
       const currentModulePosition =
         item.kind === "scorm" ? modulePosition++ : null;
       await transaction
@@ -578,19 +754,32 @@ async function replaceDraftStructure(
         .execute();
     }
   }
-  const retainedSectionIds = new Set(
-    draft.sections.map((section) => section.id),
+  const previousIds = new Set(previousCommunications.map(({ id }) => id));
+  const nextEmailItems = draft.sections.flatMap((section) =>
+    section.items.filter((item) => item.kind === "automated_email"),
   );
-  for (const communication of communicationSections)
-    if (
-      communication.sectionId &&
-      retainedSectionIds.has(communication.sectionId)
-    )
-      await transaction
-        .updateTable("course_version_communication")
-        .set({ sectionId: communication.sectionId })
-        .where("id", "=", communication.id)
-        .executeTakeFirstOrThrow();
+  const nextIds = new Set(nextEmailItems.map(({ id }) => id));
+  for (const item of nextEmailItems)
+    await recordDurableAuditEvent(transaction, {
+      actorUserId,
+      action: previousIds.has(item.id)
+        ? "communication_plan.updated"
+        : "communication_plan.created",
+      subjectType: "course_version_communication",
+      subjectId: item.id,
+      aggregateId: draft.versionId,
+      metadata: { placement: "section_schedule" },
+    });
+  for (const { id } of previousCommunications)
+    if (!nextIds.has(id))
+      await recordDurableAuditEvent(transaction, {
+        actorUserId,
+        action: "communication_plan.deleted",
+        subjectType: "course_version_communication",
+        subjectId: id,
+        aggregateId: draft.versionId,
+        metadata: { placement: "section_schedule" },
+      });
 }
 
 export async function createAdminCourse(
@@ -706,7 +895,7 @@ export async function saveAdminCourseDraft(
           .set({ content: contentFromDraft(draft) })
           .where("id", "=", draft.versionId)
           .executeTakeFirstOrThrow();
-        await replaceDraftStructure(transaction, draft);
+        await replaceDraftStructure(transaction, draft, administrator.id);
         return "saved" as const;
       });
   } catch (error) {
@@ -780,40 +969,14 @@ export async function createAdminCourseVersion(
           id: `section_${randomUUID()}`,
           items: section.items.map((item) => ({
             ...item,
-            id: `item_${randomUUID()}`,
+            id:
+              item.kind === "automated_email"
+                ? `course_communication_${randomUUID()}`
+                : `item_${randomUUID()}`,
           })),
         })),
       };
-      await replaceDraftStructure(transaction, draft);
-      const sectionIds = new Map(
-        sourceDraft.sections.map((section, index) => [
-          section.id,
-          draft.sections[index]?.id ?? null,
-        ]),
-      );
-      const communications = await transaction
-        .selectFrom("course_version_communication")
-        .selectAll()
-        .where("courseVersionId", "=", source.id)
-        .orderBy("position")
-        .execute();
-      if (communications.length)
-        await transaction
-          .insertInto("course_version_communication")
-          .values(
-            communications.map((communication) => ({
-              ...communication,
-              id: `course_communication_${randomUUID()}`,
-              courseVersionId: versionId,
-              sectionId: communication.sectionId
-                ? (sectionIds.get(communication.sectionId) ?? null)
-                : null,
-              createdByUserId: administrator.id,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            })),
-          )
-          .execute();
+      await replaceDraftStructure(transaction, draft, administrator.id);
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "course.version_created",

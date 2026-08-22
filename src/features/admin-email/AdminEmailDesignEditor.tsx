@@ -38,7 +38,9 @@ export function AdminEmailDesignEditor({ detail }: Props) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState<string | null>(null);
-  const [preview, setPreview] = useState<AdminEmailPreview | null>(null);
+  const [preview, setPreview] = useState<AdminEmailPreview | null>(
+    detail.preview,
+  );
   const [confirmation, setConfirmation] = useState<
     "activate" | "delete" | "publish" | null
   >(null);
@@ -252,7 +254,7 @@ export function AdminEmailDesignEditor({ detail }: Props) {
               disabled={working !== null}
               onClick={() => void loadPreview()}
             >
-              Preview
+              Refresh preview
             </Button>
             {detail.version.editable ? (
               <>
@@ -365,6 +367,9 @@ export function AdminEmailDesignEditor({ detail }: Props) {
         {preview ? (
           <Paper withBorder radius="lg" p="md" className={classes.previewPanel}>
             <Stack gap="md">
+              <Title order={2} size="h3">
+                Preview
+              </Title>
               <Text fw={700}>{preview.subject}</Text>
               <Text className={classes.previewBody}>{preview.textBody}</Text>
             </Stack>

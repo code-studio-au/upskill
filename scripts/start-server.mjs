@@ -43,13 +43,29 @@ const clientDirectory = path.resolve(
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".ico", "image/x-icon"],
+  [".jpg", "image/jpeg"],
   [".js", "text/javascript; charset=utf-8"],
   [".json", "application/json; charset=utf-8"],
   [".map", "application/json; charset=utf-8"],
   [".png", "image/png"],
   [".svg", "image/svg+xml"],
+  [".webmanifest", "application/manifest+json; charset=utf-8"],
   [".webp", "image/webp"],
   [".woff2", "font/woff2"],
+]);
+const publicAssetPaths = new Set([
+  "/android-chrome-192x192.png",
+  "/android-chrome-512x512.png",
+  "/apple-touch-icon.png",
+  "/brand/home-arrow-background.jpg",
+  "/brand/home-icons.svg",
+  "/brand/upskill-footer-logo.png",
+  "/brand/upskill-icon-navy.png",
+  "/brand/upskill-wordmark-navy.png",
+  "/favicon.ico",
+  "/icons/close-navy.svg",
+  "/icons/menu-navy.svg",
+  "/site.webmanifest",
 ]);
 
 const logLevelPriority = { info: 10, warn: 20, error: 30 };
@@ -129,7 +145,7 @@ async function serveClientAsset(incoming, outgoing) {
     return false;
   }
   const isFingerprintedAsset = pathname.startsWith("/assets/");
-  const isPublicAsset = pathname === "/favicon.svg";
+  const isPublicAsset = publicAssetPaths.has(pathname);
   if (!isFingerprintedAsset && !isPublicAsset) return false;
 
   const target = path.resolve(clientDirectory, `.${pathname}`);

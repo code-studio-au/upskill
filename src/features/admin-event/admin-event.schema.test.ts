@@ -29,6 +29,12 @@ const validOccurrence = {
   registrationClosesAt: "2027-08-10T00:00:00.000Z",
   coordinatorLockAt: "2027-08-12T00:00:00.000Z",
   capacity: 80,
+  priceCents: null,
+  salePriceCents: null,
+  currency: "AUD" as const,
+  bulkPricing: { enabled: false, tiers: [] },
+  listInStore: false,
+  featured: false,
   venueName: "",
   venueAddress: "",
   virtualJoinUrl: "https://meet.example.com/workshop",
@@ -67,6 +73,38 @@ describe("event administration schemas", () => {
         virtualJoinUrl: "",
       }).success,
     ).toBe(true);
+  });
+
+  it("requires coherent paid-entry pricing and automatic approval", () => {
+    expect(
+      adminEventOccurrenceCreateSchema.safeParse({
+        ...validOccurrence,
+        registrationMode: "paid_entry",
+        approvalMode: "automatic",
+        registrationOpensAt: "",
+        registrationClosesAt: "",
+        coordinatorLockAt: "",
+        localRegistrationOpensAt: "",
+        localRegistrationClosesAt: "",
+        localCoordinatorLockAt: "",
+        domains: "",
+        priceCents: 12_000,
+        salePriceCents: 9_900,
+        bulkPricing: {
+          enabled: true,
+          tiers: [{ minimumQuantity: 5, unitPriceCents: 8_500 }],
+        },
+        listInStore: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      adminEventOccurrenceCreateSchema.safeParse({
+        ...validOccurrence,
+        registrationMode: "paid_entry",
+        approvalMode: "manual",
+        priceCents: 12_000,
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects the retired hybrid delivery mode", () => {

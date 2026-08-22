@@ -25,6 +25,7 @@ interface AdminScormModuleLibraryProps {
 
 interface ScormVersionItemProps {
   removing: boolean;
+  showStatus: boolean;
   version: AdminScormPackageVersionSummary;
   onRemove: () => void;
 }
@@ -35,7 +36,7 @@ const statusDetails: Record<
 > = {
   quarantined: { color: "indigo", label: "Verifying" },
   processing: { color: "indigo", label: "Verifying" },
-  ready: { color: "teal", label: "Ready" },
+  ready: { color: "teal", label: "Published" },
   rejected: { color: "red", label: "Rejected" },
 };
 
@@ -45,14 +46,33 @@ function fileSize(bytes: number | null): string {
     : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function ScormVersionStatus({
+  removing,
+  version,
+}: Pick<ScormVersionItemProps, "removing" | "version">) {
+  const status = statusDetails[version.status];
+  const verificationPending = isScormVerificationPending(version.status);
+  return (
+    <Badge color={removing ? "indigo" : status.color} aria-live="polite">
+      {verificationPending || removing ? (
+        <span
+          className={classes.verifyingSpinner}
+          aria-hidden="true"
+          data-testid={removing ? "removal-spinner" : "verification-spinner"}
+        />
+      ) : null}
+      {removing ? "Removing" : status.label} v{version.version}
+    </Badge>
+  );
+}
+
 function ScormVersionItem({
   removing,
+  showStatus,
   version,
   onRemove,
 }: ScormVersionItemProps) {
-  const status = statusDetails[version.status];
   const verificationPending = isScormVerificationPending(version.status);
-  const statusLabel = removing ? "Removing" : status.label;
   const removable =
     !verificationPending &&
     version.courseUsageCount === 0 &&
@@ -60,27 +80,6 @@ function ScormVersionItem({
   return (
     <li className={classes.versionItem}>
       <div>
-        <Group gap="xs">
-          <Text fw={700}>Version {version.version}</Text>
-          <Badge
-            color={removing ? "indigo" : status.color}
-            variant="outline"
-            aria-live="polite"
-            className={classes.statusBadge}
-            data-status={removing ? "removing" : version.status}
-          >
-            {verificationPending || removing ? (
-              <span
-                className={classes.verifyingSpinner}
-                aria-hidden="true"
-                data-testid={
-                  removing ? "removal-spinner" : "verification-spinner"
-                }
-              />
-            ) : null}
-            {statusLabel}
-          </Badge>
-        </Group>
         <Text c="dimmed" size="sm" mt={4}>
           {fileSize(version.sourceBytes)} · {version.attemptCount} learner
           attempt
@@ -93,19 +92,24 @@ function ScormVersionItem({
           </Text>
         ) : null}
       </div>
-      <Stack gap="xs" className={classes.versionActions}>
-        {removable && !removing ? (
-          <Button
-            color="red"
-            variant="subtle"
-            size="xs"
-            loading={removing}
-            onClick={onRemove}
-          >
-            Remove version
-          </Button>
-        ) : null}
-      </Stack>
+      {showStatus || (removable && !removing) ? (
+        <Stack gap="xs" className={classes.versionActions}>
+          {showStatus ? (
+            <ScormVersionStatus removing={removing} version={version} />
+          ) : null}
+          {removable && !removing ? (
+            <Button
+              color="red"
+              variant="subtle"
+              size="xs"
+              loading={removing}
+              onClick={onRemove}
+            >
+              Remove version
+            </Button>
+          ) : null}
+        </Stack>
+      ) : null}
     </li>
   );
 }
@@ -201,31 +205,50 @@ export function AdminScormModuleLibrary({
           </Paper>
         ) : (
           <div className={classes.moduleLibrary}>
-            {packages.map((item) => (
-              <Paper
-                component="article"
-                withBorder
-                radius="lg"
-                p="md"
-                key={item.id}
-              >
-                <Stack gap="sm">
-                  <Title order={3}>{item.title}</Title>
-                  <ol className={classes.versionList}>
-                    {item.versions.map((version) => (
-                      <ScormVersionItem
-                        key={version.id}
-                        version={version}
-                        removing={removingVersionId === version.id}
-                        onRemove={() => {
-                          setRemovalTarget(version);
-                        }}
-                      />
-                    ))}
-                  </ol>
-                </Stack>
-              </Paper>
-            ))}
+            {packages.map((item) => {
+              const latestVersion = item.versions[0];
+              return (
+                <Paper
+                  component="article"
+                  withBorder
+                  radius="lg"
+                  p="md"
+                  key={item.id}
+                >
+                  <Stack gap="sm">
+                    <Group
+                      className={classes.moduleHeader}
+                      justify="space-between"
+                      align="start"
+                      wrap="nowrap"
+                    >
+                      <Title order={3} className={classes.moduleTitle}>
+                        {item.title}
+                      </Title>
+                      {latestVersion ? (
+                        <ScormVersionStatus
+                          version={latestVersion}
+                          removing={removingVersionId === latestVersion.id}
+                        />
+                      ) : null}
+                    </Group>
+                    <ol className={classes.versionList}>
+                      {item.versions.map((version, index) => (
+                        <ScormVersionItem
+                          key={version.id}
+                          version={version}
+                          showStatus={index > 0}
+                          removing={removingVersionId === version.id}
+                          onRemove={() => {
+                            setRemovalTarget(version);
+                          }}
+                        />
+                      ))}
+                    </ol>
+                  </Stack>
+                </Paper>
+              );
+            })}
           </div>
         )}
         {removalTarget ? (

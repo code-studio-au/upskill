@@ -5,14 +5,7 @@ import {
   useTable,
   type PaginationState,
 } from "@tanstack/react-table";
-import {
-  Button,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  Title,
-} from "#/features/shared/mantine";
+import { Button, Group, Text, Title } from "#/features/shared/mantine";
 import {
   createFileRoute,
   Link,
@@ -31,7 +24,7 @@ import { RemovableFilterChip } from "#/features/shared/RemovableFilterChip";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
 import { getAdminLearners } from "#/server/functions/admin";
-import classes from "./admin.module.css";
+import classes from "./admin.learners.index.module.css";
 
 export const Route = createFileRoute("/admin/learners/")({
   validateSearch: adminLearnerSearchSchema,
@@ -131,13 +124,24 @@ function AdminLearnerDirectoryPage({
     : 0;
 
   return (
-    <Stack gap="lg">
-      <div className={classes.heading}>
-        <Text c="indigo.7" fw={700}>
-          Learner support
-        </Text>
-        <Title order={1}>Learners</Title>
-      </div>
+    <section
+      className={classes.root}
+      aria-labelledby="learner-directory-heading"
+    >
+      <header className={classes.header}>
+        <div>
+          <Text c="indigo.7" fw={700}>
+            Learner support
+          </Text>
+          <Title order={1} id="learner-directory-heading">
+            Learners
+          </Title>
+        </div>
+        <span className={classes.count}>
+          {directory.pagination.total} learner
+          {directory.pagination.total === 1 ? "" : "s"}
+        </span>
+      </header>
 
       <form
         key={search.q}
@@ -163,7 +167,7 @@ function AdminLearnerDirectoryPage({
       </form>
 
       {search.q ? (
-        <Stack gap="xs">
+        <div className={classes.filters}>
           <Text size="sm" fw={700}>
             Current filters
           </Text>
@@ -176,7 +180,7 @@ function AdminLearnerDirectoryPage({
               }}
             />
           </Group>
-        </Stack>
+        </div>
       ) : null}
 
       <Text c="dimmed" size="sm">
@@ -191,11 +195,7 @@ function AdminLearnerDirectoryPage({
           numericColumns={numericLearnerColumns}
         />
       ) : (
-        <Paper withBorder radius="lg" p="xl">
-          <Title order={2} size="h3">
-            No learners found
-          </Title>
-        </Paper>
+        <p className={classes.empty}>No learners found.</p>
       )}
 
       {directory.pagination.pages > 1 ? (
@@ -223,6 +223,6 @@ function AdminLearnerDirectoryPage({
           </Button>
         </Group>
       ) : null}
-    </Stack>
+    </section>
   );
 }

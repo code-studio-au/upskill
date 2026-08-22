@@ -6,11 +6,12 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
-import { Link, useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { useRouter } from "@tanstack/react-router";
+import { lazy, Suspense, useState } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { formatLocalDate } from "#/features/shared/local-date";
+import { PageTabs } from "#/features/shared/PageTabs";
 import {
   revealAdminAccessGrantCode,
   revokeAdminAccessGrant,
@@ -18,6 +19,11 @@ import {
 import type { AdminAccessGrant } from "./admin-access.schema";
 import { AdminAccessGrantCapacityDialog } from "./AdminAccessGrantCapacityDialog";
 import classes from "./AdminAccessGrantManager.module.css";
+
+const AdminAccessGrantRedemptionTable = lazy(async () => {
+  const module = await import("./AdminAccessGrantRedemptionTable");
+  return { default: module.AdminAccessGrantRedemptionTable };
+});
 
 function grantState(
   grant: AdminAccessGrant,
@@ -41,6 +47,10 @@ export function AdminAccessGrantDirectory({
   const [capacityGrant, setCapacityGrant] = useState<AdminAccessGrant | null>(
     null,
   );
+  const [grantView, setGrantView] = useState<"active" | "revoked">("active");
+  const activeGrants = grants.filter((grant) => !grant.revokedAt);
+  const revokedGrants = grants.filter((grant) => grant.revokedAt);
+  const visibleGrants = grantView === "revoked" ? revokedGrants : activeGrants;
 
   async function confirmRevocation(): Promise<void> {
     if (!revocation) return;
@@ -70,11 +80,23 @@ export function AdminAccessGrantDirectory({
   }
 
   return (
-    <section aria-labelledby="issued-grants-heading">
+    <section aria-label="Access grants">
       <Stack gap="md">
-        <Title order={2} id="issued-grants-heading">
-          Issued grants
-        </Title>
+        <PageTabs
+          label="Access grant status"
+          value={grantView}
+          tabs={[
+            {
+              value: "active",
+              label: `Active (${String(activeGrants.length)})`,
+            },
+            {
+              value: "revoked",
+              label: `Revoked (${String(revokedGrants.length)})`,
+            },
+          ]}
+          onChange={setGrantView}
+        />
         {message ? (
           <Alert color="green" role="status">
             {message}
@@ -85,13 +107,15 @@ export function AdminAccessGrantDirectory({
             {error}
           </Alert>
         ) : null}
-        {grants.length === 0 ? (
-          <Alert title="No access grants">
-            Create the first organisation access code.
+        {visibleGrants.length === 0 ? (
+          <Alert title={`No ${grantView} grants`}>
+            {grantView === "active"
+              ? "Create the first organisation access code."
+              : "Revoked grants will appear here."}
           </Alert>
         ) : (
           <div className={classes.grantGrid}>
-            {grants.map((grant) => (
+            {visibleGrants.map((grant) => (
               <GrantCard
                 grant={grant}
                 onManageCapacity={setCapacityGrant}
@@ -156,6 +180,7 @@ function GrantCard({
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
   );
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   async function revealCode(): Promise<void> {
     setRevealPending(true);
@@ -199,18 +224,22 @@ function GrantCard({
           <Badge color={state === "active" ? "indigo" : "gray"}>{state}</Badge>
         </div>
         <Text size="sm">
-          {grant.courseTitle} · Version {grant.courseVersion}
+          {grant.offeringTitle} · {grant.offeringDetail}
         </Text>
         <dl className={classes.metrics}>
           <div>
-            <dt>Used</dt>
+            <dt>Enrolments</dt>
             <dd>
               {grant.redeemed} of {grant.quantity}
             </dd>
           </div>
           <div>
             <dt>Access</dt>
-            <dd>{grant.enrollmentDurationDays} days</dd>
+            <dd>
+              {grant.enrollmentDurationDays === null
+                ? "Event place"
+                : `${String(grant.enrollmentDurationDays)} days`}
+            </dd>
           </div>
           <div>
             <dt>Code expiry</dt>
@@ -219,28 +248,56 @@ function GrantCard({
             </dd>
           </div>
         </dl>
-        <Text size="sm" c="dimmed">
-          {grant.domains.length > 0
-            ? `Restricted to ${grant.domains.join(", ")}`
-            : "Available to any verified learner with the code"}
-        </Text>
-        <Text size="sm">
-          {grant.kind === "enterprise_contract"
-            ? "Enterprise access"
-            : "Bulk purchase"}
-          {grant.customerExtendable ? " · Owner-extendable" : ""}
-        </Text>
-        <Text size="sm">
-          {grant.fulfillmentMode === "single_use_codes"
-            ? "Unique single-use codes"
-            : "Shared reusable code"}
-        </Text>
-        <Text size="sm" c="dimmed">
-          Access Owners:{" "}
-          {grant.owners
-            .map((owner) => `${owner.name} (${owner.status})`)
-            .join(", ") || "None"}
-        </Text>
+        <details
+          className={classes.grantDetails}
+          onToggle={(event) => {
+            setDetailsOpen(event.currentTarget.open);
+          }}
+        >
+          <summary className={classes.summary}>Grant details</summary>
+          <div className={classes.detailContent}>
+            <div className={classes.tags}>
+              <Badge variant="light">
+                {grant.kind === "enterprise_contract"
+                  ? "Enterprise"
+                  : "Bulk purchase"}
+              </Badge>
+              <Badge variant="light" color="gray">
+                {grant.fulfillmentMode === "single_use_codes"
+                  ? "Single-use codes"
+                  : "Shared code"}
+              </Badge>
+              {grant.customerExtendable ? (
+                <Badge variant="light" color="gray">
+                  Owner-extendable
+                </Badge>
+              ) : null}
+            </div>
+            <Text size="sm" c="dimmed">
+              {grant.domains.length > 0
+                ? `Domains: ${grant.domains.join(", ")}`
+                : "No domain restriction"}
+            </Text>
+            <Text size="sm" c="dimmed">
+              Owner emails:{" "}
+              {grant.owners.map((owner) => owner.email).join(", ")}
+            </Text>
+            {detailsOpen ? (
+              <Suspense
+                fallback={
+                  <Text size="sm" c="dimmed">
+                    Loading redemptions…
+                  </Text>
+                }
+              >
+                <AdminAccessGrantRedemptionTable
+                  accessGrantId={grant.id}
+                  expectedTotal={grant.redeemed}
+                />
+              </Suspense>
+            ) : null}
+          </div>
+        </details>
         {accessCode ? (
           <div className={classes.revealedCode} role="status">
             <code className={classes.issuedCode}>{accessCode}</code>
@@ -276,7 +333,6 @@ function GrantCard({
             {revealError}
           </Alert>
         ) : null}
-        <Redemptions grant={grant} />
         <div className={classes.cardFooter}>
           <Text size="xs" c="dimmed">
             Created {formatLocalDate(grant.createdAt)}
@@ -324,50 +380,5 @@ function GrantCard({
         </div>
       </Stack>
     </Paper>
-  );
-}
-
-function Redemptions({ grant }: { grant: AdminAccessGrant }) {
-  if (grant.redemptions.length === 0)
-    return (
-      <Text size="sm" c="dimmed">
-        No redemptions yet.
-      </Text>
-    );
-  return (
-    <details>
-      <summary className={classes.summary}>
-        View redeemed learners ({grant.redeemed})
-      </summary>
-      <ul className={classes.redemptions}>
-        {grant.redemptions.map((redemption) => (
-          <li key={redemption.enrollmentId}>
-            <div>
-              <Text fw={600}>{redemption.learnerName}</Text>
-              <Text size="sm" c="dimmed" className={classes.email}>
-                {redemption.learnerEmail} · {redemption.state}
-              </Text>
-            </div>
-            <Link
-              to="/admin/learners/$userId/enrollments/$enrollmentId"
-              params={{
-                userId: redemption.learnerId,
-                enrollmentId: redemption.enrollmentId,
-              }}
-              className={classes.reviewLink}
-            >
-              <Button component="span" variant="light" size="xs">
-                Review
-              </Button>
-            </Link>
-          </li>
-        ))}
-      </ul>
-      {grant.redeemed > grant.redemptions.length ? (
-        <Text size="xs" c="dimmed" mt="xs">
-          Showing the {grant.redemptions.length} most recent redemptions.
-        </Text>
-      ) : null}
-    </details>
   );
 }

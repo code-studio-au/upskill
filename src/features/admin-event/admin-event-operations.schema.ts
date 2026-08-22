@@ -1,4 +1,5 @@
 import { z } from "#/validation/zod";
+import type { BulkPricing } from "#/features/catalog/catalog.schema";
 
 const identifier = z.string().check(z.trim(), z.minLength(1), z.maxLength(255));
 
@@ -112,7 +113,10 @@ export interface AdminEventOccurrenceOperations {
     templateVersion: number;
     deliveryMode: "in_person" | "virtual";
     registrationMode:
-      "open_entry" | "required_unrestricted" | "required_restricted";
+      | "open_entry"
+      | "paid_entry"
+      | "required_unrestricted"
+      | "required_restricted";
     approvalMode: "automatic" | "manual";
     timezone: string;
     localStartsAt: string;
@@ -126,6 +130,12 @@ export interface AdminEventOccurrenceOperations {
     registrationClosesAt: string | null;
     coordinatorLockAt: string | null;
     capacity: number;
+    priceCents: number | null;
+    salePriceCents: number | null;
+    currency: "AUD";
+    bulkPricing: BulkPricing;
+    listInStore: boolean;
+    featured: boolean;
     confirmedCount: number;
     venueName: string;
     venueAddress: string;
@@ -152,9 +162,18 @@ export interface AdminEventOccurrenceOperations {
     userId: string;
     name: string;
     email: string;
-    source: "ordinary" | "late_invitation" | "administrator_override";
+    source:
+      | "ordinary"
+      | "paid_checkout"
+      | "access_code"
+      | "late_invitation"
+      | "administrator_override";
     eligibilitySource:
-      "unrestricted" | "verified_domain" | "administrator_override";
+      | "unrestricted"
+      | "paid"
+      | "access_code"
+      | "verified_domain"
+      | "administrator_override";
     status: EventRegistrationStatus;
     regionId: string | null;
     regionName: string | null;

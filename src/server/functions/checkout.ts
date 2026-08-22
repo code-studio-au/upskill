@@ -3,6 +3,7 @@ import {
   bulkOrderCheckoutInputSchema,
   capacityExtensionCheckoutInputSchema,
   checkoutCourseInputSchema,
+  checkoutEventInputSchema,
   checkoutStatusInputSchema,
 } from "#/features/checkout/checkout.schema";
 
@@ -16,6 +17,18 @@ export const startBulkOrderCheckout = createServerFn({ method: "POST" })
     const { createInitialBulkCheckout } =
       await import("#/server/checkout/bulk-checkout.server");
     return await createInitialBulkCheckout(data, user);
+  });
+
+export const startEventBulkOrderCheckout = createServerFn({ method: "POST" })
+  .validator(bulkOrderCheckoutInputSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user)
+      return { status: "unavailable", reason: "unauthenticated" } as const;
+    const { createInitialEventBulkCheckout } =
+      await import("#/server/checkout/bulk-checkout.server");
+    return await createInitialEventBulkCheckout(data, user);
   });
 
 export const startCapacityExtensionCheckout = createServerFn({ method: "POST" })
@@ -40,6 +53,17 @@ export const startCourseCheckout = createServerFn({ method: "POST" })
     const { createCourseCheckout } =
       await import("#/server/checkout/course-checkout.server");
     return await createCourseCheckout(data.slug, user);
+  });
+
+export const startEventCheckout = createServerFn({ method: "POST" })
+  .validator(checkoutEventInputSchema)
+  .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" } as const;
+    const { createEventCheckout } =
+      await import("#/server/checkout/event-checkout.server");
+    return await createEventCheckout(data.slug, user);
   });
 
 export const getCourseCheckoutStatus = createServerFn({ method: "GET" })

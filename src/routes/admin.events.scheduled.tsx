@@ -3,10 +3,12 @@ import {
   createFileRoute,
   Link,
   redirect,
+  useNavigate,
   useRouter,
 } from "@tanstack/react-router";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { Badge } from "#/features/shared/Badge";
+import { PageTabs } from "#/features/shared/PageTabs";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import {
   Alert,
@@ -21,9 +23,15 @@ import {
   getAdminEventWorkspace,
   publishAdminEventOccurrence,
 } from "#/server/functions/admin-event";
+import { z } from "#/validation/zod";
 import classes from "./admin.events.module.css";
 
+const searchSchema = z.object({
+  view: z.catch(z.enum(["upcoming", "historical"]), "upcoming"),
+});
+
 export const Route = createFileRoute("/admin/events/scheduled")({
+  validateSearch: searchSchema,
   ssr: false,
   loader: async () => {
     const result = await getAdminEventWorkspace();
@@ -47,11 +55,22 @@ function readable(value: string): string {
 
 function ScheduledEventsPage() {
   const result = Route.useLoaderData();
+  const search = Route.useSearch();
+  const navigate = useNavigate({ from: Route.fullPath });
   const router = useRouter();
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   if (result.status === "forbidden") return <AdminAccessDenied />;
   const workspace = result.data;
+  const historicalStatuses = new Set(["cancelled", "completed", "archived"]);
+  const upcoming = workspace.occurrences.filter(
+    (occurrence) => !historicalStatuses.has(occurrence.status),
+  );
+  const historical = workspace.occurrences
+    .filter((occurrence) => historicalStatuses.has(occurrence.status))
+    .toReversed();
+  const visibleOccurrences =
+    search.view === "historical" ? historical : upcoming;
 
   async function publishOccurrence(eventOccurrenceId: string) {
     setProcessingId(eventOccurrenceId);
@@ -92,30 +111,59 @@ function ScheduledEventsPage() {
 
       {error ? <Alert color="red">{error}</Alert> : null}
 
-      {workspace.occurrences.length === 0 ? (
-        <Alert title="No events scheduled">
-          Publish an event template, then schedule its first event.
+      <PageTabs
+        label="Scheduled event status"
+        value={search.view}
+        tabs={[
+          { value: "upcoming", label: `Upcoming (${String(upcoming.length)})` },
+          {
+            value: "historical",
+            label: `Historical (${String(historical.length)})`,
+          },
+        ]}
+        onChange={(view) => void navigate({ search: { view } })}
+      />
+
+      {visibleOccurrences.length === 0 ? (
+        <Alert
+          title={
+            search.view === "historical"
+              ? "No historical events"
+              : "No upcoming events"
+          }
+        >
+          {search.view === "historical"
+            ? "Completed, cancelled and archived events will appear here."
+            : "Publish an event template, then schedule its first event."}
         </Alert>
       ) : (
-        <div className={classes.cardGrid}>
-          {workspace.occurrences.map((occurrence) => (
+        <div
+          className={[classes.cardGrid, classes.scheduledGrid]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {visibleOccurrences.map((occurrence) => (
             <Paper
               component="article"
               key={occurrence.id}
               withBorder
               radius="lg"
               p="md"
+              className={classes.scheduledCard}
             >
-              <Stack gap="sm">
+              <Stack gap="md">
                 <Group justify="space-between" align="start" wrap="nowrap">
-                  <div>
-                    <Title order={3}>{occurrence.title}</Title>
+                  <div className={classes.cardIdentity}>
+                    <Link
+                      to="/admin/events/instances/$eventOccurrenceId"
+                      params={{ eventOccurrenceId: occurrence.id }}
+                      search={{ view: "overview" }}
+                      className={classes.cardTitleLink}
+                    >
+                      <Title order={3}>{occurrence.title}</Title>
+                    </Link>
                     <Text size="sm" c="dimmed">
-                      {occurrence.eventTemplateTitle} · Version{" "}
-                      {occurrence.templateVersion}
-                    </Text>
-                    <Text size="sm" c="dimmed">
-                      /events/{occurrence.slug}
+                      {occurrence.eventTemplateTitle}
                     </Text>
                   </div>
                   <Badge
@@ -125,58 +173,33 @@ function ScheduledEventsPage() {
                     {occurrence.status}
                   </Badge>
                 </Group>
-                <Text size="sm">
+                <Text fw={700} className={classes.eventDate}>
                   {formatEventDate(occurrence.startsAt, occurrence.timezone)} –{" "}
-                  {formatEventDate(occurrence.endsAt, occurrence.timezone)} ·{" "}
-                  {occurrence.timezone}
+                  {formatEventDate(occurrence.endsAt, occurrence.timezone)}
                 </Text>
-                <Text size="sm" c="dimmed">
-                  {readable(occurrence.deliveryMode)} ·{" "}
-                  {readable(occurrence.registrationMode)} · capacity{" "}
-                  {occurrence.confirmedCount}/{occurrence.capacity}
-                </Text>
-                <Text size="sm" c="dimmed">
-                  {occurrence.sessionCount} session
-                  {occurrence.sessionCount === 1 ? "" : "s"} ·{" "}
-                  {occurrence.assignedAdminCount} assigned administrator
-                  {occurrence.assignedAdminCount === 1 ? "" : "s"}
-                </Text>
-                <Group grow wrap="wrap">
-                  <Button
-                    variant="light"
-                    onClick={() => {
-                      void router.navigate({
-                        to: "/admin/events/instances/$eventOccurrenceId",
-                        params: { eventOccurrenceId: occurrence.id },
-                        search: { view: "overview" },
-                      });
-                    }}
-                  >
-                    Open event
-                  </Button>
-                  {occurrence.status === "draft" ? (
-                    <Button
-                      variant="subtle"
-                      onClick={() => {
-                        void router.navigate({
-                          to: "/admin/events/instances/$eventOccurrenceId",
-                          params: { eventOccurrenceId: occurrence.id },
-                          search: { view: "configuration" },
-                        });
-                      }}
-                    >
-                      Edit configuration
-                    </Button>
-                  ) : null}
-                  {occurrence.status === "draft" ? (
+                {occurrence.regions ? (
+                  <Text size="sm" c="dimmed">
+                    {occurrence.regions}
+                  </Text>
+                ) : null}
+                <Group gap="xs" wrap="wrap" className={classes.eventMeta}>
+                  <Badge variant="light">
+                    {readable(occurrence.deliveryMode)}
+                  </Badge>
+                  <Badge variant="light" color="gray">
+                    {occurrence.confirmedCount}/{occurrence.capacity} confirmed
+                  </Badge>
+                </Group>
+                {occurrence.status === "draft" ? (
+                  <Group justify="flex-end">
                     <Button
                       loading={processingId === occurrence.id}
                       onClick={() => void publishOccurrence(occurrence.id)}
                     >
                       Publish event
                     </Button>
-                  ) : null}
-                </Group>
+                  </Group>
+                ) : null}
               </Stack>
             </Paper>
           ))}

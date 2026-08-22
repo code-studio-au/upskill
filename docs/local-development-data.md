@@ -1,93 +1,176 @@
 # Local development data
 
-The development seed creates deterministic accounts and realistic learning and
-event workflow states. It is local-only and must never run against a shared or
-deployed database.
+The comprehensive development seed creates deterministic accounts and realistic
+learning, event, onboarding and access-management states. It is local-only and
+must never run against a shared or deployed database.
+
+The browser suite continues to use its smaller catalog and learner fixtures in a
+disposable PostgreSQL database. Browser verification does not write users,
+surveys, emails or untitled authoring drafts into the local development database.
 
 ## Reset and seed
 
 Stop any running application or worker, start the Docker services, then pass the
-three local SCORM 1.2 ZIP files to the aggregate command:
+local SCORM 1.2 ZIP file to the aggregate command:
 
 ```sh
 docker compose up -d
-pnpm run db:seed:local -- \
-  /path/to/module-1.zip \
-  /path/to/module-2.zip \
-  /path/to/module-3.zip
+pnpm run db:seed:local -- /path/to/recognizing-eating-disorders.zip
 ```
 
 `db:seed:local` drops and recreates only the `public` schema of the local
-development `/upskill` PostgreSQL database, reapplies migrations, and runs the
-catalog, account and scenario seeds. The reset refuses non-local hosts,
+development `/upskill` PostgreSQL database, reapplies migrations and runs the
+comprehensive scenario seed. The reset refuses non-local hosts,
 non-development environments and any other database name. It does not delete
 MinIO objects or ElasticMQ messages.
 
-All credential accounts use `SEED_LEARNER_PASSWORD` from `.env.local`:
+All credential accounts use `SEED_LEARNER_PASSWORD` from `.env.local`.
 
-- `admin@example.com` is the platform and Event Instance administrator.
-- `learner1@example.com` through `learner10@example.com` are scenario learners.
-- `coordinator1@example.com` through `coordinator3@example.com` coordinate Test
-  North, Test Central and Test South respectively.
-- `learner@example.com` and `redeemer@example.com` remain as compatibility
-  fixtures for browser and access-grant verification.
-- `redeemer2@example.com` owns a ten-place third-party reseller allocation with
-  generated single-use codes available under **Access management**.
+## Accounts
 
-Learners 1-4 are represented in Test North, learners 5-7 in Test Central and
-learners 8-10 in Test South through their occurrence-region registrations. The
-current user profile does not yet persist a home region independently of an
-Event Instance registration.
+### Administrators
 
-## Event scenarios
+| Email                | Event responsibility                                                  |
+| -------------------- | --------------------------------------------------------------------- |
+| `admin@example.com`  | Default and active administrator for every seeded event.              |
+| `admin2@example.com` | Platform administrator with no event template or instance assignment. |
 
-One published Event Template supplies pre-event and post-event surveys, sample
-questions, a workshop session, all three regional coordinator assignments and
-the default administrator. Every seeded Event Instance contains Test North,
-Test Central and Test South. Five published Event Instances exercise distinct
-operational stages:
+The separation is intentional: it verifies that platform administration does
+not implicitly make a person responsible for every Event Instance.
 
-| Event Instance        | Seeded state                                                                                        |
-| --------------------- | --------------------------------------------------------------------------------------------------- |
-| Registration open     | Registration is open with submitted registrations across all regions.                               |
-| Multi-region review   | Registration is closed and each coordinator can prioritise only their region's submitted list.      |
-| Regional lists locked | Coordinator reviews and rankings are locked, ready for final administrator selection.               |
-| Workshop in progress  | Selected and waitlisted learners have mixed checked-in, attended, absent and unrecorded attendance. |
-| Post-event follow-up  | The workshop has occurred and selected learners have mixed attended and absent outcomes.            |
+### Learners
 
-Use **Multi-region review · Awaiting coordinator prioritisation** to verify
-regional isolation. Open **Event operations** after signing in with each
-coordinator account:
+`learner1@example.com` through `learner20@example.com` exercise mixed
+onboarding, course, entitlement, registration and attendance states.
 
-| Coordinator                | Region       | Visible registrations                         |
-| -------------------------- | ------------ | --------------------------------------------- |
-| `coordinator1@example.com` | Test North   | Learner 1 and Learner 3                       |
-| `coordinator2@example.com` | Test Central | Learner 5 and Learner 6                       |
-| `coordinator3@example.com` | Test South   | Learner 8 and Learner 9                       |
-| `admin@example.com`        | All regions  | All six registrations, grouped across regions |
+- Learners 1–16 are onboarded and have course or event activity.
+- Learners 17 and 19 have no learning activity but have completed onboarding.
+- Learners 18 and 20 have no learning activity and have not completed onboarding.
+- Learners with a region are distributed across all 15 operational LHDs.
 
-The coordinator lock deadline is two days after the seed is run, so each
-coordinator can approve, decline, rank and lock their own regional list. The
-administrator can observe all three lists and make final selections after the
-coordinator decisions.
+### Coordinators
 
-Event learning-activity progress is not yet a persisted learner feature. The
-live and post-event fixtures therefore model dates, registration decisions,
-participation and attendance; the template contains the real surveys that will
-drive section progress when that feature is implemented.
+Each operational region has exactly one eligible coordinator. The address is
+`coordinator.<lowercase LHD code>@example.com`, for example
+`coordinator.slhd@example.com`.
 
-## eLearning scenarios
+| Code    | Operational region                          |
+| ------- | ------------------------------------------- |
+| CCLHD   | Central Coast Local Health District         |
+| FWLHD   | Far West Local Health District              |
+| HNELHD  | Hunter New England Local Health District    |
+| ISLHD   | Illawarra Shoalhaven Local Health District  |
+| MNCLHD  | Mid North Coast Local Health District       |
+| MLHD    | Murrumbidgee Local Health District          |
+| NBMLHD  | Nepean Blue Mountains Local Health District |
+| NNSWLHD | Northern NSW Local Health District          |
+| NSLHD   | Northern Sydney Local Health District       |
+| SESLHD  | South Eastern Sydney Local Health District  |
+| SWSLHD  | South Western Sydney Local Health District  |
+| SNSWLHD | Southern NSW Local Health District          |
+| SLHD    | Sydney Local Health District                |
+| WNSWLHD | Western NSW Local Health District           |
+| WSLHD   | Western Sydney Local Health District        |
 
-The seed synchronously validates and ingests all three supplied SCORM archives,
-then creates two published, store-listed courses. Both courses contain
-pre-eLearning and post-eLearning surveys with sample questions.
+All operational regions belong to **New South Wales Health (NSW Health)** with
+the enforced group code `NSW-HEALTH`. Names follow the
+[NSW Health LHD directory](https://www.health.nsw.gov.au/lhd/pages/default.aspx).
 
-| Course                            | Learner   | Seeded progress                                                       |
-| --------------------------------- | --------- | --------------------------------------------------------------------- |
-| Prevention and Early Intervention | Learner 1 | Pre-survey and first SCORM complete; remaining activities incomplete. |
-| Prevention and Early Intervention | Learner 2 | All required activities and enrolment complete.                       |
-| Assessment, Diagnosis and Support | Learner 3 | Enrolled but not started.                                             |
-| Assessment, Diagnosis and Support | Learner 4 | All required activities and enrolment complete.                       |
+### Presenters and Access Owners
 
-The scenario seed deliberately refuses to run twice without a reset so partially
-duplicated authoring or workflow data cannot be mistaken for a valid fixture.
+| Email                                   | Seeded responsibility         |
+| --------------------------------------- | ----------------------------- |
+| `presenter.cbte@example.com`            | CBT-E                         |
+| `presenter.imed_adults@example.com`     | IMED Adults                   |
+| `presenter.sscm@example.com`            | SSCM                          |
+| `presenter.fbt@example.com`             | FBT                           |
+| `presenter.imed_paediatric@example.com` | IMED Paediatric               |
+| `owner.shared@example.com`              | Shared-code access grants     |
+| `owner.unique@example.com`              | Single-use-code access grants |
+
+Each Event Template has one presenter and both of its full-day sessions retain
+that presenter when Event Instances are scheduled.
+
+## User onboarding
+
+The active seeded onboarding version preserves the current product flow:
+
+1. Personal details.
+2. Employment and discipline.
+3. Conditional health-service region selection.
+4. Experience and confidence ratings.
+
+The operational-region response maps to the user's current profile region. A
+learner who does not work for a health service skips region selection.
+
+## eLearning catalog
+
+The five published, store-listed fixtures are modelled on the public
+[InsideOut Institute eLearning catalog](https://elearning.insideoutinstitute.org.au/store).
+Text is deliberately concise. The single locally supplied **Recognizing Eating
+Disorders: A Guide for High School Health Educators** package is ingested once
+and reused by every seeded SCORM activity. These are development fixtures, not a
+claim of affiliation or a replacement for the source catalog.
+
+| Course                                                                                  | Duration   | Access  | Seeded content                                                          |
+| --------------------------------------------------------------------------------------- | ---------- | ------- | ----------------------------------------------------------------------- |
+| The Essentials: Training Clinicians in Eating Disorders                                 | 17.5 hours | 92 days | Four pre-learning surveys, six modules and three post-learning surveys. |
+| The Foundations of Eating Disorders                                                     | 1 hour     | 14 days | Introductory surveys, one module and evaluation.                        |
+| Meal Support in the Hospital Setting                                                    | 4 hours    | 28 days | Four practical modules plus pre/post surveys.                           |
+| Eating Disorder Inpatient Management: Adults                                            | 5 hours    | 92 days | Five inpatient-care modules plus pre/post surveys.                      |
+| Cognitive Behavioural Therapy (CBT) for Eating Disorders: A Practice Based Introduction | 2 hours    | 28 days | Introduction and practice modules plus pre/post surveys.                |
+
+Learners 1–6 have direct enrollments ranging from not started to complete.
+Learners 7–14 have consented access-code entitlements across the four seeded
+access-grant variants. This provides both entitled and non-entitled enrollments
+for administration and reporting tests.
+
+## Access management
+
+| Label                                             | Kind                | Fulfilment        | Capacity / claimed | Extendable |
+| ------------------------------------------------- | ------------------- | ----------------- | ------------------ | ---------- |
+| Clinical Training Partner shared bulk access      | Bulk purchase       | Shared code       | 10 / 2             | Yes        |
+| Clinical Training Partner single-use resale codes | Bulk purchase       | One code per seat | 8 / 2              | Yes        |
+| NSW Health enterprise shared access               | Enterprise contract | Shared code       | 100 / 2            | No         |
+| NSW Health single-use contracted access           | Enterprise contract | One code per seat | 6 / 2              | No         |
+
+Codes are deterministic but encrypted in PostgreSQL. Administrators and the
+assigned Access Owner can reveal them through the application. Seeded claimants
+have information-release acceptance evidence and an entitlement linked to the
+exact grant and, for single-use fulfilment, the exact redeemed code.
+
+## Event templates and scheduled events
+
+Five published templates are available:
+
+- Cognitive Behavioural Therapy for Eating Disorders (CBT-E)
+- Inpatient Management for Eating Disorders (IMED) Adults
+- Specialist Supportive Clinical Management (SSCM)
+- Family-Based Treatment (FBT)
+- Inpatient Management for Eating Disorders (IMED) Paediatric
+
+Every template contains:
+
+- pre-event confirmation and reminder emails;
+- consent, prerequisite SCORM and pre-event surveys;
+- two 9:00 am–5:00 pm workshop sessions;
+- one template-specific presenter;
+- post-event feedback surveys and completion email;
+- multiple LHD regions with the matching region coordinator; and
+- only `admin@example.com` as its default Event Administrator.
+
+Seven published Event Instances reproduce useful operational stages around the
+August–November 2026 schedule:
+
+| Event Instance                   | Seeded state                                                          |
+| -------------------------------- | --------------------------------------------------------------------- |
+| CBT-E · 10–11 August             | Delivered; selected/waitlisted learners and attended/absent evidence. |
+| CBT-E · 24–25 August             | Selection complete; learners can test pre-event work.                 |
+| IMED Adults · 3–4 September      | Regional lists locked and awaiting final administrator decisions.     |
+| SSCM · 9–10 September            | Registration closed and awaiting regional coordinator prioritisation. |
+| FBT · 16–17 September            | Registration open.                                                    |
+| CBT-E · 23–24 September          | Registration open across several regions.                             |
+| IMED Paediatric · 10–11 November | Registration open for a later event.                                  |
+
+The scenario seed refuses to run twice without a reset so partial duplicate
+authoring or workflow data cannot be mistaken for a valid fixture.

@@ -27,11 +27,13 @@ function NewEventOccurrencePage() {
       onCancel={() => {
         void navigate({
           to: "/admin/events/scheduled",
+          search: { view: "upcoming" },
         });
       }}
       onSaved={async () => {
         await navigate({
           to: "/admin/events/scheduled",
+          search: { view: "upcoming" },
         });
       }}
     />

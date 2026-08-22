@@ -11,6 +11,7 @@ import {
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { PurchaseCourseButton } from "#/features/checkout/PurchaseCourseButton";
 import { getCourse } from "#/server/functions/catalog";
+import { topicLabel } from "#/features/shared/offering-topic";
 import classes from "./courses.$slug.module.css";
 
 const audCurrencyFormatter = new Intl.NumberFormat("en-AU", {
@@ -50,25 +51,81 @@ function CourseDetail() {
   return (
     <Container size="lg" className={classes.page}>
       <div className={classes.layout}>
-        <Stack gap="xl" className={classes.content}>
-          <Stack gap="md">
-            <Group>
-              <Badge variant="light">{course.topic}</Badge>
-              <Text c="dimmed">{course.durationMinutes} minutes</Text>
-              <Text c="dimmed">
-                {course.sections.length > 0
-                  ? `${String(course.sections.reduce((total, section) => total + section.items.length, 0))} learning items`
-                  : `${String(course.modules.length)} modules`}
-              </Text>
-            </Group>
-            <Title order={1} className={classes.title}>
-              {course.title}
-            </Title>
-            <Text size="xl" c="dimmed" className={classes.summary}>
-              {course.summary}
+        <Stack gap="md" className={classes.hero}>
+          {course.coverImage ? (
+            <img
+              alt={course.coverImage.altText}
+              className={classes.coverImage}
+              decoding="async"
+              src={`/api/catalog/courses/${encodeURIComponent(course.slug)}/cover-images/${encodeURIComponent(course.coverImage.assetId)}`}
+            />
+          ) : null}
+          <Group gap="sm" className={classes.facts}>
+            <Badge variant="light">{topicLabel(course.topic)}</Badge>
+            <Text c="dimmed">{course.durationMinutes} minutes</Text>
+            <Text c="dimmed">
+              {course.sections.length > 0
+                ? `${String(course.sections.reduce((total, section) => total + section.items.length, 0))} learning items`
+                : `${String(course.modules.length)} modules`}
             </Text>
-          </Stack>
+          </Group>
+          <Title order={1} className={classes.title}>
+            {course.title}
+          </Title>
+          <Text size="xl" c="dimmed" className={classes.summary}>
+            {course.summary}
+          </Text>
+        </Stack>
 
+        <aside aria-label="Course enrolment" className={classes.enrolment}>
+          <Paper
+            withBorder
+            radius="lg"
+            p={{ base: "lg", sm: "xl" }}
+            className={classes.purchaseCard}
+          >
+            <Stack gap="lg">
+              <div>
+                {course.salePriceCents === null ? null : (
+                  <Text c="dimmed" td="line-through">
+                    {standardPrice}
+                  </Text>
+                )}
+                <Text fw={800} className={classes.price}>
+                  {currentPrice}
+                </Text>
+                <Text size="sm" c="dimmed">
+                  AUD, including applicable GST
+                </Text>
+              </div>
+              <PurchaseCourseButton slug={course.slug} />
+              {course.bulkPricing.enabled ? (
+                <Link
+                  to="/courses/$slug/bulk-order"
+                  params={{ slug: course.slug }}
+                  className={classes.bulkLink}
+                >
+                  <Button
+                    component="span"
+                    variant="default"
+                    size="lg"
+                    fullWidth
+                  >
+                    Purchase bulk access
+                  </Button>
+                </Link>
+              ) : null}
+              {course.hasCompletionCertificate ? (
+                <Text size="sm" c="dimmed" className={classes.inclusion}>
+                  <span aria-hidden="true">✓</span>
+                  Downloadable completion certificate
+                </Text>
+              ) : null}
+            </Stack>
+          </Paper>
+        </aside>
+
+        <Stack gap="xl" className={classes.details}>
           <section aria-labelledby="course-overview-heading">
             <Stack gap="sm">
               <Title order={2} id="course-overview-heading">
@@ -83,7 +140,7 @@ function CourseDetail() {
           <section aria-labelledby="course-modules-heading">
             <Stack gap="md">
               <Title order={2} id="course-modules-heading">
-                What you will complete
+                Course outline
               </Title>
               {course.sections.length > 0 ? (
                 <Stack gap="lg">
@@ -131,6 +188,49 @@ function CourseDetail() {
                   ))}
                 </ol>
               )}
+              {course.accreditations.length === 0 ? null : (
+                <div className={classes.accreditations}>
+                  <Title order={3}>Accreditations</Title>
+                  <div className={classes.accreditationList}>
+                    {course.accreditations.map((accreditation, index) => (
+                      <Paper
+                        withBorder
+                        radius="md"
+                        p="md"
+                        key={`${accreditation.name}-${String(index)}`}
+                      >
+                        <div className={classes.accreditation}>
+                          {accreditation.logoAssetId ? (
+                            <img
+                              alt={accreditation.logoName}
+                              className={classes.accreditationLogo}
+                              decoding="async"
+                              loading="lazy"
+                              src={`/api/catalog/courses/${encodeURIComponent(course.slug)}/accreditation-logos/${encodeURIComponent(accreditation.logoAssetId)}`}
+                            />
+                          ) : null}
+                          <Stack gap={4}>
+                            <Text fw={700}>{accreditation.name}</Text>
+                            {accreditation.cpdPoints === null ? null : (
+                              <Text size="sm" c="indigo.7" fw={600}>
+                                {accreditation.cpdPoints} CPD{" "}
+                                {accreditation.cpdPoints === 1
+                                  ? "point"
+                                  : "points"}
+                              </Text>
+                            )}
+                            {accreditation.blurb ? (
+                              <Text size="sm" c="dimmed">
+                                {accreditation.blurb}
+                              </Text>
+                            ) : null}
+                          </Stack>
+                        </div>
+                      </Paper>
+                    ))}
+                  </div>
+                </div>
+              )}
             </Stack>
           </section>
 
@@ -148,68 +248,7 @@ function CourseDetail() {
               </Stack>
             </section>
           )}
-
-          {course.accreditations.length === 0 ? null : (
-            <section aria-labelledby="course-accreditation-heading">
-              <Stack gap="sm">
-                <Title order={2} id="course-accreditation-heading">
-                  Accreditation and CPD
-                </Title>
-                <ul className={classes.plainList}>
-                  {course.accreditations.map((accreditation) => (
-                    <li key={accreditation.name}>
-                      {accreditation.name}
-                      {accreditation.cpdPoints === null
-                        ? ""
-                        : ` — ${String(accreditation.cpdPoints)} CPD ${accreditation.cpdPoints === 1 ? "point" : "points"}`}
-                    </li>
-                  ))}
-                </ul>
-              </Stack>
-            </section>
-          )}
         </Stack>
-
-        <aside aria-label="Course enrolment" className={classes.enrolment}>
-          <Paper withBorder radius="lg" p="xl">
-            <Stack gap="lg">
-              <div>
-                {course.salePriceCents === null ? null : (
-                  <Text c="dimmed" td="line-through">
-                    {standardPrice}
-                  </Text>
-                )}
-                <Text fw={800} className={classes.price}>
-                  {currentPrice}
-                </Text>
-                <Text size="sm" c="dimmed">
-                  AUD, including applicable GST
-                </Text>
-              </div>
-              <PurchaseCourseButton slug={course.slug} />
-              {course.bulkPricing.enabled ? (
-                <Link
-                  to="/courses/$slug/bulk-order"
-                  params={{ slug: course.slug }}
-                >
-                  <Button
-                    component="span"
-                    variant="default"
-                    size="lg"
-                    fullWidth
-                  >
-                    Purchase bulk access
-                  </Button>
-                </Link>
-              ) : null}
-              {course.hasCompletionCertificate ? (
-                <Text size="sm" c="dimmed">
-                  Includes a downloadable completion certificate.
-                </Text>
-              ) : null}
-            </Stack>
-          </Paper>
-        </aside>
       </div>
     </Container>
   );

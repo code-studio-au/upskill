@@ -1,5 +1,6 @@
 import "@tanstack/react-start/server-only";
 
+import { randomUUID } from "node:crypto";
 import type { Kysely } from "kysely";
 import type {
   AccessCodePreviewResult,
@@ -11,6 +12,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { issueCourseEntitlement } from "#/server/learning/course-entitlement.server";
+import { issueConfirmedEventRegistration } from "#/server/events/confirmed-event-registration.server";
 import { encryptedAccessCodeMatches } from "./access-code-encryption.server";
 import {
   extractAccessCodeLookupId,
@@ -23,15 +25,23 @@ function emailDomain(email: string): string | null {
   return email.slice(separator + 1).toLocaleLowerCase("en-AU");
 }
 
-type EligibleGrant = {
+type EligibleGrantBase = {
   id: string;
   accessGrantCodeId: string | null;
-  courseVersionId: string;
-  courseTitle: string;
+  offeringTitle: string;
   organizationName: string;
   kind: "bulk_purchase" | "enterprise_contract";
-  enrollmentDurationDays: number;
 };
+type EligibleGrant =
+  | (EligibleGrantBase & {
+      offeringType: "course";
+      courseVersionId: string;
+      enrollmentDurationDays: number;
+    })
+  | (EligibleGrantBase & {
+      offeringType: "event";
+      eventOccurrenceId: string;
+    });
 
 async function resolveEligibleGrant(
   database: Kysely<Database>,
@@ -40,7 +50,11 @@ async function resolveEligibleGrant(
   lock: boolean,
 ): Promise<
   | { status: "ready"; grant: EligibleGrant }
-  | { status: "already-enrolled"; courseTitle: string }
+  | {
+      status: "already-enrolled";
+      offeringTitle: string;
+      offeringType: "course" | "event";
+    }
   | { status: "invalid" }
 > {
   const normalizedCode = normalizeAccessCode(code);
@@ -53,16 +67,22 @@ async function resolveEligibleGrant(
       "access_grant.id",
       "access_grant_code.accessGrantId",
     )
-    .innerJoin(
+    .leftJoin(
       "course_version",
       "course_version.id",
       "access_grant.courseVersionId",
     )
-    .innerJoin("course", "course.id", "course_version.courseId")
+    .leftJoin("course", "course.id", "course_version.courseId")
+    .leftJoin(
+      "event_occurrence",
+      "event_occurrence.id",
+      "access_grant.eventOccurrenceId",
+    )
     .leftJoin("organization", "organization.id", "access_grant.organizationId")
     .select([
       "access_grant.id",
       "access_grant.courseVersionId",
+      "access_grant.eventOccurrenceId",
       "access_grant.quantity",
       "access_grant.redeemed",
       "access_grant.expiresAt",
@@ -76,6 +96,9 @@ async function resolveEligibleGrant(
       "course.title as courseTitle",
       "course.status as courseStatus",
       "course_version.publishedAt",
+      "event_occurrence.title as eventTitle",
+      "event_occurrence.status as eventStatus",
+      "event_occurrence.startsAt as eventStartsAt",
       "organization.name as organizationName",
     ])
     .where("access_grant_code.lookupId", "=", lookupId);
@@ -89,19 +112,22 @@ async function resolveEligibleGrant(
       encryptedAccessCode: grant.encryptedAccessCode,
       submittedAccessCode: normalizedCode,
     }) ||
-    grant.courseStatus !== "published" ||
-    grant.publishedAt === null ||
     grant.kind === "individual_purchase"
   )
     return { status: "invalid" };
 
   if (grant.fulfillmentMode === "single_use_codes") {
-    const redemption = await database
+    const courseRedemption = await database
       .selectFrom("entitlement")
       .select("id")
       .where("originAccessGrantCodeId", "=", grant.accessGrantCodeId)
       .executeTakeFirst();
-    if (redemption) return { status: "invalid" };
+    const eventRedemption = await database
+      .selectFrom("event_access_redemption")
+      .select("id")
+      .where("accessGrantCodeId", "=", grant.accessGrantCodeId)
+      .executeTakeFirst();
+    if (courseRedemption || eventRedemption) return { status: "invalid" };
   }
 
   const restrictions = await database
@@ -118,36 +144,80 @@ async function resolveEligibleGrant(
     )
       return { status: "invalid" };
   }
-  const existing = await database
-    .selectFrom("enrollment")
-    .select("id")
-    .where("userId", "=", user.id)
-    .where("courseVersionId", "=", grant.courseVersionId)
-    .executeTakeFirst();
-  if (existing)
-    return { status: "already-enrolled", courseTitle: grant.courseTitle };
   const now = new Date();
-  if (
-    grant.revokedAt ||
-    grant.redeemed >= grant.quantity ||
-    (grant.expiresAt && grant.expiresAt <= now)
-  )
+  if (grant.revokedAt || (grant.expiresAt && grant.expiresAt <= now))
     return { status: "invalid" };
-  return {
-    status: "ready",
-    grant: {
-      id: grant.id,
-      accessGrantCodeId:
-        grant.fulfillmentMode === "single_use_codes"
-          ? grant.accessGrantCodeId
-          : null,
-      courseVersionId: grant.courseVersionId,
-      courseTitle: grant.courseTitle,
-      organizationName: grant.organizationName ?? "Access provider",
-      kind: grant.kind,
-      enrollmentDurationDays: grant.enrollmentDurationDays,
-    },
+  const common = {
+    id: grant.id,
+    accessGrantCodeId:
+      grant.fulfillmentMode === "single_use_codes"
+        ? grant.accessGrantCodeId
+        : null,
+    organizationName: grant.organizationName ?? "Access provider",
+    kind: grant.kind,
   };
+  if (
+    grant.courseVersionId &&
+    grant.courseTitle &&
+    grant.enrollmentDurationDays &&
+    grant.courseStatus === "published" &&
+    grant.publishedAt
+  ) {
+    const existing = await database
+      .selectFrom("enrollment")
+      .select("id")
+      .where("userId", "=", user.id)
+      .where("courseVersionId", "=", grant.courseVersionId)
+      .executeTakeFirst();
+    if (existing)
+      return {
+        status: "already-enrolled",
+        offeringTitle: grant.courseTitle,
+        offeringType: "course",
+      };
+    if (grant.redeemed >= grant.quantity) return { status: "invalid" };
+    return {
+      status: "ready",
+      grant: {
+        ...common,
+        offeringType: "course",
+        offeringTitle: grant.courseTitle,
+        courseVersionId: grant.courseVersionId,
+        enrollmentDurationDays: grant.enrollmentDurationDays,
+      },
+    };
+  }
+  if (
+    grant.eventOccurrenceId &&
+    grant.eventTitle &&
+    grant.eventStatus === "published" &&
+    grant.eventStartsAt &&
+    grant.eventStartsAt > now
+  ) {
+    const existing = await database
+      .selectFrom("event_registration")
+      .select("id")
+      .where("userId", "=", user.id)
+      .where("eventOccurrenceId", "=", grant.eventOccurrenceId)
+      .executeTakeFirst();
+    if (existing)
+      return {
+        status: "already-enrolled",
+        offeringTitle: grant.eventTitle,
+        offeringType: "event",
+      };
+    if (grant.redeemed >= grant.quantity) return { status: "invalid" };
+    return {
+      status: "ready",
+      grant: {
+        ...common,
+        offeringType: "event",
+        offeringTitle: grant.eventTitle,
+        eventOccurrenceId: grant.eventOccurrenceId,
+      },
+    };
+  }
+  return { status: "invalid" };
 }
 
 export async function previewAccessCode(
@@ -159,7 +229,8 @@ export async function previewAccessCode(
   if (resolved.status !== "ready") return resolved;
   return {
     status: "ready",
-    courseTitle: resolved.grant.courseTitle,
+    offeringTitle: resolved.grant.offeringTitle,
+    offeringType: resolved.grant.offeringType,
     organizationName: resolved.grant.organizationName,
     accessKind: resolved.grant.kind,
     noticeVersion: INFORMATION_RELEASE_NOTICE_VERSION,
@@ -185,6 +256,60 @@ export async function redeemAccessCode(
       );
       if (resolved.status !== "ready") return resolved;
       const now = new Date();
+      if (resolved.grant.offeringType === "event") {
+        const registration = await issueConfirmedEventRegistration(
+          transaction,
+          {
+            eventOccurrenceId: resolved.grant.eventOccurrenceId,
+            user,
+            source: "access_code",
+            eligibilitySource: "access_code",
+            createdAt: now,
+          },
+        );
+        if (registration.status !== "created")
+          return { status: "invalid" } as const;
+        const redemptionId = `event_access_redemption_${randomUUID()}`;
+        await transaction
+          .insertInto("event_access_redemption")
+          .values({
+            id: redemptionId,
+            accessGrantId: resolved.grant.id,
+            accessGrantCodeId: resolved.grant.accessGrantCodeId,
+            eventRegistrationId: registration.eventRegistrationId,
+            eventParticipationId: registration.eventParticipationId,
+            userId: user.id,
+            redemptionEmailSnapshot: user.email,
+            informationReleaseNoticeVersion: input.noticeVersion,
+            informationReleaseAcceptedAt: now,
+            redeemedAt: now,
+          })
+          .execute();
+        await transaction
+          .updateTable("access_grant")
+          .set((expression) => ({ redeemed: expression("redeemed", "+", 1) }))
+          .where("id", "=", resolved.grant.id)
+          .executeTakeFirstOrThrow();
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: user.id,
+          action: "entitlement.information_release_accepted",
+          subjectType: "event_access_redemption",
+          subjectId: redemptionId,
+          aggregateId: registration.eventRegistrationId,
+          metadata: {
+            accessGrantId: resolved.grant.id,
+            accessGrantCodeId: resolved.grant.accessGrantCodeId,
+            eventOccurrenceId: resolved.grant.eventOccurrenceId,
+            noticeVersion: input.noticeVersion,
+          },
+          createdAt: now,
+        });
+        return {
+          status: "enrolled",
+          offeringTitle: resolved.grant.offeringTitle,
+          offeringType: "event",
+        };
+      }
       const { enrollmentId, entitlementId } = await issueCourseEntitlement(
         transaction,
         {
@@ -242,6 +367,10 @@ export async function redeemAccessCode(
         },
         createdAt: now,
       });
-      return { status: "enrolled", courseTitle: resolved.grant.courseTitle };
+      return {
+        status: "enrolled",
+        offeringTitle: resolved.grant.offeringTitle,
+        offeringType: "course",
+      };
     });
 }

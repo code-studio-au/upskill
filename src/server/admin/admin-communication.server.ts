@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import type { AdminEmailPreview } from "#/features/admin-email/admin-email.schema";
 import type {
   AdminCommunicationPlanItem,
@@ -88,6 +88,40 @@ async function templateOptions(
     .where("version.publishedAt", "is not", null)
     .orderBy("design.name")
     .execute();
+}
+
+export async function findScheduleEmailAuthoringContext(
+  contextKey: "offering_course" | "offering_event",
+) {
+  const contractKey =
+    contextKey === "offering_course" ? "offering.course" : "offering.event";
+  const templates = await getDatabase()
+    .selectFrom("email_design as design")
+    .innerJoin(
+      "email_design_version as version",
+      "version.emailDesignId",
+      "design.id",
+    )
+    .select([
+      "version.id as versionId",
+      "design.name as designName",
+      "version.version",
+      "version.subject",
+      "version.textBody",
+      sql<boolean>`version.id = design."activeVersionId"`.as("selectable"),
+    ])
+    .where("design.catalogue", "=", "offering")
+    .where("design.contextKey", "=", contextKey)
+    .where("version.publishedAt", "is not", null)
+    .orderBy("design.name")
+    .orderBy("version.version", "desc")
+    .execute();
+  return {
+    templates,
+    variableGroups: emailVariableGroups(
+      getEmailTemplateContract(contractKey).variables,
+    ),
+  };
 }
 
 function effectiveItem(row: {
@@ -448,6 +482,9 @@ export async function previewOfferingCommunication(
     emailDesignVersionId?: string | undefined;
     subject?: string | undefined;
     textBody?: string | undefined;
+    offeringTitle?: string | undefined;
+    sectionTitle?: string | undefined;
+    sessionTitle?: string | undefined;
   },
 ): Promise<AdminEmailPreview | null> {
   const workspace = await findAdminCommunicationWorkspace(scope);
@@ -678,6 +715,11 @@ export async function previewOfferingCommunication(
       }
     }
   }
+  if (input.offeringTitle)
+    variables[scope.kind === "course" ? "course.title" : "event.title"] =
+      input.offeringTitle;
+  if (input.sectionTitle) variables["section.title"] = input.sectionTitle;
+  if (input.sessionTitle) variables["session.title"] = input.sessionTitle;
   try {
     return renderEmailTemplate({
       contractKey: emailVersion.contractKey,
@@ -950,55 +992,6 @@ export async function saveEventTemplateCommunicationPlan(
         createdAt: now,
       });
       return "saved";
-    });
-}
-
-export async function deleteCommunicationPlan(
-  input:
-    | { kind: "course"; courseVersionId: string; communicationId: string }
-    | {
-        kind: "event_template";
-        eventTemplateVersionId: string;
-        communicationId: string;
-      },
-  user: AuthenticatedUser,
-): Promise<"deleted" | "not-found" | "conflict"> {
-  return await getDatabase()
-    .transaction()
-    .execute(async (transaction) => {
-      const course = input.kind === "course";
-      const table = course
-        ? "course_version_communication"
-        : "event_template_version_communication";
-      const versionTable = course ? "course_version" : "event_template_version";
-      const versionField = course
-        ? "courseVersionId"
-        : "eventTemplateVersionId";
-      const versionId = course
-        ? input.courseVersionId
-        : input.eventTemplateVersionId;
-      const version = await transaction
-        .selectFrom(versionTable)
-        .select(["id", "publishedAt"])
-        .where("id", "=", versionId)
-        .executeTakeFirst();
-      if (!version) return "not-found";
-      if (version.publishedAt) return "conflict";
-      const deleted = await transaction
-        .deleteFrom(table)
-        .where("id", "=", input.communicationId)
-        .where(versionField, "=", versionId)
-        .returning("id")
-        .executeTakeFirst();
-      if (!deleted) return "not-found";
-      await recordDurableAuditEvent(transaction, {
-        actorUserId: user.id,
-        action: "communication_plan.deleted",
-        subjectType: table,
-        subjectId: deleted.id,
-        aggregateId: versionId,
-      });
-      return "deleted";
     });
 }
 

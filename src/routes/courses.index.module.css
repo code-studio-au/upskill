@@ -1,5 +1,26 @@
+.page {
+  min-height: calc(100dvh - 3.75rem);
+  background-color: #f4f7ff;
+  background-image:
+    linear-gradient(to bottom, transparent 60%, #f4f7ff 100%),
+    url("/brand/home-arrow-background.jpg");
+  background-repeat: no-repeat;
+  background-position: top center;
+  background-size:
+    100% 43.72vw,
+    100% auto;
+}
+
 .section {
-  padding-block: clamp(1.5rem, 4vw, 3rem);
+  min-height: calc(100dvh - 3.75rem);
+  padding-block: clamp(2rem, 5vw, 4rem);
+}
+
+.heading h1 {
+  margin-top: 0.3rem;
+  font-size: clamp(2.25rem, 6vw, 4rem);
+  letter-spacing: -0.035em;
+  line-height: 1;
 }
 
 .filters {
@@ -9,10 +30,26 @@
   border: 1px solid var(--mantine-color-gray-3);
   border-radius: var(--mantine-radius-lg);
   background: var(--mantine-color-white);
+  box-shadow: 0 0.8rem 2.5rem rgb(34 65 133 / 6%);
 }
 
 .grid {
   display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.pagination {
+  padding-block-start: var(--mantine-spacing-xs);
+}
+
+.paginationLink {
+  text-decoration: none;
+}
+
+.emptyState {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--mantine-spacing-md);
 }
 
@@ -24,6 +61,25 @@
 
   .grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 35.99em) {
+  .section {
+    padding-block: 1.75rem 3rem;
+  }
+
+  .heading h1 {
+    font-size: clamp(2rem, 11vw, 2.75rem);
+  }
+
+  .filters {
+    padding: var(--mantine-spacing-sm);
+  }
+
+  .emptyState {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

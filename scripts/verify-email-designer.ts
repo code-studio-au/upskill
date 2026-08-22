@@ -48,6 +48,8 @@ try {
   assert.ok(systemDetail);
   assert.equal(systemDetail.version.active, true);
   assert.equal(systemDetail.version.version, 1);
+  assert.ok(systemDetail.preview);
+  assert.equal(systemDetail.preview.subject, systemDetail.version.subject);
   assert.deepEqual(
     systemDetail.variableGroups
       .flatMap((group) => group.items)
@@ -95,6 +97,8 @@ try {
   assert.ok(firstPublished);
   assert.equal(firstPublished.version.active, true);
   assert.equal(firstPublished.version.editable, false);
+  assert.ok(firstPublished.preview);
+  assert.match(firstPublished.preview.subject, /Regional learning workshop/u);
   await assert.rejects(
     database
       .updateTable("email_design_version")

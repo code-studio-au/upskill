@@ -60,89 +60,91 @@ function LoginPage() {
   });
 
   return (
-    <Container size="sm" className={classes.section}>
-      <Paper
-        withBorder
-        radius="lg"
-        p={{ base: "lg", sm: "xl" }}
-        className={classes.card}
-      >
-        <Stack gap="lg">
-          <div className={classes.intro}>
-            <Text c="indigo.7" fw={700}>
-              Learner access
-            </Text>
-            <Title order={1}>Sign in to Upskill</Title>
-          </div>
-          {error ? (
-            <Alert color="red" title="Sign-in failed" role="alert">
-              {error}
-            </Alert>
-          ) : null}
-          <form
-            method="post"
-            action="/login"
-            onSubmit={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              void loginForm.handleSubmit();
-            }}
-          >
-            <Stack gap="md">
-              <loginForm.Field name="email">
-                {(field) => (
-                  <MantineTextInput
-                    label="Email address"
-                    name={field.name}
-                    type="email"
-                    autoComplete="email"
-                    withAsterisk
-                    value={field.state.value}
-                    error={firstFormError(field.state.meta.errors)}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                  />
-                )}
-              </loginForm.Field>
-              <loginForm.Field name="password">
-                {(field) => (
-                  <MantineTextInput
-                    type="password"
-                    label="Password"
-                    name={field.name}
-                    autoComplete="current-password"
-                    withAsterisk
-                    value={field.state.value}
-                    error={firstFormError(field.state.meta.errors)}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                  />
-                )}
-              </loginForm.Field>
-              <loginForm.Subscribe
-                selector={(state) =>
-                  [state.canSubmit, state.isSubmitting] as const
-                }
-              >
-                {([canSubmit, isSubmitting]) => (
-                  <Button
-                    type="submit"
-                    loading={isSubmitting}
-                    disabled={!hydrated || !canSubmit}
-                    fullWidth
-                  >
-                    Sign in
-                  </Button>
-                )}
-              </loginForm.Subscribe>
-            </Stack>
-          </form>
-        </Stack>
-      </Paper>
-    </Container>
+    <div className={classes.page}>
+      <Container size="sm" className={classes.section}>
+        <Paper
+          withBorder
+          radius="lg"
+          p={{ base: "lg", sm: "xl" }}
+          className={classes.card}
+        >
+          <Stack gap="lg">
+            <div className={classes.intro}>
+              <Text c="indigo.7" fw={700}>
+                Learner access
+              </Text>
+              <Title order={1}>Sign in to Upskill</Title>
+            </div>
+            {error ? (
+              <Alert color="red" title="Sign-in failed" role="alert">
+                {error}
+              </Alert>
+            ) : null}
+            <form
+              method="post"
+              action="/login"
+              onSubmit={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void loginForm.handleSubmit();
+              }}
+            >
+              <Stack gap="md">
+                <loginForm.Field name="email">
+                  {(field) => (
+                    <MantineTextInput
+                      label="Email address"
+                      name={field.name}
+                      type="email"
+                      autoComplete="email"
+                      withAsterisk
+                      value={field.state.value}
+                      error={firstFormError(field.state.meta.errors)}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        field.handleChange(event.currentTarget.value);
+                      }}
+                    />
+                  )}
+                </loginForm.Field>
+                <loginForm.Field name="password">
+                  {(field) => (
+                    <MantineTextInput
+                      type="password"
+                      label="Password"
+                      name={field.name}
+                      autoComplete="current-password"
+                      withAsterisk
+                      value={field.state.value}
+                      error={firstFormError(field.state.meta.errors)}
+                      onBlur={field.handleBlur}
+                      onChange={(event) => {
+                        field.handleChange(event.currentTarget.value);
+                      }}
+                    />
+                  )}
+                </loginForm.Field>
+                <loginForm.Subscribe
+                  selector={(state) =>
+                    [state.canSubmit, state.isSubmitting] as const
+                  }
+                >
+                  {([canSubmit, isSubmitting]) => (
+                    <Button
+                      type="submit"
+                      loading={isSubmitting}
+                      disabled={!hydrated || !canSubmit}
+                      fullWidth
+                    >
+                      Sign in
+                    </Button>
+                  )}
+                </loginForm.Subscribe>
+              </Stack>
+            </form>
+          </Stack>
+        </Paper>
+      </Container>
+    </div>
   );
 }

@@ -81,7 +81,8 @@
 
 .chevron {
   color: var(--mantine-color-gray-6);
-  font-size: 0.75rem;
+  font-size: 1.3rem;
+  line-height: 1;
 }
 
 .mobile {
