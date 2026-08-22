@@ -96,6 +96,11 @@ export async function findAdminNotificationOperations(
               expression("notification.recipientName", "ilike", pattern),
               expression("notification.recipientEmail", "ilike", pattern),
               expression("notification.renderedSubject", "ilike", pattern),
+              expression(
+                "notification.subjectTemplateSnapshot",
+                "ilike",
+                pattern,
+              ),
             ]),
           ),
         )
@@ -116,6 +121,7 @@ export async function findAdminNotificationOperations(
           expression("notification.recipientName", "ilike", pattern),
           expression("notification.recipientEmail", "ilike", pattern),
           expression("notification.renderedSubject", "ilike", pattern),
+          expression("notification.subjectTemplateSnapshot", "ilike", pattern),
         ]),
       ),
     )
@@ -131,6 +137,7 @@ export async function findAdminNotificationOperations(
       "notification.attempts",
       "notification.lastErrorCode",
       "notification.renderedSubject",
+      "notification.subjectTemplateSnapshot",
       "notification.createdAt",
       "notification.updatedAt",
       "notification.deliveredAt",
@@ -209,7 +216,7 @@ export async function findAdminNotificationOperations(
         scheduledFor: row.scheduledFor?.toISOString() ?? null,
         statusLabel: isScheduled ? "Scheduled" : statusLabels[row.status],
         deliveryAttempts,
-        detailSummary: `Email\n${row.recipientEmail}\n\nSubject\n${row.renderedSubject ?? "Renders when delivery begins"}\n\nDelivery details\n${deliverySummary}\n\nLast error\n${row.lastErrorCode ?? "None"}\n\nProvider attempt history\n${attemptSummary || "None recorded"}`,
+        detailSummary: `Email\n${row.recipientEmail}\n\nSubject\n${row.renderedSubject ?? `${row.subjectTemplateSnapshot} (template; renders when delivery begins)`}\n\nDelivery details\n${deliverySummary}\n\nLast error\n${row.lastErrorCode ?? "None"}\n\nProvider attempt history\n${attemptSummary || "None recorded"}`,
       };
     }),
     pagination: { page, pages, total: countRow.count, pageSize: PAGE_SIZE },

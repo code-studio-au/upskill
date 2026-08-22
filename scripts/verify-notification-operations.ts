@@ -222,6 +222,18 @@ try {
   assert.equal(pendingDirectory.pagination.total, 1);
   assert.equal(pendingDirectory.notifications[0]?.id, ids.notification);
   const scheduledFor = new Date(Date.now() + 7 * 24 * 60 * 60_000);
+  const scheduledSubject = "Scheduled verification subject";
+  await database
+    .updateTable("notification")
+    .set({
+      renderedSubject: null,
+      renderedTextBody: null,
+      renderedHtmlBody: null,
+      renderedAt: null,
+      subjectTemplateSnapshot: scheduledSubject,
+    })
+    .where("id", "=", ids.notification)
+    .execute();
   await database
     .updateTable("outbox_event")
     .set({ availableAt: scheduledFor })
@@ -229,7 +241,7 @@ try {
     .where("topic", "=", "notification.delivery_requested")
     .execute();
   const scheduledDirectory = await findAdminNotificationOperations({
-    q: "notification-operations-learner@example.com",
+    q: "scheduled verification",
     status: "pending",
     page: 1,
   });
@@ -237,6 +249,14 @@ try {
   assert.ok(scheduledNotification);
   assert.equal(scheduledNotification.statusLabel, "Scheduled");
   assert.equal(scheduledNotification.scheduledFor, scheduledFor.toISOString());
+  assert.match(
+    scheduledNotification.detailSummary,
+    /Scheduled verification subject/,
+  );
+  assert.match(
+    scheduledNotification.detailSummary,
+    /template; renders when delivery begins/,
+  );
   assert.match(scheduledNotification.detailSummary, /Scheduled for .* UTC/);
   console.log(
     "Verified notification operations health, scheduled delivery labels, filtered history, attempt detail and audited safe requeue",
