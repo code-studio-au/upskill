@@ -24,6 +24,7 @@ const verificationScripts = [
   "scripts/verify-email-designer.ts",
   "scripts/verify-offering-communications.ts",
   "scripts/verify-provisional-account-notifications.ts",
+  "scripts/verify-notification-operations.ts",
 ];
 const migrationScript = verificationScripts[0];
 const requestedScripts = process.argv.slice(2);

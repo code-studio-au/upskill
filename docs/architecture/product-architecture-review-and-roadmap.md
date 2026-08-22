@@ -114,10 +114,10 @@ verifiers, and CDK verification.
 | Passwordless prerequisite recovery | Target design                                            | Add SMS/email OTP, task sessions and scoped facilitated Survey fallback  |
 | Staged Event release               | Implemented learner foundation                           | Add notification and open-entry workflow maturity                        |
 | Regional Event selection           | Implemented operational foundation                       | Add assignment alerts and late-invitation UX maturity                    |
-| Automated email/notifications      | All authored Course/Event triggers execute durably       | Add operational visibility and broader message types                     |
+| Automated email/notifications      | Durable triggers plus audited delivery operations        | Add retention controls and broader message types                         |
 | Reporting/visual analytics         | Basic read boundaries                                    | Add filtered charts/tables; project only when justified                  |
 | Global support/impersonation       | Future possibility                                       | Add carefully with audit safeguards                                      |
-| Operational observability          | Partial                                                  | Treat as a production-hardening priority                                 |
+| Operational observability          | Notification/SQS/DLQ slice implemented                   | Add release, worker, RDS, ALB and domain-specific telemetry              |
 
 ## Priority 0/1 --- Production Reliability
 
@@ -174,9 +174,12 @@ entitlements and Access Owner views.
 
 ### Operational observability
 
-Add metrics and alerts for outbox age, SQS age, DLQ depth, worker
-failures, certificate-render errors/latency, SCORM processing/rejections, RDS
-health/connections, ALB errors, and deployment version.
+Notification delivery now has a privileged database-health workspace for
+pending/failed/stale delivery, overdue schedules and due outbox work, plus
+production CloudWatch alarms for sustained SQS age/backlog and non-empty DLQ.
+Continue with worker failures/heartbeat, certificate-render errors/latency,
+SCORM processing/rejections, RDS health/connections, ALB errors, deployment
+version and an alarm-notification destination owned by deployment operations.
 
 **Benefit:** failures are discovered by the platform before users report
 them.

@@ -37,4 +37,30 @@ test("storage blocks public access and provides a dead-letter queue", () => {
       maxReceiveCount: 5,
     },
   });
+  template.resourceCountIs("AWS::CloudWatch::Alarm", 0);
+});
+
+test("production storage alarms on durable work backlog and dead letters", () => {
+  const stack = new StorageStack(
+    new App(),
+    "ProductionStorage",
+    environmentConfig("production"),
+  );
+  const template = Template.fromStack(stack);
+  template.resourceCountIs("AWS::CloudWatch::Alarm", 3);
+  template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+    AlarmName: "upskill-production-work-queue-oldest-message",
+    Threshold: 900,
+    EvaluationPeriods: 2,
+  });
+  template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+    AlarmName: "upskill-production-work-queue-backlog",
+    Threshold: 100,
+    EvaluationPeriods: 2,
+  });
+  template.hasResourceProperties("AWS::CloudWatch::Alarm", {
+    AlarmName: "upskill-production-work-dead-letter-queue",
+    Threshold: 1,
+    EvaluationPeriods: 1,
+  });
 });

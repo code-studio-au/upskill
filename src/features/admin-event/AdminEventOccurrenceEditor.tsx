@@ -215,7 +215,7 @@ export function AdminEventOccurrenceEditor({
                 ? "That registration window is unavailable."
                 : result.status === "conflict" &&
                     result.reason === "regions_not_confirmed"
-                  ? "Review and confirm regional coverage."
+                  ? "Confirm regional coverage."
                   : result.status === "conflict"
                     ? "The event cannot be saved with this configuration."
                     : "The event could not be saved.",

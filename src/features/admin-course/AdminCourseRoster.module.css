@@ -3,22 +3,8 @@
   gap: var(--mantine-spacing-md);
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--mantine-spacing-md);
-}
-
-.heading,
-.formHeading,
-.empty {
+.formHeading {
   margin: 0;
-}
-
-.heading {
-  font-size: var(--mantine-h2-font-size);
-  line-height: var(--mantine-h2-line-height);
 }
 
 .formHeading {
@@ -33,26 +19,9 @@
   background: var(--mantine-color-gray-0);
 }
 
-.formFields,
-.searchForm {
+.formFields {
   display: grid;
   gap: var(--mantine-spacing-md);
-}
-
-.searchForm {
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-}
-
-.count {
-  padding: 0.35rem 0.625rem;
-  border-radius: 999px;
-  color: var(--mantine-color-blue-8);
-  background: var(--mantine-color-blue-0);
-  font-size: var(--mantine-font-size-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 
 .learnerLink {
@@ -70,39 +39,8 @@
   outline-offset: 2px;
 }
 
-.empty {
-  padding: var(--mantine-spacing-lg);
-  border: 1px solid var(--mantine-color-default-border);
-  border-radius: var(--mantine-radius-lg);
-}
-
-.pagination {
-  padding-top: var(--mantine-spacing-xs);
-}
-
 @media (min-width: 42rem) {
   .formFields {
     grid-template-columns: minmax(0, 2fr) minmax(10rem, 1fr);
-  }
-}
-
-@media (max-width: 36rem) {
-  .header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .searchForm {
-    grid-template-columns: 1fr;
-  }
-
-  .searchForm button,
-  .pagination button {
-    width: 100%;
-  }
-
-  .pagination {
-    align-items: stretch;
-    flex-direction: column;
   }
 }
