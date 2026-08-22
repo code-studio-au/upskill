@@ -10,6 +10,7 @@ import { down as rollbackEmbeddedScheduleEmails } from "#/server/db/migrations/0
 import { down as rollbackEventTemplateAccreditations } from "#/server/db/migrations/0055_event_template_accreditations";
 import { down as rollbackPrivateAccreditationLogoReferences } from "#/server/db/migrations/0056_private_accreditation_logo_references";
 import { down as rollbackEventTemplateAssetShapes } from "#/server/db/migrations/0059_event_template_asset_shapes";
+import { down as rollbackDurableEventCommunications } from "#/server/db/migrations/0061_durable_event_communications";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -52,6 +53,7 @@ try {
     "event_admin_assignment",
     "event_access_redemption",
     "event_attendance",
+    "event_communication_schedule",
     "event_coordinator_assignment",
     "event_guest_access",
     "event_occurrence",
@@ -172,6 +174,8 @@ try {
     "event_template_communication_position_uq",
     "event_occurrence_communication_active_uq",
     "event_occurrence_communication_occurrence_idx",
+    "event_communication_schedule_active_uq",
+    "event_communication_schedule_due_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -218,6 +222,45 @@ try {
     communicationPlanConstraints.rows.length,
     6,
     "Offering communication plan scope, trigger and revision constraints must exist",
+  );
+  const communicationExecutionConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_communication_schedule_trigger_ck',
+          'event_communication_schedule_status_ck',
+          'event_communication_schedule_state_ck',
+          'notification_subject_template_snapshot_ck',
+          'notification_text_body_template_snapshot_ck'
+        )`.execute(db);
+  assert.equal(
+    communicationExecutionConstraints.rows.length,
+    5,
+    "Event communication schedules and notification template snapshots must be constrained",
+  );
+  const communicationExecutionDefinitions = await sql<{
+    constraint_name: string;
+    definition: string;
+  }>`select conname as constraint_name, pg_get_constraintdef(oid) as definition
+      from pg_constraint
+      where conname in (
+        'event_communication_schedule_trigger_ck',
+        'notification_template_ck'
+      )`.execute(db);
+  const executionDefinition = new Map(
+    communicationExecutionDefinitions.rows.map((constraint) => [
+      constraint.constraint_name,
+      constraint.definition,
+    ]),
+  );
+  const scheduleTriggerDefinition =
+    executionDefinition.get("event_communication_schedule_trigger_ck") ?? "";
+  for (const trigger of ["event_start", "event_end", "session_start"])
+    assert.match(scheduleTriggerDefinition, new RegExp(trigger, "iu"));
+  assert.match(
+    executionDefinition.get("notification_template_ck") ?? "",
+    /offering_course.*offering_event/iu,
   );
   const accountSetupEmail = await sql<{
     activeVersionId: string | null;
@@ -590,6 +633,7 @@ try {
            'communication_plan', 'verify_communication_migration_rollback', null, '{}'::jsonb)`.execute(
         transaction,
       );
+      await rollbackDurableEventCommunications(transaction);
       await rollbackEventTemplateAssetShapes(transaction);
       await rollbackPrivateAccreditationLogoReferences(transaction);
       await rollbackEventTemplateAccreditations(transaction);

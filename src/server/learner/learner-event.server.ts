@@ -5,6 +5,10 @@ import { sql } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
+import {
+  enqueueRegistrationSelectedEventCommunications,
+  enqueueRegistrationSubmittedEventCommunications,
+} from "#/server/notifications/event-communication-execution.server";
 
 function emailDomain(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -169,10 +173,11 @@ export async function registerLearnerForEvent(
         })
         .execute();
 
+      const transitionId = `event_registration_transition_${randomUUID()}`;
       await transaction
         .insertInto("event_registration_transition")
         .values({
-          id: `event_registration_transition_${randomUUID()}`,
+          id: transitionId,
           eventRegistrationId: registrationId,
           fromStatus: null,
           toStatus: registrationStatus,
@@ -182,6 +187,13 @@ export async function registerLearnerForEvent(
           occurredAt: now,
         })
         .execute();
+
+      await enqueueRegistrationSubmittedEventCommunications(transaction, {
+        eventOccurrenceId,
+        eventRegistrationId: registrationId,
+        triggerEventId: transitionId,
+        createdAt: now,
+      });
 
       if (automaticallySelected) {
         await transaction
@@ -208,6 +220,12 @@ export async function registerLearnerForEvent(
             createdAt: now,
           })
           .execute();
+        await enqueueRegistrationSelectedEventCommunications(transaction, {
+          eventOccurrenceId,
+          eventRegistrationId: registrationId,
+          triggerEventId: transitionId,
+          createdAt: now,
+        });
       }
 
       await recordDurableAuditEvent(transaction, {

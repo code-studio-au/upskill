@@ -33,6 +33,7 @@ import {
   findScheduleEmailAuthoringContext,
   materializeEventOccurrenceCommunications,
 } from "#/server/admin/admin-communication.server";
+import { refreshEventCommunicationSchedules } from "#/server/notifications/event-communication-execution.server";
 import {
   addElapsedDuration,
   addElapsedMilliseconds,
@@ -2448,6 +2449,12 @@ export async function updateAdminEventOccurrence(
           )
           .execute();
 
+      await refreshEventCommunicationSchedules(
+        transaction,
+        eventOccurrenceId,
+        now,
+      );
+
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "event_occurrence.updated",
@@ -3172,6 +3179,11 @@ export async function rescheduleAdminEventOccurrence(
           )
           .execute();
 
+      await refreshEventCommunicationSchedules(
+        transaction,
+        eventOccurrenceId,
+        now,
+      );
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "event_occurrence.rescheduled",
@@ -3265,6 +3277,11 @@ export async function publishAdminEventOccurrence(
         .set({ status: "published", publishedAt: now, updatedAt: now })
         .where("id", "=", eventOccurrenceId)
         .executeTakeFirstOrThrow();
+      await refreshEventCommunicationSchedules(
+        transaction,
+        eventOccurrenceId,
+        now,
+      );
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "event_occurrence.published",

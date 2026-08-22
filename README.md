@@ -169,8 +169,8 @@ See the [architecture specification](docs/architecture.md), broader
 
 Before the first AWS release, populate the application configuration secret
 output by the CDK application stack with the real application/learning origins,
-restricted Stripe key, Stripe webhook signing secret, Mailgun domain sending
-key, sending domain and From address. Use
+support email address, restricted Stripe key, Stripe webhook signing secret,
+Mailgun domain sending key, sending domain and From address. Use
 Mailgun's EU API base URL when the sending domain is hosted in the EU region.
 EC2 combines that application secret with the RDS secret in a private systemd
 environment file on boot and at every atomic deployment. A

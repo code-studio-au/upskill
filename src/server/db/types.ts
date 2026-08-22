@@ -938,11 +938,13 @@ interface OutboxEventTable {
 interface NotificationTable {
   id: string;
   channel: "email";
-  templateKey: "account_setup_requested";
+  templateKey: "account_setup_requested" | "offering_course" | "offering_event";
   recipientUserId: string;
   recipientName: string;
   recipientEmail: string;
   emailDesignVersionId: string;
+  subjectTemplateSnapshot: string;
+  textBodyTemplateSnapshot: string;
   status: Generated<
     "pending" | "processing" | "delivered" | "failed" | "superseded"
   >;
@@ -956,6 +958,27 @@ interface NotificationTable {
   renderedTextBody: string | null;
   renderedHtmlBody: string | null;
   renderedAt: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface EventCommunicationScheduleTable {
+  id: string;
+  logicalId: string;
+  revision: number;
+  eventOccurrenceId: string;
+  eventOccurrenceCommunicationRevisionId: string;
+  trigger: "event_end" | "event_start" | "session_start";
+  dueAt: Timestamp;
+  status: Generated<
+    "pending" | "processing" | "completed" | "failed" | "superseded"
+  >;
+  attempts: Generated<number>;
+  availableAt: Timestamp;
+  lastErrorCode: string | null;
+  recipientCount: number | null;
+  processedAt: Timestamp | null;
+  supersededAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -1205,6 +1228,7 @@ export interface Database {
   event_guest_access: EventGuestAccessTable;
   event_occurrence: EventOccurrenceTable;
   event_occurrence_communication_revision: EventOccurrenceCommunicationRevisionTable;
+  event_communication_schedule: EventCommunicationScheduleTable;
   event_occurrence_domain: EventOccurrenceDomainTable;
   event_occurrence_region: EventOccurrenceRegionTable;
   event_occurrence_reschedule: EventOccurrenceRescheduleTable;
