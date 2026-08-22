@@ -100,13 +100,25 @@ export async function completeEventParticipationIfReady(
         )
       );
     });
-  if (complete && !participation.completedAt)
-    await transaction
+  if (complete && !participation.completedAt) {
+    const completed = await transaction
       .updateTable("event_participation")
       .set({ completedAt: now })
       .where("id", "=", eventParticipationId)
       .where("completedAt", "is", null)
-      .execute();
+      .returning("id")
+      .executeTakeFirst();
+    if (completed) {
+      const { enqueueEventParticipationCommunications } =
+        await import("#/server/notifications/event-communication-execution.server");
+      await enqueueEventParticipationCommunications(transaction, {
+        eventParticipationId,
+        triggerEventId: `event-completed:${eventParticipationId}:${now.toISOString()}`,
+        trigger: "event_completed",
+        createdAt: now,
+      });
+    }
+  }
   if (!complete && participation.completedAt)
     await transaction
       .updateTable("event_participation")

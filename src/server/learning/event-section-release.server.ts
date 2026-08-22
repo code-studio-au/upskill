@@ -70,6 +70,13 @@ export async function ensureEventSectionReleased(
     now: Date;
   },
 ): Promise<boolean> {
+  if (!database.isTransaction)
+    return await database
+      .transaction()
+      .execute(
+        async (transaction) =>
+          await ensureEventSectionReleased(transaction, input),
+      );
   const existing = await database
     .selectFrom("event_section_release")
     .select("releasedAt")
@@ -82,7 +89,7 @@ export async function ensureEventSectionReleased(
     .executeTakeFirst();
   if (existing) return true;
   if (input.calculatedReleaseAt > input.now) return false;
-  await database
+  const inserted = await database
     .insertInto("event_section_release")
     .values({
       eventParticipationId: input.eventParticipationId,
@@ -90,6 +97,21 @@ export async function ensureEventSectionReleased(
       releasedAt: input.now,
     })
     .onConflict((conflict) => conflict.doNothing())
-    .execute();
+    .returning("eventParticipationId")
+    .executeTakeFirst();
+  if (inserted) {
+    const { enqueueEventParticipationCommunications } =
+      await import("#/server/notifications/event-communication-execution.server");
+    await enqueueEventParticipationCommunications(
+      database as Transaction<Database>,
+      {
+        eventParticipationId: input.eventParticipationId,
+        eventTemplateVersionSectionId: input.eventTemplateVersionSectionId,
+        triggerEventId: `section-release:${input.eventParticipationId}:${input.eventTemplateVersionSectionId}`,
+        trigger: "section_release",
+        createdAt: input.now,
+      },
+    );
+  }
   return true;
 }

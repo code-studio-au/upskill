@@ -11,6 +11,7 @@ const envSchema = z.object({
     .default("development"),
   APP_ORIGIN: z.url().default("http://localhost:3000"),
   LEARNING_ORIGIN: z.url().default("http://localhost:3001"),
+  SUPPORT_EMAIL: z.email().default("support@upskill.example"),
   DATABASE_URL: z.string().min(1),
   BETTER_AUTH_SECRET: z.string().min(32),
   ACCESS_CODE_ENCRYPTION_KEY: z
@@ -84,6 +85,8 @@ export function getServerEnv(): ServerEnv {
       );
     if (!process.env.SQS_QUEUE_URL)
       throw new Error("SQS_QUEUE_URL is required outside local environments");
+    if (!process.env.SUPPORT_EMAIL)
+      throw new Error("SUPPORT_EMAIL is required outside local environments");
     if (validated.SQS_ENDPOINT)
       throw new Error("SQS_ENDPOINT is prohibited outside local environments");
     if (validated.EMAIL_PROVIDER !== "mailgun")

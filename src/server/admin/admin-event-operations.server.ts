@@ -14,6 +14,11 @@ import {
 import { resendAccountSetup } from "#/server/identity/account-setup.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 import { ensureEventGuestAccessRecord } from "#/server/events/event-guest-access.server";
+import {
+  enqueueRegistrationSelectedEventCommunications,
+  enqueueRegistrationSubmittedEventCommunications,
+  supersedeEventCommunicationSchedules,
+} from "#/server/notifications/event-communication-execution.server";
 
 function domainFromEmail(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -1064,10 +1069,11 @@ export async function decideAdminEventFinalRegistration(
             conflict.column("registrationId").doNothing(),
           )
           .execute();
+      const transitionId = `event_registration_transition_${randomUUID()}`;
       await transaction
         .insertInto("event_registration_transition")
         .values({
-          id: `event_registration_transition_${randomUUID()}`,
+          id: transitionId,
           eventRegistrationId: registration.id,
           fromStatus: registration.status,
           toStatus: decision,
@@ -1077,6 +1083,13 @@ export async function decideAdminEventFinalRegistration(
           occurredAt: now,
         })
         .execute();
+      if (decision === "selected" && !wasSelected)
+        await enqueueRegistrationSelectedEventCommunications(transaction, {
+          eventOccurrenceId,
+          eventRegistrationId: registration.id,
+          triggerEventId: transitionId,
+          createdAt: now,
+        });
       await recordDurableAuditEvent(transaction, {
         actorUserId: actor.id,
         action: "event_registration.final_decided",
@@ -1610,10 +1623,11 @@ export async function addAdminEventRegistration(
             lockedInAt: null,
           })
           .execute();
+        const transitionId = `event_registration_transition_${randomUUID()}`;
         await transaction
           .insertInto("event_registration_transition")
           .values({
-            id: `event_registration_transition_${randomUUID()}`,
+            id: transitionId,
             eventRegistrationId: id,
             fromStatus: null,
             toStatus: "submitted",
@@ -1623,6 +1637,12 @@ export async function addAdminEventRegistration(
             occurredAt: now,
           })
           .execute();
+        await enqueueRegistrationSubmittedEventCommunications(transaction, {
+          eventOccurrenceId: occurrence.id,
+          eventRegistrationId: id,
+          triggerEventId: transitionId,
+          createdAt: now,
+        });
         await recordDurableAuditEvent(transaction, {
           actorUserId: actor.id,
           action: "event_registration.administrator_added",
@@ -1710,6 +1730,12 @@ export async function transitionAdminEventOccurrence(
         })
         .where("id", "=", eventOccurrenceId)
         .execute();
+      if (target === "cancelled" || target === "archived")
+        await supersedeEventCommunicationSchedules(
+          transaction,
+          eventOccurrenceId,
+          now,
+        );
       await recordDurableAuditEvent(transaction, {
         actorUserId: actor.id,
         action: "event_occurrence.lifecycle_changed",

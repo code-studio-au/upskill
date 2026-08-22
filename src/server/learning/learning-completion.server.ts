@@ -116,5 +116,13 @@ export async function completeEnrollmentIfReady(
       createdAt: now,
     })
     .execute();
+  const { enqueueCourseEnrollmentCommunications } =
+    await import("#/server/notifications/course-communication-execution.server");
+  await enqueueCourseEnrollmentCommunications(transaction, {
+    enrollmentId: input.enrollmentId,
+    triggerEventId: `enrollment-completed:${input.enrollmentId}:${now.toISOString()}`,
+    triggers: ["enrollment_completed"],
+    createdAt: now,
+  });
   return true;
 }

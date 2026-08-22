@@ -2,6 +2,7 @@ import { destroyDatabase } from "#/server/db/database.server";
 import { dispatchAvailableOutboxEvents } from "#/server/outbox/outbox-dispatcher.server";
 import { destroyQueueClient } from "#/server/queue/sqs.server";
 import { logServerEvent } from "#/server/logging/server-logger";
+import { processAvailableEventCommunicationSchedules } from "#/server/notifications/event-communication-execution.server";
 import { consumeNextWorkMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
@@ -18,10 +19,26 @@ function pause(milliseconds: number): Promise<void> {
 
 try {
   while (!shutdown.signal.aborted) {
-    const { dispatch, consumption } = await runScormWorkerIteration({
+    const { schedules, dispatch, consumption } = await runScormWorkerIteration({
+      processAvailableEventCommunicationSchedules,
       dispatchAvailableOutboxEvents,
       consumeNextWorkMessage,
     });
+    for (const outcome of schedules.outcomes)
+      logServerEvent({
+        level:
+          outcome.status === "retry" || outcome.status === "failed"
+            ? "warn"
+            : "info",
+        event: "worker.event_communication_schedule_processed",
+        fields: {
+          status: outcome.status,
+          scheduleId: outcome.scheduleId,
+          ...(outcome.status === "completed"
+            ? { recipientCount: outcome.recipientCount }
+            : {}),
+        },
+      });
     for (const outcome of dispatch.outcomes)
       logServerEvent({
         level: outcome.status === "retry" ? "warn" : "info",
@@ -51,7 +68,11 @@ try {
             : {}),
         },
       });
-    if (dispatch.outcomes.length === 0 && consumption.status === "no-work")
+    if (
+      schedules.outcomes.length === 0 &&
+      dispatch.outcomes.length === 0 &&
+      consumption.status === "no-work"
+    )
       await pause(1_000);
   }
 } catch (error) {

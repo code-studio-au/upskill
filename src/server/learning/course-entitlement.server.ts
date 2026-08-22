@@ -92,5 +92,17 @@ export async function issueCourseEntitlement(
       createdAt: input.createdAt,
     })
     .execute();
+  const { enqueueCourseEnrollmentCommunications } =
+    await import("#/server/notifications/course-communication-execution.server");
+  await enqueueCourseEnrollmentCommunications(transaction, {
+    enrollmentId,
+    triggerEventId: entitlementId,
+    triggers: [
+      "enrollment_created",
+      "course_incomplete",
+      "enrollment_expiring",
+    ],
+    createdAt: input.createdAt,
+  });
   return { enrollmentId, entitlementId };
 }

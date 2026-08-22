@@ -37,8 +37,20 @@ architecture.
   supersede an outstanding link and queue a replacement. Course/Event Template
   communication plans, Section/Session placement, exact Email Design Version
   binding, new-version inheritance, Event Occurrence materialization and
-  revisioned local override/reset are implemented. Durable scheduling and
-  trigger-driven recipient delivery are not yet implemented.
+  revisioned local override/reset are implemented. Occurrence-anchored
+  `event_start`, `event_end` and `session_start` plans materialize durable
+  PostgreSQL schedules when an Occurrence is published; edits, rescheduling,
+  overrides and cancellation supersede stale unsent work. Course enrolment
+  creation, incomplete/expiry reminders and completion, plus Event registration
+  submission/selection, Section release and Event completion all create exact,
+  deduplicated notification intents in the authoritative domain transaction.
+  Authored offsets become durable outbox availability times. Delivery rechecks
+  current occurrence, registration, participation, Section-release and
+  enrolment state before contacting the provider, suppressing work that is no
+  longer applicable. Every trigger currently available in Course and Event
+  communication-plan authoring is executable.
+  Course triggers remain enrolment-scoped: `active_enrollees` is an eligibility
+  boundary for the affected enrolment, not a fan-out to unrelated learners.
 - **Target Product:** committed domain-event subscriptions create idempotent
   notification records, resolve bounded recipients/templates and deliver
   transactional email with observable retry/failure behaviour. A governed Email
@@ -759,7 +771,8 @@ real email.
   contract validation, preview and rollback; **implemented**
 - seeded safe Account Setup System Email and Platform Administrator boundary;
   **implemented**
-- idempotent immediate delivery worker; **implemented for account-setup intent**
+- idempotent immediate and scheduled delivery worker; **implemented for account
+  setup and every authorable Course/Event communication-plan trigger**
 - delivery attempt/status recording; **implemented**
 - expiring one-time provisional-account activation and administrator resend;
   **implemented**
@@ -769,26 +782,32 @@ real email.
 
 ### Phase 2 --- Event communications
 
-- registration submitted and Coordinator review reminders before the lock
-  deadline;
+- registration submitted; **implemented**. Coordinator review reminders before
+  the lock deadline remain a separate, not-yet-authorable communication type;
 - manual/deadline regional-list lock notices to assigned Event Instance
   administrators,
   deduplicated per occurrence and region;
-- final assigned-administrator confirmation, waitlist, not-selected and corrected
-  decisions;
+- final assigned-administrator confirmation; **implemented for newly selected
+  affected learners; waitlist, not-selected and corrected decisions remain**
 - expiring user-specific late-registration invitations and account-setup/login
   routing;
 - cancellation/reschedule;
-- event reminders;
+- event/session reminders; **durable `event_start`, `event_end` and
+  `session_start` execution implemented**
 - incomplete pre-work reminders;
-- Session/Post-Event release notices and delayed Follow-up reminders;
+- Section release and Event completion notices; **implemented for authored
+  `section_release` and `event_completed` plans**. Broader follow-up message
+  types remain future work;
 - Section-embedded Automated Email Items, Event Template publication snapshots,
   Occurrence Communication Plans and assigned-administrator local overrides.
 
 ### Phase 3 --- Scheduling and preferences
 
-- durable scheduled reminders;
-- state recheck/suppression;
+- durable scheduled reminders; **implemented for every authorable Course/Event
+  trigger through occurrence schedules or delayed notification outbox work**
+- state recheck/suppression; **implemented for occurrence schedules and delayed
+  learner-specific notifications, including reschedule, override, cancellation,
+  registration and enrolment applicability**
 - preference model where product policy requires it;
 - organisation/customer communications.
 

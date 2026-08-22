@@ -19,6 +19,7 @@ import {
   renderEmailTemplate,
   validateEmailTemplate,
 } from "#/server/notifications/email-template-contracts";
+import { refreshEventCommunicationSchedules } from "#/server/notifications/event-communication-execution.server";
 
 type CourseInput = {
   courseVersionId: string;
@@ -1188,6 +1189,11 @@ async function reviseOccurrenceCommunication(
         metadata: { revision: current.revision + 1 },
         createdAt,
       });
+      await refreshEventCommunicationSchedules(
+        transaction,
+        current.eventOccurrenceId,
+        createdAt,
+      );
       return "saved";
     });
 }

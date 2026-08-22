@@ -23,6 +23,17 @@ import {
   saveAdminEmailDraft,
 } from "#/server/admin/admin-email.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import {
+  enqueueRegistrationSubmittedEventCommunications,
+  enqueueRegistrationSelectedEventCommunications,
+  enqueueEventParticipationCommunications,
+  processNextEventCommunicationSchedule,
+  refreshEventCommunicationSchedules,
+} from "#/server/notifications/event-communication-execution.server";
+import { enqueueCourseEnrollmentCommunications } from "#/server/notifications/course-communication-execution.server";
+import { deliverNotification } from "#/server/notifications/notification-delivery.server";
+import { issueCourseEntitlement } from "#/server/learning/course-entitlement.server";
+import { ensureEventSectionReleased } from "#/server/learning/event-section-release.server";
 
 const database = getDatabase();
 const suffix = randomUUID();
@@ -94,6 +105,9 @@ try {
   const courseVersionId = `verify_communication_course_version_${suffix}`;
   const courseSectionId = `verify_communication_course_section_${suffix}`;
   const courseCommunicationId = `verify_communication_course_plan_${suffix}`;
+  const courseCreatedCommunicationId = `verify_communication_course_created_${suffix}`;
+  const courseCompletedCommunicationId = `verify_communication_course_completed_${suffix}`;
+  const courseExpiringCommunicationId = `verify_communication_course_expiring_${suffix}`;
   await database
     .insertInto("course")
     .values({
@@ -165,6 +179,42 @@ try {
                 subjectOverride: null,
                 textBodyOverride: null,
               },
+              {
+                id: courseCreatedCommunicationId,
+                kind: "automated_email",
+                title: "Enrollment created",
+                emailDesignVersionId: courseEmail.versionId,
+                audience: "affected_learner",
+                trigger: "enrollment_created",
+                offsetAmount: 0,
+                offsetUnit: "minute",
+                subjectOverride: "Welcome to {{course.title}}",
+                textBodyOverride: null,
+              },
+              {
+                id: courseCompletedCommunicationId,
+                kind: "automated_email",
+                title: "Enrollment completed",
+                emailDesignVersionId: courseEmail.versionId,
+                audience: "affected_learner",
+                trigger: "enrollment_completed",
+                offsetAmount: 0,
+                offsetUnit: "minute",
+                subjectOverride: "Completed {{course.title}}",
+                textBodyOverride: null,
+              },
+              {
+                id: courseExpiringCommunicationId,
+                kind: "automated_email",
+                title: "Enrollment expiring",
+                emailDesignVersionId: courseEmail.versionId,
+                audience: "affected_learner",
+                trigger: "enrollment_expiring",
+                offsetAmount: -1,
+                offsetUnit: "day",
+                subjectOverride: "Expiring {{course.title}}",
+                textBodyOverride: null,
+              },
             ],
           },
         ],
@@ -178,7 +228,7 @@ try {
     courseVersionId,
   });
   assert.ok(courseWorkspace);
-  assert.equal(courseWorkspace.items.length, 1);
+  assert.equal(courseWorkspace.items.length, 4);
   assert.ok(
     courseWorkspace.variableGroups.some(
       (group) =>
@@ -251,11 +301,116 @@ try {
     .executeTakeFirstOrThrow();
   assert.ok(copiedCoursePlan.sectionId);
 
+  const unrelatedCourseUserId = `verify_communication_unrelated_course_user_${suffix}`;
+  await database
+    .insertInto("user")
+    .values({
+      id: unrelatedCourseUserId,
+      name: "Unrelated active learner",
+      email: `communication-unrelated-${suffix}@example.com`,
+      emailVerified: true,
+      image: null,
+      stripeCustomerId: null,
+      phone: null,
+      currentRegionId: null,
+      profileData: {},
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("enrollment")
+    .values({
+      id: `verify_communication_unrelated_enrollment_${suffix}`,
+      userId: unrelatedCourseUserId,
+      courseVersionId,
+      accessGrantId: null,
+      status: "active",
+      enrolledAt: now,
+      completedAt: null,
+      expiresAt: null,
+      removedAt: null,
+    })
+    .execute();
+
+  const courseEnrollment = await database.transaction().execute(
+    async (transaction) =>
+      await issueCourseEntitlement(transaction, {
+        userId: actor.id,
+        userEmail: actor.email,
+        courseVersionId,
+        enrollmentDurationDays: 30,
+        enrollmentAccessGrantId: null,
+        origin: { type: "administrator" },
+        createdAt: now,
+        eventSource: "administrator",
+      }),
+  );
+  await database.transaction().execute(async (transaction) => {
+    const completedAt = new Date(now.getTime() + 60_000);
+    await transaction
+      .updateTable("enrollment")
+      .set({ status: "completed", completedAt })
+      .where("id", "=", courseEnrollment.enrollmentId)
+      .executeTakeFirstOrThrow();
+    await enqueueCourseEnrollmentCommunications(transaction, {
+      enrollmentId: courseEnrollment.enrollmentId,
+      triggerEventId: `verify_course_completed_${suffix}`,
+      triggers: ["enrollment_completed"],
+      createdAt: completedAt,
+    });
+  });
+  const courseNotifications = await database
+    .selectFrom("notification")
+    .select(["id", "payload"])
+    .where("templateKey", "=", "offering_course")
+    .where("recipientUserId", "=", actor.id)
+    .execute();
+  assert.equal(
+    await database
+      .selectFrom("notification")
+      .select(({ fn }) => fn.countAll<string>().as("count"))
+      .where("templateKey", "=", "offering_course")
+      .where("recipientUserId", "=", unrelatedCourseUserId)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    0,
+    "Course trigger audiences must not fan out one learner's lifecycle event to unrelated active enrolments",
+  );
+  assert.deepEqual(
+    new Set(
+      courseNotifications.map(
+        (notification) => (notification.payload as { trigger: string }).trigger,
+      ),
+    ),
+    new Set([
+      "course_incomplete",
+      "enrollment_completed",
+      "enrollment_created",
+      "enrollment_expiring",
+    ]),
+  );
+  for (const notification of courseNotifications) {
+    const trigger = (notification.payload as { trigger: string }).trigger;
+    assert.deepEqual(await deliverNotification(notification.id), {
+      status:
+        trigger === "enrollment_created" || trigger === "enrollment_completed"
+          ? "delivered"
+          : "superseded",
+    });
+  }
+
   const eventTemplateId = `verify_communication_event_template_${suffix}`;
   const eventTemplateVersionId = `verify_communication_event_version_${suffix}`;
   const eventSectionId = `verify_communication_event_section_${suffix}`;
   const eventSessionItemId = `verify_communication_event_item_${suffix}`;
   const eventCommunicationId = `verify_communication_event_plan_${suffix}`;
+  const eventSelectedCommunicationId = `verify_communication_event_selected_plan_${suffix}`;
+  const eventSubmittedCommunicationId = `verify_communication_event_submitted_plan_${suffix}`;
+  const eventEndCommunicationId = `verify_communication_event_end_plan_${suffix}`;
+  const eventSessionCommunicationId = `verify_communication_event_session_plan_${suffix}`;
+  const eventReleaseCommunicationId = `verify_communication_event_release_plan_${suffix}`;
+  const eventCompletedCommunicationId = `verify_communication_event_completed_plan_${suffix}`;
   const eventSessionDefinitionId = `verify_communication_event_session_${suffix}`;
   await database
     .insertInto("event_template")
@@ -381,6 +536,85 @@ try {
                 textBodyOverride: null,
               },
               {
+                id: eventSelectedCommunicationId,
+                kind: "automated_email",
+                title: "Registration selected",
+                emailDesignVersionId: eventEmail.versionId,
+                audience: "affected_learner",
+                trigger: "registration_selected",
+                sessionItemId: eventSessionItemId,
+                offsetAmount: 0,
+                offsetUnit: "minute",
+                subjectOverride: "Confirmed: {{event.title}}",
+                textBodyOverride:
+                  "Hello {{user.firstName}},\n\nYour {{registration.status}} place for {{event.title}} is confirmed. View {{event.dashboardUrl}}.",
+              },
+              {
+                id: eventSubmittedCommunicationId,
+                kind: "automated_email",
+                title: "Registration submitted",
+                emailDesignVersionId: eventEmail.versionId,
+                audience: "affected_learner",
+                trigger: "registration_submitted",
+                sessionItemId: null,
+                offsetAmount: 0,
+                offsetUnit: "minute",
+                subjectOverride: "Submitted: {{event.title}}",
+                textBodyOverride: null,
+              },
+              {
+                id: eventEndCommunicationId,
+                kind: "automated_email",
+                title: "Event ending",
+                emailDesignVersionId: eventEmail.versionId,
+                audience: "confirmed_participants",
+                trigger: "event_end",
+                sessionItemId: null,
+                offsetAmount: 0,
+                offsetUnit: "minute",
+                subjectOverride: "Event ended: {{event.title}}",
+                textBodyOverride: null,
+              },
+              {
+                id: eventSessionCommunicationId,
+                kind: "automated_email",
+                title: "Session starts soon",
+                emailDesignVersionId: eventEmail.versionId,
+                audience: "confirmed_participants",
+                trigger: "session_start",
+                sessionItemId: eventSessionItemId,
+                offsetAmount: -30,
+                offsetUnit: "minute",
+                subjectOverride: "Session: {{session.title}}",
+                textBodyOverride: null,
+              },
+              {
+                id: eventReleaseCommunicationId,
+                kind: "automated_email",
+                title: "Section released",
+                emailDesignVersionId: eventEmail.versionId,
+                audience: "affected_learner",
+                trigger: "section_release",
+                sessionItemId: null,
+                offsetAmount: 0,
+                offsetUnit: "minute",
+                subjectOverride: "Released: {{section.title}}",
+                textBodyOverride: null,
+              },
+              {
+                id: eventCompletedCommunicationId,
+                kind: "automated_email",
+                title: "Event completed",
+                emailDesignVersionId: eventEmail.versionId,
+                audience: "affected_learner",
+                trigger: "event_completed",
+                sessionItemId: null,
+                offsetAmount: 0,
+                offsetUnit: "minute",
+                subjectOverride: "Completed: {{event.title}}",
+                textBodyOverride: null,
+              },
+              {
                 id: eventSessionItemId,
                 kind: "session",
                 title: "Workshop session",
@@ -421,7 +655,7 @@ try {
     .where("eventTemplateVersionId", "=", eventTemplateVersionId)
     .executeTakeFirstOrThrow();
   assert.equal(eventPlanAfterDraftSave.sectionId, eventSectionId);
-  assert.equal(eventActivityPosition.position, 1);
+  assert.equal(eventActivityPosition.position, 7);
   await database
     .updateTable("event_template_version")
     .set({ publishedAt: now })
@@ -592,6 +826,7 @@ try {
     .selectFrom("event_occurrence_communication_revision")
     .select(["revision", "active", "overrideState"])
     .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("logicalId", "=", inherited.logicalId)
     .orderBy("revision")
     .execute();
   assert.deepEqual(revisions, [
@@ -599,6 +834,380 @@ try {
     { revision: 2, active: false, overrideState: "overridden" },
     { revision: 3, active: true, overrideState: "inherited" },
   ]);
+
+  const recipientId = `verify_communication_recipient_${suffix}`;
+  const registrationId = `verify_communication_registration_${suffix}`;
+  const participationId = `verify_communication_participation_${suffix}`;
+  await database
+    .insertInto("user")
+    .values({
+      id: recipientId,
+      name: "Taylor Participant",
+      email: `communication-participant-${suffix}@example.com`,
+      emailVerified: true,
+      image: null,
+      stripeCustomerId: null,
+      phone: "+61 400 000 001",
+      currentRegionId: null,
+      profileData: {},
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("event_registration")
+    .values({
+      id: registrationId,
+      eventOccurrenceId,
+      userId: recipientId,
+      eventOccurrenceRegionId: null,
+      reviewRoundId: null,
+      nameSnapshot: "Taylor Participant",
+      emailSnapshot: `communication-participant-${suffix}@example.com`,
+      source: "ordinary",
+      eligibilitySource: "unrestricted",
+      status: "selected",
+      coordinatorPriority: null,
+      submittedAt: now,
+      coordinatorDecidedAt: null,
+      coordinatorDecidedByUserId: null,
+      finalDecidedAt: now,
+      finalDecidedByUserId: actor.id,
+      lockedInAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("event_participation")
+    .values({
+      id: participationId,
+      eventOccurrenceId,
+      userId: recipientId,
+      registrationId,
+      mode: "registered",
+      nameSnapshot: "Taylor Participant",
+      emailSnapshot: `communication-participant-${suffix}@example.com`,
+      detailsSubmittedAt: null,
+      joinDisclosedAt: null,
+      checkedInAt: null,
+      createdAt: now,
+    })
+    .execute();
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published", publishedAt: now, confirmedCount: 1 })
+    .where("id", "=", eventOccurrenceId)
+    .execute();
+  await database.transaction().execute(async (transaction) => {
+    await refreshEventCommunicationSchedules(
+      transaction,
+      eventOccurrenceId,
+      new Date("2026-09-01T00:00:00.000Z"),
+    );
+  });
+  const initialSchedules = await database
+    .selectFrom("event_communication_schedule")
+    .select(["trigger", "revision", "status", "dueAt"])
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .orderBy("trigger")
+    .execute();
+  assert.deepEqual(
+    initialSchedules.map((schedule) => ({
+      ...schedule,
+      dueAt: schedule.dueAt.toISOString(),
+    })),
+    [
+      {
+        trigger: "event_end",
+        revision: 1,
+        status: "pending",
+        dueAt: "2026-09-15T07:00:00.000Z",
+      },
+      {
+        trigger: "event_start",
+        revision: 1,
+        status: "pending",
+        dueAt: "2026-09-13T23:00:00.000Z",
+      },
+      {
+        trigger: "session_start",
+        revision: 1,
+        status: "pending",
+        dueAt: "2026-09-14T23:30:00.000Z",
+      },
+    ],
+  );
+
+  await database
+    .updateTable("event_occurrence")
+    .set({
+      startsAt: new Date("2026-09-15T23:00:00.000Z"),
+      endsAt: new Date("2026-09-16T07:00:00.000Z"),
+      localStartsAt: "2026-09-16T09:00:00",
+      localEndsAt: "2026-09-16T17:00:00",
+    })
+    .where("id", "=", eventOccurrenceId)
+    .execute();
+  await database
+    .updateTable("event_session")
+    .set({
+      startsAt: new Date("2026-09-16T00:00:00.000Z"),
+      endsAt: new Date("2026-09-16T02:30:00.000Z"),
+      localStartsAt: "2026-09-16T10:00:00",
+      localEndsAt: "2026-09-16T12:30:00",
+    })
+    .where("id", "=", eventSessionId)
+    .execute();
+  await database.transaction().execute(async (transaction) => {
+    await refreshEventCommunicationSchedules(
+      transaction,
+      eventOccurrenceId,
+      new Date("2026-09-02T00:00:00.000Z"),
+    );
+  });
+  const rescheduled = await database
+    .selectFrom("event_communication_schedule")
+    .select(["trigger", "revision", "status", "dueAt"])
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .orderBy("trigger")
+    .orderBy("revision")
+    .execute();
+  assert.deepEqual(
+    rescheduled.map((schedule) => ({
+      trigger: schedule.trigger,
+      revision: schedule.revision,
+      status: schedule.status,
+      dueAt: schedule.dueAt.toISOString(),
+    })),
+    [
+      {
+        trigger: "event_end",
+        revision: 1,
+        status: "superseded",
+        dueAt: "2026-09-15T07:00:00.000Z",
+      },
+      {
+        trigger: "event_end",
+        revision: 2,
+        status: "pending",
+        dueAt: "2026-09-16T07:00:00.000Z",
+      },
+      {
+        trigger: "event_start",
+        revision: 1,
+        status: "superseded",
+        dueAt: "2026-09-13T23:00:00.000Z",
+      },
+      {
+        trigger: "event_start",
+        revision: 2,
+        status: "pending",
+        dueAt: "2026-09-14T23:00:00.000Z",
+      },
+      {
+        trigger: "session_start",
+        revision: 1,
+        status: "superseded",
+        dueAt: "2026-09-14T23:30:00.000Z",
+      },
+      {
+        trigger: "session_start",
+        revision: 2,
+        status: "pending",
+        dueAt: "2026-09-15T23:30:00.000Z",
+      },
+    ],
+  );
+  assert.deepEqual(
+    await processNextEventCommunicationSchedule(
+      new Date("2026-09-14T22:59:59.000Z"),
+    ),
+    { status: "no-work" },
+  );
+  const scheduledOutcome = await processNextEventCommunicationSchedule(
+    new Date("2026-09-14T23:00:00.000Z"),
+  );
+  assert.equal(scheduledOutcome.status, "completed");
+  assert.equal(scheduledOutcome.recipientCount, 1);
+  assert.deepEqual(
+    await processNextEventCommunicationSchedule(
+      new Date("2026-09-14T23:00:00.000Z"),
+    ),
+    { status: "no-work" },
+  );
+  assert.equal(
+    (
+      await processNextEventCommunicationSchedule(
+        new Date("2026-09-16T07:00:00.000Z"),
+      )
+    ).status,
+    "completed",
+  );
+  assert.equal(
+    (
+      await processNextEventCommunicationSchedule(
+        new Date("2026-09-16T07:00:00.000Z"),
+      )
+    ).status,
+    "completed",
+  );
+  assert.deepEqual(
+    await processNextEventCommunicationSchedule(
+      new Date("2026-09-16T07:00:00.000Z"),
+    ),
+    { status: "no-work" },
+  );
+
+  const selectedWorkspace = await findAdminCommunicationWorkspace({
+    kind: "event_occurrence",
+    eventOccurrenceId,
+  });
+  const selectedCommunication = selectedWorkspace?.items.find(
+    (item) => item.trigger === "registration_selected",
+  );
+  assert.ok(selectedCommunication);
+  await database.transaction().execute(async (transaction) => {
+    assert.equal(
+      await enqueueRegistrationSelectedEventCommunications(transaction, {
+        eventOccurrenceId,
+        eventRegistrationId: registrationId,
+        triggerEventId: `verify_selected_transition_${suffix}`,
+        createdAt: new Date("2026-09-03T00:00:00.000Z"),
+      }),
+      1,
+    );
+    await enqueueRegistrationSelectedEventCommunications(transaction, {
+      eventOccurrenceId,
+      eventRegistrationId: registrationId,
+      triggerEventId: `verify_selected_transition_${suffix}`,
+      createdAt: new Date("2026-09-03T00:00:00.000Z"),
+    });
+  });
+  assert.equal(
+    await overrideOccurrenceCommunication(
+      {
+        eventOccurrenceId,
+        logicalId: selectedCommunication.logicalId,
+        subject: "Changed after enqueue: {{event.title}}",
+        textBody: selectedCommunication.textBody,
+        offsetAmount: 0,
+        offsetUnit: "minute",
+      },
+      actor,
+    ),
+    "saved",
+  );
+  await database.transaction().execute(async (transaction) => {
+    assert.equal(
+      await enqueueRegistrationSubmittedEventCommunications(transaction, {
+        eventOccurrenceId,
+        eventRegistrationId: registrationId,
+        triggerEventId: `verify_submitted_transition_${suffix}`,
+        createdAt: new Date("2026-09-03T00:00:00.000Z"),
+      }),
+      1,
+    );
+    assert.equal(
+      await ensureEventSectionReleased(transaction, {
+        eventParticipationId: participationId,
+        eventTemplateVersionSectionId: eventSectionId,
+        calculatedReleaseAt: now,
+        now,
+      }),
+      true,
+    );
+    const completedAt = new Date("2026-09-16T07:01:00.000Z");
+    await transaction
+      .updateTable("event_participation")
+      .set({ completedAt })
+      .where("id", "=", participationId)
+      .executeTakeFirstOrThrow();
+    assert.equal(
+      await enqueueEventParticipationCommunications(transaction, {
+        eventParticipationId: participationId,
+        triggerEventId: `verify_event_completed_${suffix}`,
+        trigger: "event_completed",
+        createdAt: completedAt,
+      }),
+      1,
+    );
+  });
+  const offeringNotifications = await database
+    .selectFrom("notification")
+    .select(["id", "deduplicationKey", "subjectTemplateSnapshot", "payload"])
+    .where("recipientUserId", "=", recipientId)
+    .where("templateKey", "=", "offering_event")
+    .orderBy("createdAt")
+    .execute();
+  assert.equal(offeringNotifications.length, 7);
+  const scheduledNotifications = offeringNotifications.filter((notification) =>
+    notification.deduplicationKey.startsWith("event_communication_schedule_"),
+  );
+  const selectedNotification = offeringNotifications.find((notification) =>
+    notification.deduplicationKey.includes(
+      `verify_selected_transition_${suffix}`,
+    ),
+  );
+  assert.equal(scheduledNotifications.length, 3);
+  assert.ok(selectedNotification);
+  assert.equal(
+    selectedNotification.subjectTemplateSnapshot,
+    "Confirmed: {{event.title}}",
+  );
+  for (const notification of offeringNotifications)
+    assert.deepEqual(await deliverNotification(notification.id), {
+      status: "delivered",
+    });
+  const captures = await database
+    .selectFrom("email_delivery_capture")
+    .select(["subject", "textBody"])
+    .where(
+      "recipientEmail",
+      "=",
+      `communication-participant-${suffix}@example.com`,
+    )
+    .orderBy("createdAt")
+    .execute();
+  assert.deepEqual(
+    new Set(captures.map((capture) => capture.subject)),
+    new Set([
+      "Your event: Communication event - Sydney",
+      "Confirmed: Communication event - Sydney",
+      "Submitted: Communication event - Sydney",
+      "Event ended: Communication event - Sydney",
+      "Session: Sydney workshop",
+      "Released: Renamed pre-event",
+      "Completed: Communication event - Sydney",
+    ]),
+  );
+  assert.ok(
+    captures.some(
+      (capture) =>
+        capture.textBody.includes("Taylor") &&
+        capture.textBody.includes("Selected") &&
+        capture.textBody.includes("/my-events/"),
+    ),
+  );
+  const deliveredSelected = await database
+    .selectFrom("notification")
+    .select(["payload", "renderedSubject", "renderedTextBody"])
+    .where("id", "=", selectedNotification.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    deliveredSelected.renderedSubject,
+    "Confirmed: Communication event - Sydney",
+  );
+  assert.match(deliveredSelected.renderedTextBody ?? "", /Taylor/u);
+  assert.deepEqual(deliveredSelected.payload, {
+    version: 1,
+    kind: "offering_event",
+    eventOccurrenceId,
+    eventOccurrenceCommunicationRevisionId: selectedCommunication.id,
+    trigger: "registration_selected",
+    audience: "affected_learner",
+    eventRegistrationId: registrationId,
+    eventParticipationId: participationId,
+    eventTemplateVersionSectionId: null,
+  });
   await assert.rejects(
     database
       .updateTable("event_template_version_communication")
@@ -626,7 +1235,7 @@ try {
   );
 
   console.log(
-    "Verified version-pinned course and event communication plans, published-parent immutability, occurrence materialization, revisioned overrides and resets",
+    "Verified every authorable Course/Event communication trigger, version-pinned plans, reschedule supersession, deduplication, delivery suppression and exact snapshots",
   );
 } finally {
   await destroyDatabase();

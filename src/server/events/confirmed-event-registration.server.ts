@@ -5,6 +5,10 @@ import { sql, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
+import {
+  enqueueRegistrationSelectedEventCommunications,
+  enqueueRegistrationSubmittedEventCommunications,
+} from "#/server/notifications/event-communication-execution.server";
 
 export async function issueConfirmedEventRegistration(
   transaction: Transaction<Database>,
@@ -72,10 +76,11 @@ export async function issueConfirmedEventRegistration(
       lockedInAt: input.createdAt,
     })
     .execute();
+  const transitionId = `event_registration_transition_${randomUUID()}`;
   await transaction
     .insertInto("event_registration_transition")
     .values({
-      id: `event_registration_transition_${randomUUID()}`,
+      id: transitionId,
       eventRegistrationId,
       fromStatus: null,
       toStatus: "selected",
@@ -101,6 +106,12 @@ export async function issueConfirmedEventRegistration(
       createdAt: input.createdAt,
     })
     .execute();
+  await enqueueRegistrationSubmittedEventCommunications(transaction, {
+    eventOccurrenceId: input.eventOccurrenceId,
+    eventRegistrationId,
+    triggerEventId: transitionId,
+    createdAt: input.createdAt,
+  });
   await transaction
     .updateTable("event_occurrence")
     .set({
@@ -109,6 +120,12 @@ export async function issueConfirmedEventRegistration(
     })
     .where("id", "=", input.eventOccurrenceId)
     .executeTakeFirstOrThrow();
+  await enqueueRegistrationSelectedEventCommunications(transaction, {
+    eventOccurrenceId: input.eventOccurrenceId,
+    eventRegistrationId,
+    triggerEventId: transitionId,
+    createdAt: input.createdAt,
+  });
   await recordDurableAuditEvent(transaction, {
     actorUserId: input.user.id,
     action: "event_registration.submitted",
