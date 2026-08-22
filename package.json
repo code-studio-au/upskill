@@ -57,6 +57,7 @@
     "db:verify:bulk-commerce": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-bulk-order-commerce.ts",
     "db:verify:email-designer": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-email-designer.ts",
     "db:verify:offering-communications": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-offering-communications.ts",
+    "db:verify:notification-operations": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-notification-operations.ts",
     "db:verify:learner-workspace": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-learner-workspace.ts",
     "db:verify:scorm-attempts": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-scorm-attempts.ts",
     "db:verify:admin-visibility": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-admin-visibility.ts",

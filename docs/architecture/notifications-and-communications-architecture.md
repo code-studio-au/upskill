@@ -50,7 +50,14 @@ architecture.
   longer applicable. Every trigger currently available in Course and Event
   communication-plan authoring is executable.
   Course triggers remain enrolment-scoped: `active_enrollees` is an eligibility
-  boundary for the affected enrolment, not a fan-out to unrelated learners.
+  boundary for the affected enrolment, not a fan-out to unrelated learners. A
+  Platform Administrator delivery-operations workspace now exposes bounded
+  health totals, overdue schedule/outbox age, searchable notification history
+  and provider-attempt detail without exposing retained message bodies or
+  payload credentials. Failed deliveries can be atomically requeued only from
+  their failed state; cumulative attempts are retained and the operation writes
+  durable audit evidence. Production infrastructure alarms on sustained SQS
+  age/backlog and any dead-lettered work item.
 - **Target Product:** committed domain-event subscriptions create idempotent
   notification records, resolve bounded recipients/templates and deliver
   transactional email with observable retry/failure behaviour. A governed Email
@@ -776,9 +783,11 @@ real email.
 - delivery attempt/status recording; **implemented**
 - expiring one-time provisional-account activation and administrator resend;
   **implemented**
-- exact version/render-snapshot persistence; **implemented for delivery records;
-  dedicated support-history UI and retention controls remain pending**
-- metrics and failure visibility.
+- exact version/render-snapshot persistence; **implemented for delivery records
+  and privacy-bounded support history; retention controls remain pending**
+- metrics and failure visibility; **implemented for database notification,
+  schedule and outbox health plus production SQS age/backlog/DLQ alarms;
+  provider-rate and worker-heartbeat telemetry remain pending**.
 
 ### Phase 2 --- Event communications
 

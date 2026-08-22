@@ -176,6 +176,7 @@ try {
     "event_occurrence_communication_occurrence_idx",
     "event_communication_schedule_active_uq",
     "event_communication_schedule_due_idx",
+    "notification_operations_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -261,6 +262,18 @@ try {
   assert.match(
     executionDefinition.get("notification_template_ck") ?? "",
     /offering_course.*offering_event/iu,
+  );
+  const auditActionConstraint = await sql<{
+    definition: string;
+  }>`select pg_get_constraintdef(oid) as definition
+    from pg_constraint where conname = 'audit_event_action_known_ck'`.execute(
+    db,
+  );
+  const auditActionDefinition = auditActionConstraint.rows[0];
+  assert.ok(auditActionDefinition);
+  assert.match(
+    auditActionDefinition.definition,
+    /notification\.delivery_requeued/u,
   );
   const accountSetupEmail = await sql<{
     activeVersionId: string | null;

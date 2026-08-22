@@ -3,9 +3,7 @@ import {
   rowPaginationFeature,
   tableFeatures,
   useTable,
-  type PaginationState,
 } from "@tanstack/react-table";
-import { Button, Group, Text, Title } from "#/features/shared/mantine";
 import {
   createFileRoute,
   Link,
@@ -13,16 +11,17 @@ import {
   useNavigate,
   useRouterState,
 } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
+import {
+  AdminDirectory,
+  AdminDirectoryFilters,
+  AdminDirectorySearch,
+} from "#/features/admin/AdminDirectory";
 import {
   adminLearnerSearchSchema,
   type AdminLearnerDirectory,
-  type AdminLearnerSearch,
 } from "#/features/admin/admin.schema";
 import { RemovableFilterChip } from "#/features/shared/RemovableFilterChip";
-import { MantineTextInput } from "#/features/shared/MantineTextInput";
-import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
 import { getAdminLearners } from "#/server/functions/admin";
 import classes from "./admin.learners.index.module.css";
 
@@ -88,141 +87,55 @@ function AdminLearnerDirectoryPage({
   const navigating = useRouterState({
     select: (state) => state.status === "pending",
   });
-  const [submittedSearch, setSubmittedSearch] = useState<AdminLearnerSearch>();
-  useEffect(() => {
-    if (submittedSearch) void navigate({ search: submittedSearch });
-  }, [navigate, submittedSearch]);
-  const pagination = useMemo<PaginationState>(
-    () => ({
-      pageIndex: directory.pagination.page - 1,
-      pageSize: directory.pagination.pageSize,
-    }),
-    [directory.pagination.page, directory.pagination.pageSize],
-  );
   const table = useTable({
     features: learnerTableFeatures,
     columns: learnerColumns,
     data: directory.learners,
     manualPagination: true,
     rowCount: directory.pagination.total,
-    state: { pagination },
-    onPaginationChange: (updater) => {
-      const next =
-        typeof updater === "function" ? updater(pagination) : updater;
-      if (next.pageIndex === pagination.pageIndex) return;
-      void navigate({
-        search: { q: directory.query, page: next.pageIndex + 1 },
-      });
-    },
   });
-  const firstResult =
-    directory.pagination.total === 0
-      ? 0
-      : directory.pagination.pageSize * (directory.pagination.page - 1) + 1;
-  const lastResult = directory.learners.length
-    ? firstResult + directory.learners.length - 1
-    : 0;
 
   return (
-    <section
-      className={classes.root}
-      aria-labelledby="learner-directory-heading"
+    <AdminDirectory
+      eyebrow="Learner support"
+      title="Learners"
+      countNames={{ singular: "learner", plural: "learners" }}
+      pagination={directory.pagination}
+      table={table}
+      caption="Registered learners and enrolment totals"
+      numericColumns={numericLearnerColumns}
+      emptyText="No learners found."
+      navigating={navigating}
+      onPageChange={(page) => {
+        void navigate({ search: { q: directory.query, page } });
+      }}
     >
-      <header className={classes.header}>
-        <div>
-          <Text c="indigo.7" fw={700}>
-            Learner support
-          </Text>
-          <Title order={1} id="learner-directory-heading">
-            Learners
-          </Title>
-        </div>
-        <span className={classes.count}>
-          {directory.pagination.total} learner
-          {directory.pagination.total === 1 ? "" : "s"}
-        </span>
-      </header>
-
-      <form
+      <AdminDirectorySearch
         key={search.q}
-        className={classes.searchForm}
-        action={(form) => {
+        query={search.q}
+        label="Search learners"
+        placeholder="Name or email address"
+        navigating={navigating}
+        submitLabel="Search"
+        onSubmit={(form) => {
           const validated = adminLearnerSearchSchema.parse({
             q: form.get("q"),
             page: 1,
           });
-          setSubmittedSearch(validated);
+          void navigate({ search: validated });
         }}
-      >
-        <MantineTextInput
-          name="q"
-          label="Search learners"
-          defaultValue={search.q}
-          placeholder="Name or email address"
-          maxLength={100}
-        />
-        <Button type="submit" loading={navigating}>
-          Search
-        </Button>
-      </form>
-
+      />
       {search.q ? (
-        <div className={classes.filters}>
-          <Text size="sm" fw={700}>
-            Current filters
-          </Text>
-          <Group gap="xs">
-            <RemovableFilterChip
-              label="Search"
-              value={search.q}
-              onRemove={() => {
-                void navigate({ search: { q: "", page: 1 } });
-              }}
-            />
-          </Group>
-        </div>
-      ) : null}
-
-      <Text c="dimmed" size="sm">
-        Showing {firstResult}–{lastResult} of {directory.pagination.total}{" "}
-        learner{directory.pagination.total === 1 ? "" : "s"}
-      </Text>
-
-      {directory.learners.length > 0 ? (
-        <ResponsiveDataTable
-          table={table}
-          caption="Registered learners and enrolment totals"
-          numericColumns={numericLearnerColumns}
-        />
-      ) : (
-        <p className={classes.empty}>No learners found.</p>
-      )}
-
-      {directory.pagination.pages > 1 ? (
-        <Group justify="space-between" className={classes.pagination}>
-          <Button
-            variant="light"
-            disabled={!table.getCanPreviousPage() || navigating}
-            onClick={() => {
-              table.previousPage();
+        <AdminDirectoryFilters>
+          <RemovableFilterChip
+            label="Search"
+            value={search.q}
+            onRemove={() => {
+              void navigate({ search: { q: "", page: 1 } });
             }}
-          >
-            Previous
-          </Button>
-          <Text size="sm">
-            Page {directory.pagination.page} of {directory.pagination.pages}
-          </Text>
-          <Button
-            variant="light"
-            disabled={!table.getCanNextPage() || navigating}
-            onClick={() => {
-              table.nextPage();
-            }}
-          >
-            Next
-          </Button>
-        </Group>
+          />
+        </AdminDirectoryFilters>
       ) : null}
-    </section>
+    </AdminDirectory>
   );
 }

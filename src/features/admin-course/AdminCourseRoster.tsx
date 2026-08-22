@@ -6,15 +6,20 @@ import {
 import { useForm } from "@tanstack/react-form";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
+import {
+  AdminDirectoryHeader,
+  AdminDirectoryFilters,
+  AdminDirectoryResults,
+  AdminDirectorySearch,
+} from "#/features/admin/AdminDirectory";
 import { Badge } from "#/features/shared/Badge";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { RemovableFilterChip } from "#/features/shared/RemovableFilterChip";
-import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
 import { firstFormError } from "#/features/shared/form-errors";
 import { formatLocalDate } from "#/features/shared/local-date";
-import { Alert, Button, Group, Stack, Text } from "#/features/shared/mantine";
+import { Alert, Button, Group, Stack } from "#/features/shared/mantine";
 import {
   addAdminCourseEnrollment,
   getAdminCourseRoster,
@@ -47,7 +52,6 @@ export function AdminCourseRoster({
   const [directory, setDirectory] = useState<AdminCourseRosterDirectory | null>(
     null,
   );
-  const [queryInput, setQueryInput] = useState("");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const [revision, setRevision] = useState(0);
@@ -119,7 +123,6 @@ export function AdminCourseRoster({
       );
       setLoading(true);
       setQuery("");
-      setQueryInput("");
       setPage(1);
       setRevision((current) => current + 1);
       await onChanged();
@@ -222,25 +225,21 @@ export function AdminCourseRoster({
   });
   const canEnroll =
     detail.course.status === "published" && publishedVersions.length > 0;
-  const firstResult =
-    !directory || directory.pagination.total === 0
-      ? 0
-      : directory.pagination.pageSize * (directory.pagination.page - 1) + 1;
-  const lastResult = directory?.enrollments.length
-    ? firstResult + directory.enrollments.length - 1
-    : 0;
+  const pagination = directory?.pagination ?? {
+    page: 1,
+    pages: 1,
+    total: 0,
+    pageSize: 20,
+  };
 
   return (
     <section aria-labelledby="course-roster-heading" className={classes.root}>
-      <header className={classes.header}>
-        <h2 id="course-roster-heading" className={classes.heading}>
-          Learner roster
-        </h2>
-        <span className={classes.count}>
-          {directory?.pagination.total ?? detail.course.enrollmentCount}{" "}
-          enrolments
-        </span>
-      </header>
+      <AdminDirectoryHeader
+        headingId="course-roster-heading"
+        title="Learner roster"
+        order={2}
+        count={`${String(directory?.pagination.total ?? detail.course.enrollmentCount)} enrolments`}
+      />
 
       {message ? <Alert color="green">{message}</Alert> : null}
       {error ? <Alert color="red">{error}</Alert> : null}
@@ -310,91 +309,49 @@ export function AdminCourseRoster({
         </Stack>
       </form>
 
-      <form
-        className={classes.searchForm}
-        onSubmit={(event) => {
-          event.preventDefault();
+      <AdminDirectorySearch
+        key={query}
+        query={query}
+        label="Search enrolments"
+        placeholder="Name or email address"
+        navigating={loading}
+        submitLabel="Search"
+        onSubmit={(form) => {
+          const value = form.get("q");
           setLoading(true);
-          setQuery(queryInput.trim());
+          setQuery(typeof value === "string" ? value.trim() : "");
           setPage(1);
           setRevision((current) => current + 1);
         }}
-      >
-        <MantineTextInput
-          label="Search enrolments"
-          value={queryInput}
-          placeholder="Name or email address"
-          maxLength={100}
-          onChange={(event) => {
-            setQueryInput(event.currentTarget.value);
-          }}
-        />
-        <Button type="submit" loading={loading}>
-          Search
-        </Button>
-      </form>
+      />
 
       {query ? (
-        <RemovableFilterChip
-          label="Search"
-          value={query}
-          onRemove={() => {
-            setLoading(true);
-            setQuery("");
-            setQueryInput("");
-            setPage(1);
-            setRevision((current) => current + 1);
-          }}
-        />
+        <AdminDirectoryFilters>
+          <RemovableFilterChip
+            label="Search"
+            value={query}
+            onRemove={() => {
+              setLoading(true);
+              setQuery("");
+              setPage(1);
+              setRevision((current) => current + 1);
+            }}
+          />
+        </AdminDirectoryFilters>
       ) : null}
 
-      <Text c="dimmed" size="sm">
-        Showing {firstResult}–{lastResult} of {directory?.pagination.total ?? 0}{" "}
-        enrolments
-      </Text>
-
-      {directory?.enrollments.length ? (
-        <ResponsiveDataTable
-          table={table}
-          caption="Course learner enrolments and access status"
-          numericColumns={numericColumns}
-        />
-      ) : loading ? (
-        <Text c="dimmed">Loading enrolments…</Text>
-      ) : (
-        <p className={classes.empty}>No enrolments found.</p>
-      )}
-
-      {directory && directory.pagination.pages > 1 ? (
-        <Group justify="space-between" className={classes.pagination}>
-          <Button
-            variant="light"
-            disabled={directory.pagination.page === 1 || loading}
-            onClick={() => {
-              setLoading(true);
-              setPage((current) => Math.max(1, current - 1));
-            }}
-          >
-            Previous
-          </Button>
-          <Text size="sm">
-            Page {directory.pagination.page} of {directory.pagination.pages}
-          </Text>
-          <Button
-            variant="light"
-            disabled={
-              directory.pagination.page === directory.pagination.pages ||
-              loading
-            }
-            onClick={() => {
-              setLoading(true);
-              setPage((current) => current + 1);
-            }}
-          >
-            Next
-          </Button>
-        </Group>
-      ) : null}
+      <AdminDirectoryResults
+        pagination={pagination}
+        table={table}
+        caption="Course learner enrolments and access status"
+        numericColumns={numericColumns}
+        emptyText="No enrolments found."
+        loading={loading}
+        onPageChange={(nextPage) => {
+          setLoading(true);
+          setPage(nextPage);
+        }}
+      />
 
       {removal ? (
         <ConfirmationDialog

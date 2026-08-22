@@ -15,6 +15,7 @@ interface NavigationItem {
     | "/admin/resources"
     | "/admin/access"
     | "/admin/emails"
+    | "/admin/notifications"
     | "/admin/onboarding";
 }
 
@@ -38,7 +39,10 @@ const groups: Array<{ label: string; items: Array<NavigationItem> }> = [
   },
   {
     label: "Communications",
-    items: [{ label: "Email designer", to: "/admin/emails" }],
+    items: [
+      { label: "Email designer", to: "/admin/emails" },
+      { label: "Delivery operations", to: "/admin/notifications" },
+    ],
   },
   {
     label: "Learning content",

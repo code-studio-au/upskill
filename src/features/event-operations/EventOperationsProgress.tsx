@@ -6,20 +6,15 @@ import {
   type PaginationState,
 } from "@tanstack/react-table";
 import { useMemo, useState } from "react";
+import {
+  AdminDirectoryFilters,
+  AdminDirectoryResults,
+  AdminDirectorySearch,
+} from "#/features/admin/AdminDirectory";
 import { Badge } from "#/features/shared/Badge";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
-import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { RemovableFilterChip } from "#/features/shared/RemovableFilterChip";
-import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
-import {
-  Alert,
-  Button,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  Title,
-} from "#/features/shared/mantine";
+import { Button, Group, Stack, Text, Title } from "#/features/shared/mantine";
 import {
   eventProgressFilterSchema,
   type EventParticipantProgress,
@@ -202,26 +197,13 @@ export function EventOperationsProgress({
 
   return (
     <Stack gap="lg">
-      <Paper withBorder radius="lg" p="md">
-        <form
-          key={`${filters.q}:${filters.state}`}
-          className={classes.progressFilters}
-          action={(form) => {
-            const next = eventProgressFilterSchema.parse({
-              q: form.get("q"),
-              state: form.get("state"),
-            });
-            setPagination((current) => ({ ...current, pageIndex: 0 }));
-            onFiltersChange(next);
-          }}
-        >
-          <MantineTextInput
-            name="q"
-            label="Search participants"
-            defaultValue={filters.q}
-            placeholder="Name, email or region"
-            maxLength={100}
-          />
+      <AdminDirectorySearch
+        key={`${filters.q}:${filters.state}`}
+        query={filters.q}
+        label="Search participants"
+        placeholder="Name, email or region"
+        submitLabel="Apply filters"
+        secondary={
           <MantineNativeSelect
             name="state"
             label="Progress state"
@@ -234,36 +216,38 @@ export function EventOperationsProgress({
               { value: "completed", label: "Completed" },
             ]}
           />
-          <Button type="submit">Apply filters</Button>
-        </form>
-      </Paper>
+        }
+        onSubmit={(form) => {
+          const next = eventProgressFilterSchema.parse({
+            q: form.get("q"),
+            state: form.get("state"),
+          });
+          setPagination((current) => ({ ...current, pageIndex: 0 }));
+          onFiltersChange(next);
+        }}
+      />
 
       {filters.q || filters.state !== "all" ? (
-        <Stack gap="xs">
-          <Text size="sm" fw={700}>
-            Current filters
-          </Text>
-          <Group gap="xs">
-            {filters.q ? (
-              <RemovableFilterChip
-                label="Search"
-                value={filters.q}
-                onRemove={() => {
-                  onFiltersChange({ ...filters, q: "" });
-                }}
-              />
-            ) : null}
-            {filters.state !== "all" ? (
-              <RemovableFilterChip
-                label="State"
-                value={participantStateLabels[filters.state]}
-                onRemove={() => {
-                  onFiltersChange({ ...filters, state: "all" });
-                }}
-              />
-            ) : null}
-          </Group>
-        </Stack>
+        <AdminDirectoryFilters>
+          {filters.q ? (
+            <RemovableFilterChip
+              label="Search"
+              value={filters.q}
+              onRemove={() => {
+                onFiltersChange({ ...filters, q: "" });
+              }}
+            />
+          ) : null}
+          {filters.state !== "all" ? (
+            <RemovableFilterChip
+              label="State"
+              value={participantStateLabels[filters.state]}
+              onRemove={() => {
+                onFiltersChange({ ...filters, state: "all" });
+              }}
+            />
+          ) : null}
+        </AdminDirectoryFilters>
       ) : null}
 
       <Group justify="space-between" align="end" wrap="wrap">
@@ -286,43 +270,20 @@ export function EventOperationsProgress({
         </Group>
       </Group>
 
-      {data.length ? (
-        <>
-          <ResponsiveDataTable
-            table={table}
-            caption="Authorised event participant and section progress"
-          />
-          {table.getPageCount() > 1 ? (
-            <Group justify="space-between">
-              <Button
-                variant="light"
-                disabled={!table.getCanPreviousPage()}
-                onClick={() => {
-                  table.previousPage();
-                }}
-              >
-                Previous
-              </Button>
-              <Text size="sm">
-                Page {pagination.pageIndex + 1} of {table.getPageCount()}
-              </Text>
-              <Button
-                variant="light"
-                disabled={!table.getCanNextPage()}
-                onClick={() => {
-                  table.nextPage();
-                }}
-              >
-                Next
-              </Button>
-            </Group>
-          ) : null}
-        </>
-      ) : (
-        <Alert title="No participant progress matches">
-          Clear or change the filters to see another authorised participant.
-        </Alert>
-      )}
+      <AdminDirectoryResults
+        pagination={{
+          page: pagination.pageIndex + 1,
+          pages: table.getPageCount(),
+          total: data.length,
+          pageSize: pagination.pageSize,
+        }}
+        table={table}
+        caption="Authorised event participant and section progress"
+        emptyText="No participant progress matches these filters."
+        onPageChange={(page) => {
+          table.setPageIndex(page - 1);
+        }}
+      />
     </Stack>
   );
 }

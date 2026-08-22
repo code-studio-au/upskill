@@ -1170,6 +1170,7 @@ export type AuditEventAction =
   | "enrollment.scorm_completed"
   | "entitlement.information_release_accepted"
   | "learning.progress_overridden"
+  | "notification.delivery_requeued"
   | "order.checkout_failed"
   | "order.checkout_paid"
   | "order.paid_existing_enrollment"

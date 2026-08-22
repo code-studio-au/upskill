@@ -63,6 +63,7 @@ describe("audit event boundary", () => {
       "enrollment.purchased",
       "enrollment.scorm_completed",
       "entitlement.information_release_accepted",
+      "notification.delivery_requeued",
       "order.checkout_failed",
       "order.checkout_paid",
       "order.paid_existing_enrollment",

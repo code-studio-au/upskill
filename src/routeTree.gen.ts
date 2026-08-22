@@ -21,6 +21,7 @@ import { Route as AccountSetupRouteImport } from './routes/account.setup'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccessRouteImport } from './routes/admin.access'
 import { Route as AdminModulesRouteImport } from './routes/admin.modules'
+import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminOnboardingRouteImport } from './routes/admin.onboarding'
 import { Route as AdminResourcesRouteImport } from './routes/admin.resources'
 import { Route as ApiHealthRouteImport } from './routes/api.health'
@@ -136,6 +137,11 @@ const AdminAccessRoute = AdminAccessRouteImport.update({
 const AdminModulesRoute = AdminModulesRouteImport.update({
   id: '/modules',
   path: '/modules',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminNotificationsRoute = AdminNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminOnboardingRoute = AdminOnboardingRouteImport.update({
@@ -459,6 +465,7 @@ export interface FileRoutesByFullPath {
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
@@ -527,6 +534,7 @@ export interface FileRoutesByTo {
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
@@ -598,6 +606,7 @@ export interface FileRoutesById {
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
+  '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
   '/admin/resources': typeof AdminResourcesRoute
   '/api/health': typeof ApiHealthRoute
@@ -670,6 +679,7 @@ export interface FileRouteTypes {
     | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
+    | '/admin/notifications'
     | '/admin/onboarding'
     | '/admin/resources'
     | '/api/health'
@@ -738,6 +748,7 @@ export interface FileRouteTypes {
     | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
+    | '/admin/notifications'
     | '/admin/onboarding'
     | '/admin/resources'
     | '/api/health'
@@ -808,6 +819,7 @@ export interface FileRouteTypes {
     | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
+    | '/admin/notifications'
     | '/admin/onboarding'
     | '/admin/resources'
     | '/api/health'
@@ -996,6 +1008,13 @@ declare module '@tanstack/react-router' {
       path: '/modules'
       fullPath: '/admin/modules'
       preLoaderRoute: typeof AdminModulesRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/notifications': {
+      id: '/admin/notifications'
+      path: '/notifications'
+      fullPath: '/admin/notifications'
+      preLoaderRoute: typeof AdminNotificationsRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/onboarding': {
@@ -1396,6 +1415,7 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
   AdminModulesRoute: typeof AdminModulesRoute
+  AdminNotificationsRoute: typeof AdminNotificationsRoute
   AdminOnboardingRoute: typeof AdminOnboardingRoute
   AdminResourcesRoute: typeof AdminResourcesRoute
   AdminIndexRoute: typeof AdminIndexRoute
@@ -1420,6 +1440,7 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
   AdminModulesRoute: AdminModulesRoute,
+  AdminNotificationsRoute: AdminNotificationsRoute,
   AdminOnboardingRoute: AdminOnboardingRoute,
   AdminResourcesRoute: AdminResourcesRoute,
   AdminIndexRoute: AdminIndexRoute,

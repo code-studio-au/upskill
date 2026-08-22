@@ -41,6 +41,66 @@
   font-variant-numeric: tabular-nums;
 }
 
+.table th[data-expander],
+.table td[data-expander] {
+  width: 1%;
+  padding-right: 0;
+}
+
+.expander {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-sm);
+  color: var(--mantine-color-indigo-8);
+  background: var(--mantine-color-white);
+  font: inherit;
+  font-weight: 700;
+  place-items: center;
+  cursor: pointer;
+}
+
+.expander::before {
+  content: "+";
+}
+
+.expanderInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.expander:has(.expanderInput:checked)::before {
+  content: "−";
+}
+
+.expander:hover {
+  background: var(--mantine-color-indigo-0);
+}
+
+.expander:has(.expanderInput:focus-visible) {
+  outline: 2px solid var(--mantine-color-indigo-6);
+  outline-offset: 2px;
+}
+
+.table tr[data-expanded-row] td {
+  padding: var(--mantine-spacing-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.table tr[data-expanded-row] {
+  display: none;
+}
+
+.table tr:has(.expanderInput:checked) + tr[data-expanded-row] {
+  display: table-row;
+}
+
 .caption {
   position: absolute;
   width: 1px;
@@ -90,6 +150,21 @@
     background: var(--mantine-color-white);
   }
 
+  .table tbody tr:has(.expanderInput:checked) {
+    border-radius: var(--mantine-radius-md) var(--mantine-radius-md) 0 0;
+  }
+
+  .table tbody tr[data-expanded-row] {
+    display: none;
+    margin-top: calc(-1 * var(--mantine-spacing-sm));
+    border-top: 0;
+    border-radius: 0 0 var(--mantine-radius-md) var(--mantine-radius-md);
+  }
+
+  .table tbody tr:has(.expanderInput:checked) + tr[data-expanded-row] {
+    display: block;
+  }
+
   .table td,
   .table td[data-numeric] {
     display: grid;
@@ -107,5 +182,13 @@
     font-weight: 700;
     letter-spacing: 0.03em;
     text-transform: uppercase;
+  }
+
+  .table tr[data-expanded-row] td {
+    display: block;
+  }
+
+  .table tr[data-expanded-row] td::before {
+    content: none;
   }
 }
