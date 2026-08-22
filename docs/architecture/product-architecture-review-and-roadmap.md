@@ -105,13 +105,13 @@ verifiers, and CDK verification.
 | Enterprise blanket access          | Partial concept                                          | Add a first-class contract/coverage model                                |
 | Course administration              | Strong foundation                                        | Add authoring workflow maturity as needed                                |
 | Learner administration             | Strong foundation                                        | Add richer support tooling over time                                     |
-| Events                             | Authoring, registration and blended-learning foundation  | Add open-entry check-in, communications and recovery maturity            |
+| Events                             | Authoring, registration and blended-learning foundation  | Add facilitated recovery and operational maturity                        |
 | Coordinator workflows              | Region-scoped review, progress and Survey QR operations  | Add lifecycle alerts and recovery controls                               |
 | Presenter workflows                | Session-scoped attendance and Survey QR operations       | Add recovery windows and printable/minimal export                        |
 | Attendance                         | Durable evidence and corrections                         | Add offline/minimal operational export                                   |
 | Authenticated user onboarding      | Secure account activation implemented                    | Add Survey-backed version assignment, privacy-scoped response and gating |
-| Open-entry guest check-in          | Target design                                            | Guard virtual links and create provisional-user/check-in evidence        |
-| Passwordless prerequisite recovery | Target design                                            | Add SMS/email OTP, task sessions and scoped facilitated Survey fallback  |
+| Open-entry guest check-in          | Initial guarded workflow implemented                     | Add broader lifecycle and support controls                               |
+| Passwordless prerequisite recovery | Email/SMS OTP and exact-Survey task sessions implemented | Add scoped facilitated Survey fallback                                   |
 | Staged Event release               | Implemented learner foundation                           | Add notification and open-entry workflow maturity                        |
 | Regional Event selection           | Implemented operational foundation                       | Add assignment alerts and late-invitation UX maturity                    |
 | Automated email/notifications      | Durable triggers plus audited delivery operations        | Add retention controls and broader message types                         |

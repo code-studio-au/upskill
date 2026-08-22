@@ -99,7 +99,18 @@ interface AdminLearnerEnrollment {
 }
 
 export interface AdminLearnerProfile {
-  learner: { id: string; name: string; email: string; joinedAt: string };
+  learner: {
+    id: string;
+    name: string;
+    email: string;
+    emailEnabled: boolean;
+    emailVerified: boolean;
+    emailVerifiedAt: string | null;
+    phone: string | null;
+    smsEnabled: boolean;
+    smsVerifiedAt: string | null;
+    joinedAt: string;
+  };
   onboarding: {
     activeConfiguration: {
       definitionVersionId: string;

@@ -15,7 +15,10 @@ async function enqueueEmailNotification(
   transaction: Kysely<Database>,
   input: {
     templateKey:
-      "account_setup_requested" | "offering_course" | "offering_event";
+      | "account_setup_requested"
+      | "phone_verification_transferred"
+      | "offering_course"
+      | "offering_event";
     recipient: NotificationRecipientSnapshot;
     emailDesignVersionId: string;
     subjectTemplateSnapshot: string;
@@ -112,6 +115,52 @@ export async function enqueueAccountSetupNotification(
     textBodyTemplateSnapshot: emailDesignVersion.textBody,
     deduplicationKey: input.deduplicationKey,
     payload: { version: 1, setupUrl: input.setupUrl },
+    createdAt: input.createdAt,
+  });
+}
+
+export async function enqueuePhoneVerificationTransferredNotification(
+  transaction: Kysely<Database>,
+  input: {
+    userId: string;
+    name: string;
+    email: string;
+    challengeId: string;
+    phoneLastFour: string;
+    profileUrl: string;
+    supportEmail: string;
+    createdAt: Date;
+  },
+): Promise<string> {
+  const emailDesignVersion = await transaction
+    .selectFrom("email_design")
+    .innerJoin(
+      "email_design_version",
+      "email_design_version.id",
+      "email_design.activeVersionId",
+    )
+    .select([
+      "email_design_version.id",
+      "email_design_version.subject",
+      "email_design_version.textBody",
+    ])
+    .where("email_design.systemKey", "=", "phone_verification_transferred")
+    .where("email_design.catalogue", "=", "system")
+    .where("email_design_version.publishedAt", "is not", null)
+    .executeTakeFirstOrThrow();
+  return await enqueueEmailNotification(transaction, {
+    templateKey: "phone_verification_transferred",
+    recipient: { userId: input.userId, name: input.name, email: input.email },
+    emailDesignVersionId: emailDesignVersion.id,
+    subjectTemplateSnapshot: emailDesignVersion.subject,
+    textBodyTemplateSnapshot: emailDesignVersion.textBody,
+    deduplicationKey: `phone-verification-transfer:${input.challengeId}:${input.userId}`,
+    payload: {
+      version: 1,
+      phoneLastFour: input.phoneLastFour,
+      profileUrl: input.profileUrl,
+      supportEmail: input.supportEmail,
+    },
     createdAt: input.createdAt,
   });
 }

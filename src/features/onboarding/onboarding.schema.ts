@@ -8,44 +8,25 @@ const identifier = z.string().check(z.trim(), z.minLength(1), z.maxLength(255));
 
 export const onboardingProfileMappingSchema = z.object({
   questionId: identifier,
-  destination: z.enum(["name", "phone", "currentRegionId"]),
+  destination: z.enum([
+    "name",
+    "phone",
+    "currentRegionId",
+    "emailEnabled",
+    "smsEnabled",
+  ]),
 });
 
-export const activateOnboardingSchema = z
-  .object({
-    surveyVersionId: identifier,
-    privacyNotice: z
-      .string()
-      .check(z.trim(), z.minLength(1), z.maxLength(10_000)),
-    privacyNoticeVersion: z
-      .string()
-      .check(z.trim(), z.minLength(1), z.maxLength(80)),
-    profileMappings: z
-      .array(onboardingProfileMappingSchema)
-      .check(z.maxLength(3)),
-  })
-  .check(
-    z.superRefine((value, context) => {
-      const questions = new Set<string>();
-      const destinations = new Set<string>();
-      for (const [index, mapping] of value.profileMappings.entries()) {
-        if (questions.has(mapping.questionId))
-          context.addIssue({
-            code: "custom",
-            path: ["profileMappings", index, "questionId"],
-            message: "Each question can update only one profile field",
-          });
-        if (destinations.has(mapping.destination))
-          context.addIssue({
-            code: "custom",
-            path: ["profileMappings", index, "destination"],
-            message: "Each profile field can be mapped only once",
-          });
-        questions.add(mapping.questionId);
-        destinations.add(mapping.destination);
-      }
-    }),
-  );
+export const activateOnboardingSchema = z.object({
+  surveyVersionId: identifier,
+  privacyNotice: z
+    .string()
+    .check(z.trim(), z.minLength(1), z.maxLength(10_000)),
+  privacyNoticeVersion: z
+    .string()
+    .check(z.trim(), z.minLength(1), z.maxLength(80)),
+  contactVerificationRequired: z.boolean(),
+});
 
 export const onboardingStepSchema = z.object({
   assignmentId: identifier,
@@ -60,12 +41,25 @@ export const onboardingStepSchema = z.object({
   ),
 });
 
+export const onboardingVerificationRequestSchema = z.object({
+  assignmentId: identifier,
+  channel: z.enum(["email", "sms"]),
+});
+
+export const onboardingVerificationCodeSchema = z.object({
+  assignmentId: identifier,
+  code: z.string().check(z.trim(), z.regex(/^\d{6}$/u)),
+});
+
+export const onboardingVerificationSkipSchema = z.object({
+  assignmentId: identifier,
+});
+
 interface OnboardingSurveyVersionOption {
   id: string;
   surveyId: string;
   title: string;
   version: number;
-  content: SurveyVersionContent;
 }
 
 export interface OnboardingConfiguration {
@@ -77,13 +71,13 @@ export interface OnboardingConfiguration {
   privacyNotice: string;
   privacyNoticeVersion: string;
   profileMappings: Array<z.infer<typeof onboardingProfileMappingSchema>>;
+  contactVerificationRequired: boolean;
   activatedAt: string;
   deactivatedAt: string | null;
 }
 
 export interface AdminOnboardingData {
   active: OnboardingConfiguration | null;
-  history: Array<OnboardingConfiguration>;
   surveyVersions: Array<OnboardingSurveyVersionOption>;
 }
 
@@ -105,6 +99,19 @@ export interface LearnerOnboarding {
   content: SurveyVersionContent;
   progress: LearnerSurveyProgress;
   submittedAt: string | null;
+  verification: {
+    required: boolean;
+    email: {
+      enabled: boolean;
+      verified: boolean;
+      destination: string;
+    };
+    sms: {
+      enabled: boolean;
+      verified: boolean;
+      destination: string | null;
+    };
+  };
 }
 
 export type LearnerOnboardingResult =

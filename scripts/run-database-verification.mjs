@@ -25,6 +25,7 @@ const verificationScripts = [
   "scripts/verify-offering-communications.ts",
   "scripts/verify-provisional-account-notifications.ts",
   "scripts/verify-notification-operations.ts",
+  "scripts/verify-sms-delivery.ts",
 ];
 const migrationScript = verificationScripts[0];
 const requestedScripts = process.argv.slice(2);
@@ -94,6 +95,7 @@ try {
     APP_ENV: "test",
     DATABASE_URL: disposableDatabase.databaseUrl,
     EMAIL_PROVIDER: "local_capture",
+    SMS_PROVIDER: "local_capture",
   };
   for (const script of scriptsToRun) {
     if (interruptedSignal) break;

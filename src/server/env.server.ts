@@ -27,6 +27,11 @@ const envSchema = z.object({
   MAILGUN_DOMAIN: z.string().min(1).optional(),
   MAILGUN_FROM: z.string().min(1).max(320).optional(),
   MAILGUN_API_BASE_URL: z.url().default("https://api.mailgun.net"),
+  SMS_PROVIDER: z.enum(["local_capture", "textbee"]).default("local_capture"),
+  TEXTBEE_API_KEY: z.string().min(1).optional(),
+  TEXTBEE_API_BASE_URL: z.url().default("https://api.textbee.dev"),
+  TEXTBEE_DEVICE_ID: z.string().min(1).optional(),
+  TEXTBEE_WEBHOOK_SECRET: z.string().min(20).optional(),
   AWS_REGION: z.string().min(1).default("ap-southeast-2"),
   S3_ENDPOINT: z.url().optional(),
   S3_ACCESS_KEY_ID: z.string().min(1).optional(),
@@ -75,6 +80,14 @@ export function getServerEnv(): ServerEnv {
     if (!validated.MAILGUN_FROM)
       throw new Error("MAILGUN_FROM is required for Mailgun delivery");
   }
+  if (validated.SMS_PROVIDER === "textbee") {
+    if (!validated.TEXTBEE_API_KEY)
+      throw new Error("TEXTBEE_API_KEY is required for TextBee delivery");
+    if (!validated.TEXTBEE_WEBHOOK_SECRET)
+      throw new Error(
+        "TEXTBEE_WEBHOOK_SECRET is required for TextBee delivery tracking",
+      );
+  }
   if (validated.APP_ENV === "staging" || validated.APP_ENV === "production") {
     if (
       !process.env.ACCESS_CODE_ENCRYPTION_KEY ||
@@ -92,6 +105,10 @@ export function getServerEnv(): ServerEnv {
     if (validated.EMAIL_PROVIDER !== "mailgun")
       throw new Error(
         "Mailgun delivery is required outside local environments",
+      );
+    if (validated.SMS_PROVIDER !== "textbee")
+      throw new Error(
+        "TextBee delivery is required outside local environments",
       );
     parsed = validated;
   } else {

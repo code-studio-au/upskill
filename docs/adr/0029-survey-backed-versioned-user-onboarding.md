@@ -23,7 +23,8 @@ model onboarding as a Survey Learning Activity.
 
 An immutable Onboarding Definition Version references one exact published Survey
 Version and owns onboarding-only policy: privacy notice/version, typed profile
-mappings, completion and activation behaviour. A User receives an Onboarding
+mappings, optional-or-required contact verification, completion and activation
+behaviour. A User receives an Onboarding
 Assignment pinned to that exact definition/version, and final submission creates
 privacy-scoped onboarding response/completion records rather than Learning
 Evidence.
@@ -33,6 +34,23 @@ previously onboarded Users to complete a later version is a separate explicit,
 audited reassignment campaign. In-progress assignments never retarget
 automatically.
 
+Onboarding authors select constrained Profile full name, Profile mobile phone,
+Profile email enabled and Profile SMS enabled variants of the existing Short
+text and Checkbox question types. These questions, plus Operational region, map
+automatically to their canonical profile fields. Profile mappings may initialise
+a canonical E.164 mobile number and learner preferences enabling email or SMS
+security codes. Verification is a separate, system-owned possession challenge
+and is never supplied by a mapped answer. The versioned administration policy
+recommends verification with an explicit skip by default, or can require every
+enabled channel before completion. Changing the mobile number clears its
+verification timestamp.
+
+Verified mobile ownership is exclusive but transferable. Every successful SMS
+challenge appends a phone claim. Claiming a number closes its prior active claim,
+clears the former owner's verified state, invalidates their outstanding SMS
+recovery access and queues a security email. Delivery history keeps its original
+recipient snapshot and is not recomputed from the number's current owner.
+
 ## Rationale
 
 This reuses established versioning, authoring, validation, Sections,
@@ -40,8 +58,8 @@ Text/Instruction Blocks and responsive form behaviour without duplicating a
 questionnaire platform. The separate orchestration model keeps onboarding
 privacy, profile mapping and dashboard gating out of Course/Event progress.
 
-The shared standard question and bulk-option behaviours are governed by ADR
-0030; onboarding does not introduce private question kinds.
+The shared standard question and bulk-option behaviours are governed by ADR 0030. The profile-specific authoring choices are constrained semantic variants
+of standard Short text and Checkbox questions, not separate learner renderers.
 
 An exact assigned version preserves what the User saw. Explicit activation
 prevents a harmless questionnaire revision from unexpectedly locking every
@@ -83,7 +101,11 @@ reporting.
    generic exports.
 6. A phone number collected during onboarding is not verified until a separate
    possession challenge succeeds.
-7. Privacy-governed answer deletion may retain a minimal completion fact.
+7. Contact verification state is system-owned; mapped answers can enable a
+   channel but cannot mark it verified.
+8. Required verification gates completion for every enabled channel. Optional
+   verification records an explicit skip before completion.
+9. Privacy-governed answer deletion may retain a minimal completion fact.
 
 ## Follow-up / Triggers
 

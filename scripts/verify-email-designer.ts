@@ -4,6 +4,8 @@ import {
   createAdminEmailDraft,
   createAdminOfferingEmail,
   findAdminEmailDesign,
+  findAdminEmailDesigns,
+  moveAdminEmailDesign,
   previewAdminEmail,
   publishAdminEmailVersion,
   rollbackAdminEmailVersion,
@@ -63,6 +65,32 @@ try {
     { name: "Event confirmation", contextKey: "offering_event" },
     actor,
   );
+  const followUp = await createAdminOfferingEmail(
+    { name: "Event follow-up", contextKey: "offering_event" },
+    actor,
+  );
+  const originalOrder = (await findAdminEmailDesigns())
+    .filter((design) =>
+      [created.emailDesignId, followUp.emailDesignId].includes(design.id),
+    )
+    .map((design) => design.id);
+  assert.deepEqual(originalOrder, [
+    created.emailDesignId,
+    followUp.emailDesignId,
+  ]);
+  assert.equal(
+    await moveAdminEmailDesign(
+      { emailDesignId: followUp.emailDesignId, direction: "up" },
+      actor,
+    ),
+    "moved",
+  );
+  const movedOrder = (await findAdminEmailDesigns())
+    .filter((design) =>
+      [created.emailDesignId, followUp.emailDesignId].includes(design.id),
+    )
+    .map((design) => design.id);
+  assert.deepEqual(movedOrder, [followUp.emailDesignId, created.emailDesignId]);
   assert.equal(
     await saveAdminEmailDraft({
       ...created,
@@ -139,6 +167,7 @@ try {
       created.emailDesignId,
       created.versionId,
       second.versionId,
+      followUp.emailDesignId,
     ])
     .execute();
   assert.deepEqual(
@@ -147,12 +176,13 @@ try {
       "email_design.created",
       "email_design.published",
       "email_design.draft_created",
+      "email_design.reordered",
       "email_design.rolled_back",
     ]),
   );
 
   console.log(
-    "Verified governed Email Designer catalogues, typed variables, immutable publication, versioning, preview and rollback",
+    "Verified governed Email Designer catalogues, ordering, typed variables, immutable publication, versioning, preview and rollback",
   );
 } finally {
   await destroyDatabase();

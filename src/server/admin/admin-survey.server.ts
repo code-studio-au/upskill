@@ -14,6 +14,7 @@ import {
   isOperationalRegionQuestion,
   isRegionGroupQuestion,
   parseSurveyVersionContent,
+  surveyProfileField,
   surveyVersionContentSchema,
 } from "#/features/survey/survey.schema";
 import { operationalRegionPathsIncludeRegionGroup } from "#/features/survey/survey-branching";
@@ -87,11 +88,16 @@ function regionDirectoryQuestionSummary(content: SurveyVersionContent): {
   operationalRegions: number;
   groupIndex: number;
   operationalIndex: number;
+  profileQuestions: number;
+  profileQuestionsValid: boolean;
 } {
   let groups = 0;
   let operationalRegions = 0;
   let groupIndex = -1;
   let operationalIndex = -1;
+  let profileQuestions = 0;
+  let profileQuestionsValid = true;
+  const profileFields = new Set<string>();
   let itemIndex = 0;
   for (const section of content.sections)
     for (const item of section.items) {
@@ -103,9 +109,32 @@ function regionDirectoryQuestionSummary(content: SurveyVersionContent): {
         operationalRegions += 1;
         if (operationalIndex < 0) operationalIndex = itemIndex;
       }
+      const profileField = surveyProfileField(item);
+      if (profileField) {
+        profileQuestions += 1;
+        if (profileFields.has(profileField)) profileQuestionsValid = false;
+        profileFields.add(profileField);
+        if (!(
+          (item.kind === "short_text" &&
+            item.required &&
+            ((profileField === "name" && item.format === "plain") ||
+              (profileField === "phone" && item.format === "phone"))) ||
+          (item.kind === "checkbox" &&
+            !item.required &&
+            (profileField === "emailEnabled" || profileField === "smsEnabled"))
+        ))
+          profileQuestionsValid = false;
+      }
       itemIndex += 1;
     }
-  return { groups, operationalRegions, groupIndex, operationalIndex };
+  return {
+    groups,
+    operationalRegions,
+    groupIndex,
+    operationalIndex,
+    profileQuestions,
+    profileQuestionsValid,
+  };
 }
 
 export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
@@ -300,8 +329,10 @@ export async function saveAdminSurveyDraft(
     if (
       regionQuestionCounts.groups > 1 ||
       regionQuestionCounts.operationalRegions > 1 ||
+      !regionQuestionCounts.profileQuestionsValid ||
       ((regionQuestionCounts.groups > 0 ||
-        regionQuestionCounts.operationalRegions > 0) &&
+        regionQuestionCounts.operationalRegions > 0 ||
+        regionQuestionCounts.profileQuestions > 0) &&
         version.surveyUsage !== "onboarding")
     )
       return "invalid" as const;
@@ -438,8 +469,10 @@ export async function publishAdminSurveyVersion(
     if (
       regionQuestionCounts.groups > 1 ||
       regionQuestionCounts.operationalRegions > 1 ||
+      !regionQuestionCounts.profileQuestionsValid ||
       ((regionQuestionCounts.groups > 0 ||
-        regionQuestionCounts.operationalRegions > 0) &&
+        regionQuestionCounts.operationalRegions > 0 ||
+        regionQuestionCounts.profileQuestions > 0) &&
         version.surveyUsage !== "onboarding") ||
       (regionQuestionCounts.groups > 0 &&
         regionDirectoryOptions.regionGroups.length === 0) ||

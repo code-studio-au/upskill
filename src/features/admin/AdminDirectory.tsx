@@ -40,7 +40,7 @@ export function AdminDirectory<
   children: ReactNode;
   countNames: { singular: string; plural: string };
   emptyText: string;
-  eyebrow: string;
+  eyebrow?: string | undefined;
   navigating: boolean;
   numericColumns?: ReadonlySet<string>;
   onPageChange: (page: number) => void;
@@ -81,7 +81,7 @@ export function AdminDirectoryHeader({
   title,
 }: {
   count: string;
-  eyebrow?: string;
+  eyebrow?: string | undefined;
   headingId: string;
   order?: 1 | 2;
   title: string;
@@ -179,6 +179,7 @@ export function AdminDirectoryResults<
 }
 
 export function AdminDirectorySearch({
+  className,
   label,
   navigating = false,
   onSubmit,
@@ -187,6 +188,7 @@ export function AdminDirectorySearch({
   secondary,
   submitLabel,
 }: {
+  className?: string | undefined;
   label: string;
   navigating?: boolean;
   onSubmit: (form: FormData) => void;
@@ -197,7 +199,7 @@ export function AdminDirectorySearch({
 }) {
   return (
     <form
-      className={classes.searchForm}
+      className={`${classes.searchForm ?? ""} ${className ?? ""}`}
       data-secondary={Boolean(secondary) || undefined}
       action={onSubmit}
     >

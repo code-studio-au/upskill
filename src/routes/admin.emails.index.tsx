@@ -1,4 +1,3 @@
-import { useForm } from "@tanstack/react-form";
 import {
   createFileRoute,
   Link,
@@ -8,7 +7,6 @@ import {
 import { useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import {
-  adminEmailDesignCreateSchema,
   type AdminEmailDesignSummary,
   type EmailDesignContext,
 } from "#/features/admin-email/admin-email.schema";
@@ -18,7 +16,6 @@ import { Badge } from "#/features/shared/Badge";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { PageTabs } from "#/features/shared/PageTabs";
-import { firstFormError } from "#/features/shared/form-errors";
 import {
   Alert,
   Button,
@@ -31,17 +28,8 @@ import {
 import {
   createAdminOfferingEmail,
   getAdminEmailDesigns,
+  moveAdminEmailDesign,
 } from "#/server/functions/admin-email";
-
-interface CreateValues {
-  name: string;
-  contextKey: EmailDesignContext;
-}
-
-const defaultValues: CreateValues = {
-  name: "",
-  contextKey: "offering_event",
-};
 
 export const Route = createFileRoute("/admin/emails/")({
   ssr: false,
@@ -70,7 +58,7 @@ function EmailCatalogue({
         <Alert>{empty}</Alert>
       ) : (
         <div className={classes.catalogueGrid}>
-          {designs.map((design) => (
+          {designs.map((design, index) => (
             <Paper
               component="article"
               key={design.id}
@@ -101,12 +89,39 @@ function EmailCatalogue({
                   ) : null}
                 </Group>
               </Group>
+              <div className={classes.catalogueOrder}>
+                <button
+                  aria-label="Up"
+                  disabled={index === 0}
+                  onClick={() => {
+                    void move(design.id, "up");
+                  }}
+                >
+                  ↑
+                </button>
+                <button
+                  aria-label="Down"
+                  disabled={index === designs.length - 1}
+                  onClick={() => {
+                    void move(design.id, "down");
+                  }}
+                >
+                  ↓
+                </button>
+              </div>
             </Paper>
           ))}
         </div>
       )}
     </Stack>
   );
+}
+
+async function move(emailDesignId: string, direction: "down" | "up") {
+  const result = await moveAdminEmailDesign({
+    data: { emailDesignId, direction },
+  }).catch(() => null);
+  if (result) window.location.reload();
 }
 
 function AdminEmailsPage() {
@@ -117,12 +132,21 @@ function AdminEmailsPage() {
     "system",
   );
   const [error, setError] = useState<string | null>(null);
-  const form = useForm({
-    defaultValues,
-    validators: { onSubmit: adminEmailDesignCreateSchema },
-    onSubmit: async ({ value }) => {
-      setError(null);
-      const created = await createAdminOfferingEmail({ data: value });
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [contextKey, setContextKey] =
+    useState<EmailDesignContext>("offering_event");
+  const create = async () => {
+    setError(null);
+    if (name.trim().length < 2) {
+      setError("Enter an email name.");
+      return;
+    }
+    setCreating(true);
+    try {
+      const created = await createAdminOfferingEmail({
+        data: { name, contextKey },
+      });
       if (created.status !== "ready") {
         setError("The email draft could not be created.");
         return;
@@ -132,8 +156,12 @@ function AdminEmailsPage() {
         params: { emailDesignId: created.data.emailDesignId },
         search: { versionId: created.data.versionId },
       });
-    },
-  });
+    } catch {
+      setError("The email draft could not be created.");
+    } finally {
+      setCreating(false);
+    }
+  };
   if (result.status === "forbidden") return <AdminAccessDenied />;
 
   const systemEmails = result.data.filter(
@@ -163,7 +191,8 @@ function AdminEmailsPage() {
         </div>
         <Button
           onClick={() => {
-            form.reset();
+            setName("");
+            setContextKey("offering_event");
             setError(null);
             setOpened(true);
           }}
@@ -197,78 +226,63 @@ function AdminEmailsPage() {
       />
 
       {opened ? (
-        <form.Subscribe selector={(state) => state.isSubmitting}>
-          {(isSubmitting) => (
-            <AppDialog
-              title="Create email"
-              closeDisabled={isSubmitting}
-              onClose={() => {
-                if (!isSubmitting) setOpened(false);
-              }}
-            >
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void form.handleSubmit();
+        <AppDialog
+          title="Create email"
+          closeDisabled={creating}
+          onClose={() => {
+            if (!creating) setOpened(false);
+          }}
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void create();
+            }}
+          >
+            <Stack gap="md">
+              <MantineTextInput
+                label="Email name"
+                value={name}
+                onChange={(event) => {
+                  setName(event.currentTarget.value);
                 }}
-              >
-                <Stack gap="md">
-                  <form.Field name="name">
-                    {(field) => (
-                      <MantineTextInput
-                        label="Email name"
-                        value={field.state.value}
-                        error={firstFormError(field.state.meta.errors)}
-                        onBlur={field.handleBlur}
-                        onChange={(event) => {
-                          field.handleChange(event.currentTarget.value);
-                        }}
-                        required
-                      />
-                    )}
-                  </form.Field>
-                  <form.Field name="contextKey">
-                    {(field) => (
-                      <MantineNativeSelect
-                        label="Email type"
-                        value={field.state.value}
-                        data={[
-                          { value: "offering_event", label: "Event" },
-                          { value: "offering_course", label: "Course" },
-                        ]}
-                        onChange={(event) => {
-                          field.handleChange(
-                            event.currentTarget.value === "offering_course"
-                              ? "offering_course"
-                              : "offering_event",
-                          );
-                        }}
-                        required
-                      />
-                    )}
-                  </form.Field>
-                  {error ? <Alert color="red">{error}</Alert> : null}
-                  <Group justify="flex-end">
-                    <Button
-                      type="button"
-                      variant="default"
-                      disabled={isSubmitting}
-                      onClick={() => {
-                        setOpened(false);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <Button type="submit" loading={isSubmitting}>
-                      Create draft
-                    </Button>
-                  </Group>
-                </Stack>
-              </form>
-            </AppDialog>
-          )}
-        </form.Subscribe>
+                required
+              />
+              <MantineNativeSelect
+                label="Email type"
+                value={contextKey}
+                data={[
+                  { value: "offering_event", label: "Event" },
+                  { value: "offering_course", label: "Course" },
+                ]}
+                onChange={(event) => {
+                  setContextKey(
+                    event.currentTarget.value === "offering_course"
+                      ? "offering_course"
+                      : "offering_event",
+                  );
+                }}
+                required
+              />
+              {error ? <Alert color="red">{error}</Alert> : null}
+              <Group justify="flex-end">
+                <Button
+                  type="button"
+                  variant="default"
+                  disabled={creating}
+                  onClick={() => {
+                    setOpened(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" loading={creating}>
+                  Create draft
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        </AppDialog>
       ) : null}
     </Stack>
   );

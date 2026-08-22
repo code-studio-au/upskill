@@ -5,11 +5,9 @@ import {
 } from "#/features/access/access-code.schema";
 import { learnerEventRegistrationSchema } from "#/features/learner/learner.schema";
 import { learnerEventWorkspaceInputSchema } from "#/features/learner/learner-event-workspace.schema";
-import {
-  eventSurveyPublicReferenceSchema,
-  type LearnerEventSurveyReferenceResult,
-} from "#/features/event-operations/event-operations.schema";
 import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema";
+import { eventSurveyPublicReferenceSchema } from "#/features/event-operations/event-operations.schema";
+import type { EventRecoveryLandingResult } from "#/features/event-recovery/event-recovery.schema";
 import {
   learnerSurveyParamsSchema,
   learnerSurveyStepSchema,
@@ -52,17 +50,6 @@ export const getLearnerEventWorkspace = createServerFn({ method: "GET" })
     const { findLearnerEventWorkspace } =
       await import("#/server/learning/learner-event-workspace.server");
     return await findLearnerEventWorkspace(data.eventOccurrenceId, user);
-  });
-
-export const resolveLearnerEventSurveyQr = createServerFn({ method: "GET" })
-  .validator(eventSurveyPublicReferenceSchema)
-  .handler(async ({ data }): Promise<LearnerEventSurveyReferenceResult> => {
-    const { getRequestUser } = await import("#/server/auth/session.server");
-    const user = await getRequestUser();
-    if (!user) return { status: "unauthenticated" };
-    const { resolveLearnerEventSurveyReference } =
-      await import("#/server/events/event-survey-access.server");
-    return await resolveLearnerEventSurveyReference(data.publicReference, user);
   });
 
 export const redeemLearnerAccessCode = createServerFn({ method: "POST" })
@@ -160,11 +147,40 @@ export const advanceLearnerSurveyStep = createServerFn({ method: "POST" })
     return await advanceLearnerSurvey(data, user);
   });
 
+export const getEventRecoveryLanding = createServerFn({ method: "GET" })
+  .validator(eventSurveyPublicReferenceSchema)
+  .handler(async ({ data }): Promise<EventRecoveryLandingResult> => {
+    const { setResponseHeaders } = await import("@tanstack/react-start/server");
+    setResponseHeaders(
+      new Headers({
+        "Cache-Control": "private, no-store",
+        Pragma: "no-cache",
+        "Referrer-Policy": "no-referrer",
+      }),
+    );
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const { resolveEventRecoveryLanding } =
+      await import("#/server/events/event-prerequisite-recovery.server");
+    return await resolveEventRecoveryLanding(
+      data.publicReference,
+      await getRequestUser(),
+    );
+  });
+
 export const getLearnerEventSurvey = createServerFn({ method: "GET" })
   .validator(learnerEventSurveyParamsSchema)
   .handler(async ({ data }) => {
     const { getRequestUser } = await import("#/server/auth/session.server");
-    const user = await getRequestUser();
+    const authenticatedUser = await getRequestUser();
+    const { resolveEventSurveyActor } =
+      await import("#/server/events/event-prerequisite-recovery.server");
+    const { task, user } = await resolveEventSurveyActor(
+      {
+        eventOccurrenceId: data.eventOccurrenceId,
+        eventTemplateVersionItemId: data.eventTemplateVersionItemId,
+      },
+      authenticatedUser,
+    );
     if (!user) return { status: "unauthenticated" } as const;
     const { findLearnerEventSurvey } =
       await import("#/server/learning/learner-event-survey.server");
@@ -175,16 +191,47 @@ export const getLearnerEventSurvey = createServerFn({ method: "GET" })
     );
     if (!survey) return { status: "not-found" } as const;
     if (survey === "unavailable") return { status: "unavailable" } as const;
-    return { status: "ready", data: survey } as const;
+    return {
+      status: "ready",
+      data: {
+        ...survey,
+        accessMode: task ? ("event_task" as const) : ("authenticated" as const),
+        recoveryPublicReference: task?.publicReference ?? null,
+      },
+    } as const;
   });
 
 export const advanceLearnerEventSurveyStep = createServerFn({ method: "POST" })
   .validator(learnerEventSurveyStepSchema)
   .handler(async ({ data }) => {
     const { getRequestUser } = await import("#/server/auth/session.server");
-    const user = await getRequestUser();
+    const authenticatedUser = await getRequestUser();
+    const {
+      clearEventTaskSessionCookie,
+      completeEventTaskSession,
+      resolveEventSurveyActor,
+    } = await import("#/server/events/event-prerequisite-recovery.server");
+    const { task, user } = await resolveEventSurveyActor(
+      {
+        eventTemplateVersionItemId: data.eventTemplateVersionItemId,
+        eventParticipationId: data.eventParticipationId,
+      },
+      authenticatedUser,
+    );
     if (!user) return { status: "unauthenticated" } as const;
     const { advanceLearnerEventSurvey } =
       await import("#/server/learning/learner-event-survey.server");
-    return await advanceLearnerEventSurvey(data, user);
+    const result = await advanceLearnerEventSurvey(data, user);
+    if (task && result.status === "submitted") {
+      await completeEventTaskSession(task.taskSessionId);
+      const { setResponseHeaders } =
+        await import("@tanstack/react-start/server");
+      setResponseHeaders(
+        new Headers({
+          "Cache-Control": "private, no-store",
+          "Set-Cookie": clearEventTaskSessionCookie(),
+        }),
+      );
+    }
+    return result;
   });

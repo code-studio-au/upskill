@@ -161,7 +161,18 @@ export async function findAdminLearnerProfile(
   const database = getDatabase();
   const learner = await database
     .selectFrom("user")
-    .select(["id", "name", "email", "createdAt"])
+    .select([
+      "id",
+      "name",
+      "email",
+      "emailEnabled",
+      "emailVerified",
+      "emailVerifiedAt",
+      "phone",
+      "smsEnabled",
+      "smsVerifiedAt",
+      "createdAt",
+    ])
     .where("id", "=", userId)
     .where(learnerPredicate())
     .executeTakeFirst();
@@ -275,6 +286,12 @@ export async function findAdminLearnerProfile(
       id: learner.id,
       name: learner.name,
       email: learner.email,
+      emailEnabled: learner.emailEnabled,
+      emailVerified: learner.emailVerified,
+      emailVerifiedAt: learner.emailVerifiedAt?.toISOString() ?? null,
+      phone: learner.phone,
+      smsEnabled: learner.smsEnabled,
+      smsVerifiedAt: learner.smsVerifiedAt?.toISOString() ?? null,
       joinedAt: learner.createdAt.toISOString(),
     },
     onboarding: {

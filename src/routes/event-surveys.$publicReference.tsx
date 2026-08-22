@@ -1,63 +1,145 @@
-import {
-  createFileRoute,
-  Link,
-  notFound,
-  redirect,
-} from "@tanstack/react-router";
+import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { eventSurveyPublicReferenceSchema } from "#/features/event-operations/event-operations.schema";
-import {
-  Alert,
-  Button,
-  Container,
-  Stack,
-  Text,
-  Title,
-} from "#/features/shared/mantine";
-import { resolveLearnerEventSurveyQr } from "#/server/functions/learner";
+import { getEventRecoveryLanding } from "#/server/functions/learner";
+
+function routeLocation(publicReference: string, recovery: string): string {
+  return `/event-surveys/${encodeURIComponent(publicReference)}?recovery=${encodeURIComponent(recovery)}`;
+}
+
+function redirectResponse(location: string, cookies: Array<string> = []) {
+  const headers = new Headers({
+    Location: location,
+    "Cache-Control": "private, no-store",
+    "Referrer-Policy": "no-referrer",
+  });
+  for (const cookie of cookies) headers.append("Set-Cookie", cookie);
+  return new Response(null, { status: 303, headers });
+}
 
 export const Route = createFileRoute("/event-surveys/$publicReference")({
+  validateSearch: (search) => ({
+    recovery: typeof search.recovery === "string" ? search.recovery : undefined,
+  }),
   ssr: "data-only",
   loader: async ({ params }) => {
     const parsed = eventSurveyPublicReferenceSchema.safeParse(params);
     if (!parsed.success) throw notFound();
-    const destination = `/event-surveys/${encodeURIComponent(parsed.data.publicReference)}`;
-    const result = await resolveLearnerEventSurveyQr({ data: parsed.data });
-    if (result.status === "unauthenticated")
-      throw redirect({ to: "/login", search: { redirect: destination } });
+    const result = await getEventRecoveryLanding({ data: parsed.data });
     if (result.status === "not-found") throw notFound();
     if (result.status === "ready")
       throw redirect({
         to: "/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId",
-        params: {
-          eventOccurrenceId: result.eventOccurrenceId,
-          eventTemplateVersionItemId: result.eventTemplateVersionItemId,
-        },
+        params: result.data,
       });
     return result;
   },
-  head: () => ({ meta: [{ title: "Event survey — Upskill" }] }),
-  component: EventSurveyUnavailablePage,
+  server: {
+    handlers: {
+      POST: async ({ request, params }) => {
+        const { eventRecoveryRequestSchema, eventRecoveryVerificationSchema } =
+          await import("#/features/event-recovery/event-recovery.schema");
+        const parsedReference =
+          eventSurveyPublicReferenceSchema.safeParse(params);
+        if (!parsedReference.success)
+          return new Response(null, { status: 404 });
+        const { publicReference } = parsedReference.data;
+        const { getServerEnv } = await import("#/server/env.server");
+        if (
+          request.headers.get("origin") !==
+          new URL(getServerEnv().APP_ORIGIN).origin
+        )
+          return new Response(null, { status: 403 });
+        const form = await request.formData();
+        if (form.has("login"))
+          return redirectResponse(
+            `/login?redirect=${encodeURIComponent(`/event-surveys/${publicReference}`)}`,
+          );
+        const intent = form.get("intent");
+        const recovery =
+          await import("#/server/events/event-prerequisite-recovery.server");
+        if (intent === "request") {
+          const input = eventRecoveryRequestSchema.safeParse({
+            publicReference,
+            identifier: form.get("identifier"),
+          });
+          if (!input.success)
+            return redirectResponse(routeLocation(publicReference, "invalid"));
+          const result = await recovery.requestEventRecoveryCode(input.data);
+          if (result.status !== "accepted")
+            return redirectResponse(
+              routeLocation(publicReference, result.status),
+            );
+          return redirectResponse(routeLocation(publicReference, "sent"), [
+            recovery.eventRecoveryChallengeCookie(result.challengeReference),
+          ]);
+        }
+        const challengeReference =
+          recovery.readEventRecoveryChallengeCookie(request);
+        const input = eventRecoveryVerificationSchema.safeParse({
+          publicReference,
+          challengeReference,
+          code: form.get("code"),
+        });
+        if (!input.success)
+          return redirectResponse(routeLocation(publicReference, "invalid"));
+        const result = await recovery.verifyEventRecoveryCode(input.data);
+        if (result.status !== "ready" || !result.taskSessionToken)
+          return redirectResponse(
+            routeLocation(publicReference, result.status),
+          );
+        return redirectResponse(
+          `/my-events/${encodeURIComponent(result.data.eventOccurrenceId)}/surveys/${encodeURIComponent(result.data.eventTemplateVersionItemId)}`,
+          [
+            recovery.eventTaskSessionCookie(result.taskSessionToken),
+            recovery.clearEventRecoveryChallengeCookie(),
+          ],
+        );
+      },
+    },
+  },
+  head: () => ({
+    meta: [
+      { title: "Event survey access — Upskill" },
+      { name: "robots", content: "noindex, nofollow, noarchive" },
+    ],
+  }),
+  component: EventSurveyRecoveryPage,
 });
 
-function EventSurveyUnavailablePage() {
+function EventSurveyRecoveryPage() {
+  const result = Route.useLoaderData();
+  const { recovery } = Route.useSearch();
+  if (result.status === "unavailable") return <h1>Survey unavailable</h1>;
+  const sent = recovery === "sent" || recovery === "invalid";
   return (
-    <Container size="sm" py="xl">
-      <Stack gap="lg">
-        <div>
-          <Text c="indigo.7" fw={700}>
-            Event survey
-          </Text>
-          <Title order={1}>This activity is not open yet</Title>
-        </div>
-        <Alert title="Survey unavailable">
-          Your registration was recognised, but this exact Survey is currently
-          locked by the Event schedule. Return to My events to see when the
-          Section opens.
-        </Alert>
-        <Button component={Link} to="/my-events">
-          Go to My events
-        </Button>
-      </Stack>
-    </Container>
+    <main>
+      <h1>{result.data.surveyTitle}</h1>
+      <form method="post">
+        <label>
+          {recovery === "invalid"
+            ? "Incorrect code"
+            : sent
+              ? "6-digit code"
+              : "Email or mobile"}
+          <input
+            name={sent ? "code" : "identifier"}
+            autoComplete={sent ? "one-time-code" : "username"}
+            required
+          />
+        </label>
+        <button name="intent" value={sent ? "verify" : "request"}>
+          {recovery === "rate-limited"
+            ? "Try later"
+            : recovery === "expired"
+              ? "Send new code"
+              : sent
+                ? "Verify"
+                : "Send code"}
+        </button>
+        <button name="login" formNoValidate>
+          Sign in with password
+        </button>
+      </form>
+    </main>
   );
 }

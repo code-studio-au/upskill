@@ -10,6 +10,32 @@ const viteEntry = path.join(
   "vite.js",
 );
 
+async function runMigrations() {
+  console.log("Applying pending database migrations...");
+  const migration = spawn(
+    process.execPath,
+    ["--import", "tsx", "src/server/db/migrate.ts"],
+    { env: process.env, stdio: "inherit" },
+  );
+  const result = await new Promise((resolve, reject) => {
+    migration.once("error", reject);
+    migration.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  if (result.code !== 0)
+    throw new Error(
+      `Database migration failed (${result.signal ?? String(result.code)})`,
+    );
+}
+
+try {
+  await runMigrations();
+} catch (error) {
+  console.error(
+    error instanceof Error ? error.message : "Database migration failed.",
+  );
+  process.exit(1);
+}
+
 let stripeSetup;
 try {
   stripeSetup = createStripeDevelopmentSetup();

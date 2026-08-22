@@ -23,7 +23,11 @@ export const Route = createFileRoute("/dashboard")({
   ssr: "data-only",
   loader: async () => {
     const onboarding = await getLearnerOnboarding();
-    if (onboarding.status === "ready") throw redirect({ to: "/onboarding" });
+    if (onboarding.status === "ready")
+      throw redirect({
+        to: "/onboarding",
+        search: { verification: undefined },
+      });
     const dashboard = await getLearnerDashboard();
     if (!dashboard)
       throw redirect({

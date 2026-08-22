@@ -30,6 +30,13 @@ const accountSetupPayloadSchema = z.object({
   setupUrl: z.url(),
 });
 
+const phoneVerificationTransferredPayloadSchema = z.object({
+  version: z.literal(1),
+  phoneLastFour: z.string().regex(/^\d{4}$/u),
+  profileUrl: z.url(),
+  supportEmail: z.email(),
+});
+
 const offeringEventPayloadSchema = z.object({
   version: z.literal(1),
   kind: z.literal("offering_event"),
@@ -263,6 +270,16 @@ export async function deliverNotification(
       variables = {
         "user.fullName": notification.recipientName,
         "account.setupUrl": payload.setupUrl,
+      };
+    } else if (notification.templateKey === "phone_verification_transferred") {
+      const payload = phoneVerificationTransferredPayloadSchema.parse(
+        notification.payload,
+      );
+      variables = {
+        "user.fullName": notification.recipientName,
+        "phone.lastFour": payload.phoneLastFour,
+        "account.profileUrl": payload.profileUrl,
+        "platform.supportEmail": payload.supportEmail,
       };
     } else if (notification.templateKey === "offering_event") {
       const payload = offeringEventPayloadSchema.parse(notification.payload);

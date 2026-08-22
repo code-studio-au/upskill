@@ -30,7 +30,7 @@ is complete.
 | 0021 | [Pre-production schema rebaselining](0021-pre-production-schema-rebaselining.md)                                           | Temporary pre-production policy                            |
 | 0022 | [Stable identity and historical attribution](0022-stable-identity-and-historical-attribution.md)                           | Accepted; target adoption is feature-specific              |
 | 0023 | [User onboarding and open-entry guest check-in](0023-onboarding-and-open-entry-guest-check-in.md)                          | Accepted; onboarding and initial guest access implemented  |
-| 0024 | [Event prerequisite recovery and passwordless access](0024-event-prerequisite-recovery-and-passwordless-access.md)         | Accepted target; implementation pending                    |
+| 0024 | [Event prerequisite recovery and passwordless access](0024-event-prerequisite-recovery-and-passwordless-access.md)         | Email/SMS OTP task access implemented; fallback pending    |
 | 0025 | [Event registration finalisation and staged section release](0025-event-registration-finalisation-and-section-release.md)  | Accepted and implemented                                   |
 | 0026 | [Regional Event review, selection and late invitations](0026-regional-event-registration-selection.md)                     | Accepted; regional review implemented, invitations pending |
 | 0027 | [Section-embedded automated email plans and occurrence overrides](0027-section-embedded-automated-emails.md)               | Section authoring implemented; delivery automation pending |

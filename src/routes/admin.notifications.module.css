@@ -25,13 +25,27 @@
   white-space: pre-wrap;
 }
 
-.muted {
-  color: var(--mantine-color-dimmed);
+.secondaryFilters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(9rem, 1fr));
+  gap: var(--mantine-spacing-sm);
+}
+
+.deliverySearch[data-secondary] {
+  grid-template-columns: minmax(14rem, 26rem) minmax(19rem, 1fr) auto;
 }
 
 @media (max-width: 52em) {
   .deliveryDetails {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .secondaryFilters {
+    grid-template-columns: 1fr;
+  }
+
+  .deliverySearch[data-secondary] {
+    grid-template-columns: 1fr;
   }
 }

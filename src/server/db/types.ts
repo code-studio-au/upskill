@@ -22,6 +22,8 @@ interface UserTable {
   name: string;
   email: string;
   emailVerified: boolean;
+  emailEnabled: Generated<boolean>;
+  emailVerifiedAt: OptionalTimestamp;
   image: string | null;
   stripeCustomerId: string | null;
   accountState: Generated<"provisional" | "active">;
@@ -32,6 +34,8 @@ interface UserTable {
   setupRequestedAt: OptionalTimestamp;
   activatedAt: OptionalTimestamp;
   phone: string | null;
+  smsEnabled: Generated<boolean>;
+  smsVerifiedAt: OptionalTimestamp;
   currentRegionId: string | null;
   profileData: Json;
   createdAt: Timestamp;
@@ -168,6 +172,7 @@ interface OnboardingDefinitionVersionTable {
   privacyNotice: string;
   privacyNoticeVersion: string;
   profileMappings: Json;
+  contactVerificationRequired: Generated<boolean>;
   publishedAt: Timestamp;
   activatedAt: Timestamp | null;
   deactivatedAt: Timestamp | null;
@@ -184,6 +189,7 @@ interface OnboardingAssignmentTable {
   startedAt: Timestamp | null;
   completedAt: Timestamp | null;
   supersededAt: Timestamp | null;
+  verificationSkippedAt: OptionalTimestamp;
 }
 
 interface OnboardingResponseTable {
@@ -805,6 +811,133 @@ interface EventSurveyAccessTable {
   revokedAt: Timestamp | null;
 }
 
+interface EventPrerequisiteRecoveryChallengeTable {
+  id: string;
+  reference: string;
+  eventSurveyAccessId: string;
+  eventParticipationId: string;
+  userId: string;
+  identifierDigest: string;
+  requestFingerprint: string;
+  codeDigest: string;
+  deliveryChannel: Generated<"email" | "sms">;
+  attempts: Generated<number>;
+  expiresAt: Timestamp;
+  consumedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface EventPrerequisiteTaskSessionTable {
+  id: string;
+  challengeId: string;
+  tokenDigest: string;
+  eventSurveyAccessId: string;
+  eventParticipationId: string;
+  userId: string;
+  expiresAt: Timestamp;
+  lastUsedAt: Timestamp;
+  completedAt: Timestamp | null;
+  revokedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface EventPrerequisiteEmailCaptureTable {
+  challengeId: string;
+  recipientEmail: string;
+  subject: string;
+  textBody: string;
+  htmlBody: string;
+  createdAt: Timestamp;
+}
+
+interface EventPrerequisiteSmsCaptureTable {
+  challengeId: string;
+  recipientPhone: string;
+  message: string;
+  createdAt: Timestamp;
+}
+
+interface OnboardingContactVerificationChallengeTable {
+  id: string;
+  reference: string;
+  assignmentId: string;
+  userId: string;
+  channel: "email" | "sms";
+  destinationDigest: string;
+  codeDigest: string;
+  attempts: Generated<number>;
+  expiresAt: Timestamp;
+  consumedAt: OptionalTimestamp;
+  createdAt: Timestamp;
+}
+
+interface OnboardingEmailVerificationCaptureTable {
+  challengeId: string;
+  recipientEmail: string;
+  subject: string;
+  textBody: string;
+  htmlBody: string;
+  createdAt: Timestamp;
+}
+
+interface OnboardingSmsVerificationCaptureTable {
+  challengeId: string;
+  recipientPhone: string;
+  message: string;
+  createdAt: Timestamp;
+}
+
+interface SmsDeliveryTable {
+  id: string;
+  purpose: "event_prerequisite_recovery" | "onboarding_contact_verification";
+  recipientPhone: string;
+  recipientUserId: Generated<string | null>;
+  recipientNameSnapshot: Generated<string | null>;
+  provider: "local_capture" | "textbee";
+  providerBatchId: string | null;
+  status: Generated<
+    "pending" | "accepted" | "sent" | "delivered" | "failed" | "unknown"
+  >;
+  lastErrorCode: string | null;
+  acceptedAt: OptionalTimestamp;
+  sentAt: OptionalTimestamp;
+  deliveredAt: OptionalTimestamp;
+  failedAt: OptionalTimestamp;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface PhoneVerificationClaimTable {
+  id: string;
+  phone: string;
+  userId: string;
+  verificationChallengeId: string | null;
+  claimedAt: Timestamp;
+  releasedAt: OptionalTimestamp;
+  releaseReason:
+    | "transferred"
+    | "reverified"
+    | "phone_changed"
+    | "migration_duplicate"
+    | null;
+  createdAt: Timestamp;
+}
+
+interface SmsDeliveryWebhookEventTable {
+  id: string;
+  providerEventId: string | null;
+  eventType:
+    | "MESSAGE_SENT"
+    | "MESSAGE_DELIVERED"
+    | "MESSAGE_FAILED"
+    | "UNKNOWN_STATE"
+    | "SMS_STATUS_UPDATED";
+  providerBatchId: string | null;
+  matchedDeliveryId: string | null;
+  payloadDigest: string;
+  receivedAt: Timestamp;
+}
+
 interface OrderTable {
   id: string;
   purchaserUserId: string | null;
@@ -938,7 +1071,11 @@ interface OutboxEventTable {
 interface NotificationTable {
   id: string;
   channel: "email";
-  templateKey: "account_setup_requested" | "offering_course" | "offering_event";
+  templateKey:
+    | "account_setup_requested"
+    | "phone_verification_transferred"
+    | "offering_course"
+    | "offering_event";
   recipientUserId: string;
   recipientName: string;
   recipientEmail: string;
@@ -1007,7 +1144,12 @@ interface EmailDesignTable {
   id: string;
   catalogue: "offering" | "system";
   name: string;
-  contextKey: "system_account_setup" | "offering_course" | "offering_event";
+  contextKey:
+    | "system_account_setup"
+    | "system_phone_verification"
+    | "offering_course"
+    | "offering_event";
+  position: number;
   systemKey: string | null;
   activeVersionId: string | null;
   createdByUserId: string | null;
@@ -1135,6 +1277,7 @@ export type AuditEventAction =
   | "email_design.draft_created"
   | "email_design.draft_deleted"
   | "email_design.published"
+  | "email_design.reordered"
   | "email_design.rolled_back"
   | "event_occurrence.created"
   | "event_occurrence.guest_access_rotated"
@@ -1149,6 +1292,7 @@ export type AuditEventAction =
   | "coordination_region.retired"
   | "coordination_region.reactivated"
   | "event_attendance.recorded"
+  | "event_prerequisite.recovery_verified"
   | "event_region_review.locked"
   | "event_registration.administrator_added"
   | "event_registration.coordinator_reviewed"
@@ -1189,6 +1333,7 @@ export type AuditEventAction =
   | "user.account_activated"
   | "user.account_setup_resent"
   | "user.onboarding_reassigned"
+  | "user.phone_verification_transferred"
   | "user.region_updated";
 
 interface AuditEventTable {
@@ -1236,6 +1381,10 @@ export interface Database {
   event_occurrence_reschedule_region: EventOccurrenceRescheduleRegionTable;
   event_occurrence_reschedule_region_coordinator: EventOccurrenceRescheduleRegionCoordinatorTable;
   event_participation: EventParticipationTable;
+  event_prerequisite_email_capture: EventPrerequisiteEmailCaptureTable;
+  event_prerequisite_sms_capture: EventPrerequisiteSmsCaptureTable;
+  event_prerequisite_recovery_challenge: EventPrerequisiteRecoveryChallengeTable;
+  event_prerequisite_task_session: EventPrerequisiteTaskSessionTable;
   event_presenter_assignment: EventPresenterAssignmentTable;
   event_staff_eligibility: EventStaffEligibilityTable;
   event_region_review_round: EventRegionReviewRoundTable;
@@ -1263,12 +1412,16 @@ export interface Database {
   notification: NotificationTable;
   notification_delivery_attempt: NotificationDeliveryAttemptTable;
   onboarding_assignment: OnboardingAssignmentTable;
+  onboarding_contact_verification_challenge: OnboardingContactVerificationChallengeTable;
   onboarding_definition: OnboardingDefinitionTable;
   onboarding_definition_version: OnboardingDefinitionVersionTable;
+  onboarding_email_verification_capture: OnboardingEmailVerificationCaptureTable;
   onboarding_response: OnboardingResponseTable;
+  onboarding_sms_verification_capture: OnboardingSmsVerificationCaptureTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   platform_admin: PlatformAdminTable;
+  phone_verification_claim: PhoneVerificationClaimTable;
   bulk_order: BulkOrderTable;
   order: OrderTable;
   order_item: OrderItemTable;
@@ -1280,6 +1433,8 @@ export interface Database {
   scorm_attempt_session: ScormAttemptSessionTable;
   scorm_launch_token: ScormLaunchTokenTable;
   scorm_package_version: ScormPackageVersionTable;
+  sms_delivery: SmsDeliveryTable;
+  sms_delivery_webhook_event: SmsDeliveryWebhookEventTable;
   survey_progress: SurveyProgressTable;
   survey_response: SurveyResponseTable;
   survey_version: SurveyVersionTable;

@@ -127,6 +127,8 @@ const developmentLauncher = fs.readFileSync(
 for (const requiredProcess of [
   "vite",
   "src/worker/scorm-worker.ts",
+  "src/server/db/migrate.ts",
+  "await runMigrations()",
   "createStripeDevelopmentSetup",
   "--strictPort",
 ]) {
@@ -135,6 +137,13 @@ for (const requiredProcess of [
       `Local development launcher must include: ${requiredProcess}`,
     );
 }
+if (
+  developmentLauncher.indexOf("await runMigrations()") >
+  developmentLauncher.indexOf("const definitions")
+)
+  failures.push(
+    "Local development must migrate before starting supervised services",
+  );
 const stripeDevelopment = fs.readFileSync(
   path.join(root, "scripts/stripe-development.mjs"),
   "utf8",
@@ -236,6 +245,31 @@ for (const requiredAccessCodeBoundary of [
       `The deployed access-code encryption boundary is missing: ${requiredAccessCodeBoundary}`,
     );
 }
+for (const relative of [
+  ".env.example",
+  "deploy/cdk/lib/application-stack.ts",
+  "src/server/env.server.ts",
+]) {
+  if (
+    !fs
+      .readFileSync(path.join(root, relative), "utf8")
+      .includes("TEXTBEE_WEBHOOK_SECRET")
+  )
+    failures.push(
+      `TextBee webhook signing configuration is missing: ${relative}`,
+    );
+}
+const textBeeWebhook = fs.readFileSync(
+  path.join(root, "src/server/notifications/textbee-webhook.server.ts"),
+  "utf8",
+);
+for (const boundary of [
+  'createHmac("sha256", secret).update(payload)',
+  "timingSafeEqual",
+  'insertInto("sms_delivery_webhook_event")',
+])
+  if (!textBeeWebhook.includes(boundary))
+    failures.push(`TextBee webhook security boundary is missing: ${boundary}`);
 for (const relative of [
   ".env.example",
   ".github/workflows/ci.yml",

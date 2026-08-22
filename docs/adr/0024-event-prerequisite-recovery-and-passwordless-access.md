@@ -2,7 +2,23 @@
 
 ## Status
 
-Accepted target; implementation pending.
+Accepted; email and verified-mobile SMS OTP event-task access implemented, with
+facilitated fallback pending.
+
+The implemented first slice resolves the persisted opaque Survey QR to its exact
+occurrence, Event item and Survey Version. Eligible participants can use their
+password or request an enumeration-safe six-digit code by email or to the
+mobile retained on their profile. A successful SMS challenge proves control of
+that mobile for the task session. Codes are short-lived, one-use digests with
+bounded requests and attempts. Successful
+verification creates a 30-minute, 10-minute-idle task session that is accepted
+only by the exact Event Survey read/write boundary and is invalidated after
+submission. Security codes bypass the durable notification queue; production
+SMS uses the provider-neutral direct security-message boundary with TextBee,
+while local SMS is captured in PostgreSQL. Successful verification is durably
+audited, and shared-device completion returns to a neutral route.
+Presenter-configured recovery windows and the facilitated registered-email
+capability remain follow-up work.
 
 ## Context
 
@@ -119,6 +135,15 @@ responses resist account enumeration; codes and phone numbers never enter URLs,
 logs, audit metadata or queue payloads. Provider delivery is operational
 telemetry, while successful authentication and assisted attribution follow the
 existing identity/audit boundaries.
+
+Outbound SMS has a separate operational delivery record containing purpose,
+destination, provider batch identifier and accepted/sent/delivered/failed
+timestamps, but never the OTP body. TextBee callbacks are accepted only through
+the public HTTPS webhook after raw-body HMAC verification. Callback receipts are
+digest-deduplicated, retain no raw payload, and update delivery state
+monotonically so a late sent/failed event cannot overwrite carrier-confirmed
+delivery. Authenticated unmatched receipts are retained for operations review
+without guessing a match from a phone number.
 
 ## Consequences
 

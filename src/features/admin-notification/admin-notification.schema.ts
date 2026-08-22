@@ -3,16 +3,20 @@ import { z } from "#/validation/zod";
 const notificationStatuses = [
   "pending",
   "processing",
+  "accepted",
+  "sent",
   "delivered",
   "failed",
   "superseded",
+  "unknown",
 ] as const;
 
-type NotificationStatus = (typeof notificationStatuses)[number];
+export type NotificationStatus = (typeof notificationStatuses)[number];
 
 export const adminNotificationSearchSchema = z.object({
   q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
   status: z.catch(z.enum(["all", ...notificationStatuses]), "all"),
+  channel: z.catch(z.enum(["all", "email", "sms"]), "all"),
   page: z.catch(
     z.coerce.number().check(z.int(), z.minimum(1), z.maximum(10_000)),
     1,
@@ -34,36 +38,24 @@ export type AdminNotificationSearch = z.infer<
   typeof adminNotificationSearchSchema
 >;
 
-interface AdminNotificationAttempt {
-  id: string;
-  attempt: number;
-  provider: string;
-  status: "delivered" | "failed";
-  providerMessageId: string | null;
-  errorCode: string | null;
-  createdAt: string;
-}
-
 interface AdminNotificationRow {
   id: string;
-  templateKey: "account_setup_requested" | "offering_course" | "offering_event";
+  channel: "email" | "sms";
+  channelLabel: "Email" | "SMS";
   recipientName: string;
-  recipientEmail: string;
+  recipientAddress: string;
   status: NotificationStatus;
   attempts: number;
-  lastErrorCode: string | null;
-  renderedSubject: string | null;
   createdAt: string;
   updatedAt: string;
-  deliveredAt: string | null;
-  supersededAt: string | null;
-  scheduledFor: string | null;
   statusLabel: string;
-  deliveryAttempts: Array<AdminNotificationAttempt>;
+  canRequeue: boolean;
   detailSummary: string;
 }
 
 export interface AdminNotificationOperations {
+  statusOptions: Array<{ value: string; label: string }>;
+  channelOptions: Array<{ value: string; label: string }>;
   healthSummary: string;
   oldestSummary: string;
   health: {
@@ -78,11 +70,14 @@ export interface AdminNotificationOperations {
     oldestPendingNotificationAt: string | null;
     oldestOverdueScheduleAt: string | null;
     oldestDueOutboxAt: string | null;
+    smsAwaitingCarrier: number;
+    failedSms: number;
   };
   notifications: Array<AdminNotificationRow>;
   pagination: { page: number; pages: number; total: number; pageSize: number };
   query: string;
   status: "all" | NotificationStatus;
+  channel: "all" | "email" | "sms";
 }
 
 export type AdminNotificationResult<T> =

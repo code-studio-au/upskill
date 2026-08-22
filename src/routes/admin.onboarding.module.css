@@ -1,0 +1,90 @@
+.page,
+.page form,
+.page section {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.page > header,
+.page > header > div {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-sm);
+}
+
+.page > header {
+  align-items: flex-end;
+}
+
+.page > header > div {
+  align-items: center;
+}
+
+.page h1,
+.page h2 {
+  margin: 0;
+}
+
+.page h1::before {
+  display: block;
+  color: var(--mantine-color-indigo-7);
+  content: "Workspace";
+  font-family: var(--mantine-font-family);
+  font-size: var(--mantine-font-size-md);
+  font-weight: 700;
+  line-height: var(--mantine-line-height);
+}
+
+.page > section {
+  padding: var(--mantine-spacing-lg);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-body);
+}
+
+.page form > label {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+  cursor: pointer;
+}
+
+.page form > label span {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.page form > label small {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+  line-height: var(--mantine-line-height);
+}
+
+.page input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--mantine-primary-color-filled);
+  cursor: inherit;
+}
+
+.page form > button {
+  justify-self: end;
+}
+
+@media (max-width: 36em) {
+  .page > section {
+    padding: var(--mantine-spacing-md);
+  }
+
+  .page form > button {
+    width: 100%;
+  }
+}

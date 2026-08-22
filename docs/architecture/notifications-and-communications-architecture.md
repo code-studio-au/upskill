@@ -58,6 +58,11 @@ architecture.
   their failed state; cumulative attempts are retained and the operation writes
   durable audit evidence. Production infrastructure alarms on sustained SQS
   age/backlog and any dead-lettered work item.
+  Security SMS delivery stores an immutable recipient User and name snapshot,
+  provider acceptance and signed TextBee delivery updates. Moving a verified
+  mobile number to another account therefore does not relabel historical rows.
+  The displaced-account notification is a durable, governed System Email queued
+  in the same transaction as the ownership transfer.
 - **Target Product:** committed domain-event subscriptions create idempotent
   notification records, resolve bounded recipients/templates and deliver
   transactional email with observable retry/failure behaviour. A governed Email
@@ -280,6 +285,11 @@ unrelated data.
 The Email Designer owns two catalogues. Offering Emails are reusable content
 selected by Event/Course authors. System Emails have stable code-owned keys and
 behavior contracts but administrator-managed versioned content.
+
+Each catalogue has a persisted, administrator-controlled sequence. New designs
+append to the end of their catalogue, and moving a design up or down swaps it
+with the adjacent design in that same catalogue. Reordering is audited and does
+not alter published design versions or queued delivery intents.
 
 A Platform Administrator needs a dedicated communication-management capability
 to view fixture/context previews, edit drafts, publish a compatible new immutable

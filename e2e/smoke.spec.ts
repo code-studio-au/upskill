@@ -728,7 +728,7 @@ test("learners run SCORM inside the course workspace", async ({
   try {
     await cleanupLearnerScormPlayerFixture(database, ids);
     const learner = await database.query<{ id: string }>(
-      `select id from "user" where email = 'admin@example.com'`,
+      `select id from "user" where email = 'admin@codestudio.au'`,
     );
     const learnerId = learner.rows[0]?.id;
     expect(learnerId).toBeTruthy();
@@ -831,7 +831,7 @@ test("learners run SCORM inside the course workspace", async ({
       },
     );
     await page.goto("/login");
-    await page.getByLabel("Email address").fill("admin@example.com");
+    await page.getByLabel("Email address").fill("admin@codestudio.au");
     await page
       .locator('input[name="password"]')
       .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
@@ -978,18 +978,18 @@ test("learner dashboard requires a server-validated session", async ({
 
 test("learners can end their authenticated session", async ({ page }) => {
   await page.goto("/login");
-  await page.getByLabel("Email address").fill("admin@example.com");
+  await page.getByLabel("Email address").fill("admin@codestudio.au");
   await page
     .locator('input[name="password"]')
     .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 
-  const mobileNavigation = page.locator(
-    'header summary[aria-label="Navigation menu"]',
-  );
-  if (await mobileNavigation.isVisible()) await mobileNavigation.click();
-  else await page.locator('header summary[aria-label$="account menu"]').click();
+  await page
+    .locator(
+      'header summary[aria-label="Navigation menu"]:visible, header summary[aria-label$="account menu"]:visible',
+    )
+    .click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/$/);
   await page.goto("/dashboard");
@@ -1076,7 +1076,7 @@ test("platform administrators can inspect learner progress", async ({
   );
 
   await page.goto("/login?redirect=%2Fadmin");
-  await page.getByLabel("Email address").fill("admin@example.com");
+  await page.getByLabel("Email address").fill("admin@codestudio.au");
   await page
     .locator('input[name="password"]')
     .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
@@ -1206,7 +1206,7 @@ test("platform administrators can inspect learner progress", async ({
       page.getByRole("button", { name: "Add learner" }),
     ).toBeVisible();
     const learnerRow = page.getByRole("row", {
-      name: /learner@example\.com/u,
+      name: /learner@codestudio\.au/u,
     });
     await expect(
       learnerRow.getByRole("cell", { name: "Version 1", exact: true }),
@@ -1353,7 +1353,9 @@ test("platform administrators can inspect learner progress", async ({
     await page
       .getByLabel("Permitted email domains (optional)")
       .fill("E2E.EXAMPLE.COM, e2e.example.com");
-    await page.getByLabel("Access Owner emails").fill("redeemer2@example.com");
+    await page
+      .getByLabel("Access Owner emails")
+      .fill("redeemer2@codestudio.au");
     await page.getByRole("button", { name: "Create access grant" }).click();
     await expect(
       page.getByText(
@@ -1634,7 +1636,9 @@ test("platform administrators can inspect learner progress", async ({
       id: string;
       name: string;
       email: string;
-    }>(`select id, name, email from "user" where email = 'admin@example.com'`);
+    }>(
+      `select id, name, email from "user" where email = 'admin@codestudio.au'`,
+    );
     const administratorUser = administrator.rows[0];
     if (!administratorUser)
       throw new Error("Expected the seeded administrator");
@@ -1853,7 +1857,7 @@ test("platform administrators can inspect learner progress", async ({
     expect(await qrImage.text()).toContain("<svg");
     await page.goto(`/event-surveys/${surveyQr.publicReference}`);
     await expect(
-      page.getByRole("heading", { name: "This activity is not open yet" }),
+      page.getByRole("heading", { name: "Survey unavailable" }),
     ).toBeVisible();
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
@@ -1884,12 +1888,12 @@ test("platform administrators can inspect learner progress", async ({
   await page.evaluate(() => {
     document.documentElement.dataset.clientNavigation = "preserved";
   });
-  await page.getByLabel("Search learners").fill("learner@example.com");
+  await page.getByLabel("Search learners").fill("learner@codestudio.au");
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("Alex Learner")).toBeVisible();
   await expect(
     page.getByRole("button", {
-      name: "Clear search filter: learner@example.com",
+      name: "Clear search filter: learner@codestudio.au",
     }),
   ).toBeVisible();
   await expect
@@ -2050,7 +2054,9 @@ test("verified learners see entitlements and can redeem access", async ({
   await page.goto("/login");
   await page
     .getByLabel("Email address")
-    .fill(exercisesRedemption ? "redeemer@example.com" : "learner@example.com");
+    .fill(
+      exercisesRedemption ? "redeemer@codestudio.au" : "learner@codestudio.au",
+    );
   await page
     .locator('input[name="password"]')
     .fill(process.env.SEED_LEARNER_PASSWORD ?? "ci-only-learner-password");
@@ -2075,7 +2081,7 @@ test("verified learners see entitlements and can redeem access", async ({
       }),
     ).toBeVisible();
     await expect(page.getByText("Psychological safety at work")).toBeVisible();
-    await expect(page.getByText("Eligible for example.com")).toBeVisible();
+    await expect(page.getByText("Eligible for codestudio.au")).toBeVisible();
   }
 
   const code = page.getByRole("textbox", { name: "Access code *" });

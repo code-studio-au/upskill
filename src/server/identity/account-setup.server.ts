@@ -73,6 +73,7 @@ export async function activateAccountAfterPasswordReset(
         .set({
           accountState: "active",
           emailVerified: true,
+          emailVerifiedAt: now,
           activatedAt: now,
           updatedAt: now,
         })
