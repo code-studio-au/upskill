@@ -172,15 +172,15 @@ export const getLearnerEventSurvey = createServerFn({ method: "GET" })
   .handler(async ({ data }) => {
     const { getRequestUser } = await import("#/server/auth/session.server");
     const authenticatedUser = await getRequestUser();
-    const { findEventTaskActor } =
+    const { resolveEventSurveyActor } =
       await import("#/server/events/event-prerequisite-recovery.server");
-    const task = authenticatedUser
-      ? null
-      : await findEventTaskActor({
-          eventOccurrenceId: data.eventOccurrenceId,
-          eventTemplateVersionItemId: data.eventTemplateVersionItemId,
-        });
-    const user = authenticatedUser ?? task?.user;
+    const { task, user } = await resolveEventSurveyActor(
+      {
+        eventOccurrenceId: data.eventOccurrenceId,
+        eventTemplateVersionItemId: data.eventTemplateVersionItemId,
+      },
+      authenticatedUser,
+    );
     if (!user) return { status: "unauthenticated" } as const;
     const { findLearnerEventSurvey } =
       await import("#/server/learning/learner-event-survey.server");
@@ -209,15 +209,15 @@ export const advanceLearnerEventSurveyStep = createServerFn({ method: "POST" })
     const {
       clearEventTaskSessionCookie,
       completeEventTaskSession,
-      findEventTaskActor,
+      resolveEventSurveyActor,
     } = await import("#/server/events/event-prerequisite-recovery.server");
-    const task = authenticatedUser
-      ? null
-      : await findEventTaskActor({
-          eventTemplateVersionItemId: data.eventTemplateVersionItemId,
-          eventParticipationId: data.eventParticipationId,
-        });
-    const user = authenticatedUser ?? task?.user;
+    const { task, user } = await resolveEventSurveyActor(
+      {
+        eventTemplateVersionItemId: data.eventTemplateVersionItemId,
+        eventParticipationId: data.eventParticipationId,
+      },
+      authenticatedUser,
+    );
     if (!user) return { status: "unauthenticated" } as const;
     const { advanceLearnerEventSurvey } =
       await import("#/server/learning/learner-event-survey.server");

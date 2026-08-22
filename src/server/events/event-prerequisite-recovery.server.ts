@@ -334,6 +334,17 @@ export async function findEventTaskActor(input: {
   };
 }
 
+export async function resolveEventSurveyActor(
+  input: Parameters<typeof findEventTaskActor>[0],
+  authenticatedUser: AuthenticatedUser | null,
+): Promise<{
+  task: EventTaskActor | null;
+  user: AuthenticatedUser | null;
+}> {
+  const task = await findEventTaskActor(input);
+  return { task, user: task?.user ?? authenticatedUser };
+}
+
 export async function resolveEventRecoveryLanding(
   publicReference: string,
   user: AuthenticatedUser | null,
@@ -344,6 +355,15 @@ export async function resolveEventRecoveryLanding(
   );
   if (!destination) return { status: "not-found" };
   if (!destinationAvailable(destination)) return { status: "unavailable" };
+  const task = await findEventTaskActor({ publicReference });
+  if (task)
+    return {
+      status: "ready",
+      data: {
+        eventOccurrenceId: task.eventOccurrenceId,
+        eventTemplateVersionItemId: task.eventTemplateVersionItemId,
+      },
+    };
   if (user) {
     const survey = await resolveLearnerEventSurveyReference(
       publicReference,
@@ -359,15 +379,6 @@ export async function resolveEventRecoveryLanding(
       };
     if (survey.status === "unavailable") return { status: "unavailable" };
   }
-  const task = await findEventTaskActor({ publicReference });
-  if (task)
-    return {
-      status: "ready",
-      data: {
-        eventOccurrenceId: task.eventOccurrenceId,
-        eventTemplateVersionItemId: task.eventTemplateVersionItemId,
-      },
-    };
   return {
     status: "recovery-required",
     data: {

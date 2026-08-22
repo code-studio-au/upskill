@@ -476,6 +476,81 @@ describe("event prerequisite recovery boundary", () => {
     ).resolves.toEqual({ status: "unavailable" });
   });
 
+  it("prefers an exact task session to an unrelated authenticated user", async () => {
+    const token = "t".repeat(43);
+    mocks.headers = new Headers({ cookie: `upskill_event_task=${token}` });
+    mocks.selectResults.set("event_prerequisite_task_session as task", [
+      {
+        taskSessionId: "task_1",
+        eventSurveyAccessId: "survey_access_1",
+        eventParticipationId: "participation_1",
+        userId: "task_user",
+        eventOccurrenceId: "occurrence_1",
+        eventTemplateVersionItemId: "item_1",
+        publicReference: "P234567890_bcdefghijklmnopqrstuv",
+        name: "Task learner",
+        email: "task@codestudio.au",
+        emailVerified: true,
+      },
+    ]);
+    const { resolveEventSurveyActor } =
+      await import("./event-prerequisite-recovery.server");
+    await expect(
+      resolveEventSurveyActor(
+        {
+          eventOccurrenceId: "occurrence_1",
+          eventTemplateVersionItemId: "item_1",
+        },
+        {
+          id: "authenticated_user",
+          name: "Signed-in learner",
+          email: "signed-in@codestudio.au",
+          emailVerified: true,
+        },
+      ),
+    ).resolves.toMatchObject({
+      task: { taskSessionId: "task_1" },
+      user: { id: "task_user" },
+    });
+  });
+
+  it("uses an exact task session before resolving an authenticated landing", async () => {
+    const token = "t".repeat(43);
+    mocks.headers = new Headers({ cookie: `upskill_event_task=${token}` });
+    mocks.selectResults.set("event_survey_access as access", [destination]);
+    mocks.selectResults.set("event_prerequisite_task_session as task", [
+      {
+        taskSessionId: "task_1",
+        eventSurveyAccessId: "survey_access_1",
+        eventParticipationId: "participation_1",
+        userId: "task_user",
+        eventOccurrenceId: "occurrence_1",
+        eventTemplateVersionItemId: "item_1",
+        publicReference: "P234567890_bcdefghijklmnopqrstuv",
+        name: "Task learner",
+        email: "task@codestudio.au",
+        emailVerified: true,
+      },
+    ]);
+    const { resolveEventRecoveryLanding } =
+      await import("./event-prerequisite-recovery.server");
+    await expect(
+      resolveEventRecoveryLanding("P234567890_bcdefghijklmnopqrstuv", {
+        id: "authenticated_user",
+        name: "Signed-in learner",
+        email: "signed-in@codestudio.au",
+        emailVerified: true,
+      }),
+    ).resolves.toEqual({
+      status: "ready",
+      data: {
+        eventOccurrenceId: "occurrence_1",
+        eventTemplateVersionItemId: "item_1",
+      },
+    });
+    expect(mocks.resolveSurvey).not.toHaveBeenCalled();
+  });
+
   it("resolves and completes only the exact active task cookie", async () => {
     const token = "t".repeat(43);
     mocks.headers = new Headers({ cookie: `upskill_event_task=${token}` });

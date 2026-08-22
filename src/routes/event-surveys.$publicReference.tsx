@@ -50,6 +50,10 @@ export const Route = createFileRoute("/event-surveys/$publicReference")({
         )
           return new Response(null, { status: 403 });
         const form = await request.formData();
+        if (form.has("login"))
+          return redirectResponse(
+            `/login?redirect=${encodeURIComponent(`/event-surveys/${publicReference}`)}`,
+          );
         const intent = form.get("intent");
         const recovery =
           await import("#/server/events/event-prerequisite-recovery.server");
@@ -108,14 +112,9 @@ function EventSurveyRecoveryPage() {
   if (result.status === "unavailable") return <h1>Survey unavailable</h1>;
   const sent = recovery === "sent" || recovery === "invalid";
   return (
-    <main id="recovery">
+    <main>
       <h1>{result.data.surveyTitle}</h1>
       <form method="post">
-        <input
-          type="hidden"
-          name="intent"
-          value={sent ? "verify" : "request"}
-        />
         <label>
           {recovery === "invalid"
             ? "Incorrect code"
@@ -124,12 +123,11 @@ function EventSurveyRecoveryPage() {
               : "Email or mobile"}
           <input
             name={sent ? "code" : "identifier"}
-            type="text"
             autoComplete={sent ? "one-time-code" : "username"}
             required
           />
         </label>
-        <button type="submit">
+        <button name="intent" value={sent ? "verify" : "request"}>
           {recovery === "rate-limited"
             ? "Try later"
             : recovery === "expired"
@@ -137,6 +135,9 @@ function EventSurveyRecoveryPage() {
               : sent
                 ? "Verify"
                 : "Send code"}
+        </button>
+        <button name="login" formNoValidate>
+          Sign in with password
         </button>
       </form>
     </main>

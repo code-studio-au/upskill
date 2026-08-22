@@ -1206,7 +1206,7 @@ test("platform administrators can inspect learner progress", async ({
       page.getByRole("button", { name: "Add learner" }),
     ).toBeVisible();
     const learnerRow = page.getByRole("row", {
-      name: /learner@example\.com/u,
+      name: /learner@codestudio\.au/u,
     });
     await expect(
       learnerRow.getByRole("cell", { name: "Version 1", exact: true }),
@@ -1857,7 +1857,7 @@ test("platform administrators can inspect learner progress", async ({
     expect(await qrImage.text()).toContain("<svg");
     await page.goto(`/event-surveys/${surveyQr.publicReference}`);
     await expect(
-      page.getByRole("heading", { name: "This activity is not open yet" }),
+      page.getByRole("heading", { name: "Survey unavailable" }),
     ).toBeVisible();
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
