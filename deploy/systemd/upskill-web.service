@@ -8,17 +8,24 @@ Type=simple
 User=ec2-user
 Group=ec2-user
 WorkingDirectory=/opt/upskill/current
-EnvironmentFile=/opt/upskill/shared/upskill.env
+EnvironmentFile=/opt/upskill/shared/upskill-web.env
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=upskill-web
-ExecStart=/usr/bin/node scripts/start-server.mjs
+ExecStart=/usr/local/bin/node scripts/start-server.mjs
 Restart=always
 RestartSec=5
+TimeoutStopSec=30
+KillSignal=SIGTERM
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ReadWritePaths=/opt/upskill/shared
+ProtectHome=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
 
 [Install]
 WantedBy=multi-user.target

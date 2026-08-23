@@ -35,10 +35,10 @@ for (const cohort of policy.sameVersion) {
       `Cohort drift: ${cohort.map((name, index) => `${name}@${versions[index]}`).join(", ")}`,
     );
 }
-if (workspace.includes("minimumReleaseAge"))
-  failures.push(
-    "Dependency release-age delay must remain disabled by ADR 0006",
-  );
+if (!/^minimumReleaseAge:\s*10080$/mu.test(workspace))
+  failures.push("Dependency release-age delay must remain exactly seven days");
+if (workspace.includes("minimumReleaseAgeExclude"))
+  failures.push("Dependency release-age exceptions are prohibited");
 if (root.packageManager !== "pnpm@11.0.8")
   failures.push("pnpm packageManager pin drifted");
 if (root.devDependencies["@typescript/native"] !== "npm:typescript@7.0.2")

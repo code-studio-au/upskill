@@ -13,6 +13,8 @@ const envSchema = z.object({
   LEARNING_ORIGIN: z.url().default("http://localhost:3001"),
   SUPPORT_EMAIL: z.email().default("support@upskill.example"),
   DATABASE_URL: z.string().min(1),
+  WORKER_DATABASE_URL: z.string().min(1).optional(),
+  MIGRATION_DATABASE_URL: z.string().min(1).optional(),
   BETTER_AUTH_SECRET: z.string().min(32),
   ACCESS_CODE_ENCRYPTION_KEY: z
     .string()
@@ -69,6 +71,21 @@ export type ServerEnv = z.infer<typeof envSchema>;
 
 let parsed: ServerEnv | undefined;
 
+function requireCanonicalHttpsOrigin(label: string, value: string): URL {
+  const url = new URL(value);
+  if (url.protocol !== "https:")
+    throw new Error(`${label} must use HTTPS outside local environments`);
+  if (
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  )
+    throw new Error(`${label} must be a canonical HTTPS origin`);
+  return url;
+}
+
 export function getServerEnv(): ServerEnv {
   if (parsed) return parsed;
   const validated = envSchema.parse(process.env);
@@ -89,6 +106,16 @@ export function getServerEnv(): ServerEnv {
       );
   }
   if (validated.APP_ENV === "staging" || validated.APP_ENV === "production") {
+    const applicationOrigin = requireCanonicalHttpsOrigin(
+      "APP_ORIGIN",
+      validated.APP_ORIGIN,
+    );
+    const learningOrigin = requireCanonicalHttpsOrigin(
+      "LEARNING_ORIGIN",
+      validated.LEARNING_ORIGIN,
+    );
+    if (applicationOrigin.origin === learningOrigin.origin)
+      throw new Error("APP_ORIGIN and LEARNING_ORIGIN must be distinct");
     if (
       !process.env.ACCESS_CODE_ENCRYPTION_KEY ||
       validated.ACCESS_CODE_ENCRYPTION_KEY === LOCAL_ACCESS_CODE_ENCRYPTION_KEY
@@ -110,6 +137,18 @@ export function getServerEnv(): ServerEnv {
       throw new Error(
         "TextBee delivery is required outside local environments",
       );
+    for (const [key, value] of [
+      ["SUPPORT_EMAIL", validated.SUPPORT_EMAIL],
+      ["STRIPE_SECRET_KEY", validated.STRIPE_SECRET_KEY],
+      ["STRIPE_WEBHOOK_SECRET", validated.STRIPE_WEBHOOK_SECRET],
+      ["MAILGUN_API_KEY", validated.MAILGUN_API_KEY],
+      ["MAILGUN_DOMAIN", validated.MAILGUN_DOMAIN],
+      ["MAILGUN_FROM", validated.MAILGUN_FROM],
+      ["TEXTBEE_API_KEY", validated.TEXTBEE_API_KEY],
+      ["TEXTBEE_WEBHOOK_SECRET", validated.TEXTBEE_WEBHOOK_SECRET],
+    ] as const)
+      if (!value || /replace|\.invalid|\.example(?:$|>)/iu.test(value))
+        throw new Error(`${key} must be configured outside local environments`);
     parsed = validated;
   } else {
     parsed = {

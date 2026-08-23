@@ -290,7 +290,9 @@ const workerService = fs.readFileSync(
   "utf8",
 );
 if (
-  !workerService.includes("ExecStart=/usr/bin/node dist/worker/scorm-worker.js")
+  !workerService.includes(
+    "ExecStart=/usr/local/bin/node dist/worker/scorm-worker.js",
+  )
 )
   failures.push("The worker service must execute the bundled release artifact");
 const webService = fs.readFileSync(
@@ -308,6 +310,18 @@ for (const [name, service] of [
   )
     failures.push(`${name} service must route structured output to journald`);
 }
+if (
+  !webService.includes("EnvironmentFile=/opt/upskill/shared/upskill-web.env") ||
+  !workerService.includes(
+    "EnvironmentFile=/opt/upskill/shared/upskill-worker.env",
+  )
+)
+  failures.push("Runtime services must use separate database environments");
+if (
+  webService.includes("upskill-deploy.env") ||
+  workerService.includes("upskill-deploy.env")
+)
+  failures.push("Runtime services must not receive migration credentials");
 const installRelease = fs.readFileSync(
   path.join(root, "deploy/scripts/install-release.sh"),
   "utf8",
@@ -315,6 +329,46 @@ const installRelease = fs.readFileSync(
 if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
   failures.push(
     "Release installation must expose the verified commit identity",
+  );
+for (const invariant of [
+  "sha256sum",
+  "flock -n",
+  "src/server/db/migrate.ts",
+  "src/server/db/provision-runtime-roles.ts",
+  "upskill-deploy.env",
+  "/api/ready?deploymentId=",
+  "Release failed readiness checks and was rolled back",
+])
+  if (!installRelease.includes(invariant))
+    failures.push(`Release installation safety is missing: ${invariant}`);
+const deployWorkflow = fs.readFileSync(
+  path.join(root, ".github/workflows/deploy.yml"),
+  "utf8",
+);
+const workflowChecksumIndex = deployWorkflow.indexOf(
+  "sha256sum --check --strict -",
+);
+const workflowExtractionIndex = deployWorkflow.indexOf(
+  "tar -xOf /tmp/upskill-release.tar.gz",
+);
+if (
+  workflowChecksumIndex < 0 ||
+  workflowExtractionIndex < 0 ||
+  workflowChecksumIndex > workflowExtractionIndex
+)
+  failures.push(
+    "Deployment must verify the downloaded artifact before extracting its installer",
+  );
+const deploymentIdentity = fs.readFileSync(
+  path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
+  "utf8",
+);
+if (
+  deploymentIdentity.includes("new OpenIdConnectProvider") ||
+  !deploymentIdentity.includes("providerArn: string")
+)
+  failures.push(
+    "Environment deployment roles must use the shared GitHub OIDC provider",
   );
 const nginx = fs.readFileSync(
   path.join(root, "deploy/nginx/upskill.conf"),
@@ -381,6 +435,9 @@ for (const invariant of [
   'encoding === "gzip"',
   "constants.Z_SYNC_FLUSH",
   'appendVary(outgoing.getHeader("vary"), "Accept-Encoding")',
+  'requestPath === "/api/ready"',
+  'readinessPool.query("select 1")',
+  "requestedDeployment === deploymentId",
 ])
   if (!startServer.includes(invariant))
     failures.push(`Local HTTPS compression boundary is missing: ${invariant}`);

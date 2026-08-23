@@ -28,6 +28,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm run verify:app
+      - run: pnpm run verify:release
 
   infrastructure:
     runs-on: ubuntu-latest
@@ -49,7 +50,7 @@ jobs:
     timeout-minutes: 25
     services:
       postgres:
-        image: postgres:18.3-alpine
+        image: postgres:17-alpine
         env:
           POSTGRES_DB: upskill
           POSTGRES_USER: upskill
@@ -88,7 +89,7 @@ jobs:
     timeout-minutes: 10
     services:
       postgres:
-        image: postgres:18.3-alpine
+        image: postgres:17-alpine
         env:
           POSTGRES_DB: upskill
           POSTGRES_USER: upskill

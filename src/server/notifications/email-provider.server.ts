@@ -61,22 +61,33 @@ class MailgunEmailProvider implements EmailProvider {
     form.set("subject", message.subject);
     form.set("text", message.textBody);
     form.set("html", message.htmlBody);
-    const response = await fetch(
-      `${this.configuration.apiBaseUrl}/v3/${encodeURIComponent(this.configuration.domain)}/messages`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Basic ${Buffer.from(`api:${this.configuration.apiKey}`).toString("base64")}`,
+    let response: Response;
+    try {
+      response = await fetch(
+        `${this.configuration.apiBaseUrl}/v3/${encodeURIComponent(this.configuration.domain)}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${Buffer.from(`api:${this.configuration.apiKey}`).toString("base64")}`,
+          },
+          body: form,
+          signal: AbortSignal.timeout(10_000),
         },
-        body: form,
-        signal: AbortSignal.timeout(10_000),
-      },
-    );
+      );
+    } catch {
+      throw new Error("EMAIL_PROVIDER_REQUEST_FAILED");
+    }
     if (!response.ok) throw new Error("EMAIL_PROVIDER_REJECTED");
     const result = mailgunResponseSchema.safeParse(await response.json());
     if (!result.success) throw new Error("EMAIL_PROVIDER_INVALID_RESPONSE");
     return { messageId: result.data.id };
   }
+}
+
+export function isAmbiguousEmailDeliveryError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message === "EMAIL_PROVIDER_REQUEST_FAILED"
+  );
 }
 
 export function getEmailProvider(database: Kysely<Database>): EmailProvider {

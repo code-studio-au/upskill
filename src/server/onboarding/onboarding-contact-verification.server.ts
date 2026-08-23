@@ -15,9 +15,15 @@ import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
-import { sendOnboardingVerificationEmail } from "#/server/notifications/email-provider.server";
+import {
+  isAmbiguousEmailDeliveryError,
+  sendOnboardingVerificationEmail,
+} from "#/server/notifications/email-provider.server";
 import { enqueuePhoneVerificationTransferredNotification } from "#/server/notifications/notification.server";
-import { sendOnboardingVerificationSms } from "#/server/notifications/sms-provider.server";
+import {
+  isAmbiguousSmsDeliveryError,
+  sendOnboardingVerificationSms,
+} from "#/server/notifications/sms-provider.server";
 
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
 const RATE_LIMIT_WINDOW_MS = 15 * 60_000;
@@ -412,11 +418,15 @@ export async function requestOnboardingContactVerification(
         recipientPhone: channel.destination,
         message: `Your Upskill mobile verification code is ${code}. It expires in 10 minutes. If you did not request this code, ignore this message.`,
       });
-  } catch {
-    await database
-      .deleteFrom("onboarding_contact_verification_challenge")
-      .where("id", "=", challengeId)
-      .execute();
+  } catch (error) {
+    const ambiguous =
+      isAmbiguousEmailDeliveryError(error) ||
+      isAmbiguousSmsDeliveryError(error);
+    if (!ambiguous)
+      await database
+        .deleteFrom("onboarding_contact_verification_challenge")
+        .where("id", "=", challengeId)
+        .execute();
     logServerEvent({
       level: "error",
       event: "onboarding.contact_verification_delivery_failed",
@@ -427,7 +437,7 @@ export async function requestOnboardingContactVerification(
         channel: input.channel,
       },
     });
-    return { status: "unavailable" };
+    if (!ambiguous) return { status: "unavailable" };
   }
   return { status: "sent", challengeReference };
 }

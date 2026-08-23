@@ -4,20 +4,21 @@ import { ApplicationStack } from "../lib/application-stack.js";
 import { environmentConfig } from "../lib/config.js";
 import { DataStack } from "../lib/data-stack.js";
 import { DeploymentIdentityStack } from "../lib/deployment-identity-stack.js";
+import { GitHubIdentityProviderStack } from "../lib/github-identity-provider-stack.js";
 import { NetworkStack } from "../lib/network-stack.js";
 import { StorageStack } from "../lib/storage-stack.js";
 
 const app = new App();
 const config = environmentConfig(app.node.tryGetContext("environment"));
-const certificateArn = app.node.tryGetContext("certificateArn") as
-  string | undefined;
-if (config.name === "production" && !certificateArn) {
-  throw new Error("Production synthesis requires CDK context certificateArn");
-}
 const stackPrefix = `upskill-${config.name}`;
 const account = process.env.CDK_DEFAULT_ACCOUNT;
 const region = process.env.CDK_DEFAULT_REGION;
 const stackProps = account && region ? { env: { account, region } } : {};
+const identityProvider = new GitHubIdentityProviderStack(
+  app,
+  "upskill-github-identity-provider",
+  stackProps,
+);
 const network = new NetworkStack(
   app,
   `${stackPrefix}-network`,
@@ -35,27 +36,37 @@ const data = new DataStack(app, `${stackPrefix}-data`, {
   config,
   vpc: network.vpc,
   securityGroup: network.databaseSecurityGroup,
+  alarmTopic: storage.alarmTopic,
 });
-new ApplicationStack(app, `${stackPrefix}-application`, {
+const application = new ApplicationStack(app, `${stackPrefix}-application`, {
   ...stackProps,
   config,
   vpc: network.vpc,
-  loadBalancerSecurityGroup: network.loadBalancerSecurityGroup,
   applicationSecurityGroup: network.applicationSecurityGroup,
   artifactBucket: storage.artifactBucket,
   learningBucket: storage.learningBucket,
   privateBucket: storage.privateBucket,
   quarantineBucket: storage.quarantineBucket,
   workQueue: storage.workQueue,
+  deadLetterQueue: storage.deadLetterQueue,
   databaseSecretArn: data.database.secret?.secretArn ?? "missing",
-  ...(certificateArn ? { certificateArn } : {}),
+  alarmTopic: storage.alarmTopic,
 });
-new DeploymentIdentityStack(app, `${stackPrefix}-deployment-identity`, {
-  ...stackProps,
-  owner: String(app.node.tryGetContext("githubOwner")),
-  repository: String(app.node.tryGetContext("githubRepository")),
-  environment: config.name,
-  artifactBucket: storage.artifactBucket,
-});
-Tags.of(app).add("Application", "upskill");
-Tags.of(app).add("Environment", config.name);
+const deploymentIdentity = new DeploymentIdentityStack(
+  app,
+  `${stackPrefix}-deployment-identity`,
+  {
+    ...stackProps,
+    owner: String(app.node.tryGetContext("githubOwner")),
+    repository: String(app.node.tryGetContext("githubRepository")),
+    environment: config.name,
+    artifactBucket: storage.artifactBucket,
+    instanceId: application.instanceId,
+    providerArn: identityProvider.providerArn,
+  },
+);
+for (const stack of [network, storage, data, application, deploymentIdentity]) {
+  Tags.of(stack).add("Application", "upskill");
+  Tags.of(stack).add("Environment", config.name);
+}
+Tags.of(identityProvider).add("Application", "upskill");

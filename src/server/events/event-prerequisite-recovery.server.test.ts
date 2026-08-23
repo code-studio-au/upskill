@@ -98,9 +98,11 @@ vi.mock("#/server/logging/server-logger", () => ({
   logServerEvent: mocks.log,
 }));
 vi.mock("#/server/notifications/email-provider.server", () => ({
+  isAmbiguousEmailDeliveryError: () => false,
   sendEventPrerequisiteRecoveryEmail: mocks.sendEmail,
 }));
 vi.mock("#/server/notifications/sms-provider.server", () => ({
+  isAmbiguousSmsDeliveryError: () => false,
   sendEventPrerequisiteRecoverySms: mocks.sendSms,
 }));
 vi.mock("./event-survey-access.server", () => ({

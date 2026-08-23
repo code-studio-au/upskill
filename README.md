@@ -185,16 +185,40 @@ support email address, restricted Stripe key, Stripe webhook signing secret,
 Mailgun domain sending key, sending domain and From address, TextBee API key and
 TextBee webhook signing secret. Use
 Mailgun's EU API base URL when the sending domain is hosted in the EU region.
-EC2 combines that application secret with the RDS secret in a private systemd
-environment file on boot and at every atomic deployment. A
+EC2 combines that application secret with the RDS secret in separate root-only
+web, worker and deployment environment files on boot and at every atomic
+deployment. Web and worker services receive only their own least-privilege
+database credentials. A
 dedicated versioned Secrets Manager value supplies each environment's access-code
 encryption key and is readable only by the application instance role. The public
 lookup ID is stored in PostgreSQL and requires no separate secret.
 Set the corresponding GitHub environment's `AWS_DEPLOY_ROLE_ARN` and
 `ARTIFACT_BUCKET` secrets from the deployment-identity and storage stack
-outputs.
-Production CDK synthesis also requires `-c certificateArn=<regional ACM ARN>`;
-the application stack then terminates HTTPS and permanently redirects HTTP.
+outputs. The account-wide GitHub OIDC provider lives in the shared
+`upskill-github-identity-provider` stack; both environment-specific deployment
+roles reference it, so staging and production can coexist in one AWS account.
+
+Each environment deliberately uses one Sydney-region `t4g.micro` EC2 instance
+with an Elastic IP and one isolated `db.t4g.micro` PostgreSQL instance. This is
+the lowest-cost supported topology and has no automatic host failover. The host
+uses a small encrypted root volume plus swap so the 1 GiB instance can tolerate
+short memory bursts without adding an always-on compute tier. Create
+public DNS A records for the distinct application and learning origins using
+the application stack's Elastic IP output. After DNS resolves, connect with SSM
+and run:
+
+```sh
+sudo /usr/local/bin/upskill-provision-letsencrypt-cert \
+  <application-hostname> <learning-hostname> ops@codestudio.au
+```
+
+The command obtains and renews one Let's Encrypt certificate for both names,
+renders the production nginx configuration and enables the renewal timer. The
+deployment workflow then uploads one commit-addressed archive, waits for the
+exact SSM command, migrates with the administrative database credential,
+provisions the restricted web/worker roles, activates atomically and verifies
+`/api/ready` against the commit SHA. Do not run seeds in either deployed
+environment.
 
 Configure Stripe to send `checkout.session.completed`,
 `checkout.session.async_payment_succeeded`,

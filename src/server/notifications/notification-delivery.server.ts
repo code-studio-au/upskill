@@ -4,13 +4,17 @@ import { randomUUID } from "node:crypto";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { z } from "#/validation/zod.server";
-import { getEmailProvider } from "./email-provider.server";
+import {
+  getEmailProvider,
+  isAmbiguousEmailDeliveryError,
+} from "./email-provider.server";
 import { renderEmailTemplate } from "./email-template-contracts";
 
 export type NotificationDeliveryOutcome =
   | { status: "delivered" }
   | { status: "already-delivered" }
-  | { status: "superseded" };
+  | { status: "superseded" }
+  | { status: "unknown" };
 
 function safeErrorCode(error: unknown): string {
   if (
@@ -19,6 +23,7 @@ function safeErrorCode(error: unknown): string {
       "EMAIL_PROVIDER_INVALID_RESPONSE",
       "EMAIL_PROVIDER_NOT_CONFIGURED",
       "EMAIL_PROVIDER_REJECTED",
+      "EMAIL_PROVIDER_REQUEST_FAILED",
     ].includes(error.message)
   )
     return error.message;
@@ -229,6 +234,7 @@ export async function deliverNotification(
   if (notification.status === "delivered")
     return { status: "already-delivered" };
   if (notification.status === "superseded") return { status: "superseded" };
+  if (notification.status === "unknown") return { status: "unknown" };
 
   const attempt = notification.attempts + 1;
   const claimTime = new Date();
@@ -258,10 +264,12 @@ export async function deliverNotification(
       .executeTakeFirstOrThrow();
     if (current.status === "delivered") return { status: "already-delivered" };
     if (current.status === "superseded") return { status: "superseded" };
+    if (current.status === "unknown") return { status: "unknown" };
     throw new Error("EMAIL_DELIVERY_IN_PROGRESS");
   }
 
   let provider: ReturnType<typeof getEmailProvider> | undefined;
+  let acceptedProviderMessageId: string | null = null;
   try {
     let variables: Readonly<Record<string, string>>;
     let retainedPayload: Record<string, unknown> = { version: 1 };
@@ -371,6 +379,7 @@ export async function deliverNotification(
       textBody: rendered.textBody,
       htmlBody: rendered.htmlBody,
     });
+    acceptedProviderMessageId = delivery.messageId;
     const deliveredAt = new Date();
     const recorded = await database
       .transaction()
@@ -410,6 +419,9 @@ export async function deliverNotification(
   } catch (error) {
     const errorCode = safeErrorCode(error);
     const failedAt = new Date();
+    const ambiguous =
+      acceptedProviderMessageId !== null ||
+      isAmbiguousEmailDeliveryError(error);
     await database.transaction().execute(async (transaction) => {
       await transaction
         .insertInto("notification_delivery_attempt")
@@ -418,8 +430,8 @@ export async function deliverNotification(
           notificationId: notification.id,
           attempt,
           provider: provider?.id ?? "unconfigured",
-          status: "failed",
-          providerMessageId: null,
+          status: ambiguous ? "unknown" : "failed",
+          providerMessageId: acceptedProviderMessageId,
           errorCode,
           createdAt: failedAt,
         })
@@ -430,7 +442,7 @@ export async function deliverNotification(
       await transaction
         .updateTable("notification")
         .set({
-          status: "failed",
+          status: ambiguous ? "unknown" : "failed",
           lastErrorCode: errorCode,
           updatedAt: failedAt,
         })
@@ -438,6 +450,7 @@ export async function deliverNotification(
         .where("status", "=", "processing")
         .execute();
     });
+    if (ambiguous) return { status: "unknown" };
     throw error;
   }
 }

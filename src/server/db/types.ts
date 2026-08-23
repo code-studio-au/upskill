@@ -1083,7 +1083,7 @@ interface NotificationTable {
   subjectTemplateSnapshot: string;
   textBodyTemplateSnapshot: string;
   status: Generated<
-    "pending" | "processing" | "delivered" | "failed" | "superseded"
+    "pending" | "processing" | "delivered" | "failed" | "superseded" | "unknown"
   >;
   deduplicationKey: string;
   payload: Json;
@@ -1125,7 +1125,7 @@ interface NotificationDeliveryAttemptTable {
   notificationId: string;
   attempt: number;
   provider: string;
-  status: "delivered" | "failed";
+  status: "delivered" | "failed" | "unknown";
   providerMessageId: string | null;
   errorCode: string | null;
   createdAt: Timestamp;

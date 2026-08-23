@@ -249,7 +249,8 @@ completed.
 The onboarding route is full-document SSR with a useful loading state and a
 route-level split form/designer bundle. It must work on a phone from the first
 implementation, use TanStack Form and Mantine validation, preserve the strict CSP
-without inline styles/eval, and provide accessible error summaries and focus
+without unsafe script evaluation, respect the narrowly documented Mantine style
+attribute allowance, and provide accessible error summaries and focus
 management.
 
 The header and dashboard navigation must not briefly expose inaccessible learner

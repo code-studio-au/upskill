@@ -91,64 +91,51 @@ verifiers, and CDK verification.
 
 ## Current Capability Assessment
 
-| Capability                         | Current maturity                                         | Direction                                                                |
-| ---------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Public course catalogue            | Strong                                                   | Continue incremental UX/product growth                                   |
-| Individual course checkout         | Strong                                                   | Preserve transaction and idempotency model                               |
-| Learner enrolment/workspace        | Common activity-version foundation                       | Extend the model to Events and attendance                                |
-| SCORM delivery                     | Strong                                                   | Preserve isolation and immutable versions                                |
-| Surveys                            | Strong foundation                                        | Reuse in courses and target Events                                       |
-| Resources                          | Strong foundation                                        | Broaden beyond PDF when required                                         |
-| Certificates                       | On-demand rendering implemented                          | Reuse the common completion-eligibility boundary                         |
-| Organisation access codes          | Encrypted shared or single-use batches plus entitlements | Add contracts and broader coverage                                       |
-| Customer Access Owner portal       | Orders, invoices, CSV and Stripe capacity extensions     | Add contract-wide reporting and broader coverage                         |
-| Enterprise blanket access          | Partial concept                                          | Add a first-class contract/coverage model                                |
-| Course administration              | Strong foundation                                        | Add authoring workflow maturity as needed                                |
-| Learner administration             | Strong foundation                                        | Add richer support tooling over time                                     |
-| Events                             | Authoring, registration and blended-learning foundation  | Add facilitated recovery and operational maturity                        |
-| Coordinator workflows              | Region-scoped review, progress and Survey QR operations  | Add lifecycle alerts and recovery controls                               |
-| Presenter workflows                | Session-scoped attendance and Survey QR operations       | Add recovery windows and printable/minimal export                        |
-| Attendance                         | Durable evidence and corrections                         | Add offline/minimal operational export                                   |
-| Authenticated user onboarding      | Secure account activation implemented                    | Add Survey-backed version assignment, privacy-scoped response and gating |
-| Open-entry guest check-in          | Initial guarded workflow implemented                     | Add broader lifecycle and support controls                               |
-| Passwordless prerequisite recovery | Email/SMS OTP and exact-Survey task sessions implemented | Add scoped facilitated Survey fallback                                   |
-| Staged Event release               | Implemented learner foundation                           | Add notification and open-entry workflow maturity                        |
-| Regional Event selection           | Implemented operational foundation                       | Add assignment alerts and late-invitation UX maturity                    |
-| Automated email/notifications      | Durable triggers plus audited delivery operations        | Add retention controls and broader message types                         |
-| Reporting/visual analytics         | Basic read boundaries                                    | Add filtered charts/tables; project only when justified                  |
-| Global support/impersonation       | Future possibility                                       | Add carefully with audit safeguards                                      |
-| Operational observability          | Notification/SQS/DLQ slice implemented                   | Add release, worker, RDS, ALB and domain-specific telemetry              |
+| Capability                         | Current maturity                                                           | Direction                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Public course catalogue            | Strong                                                                     | Continue incremental UX/product growth                                   |
+| Individual course checkout         | Strong                                                                     | Preserve transaction and idempotency model                               |
+| Learner enrolment/workspace        | Common activity-version foundation                                         | Extend the model to Events and attendance                                |
+| SCORM delivery                     | Strong                                                                     | Preserve isolation and immutable versions                                |
+| Surveys                            | Strong foundation                                                          | Reuse in courses and target Events                                       |
+| Resources                          | Strong foundation                                                          | Broaden beyond PDF when required                                         |
+| Certificates                       | On-demand rendering implemented                                            | Reuse the common completion-eligibility boundary                         |
+| Organisation access codes          | Encrypted shared or single-use batches plus entitlements                   | Add contracts and broader coverage                                       |
+| Customer Access Owner portal       | Orders, invoices, CSV and Stripe capacity extensions                       | Add contract-wide reporting and broader coverage                         |
+| Enterprise blanket access          | Partial concept                                                            | Add a first-class contract/coverage model                                |
+| Course administration              | Strong foundation                                                          | Add authoring workflow maturity as needed                                |
+| Learner administration             | Strong foundation                                                          | Add richer support tooling over time                                     |
+| Events                             | Authoring, registration and blended-learning foundation                    | Add facilitated recovery and operational maturity                        |
+| Coordinator workflows              | Region-scoped review, progress and Survey QR operations                    | Add lifecycle alerts and recovery controls                               |
+| Presenter workflows                | Session-scoped attendance and Survey QR operations                         | Add recovery windows and printable/minimal export                        |
+| Attendance                         | Durable evidence and corrections                                           | Add offline/minimal operational export                                   |
+| Authenticated user onboarding      | Secure account activation implemented                                      | Add Survey-backed version assignment, privacy-scoped response and gating |
+| Open-entry guest check-in          | Initial guarded workflow implemented                                       | Add broader lifecycle and support controls                               |
+| Passwordless prerequisite recovery | Email/SMS OTP and exact-Survey task sessions implemented                   | Add scoped facilitated Survey fallback                                   |
+| Staged Event release               | Implemented learner foundation                                             | Add notification and open-entry workflow maturity                        |
+| Regional Event selection           | Implemented operational foundation                                         | Add assignment alerts and late-invitation UX maturity                    |
+| Automated email/notifications      | Durable triggers plus audited delivery operations                          | Add retention controls and broader message types                         |
+| Reporting/visual analytics         | Basic read boundaries                                                      | Add filtered charts/tables; project only when justified                  |
+| Global support/impersonation       | Future possibility                                                         | Add carefully with audit safeguards                                      |
+| Operational observability          | Release/readiness, EC2/RDS, outbox/SQS/DLQ and delivery alarms implemented | Add HTTP, SCORM and certificate telemetry                                |
 
 ## Priority 0/1 --- Production Reliability
 
-### Deployment success verification
+### Deployment success verification --- delivered
 
-The deployment workflow sends SSM commands to tagged EC2 instances but
-needs stronger end-to-end confirmation that every target actually
-installed and started the requested release.
+The workflow creates and independently verifies one immutable checksummed
+artifact, resolves exactly one tagged environment instance, captures and waits
+for the SSM invocation, and fails unless installation succeeds. The installer
+runs migrations before activation, switches the release symlink atomically,
+checks the worker and the database-backed readiness endpoint against the commit
+SHA, and restores the previous symlink on failed activation.
 
-Recommended implementation:
+### Distributed authentication rate limiting --- delivered foundation
 
-1.  capture SSM command ID;
-2.  resolve all intended target instances;
-3.  wait for every invocation;
-4.  fail deployment if any invocation fails/times out;
-5.  expose deployed release SHA/version;
-6.  verify health/readiness through the ALB after deployment; and
-7.  eventually consider immutable rolling instance replacement if
-    deployment complexity grows.
-
-**Benefit:** GitHub deployment success becomes trustworthy rather than
-meaning only that a deployment command was submitted.
-
-### Distributed authentication rate limiting
-
-Better Auth currently uses process-memory rate limiting. With multiple
-production instances, counters are instance-local and reset on restart.
-
-Recommended direction: coarse AWS WAF rate limiting at the edge plus an
-appropriate shared/account-aware mechanism where finer controls are
-required.
+Better Auth stores its rate-limit counters in PostgreSQL, so restart or future
+horizontal scaling does not reset or split the application-level counters.
+AWS WAF remains a later coarse edge control if public traffic or attack volume
+justifies its recurring cost.
 
 The same boundary must protect password, email OTP and verified-mobile SMS OTP
 challenges, resends and verification. Add normalized verified mobile numbers,
@@ -175,11 +162,11 @@ entitlements and Access Owner views.
 ### Operational observability
 
 Notification delivery now has a privileged database-health workspace for
-pending/failed/stale delivery, overdue schedules and due outbox work, plus
-production CloudWatch alarms for sustained SQS age/backlog and non-empty DLQ.
-Continue with worker failures/heartbeat, certificate-render errors/latency,
-SCORM processing/rejections, RDS health/connections, ALB errors, deployment
-version and an alarm-notification destination owned by deployment operations.
+pending/failed/stale/uncertain delivery, overdue schedules and due outbox work.
+Staging and production alarm to an operations-owned SNS/email destination for
+EC2 and RDS pressure, sustained SQS age/backlog, non-empty DLQ, worker heartbeat,
+outbox age and uncertain deliveries. Continue with HTTP, certificate-render and
+SCORM domain metrics.
 
 **Benefit:** failures are discovered by the platform before users report
 them.
@@ -676,14 +663,16 @@ are mature patterns.
 
 ### Security boundaries --- Strong with hardening items
 
-SCORM isolation, encrypted recoverable access codes and server-only boundaries
-are strong. Distributed auth abuse protection still deserves production
-hardening.
+SCORM isolation, encrypted recoverable access codes, server-only boundaries,
+shared authentication rate limiting and separate least-privilege runtime
+database identities are strong. WAF may later supplement application controls
+when traffic justifies it.
 
 ### Operational maturity --- Growing
 
-Infrastructure is thoughtfully designed, but deployment verification and
-observability need to reach the same maturity as the domain code.
+The low-cost single-host topology now has verified immutable deployment,
+readiness/release identity, rollback and baseline operational alarms. Richer
+HTTP and domain telemetry remains incremental work.
 
 ### Product completeness --- Growing
 

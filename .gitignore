@@ -4,6 +4,7 @@ node_modules/
 .output/
 .tanstack/
 dist/
+artifacts/
 coverage/
 .env
 .env.*

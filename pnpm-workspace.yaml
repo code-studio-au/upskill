@@ -1,10 +1,9 @@
 packages:
   - deploy/cdk
 
-# Upskill deliberately takes current compatible dependency cohorts without a
-# release-age delay. Integrity, audit and coherent-version gates remain strict.
-# pnpm's blanket trust-downgrade mode is intentionally not enabled because it
-# currently rejects established transitive packages that predate provenance.
+# Delay newly published packages for seven days so dependency updates have a
+# meaningful observation window. Exceptions are intentionally prohibited.
+minimumReleaseAge: 10080
 blockExoticSubdeps: true
 allowBuilds:
   "@parcel/watcher": true

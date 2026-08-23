@@ -61,6 +61,7 @@ export interface AdminNotificationOperations {
   health: {
     pendingNotifications: number;
     failedNotifications: number;
+    uncertainNotifications: number;
     staleProcessingNotifications: number;
     activeSchedules: number;
     overdueSchedules: number;

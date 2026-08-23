@@ -186,4 +186,31 @@ describe("email provider boundary", () => {
       }),
     ).rejects.toThrow("EMAIL_PROVIDER_REJECTED");
   });
+
+  it("classifies a Mailgun transport failure as an uncertain delivery", async () => {
+    const { getEmailProvider, isAmbiguousEmailDeliveryError } =
+      await import("./email-provider.server");
+    mocks.environment = {
+      APP_ENV: "development",
+      EMAIL_PROVIDER: "mailgun",
+      MAILGUN_API_BASE_URL: "https://api.mailgun.net",
+      MAILGUN_API_KEY: "sending-key",
+      MAILGUN_DOMAIN: "mg.example.com",
+      MAILGUN_FROM: "Upskill <no-reply@mg.example.com>",
+    };
+    mocks.fetch.mockRejectedValue(new TypeError("connection reset"));
+
+    const result = getEmailProvider({} as never).send({
+      notificationId: "notification_4",
+      recipientEmail: "learner@example.com",
+      subject: "Subject",
+      textBody: "Body",
+      htmlBody: "<p>Body</p>",
+    });
+
+    await expect(result).rejects.toThrow("EMAIL_PROVIDER_REQUEST_FAILED");
+    await result.catch((error: unknown) => {
+      expect(isAmbiguousEmailDeliveryError(error)).toBe(true);
+    });
+  });
 });
