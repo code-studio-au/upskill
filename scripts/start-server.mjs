@@ -8,6 +8,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { constants, createGzip } from "node:zlib";
+import { Pool } from "pg";
 import application from "../dist/server/server.js";
 import {
   appendVary,
@@ -33,6 +34,9 @@ if (
 )
   throw new Error("UPSKILL_TRUST_PROXY must be true or false when configured");
 const trustProxy = trustProxySetting === "true";
+const readinessPool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, max: 1 })
+  : null;
 if (Boolean(tlsCertificateFile) !== Boolean(tlsKeyFile))
   throw new Error(
     "UPSKILL_TLS_CERT_FILE and UPSKILL_TLS_KEY_FILE must be configured together",
@@ -260,6 +264,39 @@ async function handleRequest(incoming, outgoing) {
       });
   });
   try {
+    if (
+      requestPath === "/api/ready" &&
+      (method === "GET" || method === "HEAD")
+    ) {
+      outgoing.setHeader("cache-control", "no-store");
+      outgoing.setHeader("content-type", "application/json");
+      const requestedDeployment = new URL(
+        incoming.url ?? "/api/ready",
+        requestOrigin(incoming),
+      ).searchParams.get("deploymentId");
+      const deploymentId = process.env.DEPLOYMENT_ID ?? "development";
+      let ready = !requestedDeployment || requestedDeployment === deploymentId;
+      if (ready && readinessPool) {
+        try {
+          await readinessPool.query("select 1");
+        } catch {
+          ready = false;
+        }
+      } else {
+        ready = false;
+      }
+      outgoing.statusCode = ready ? 200 : 503;
+      outgoing.end(
+        method === "HEAD"
+          ? undefined
+          : JSON.stringify({
+              status: ready ? "ready" : "not_ready",
+              service: "upskill",
+              deploymentId,
+            }),
+      );
+      return;
+    }
     if (await serveClientAsset(incoming, outgoing)) return;
 
     const headers = new Headers();
@@ -359,7 +396,9 @@ server.listen(port, "127.0.0.1", () => {
 
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
-    server.close(() => process.exit(0));
+    server.close(() => {
+      void readinessPool?.end().finally(() => process.exit(0));
+    });
     setTimeout(() => process.exit(1), 10_000).unref();
   });
 }

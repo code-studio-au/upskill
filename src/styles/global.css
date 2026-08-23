@@ -68,11 +68,52 @@ a {
   background: var(--mantine-color-indigo-6);
   color: white;
   cursor: pointer;
+  font-weight: 600;
+}
+
+#recovery button:hover {
+  border-color: var(--mantine-color-indigo-7);
+  background: var(--mantine-color-indigo-7);
+}
+
+#recovery button[value="skip"] {
+  border-color: var(--mantine-color-gray-4);
+  background: var(--mantine-color-white);
+  color: var(--mantine-color-dark-7);
+}
+
+#recovery [role="alert"] {
+  margin: 0;
+  padding: var(--mantine-spacing-sm) var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-blue-3);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-blue-0);
+  color: var(--mantine-color-blue-9);
+  font-weight: 600;
+}
+
+#recovery input[name="code"] {
+  letter-spacing: 0.14em;
+}
+
+#recovery input[name="code"]:focus-visible {
+  border-color: var(--mantine-color-indigo-6);
+  outline-width: 2px;
 }
 
 #recovery > a {
   color: var(--mantine-color-indigo-7);
   font-weight: 600;
+}
+
+@media (max-width: 36em) {
+  #recovery {
+    margin-block: var(--mantine-spacing-lg);
+  }
+
+  #recovery button {
+    width: 100%;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

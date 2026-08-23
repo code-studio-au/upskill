@@ -683,20 +683,20 @@ stack.
 
 ## Engineering Priorities
 
-Important production-hardening priorities identified during repository
-review include:
+Implemented production-hardening foundations include:
 
-1.  deployment verification that waits for and validates all
-    target-instance deployment results;
-2.  distributed authentication abuse/rate limiting rather than
-    process-local counters alone;
-3.  operational metrics/alerts for outbox, queue, DLQ, worker,
-    certificate rendering, SCORM, database, and HTTP health;
-4.  explicit readiness/version visibility for deployments;
-5.  failure/concurrency testing around payment, enrolment, event
-    capacity, outbox, and workers; and
-6.  continued alignment between security documentation and the actual
-    implementation.
+1.  checksummed immutable releases, waited SSM completion, migration-before-
+    activation, readiness/release verification and rollback;
+2.  PostgreSQL-backed authentication abuse/rate limiting;
+3.  operational alarms for outbox, queue, DLQ, worker, uncertain deliveries,
+    database and host health;
+4.  explicit liveness, readiness and release visibility; and
+5.  separate non-superuser web/worker database identities and a
+    migration-only administrative identity.
+
+Continuing priorities include failure/concurrency testing around payment,
+enrolment, event capacity, outbox and workers, plus alignment between security
+documentation and the implementation.
 
 ## Documentation Handbook
 

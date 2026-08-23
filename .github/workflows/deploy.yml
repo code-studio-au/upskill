@@ -34,9 +34,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run verify:app
       - name: Package immutable release
-        run: |
-          tar -czf "upskill-${GITHUB_SHA}.tar.gz" dist deploy scripts/start-server.mjs package.json
-          sha256sum "upskill-${GITHUB_SHA}.tar.gz" > "upskill-${GITHUB_SHA}.sha256"
+        run: bash scripts/create-deploy-artifact.sh
+      - name: Verify deploy artifact in isolation
+        run: pnpm run verify:release
       - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
@@ -44,16 +44,28 @@ jobs:
       - name: Upload content-addressed artifact
         env:
           ARTIFACT_BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
-        run: aws s3 cp "upskill-${GITHUB_SHA}.tar.gz" "s3://${ARTIFACT_BUCKET}/releases/${GITHUB_SHA}.tar.gz" --sse AES256
+        run: aws s3 cp "artifacts/upskill-${GITHUB_SHA}.tar.gz" "s3://${ARTIFACT_BUCKET}/releases/${GITHUB_SHA}.tar.gz" --sse AES256
       - name: Deploy atomically through SSM
         env:
           ARTIFACT_BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
         run: |
-          checksum=$(cut -d ' ' -f 1 "upskill-${GITHUB_SHA}.sha256")
-          parameters=$(jq -cn --arg bucket "$ARTIFACT_BUCKET" --arg sha "$GITHUB_SHA" --arg checksum "$checksum" '{commands:["aws s3 cp s3://"+$bucket+"/releases/"+$sha+".tar.gz /tmp/upskill-release.tar.gz","tar -xOf /tmp/upskill-release.tar.gz deploy/scripts/install-release.sh >/tmp/install-release.sh","chmod 700 /tmp/install-release.sh","sudo /tmp/install-release.sh /tmp/upskill-release.tar.gz "+$sha+" "+$checksum]}')
-          aws ssm send-command \
+          checksum=$(cut -d ' ' -f 1 "artifacts/upskill-${GITHUB_SHA}.tar.gz.sha256")
+          parameters=$(jq -cn --arg bucket "$ARTIFACT_BUCKET" --arg sha "$GITHUB_SHA" --arg checksum "$checksum" '{commands:["aws s3 cp s3://"+$bucket+"/releases/"+$sha+".tar.gz /tmp/upskill-release.tar.gz","printf \"%s  %s\\n\" "+$checksum+" /tmp/upskill-release.tar.gz | sha256sum --check --strict -","tar -xOf /tmp/upskill-release.tar.gz deploy/scripts/install-release.sh >/tmp/install-release.sh","chmod 700 /tmp/install-release.sh","sudo /tmp/install-release.sh /tmp/upskill-release.tar.gz "+$sha+" "+$checksum]}')
+          instance_id=$(aws ec2 describe-instances \
+            --filters "Name=tag:Application,Values=upskill" "Name=tag:Environment,Values=${TARGET_ENVIRONMENT}" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' --output text)
+          if [[ ! "$instance_id" =~ ^i-[a-zA-Z0-9]+$ ]]; then
+            echo "Expected exactly one running Upskill instance, found: ${instance_id:-none}" >&2
+            exit 1
+          fi
+          command_id=$(aws ssm send-command \
             --document-name AWS-RunShellScript \
-            --targets "Key=tag:Application,Values=upskill" "Key=tag:Environment,Values=${TARGET_ENVIRONMENT}" \
+            --instance-ids "$instance_id" \
             --parameters "$parameters" \
-            --comment "Deploy ${GITHUB_SHA}"
+            --comment "Deploy ${GITHUB_SHA}" \
+            --query 'Command.CommandId' --output text)
+          aws ssm wait command-executed --command-id "$command_id" --instance-id "$instance_id"
+          aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance_id"
+          status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance_id" --query Status --output text)
+          test "$status" = Success

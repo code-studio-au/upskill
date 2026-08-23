@@ -200,10 +200,21 @@ that stream without introducing Datadog calls into request or mutation paths.
 
 CDK defines staging and production instances of separated network, data,
 storage/messaging and application stacks. PostgreSQL and S3 are private and
-encrypted. An ALB fronts EC2 Auto Scaling instances running nginx, the Start web
-process and a separately hardened worker process. GitHub Actions authenticates
-to AWS through OIDC, builds both processes once and promotes the same
-content-addressed artifact.
+encrypted. Each environment currently uses the smallest practical Sydney-region
+footprint: isolated `db.t4g.micro` RDS PostgreSQL, public subnets without NAT,
+and one `t4g.micro` EC2 instance with an Elastic IP. Nginx terminates Let's
+Encrypt TLS for the separate application and learning origins and proxies only
+to loopback listeners. The host runs the Start web process and a separately
+hardened worker process. This single-instance availability trade-off is
+intentional until measured demand warrants an ALB and Auto Scaling.
+
+GitHub Actions authenticates to AWS through OIDC, builds both processes once,
+creates a path-validated checksummed artifact, and promotes that exact artifact.
+Deployment waits for the sole tagged SSM target, runs forward migrations with a
+migration-only database identity, provisions separate non-superuser web and
+worker roles, activates the release atomically, verifies worker state and the
+database-backed readiness endpoint against the requested commit SHA, and rolls
+the release symlink back on failed activation.
 
 Builds contain integrity-verified Brotli and gzip sidecars for compressible
 client assets. The secure local production preview serves Brotli over TLS with

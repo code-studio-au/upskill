@@ -29,7 +29,7 @@ export const auth = betterAuth({
   trustedOrigins: [env.APP_ORIGIN],
   rateLimit: {
     enabled: true,
-    storage: "memory",
+    storage: "database",
     window: 60,
     max: 100,
   },

@@ -35,4 +35,30 @@ describe("server environment", () => {
       );
     },
   );
+
+  it("fails closed when deployed origins are insecure or shared", async () => {
+    vi.resetModules();
+    vi.stubEnv("APP_ENV", "production");
+    vi.stubEnv("APP_ORIGIN", "http://app.codestudio.au");
+    vi.stubEnv("LEARNING_ORIGIN", "http://app.codestudio.au");
+    vi.stubEnv("DATABASE_URL", "postgresql://web:test@localhost/upskill");
+    vi.stubEnv(
+      "WORKER_DATABASE_URL",
+      "postgresql://worker:test@localhost/upskill",
+    );
+    vi.stubEnv(
+      "MIGRATION_DATABASE_URL",
+      "postgresql://owner:test@localhost/upskill",
+    );
+    vi.stubEnv(
+      "BETTER_AUTH_SECRET",
+      "test-only-secret-that-is-at-least-32-characters",
+    );
+    vi.stubEnv("STRIPE_SECRET_KEY", "rk_live_configured");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_configured");
+    const { getServerEnv } = await import("./env.server");
+    expect(() => getServerEnv()).toThrow(
+      "APP_ORIGIN must use HTTPS outside local environments",
+    );
+  });
 });

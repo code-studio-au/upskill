@@ -179,4 +179,43 @@ describe("SMS provider boundary", () => {
       }),
     ).rejects.toThrow("SMS_PROVIDER_REJECTED");
   });
+
+  it("records a transport failure as unknown because TextBee may have accepted it", async () => {
+    const { isAmbiguousSmsDeliveryError, sendOnboardingVerificationSms } =
+      await import("./sms-provider.server");
+    mocks.environment = {
+      SMS_PROVIDER: "textbee",
+      TEXTBEE_API_BASE_URL: "https://api.textbee.dev",
+      TEXTBEE_API_KEY: "secret-key",
+      TEXTBEE_DEVICE_ID: "device_1",
+      TEXTBEE_WEBHOOK_SECRET: "webhook-signing-secret",
+    };
+    mocks.fetch.mockRejectedValue(new TypeError("connection reset"));
+
+    const result = sendOnboardingVerificationSms(
+      {
+        insertInto: mocks.insertInto,
+        updateTable: mocks.updateTable,
+      } as never,
+      {
+        deliveryId: "challenge_5",
+        recipientUserId: "user_5",
+        recipientName: "Learner Five",
+        recipientPhone: "+61400000005",
+        message: "Your verification code is 123456.",
+      },
+    );
+
+    await expect(result).rejects.toThrow("SMS_PROVIDER_REQUEST_FAILED");
+    await result.catch((error: unknown) => {
+      expect(isAmbiguousSmsDeliveryError(error)).toBe(true);
+    });
+    expect(mocks.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "unknown",
+        lastErrorCode: "sms_provider_request_failed",
+        failedAt: null,
+      }),
+    );
+  });
 });

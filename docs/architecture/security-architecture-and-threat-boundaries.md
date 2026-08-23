@@ -45,8 +45,9 @@ access.
 
 ### Target Product
 
-The accepted target adds distributed auth abuse protection, complete deployment
-verification, production metrics/alerts,
+The current product includes shared PostgreSQL-backed auth rate limiting,
+verified immutable deployment and baseline production metrics/alerts. The
+accepted target adds richer edge and domain observability,
 grant/contract-scoped Access Owner authorization, Events-scoped authorization
 and the security boundaries required by enterprise contracts and notifications.
 
@@ -293,9 +294,11 @@ and provider credentials. Do not store an encryption key beside its
 ciphertext in PostgreSQL.
 
 Prefer IAM roles over long-lived AWS keys; grant only required
-S3/SQS/SSM/Secrets/KMS actions. Keep RDS private, instances behind ALB
-where feasible, security groups narrow, TLS configured, and admin host
-access through SSM rather than public SSH.
+S3/SQS/SSM/Secrets/KMS actions. Keep RDS isolated, security groups narrow,
+verified TLS configured for PostgreSQL and public origins, and admin host access
+through SSM rather than public SSH. The present single-host/EIP topology is an
+explicit cost trade-off; introduce an ALB only with the availability controls
+needed to justify it.
 
 ## HTTP and Supply Chain
 
@@ -310,9 +313,10 @@ checks, strict CI gates, and controlled workflow permissions.
 Use least-privilege GitHub Actions permissions and short-lived AWS
 federation/OIDC where available. Keep build artifacts immutable and
 commit-SHA tied; never expose production secrets to untrusted PR
-workflows. Deployment success must prove every intended target received
-the release, restarted, passed readiness, and reports the intended
-release identity behind the load balancer.
+workflows. Deployment success must prove every intended target received the
+release, restarted, passed readiness, and reports the intended release identity.
+The same invariant must cover every load-balancer target if the topology is
+scaled out later.
 
 ## Retention, Backup, and Recovery
 
@@ -408,9 +412,9 @@ production/auth/payment/event milestones.
 
 ### Immediate / pre-production
 
-- distributed auth abuse protection;
-- deployment verification/release identity;
-- production observability/alerts;
+- extend shared auth abuse protection with WAF when justified by traffic;
+- extend deployment verification when moving beyond one host;
+- add HTTP and domain-specific observability;
 - verify GitHub/AWS least privilege and secret externalisation;
 - review CSP/security headers on both origins.
 

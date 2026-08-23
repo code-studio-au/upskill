@@ -137,6 +137,9 @@ export async function findAdminNotificationOperations(
         sql<number>`count(*) filter (where status = 'failed')::integer`.as(
           "failed",
         ),
+        sql<number>`count(*) filter (where status = 'unknown')::integer`.as(
+          "unknown",
+        ),
         sql<number>`count(*) filter (
             where status = 'processing' and "updatedAt" <= ${staleBefore}
           )::integer`.as("staleProcessing"),
@@ -236,11 +239,12 @@ export async function findAdminNotificationOperations(
       { value: "email", label: "Email" },
       { value: "sms", label: "SMS" },
     ],
-    healthSummary: `Email pending ${String(notificationHealth.pending)} · Email failed ${String(notificationHealth.failed)} · SMS awaiting carrier ${String(smsHealth.awaitingCarrier)} · SMS failed ${String(smsHealth.failed)} · Overdue schedules ${String(scheduleHealth.overdue)} · Due outbox ${String(outboxHealth.due)}`,
+    healthSummary: `Email pending ${String(notificationHealth.pending)} · Email failed ${String(notificationHealth.failed)} · Email uncertain ${String(notificationHealth.unknown)} · SMS awaiting carrier ${String(smsHealth.awaitingCarrier)} · SMS failed ${String(smsHealth.failed)} · Overdue schedules ${String(scheduleHealth.overdue)} · Due outbox ${String(outboxHealth.due)}`,
     oldestSummary: `Oldest overdue schedule ${scheduleHealth.oldestOverdueAt?.toISOString().slice(0, 16).replace("T", " ") ?? "None"} · Oldest due outbox ${outboxHealth.oldestDueAt?.toISOString().slice(0, 16).replace("T", " ") ?? "None"}`,
     health: {
       pendingNotifications: notificationHealth.pending,
       failedNotifications: notificationHealth.failed,
+      uncertainNotifications: notificationHealth.unknown,
       staleProcessingNotifications: notificationHealth.staleProcessing,
       activeSchedules: scheduleHealth.active,
       overdueSchedules: scheduleHealth.overdue,

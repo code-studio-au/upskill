@@ -18,11 +18,13 @@ observability; an administrator completion override is audit evidence.
 ## Architecture Horizons
 
 - **Current Product:** PostgreSQL read boundaries, structured JSON logs, durable
-  audit evidence, health endpoint, domain verifiers, basic administrator and
-  learner views, and an evidence-derived Event participant/Section progress
-  matrix with region-scoped filtered/all-authorized CSV export.
-- **Target Product:** production metrics/alerts, deployment identity/readiness,
-  queue/outbox/DLQ visibility, purpose-built event/enterprise/support read
+  audit evidence, separate liveness and database-backed readiness endpoints,
+  release identity, CloudWatch alarms for EC2/RDS/SQS/DLQ/outbox/worker and
+  uncertain delivery state, domain verifiers, basic administrator and learner
+  views, and an evidence-derived Event participant/Section progress matrix with
+  region-scoped filtered/all-authorized CSV export.
+- **Target Product:** richer HTTP and domain metrics, purpose-built
+  event/enterprise/support read
   models and responsive visual learning analytics with validated selectable
   filters plus complete filtered/unfiltered CSV export within authorization
   scope.
@@ -318,7 +320,7 @@ identifier so multi-instance deployment success can be verified.
 
 ## HTTP and Database Metrics
 
-Monitor request volume/latency, 4xx/5xx, ALB unhealthy targets, and
+Monitor request volume/latency, 4xx/5xx, host readiness, and
 route-level failures where useful. For PostgreSQL monitor connections
 versus budget, CPU, storage, I/O latency, long queries, deadlocks, and
 transaction failures. Model the connection budget across web pools,
@@ -354,10 +356,11 @@ ordinary analytics.
 
 ## Deployment Observability
 
-Record intended release SHA, target instances, SSM result per target,
-service restart result, readiness, ALB health, and actual running
-release identity. A deployment workflow should fail when it cannot prove
-all intended targets are healthy on the intended release.
+Record intended release SHA, resolved target instance, SSM result, service
+restart result, readiness, and actual running release identity. The deployment
+workflow fails when it cannot prove the target is healthy on the intended
+release. If an ALB/Auto Scaling tier is introduced later, extend the same proof
+to every target and load-balancer health.
 
 ## Product-Aware Operations Dashboard
 
@@ -450,9 +453,10 @@ metric/log values, and deployment detection of failed or mixed target releases.
 
 ### Phase 1 --- Production observability
 
-Add release identity, liveness/readiness separation, HTTP/ALB errors,
-RDS health/connections, outbox/SQS/DLQ, SCORM worker and certificate-route
-metrics, and actionable alerts.
+Release identity, liveness/readiness separation and actionable EC2, RDS,
+outbox, SQS, DLQ, worker-heartbeat and uncertain-delivery alarms are in place.
+Add HTTP error/latency, SCORM and certificate-route metrics when those signals
+can be emitted without adding high-cost infrastructure.
 
 ### Phase 2 --- Product-aware operations
 

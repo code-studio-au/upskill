@@ -26,14 +26,15 @@ additional complexity becomes justified.
 - Make failures visible before adding complexity to avoid them.
 - Introduce infrastructure only for measured needs.
 
-## Deployment verification
+## Multi-instance deployment
 
-**Priority:** Near-term\
-**Primary benefit:** Reliability\
-**Trigger:** Before serious production rollout
+**Priority:** Trigger-based\
+**Primary benefit:** Availability and capacity\
+**Trigger:** Measured load or availability requirements exceed one host
 
-Wait for every SSM target, verify health and deployed SHA; deployment
-success must mean the release is actually running.
+Add an ALB, at least two instances and rolling replacement. Preserve the
+existing invariant that deployment waits for every target and verifies
+readiness plus the deployed SHA.
 
 ## Distributed auth rate limiting
 
@@ -41,8 +42,8 @@ success must mean the release is actually running.
 **Primary benefit:** Security\
 **Trigger:** Before substantial public traffic
 
-Move abuse controls beyond process-local memory; use WAF and
-shared/account-aware controls where needed.
+PostgreSQL already supplies shared/account-aware counters. Add WAF only when
+edge attack volume justifies its cost.
 
 ## Operational observability
 
@@ -50,8 +51,9 @@ shared/account-aware controls where needed.
 **Primary benefit:** Operations\
 **Trigger:** Before meaningful production scale
 
-Alert on outbox/queue age, DLQ, workers, SCORM, certificate rendering, Stripe,
-RDS, ALB and release identity.
+Baseline alarms cover outbox/queue age, DLQ, worker heartbeat, uncertain
+delivery, RDS/EC2 pressure and release readiness. Add SCORM, certificate,
+Stripe and HTTP telemetry as those operational paths mature.
 
 ## Richer domain events
 

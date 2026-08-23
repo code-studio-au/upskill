@@ -2,7 +2,6 @@ import { CfnOutput, Stack, type StackProps } from "aws-cdk-lib";
 import {
   Effect,
   FederatedPrincipal,
-  OpenIdConnectProvider,
   PolicyStatement,
   Role,
 } from "aws-cdk-lib/aws-iam";
@@ -14,6 +13,8 @@ export interface DeploymentIdentityStackProps extends StackProps {
   repository: string;
   environment: string;
   artifactBucket: Bucket;
+  instanceId: string;
+  providerArn: string;
 }
 
 export class DeploymentIdentityStack extends Stack {
@@ -23,14 +24,10 @@ export class DeploymentIdentityStack extends Stack {
     props: DeploymentIdentityStackProps,
   ) {
     super(scope, id, props);
-    const provider = new OpenIdConnectProvider(this, "GitHubProvider", {
-      url: "https://token.actions.githubusercontent.com",
-      clientIds: ["sts.amazonaws.com"],
-    });
     const subject = `repo:${props.owner}/${props.repository}:environment:${props.environment}`;
     const role = new Role(this, "GitHubDeploymentRole", {
       assumedBy: new FederatedPrincipal(
-        provider.openIdConnectProviderArn,
+        props.providerArn,
         {
           StringEquals: {
             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
@@ -40,22 +37,48 @@ export class DeploymentIdentityStack extends Stack {
         "sts:AssumeRoleWithWebIdentity",
       ),
     });
-    props.artifactBucket.grantReadWrite(role);
     role.addToPolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
         actions: [
-          "ssm:SendCommand",
-          "ssm:GetCommandInvocation",
-          "ssm:ListCommandInvocations",
+          "s3:PutObject",
+          "s3:AbortMultipartUpload",
+          "s3:ListMultipartUploadParts",
         ],
+        resources: [props.artifactBucket.arnForObjects("releases/*")],
+      }),
+    );
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ssm:SendCommand"],
+        resources: [
+          this.formatArn({
+            service: "ec2",
+            resource: "instance",
+            resourceName: props.instanceId,
+          }),
+          this.formatArn({
+            service: "ssm",
+            account: "",
+            resource: "document",
+            resourceName: "AWS-RunShellScript",
+          }),
+        ],
+      }),
+    );
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ssm:GetCommandInvocation"],
         resources: ["*"],
-        conditions: {
-          StringEquals: {
-            "aws:ResourceTag/Application": "upskill",
-            "aws:ResourceTag/Environment": props.environment,
-          },
-        },
+      }),
+    );
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ec2:DescribeInstances"],
+        resources: ["*"],
       }),
     );
     new CfnOutput(this, "GitHubDeploymentRoleArn", {

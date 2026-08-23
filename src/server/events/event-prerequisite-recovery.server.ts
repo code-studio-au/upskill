@@ -26,8 +26,14 @@ import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
-import { sendEventPrerequisiteRecoveryEmail } from "#/server/notifications/email-provider.server";
-import { sendEventPrerequisiteRecoverySms } from "#/server/notifications/sms-provider.server";
+import {
+  isAmbiguousEmailDeliveryError,
+  sendEventPrerequisiteRecoveryEmail,
+} from "#/server/notifications/email-provider.server";
+import {
+  isAmbiguousSmsDeliveryError,
+  sendEventPrerequisiteRecoverySms,
+} from "#/server/notifications/sms-provider.server";
 import { resolveLearnerEventSurveyReference } from "./event-survey-access.server";
 
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
@@ -546,11 +552,15 @@ export async function requestEventRecoveryCode(
           surveyTitle: destination.surveyTitle,
         }),
       });
-  } catch {
-    await database
-      .deleteFrom("event_prerequisite_recovery_challenge")
-      .where("id", "=", challengeId)
-      .execute();
+  } catch (error) {
+    const ambiguous =
+      isAmbiguousEmailDeliveryError(error) ||
+      isAmbiguousSmsDeliveryError(error);
+    if (!ambiguous)
+      await database
+        .deleteFrom("event_prerequisite_recovery_challenge")
+        .where("id", "=", challengeId)
+        .execute();
     logServerEvent({
       level: "error",
       event: "event_prerequisite.recovery_delivery_failed",

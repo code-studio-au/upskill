@@ -3,28 +3,31 @@ type EnvironmentName = "staging" | "production";
 export interface EnvironmentConfig {
   name: EnvironmentName;
   cidr: string;
-  dbMultiAz: boolean;
   deletionProtection: boolean;
-  minCapacity: number;
-  maxCapacity: number;
+  instanceType: string;
+  databaseInstanceType: string;
+  databaseBackupRetentionDays: number;
+  alarmEmail: string;
 }
 
 const configurations: Record<EnvironmentName, EnvironmentConfig> = {
   staging: {
     name: "staging",
     cidr: "10.30.0.0/16",
-    dbMultiAz: false,
     deletionProtection: false,
-    minCapacity: 1,
-    maxCapacity: 2,
+    instanceType: "t4g.micro",
+    databaseInstanceType: "t4g.micro",
+    databaseBackupRetentionDays: 7,
+    alarmEmail: "ops@codestudio.au",
   },
   production: {
     name: "production",
     cidr: "10.40.0.0/16",
-    dbMultiAz: true,
     deletionProtection: true,
-    minCapacity: 2,
-    maxCapacity: 6,
+    instanceType: "t4g.micro",
+    databaseInstanceType: "t4g.micro",
+    databaseBackupRetentionDays: 14,
+    alarmEmail: "ops@codestudio.au",
   },
 };
 

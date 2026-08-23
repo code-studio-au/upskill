@@ -16,7 +16,10 @@ import {
   ComparisonOperator,
   TreatMissingData,
 } from "aws-cdk-lib/aws-cloudwatch";
+import { SnsAction } from "aws-cdk-lib/aws-cloudwatch-actions";
 import { Queue, QueueEncryption } from "aws-cdk-lib/aws-sqs";
+import { Topic } from "aws-cdk-lib/aws-sns";
+import { EmailSubscription } from "aws-cdk-lib/aws-sns-subscriptions";
 import type { Construct } from "constructs";
 import type { EnvironmentConfig } from "./config.js";
 
@@ -27,6 +30,7 @@ export class StorageStack extends Stack {
   readonly artifactBucket: Bucket;
   readonly deadLetterQueue: Queue;
   readonly workQueue: Queue;
+  readonly alarmTopic: Topic;
 
   constructor(
     scope: Construct,
@@ -61,7 +65,13 @@ export class StorageStack extends Stack {
     this.artifactBucket = new Bucket(this, "ArtifactBucket", {
       ...bucketDefaults,
       versioned: true,
-      lifecycleRules: [{ noncurrentVersionExpiration: Duration.days(30) }],
+      lifecycleRules: [
+        {
+          expiration: Duration.days(90),
+          noncurrentVersionExpiration: Duration.days(30),
+          abortIncompleteMultipartUploadAfter: Duration.days(1),
+        },
+      ],
     });
 
     this.deadLetterQueue = new Queue(this, "WorkDeadLetterQueue", {
@@ -73,45 +83,48 @@ export class StorageStack extends Stack {
       visibilityTimeout: Duration.minutes(15),
       deadLetterQueue: { queue: this.deadLetterQueue, maxReceiveCount: 5 },
     });
-    if (config.name === "production") {
-      const alarmDefaults = {
-        evaluationPeriods: 2,
-        comparisonOperator:
-          ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        treatMissingData: TreatMissingData.NOT_BREACHING,
-      } as const;
-      new Alarm(this, "WorkQueueOldestMessageAlarm", {
-        ...alarmDefaults,
-        alarmName: "upskill-production-work-queue-oldest-message",
-        alarmDescription:
-          "The durable work queue has contained an undelivered message for at least 15 minutes.",
-        metric: this.workQueue.metricApproximateAgeOfOldestMessage({
-          period: Duration.minutes(5),
-        }),
-        threshold: Duration.minutes(15).toSeconds(),
-      });
-      new Alarm(this, "WorkQueueBacklogAlarm", {
-        ...alarmDefaults,
-        alarmName: "upskill-production-work-queue-backlog",
-        alarmDescription:
-          "The durable work queue has sustained at least 100 visible messages.",
-        metric: this.workQueue.metricApproximateNumberOfMessagesVisible({
-          period: Duration.minutes(5),
-        }),
-        threshold: 100,
-      });
-      new Alarm(this, "WorkDeadLetterQueueAlarm", {
-        ...alarmDefaults,
-        evaluationPeriods: 1,
-        alarmName: "upskill-production-work-dead-letter-queue",
-        alarmDescription:
-          "At least one durable work item has exhausted automatic delivery retries.",
-        metric: this.deadLetterQueue.metricApproximateNumberOfMessagesVisible({
-          period: Duration.minutes(5),
-        }),
-        threshold: 1,
-      });
-    }
+    this.alarmTopic = new Topic(this, "OperationalAlarmTopic", {
+      displayName: `Upskill ${config.name} operational alarms`,
+    });
+    this.alarmTopic.addSubscription(new EmailSubscription(config.alarmEmail));
+    const alarmDefaults = {
+      evaluationPeriods: 2,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    } as const;
+    const oldestMessageAlarm = new Alarm(this, "WorkQueueOldestMessageAlarm", {
+      ...alarmDefaults,
+      alarmName: `upskill-${config.name}-work-queue-oldest-message`,
+      alarmDescription:
+        "The durable work queue has contained an undelivered message for at least 15 minutes.",
+      metric: this.workQueue.metricApproximateAgeOfOldestMessage({
+        period: Duration.minutes(5),
+      }),
+      threshold: Duration.minutes(15).toSeconds(),
+    });
+    const backlogAlarm = new Alarm(this, "WorkQueueBacklogAlarm", {
+      ...alarmDefaults,
+      alarmName: `upskill-${config.name}-work-queue-backlog`,
+      alarmDescription:
+        "The durable work queue has sustained at least 100 visible messages.",
+      metric: this.workQueue.metricApproximateNumberOfMessagesVisible({
+        period: Duration.minutes(5),
+      }),
+      threshold: 100,
+    });
+    const deadLetterAlarm = new Alarm(this, "WorkDeadLetterQueueAlarm", {
+      ...alarmDefaults,
+      evaluationPeriods: 1,
+      alarmName: `upskill-${config.name}-work-dead-letter-queue`,
+      alarmDescription:
+        "At least one durable work item has exhausted automatic delivery retries.",
+      metric: this.deadLetterQueue.metricApproximateNumberOfMessagesVisible({
+        period: Duration.minutes(5),
+      }),
+      threshold: 1,
+    });
+    for (const alarm of [oldestMessageAlarm, backlogAlarm, deadLetterAlarm])
+      alarm.addAlarmAction(new SnsAction(this.alarmTopic));
     new CfnOutput(this, "ArtifactBucketName", {
       value: this.artifactBucket.bucketName,
     });

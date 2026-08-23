@@ -1,0 +1,92 @@
+server_tokens off;
+
+server {
+    listen 80;
+    server_name __APP_DOMAIN__ __LEARNING_DOMAIN__;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl__HTTP2_LISTEN_SUFFIX__;
+    __HTTP2_DIRECTIVE__
+    server_name __APP_DOMAIN__;
+
+    ssl_certificate /etc/letsencrypt/live/__APP_DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__APP_DOMAIN__/privkey.pem;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    client_max_body_size 2m;
+
+    location = /api/admin/scorm-packages {
+        client_max_body_size 250m;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_read_timeout 15m;
+        proxy_send_timeout 15m;
+    }
+
+    location = /api/admin/resources {
+        client_max_body_size 25m;
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_request_buffering off;
+        proxy_buffering off;
+        proxy_read_timeout 5m;
+        proxy_send_timeout 5m;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+    }
+}
+
+server {
+    listen 443 ssl__HTTP2_LISTEN_SUFFIX__;
+    __HTTP2_DIRECTIVE__
+    server_name __LEARNING_DOMAIN__;
+
+    ssl_certificate /etc/letsencrypt/live/__APP_DOMAIN__/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/__APP_DOMAIN__/privkey.pem;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    client_max_body_size 2m;
+
+    location ^~ /api/scorm/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+    }
+
+    location / {
+        return 404;
+    }
+}

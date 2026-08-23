@@ -5,8 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL is required");
+const databaseUrl =
+  process.env.MIGRATION_DATABASE_URL ?? process.env.DATABASE_URL;
+if (!databaseUrl)
+  throw new Error("MIGRATION_DATABASE_URL or DATABASE_URL is required");
 
 const migrationFolder = path.join(
   path.dirname(fileURLToPath(import.meta.url)),

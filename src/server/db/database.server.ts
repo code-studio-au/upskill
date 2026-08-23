@@ -8,10 +8,15 @@ import type { Database } from "./types";
 let database: Kysely<Database> | undefined;
 
 export function getDatabase(): Kysely<Database> {
+  const env = getServerEnv();
+  const connectionString =
+    process.env.UPSKILL_PROCESS_ROLE === "worker"
+      ? (env.WORKER_DATABASE_URL ?? env.DATABASE_URL)
+      : env.DATABASE_URL;
   database ??= new Kysely<Database>({
     dialect: new PostgresDialect({
       pool: new Pool({
-        connectionString: getServerEnv().DATABASE_URL,
+        connectionString,
         max: 10,
       }),
     }),

@@ -143,6 +143,12 @@ function providerFailureCode(error: unknown): string {
     : "provider_failed";
 }
 
+export function isAmbiguousSmsDeliveryError(error: unknown): boolean {
+  return (
+    error instanceof Error && error.message === "SMS_PROVIDER_REQUEST_FAILED"
+  );
+}
+
 async function sendTrackedSms(
   database: Kysely<Database>,
   message: SecuritySmsDelivery,
@@ -177,12 +183,13 @@ async function sendTrackedSms(
     result = await provider.send(message);
   } catch (error) {
     const failedAt = new Date();
+    const ambiguous = isAmbiguousSmsDeliveryError(error);
     await database
       .updateTable("sms_delivery")
       .set({
-        status: "failed",
+        status: ambiguous ? "unknown" : "failed",
         lastErrorCode: providerFailureCode(error),
-        failedAt,
+        failedAt: ambiguous ? null : failedAt,
         updatedAt: failedAt,
       })
       .where("id", "=", message.deliveryId)
@@ -203,6 +210,21 @@ async function sendTrackedSms(
       .where("id", "=", message.deliveryId)
       .execute();
   } catch (error) {
+    try {
+      await database
+        .updateTable("sms_delivery")
+        .set({
+          status: "unknown",
+          providerBatchId: provider.id === "textbee" ? result.messageId : null,
+          lastErrorCode: "tracking_update_failed",
+          updatedAt: acceptedAt,
+        })
+        .where("id", "=", message.deliveryId)
+        .execute();
+    } catch {
+      // The provider result is still returned; operational reconciliation can
+      // recover from the provider batch identifier in the structured log.
+    }
     logServerEvent({
       level: "error",
       event: "sms.delivery_tracking_update_failed",

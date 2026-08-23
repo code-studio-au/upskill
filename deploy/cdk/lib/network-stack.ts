@@ -12,7 +12,6 @@ import type { EnvironmentConfig } from "./config.js";
 
 export class NetworkStack extends Stack {
   readonly vpc: Vpc;
-  readonly loadBalancerSecurityGroup: SecurityGroup;
   readonly applicationSecurityGroup: SecurityGroup;
   readonly databaseSecurityGroup: SecurityGroup;
 
@@ -26,14 +25,9 @@ export class NetworkStack extends Stack {
     this.vpc = new Vpc(this, "Vpc", {
       ipAddresses: IpAddresses.cidr(config.cidr),
       maxAzs: 2,
-      natGateways: config.name === "production" ? 2 : 1,
+      natGateways: 0,
       subnetConfiguration: [
         { name: "public", subnetType: SubnetType.PUBLIC, cidrMask: 24 },
-        {
-          name: "application",
-          subnetType: SubnetType.PRIVATE_WITH_EGRESS,
-          cidrMask: 24,
-        },
         {
           name: "isolated",
           subnetType: SubnetType.PRIVATE_ISOLATED,
@@ -41,11 +35,6 @@ export class NetworkStack extends Stack {
         },
       ],
     });
-    this.loadBalancerSecurityGroup = new SecurityGroup(
-      this,
-      "LoadBalancerSecurityGroup",
-      { vpc: this.vpc },
-    );
     this.applicationSecurityGroup = new SecurityGroup(
       this,
       "ApplicationSecurityGroup",
@@ -57,30 +46,15 @@ export class NetworkStack extends Stack {
       { vpc: this.vpc },
     );
 
-    this.loadBalancerSecurityGroup.addIngressRule(
+    this.applicationSecurityGroup.addIngressRule(
       Peer.anyIpv4(),
       Port.tcp(80),
-      "public HTTP until an ACM domain enables HTTPS",
+      "public HTTP for ACME and HTTPS redirect",
     );
-    this.loadBalancerSecurityGroup.addIngressRule(
-      Peer.anyIpv6(),
-      Port.tcp(80),
-      "public HTTP IPv6 until an ACM domain enables HTTPS",
-    );
-    this.loadBalancerSecurityGroup.addIngressRule(
+    this.applicationSecurityGroup.addIngressRule(
       Peer.anyIpv4(),
       Port.tcp(443),
       "public HTTPS",
-    );
-    this.loadBalancerSecurityGroup.addIngressRule(
-      Peer.anyIpv6(),
-      Port.tcp(443),
-      "public HTTPS IPv6",
-    );
-    this.applicationSecurityGroup.addIngressRule(
-      this.loadBalancerSecurityGroup,
-      Port.tcp(80),
-      "nginx from ALB",
     );
     this.databaseSecurityGroup.addIngressRule(
       this.applicationSecurityGroup,
