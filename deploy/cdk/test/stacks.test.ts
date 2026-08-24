@@ -7,7 +7,6 @@ import { StorageStack } from "../lib/storage-stack.js";
 import { DataStack } from "../lib/data-stack.js";
 import { ApplicationStack } from "../lib/application-stack.js";
 import { DeploymentIdentityStack } from "../lib/deployment-identity-stack.js";
-import { GitHubIdentityProviderStack } from "../lib/github-identity-provider-stack.js";
 
 test("staging network has isolated data subnets", () => {
   const stack = new NetworkStack(
@@ -72,10 +71,6 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     databaseSecretArn: data.database.secret?.secretArn ?? "missing",
     alarmTopic: storage.alarmTopic,
   });
-  const identityProvider = new GitHubIdentityProviderStack(
-    app,
-    "SharedGitHubIdentity",
-  );
   const deploymentIdentity = new DeploymentIdentityStack(
     app,
     "LowCostDeploymentIdentity",
@@ -85,7 +80,6 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
       environment: "staging",
       artifactBucket: storage.artifactBucket,
       instanceId: application.instanceId,
-      providerArn: identityProvider.providerArn,
     },
   );
   const applicationTemplate = Template.fromStack(application);
@@ -109,12 +103,11 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(applicationJson).toContain("upskill-worker.env");
   expect(applicationJson).toContain("upskill-deploy.env");
   expect(applicationJson).toContain("/swapfile");
-  Template.fromStack(identityProvider).resourceCountIs(
-    "AWS::IAM::OIDCProvider",
-    1,
-  );
   const deploymentIdentityTemplate = Template.fromStack(deploymentIdentity);
   deploymentIdentityTemplate.resourceCountIs("AWS::IAM::OIDCProvider", 0);
+  expect(JSON.stringify(deploymentIdentityTemplate.toJSON())).toContain(
+    "oidc-provider/token.actions.githubusercontent.com",
+  );
   deploymentIdentityTemplate.hasResourceProperties("AWS::IAM::Role", {
     AssumeRolePolicyDocument: {
       Statement: Match.arrayWith([

@@ -429,12 +429,22 @@ const deploymentIdentity = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
   "utf8",
 );
-if (
-  deploymentIdentity.includes("new OpenIdConnectProvider") ||
-  !deploymentIdentity.includes("providerArn: string")
-)
+for (const invariant of [
+  "ArnFormat.SLASH_RESOURCE_NAME",
+  'resource: "oidc-provider"',
+  'resourceName: "token.actions.githubusercontent.com"',
+])
+  if (!deploymentIdentity.includes(invariant))
+    failures.push(
+      `Shared GitHub OIDC provider reference is missing: ${invariant}`,
+    );
+const cdkEntrypoint = fs.readFileSync(
+  path.join(root, "deploy/cdk/bin/upskill.ts"),
+  "utf8",
+);
+if (cdkEntrypoint.includes("GitHubIdentityProviderStack"))
   failures.push(
-    "Environment deployment roles must use the shared GitHub OIDC provider",
+    "Upskill must reference the account-wide GitHub OIDC provider instead of owning a duplicate",
   );
 const cdkConfiguration = JSON.parse(
   fs.readFileSync(path.join(root, "deploy/cdk/cdk.json"), "utf8"),

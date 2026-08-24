@@ -1,4 +1,4 @@
-import { CfnOutput, Stack, type StackProps } from "aws-cdk-lib";
+import { ArnFormat, CfnOutput, Stack, type StackProps } from "aws-cdk-lib";
 import {
   Effect,
   FederatedPrincipal,
@@ -14,7 +14,6 @@ export interface DeploymentIdentityStackProps extends StackProps {
   environment: string;
   artifactBucket: Bucket;
   instanceId: string;
-  providerArn: string;
 }
 
 export class DeploymentIdentityStack extends Stack {
@@ -25,9 +24,16 @@ export class DeploymentIdentityStack extends Stack {
   ) {
     super(scope, id, props);
     const subject = `repo:${props.owner}/${props.repository}:environment:${props.environment}`;
+    const githubOidcProviderArn = this.formatArn({
+      service: "iam",
+      region: "",
+      resource: "oidc-provider",
+      resourceName: "token.actions.githubusercontent.com",
+      arnFormat: ArnFormat.SLASH_RESOURCE_NAME,
+    });
     const role = new Role(this, "GitHubDeploymentRole", {
       assumedBy: new FederatedPrincipal(
-        props.providerArn,
+        githubOidcProviderArn,
         {
           StringEquals: {
             "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",

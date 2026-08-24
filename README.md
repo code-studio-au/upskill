@@ -201,8 +201,10 @@ lookup ID is stored in PostgreSQL and requires no separate secret.
 Set the corresponding GitHub environment's `AWS_DEPLOY_ROLE_ARN` and
 `ARTIFACT_BUCKET` secrets from the deployment-identity and storage stack
 outputs. The account-wide GitHub OIDC provider lives in the shared
-`upskill-github-identity-provider` stack; both environment-specific deployment
-roles reference it, so staging and production can coexist in one AWS account.
+`ProjexGithubIdentity` stack in the current Code Studio AWS account. Upskill
+references that canonical provider by ARN and creates only repository- and
+environment-scoped deployment roles. Do not duplicate, replace or transfer
+CloudFormation ownership of the provider when adding an Upskill environment.
 
 Authenticate to the intended AWS account, confirm the Sydney region, then
 bootstrap and deploy the staging infrastructure from the pinned CDK workspace:
@@ -216,8 +218,11 @@ pnpm --dir deploy/cdk exec cdk deploy --all --context environment=staging
 
 Use a named IAM Identity Center or administrative role for this bootstrap; the
 identity returned by `aws sts get-caller-identity` must not be the AWS account
-root. Keep Upskill in its intended account boundary rather than deploying its
-VPC, data stores, secrets or GitHub OIDC provider into the Projex environment.
+root. Upskill and Projex currently share the Code Studio AWS account, so retain
+the `upskill-<environment>-*` stack names, `Application=upskill` tags and
+dedicated least-privilege roles. Do not reuse Projex deploy users or policies;
+the only shared deployment identity resource is the existing account-wide
+GitHub OIDC provider.
 Review the IAM/security-group changes when CDK prompts; do not suppress that
 approval for the first environment. The stack outputs identify the application
 configuration secret, Elastic IP, artifact bucket and GitHub deployment role.
