@@ -18,7 +18,7 @@ if [[ ! "$release_sha" =~ ^[a-f0-9]{40}$ ]]; then
   echo "Release SHA must be a full lowercase Git commit" >&2
   exit 1
 fi
-for required_path in dist/server/server.js dist/client dist/worker/scorm-worker.js src/server/db/migrate.ts src/server/db/provision-runtime-roles.ts src/server/db/migrations package.json pnpm-lock.yaml pnpm-workspace.yaml scripts/start-server.mjs scripts/bootstrap-platform-admin.mjs deploy/scripts/install-release.sh deploy/scripts/bootstrap-platform-admin.sh; do
+for required_path in dist/server/server.js dist/client dist/worker/scorm-worker.js src/server/db/migrate.ts src/server/db/provision-runtime-roles.ts src/server/db/migrations src/server/runtime-environment.ts src/validation/zod.server.ts package.json pnpm-lock.yaml pnpm-workspace.yaml scripts/start-server.mjs scripts/validate-runtime-environment.ts scripts/bootstrap-platform-admin.mjs deploy/scripts/install-release.sh deploy/scripts/bootstrap-platform-admin.sh; do
   if [[ ! -e "$required_path" ]]; then
     echo "Missing release input: $required_path" >&2
     exit 1
@@ -34,7 +34,10 @@ tar -czf "$artifact_path" \
   src/server/db/migrate.ts \
   src/server/db/provision-runtime-roles.ts \
   src/server/db/migrations \
+  src/server/runtime-environment.ts \
+  src/validation/zod.server.ts \
   scripts/start-server.mjs \
+  scripts/validate-runtime-environment.ts \
   scripts/bootstrap-platform-admin.mjs \
   scripts/http-compression.mjs \
   scripts/report-operational-metrics.mjs \

@@ -38,6 +38,13 @@ Initial setup runs `db:migrate` explicitly because the seed commands need the
 schema before the development supervisor starts. Later `pnpm dev` runs apply
 only pending migrations.
 
+`.env.example` is the non-secret local configuration contract; copy it to the
+ignored `.env.local` and customize only that local file. Do not copy real local
+credentials back into `.env.example`. `ACCESS_CODE_PEPPER` is obsolete and must
+not be configured; local access-code recovery uses `ACCESS_CODE_ENCRYPTION_KEY`
+or the documented development-only fallback. Deployed environments never read
+either local environment file.
+
 Local email is captured in PostgreSQL by default. To send it through Mailgun,
 set `EMAIL_PROVIDER=mailgun`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN` and
 `MAILGUN_FROM` in `.env.local`; use `MAILGUN_API_BASE_URL` for an EU-region
@@ -194,8 +201,34 @@ lookup ID is stored in PostgreSQL and requires no separate secret.
 Set the corresponding GitHub environment's `AWS_DEPLOY_ROLE_ARN` and
 `ARTIFACT_BUCKET` secrets from the deployment-identity and storage stack
 outputs. The account-wide GitHub OIDC provider lives in the shared
-`upskill-github-identity-provider` stack; both environment-specific deployment
-roles reference it, so staging and production can coexist in one AWS account.
+`ProjexGithubIdentity` stack in the current Code Studio AWS account. Upskill
+references that canonical provider by ARN and creates only repository- and
+environment-scoped deployment roles. Do not duplicate, replace or transfer
+CloudFormation ownership of the provider when adding an Upskill environment.
+
+Authenticate to the intended AWS account, confirm the Sydney region, then
+bootstrap and deploy the staging infrastructure from the pinned CDK workspace:
+
+```sh
+aws login
+aws sts get-caller-identity
+pnpm --dir deploy/cdk exec cdk bootstrap aws://<aws-account-id>/ap-southeast-2
+pnpm --dir deploy/cdk exec cdk deploy --all --context environment=staging
+```
+
+Use a named IAM Identity Center or administrative role for this bootstrap; the
+identity returned by `aws sts get-caller-identity` must not be the AWS account
+root. Upskill and Projex currently share the Code Studio AWS account, so retain
+the `upskill-<environment>-*` stack names, `Application=upskill` tags and
+dedicated least-privilege roles. Do not reuse Projex deploy users or policies;
+the only shared deployment identity resource is the existing account-wide
+GitHub OIDC provider.
+Review the IAM/security-group changes when CDK prompts; do not suppress that
+approval for the first environment. The stack outputs identify the application
+configuration secret, Elastic IP, artifact bucket and GitHub deployment role.
+Replace the configuration-secret placeholders through Secrets Manager before
+the first application deployment. The deployment performs another fail-closed
+runtime validation before it can run migrations.
 
 Each environment deliberately uses one Sydney-region `t4g.micro` EC2 instance
 with an Elastic IP and one isolated `db.t4g.micro` PostgreSQL instance. This is
@@ -204,9 +237,15 @@ uses a small encrypted root volume plus swap so the 1 GiB instance can tolerate
 short memory bursts without adding an always-on compute tier. Create
 public DNS A records for the distinct application and learning origins using
 the application stack's Elastic IP output. Create the matching GitHub
-environment and populate its two deployment secrets, then run the first manual
-deployment workflow. That release installs the nginx ACME configuration and
-certificate provisioning command. After DNS resolves, connect with SSM and run:
+`staging` environment, restrict its deployment branches to `main`, and populate
+its two deployment secrets. This repository has one maintainer, so the
+environment deliberately has no required-reviewer rule; the manual workflow
+instead requires the exact 40-character `main` commit SHA as an independent
+confirmation. Run the first deployment from `main` and enter that SHA. The
+release is checksummed and receives signed GitHub build-provenance attestation
+before upload. It installs an nginx ACME configuration that returns only a
+non-cacheable maintenance response over public HTTP until TLS is active. After
+DNS resolves, connect with SSM and run:
 
 ```sh
 sudo /usr/local/bin/upskill-provision-letsencrypt-cert \
@@ -219,6 +258,12 @@ deployment workflow uploads one commit-addressed archive, waits for the exact
 SSM command, migrates with the administrative database credential, provisions
 the restricted web/worker roles, activates atomically and verifies `/api/ready`
 against the commit SHA. Do not run seeds in either deployed environment.
+Verify the published provenance for the exact downloaded release when required:
+
+```sh
+gh attestation verify upskill-<commit-sha>.tar.gz \
+  --repo code-studio-au/upskill
+```
 
 After public TLS is active, create and verify the intended first administrator
 through the normal sign-up flow. Bootstrap that one account through SSM:

@@ -95,6 +95,7 @@ try {
   const environment = {
     ...process.env,
     APP_ENV: "test",
+    ACCESS_CODE_ENCRYPTION_KEY: "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE",
     DATABASE_URL: disposableDatabase.databaseUrl,
     MIGRATION_DATABASE_URL: disposableDatabase.databaseUrl,
     EMAIL_PROVIDER: "local_capture",

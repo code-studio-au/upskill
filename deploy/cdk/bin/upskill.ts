@@ -4,7 +4,6 @@ import { ApplicationStack } from "../lib/application-stack.js";
 import { environmentConfig } from "../lib/config.js";
 import { DataStack } from "../lib/data-stack.js";
 import { DeploymentIdentityStack } from "../lib/deployment-identity-stack.js";
-import { GitHubIdentityProviderStack } from "../lib/github-identity-provider-stack.js";
 import { NetworkStack } from "../lib/network-stack.js";
 import { StorageStack } from "../lib/storage-stack.js";
 
@@ -14,11 +13,6 @@ const stackPrefix = `upskill-${config.name}`;
 const account = process.env.CDK_DEFAULT_ACCOUNT;
 const region = process.env.CDK_DEFAULT_REGION;
 const stackProps = account && region ? { env: { account, region } } : {};
-const identityProvider = new GitHubIdentityProviderStack(
-  app,
-  "upskill-github-identity-provider",
-  stackProps,
-);
 const network = new NetworkStack(
   app,
   `${stackPrefix}-network`,
@@ -62,11 +56,9 @@ const deploymentIdentity = new DeploymentIdentityStack(
     environment: config.name,
     artifactBucket: storage.artifactBucket,
     instanceId: application.instanceId,
-    providerArn: identityProvider.providerArn,
   },
 );
 for (const stack of [network, storage, data, application, deploymentIdentity]) {
   Tags.of(stack).add("Application", "upskill");
   Tags.of(stack).add("Environment", config.name);
 }
-Tags.of(identityProvider).add("Application", "upskill");

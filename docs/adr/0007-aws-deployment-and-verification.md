@@ -13,7 +13,15 @@ Scaling until measured availability or capacity needs justify them. The public
 application and isolated learning origins terminate Let's Encrypt TLS at nginx;
 RDS remains isolated and requires verified TLS from all application roles.
 GitHub Actions uses OIDC and promotes one immutable, checksummed artifact
-through staging to production.
+through staging to production. Manual deployment is restricted to `main` and
+requires the operator to confirm its exact commit SHA. GitHub signs build
+provenance for the exact release archive before S3 upload. The bootstrap nginx
+configuration exposes ACME plus a maintenance response only; public application
+traffic begins after the distinct application and learning origins have valid
+TLS. In the current shared Code Studio AWS account, Projex retains CloudFormation
+ownership of the single account-wide GitHub Actions OIDC provider; Upskill
+references its canonical ARN and owns only its repository- and
+environment-scoped deployment roles.
 
 ## Consequences
 

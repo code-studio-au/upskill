@@ -140,6 +140,7 @@ try {
   const testEnvironment = {
     ...process.env,
     APP_ENV: "test",
+    ACCESS_CODE_ENCRYPTION_KEY: "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE",
     DATABASE_URL: disposableDatabase.databaseUrl,
     PLAYWRIGHT_PORT: browserPort,
     PLAYWRIGHT_LEARNING_PORT: learningPort,
