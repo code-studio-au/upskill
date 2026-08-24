@@ -51,12 +51,11 @@ through TextBee, set `SMS_PROVIDER=textbee`, `TEXTBEE_API_KEY` and
 `TEXTBEE_DEVICE_ID` is optional; when omitted, TextBee selects the default or
 most recently active device. Never commit either TextBee secret.
 
-The project is currently pre-production with no real data. Accepted breaking
-domain changes may rebase the migration chain and require a reset of only
-`.local/postgres`; see ADR 0021. This temporary policy ends before the first
-non-disposable environment or external user, when the migration baseline is
-frozen and all later schema changes become forward-only. Object-storage data is
-not implicitly removed by a database reset.
+Migration baseline v1 freezes migrations `0001` through `0072`; see ADR 0021.
+Every later schema change is a sequential, forward-only migration and the
+normal application gate verifies the frozen files by SHA-256. Existing local
+databases remain upgradeable and must not be reset as a migration strategy.
+Object-storage data is never implicitly removed by a database operation.
 
 To exercise the production asset and HTTP-compression path locally, run:
 
@@ -204,8 +203,10 @@ the lowest-cost supported topology and has no automatic host failover. The host
 uses a small encrypted root volume plus swap so the 1 GiB instance can tolerate
 short memory bursts without adding an always-on compute tier. Create
 public DNS A records for the distinct application and learning origins using
-the application stack's Elastic IP output. After DNS resolves, connect with SSM
-and run:
+the application stack's Elastic IP output. Create the matching GitHub
+environment and populate its two deployment secrets, then run the first manual
+deployment workflow. That release installs the nginx ACME configuration and
+certificate provisioning command. After DNS resolves, connect with SSM and run:
 
 ```sh
 sudo /usr/local/bin/upskill-provision-letsencrypt-cert \
@@ -214,11 +215,22 @@ sudo /usr/local/bin/upskill-provision-letsencrypt-cert \
 
 The command obtains and renews one Let's Encrypt certificate for both names,
 renders the production nginx configuration and enables the renewal timer. The
-deployment workflow then uploads one commit-addressed archive, waits for the
-exact SSM command, migrates with the administrative database credential,
-provisions the restricted web/worker roles, activates atomically and verifies
-`/api/ready` against the commit SHA. Do not run seeds in either deployed
-environment.
+deployment workflow uploads one commit-addressed archive, waits for the exact
+SSM command, migrates with the administrative database credential, provisions
+the restricted web/worker roles, activates atomically and verifies `/api/ready`
+against the commit SHA. Do not run seeds in either deployed environment.
+
+After public TLS is active, create and verify the intended first administrator
+through the normal sign-up flow. Bootstrap that one account through SSM:
+
+```sh
+sudo /usr/local/sbin/upskill-bootstrap-platform-admin admin@codestudio.au
+```
+
+The command requires an active account with a verified email, succeeds
+idempotently for that same administrator, refuses to replace an existing
+administrator, and records the one-time privilege grant in the durable audit
+log. All later administrator changes must use authenticated product workflows.
 
 Configure Stripe to send `checkout.session.completed`,
 `checkout.session.async_payment_succeeded`,

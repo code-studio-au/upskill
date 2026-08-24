@@ -5,6 +5,7 @@ import { createDisposablePostgresDatabase } from "./disposable-postgres.mjs";
 const verificationScripts = [
   "src/server/db/migrate.ts",
   "scripts/verify-migrations.ts",
+  "scripts/verify-platform-admin-bootstrap.ts",
   "scripts/verify-audit-logging.ts",
   "scripts/verify-access-code-redemption.ts",
   "scripts/verify-course-checkout.ts",
@@ -95,6 +96,7 @@ try {
     ...process.env,
     APP_ENV: "test",
     DATABASE_URL: disposableDatabase.databaseUrl,
+    MIGRATION_DATABASE_URL: disposableDatabase.databaseUrl,
     EMAIL_PROVIDER: "local_capture",
     SMS_PROVIDER: "local_capture",
   };

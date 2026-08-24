@@ -69,6 +69,12 @@ if (!packageJson.scripts.doctor.includes("--blocking error"))
   failures.push("React Doctor must fail verification on error diagnostics");
 if (!packageJson.scripts["verify:app:static"].includes("pnpm run doctor"))
   failures.push("React Doctor must remain part of application verification");
+if (
+  !packageJson.scripts["verify:app:static"].includes(
+    "pnpm run verify:migration-baseline",
+  )
+)
+  failures.push("The frozen migration baseline must run in application CI");
 if (!packageJson.scripts.build.includes("vite.worker.config.ts"))
   failures.push("Production builds must include the asynchronous worker");
 if (
@@ -341,6 +347,7 @@ for (const invariant of [
   "/api/ready?deploymentId=${previous_sha}",
   "/api/ready?deploymentId=",
   "Release failed readiness checks and was rolled back",
+  "/usr/local/sbin/upskill-bootstrap-platform-admin",
 ])
   if (!installRelease.includes(invariant))
     failures.push(`Release installation safety is missing: ${invariant}`);
@@ -373,6 +380,27 @@ if (
   failures.push(
     "Environment deployment roles must use the shared GitHub OIDC provider",
   );
+const cdkConfiguration = JSON.parse(
+  fs.readFileSync(path.join(root, "deploy/cdk/cdk.json"), "utf8"),
+);
+if (cdkConfiguration.context?.githubOwner !== "code-studio-au")
+  failures.push("GitHub OIDC must trust the canonical repository owner");
+const bootstrapAdministrator = fs.readFileSync(
+  path.join(root, "scripts/bootstrap-platform-admin.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  "MIGRATION_DATABASE_URL is required to bootstrap a deployed environment",
+  "pg_advisory_xact_lock",
+  'user.accountState !== "active"',
+  "!user.emailVerified",
+  "authorization.platform_admin.bootstrapped",
+  "first_environment_bootstrap",
+])
+  if (!bootstrapAdministrator.includes(invariant))
+    failures.push(
+      `Platform-administrator bootstrap boundary is missing: ${invariant}`,
+    );
 const nginx = fs.readFileSync(
   path.join(root, "deploy/nginx/upskill.conf"),
   "utf8",

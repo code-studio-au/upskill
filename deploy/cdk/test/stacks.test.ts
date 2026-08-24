@@ -80,7 +80,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     app,
     "LowCostDeploymentIdentity",
     {
-      owner: "codestudio-au",
+      owner: "code-studio-au",
       repository: "upskill",
       environment: "staging",
       artifactBucket: storage.artifactBucket,
@@ -113,10 +113,23 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     "AWS::IAM::OIDCProvider",
     1,
   );
-  Template.fromStack(deploymentIdentity).resourceCountIs(
-    "AWS::IAM::OIDCProvider",
-    0,
-  );
+  const deploymentIdentityTemplate = Template.fromStack(deploymentIdentity);
+  deploymentIdentityTemplate.resourceCountIs("AWS::IAM::OIDCProvider", 0);
+  deploymentIdentityTemplate.hasResourceProperties("AWS::IAM::Role", {
+    AssumeRolePolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Condition: {
+            StringEquals: {
+              "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+              "token.actions.githubusercontent.com:sub":
+                "repo:code-studio-au/upskill:environment:staging",
+            },
+          },
+        }),
+      ]),
+    },
+  });
   Template.fromStack(data).hasResourceProperties("AWS::RDS::DBInstance", {
     DBInstanceClass: "db.t4g.micro",
     AllocatedStorage: "20",

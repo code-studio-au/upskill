@@ -10,10 +10,10 @@ is complete.
 | 0001 | [TanStack Start application model](0001-tanstack-start-application-model.md)                                               | Accepted                                                   |
 | 0002 | [Identity, commerce and authorization](0002-identity-commerce-authorization.md)                                            | Accepted                                                   |
 | 0003 | [Versioned learning domain](0003-versioned-learning-domain.md)                                                             | Accepted                                                   |
-| 0004 | [SCORM and object storage](0004-scorm-and-object-storage.md)                                                               | Accepted                                                   |
+| 0004 | [SCORM and object storage](0004-scorm-and-object-storage.md)                                                               | Accepted; CloudFront portion superseded by 0036            |
 | 0005 | [Mantine, CSP and responsive UI](0005-mantine-csp-responsive-ui.md)                                                        | Accepted                                                   |
 | 0006 | [Runtime and dependency cohorts](0006-runtime-and-dependency-cohorts.md)                                                   | Accepted                                                   |
-| 0007 | [AWS deployment and verification](0007-aws-deployment-and-verification.md)                                                 | Accepted                                                   |
+| 0007 | [AWS deployment and verification](0007-aws-deployment-and-verification.md)                                                 | Accepted; CloudFront portion superseded by 0036            |
 | 0008 | [SQS worker delivery](0008-sqs-worker-delivery.md)                                                                         | Accepted                                                   |
 | 0009 | [Structured logging and durable audit projection](0009-structured-logging-and-durable-audit.md)                            | Accepted                                                   |
 | 0010 | [Versioned course authoring and section progress](0010-versioned-course-authoring-and-section-progress.md)                 | Accepted                                                   |
@@ -27,7 +27,7 @@ is complete.
 | 0018 | [Audited progress overrides](0018-audited-progress-overrides.md)                                                           | Accepted                                                   |
 | 0019 | [Encrypted recoverable access codes](0019-encrypted-recoverable-access-codes.md)                                           | Accepted and implemented                                   |
 | 0020 | [Stable learning activities and immutable activity versions](0020-learning-activity-versions.md)                           | Accepted                                                   |
-| 0021 | [Pre-production schema rebaselining](0021-pre-production-schema-rebaselining.md)                                           | Temporary pre-production policy                            |
+| 0021 | [Pre-production schema rebaselining](0021-pre-production-schema-rebaselining.md)                                           | Baseline v1 frozen at migration 0072                       |
 | 0022 | [Stable identity and historical attribution](0022-stable-identity-and-historical-attribution.md)                           | Accepted; target adoption is feature-specific              |
 | 0023 | [User onboarding and open-entry guest check-in](0023-onboarding-and-open-entry-guest-check-in.md)                          | Accepted; onboarding and initial guest access implemented  |
 | 0024 | [Event prerequisite recovery and passwordless access](0024-event-prerequisite-recovery-and-passwordless-access.md)         | Email/SMS OTP task access implemented; fallback pending    |
@@ -42,3 +42,4 @@ is complete.
 | 0033 | [Forward-only Survey branching](0033-forward-only-survey-branching.md)                                                     | Accepted and implemented                                   |
 | 0034 | [Source-neutral entitlements and Access Owner disclosure](0034-source-neutral-entitlements-and-access-owner-disclosure.md) | Accepted and implemented for course access                 |
 | 0035 | [Bulk-order Checkout and refund preservation](0035-bulk-order-checkout-and-refund-preservation.md)                         | Accepted and implemented for course access grants          |
+| 0036 | [Initial authenticated SCORM content delivery](0036-initial-scorm-content-delivery.md)                                     | Accepted and implemented                                   |

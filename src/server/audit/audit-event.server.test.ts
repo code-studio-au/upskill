@@ -15,6 +15,7 @@ describe("audit event boundary", () => {
       "access_grant.owner_assigned",
       "access_grant.owner_code_revealed",
       "access_grant.owner_revoked",
+      "authorization.platform_admin.bootstrapped",
       "course.archived",
       "course.created",
       "course.deleted",

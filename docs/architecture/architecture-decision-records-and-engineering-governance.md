@@ -180,14 +180,14 @@ history remain distinct.
 | Application model and runtime                        | [0001](../adr/0001-tanstack-start-application-model.md), [0006](../adr/0006-runtime-and-dependency-cohorts.md), [0013](../adr/0013-tanstack-form-and-client-budget.md)                                                                                                                                                                                                         | Implemented                                                                       |
 | Identity, commerce and authorization                 | [0002](../adr/0002-identity-commerce-authorization.md), [0022](../adr/0022-stable-identity-and-historical-attribution.md)                                                                                                                                                                                                                                                      | Current identity implemented; historical-attribution adoption is feature-specific |
 | Versioned learning and content                       | [0003](../adr/0003-versioned-learning-domain.md), [0010](../adr/0010-versioned-course-authoring-and-section-progress.md), [0011](../adr/0011-versioned-surveys-and-response-evidence.md), [0012](../adr/0012-versioned-pdf-resource-library.md), [0020](../adr/0020-learning-activity-versions.md), [0030](../adr/0030-standard-survey-question-types-and-option-authoring.md) | Common envelope implemented; expanded Survey types are target work                |
-| SCORM, storage and asynchronous delivery             | [0004](../adr/0004-scorm-and-object-storage.md), [0008](../adr/0008-sqs-worker-delivery.md)                                                                                                                                                                                                                                                                                    | Implemented for the current work-command allowlist                                |
+| SCORM, storage and asynchronous delivery             | [0004](../adr/0004-scorm-and-object-storage.md), [0008](../adr/0008-sqs-worker-delivery.md), [0036](../adr/0036-initial-scorm-content-delivery.md)                                                                                                                                                                                                                             | Implemented with authenticated application-proxy content delivery                 |
 | Mantine, CSP and responsive UI                       | [0005](../adr/0005-mantine-csp-responsive-ui.md)                                                                                                                                                                                                                                                                                                                               | Implemented                                                                       |
 | AWS deployment and local delivery fidelity           | [0007](../adr/0007-aws-deployment-and-verification.md), [0017](../adr/0017-local-tls-and-http-compression.md)                                                                                                                                                                                                                                                                  | Implemented: immutable releases, verified activation and local delivery fidelity  |
 | Audit, logging and progress corrections              | [0009](../adr/0009-structured-logging-and-durable-audit.md), [0018](../adr/0018-audited-progress-overrides.md)                                                                                                                                                                                                                                                                 | Implemented                                                                       |
 | Certificates                                         | [0014](../adr/0014-completion-certificate-issuance.md)                                                                                                                                                                                                                                                                                                                         | Implemented                                                                       |
 | Administrator enrolment and access-grant lifecycle   | [0015](../adr/0015-administrator-enrollment-lifecycle.md), [0016](../adr/0016-administrator-access-grant-lifecycle.md)                                                                                                                                                                                                                                                         | Implemented lifecycle                                                             |
 | Encrypted recoverable access codes                   | [0019](../adr/0019-encrypted-recoverable-access-codes.md)                                                                                                                                                                                                                                                                                                                      | Implemented                                                                       |
-| Database migration policy                            | [0007](../adr/0007-aws-deployment-and-verification.md), [0021](../adr/0021-pre-production-schema-rebaselining.md)                                                                                                                                                                                                                                                              | Resettable pre-production baseline; forward-only after production trigger         |
+| Database migration policy                            | [0007](../adr/0007-aws-deployment-and-verification.md), [0021](../adr/0021-pre-production-schema-rebaselining.md)                                                                                                                                                                                                                                                              | Baseline v1 frozen; all later migrations are forward-only                         |
 | Onboarding and open-entry guest check-in             | [0022](../adr/0022-stable-identity-and-historical-attribution.md), [0023](../adr/0023-onboarding-and-open-entry-guest-check-in.md), [0029](../adr/0029-survey-backed-versioned-user-onboarding.md)                                                                                                                                                                             | Onboarding and initial open-entry guest access implemented                        |
 | Event prerequisite recovery and passwordless auth    | [0024](../adr/0024-event-prerequisite-recovery-and-passwordless-access.md)                                                                                                                                                                                                                                                                                                     | Email/SMS OTP task access implemented; facilitated fallback pending               |
 | Event registration finalisation and Section release  | [0025](../adr/0025-event-registration-finalisation-and-section-release.md)                                                                                                                                                                                                                                                                                                     | Implemented                                                                       |
@@ -396,17 +396,11 @@ Update the Security Architecture document when the trust model changes.
 
 ## Database Migration Governance
 
-Upskill currently has no non-disposable environment or real user data. Under
-[ADR 0021](../adr/0021-pre-production-schema-rebaselining.md), an accepted
-breaking domain change may therefore rebase existing migration files and reset
-local/CI PostgreSQL data. Fresh-database construction, complete database
-behaviour verification, current generated types and removal of the obsolete
-model are required. This is a temporary flexibility policy, not a production
-migration technique.
-
-At the production-baseline trigger in ADR 0021, executed migrations freeze.
-From that point migrations must be forward-safe and deployable with the
-application release strategy.
+Migration baseline v1 freezes migrations `0001` through `0072` under
+[ADR 0021](../adr/0021-pre-production-schema-rebaselining.md). The repository
+verifies their exact hashes and sequential names. Every later schema change must
+be a new forward-safe migration deployable with the application release
+strategy; resetting retained local, staging or production data is prohibited.
 
 For high-risk schema changes:
 
@@ -417,7 +411,7 @@ For high-risk schema changes:
 5.  verify data/invariants; and
 6.  remove obsolete schema in a later release.
 
-After that trigger, avoid a migration that requires every application instance
+Avoid a migration that requires every application instance
 to switch atomically unless deployment guarantees that behaviour. Never use the
 pre-production reset permission to weaken published-content, evidence or audit
 immutability inside the product model.
@@ -607,8 +601,8 @@ and status.
 2.  **Durable architectural decisions retain historical ADR context.**
 3.  **Significant invariant changes require explicit review.**
 4.  **Critical invariants are enforced/tested, not only documented.**
-5.  **Message changes remain deployable across rolling versions; database
-    schema changes do so after the production-baseline trigger.**
+5.  **Message and database schema changes remain deployable across rolling
+    versions; frozen migration history is never rewritten.**
 6.  **Security trust-boundary changes trigger security review/document
     updates.**
 7.  **Roadmap documents may evolve; accepted ADR history is preserved.**
@@ -620,8 +614,8 @@ and status.
 
 ## Recommended Next Steps
 
-1.  Freeze the migration baseline and enable forward-only enforcement before
-    the first non-disposable environment or external user.
+1.  Preserve the frozen migration baseline and exercise upgrade paths as
+    forward-only migrations accumulate.
 2.  Keep current product, target product and future possibilities explicit in
     every document that spans more than one horizon.
 3.  Add documentation/ADR prompts to significant PR templates.
