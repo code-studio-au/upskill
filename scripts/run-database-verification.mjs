@@ -18,6 +18,7 @@ const verificationScripts = [
   "scripts/verify-admin-course-authoring.ts",
   "scripts/verify-survey-workflow.ts",
   "scripts/verify-onboarding-workflow.ts",
+  "scripts/verify-learner-profile.ts",
   "scripts/verify-resource-library.ts",
   "scripts/verify-completion-certificates.ts",
   "scripts/verify-event-foundation.ts",

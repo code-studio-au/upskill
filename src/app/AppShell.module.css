@@ -154,6 +154,19 @@
   text-overflow: ellipsis;
 }
 
+.accountProfileLink {
+  padding: 0.6rem 0.5rem;
+  border-radius: var(--mantine-radius-md);
+  color: var(--mantine-color-gray-8);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+.accountProfileLink:hover {
+  color: var(--mantine-color-indigo-8);
+  background: var(--mantine-color-indigo-0);
+}
+
 .menuLink {
   display: flex;
   min-height: 3rem;

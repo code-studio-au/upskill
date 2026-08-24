@@ -141,14 +141,14 @@ export async function sendEventPrerequisiteRecoveryEmail(
   });
 }
 
-export async function sendOnboardingVerificationEmail(
+export async function sendContactVerificationEmail(
   database: Kysely<Database>,
   message: Omit<EmailDelivery, "notificationId"> & { challengeId: string },
 ): Promise<{ messageId: string }> {
   const environment = getServerEnv();
   if (environment.EMAIL_PROVIDER === "local_capture") {
     await database
-      .insertInto("onboarding_email_verification_capture")
+      .insertInto("contact_verification_email_capture")
       .values({
         challengeId: message.challengeId,
         recipientEmail: message.recipientEmail,

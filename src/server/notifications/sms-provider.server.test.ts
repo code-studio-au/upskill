@@ -75,11 +75,11 @@ describe("SMS provider boundary", () => {
     );
   });
 
-  it("captures onboarding SMS in its dedicated security table", async () => {
-    const { sendOnboardingVerificationSms } =
+  it("captures contact-verification SMS in its security table", async () => {
+    const { sendContactVerificationSms } =
       await import("./sms-provider.server");
     await expect(
-      sendOnboardingVerificationSms(
+      sendContactVerificationSms(
         {
           insertInto: mocks.insertInto,
           updateTable: mocks.updateTable,
@@ -91,10 +91,11 @@ describe("SMS provider boundary", () => {
           recipientPhone: "+61400000000",
           message: "Your verification code is 123456.",
         },
+        "onboarding_contact_verification",
       ),
     ).resolves.toEqual({ messageId: "local:onboarding_challenge_1" });
     expect(mocks.insertInto).toHaveBeenCalledWith(
-      "onboarding_sms_verification_capture",
+      "contact_verification_sms_capture",
     );
   });
 
@@ -181,7 +182,7 @@ describe("SMS provider boundary", () => {
   });
 
   it("records a transport failure as unknown because TextBee may have accepted it", async () => {
-    const { isAmbiguousSmsDeliveryError, sendOnboardingVerificationSms } =
+    const { isAmbiguousSmsDeliveryError, sendContactVerificationSms } =
       await import("./sms-provider.server");
     mocks.environment = {
       SMS_PROVIDER: "textbee",
@@ -192,7 +193,7 @@ describe("SMS provider boundary", () => {
     };
     mocks.fetch.mockRejectedValue(new TypeError("connection reset"));
 
-    const result = sendOnboardingVerificationSms(
+    const result = sendContactVerificationSms(
       {
         insertInto: mocks.insertInto,
         updateTable: mocks.updateTable,
@@ -204,6 +205,7 @@ describe("SMS provider boundary", () => {
         recipientPhone: "+61400000005",
         message: "Your verification code is 123456.",
       },
+      "onboarding_contact_verification",
     );
 
     await expect(result).rejects.toThrow("SMS_PROVIDER_REQUEST_FAILED");

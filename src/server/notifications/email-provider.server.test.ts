@@ -85,23 +85,20 @@ describe("email provider boundary", () => {
     );
   });
 
-  it("keeps onboarding codes in their own local security capture", async () => {
-    const { sendOnboardingVerificationEmail } =
+  it("keeps contact-verification codes in their own local security capture", async () => {
+    const { sendContactVerificationEmail } =
       await import("./email-provider.server");
     await expect(
-      sendOnboardingVerificationEmail(
-        { insertInto: mocks.insertInto } as never,
-        {
-          challengeId: "onboarding_challenge_1",
-          recipientEmail: "learner@example.com",
-          subject: "Verify email",
-          textBody: "123456",
-          htmlBody: "<p>123456</p>",
-        },
-      ),
+      sendContactVerificationEmail({ insertInto: mocks.insertInto } as never, {
+        challengeId: "onboarding_challenge_1",
+        recipientEmail: "learner@example.com",
+        subject: "Verify email",
+        textBody: "123456",
+        htmlBody: "<p>123456</p>",
+      }),
     ).resolves.toEqual({ messageId: "local:onboarding_challenge_1" });
     expect(mocks.insertInto).toHaveBeenCalledWith(
-      "onboarding_email_verification_capture",
+      "contact_verification_email_capture",
     );
   });
 

@@ -1,0 +1,136 @@
+.section {
+  padding-block: clamp(1.5rem, 4vw, 3rem);
+}
+
+.heading {
+  max-width: 46rem;
+}
+
+.layout {
+  display: grid;
+  gap: var(--mantine-spacing-lg);
+}
+
+.detailsGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.fieldGroup {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.fieldLabel {
+  color: var(--mantine-color-gray-8);
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
+.readOnlyValue {
+  min-height: 2.75rem;
+  padding: 0.65rem 0.8rem;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.preferenceList {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.preference {
+  display: flex;
+  min-height: 3rem;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.8rem;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  cursor: pointer;
+}
+
+.preference input {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  margin-top: 0.15rem;
+  accent-color: var(--mantine-color-indigo-7);
+}
+
+.preferenceCopy {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.verificationList {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.verificationRow {
+  display: grid;
+  gap: 0.8rem;
+  padding-block: var(--mantine-spacing-md);
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.verificationRow:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.verificationIdentity {
+  min-width: 0;
+}
+
+.verificationDestination {
+  overflow-wrap: anywhere;
+}
+
+.codeForm {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-md);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-indigo-0);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+@media (min-width: 48em) {
+  .detailsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .verificationRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+
+  .codeForm {
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(12rem, 1fr) auto;
+    align-items: end;
+  }
+}
+
+@media (min-width: 64em) {
+  .layout {
+    grid-template-columns: minmax(0, 1.4fr) minmax(19rem, 0.8fr);
+    align-items: start;
+  }
+}
+
+@media (max-width: 36em) {
+  .formActions button,
+  .verificationRow form > button,
+  .codeForm button {
+    width: 100%;
+  }
+}
