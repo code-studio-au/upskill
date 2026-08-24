@@ -142,11 +142,11 @@ systemctl start upskill-monitor.timer
 systemctl restart upskill-web upskill-worker
 systemctl reload nginx
 
-if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker; then
+if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker; then
   if [[ -n "$previous_release" && -n "$previous_sha" ]]; then
     if /usr/local/bin/upskill-refresh-env && write_deployment_id "$previous_sha"; then
       ln -sfn "$previous_release" /opt/upskill/current
-      if systemctl restart upskill-web upskill-worker && curl --fail --silent --show-error --retry 20 --retry-delay 2 "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}" >/dev/null && systemctl is-active --quiet upskill-worker; then
+      if systemctl restart upskill-web upskill-worker && curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}" >/dev/null && systemctl is-active --quiet upskill-worker; then
         echo "Restored previous release $previous_sha" >&2
       else
         echo "Previous release rollback failed readiness checks" >&2

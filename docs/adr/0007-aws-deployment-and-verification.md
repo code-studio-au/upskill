@@ -38,6 +38,11 @@ backups, application releases can roll back independently, and schema evolution
 must use expand/contract migrations. A single host is a deliberate cost/
 availability trade-off: readiness and host alarms detect failure, but there is
 no automatic failover until the topology is deliberately scaled out.
+Because releases and Let's Encrypt state are local to the single application
+host, user-data changes do not replace it automatically. They govern the next
+host launch. An existing host receives a reviewed, idempotent repair through
+SSM, or is replaced in an explicit maintenance operation that restores the
+release and TLS before the environment is declared healthy.
 Migration baseline v1 in
 [ADR 0021](0021-pre-production-schema-rebaselining.md) closes the temporary
 pre-production rebaselining exception before the first staging environment.

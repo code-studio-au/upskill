@@ -367,6 +367,7 @@ for (const invariant of [
   "scripts/validate-runtime-environment.ts",
   "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}",
   "http://127.0.0.1:3000/api/ready?deploymentId=",
+  "--retry-connrefused",
   "Release failed readiness checks and was rolled back",
   "/usr/local/sbin/upskill-bootstrap-platform-admin",
 ])
@@ -437,6 +438,10 @@ const deploymentIdentity = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
   "utf8",
 );
+if (applicationStack.includes("userDataCausesReplacement: true"))
+  failures.push(
+    "Single-host user-data changes must not replace EC2 without coordinated release and TLS restoration",
+  );
 for (const invariant of [
   "ArnFormat.SLASH_RESOURCE_NAME",
   'resource: "oidc-provider"',
