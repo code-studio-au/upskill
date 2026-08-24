@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. The CloudFront delivery portion is superseded by ADR 0036.
 
 ## Decision
 

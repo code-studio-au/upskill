@@ -1267,6 +1267,7 @@ export type AuditEventAction =
   | "access_grant.administrator_code_revealed"
   | "access_grant.administrator_created"
   | "access_grant.administrator_revoked"
+  | "authorization.platform_admin.bootstrapped"
   | "course.archived"
   | "course.created"
   | "course.deleted"

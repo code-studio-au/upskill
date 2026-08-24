@@ -258,11 +258,10 @@ direct local launches replace any client-supplied value with the socket address.
   projections, sanitized operational/error events, request correlation and
   deployment identity output suitable for journald and future Datadog intake.
 
-While the product has no non-disposable environment or real users, the
-pre-production policy in
-[ADR 0021](adr/0021-pre-production-schema-rebaselining.md) permits a deliberate
-migration-chain rebase plus local/CI database reset. Fresh-database and complete
-behaviour gates are authoritative during this temporary phase. Forward-only
-expand/contract migrations become mandatory at the production-baseline trigger;
-published content and learner evidence remain historically immutable
-throughout.
+Migration baseline v1 in
+[ADR 0021](adr/0021-pre-production-schema-rebaselining.md) freezes migrations
+`0001` through `0072`. Repository verification protects their exact hashes and
+all later schema evolution uses sequential forward-only expand/contract
+migrations. Fresh-database, upgrade-path and complete behaviour gates remain
+authoritative; published content and learner evidence remain historically
+immutable throughout.

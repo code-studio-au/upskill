@@ -73,6 +73,13 @@ authorisation. Use secure HTTP-only cookies and production-appropriate
 SameSite/Secure settings. Never base business authorisation only on
 client role state.
 
+The first deployed platform administrator is a one-time operator bootstrap, not
+an application role-management shortcut. It requires the root-only deployment
+database environment, accepts only an existing active account with a verified
+email, serializes concurrent attempts, refuses to replace an administrator and
+writes durable audit evidence in the same transaction as the grant. After that
+grant, all administrator changes remain inside authenticated product workflows.
+
 Process-local rate limiting is not sufficient as the final
 multi-instance control. Layer edge/WAF limits, application/auth-provider
 controls, shared/account-aware limits where needed, and monitoring. Tune

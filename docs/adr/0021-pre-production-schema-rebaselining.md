@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted as a temporary pre-production policy.
+Accepted. The temporary rewrite window closed on 2026-08-24 when migration
+baseline v1 froze migrations `0001` through `0072`.
 
 ## Context
 
@@ -19,9 +20,10 @@ cost without a corresponding safety benefit.
 
 ## Decision
 
-Until the production-baseline trigger below, maintainers may rewrite existing
-migrations and reset local/CI PostgreSQL data when an accepted breaking domain
-decision benefits from a clean schema. The resulting migration sequence must:
+Before the production-baseline trigger below, maintainers could rewrite
+existing migrations and reset local/CI PostgreSQL data when an accepted
+breaking domain decision benefited from a clean schema. The resulting migration
+sequence had to:
 
 - build a fresh database from zero;
 - pass the complete schema and database behaviour gates;
@@ -36,10 +38,11 @@ Published Learning Activity Versions, published Course Versions, learner
 evidence, audit records and other domain-history invariants remain immutable in
 the running product.
 
-## Production-baseline trigger
+## Production-baseline activation
 
 Before the first environment containing non-disposable data is created, or
-before any external user is admitted, whichever happens first:
+before any external user is admitted, whichever happens first, maintainers
+must:
 
 1. record and tag the accepted migration baseline;
 2. remove permission to rewrite executed migration files;
@@ -47,17 +50,19 @@ before any external user is admitted, whichever happens first:
 4. use expand/contract for rolling-deployment compatibility; and
 5. add upgrade-path verification wherever retained data must be transformed.
 
-After that trigger, a reset is not an acceptable migration strategy for staging
-or production data. Any exception requires a new ADR and an explicit data
-preservation or disposal decision.
+Baseline v1 is recorded in `src/server/db/migration-baseline-v1.sha256` and its
+activation commit is identified by the `schema-baseline-v1` Git tag. The
+application verification gate hashes every frozen migration and requires all
+later migrations to remain sequential. Migration `0073` is the first
+forward-only change.
+
+After this trigger, a reset is not an acceptable migration strategy for local,
+staging or production data. Any exception requires a new ADR and an explicit
+data preservation or disposal decision.
 
 ## Consequences
 
-The schema can remain coherent while the local-only product model is still
-changing quickly. Developers may need to reset `.local/postgres` after pulling a
-branch that rewrites the baseline. That cost is deliberate and temporary.
-
-The repository must not claim that migration history is always forward-only
-during this phase. [ADR 0007](0007-aws-deployment-and-verification.md) remains
-authoritative for production deployment, with this ADR defining the temporary
-pre-production exception.
+The temporary reset permission kept the initial schema coherent while the
+local-only product model changed quickly. That permission is now closed.
+Developers and deployed environments upgrade retained data through forward-only
+migrations governed by [ADR 0007](0007-aws-deployment-and-verification.md).

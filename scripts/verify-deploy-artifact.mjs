@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -34,6 +34,12 @@ try {
   );
   if (manifest.gitSha !== releaseSha)
     throw new Error("Deploy artifact manifest SHA does not match HEAD");
+  for (const relativePath of [
+    "scripts/bootstrap-platform-admin.mjs",
+    "deploy/scripts/bootstrap-platform-admin.sh",
+  ])
+    if (!existsSync(path.join(extractedDirectory, relativePath)))
+      throw new Error(`Deploy artifact is missing ${relativePath}`);
   execFileSync(
     "pnpm",
     [
@@ -72,6 +78,15 @@ try {
     },
   );
   execFileSync(process.execPath, ["--check", "dist/worker/scorm-worker.js"], {
+    cwd: extractedDirectory,
+    stdio: "inherit",
+  });
+  execFileSync(
+    process.execPath,
+    ["--check", "scripts/bootstrap-platform-admin.mjs"],
+    { cwd: extractedDirectory, stdio: "inherit" },
+  );
+  execFileSync("bash", ["-n", "deploy/scripts/bootstrap-platform-admin.sh"], {
     cwd: extractedDirectory,
     stdio: "inherit",
   });

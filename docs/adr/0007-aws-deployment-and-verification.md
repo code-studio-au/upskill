@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted.
+Accepted. The CloudFront delivery portion is superseded by ADR 0036.
 
 ## Decision
 
@@ -22,6 +22,6 @@ backups, application releases can roll back independently, and schema evolution
 must use expand/contract migrations. A single host is a deliberate cost/
 availability trade-off: readiness and host alarms detect failure, but there is
 no automatic failover until the topology is deliberately scaled out.
-Before the first non-disposable environment or external user, the temporary
-pre-production rebaselining exception in
-[ADR 0021](0021-pre-production-schema-rebaselining.md) applies instead.
+Migration baseline v1 in
+[ADR 0021](0021-pre-production-schema-rebaselining.md) closes the temporary
+pre-production rebaselining exception before the first staging environment.
