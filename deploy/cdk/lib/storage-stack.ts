@@ -44,6 +44,7 @@ export class StorageStack extends Stack {
       blockPublicAccess: BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       objectOwnership: ObjectOwnership.BUCKET_OWNER_ENFORCED,
+      autoDeleteObjects: config.name === "staging",
       removalPolicy:
         config.name === "production"
           ? RemovalPolicy.RETAIN
