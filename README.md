@@ -264,7 +264,10 @@ renders the production nginx configuration and enables the renewal timer. The
 deployment workflow uploads one commit-addressed archive, waits for the exact
 SSM command, migrates with the administrative database credential, provisions
 the restricted web/worker roles, activates atomically and verifies `/api/ready`
-against the commit SHA. Do not run seeds in either deployed environment.
+against the commit SHA. Re-dispatching the active commit deliberately refreshes
+Secrets Manager configuration, validates it and restarts the web and worker;
+failed validation or readiness restores the previous environment files. Do not
+run seeds in either deployed environment.
 Verify the published provenance for the exact downloaded release when required:
 
 ```sh
