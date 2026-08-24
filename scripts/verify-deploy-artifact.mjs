@@ -51,8 +51,10 @@ try {
     throw new Error("Deploy artifact manifest SHA does not match HEAD");
   for (const relativePath of [
     "scripts/bootstrap-platform-admin.mjs",
+    "scripts/invite-platform-admin.mjs",
     "scripts/validate-runtime-environment.ts",
     "deploy/scripts/bootstrap-platform-admin.sh",
+    "deploy/scripts/invite-platform-admin.sh",
     "src/server/runtime-environment.ts",
     "src/validation/zod.server.ts",
   ])
@@ -138,7 +140,19 @@ try {
     ["--check", "scripts/bootstrap-platform-admin.mjs"],
     { cwd: extractedDirectory, stdio: "inherit" },
   );
+  execFileSync(
+    process.execPath,
+    ["--check", "scripts/invite-platform-admin.mjs"],
+    {
+      cwd: extractedDirectory,
+      stdio: "inherit",
+    },
+  );
   execFileSync("bash", ["-n", "deploy/scripts/bootstrap-platform-admin.sh"], {
+    cwd: extractedDirectory,
+    stdio: "inherit",
+  });
+  execFileSync("bash", ["-n", "deploy/scripts/invite-platform-admin.sh"], {
     cwd: extractedDirectory,
     stdio: "inherit",
   });
