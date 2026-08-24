@@ -438,6 +438,10 @@ const deploymentIdentity = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
   "utf8",
 );
+if (!applicationStack.includes("userDataCausesReplacement: true"))
+  failures.push(
+    "Application user-data changes must replace the immutable EC2 host",
+  );
 for (const invariant of [
   "ArnFormat.SLASH_RESOURCE_NAME",
   'resource: "oidc-provider"',

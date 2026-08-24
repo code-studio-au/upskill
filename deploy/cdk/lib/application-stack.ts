@@ -237,6 +237,7 @@ UPSKILL_ENV`,
       instanceType: new InstanceType(props.config.instanceType),
       role,
       userData,
+      userDataCausesReplacement: true,
       requireImdsv2: true,
       blockDevices: [
         {

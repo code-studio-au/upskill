@@ -38,6 +38,9 @@ backups, application releases can roll back independently, and schema evolution
 must use expand/contract migrations. A single host is a deliberate cost/
 availability trade-off: readiness and host alarms detect failure, but there is
 no automatic failover until the topology is deliberately scaled out.
+The application host is immutable at the infrastructure boundary: reviewed
+user-data changes replace the EC2 instance and re-associate its environment
+Elastic IP instead of relying on cloud-init to rerun on an existing host.
 Migration baseline v1 in
 [ADR 0021](0021-pre-production-schema-rebaselining.md) closes the temporary
 pre-production rebaselining exception before the first staging environment.
