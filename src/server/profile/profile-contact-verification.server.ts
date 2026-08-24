@@ -40,7 +40,7 @@ export function profileVerificationChallengeCookie(reference: string): string {
     environment.APP_ENV === "production" || environment.APP_ENV === "staging";
   return [
     `${cookieName()}=${reference}`,
-    "Path=/profile",
+    "Path=/",
     "HttpOnly",
     "SameSite=Strict",
     `Max-Age=${String(CONTACT_CHALLENGE_LIFETIME_MS / 1_000)}`,
@@ -54,7 +54,7 @@ export function clearProfileVerificationChallengeCookie(): string {
     environment.APP_ENV === "production" || environment.APP_ENV === "staging";
   return [
     `${cookieName()}=`,
-    "Path=/profile",
+    "Path=/",
     "HttpOnly",
     "SameSite=Strict",
     "Max-Age=0",
