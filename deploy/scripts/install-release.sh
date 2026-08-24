@@ -9,6 +9,7 @@ release_path=${release_root}/${release_sha}
 staging_path=""
 previous_release=""
 previous_sha=""
+environment_backup=""
 
 write_deployment_id() {
   local deployment_id=$1
@@ -32,8 +33,56 @@ cleanup() {
       *) echo "Refusing to clean unexpected staging path: $staging_path" >&2 ;;
     esac
   fi
+  if [[ -n "$environment_backup" && -d "$environment_backup" ]]; then
+    case "$environment_backup" in
+      /opt/upskill/shared/.environment-backup.*)
+        rm -rf -- "$environment_backup"
+        ;;
+      *)
+        echo "Refusing to clean unexpected environment backup: $environment_backup" >&2
+        ;;
+    esac
+  fi
 }
 trap cleanup EXIT
+
+restore_environment_backup() {
+  local environment_file
+  for environment_file in upskill-web.env upskill-worker.env upskill-deploy.env; do
+    install -o root -g root -m 0600 \
+      "$environment_backup/$environment_file" \
+      "/opt/upskill/shared/$environment_file"
+  done
+}
+
+restore_active_environment() {
+  restore_environment_backup
+  if systemctl restart upskill-web upskill-worker && \
+    active_release_is_ready; then
+    echo "Restored previous configuration after active-release refresh failure" >&2
+    return 0
+  fi
+  echo "Previous configuration restore failed readiness" >&2
+  return 1
+}
+
+validate_active_environment() {
+  (
+    set -a
+    source /opt/upskill/shared/upskill-deploy.env
+    set +a
+    cd "$release_path"
+    sudo -u ec2-user --preserve-env /usr/local/bin/node \
+      scripts/validate-runtime-environment.ts
+  )
+}
+
+active_release_is_ready() {
+  curl --fail --silent --show-error --retry 20 --retry-delay 2 \
+    --retry-connrefused \
+    "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" \
+    >/dev/null && systemctl is-active --quiet upskill-worker
+}
 
 if [[ ! "$release_sha" =~ ^[a-f0-9]{40}$ ]]; then
   echo "Release SHA must be a full lowercase Git commit" >&2
@@ -83,7 +132,30 @@ if [[ -e "$release_path" || -L "$release_path" ]]; then
   fi
   active_path=$(readlink -f /opt/upskill/current 2>/dev/null || true)
   if [[ "$active_path" == "$release_path" ]]; then
-    echo "Release is already active"
+    environment_backup=$(mktemp -d \
+      /opt/upskill/shared/.environment-backup.XXXXXX)
+    chmod 0700 "$environment_backup"
+    for environment_file in \
+      upskill-web.env upskill-worker.env upskill-deploy.env; do
+      cp -p "/opt/upskill/shared/$environment_file" \
+        "$environment_backup/$environment_file"
+    done
+    if ! /usr/local/bin/upskill-refresh-env || \
+      ! write_deployment_id "$release_sha" || \
+      ! validate_active_environment; then
+      restore_active_environment || true
+      echo "Active-release configuration refresh failed validation" >&2
+      exit 1
+    fi
+    if ! systemctl restart upskill-web upskill-worker || \
+      ! active_release_is_ready; then
+      restore_active_environment || true
+      echo "Active-release configuration refresh failed readiness" >&2
+      exit 1
+    fi
+    rm -rf -- "$environment_backup"
+    environment_backup=""
+    echo "Refreshed configuration for active release $release_sha"
     exit 0
   fi
   rm -rf -- "$release_path"
