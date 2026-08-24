@@ -16,7 +16,11 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     "createdAt" timestamptz not null default now(),
     "updatedAt" timestamptz not null default now(),
     constraint sms_delivery_purpose_ck check (
-      purpose in ('event_prerequisite_recovery', 'onboarding_contact_verification')
+      purpose in (
+        'event_prerequisite_recovery',
+        'onboarding_contact_verification',
+        'profile_contact_verification'
+      )
     ),
     constraint sms_delivery_phone_ck
       check ("recipientPhone" ~ '^[+][1-9][0-9]{7,14}$'),

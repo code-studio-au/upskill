@@ -52,6 +52,15 @@ recommended and skippable by default; an administrator can require every
 enabled method for a newly activated immutable version. Onboarding responses
 remain separate from Learning Evidence and course/event progress.
 
+Completed learners can open My profile from the account menu to view and update
+the current values projected by onboarding: full name, canonical mobile,
+operational region, email enablement and SMS enablement. Email is displayed with
+its verification state but remains read-only because it is the authentication
+identifier. Profile edits never rewrite the immutable onboarding response.
+Changing mobile closes the active phone claim, clears SMS verification and
+revokes outstanding SMS recovery challenges and survey-only sessions before the
+new number can be verified.
+
 Explicit re-onboarding campaigns, privacy-scoped answer support/reporting,
 answer retention/redaction jobs, profession mappings and a durable
 `onboarding.completed` outbox event remain Target Product work.
@@ -187,7 +196,7 @@ acceptance and references the exact versioned terms/privacy content.
 
 Raw answer payloads are never the live profile source of truth. Users may later
 update supported profile fields without rewriting their onboarding response.
-Changing current region or email never rewrites Course Enrolment, Event
+Changing current region or mobile never rewrites Course Enrolment, Event
 Registration, Attendance or other historical snapshots.
 
 Entering or changing a phone number does not prove possession. A change clears
@@ -198,6 +207,13 @@ unverified channel can receive a six-digit, 10-minute one-time code after
 questionnaire submission. Challenges store only digests, are single-use, permit
 at most five attempts and are limited to three sends per channel and assignment
 in 15 minutes.
+
+The post-onboarding profile uses a distinct profile challenge purpose and
+authorization path while sharing the same digested-code, rate-limit, provider
+and transferable-phone primitives. Profile verification does not relax the
+assignment and submission checks on onboarding challenges. Learners may verify
+an available email or mobile even when that channel is disabled, then decide
+separately whether it may be used for communications.
 
 A canonical mobile number has at most one verified owner, but ownership is
 transferable. Successful verification creates a new append-only phone claim. In

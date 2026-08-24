@@ -70,6 +70,7 @@
     "db:verify:admin-course-authoring": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-admin-course-authoring.ts",
     "db:verify:surveys": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-survey-workflow.ts",
     "db:verify:onboarding": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-onboarding-workflow.ts",
+    "db:verify:learner-profile": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-learner-profile.ts",
     "db:verify:resources": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-resource-library.ts",
     "db:verify:certificates": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-completion-certificates.ts",
     "db:verify:events": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-event-foundation.ts",

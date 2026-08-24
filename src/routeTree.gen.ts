@@ -17,6 +17,7 @@ import { Route as EventOperationsRouteImport } from './routes/event-operations'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as MyEventsRouteImport } from './routes/my-events'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as AccountSetupRouteImport } from './routes/account.setup'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccessRouteImport } from './routes/admin.access'
@@ -118,6 +119,11 @@ const MyEventsRoute = MyEventsRouteImport.update({
 const OnboardingRoute = OnboardingRouteImport.update({
   id: '/onboarding',
   path: '/onboarding',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AccountSetupRoute = AccountSetupRouteImport.update({
@@ -468,6 +474,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/my-events': typeof MyEventsRoute
   '/onboarding': typeof OnboardingRoute
+  '/profile': typeof ProfileRoute
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
@@ -538,6 +545,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/my-events': typeof MyEventsRoute
   '/onboarding': typeof OnboardingRoute
+  '/profile': typeof ProfileRoute
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
@@ -611,6 +619,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/my-events': typeof MyEventsRoute
   '/onboarding': typeof OnboardingRoute
+  '/profile': typeof ProfileRoute
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/modules': typeof AdminModulesRoute
@@ -685,6 +694,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/my-events'
     | '/onboarding'
+    | '/profile'
     | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
@@ -755,6 +765,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/my-events'
     | '/onboarding'
+    | '/profile'
     | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
@@ -827,6 +838,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/my-events'
     | '/onboarding'
+    | '/profile'
     | '/account/setup'
     | '/admin/access'
     | '/admin/modules'
@@ -900,6 +912,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   MyEventsRoute: typeof MyEventsRoute
   OnboardingRoute: typeof OnboardingRoute
+  ProfileRoute: typeof ProfileRoute
   AccountSetupRoute: typeof AccountSetupRoute
   ApiHealthRoute: typeof ApiHealthRoute
   CheckoutSuccessRoute: typeof CheckoutSuccessRoute
@@ -993,6 +1006,13 @@ declare module '@tanstack/react-router' {
       path: '/onboarding'
       fullPath: '/onboarding'
       preLoaderRoute: typeof OnboardingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/account/setup': {
@@ -1541,6 +1561,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   MyEventsRoute: MyEventsRoute,
   OnboardingRoute: OnboardingRoute,
+  ProfileRoute: ProfileRoute,
   AccountSetupRoute: AccountSetupRoute,
   ApiHealthRoute: ApiHealthRoute,
   CheckoutSuccessRoute: CheckoutSuccessRoute,

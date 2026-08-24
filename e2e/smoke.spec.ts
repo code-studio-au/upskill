@@ -974,6 +974,8 @@ test("learner dashboard requires a server-validated session", async ({
   await expect(page).toHaveURL(
     /\/login\?redirect=%2Flearn%2Fenrollment_local_leading_change$/,
   );
+  await page.goto("/profile");
+  await expect(page).toHaveURL(/\/login\?redirect=%2Fprofile$/);
 });
 
 test("learners can end their authenticated session", async ({ page }) => {
@@ -985,6 +987,18 @@ test("learners can end their authenticated session", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/dashboard$/);
 
+  await page
+    .locator(
+      'header summary[aria-label="Navigation menu"]:visible, header summary[aria-label$="account menu"]:visible',
+    )
+    .click();
+  await page.getByRole("link", { name: /profile/iu }).click();
+  await expect(page).toHaveURL(/\/profile$/u);
+  await expect(page.getByRole("heading", { name: "My profile" })).toBeVisible();
+  await expect(page.getByLabel("Full name")).toHaveValue(/.+/u);
+  await expect(page.getByText("Contact verification")).toBeVisible();
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  expect(accessibility.violations).toEqual([]);
   await page
     .locator(
       'header summary[aria-label="Navigation menu"]:visible, header summary[aria-label$="account menu"]:visible',

@@ -247,5 +247,8 @@ never delete issued codes or learning access.
 learning and SCORM-worker processes. It injects the listener's temporary signing
 secret without changing `.env.local`, so local Checkout fulfilment works while
 the development supervisor is running. Run `stripe login` once before starting
-development. Startup fails clearly when Stripe CLI is unavailable or no longer
-authenticated because payment webhooks are a required local service.
+development. A missing or unauthenticated Stripe CLI still fails clearly. If the
+CLI is installed and authenticated but Stripe cannot be reached, development
+continues without webhook forwarding and prints a warning; webhook-driven local
+Checkout updates remain unavailable until connectivity returns. If an active
+listener later disconnects, the web, learning and worker processes continue.

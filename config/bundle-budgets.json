@@ -1,5 +1,5 @@
 {
-  "clientJavaScriptBytes": 932000,
+  "clientJavaScriptBytes": 940000,
   "clientCssBytes": 255000,
   "clientJavaScriptBrotliBytes": 280000,
   "clientCssBrotliBytes": 36000,
@@ -28,7 +28,8 @@
     "LearnerEventSection": 2304,
     "LearnerSurveyExperience": 3072,
     "ResponsiveDataTable": 11264,
-    "ScheduleEmailEditor": 2304
+    "ScheduleEmailEditor": 2304,
+    "profile": 2304
   },
   "routeJavaScriptGzipBytes": {
     "/event-operations/": 8192,
@@ -37,6 +38,7 @@
     "/event-surveys/$publicReference": 768,
     "/my-events": 4096,
     "/my-events/$eventOccurrenceId": 12288,
-    "/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId": 16384
+    "/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId": 16384,
+    "/profile": 3584
   }
 }

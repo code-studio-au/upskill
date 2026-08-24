@@ -17,6 +17,7 @@ import { normalizeInternationalPhone } from "#/features/profile/phone-number";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import { invalidateVerifiedPhone } from "#/server/profile/contact-verification-core.server";
 import {
   deriveProgress,
   flattenedItems,
@@ -457,7 +458,6 @@ async function applyProfileMappings(
     currentRegionId?: string | null;
     emailEnabled?: boolean;
     smsEnabled?: boolean;
-    smsVerifiedAt?: Date | null;
     updatedAt?: Date;
   } = {};
   const regionMapping = parsed.data.find(
@@ -510,16 +510,7 @@ async function applyProfileMappings(
       .where("id", "=", userId)
       .executeTakeFirstOrThrow();
     if (normalizeInternationalPhone(existing.phone ?? "") !== update.phone) {
-      update.smsVerifiedAt = null;
-      await transaction
-        .updateTable("phone_verification_claim")
-        .set({
-          releasedAt: new Date(),
-          releaseReason: "phone_changed",
-        })
-        .where("userId", "=", userId)
-        .where("releasedAt", "is", null)
-        .execute();
+      await invalidateVerifiedPhone(transaction, userId, new Date());
     }
   }
   if (Object.keys(update).length > 0) {

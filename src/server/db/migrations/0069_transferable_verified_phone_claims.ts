@@ -98,7 +98,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
   await sql`update sms_delivery sms
     set "recipientUserId" = challenge."userId",
         "recipientNameSnapshot" = recipient.name
-    from onboarding_contact_verification_challenge challenge
+    from contact_verification_challenge challenge
     join "user" recipient on recipient.id = challenge."userId"
     where challenge.id = sms.id`.execute(db);
   await sql`update sms_delivery sms
@@ -116,7 +116,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
     id text primary key,
     phone text not null,
     "userId" text not null references "user"(id) on delete cascade,
-    "verificationChallengeId" text references onboarding_contact_verification_challenge(id) on delete set null,
+    "verificationChallengeId" text references contact_verification_challenge(id) on delete set null,
     "claimedAt" timestamptz not null,
     "releasedAt" timestamptz,
     "releaseReason" text,

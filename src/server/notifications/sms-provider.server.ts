@@ -15,8 +15,10 @@ interface SecuritySmsDelivery {
 }
 
 type SmsDeliveryPurpose =
-  "event_prerequisite_recovery" | "onboarding_contact_verification";
-type LocalCaptureTarget = "event" | "onboarding";
+  | "event_prerequisite_recovery"
+  | "onboarding_contact_verification"
+  | "profile_contact_verification";
+type LocalCaptureTarget = "contact" | "event";
 
 const textBeeResponseSchema = z.object({
   data: z.object({
@@ -55,7 +57,7 @@ class LocalCaptureSmsProvider implements SmsProvider {
         .execute();
     else
       await this.database
-        .insertInto("onboarding_sms_verification_capture")
+        .insertInto("contact_verification_sms_capture")
         .values(capture)
         .onConflict((conflict) => conflict.column("challengeId").doNothing())
         .execute();
@@ -251,14 +253,10 @@ export async function sendEventPrerequisiteRecoverySms(
   );
 }
 
-export async function sendOnboardingVerificationSms(
+export async function sendContactVerificationSms(
   database: Kysely<Database>,
   message: SecuritySmsDelivery,
+  purpose: "onboarding_contact_verification" | "profile_contact_verification",
 ): Promise<{ messageId: string }> {
-  return await sendTrackedSms(
-    database,
-    message,
-    "onboarding_contact_verification",
-    "onboarding",
-  );
+  return await sendTrackedSms(database, message, purpose, "contact");
 }

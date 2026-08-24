@@ -10,7 +10,8 @@ type NavigationTarget =
   | "/dashboard"
   | "/event-operations"
   | "/my-events"
-  | "/onboarding";
+  | "/onboarding"
+  | "/profile";
 
 interface NavigationItem {
   label: string;
@@ -98,6 +99,15 @@ export function AppHeader({ session }: { session: AppShellSession }) {
                 <strong>{user.name}</strong>
                 <span>{user.email}</span>
               </div>
+              {!user.requiresOnboarding ? (
+                <Link
+                  to="/profile"
+                  search={{ status: undefined }}
+                  className={classes.accountProfileLink}
+                >
+                  View profile
+                </Link>
+              ) : null}
               <SignOutButton className={classes.signOut} />
             </div>
           </details>
@@ -153,6 +163,16 @@ export function AppHeader({ session }: { session: AppShellSession }) {
                     <span aria-hidden="true">→</span>
                   </Link>
                 ))}
+                {!user.requiresOnboarding ? (
+                  <Link
+                    to="/profile"
+                    search={{ status: undefined }}
+                    className={classes.menuLink}
+                  >
+                    My profile
+                    <span aria-hidden="true">→</span>
+                  </Link>
+                ) : null}
               </nav>
               <SignOutButton className={classes.mobileSignOut} />
             </div>

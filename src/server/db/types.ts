@@ -857,11 +857,12 @@ interface EventPrerequisiteSmsCaptureTable {
   createdAt: Timestamp;
 }
 
-interface OnboardingContactVerificationChallengeTable {
+interface ContactVerificationChallengeTable {
   id: string;
   reference: string;
-  assignmentId: string;
+  assignmentId: string | null;
   userId: string;
+  purpose: Generated<"onboarding" | "profile">;
   channel: "email" | "sms";
   destinationDigest: string;
   codeDigest: string;
@@ -871,7 +872,7 @@ interface OnboardingContactVerificationChallengeTable {
   createdAt: Timestamp;
 }
 
-interface OnboardingEmailVerificationCaptureTable {
+interface ContactVerificationEmailCaptureTable {
   challengeId: string;
   recipientEmail: string;
   subject: string;
@@ -880,7 +881,7 @@ interface OnboardingEmailVerificationCaptureTable {
   createdAt: Timestamp;
 }
 
-interface OnboardingSmsVerificationCaptureTable {
+interface ContactVerificationSmsCaptureTable {
   challengeId: string;
   recipientPhone: string;
   message: string;
@@ -889,7 +890,10 @@ interface OnboardingSmsVerificationCaptureTable {
 
 interface SmsDeliveryTable {
   id: string;
-  purpose: "event_prerequisite_recovery" | "onboarding_contact_verification";
+  purpose:
+    | "event_prerequisite_recovery"
+    | "onboarding_contact_verification"
+    | "profile_contact_verification";
   recipientPhone: string;
   recipientUserId: Generated<string | null>;
   recipientNameSnapshot: Generated<string | null>;
@@ -1412,12 +1416,12 @@ export interface Database {
   notification: NotificationTable;
   notification_delivery_attempt: NotificationDeliveryAttemptTable;
   onboarding_assignment: OnboardingAssignmentTable;
-  onboarding_contact_verification_challenge: OnboardingContactVerificationChallengeTable;
+  contact_verification_challenge: ContactVerificationChallengeTable;
   onboarding_definition: OnboardingDefinitionTable;
   onboarding_definition_version: OnboardingDefinitionVersionTable;
-  onboarding_email_verification_capture: OnboardingEmailVerificationCaptureTable;
+  contact_verification_email_capture: ContactVerificationEmailCaptureTable;
   onboarding_response: OnboardingResponseTable;
-  onboarding_sms_verification_capture: OnboardingSmsVerificationCaptureTable;
+  contact_verification_sms_capture: ContactVerificationSmsCaptureTable;
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   platform_admin: PlatformAdminTable;

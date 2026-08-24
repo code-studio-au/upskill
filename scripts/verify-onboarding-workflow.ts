@@ -43,9 +43,9 @@ async function verifySmsContact(
   );
   assert.equal(request.status, "sent");
   const challenge = await database
-    .selectFrom("onboarding_contact_verification_challenge as challenge")
+    .selectFrom("contact_verification_challenge as challenge")
     .innerJoin(
-      "onboarding_sms_verification_capture as capture",
+      "contact_verification_sms_capture as capture",
       "capture.challengeId",
       "challenge.id",
     )
