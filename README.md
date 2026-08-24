@@ -230,6 +230,13 @@ Replace the configuration-secret placeholders through Secrets Manager before
 the first application deployment. The deployment performs another fail-closed
 runtime validation before it can run migrations.
 
+Do not enable automatic EC2 replacement for application user-data changes in
+the single-host topology. A replacement would receive the Elastic IP before it
+has restored the active release and Let's Encrypt state. User-data changes
+therefore configure future hosts; apply an existing-host bootstrap correction
+as a reviewed, idempotent SSM repair, or use an explicit maintenance operation
+that restores the release and TLS before returning the environment to service.
+
 Each environment deliberately uses one Sydney-region `t4g.micro` EC2 instance
 with an Elastic IP and one isolated `db.t4g.micro` PostgreSQL instance. This is
 the lowest-cost supported topology and has no automatic host failover. The host
