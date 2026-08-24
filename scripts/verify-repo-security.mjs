@@ -367,6 +367,7 @@ for (const invariant of [
   "scripts/validate-runtime-environment.ts",
   "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}",
   "http://127.0.0.1:3000/api/ready?deploymentId=",
+  "--retry-connrefused",
   "Release failed readiness checks and was rolled back",
   "/usr/local/sbin/upskill-bootstrap-platform-admin",
 ])
