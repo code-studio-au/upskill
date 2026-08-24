@@ -22,6 +22,14 @@ TLS. In the current shared Code Studio AWS account, Projex retains CloudFormatio
 ownership of the single account-wide GitHub Actions OIDC provider; Upskill
 references its canonical ARN and owns only its repository- and
 environment-scoped deployment roles.
+The Code Studio GitHub organization customizes OIDC subjects with immutable
+organization and repository IDs. Deployment-role trust policies therefore bind
+both the canonical names and numeric IDs; repository transfer or recreation
+requires an explicit reviewed context update before deployment can resume.
+Run Command access is restricted to managed EC2 instances carrying both the
+`Application=upskill` tag and the matching `Environment` tag. Tag-based scope
+keeps the deployment role least-privileged without coupling its stack to an
+ephemeral instance ID or blocking a reviewed host replacement.
 
 ## Consequences
 

@@ -84,10 +84,11 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     "LowCostDeploymentIdentity",
     {
       owner: "code-studio-au",
+      ownerId: "187219708",
       repository: "upskill",
+      repositoryId: "1327543633",
       environment: "staging",
       artifactBucket: storage.artifactBucket,
-      instanceId: application.instanceId,
     },
   );
   const applicationTemplate = Template.fromStack(application);
@@ -111,6 +112,13 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(applicationJson).toContain("upskill-worker.env");
   expect(applicationJson).toContain("upskill-deploy.env");
   expect(applicationJson).toContain("/swapfile");
+  expect(applicationJson).toContain("dnf install -y jq libatomic nginx xz");
+  expect(applicationJson).toContain(
+    "npm install --global pnpm@11.0.8 --prefix /usr/local --ignore-scripts",
+  );
+  expect(applicationJson).not.toContain("corepack enable pnpm");
+  expect(applicationJson).toContain("jq -rn --arg value");
+  expect(applicationJson).not.toContain("jq -Rn --arg value");
   const deploymentIdentityTemplate = Template.fromStack(deploymentIdentity);
   deploymentIdentityTemplate.resourceCountIs("AWS::IAM::OIDCProvider", 0);
   expect(JSON.stringify(deploymentIdentityTemplate.toJSON())).toContain(
@@ -124,13 +132,33 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
             StringEquals: {
               "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
               "token.actions.githubusercontent.com:sub":
-                "repo:code-studio-au/upskill:environment:staging",
+                "repo:code-studio-au@187219708/upskill@1327543633:environment:staging",
             },
           },
         }),
       ]),
     },
   });
+  deploymentIdentityTemplate.hasResourceProperties("AWS::IAM::Policy", {
+    PolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: "ssm:SendCommand",
+          Condition: {
+            StringEquals: {
+              "ssm:resourceTag/Application": "upskill",
+              "ssm:resourceTag/Environment": "staging",
+            },
+          },
+        }),
+      ]),
+    },
+  });
+  const deploymentIdentityJson = JSON.stringify(
+    deploymentIdentityTemplate.toJSON(),
+  );
+  expect(deploymentIdentityJson).not.toContain("LowCostApplication");
+  expect(deploymentIdentityJson).toContain("AWS-RunShellScript");
   Template.fromStack(data).hasResourceProperties("AWS::RDS::DBInstance", {
     DBInstanceClass: "db.t4g.micro",
     AllocatedStorage: "20",

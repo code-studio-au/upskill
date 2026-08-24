@@ -52,10 +52,11 @@ const deploymentIdentity = new DeploymentIdentityStack(
   {
     ...stackProps,
     owner: String(app.node.tryGetContext("githubOwner")),
+    ownerId: String(app.node.tryGetContext("githubOwnerId")),
     repository: String(app.node.tryGetContext("githubRepository")),
+    repositoryId: String(app.node.tryGetContext("githubRepositoryId")),
     environment: config.name,
     artifactBucket: storage.artifactBucket,
-    instanceId: application.instanceId,
   },
 );
 for (const stack of [network, storage, data, application, deploymentIdentity]) {

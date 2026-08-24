@@ -6,6 +6,8 @@
     "@aws-cdk/aws-iam:minimizePolicies": true,
     "environment": "staging",
     "githubOwner": "code-studio-au",
-    "githubRepository": "upskill"
+    "githubOwnerId": "187219708",
+    "githubRepository": "upskill",
+    "githubRepositoryId": "1327543633"
   }
 }

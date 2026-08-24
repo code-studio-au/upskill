@@ -159,7 +159,7 @@ export class ApplicationStack extends Stack {
     const userData = UserData.forLinux();
     userData.addCommands(
       "set -euxo pipefail",
-      "dnf install -y jq nginx xz",
+      "dnf install -y jq libatomic nginx xz",
       "UPSKILL_NODE_TMP=$(mktemp -d /tmp/upskill-node.XXXXXX)",
       "trap 'rm -rf -- \"$UPSKILL_NODE_TMP\"' EXIT",
       "UPSKILL_NODE_ARCHIVE=node-v26.7.0-linux-arm64.tar.xz",
@@ -170,9 +170,9 @@ export class ApplicationStack extends Stack {
       "install -d -m 0755 /usr/local/lib/nodejs",
       'tar --extract --xz --no-same-owner --file "$UPSKILL_NODE_TMP/$UPSKILL_NODE_ARCHIVE" --directory /usr/local/lib/nodejs',
       "chown -R root:root /usr/local/lib/nodejs/node-v26.7.0-linux-arm64",
-      "for binary in node npm npx corepack; do ln -sfn /usr/local/lib/nodejs/node-v26.7.0-linux-arm64/bin/$binary /usr/local/bin/$binary; done",
-      "corepack enable pnpm --install-directory /usr/local/bin",
-      "corepack prepare pnpm@11.0.8 --activate",
+      "for binary in node npm npx; do ln -sfn /usr/local/lib/nodejs/node-v26.7.0-linux-arm64/bin/$binary /usr/local/bin/$binary; done",
+      "/usr/local/bin/npm install --global pnpm@11.0.8 --prefix /usr/local --ignore-scripts",
+      'test "$(/usr/local/bin/pnpm --version)" = 11.0.8',
       'rm -rf -- "$UPSKILL_NODE_TMP"',
       "trap - EXIT",
       "install -d -m 0755 /etc/upskill",
@@ -208,13 +208,13 @@ worker_database_url=$(jq -rn --argjson credentials "$worker_database_json" --arg
 cp "$base_environment_tmp" "$web_environment_tmp"
 cp "$base_environment_tmp" "$worker_environment_tmp"
 cp "$base_environment_tmp" "$deploy_environment_tmp"
-jq -Rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$web_environment_tmp"
-jq -Rn --arg value "$worker_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$worker_environment_tmp"
-jq -Rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$deploy_environment_tmp"
-jq -Rn --arg value "$worker_database_url" '"WORKER_DATABASE_URL=\\($value|@json)"' >> "$deploy_environment_tmp"
-jq -Rn --arg value "$migration_database_url" '"MIGRATION_DATABASE_URL=\\($value|@json)"' >> "$deploy_environment_tmp"
+jq -rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$web_environment_tmp"
+jq -rn --arg value "$worker_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$worker_environment_tmp"
+jq -rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$deploy_environment_tmp"
+jq -rn --arg value "$worker_database_url" '"WORKER_DATABASE_URL=\\($value|@json)"' >> "$deploy_environment_tmp"
+jq -rn --arg value "$migration_database_url" '"MIGRATION_DATABASE_URL=\\($value|@json)"' >> "$deploy_environment_tmp"
 for target in "$web_environment_tmp" "$worker_environment_tmp" "$deploy_environment_tmp"; do
-  jq -Rn --arg value "$access_code_encryption_key" '"ACCESS_CODE_ENCRYPTION_KEY=\\($value|@json)"' >> "$target"
+  jq -rn --arg value "$access_code_encryption_key" '"ACCESS_CODE_ENCRYPTION_KEY=\\($value|@json)"' >> "$target"
 done
 install -o root -g root -m 0600 "$web_environment_tmp" /opt/upskill/shared/upskill-web.env
 install -o root -g root -m 0600 "$worker_environment_tmp" /opt/upskill/shared/upskill-worker.env
