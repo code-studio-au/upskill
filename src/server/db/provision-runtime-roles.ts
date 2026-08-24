@@ -36,7 +36,7 @@ try {
         ? passwordFromUrl(webDatabaseUrl)
         : passwordFromUrl(workerDatabaseUrl);
     const passwordStatement = await client.query<{ statement: string }>(
-      `select format('alter role ${role} password %L', $1) as statement`,
+      `select format('alter role ${role} password %L', $1::text) as statement`,
       [password],
     );
     const statement = passwordStatement.rows[0]?.statement;

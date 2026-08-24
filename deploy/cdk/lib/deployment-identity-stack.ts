@@ -10,10 +10,11 @@ import type { Construct } from "constructs";
 
 export interface DeploymentIdentityStackProps extends StackProps {
   owner: string;
+  ownerId: string;
   repository: string;
+  repositoryId: string;
   environment: string;
   artifactBucket: Bucket;
-  instanceId: string;
 }
 
 export class DeploymentIdentityStack extends Stack {
@@ -23,7 +24,12 @@ export class DeploymentIdentityStack extends Stack {
     props: DeploymentIdentityStackProps,
   ) {
     super(scope, id, props);
-    const subject = `repo:${props.owner}/${props.repository}:environment:${props.environment}`;
+    for (const [label, value] of [
+      ["GitHub owner ID", props.ownerId],
+      ["GitHub repository ID", props.repositoryId],
+    ] as const)
+      if (!/^\d+$/u.test(value)) throw new Error(`${label} must be numeric`);
+    const subject = `repo:${props.owner}@${props.ownerId}/${props.repository}@${props.repositoryId}:environment:${props.environment}`;
     const githubOidcProviderArn = this.formatArn({
       service: "iam",
       region: "",
@@ -62,8 +68,22 @@ export class DeploymentIdentityStack extends Stack {
           this.formatArn({
             service: "ec2",
             resource: "instance",
-            resourceName: props.instanceId,
+            resourceName: "*",
           }),
+        ],
+        conditions: {
+          StringEquals: {
+            "ssm:resourceTag/Application": "upskill",
+            "ssm:resourceTag/Environment": props.environment,
+          },
+        },
+      }),
+    );
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ssm:SendCommand"],
+        resources: [
           this.formatArn({
             service: "ssm",
             account: "",

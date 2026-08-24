@@ -344,6 +344,14 @@ const installRelease = fs.readFileSync(
   path.join(root, "deploy/scripts/install-release.sh"),
   "utf8",
 );
+const provisionRuntimeRoles = fs.readFileSync(
+  path.join(root, "src/server/db/provision-runtime-roles.ts"),
+  "utf8",
+);
+if (!provisionRuntimeRoles.includes("$1::text"))
+  failures.push(
+    "Runtime database-role password formatting must type its bound parameter",
+  );
 if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
   failures.push(
     "Release installation must expose the verified commit identity",
@@ -433,6 +441,8 @@ for (const invariant of [
   "ArnFormat.SLASH_RESOURCE_NAME",
   'resource: "oidc-provider"',
   'resourceName: "token.actions.githubusercontent.com"',
+  '"ssm:resourceTag/Application": "upskill"',
+  '"ssm:resourceTag/Environment": props.environment',
 ])
   if (!deploymentIdentity.includes(invariant))
     failures.push(
@@ -451,6 +461,12 @@ const cdkConfiguration = JSON.parse(
 );
 if (cdkConfiguration.context?.githubOwner !== "code-studio-au")
   failures.push("GitHub OIDC must trust the canonical repository owner");
+if (cdkConfiguration.context?.githubOwnerId !== "187219708")
+  failures.push("GitHub OIDC must trust the immutable repository owner ID");
+if (cdkConfiguration.context?.githubRepository !== "upskill")
+  failures.push("GitHub OIDC must trust the canonical repository name");
+if (cdkConfiguration.context?.githubRepositoryId !== "1327543633")
+  failures.push("GitHub OIDC must trust the immutable repository ID");
 const bootstrapAdministrator = fs.readFileSync(
   path.join(root, "scripts/bootstrap-platform-admin.mjs"),
   "utf8",
