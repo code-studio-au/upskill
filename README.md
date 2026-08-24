@@ -272,17 +272,29 @@ gh attestation verify upskill-<commit-sha>.tar.gz \
   --repo code-studio-au/upskill
 ```
 
-After public TLS is active, create and verify the intended first administrator
-through the normal sign-up flow. Bootstrap that one account through SSM:
+After public TLS is active, invite the intended first administrator through
+SSM. Public sign-up remains disabled; the operator command creates only one
+provisional account and queues the normal 72-hour password-setup email without
+placing a password in shell, SSM or application logs:
+
+```sh
+sudo /usr/local/sbin/upskill-invite-platform-admin \
+  "Administrator name" admin@codestudio.au
+```
+
+After the worker delivers the email and the recipient follows the setup link,
+chooses a password and reaches the dashboard, grant that verified active
+account the one-time platform role:
 
 ```sh
 sudo /usr/local/sbin/upskill-bootstrap-platform-admin admin@codestudio.au
 ```
 
-The command requires an active account with a verified email, succeeds
-idempotently for that same administrator, refuses to replace an existing
-administrator, and records the one-time privilege grant in the durable audit
-log. All later administrator changes must use authenticated product workflows.
+Both commands serialize on the same database lock and permanently refuse a
+different target after platform administration is configured. Invitation and
+privilege grant are durably audited. The grant succeeds idempotently for that
+same administrator, and all later administrator changes must use authenticated
+product workflows.
 
 Configure Stripe to send `checkout.session.completed`,
 `checkout.session.async_payment_succeeded`,

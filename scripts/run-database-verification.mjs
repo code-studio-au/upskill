@@ -4,6 +4,7 @@ import { createDisposablePostgresDatabase } from "./disposable-postgres.mjs";
 
 const verificationScripts = [
   "src/server/db/migrate.ts",
+  "scripts/verify-platform-admin-invitation.ts",
   "scripts/verify-migrations.ts",
   "scripts/verify-platform-admin-bootstrap.ts",
   "scripts/verify-audit-logging.ts",

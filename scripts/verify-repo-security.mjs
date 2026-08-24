@@ -370,6 +370,7 @@ for (const invariant of [
   "--retry-connrefused",
   "Release failed readiness checks and was rolled back",
   "/usr/local/sbin/upskill-bootstrap-platform-admin",
+  "/usr/local/sbin/upskill-invite-platform-admin",
 ])
   if (!installRelease.includes(invariant))
     failures.push(`Release installation safety is missing: ${invariant}`);
@@ -476,6 +477,22 @@ const bootstrapAdministrator = fs.readFileSync(
   path.join(root, "scripts/bootstrap-platform-admin.mjs"),
   "utf8",
 );
+const inviteAdministrator = fs.readFileSync(
+  path.join(root, "scripts/invite-platform-admin.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  "pg_advisory_xact_lock",
+  "Platform administration is already configured; invitation is permanently disabled",
+  "MIGRATION_DATABASE_URL is required to invite a deployed administrator",
+  "reset-password:",
+  "notification.delivery_requested",
+  "first_environment_bootstrap",
+])
+  if (!inviteAdministrator.includes(invariant))
+    failures.push(
+      `Platform-administrator invitation boundary is missing: ${invariant}`,
+    );
 for (const invariant of [
   "MIGRATION_DATABASE_URL is required to bootstrap a deployed environment",
   "pg_advisory_xact_lock",
