@@ -71,13 +71,16 @@ const definitions = [
     ],
   },
 ];
-definitions.push(stripeSetup.listener);
-console.log(
-  "Stripe webhook forwarding enabled for http://localhost:3000/api/stripe/webhook",
-);
+if (stripeSetup.listener) {
+  definitions.push({ ...stripeSetup.listener, required: false });
+  console.log(
+    "Stripe webhook forwarding enabled for http://localhost:3000/api/stripe/webhook",
+  );
+} else if (stripeSetup.warning) console.warn(stripeSetup.warning);
 
 const services = definitions.map((definition) => ({
   script: definition.script,
+  required: definition.required !== false,
   process: spawn(definition.command, definition.arguments, {
     env: stripeSetup.environment,
     stdio: definition.stdio ?? "inherit",
@@ -102,11 +105,11 @@ function stop(exitCode, signal = "SIGTERM") {
 for (const service of services) {
   service.process.once("error", (error) => {
     console.error(`Unable to start ${service.script}: ${error.message}`);
-    stop(1);
+    if (service.required) stop(1);
   });
   service.process.once("close", (code, signal) => {
     remaining -= 1;
-    if (!stopping) {
+    if (!stopping && service.required) {
       if (signal === "SIGINT" || signal === "SIGTERM") stop(0, signal);
       else {
         console.error(
@@ -114,7 +117,10 @@ for (const service of services) {
         );
         stop(code === 0 ? 1 : (code ?? 1));
       }
-    }
+    } else if (!stopping)
+      console.warn(
+        `${service.script} stopped; development continues without Stripe webhook forwarding.`,
+      );
     if (remaining === 0) finish();
   });
 }

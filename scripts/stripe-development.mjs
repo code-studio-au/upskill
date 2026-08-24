@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process";
 
+const OFFLINE_WEBHOOK_SECRET = "whsec_local_offline_development";
+
 export const stripeWebhookEvents = Object.freeze([
   "checkout.session.completed",
   "checkout.session.async_payment_succeeded",
@@ -24,6 +26,26 @@ export function createStripeDevelopmentSetup({
       timeout: 15_000,
     },
   );
+  const failureDetail = [result.error?.message, result.stderr]
+    .filter(Boolean)
+    .join(" ")
+    .toLocaleLowerCase("en-AU");
+  const networkUnavailable =
+    result.error?.code === "ETIMEDOUT" ||
+    /(?:api\.stripe\.com|connection|dial tcp|dns|network|no such host|offline|timed? ?out|timeout)/u.test(
+      failureDetail,
+    );
+  if ((result.error || result.status !== 0) && networkUnavailable)
+    return {
+      environment: {
+        ...environment,
+        STRIPE_WEBHOOK_SECRET:
+          environment.STRIPE_WEBHOOK_SECRET || OFFLINE_WEBHOOK_SECRET,
+      },
+      listener: null,
+      warning:
+        "Stripe webhook forwarding is offline. Development will continue, but webhook-driven checkout updates require an internet connection.",
+    };
   if (result.error || result.status !== 0)
     throw new Error(
       "Stripe CLI is unavailable or not authenticated. Install Stripe CLI and run `stripe login` before starting development.",
@@ -53,5 +75,6 @@ export function createStripeDevelopmentSetup({
       // suppressed to avoid exposing that secret in terminal transcripts.
       stdio: ["ignore", "ignore", "ignore"],
     },
+    warning: null,
   };
 }
