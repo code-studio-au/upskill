@@ -78,9 +78,13 @@ class MailgunEmailProvider implements EmailProvider {
       throw new Error("EMAIL_PROVIDER_REQUEST_FAILED");
     }
     if (!response.ok) throw new Error("EMAIL_PROVIDER_REJECTED");
-    const result = mailgunResponseSchema.safeParse(await response.json());
-    if (!result.success) throw new Error("EMAIL_PROVIDER_INVALID_RESPONSE");
-    return { messageId: result.data.id };
+    try {
+      const result = mailgunResponseSchema.safeParse(await response.json());
+      if (!result.success) throw new Error("EMAIL_PROVIDER_REQUEST_FAILED");
+      return { messageId: result.data.id };
+    } catch {
+      throw new Error("EMAIL_PROVIDER_REQUEST_FAILED");
+    }
   }
 }
 

@@ -213,4 +213,37 @@ describe("email provider boundary", () => {
       expect(isAmbiguousEmailDeliveryError(error)).toBe(true);
     });
   });
+
+  it.each([
+    ["unreadable response", "not-json"],
+    ["unexpected response", JSON.stringify({ message: "Queued" })],
+  ])(
+    "classifies a Mailgun %s after acceptance as an uncertain delivery",
+    async (_description, body) => {
+      const { getEmailProvider, isAmbiguousEmailDeliveryError } =
+        await import("./email-provider.server");
+      mocks.environment = {
+        APP_ENV: "development",
+        EMAIL_PROVIDER: "mailgun",
+        MAILGUN_API_BASE_URL: "https://api.mailgun.net",
+        MAILGUN_API_KEY: "sending-key",
+        MAILGUN_DOMAIN: "mg.example.com",
+        MAILGUN_FROM: "Upskill <no-reply@mg.example.com>",
+      };
+      mocks.fetch.mockResolvedValue(new Response(body, { status: 200 }));
+
+      const result = getEmailProvider({} as never).send({
+        notificationId: "notification_accepted_without_id",
+        recipientEmail: "learner@example.com",
+        subject: "Subject",
+        textBody: "Body",
+        htmlBody: "<p>Body</p>",
+      });
+
+      await expect(result).rejects.toThrow("EMAIL_PROVIDER_REQUEST_FAILED");
+      await result.catch((error: unknown) => {
+        expect(isAmbiguousEmailDeliveryError(error)).toBe(true);
+      });
+    },
+  );
 });
