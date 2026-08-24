@@ -336,6 +336,9 @@ for (const invariant of [
   "src/server/db/migrate.ts",
   "src/server/db/provision-runtime-roles.ts",
   "upskill-deploy.env",
+  'write_deployment_id "$release_sha"',
+  'write_deployment_id "$previous_sha"',
+  "/api/ready?deploymentId=${previous_sha}",
   "/api/ready?deploymentId=",
   "Release failed readiness checks and was rolled back",
 ])

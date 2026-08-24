@@ -20,7 +20,6 @@ function safeErrorCode(error: unknown): string {
   if (
     error instanceof Error &&
     [
-      "EMAIL_PROVIDER_INVALID_RESPONSE",
       "EMAIL_PROVIDER_NOT_CONFIGURED",
       "EMAIL_PROVIDER_REJECTED",
       "EMAIL_PROVIDER_REQUEST_FAILED",

@@ -8,6 +8,22 @@ release_root=/opt/upskill/releases
 release_path=${release_root}/${release_sha}
 staging_path=""
 previous_release=""
+previous_sha=""
+
+write_deployment_id() {
+  local deployment_id=$1
+  if [[ ! "$deployment_id" =~ ^[a-f0-9]{40}$ ]]; then
+    echo "Deployment identity must be a full lowercase Git commit" >&2
+    return 1
+  fi
+  for environment_file in upskill-web.env upskill-worker.env upskill-deploy.env; do
+    if [[ ! -f "/opt/upskill/shared/$environment_file" ]]; then
+      echo "Missing runtime environment file: $environment_file" >&2
+      return 1
+    fi
+    printf 'DEPLOYMENT_ID="%s"\n' "$deployment_id" >> "/opt/upskill/shared/$environment_file"
+  done
+}
 
 cleanup() {
   if [[ -n "$staging_path" && -d "$staging_path" ]]; then
@@ -76,9 +92,7 @@ mv "$staging_path" "$release_path"
 staging_path=""
 
 /usr/local/bin/upskill-refresh-env
-for environment_file in upskill-web.env upskill-worker.env upskill-deploy.env; do
-  printf 'DEPLOYMENT_ID="%s"\n' "$release_sha" >> "/opt/upskill/shared/$environment_file"
-done
+write_deployment_id "$release_sha"
 (
   set -a
   source /opt/upskill/shared/upskill-deploy.env
@@ -90,6 +104,19 @@ done
 
 if [[ -L /opt/upskill/current ]]; then
   previous_release=$(readlink -f /opt/upskill/current || true)
+  previous_sha=${previous_release#"$release_root"/}
+  if [[ ! "$previous_sha" =~ ^[a-f0-9]{40}$ || "$previous_release" != "$release_root/$previous_sha" || ! -d "$previous_release" ]]; then
+    echo "The current release does not have a verifiable rollback identity" >&2
+    previous_release=""
+    previous_sha=""
+  elif [[ -f "$previous_release/.upskill-release.json" ]]; then
+    previous_manifest_sha=$(jq -er '.gitSha' "$previous_release/.upskill-release.json" 2>/dev/null || true)
+    if [[ "$previous_manifest_sha" != "$previous_sha" ]]; then
+      echo "The current release manifest does not match its rollback identity" >&2
+      previous_release=""
+      previous_sha=""
+    fi
+  fi
 fi
 ln -sfn "$release_path" /opt/upskill/current
 if [[ -n "$previous_release" && -d "$previous_release" ]]; then
@@ -114,9 +141,17 @@ systemctl restart upskill-web upskill-worker
 systemctl reload nginx
 
 if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 "http://127.0.0.1/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker; then
-  if [[ -n "$previous_release" && -d "$previous_release" ]]; then
-    ln -sfn "$previous_release" /opt/upskill/current
-    systemctl restart upskill-web upskill-worker
+  if [[ -n "$previous_release" && -n "$previous_sha" ]]; then
+    if /usr/local/bin/upskill-refresh-env && write_deployment_id "$previous_sha"; then
+      ln -sfn "$previous_release" /opt/upskill/current
+      if systemctl restart upskill-web upskill-worker && curl --fail --silent --show-error --retry 20 --retry-delay 2 "http://127.0.0.1/api/ready?deploymentId=${previous_sha}" >/dev/null && systemctl is-active --quiet upskill-worker; then
+        echo "Restored previous release $previous_sha" >&2
+      else
+        echo "Previous release rollback failed readiness checks" >&2
+      fi
+    else
+      echo "Previous release rollback could not restore its environment" >&2
+    fi
   fi
   echo "Release failed readiness checks and was rolled back" >&2
   exit 1
