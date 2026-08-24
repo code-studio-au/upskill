@@ -75,6 +75,18 @@ if (
   )
 )
   failures.push("The frozen migration baseline must run in application CI");
+const migrationBaselineVerifier = fs.readFileSync(
+  path.join(root, "scripts/verify-migration-baseline.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  'const baselineTag = "schema-baseline-v1"',
+  'const baselineCommit = "cb80bffde984ba68a71be83808bff4766ac21e58"',
+  '"merge-base", "--is-ancestor"',
+  '["show", `${baselineTag}:${repositoryPath}`]',
+])
+  if (!migrationBaselineVerifier.includes(invariant))
+    failures.push(`Migration baseline anchor is missing: ${invariant}`);
 if (!packageJson.scripts.build.includes("vite.worker.config.ts"))
   failures.push("Production builds must include the asynchronous worker");
 if (
@@ -254,7 +266,7 @@ for (const requiredAccessCodeBoundary of [
 for (const relative of [
   ".env.example",
   "deploy/cdk/lib/application-stack.ts",
-  "src/server/env.server.ts",
+  "src/server/runtime-environment.ts",
 ]) {
   if (
     !fs
@@ -280,7 +292,7 @@ for (const relative of [
   ".env.example",
   ".github/workflows/ci.yml",
   "deploy/cdk/lib/application-stack.ts",
-  "src/server/env.server.ts",
+  "src/server/runtime-environment.ts",
 ]) {
   if (
     fs
@@ -344,17 +356,61 @@ for (const invariant of [
   "upskill-deploy.env",
   'write_deployment_id "$release_sha"',
   'write_deployment_id "$previous_sha"',
-  "/api/ready?deploymentId=${previous_sha}",
-  "/api/ready?deploymentId=",
+  "scripts/validate-runtime-environment.ts",
+  "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}",
+  "http://127.0.0.1:3000/api/ready?deploymentId=",
   "Release failed readiness checks and was rolled back",
   "/usr/local/sbin/upskill-bootstrap-platform-admin",
 ])
   if (!installRelease.includes(invariant))
     failures.push(`Release installation safety is missing: ${invariant}`);
+const environmentPreflightIndex = installRelease.indexOf(
+  "scripts/validate-runtime-environment.ts",
+);
+const migrationIndex = installRelease.indexOf("src/server/db/migrate.ts");
+if (
+  environmentPreflightIndex < 0 ||
+  migrationIndex < 0 ||
+  environmentPreflightIndex > migrationIndex
+)
+  failures.push(
+    "The deployed runtime environment must be validated before migrations",
+  );
 const deployWorkflow = fs.readFileSync(
   path.join(root, ".github/workflows/deploy.yml"),
   "utf8",
 );
+const ciWorkflow = fs.readFileSync(
+  path.join(root, ".github/workflows/ci.yml"),
+  "utf8",
+);
+for (const [name, workflow] of [
+  ["CI", ciWorkflow],
+  ["deployment", deployWorkflow],
+])
+  if (!workflow.includes("fetch-depth: 0"))
+    failures.push(`${name} verification must fetch the migration baseline tag`);
+for (const invariant of [
+  'GITHUB_REF" != "refs/heads/main',
+  'REQUESTED_RELEASE_SHA" != "$GITHUB_SHA',
+  "attestations: write",
+  "artifact-metadata: write",
+  "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+  "UPSKILL_RELEASE_ARTIFACT: artifacts/upskill-${{ github.sha }}.tar.gz",
+  "subject-path: artifacts/upskill-${{ github.sha }}.tar.gz",
+])
+  if (!deployWorkflow.includes(invariant))
+    failures.push(`Deployment authorization is missing: ${invariant}`);
+const attestationIndex = deployWorkflow.indexOf("actions/attest@");
+const artifactUploadIndex = deployWorkflow.indexOf(
+  'aws s3 cp "artifacts/upskill-${GITHUB_SHA}.tar.gz"',
+);
+if (
+  attestationIndex < 0 ||
+  artifactUploadIndex < 0 ||
+  attestationIndex > artifactUploadIndex
+)
+  failures.push("The release artifact must be attested before S3 upload");
 const workflowChecksumIndex = deployWorkflow.indexOf(
   "sha256sum --check --strict -",
 );
@@ -405,18 +461,21 @@ const nginx = fs.readFileSync(
   path.join(root, "deploy/nginx/upskill.conf"),
   "utf8",
 );
-for (const directive of [
-  "gzip on;",
-  "gzip_vary on;",
-  "gzip_proxied any;",
-  "gzip_comp_level 6;",
-  "gzip_min_length 1024;",
-])
-  if (!nginx.includes(directive))
-    failures.push(`nginx compression policy is missing: ${directive}`);
 if (!nginx.includes("client_max_body_size 2m;"))
   failures.push("The default nginx request-body limit must remain 2 MB");
-const scormUploadLocation = nginx.match(
+if (
+  nginx.includes("proxy_pass") ||
+  !nginx.includes('return 503 "Upskill is completing secure staging setup') ||
+  !nginx.includes("/.well-known/acme-challenge/")
+)
+  failures.push(
+    "Pre-TLS nginx must expose only ACME and a non-cacheable maintenance response",
+  );
+const productionNginx = fs.readFileSync(
+  path.join(root, "deploy/nginx/upskill.https.conf.template"),
+  "utf8",
+);
+const scormUploadLocation = productionNginx.match(
   /location = \/api\/admin\/scorm-packages \{(?<body>[\s\S]*?)\n {4}\}/,
 )?.groups?.body;
 if (!scormUploadLocation?.includes("client_max_body_size 250m;"))
@@ -425,7 +484,7 @@ if (!scormUploadLocation?.includes("client_max_body_size 250m;"))
   );
 if (!scormUploadLocation?.includes("proxy_request_buffering off;"))
   failures.push("nginx must stream SCORM uploads instead of buffering them");
-const resourceUploadLocation = nginx.match(
+const resourceUploadLocation = productionNginx.match(
   /location = \/api\/admin\/resources \{(?<body>[\s\S]*?)\n {4}\}/,
 )?.groups?.body;
 if (!resourceUploadLocation?.includes("client_max_body_size 25m;"))
