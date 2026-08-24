@@ -19,7 +19,7 @@ test("staging network has isolated data subnets", () => {
   template.resourceCountIs("AWS::EC2::NatGateway", 0);
 });
 
-test("storage blocks public access and provides a dead-letter queue", () => {
+test("staging storage is private, disposable and provides a dead-letter queue", () => {
   const stack = new StorageStack(
     new App(),
     "Storage",
@@ -34,6 +34,14 @@ test("storage blocks public access and provides a dead-letter queue", () => {
       RestrictPublicBuckets: true,
     }),
   });
+  template.resourceCountIs("AWS::S3::Bucket", 4);
+  template.resourceCountIs("Custom::S3AutoDeleteObjects", 4);
+  for (const bucket of Object.values(
+    template.findResources("AWS::S3::Bucket"),
+  )) {
+    expect(bucket.DeletionPolicy).toBe("Delete");
+    expect(bucket.UpdateReplacePolicy).toBe("Delete");
+  }
   template.resourceCountIs("AWS::SQS::Queue", 2);
   template.hasResourceProperties("AWS::SQS::Queue", {
     VisibilityTimeout: 900,
@@ -143,6 +151,14 @@ test("production storage alarms on durable work backlog and dead letters", () =>
     environmentConfig("production"),
   );
   const template = Template.fromStack(stack);
+  template.resourceCountIs("AWS::S3::Bucket", 4);
+  template.resourceCountIs("Custom::S3AutoDeleteObjects", 0);
+  for (const bucket of Object.values(
+    template.findResources("AWS::S3::Bucket"),
+  )) {
+    expect(bucket.DeletionPolicy).toBe("Retain");
+    expect(bucket.UpdateReplacePolicy).toBe("Retain");
+  }
   template.resourceCountIs("AWS::CloudWatch::Alarm", 3);
   template.hasResourceProperties("AWS::CloudWatch::Alarm", {
     AlarmName: "upskill-production-work-queue-oldest-message",
