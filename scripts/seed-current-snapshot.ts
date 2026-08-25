@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { hashPassword } from "better-auth/crypto";
 import { Client } from "pg";
 import { encryptAccessCode } from "#/server/access/access-code-encryption.server";
@@ -619,4 +620,6 @@ async function main(): Promise<void> {
   }
 }
 
-await main();
+const invokedPath = process.argv[1];
+if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href)
+  await main();

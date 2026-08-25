@@ -65,6 +65,12 @@ if (!eslintConfig.includes("tseslint.configs.strictTypeChecked"))
   failures.push("ESLint must use the strict type-checked TypeScript preset");
 if (packageJson.devDependencies["react-doctor"] !== "0.9.7")
   failures.push("React Doctor must remain exact-pinned");
+if (packageJson.dependencies.tsx !== "4.23.11")
+  failures.push(
+    "The deployed TypeScript seed loader requires pinned production tsx",
+  );
+if (packageJson.devDependencies.tsx !== undefined)
+  failures.push("tsx must not be scoped only to development dependencies");
 if (!packageJson.scripts.doctor.includes("--blocking error"))
   failures.push("React Doctor must fail verification on error diagnostics");
 if (!packageJson.scripts["verify:app:static"].includes("pnpm run doctor"))
@@ -197,6 +203,36 @@ for (const sensitive of [".env", ".env.local"]) {
     // An ignored local environment file is expected during local verification.
   }
 }
+const stagingSeedRunner = fs.readFileSync(
+  path.join(root, "deploy/scripts/seed-staging.sh"),
+  "utf8",
+);
+if (stagingSeedRunner.includes('source "$seed_environment"'))
+  failures.push(
+    "The protected staging seed file must never be executed as shell",
+  );
+const deployedEnvironmentCheck = stagingSeedRunner.indexOf(
+  'if [[ "$deployed_app_environment" != "staging" ]]',
+);
+const seedEnvironmentRead = stagingSeedRunner.indexOf(
+  'done < "$seed_environment"',
+);
+if (
+  deployedEnvironmentCheck < 0 ||
+  seedEnvironmentRead < 0 ||
+  deployedEnvironmentCheck > seedEnvironmentRead
+)
+  failures.push(
+    "The authoritative deployed environment must be validated before seed settings are read",
+  );
+for (const invariant of [
+  'case "$key" in',
+  "ALLOW_STAGING_SEED | SEED_ASSET_DIRECTORY | SEED_LEARNER_PASSWORD | SEED_SMS_TEST_PHONE | SEED_SMS_TEST_USER_EMAIL)",
+  "APP_ENV=$deployed_app_environment",
+  "DATABASE_URL=${MIGRATION_DATABASE_URL:?MIGRATION_DATABASE_URL is required}",
+])
+  if (!stagingSeedRunner.includes(invariant))
+    failures.push(`Staging seed boundary is missing: ${invariant}`);
 const gitignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
 if (!gitignore.split(/\r?\n/).includes(".env"))
   failures.push(".gitignore must ignore .env");

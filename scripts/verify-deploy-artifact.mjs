@@ -116,6 +116,17 @@ try {
   execFileSync(
     process.execPath,
     [
+      "--import",
+      "tsx",
+      "--input-type=module",
+      "--eval",
+      "await import('./scripts/seed-current-snapshot.ts')",
+    ],
+    { cwd: extractedDirectory, stdio: "inherit" },
+  );
+  execFileSync(
+    process.execPath,
+    [
       "--input-type=module",
       "--eval",
       "await import('./dist/server/server.js')",

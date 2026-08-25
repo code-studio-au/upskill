@@ -25,13 +25,39 @@ fi
 
 set -a
 source "$deploy_environment"
-source "$seed_environment"
 set +a
 
-if [[ ${APP_ENV:-} != "staging" ]]; then
+deployed_app_environment=${APP_ENV:-}
+if [[ "$deployed_app_environment" != "staging" ]]; then
   echo "Staging seed is prohibited unless APP_ENV=staging" >&2
   exit 1
 fi
+
+while IFS= read -r line || [[ -n "$line" ]]; do
+  line=${line%$'\r'}
+  if [[ -z "$line" || "$line" == \#* ]]; then
+    continue
+  fi
+  if [[ "$line" != *=* ]]; then
+    echo "upskill-seed.env contains an invalid line" >&2
+    exit 1
+  fi
+  key=${line%%=*}
+  value=${line#*=}
+  case "$key" in
+    ALLOW_STAGING_SEED | SEED_ASSET_DIRECTORY | SEED_LEARNER_PASSWORD | SEED_SMS_TEST_PHONE | SEED_SMS_TEST_USER_EMAIL)
+      printf -v "$key" '%s' "$value"
+      export "$key"
+      ;;
+    *)
+      echo "upskill-seed.env contains a prohibited key: $key" >&2
+      exit 1
+      ;;
+  esac
+done < "$seed_environment"
+
+APP_ENV=$deployed_app_environment
+export APP_ENV
 DATABASE_URL=${MIGRATION_DATABASE_URL:?MIGRATION_DATABASE_URL is required}
 export DATABASE_URL
 if [[ ! -d ${SEED_ASSET_DIRECTORY:-} ]]; then
