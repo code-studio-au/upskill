@@ -189,6 +189,7 @@ interface OnboardingAssignmentTable {
   startedAt: Timestamp | null;
   completedAt: Timestamp | null;
   supersededAt: Timestamp | null;
+  verificationDeferredAt: OptionalTimestamp;
   verificationSkippedAt: OptionalTimestamp;
 }
 

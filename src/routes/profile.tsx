@@ -252,7 +252,7 @@ function ProfileDetails({ profile }: { profile: LearnerProfile }) {
   ];
   return (
     <form method="post">
-      <Paper withBorder radius="lg" p="lg">
+      <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
         <Stack gap="lg">
           <div>
             <Title order={2}>Current details</Title>
@@ -270,21 +270,21 @@ function ProfileDetails({ profile }: { profile: LearnerProfile }) {
               maxLength={160}
               required
             />
-            <div className={classes.fieldGroup}>
-              <span className={classes.fieldLabel}>Email address</span>
-              <div className={classes.readOnlyValue}>{profile.email}</div>
-              <Text c="dimmed" size="xs">
-                Your email is also your sign-in address.
-              </Text>
-            </div>
+            <MantineTextInput
+              label="Email address"
+              type="email"
+              autoComplete="email"
+              value={profile.email}
+              readOnly
+            />
             <MantineTextInput
               name="phone"
               label="Mobile phone"
-              description="Use international format, for example +61400123456. Changing it removes its verified status."
               autoComplete="tel"
               inputMode="tel"
               defaultValue={profile.phone ?? ""}
               maxLength={40}
+              description="Use international format, for example +61400123456. Changes require reverification."
             />
             <MantineNativeSelect
               name="currentRegionId"
@@ -347,7 +347,7 @@ function ContactVerification({
   status: string | undefined;
 }) {
   return (
-    <Paper withBorder radius="lg" p="lg">
+    <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
       <Stack gap="lg">
         <div>
           <Title order={2}>Contact verification</Title>

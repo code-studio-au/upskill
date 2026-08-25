@@ -68,20 +68,25 @@ export function LearnerSurveyExperience({
   survey,
   returnAction,
   completionDescription,
+  initialItemId,
   onAdvance,
 }: {
   survey: SurveyExperience;
   returnAction: ReactNode;
   completionDescription: string;
+  initialItemId?: string | undefined;
   onAdvance: (
     itemId: string,
     answer: SurveyAnswerValue | undefined,
   ) => Promise<LearnerSurveyStepResult>;
 }) {
   const initialSteps = surveyPathSteps(survey.content, survey.progress.answers);
-  const initialItemId =
-    survey.progress.currentItemId ?? initialSteps[0]?.item.id ?? null;
-  const [displayItemId, setDisplayItemId] = useState(initialItemId);
+  const firstItemId =
+    initialItemId ??
+    survey.progress.currentItemId ??
+    initialSteps[0]?.item.id ??
+    null;
+  const [displayItemId, setDisplayItemId] = useState(firstItemId);
   const [progress, setProgress] = useState(survey.progress);
   const [error, setError] = useState<string>();
   const steps = surveyPathSteps(survey.content, progress.answers);
@@ -91,9 +96,7 @@ export function LearnerSurveyExperience({
   );
   const answerForm = useForm({
     defaultValues: {
-      answer: initialItemId
-        ? survey.progress.answers[initialItemId]
-        : undefined,
+      answer: firstItemId ? survey.progress.answers[firstItemId] : undefined,
     },
     validators: {
       onSubmit: ({ value }) => {

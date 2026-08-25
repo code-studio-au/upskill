@@ -12,6 +12,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import { getServerEnv } from "#/server/env.server";
 import {
   fixtureEmailContext,
   emailVariableGroups,
@@ -181,15 +182,7 @@ function numberValue(value: unknown): number | null {
 }
 
 function applicationUrl(): string {
-  const configured =
-    process.env.BETTER_AUTH_URL ??
-    process.env.APP_URL ??
-    "http://localhost:3000";
-  try {
-    return new URL(configured).origin;
-  } catch {
-    return "http://localhost:3000";
-  }
+  return new URL(getServerEnv().APP_ORIGIN).origin;
 }
 
 function formatDateTime(value: Date | null, timezone: string): string {

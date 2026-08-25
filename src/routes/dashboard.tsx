@@ -26,7 +26,7 @@ export const Route = createFileRoute("/dashboard")({
     if (onboarding.status === "ready")
       throw redirect({
         to: "/onboarding",
-        search: { verification: undefined },
+        search: { editContact: undefined, verification: undefined },
       });
     const dashboard = await getLearnerDashboard();
     if (!dashboard)

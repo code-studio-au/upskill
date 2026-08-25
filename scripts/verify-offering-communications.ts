@@ -23,6 +23,7 @@ import {
   saveAdminEmailDraft,
 } from "#/server/admin/admin-email.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { getServerEnv } from "#/server/env.server";
 import {
   enqueueRegistrationSubmittedEventCommunications,
   enqueueRegistrationSelectedEventCommunications,
@@ -260,6 +261,10 @@ try {
     },
   );
   assert.equal(unsavedCoursePreview?.subject, "Reminder: Communication course");
+  assert.equal(
+    unsavedCoursePreview.textBody,
+    `Return to ${new URL(getServerEnv().APP_ORIGIN).origin}/my-learning.`,
+  );
   await database
     .updateTable("course_version")
     .set({ publishedAt: now })
@@ -780,6 +785,20 @@ try {
   assert.match(
     occurrencePreview.textBody,
     /Renamed pre-event: Sydney workshop starts 15 September 2026 at 10:00 am at Session room, 1 Preview Street with Communication plan verifier\./u,
+  );
+  const selected = inheritedWorkspace.items.find(
+    (candidate) => candidate.trigger === "registration_selected",
+  );
+  assert.ok(selected);
+  const selectedPreview = await previewOfferingCommunication(
+    { kind: "event_occurrence", eventOccurrenceId },
+    { communicationId: selected.id },
+  );
+  assert.ok(selectedPreview);
+  assert.ok(
+    selectedPreview.textBody.includes(
+      `${new URL(getServerEnv().APP_ORIGIN).origin}/my-events/${eventOccurrenceId}`,
+    ),
   );
   assert.equal(
     await overrideOccurrenceCommunication(
