@@ -77,6 +77,9 @@ importers:
       stripe:
         specifier: 22.4.0
         version: 22.4.0(@types/node@26.2.0)
+      tsx:
+        specifier: 4.23.11
+        version: 4.23.11
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -153,9 +156,6 @@ importers:
       terser:
         specifier: 5.50.0
         version: 5.50.0
-      tsx:
-        specifier: 4.23.11
-        version: 4.23.11
       typescript:
         specifier: npm:@typescript/typescript6@6.0.2
         version: '@typescript/typescript6@6.0.2'

@@ -4,6 +4,7 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
   GetObjectCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -60,6 +61,27 @@ export async function putObject(
       error.name === "PreconditionFailed"
     )
       return "existing";
+    throw error;
+  }
+}
+
+export async function objectExists(
+  bucket: string,
+  key: string,
+): Promise<boolean> {
+  try {
+    await getObjectStorageClient().send(
+      new HeadObjectCommand({ Bucket: bucket, Key: key }),
+    );
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "name" in error &&
+      (error.name === "NotFound" || error.name === "NoSuchKey")
+    )
+      return false;
     throw error;
   }
 }

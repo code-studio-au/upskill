@@ -51,8 +51,10 @@
     "db:reset:local": "node --env-file-if-exists=.env.local --import tsx scripts/reset-local-database.ts && pnpm run db:migrate",
     "db:seed:catalog": "node --env-file-if-exists=.env.local --import tsx scripts/seed-catalog.ts",
     "db:seed:learner": "node --env-file-if-exists=.env.local --import tsx scripts/seed-learner.ts",
-    "db:seed:development": "node --env-file-if-exists=.env.local --import tsx scripts/seed-development-scenarios.ts",
+    "db:seed:snapshot": "node --env-file-if-exists=.env.local --import tsx scripts/seed-current-snapshot.ts",
+    "db:seed:development": "pnpm run db:seed:snapshot",
     "db:seed:local": "pnpm run db:reset:local && pnpm run db:seed:development",
+    "seed:assets:package": "bash scripts/create-seed-assets.sh",
     "db:verify:migrations": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-migrations.ts",
     "db:verify:admin-bootstrap": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-platform-admin-invitation.ts scripts/verify-platform-admin-bootstrap.ts",
     "db:verify:audit": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-audit-logging.ts",
@@ -107,6 +109,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "stripe": "22.4.0",
+    "tsx": "4.23.11",
     "zod": "4.4.3"
   },
   "devDependencies": {
@@ -134,7 +137,6 @@
     "prettier": "3.9.6",
     "react-doctor": "0.9.7",
     "terser": "5.50.0",
-    "tsx": "4.23.11",
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.66.0",
     "vite": "8.2.1",

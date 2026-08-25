@@ -266,8 +266,11 @@ SSM command, migrates with the administrative database credential, provisions
 the restricted web/worker roles, activates atomically and verifies `/api/ready`
 against the commit SHA. Re-dispatching the active commit deliberately refreshes
 Secrets Manager configuration, validates it and restarts the web and worker;
-failed validation or readiness restores the previous environment files. Do not
-run seeds in either deployed environment.
+failed validation or readiness restores the previous environment files.
+Production seeding is prohibited. Staging has one explicit, additive snapshot
+seed for pre-production testing; it is separately confirmed, preserves existing
+users by email, uses a root-only operator environment, and is documented in
+[local development data](docs/local-development-data.md#controlled-staging-seed).
 Verify the published provenance for the exact downloaded release when required:
 
 ```sh

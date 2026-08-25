@@ -1,8 +1,10 @@
 # Local development data
 
-The comprehensive development seed creates deterministic accounts and realistic
-learning, event, onboarding and access-management states. It is local-only and
-must never run against a shared or deployed database.
+The comprehensive development snapshot preserves the useful current-version
+authoring and operational state from the pre-baseline local database. Its
+committed relational fixture is deterministic and contains only reserved mobile
+numbers. The same fixture may be added once to staging through the separately
+guarded operator path; production use is prohibited in code.
 
 The browser suite continues to use its smaller catalog and learner fixtures in a
 disposable PostgreSQL database. Browser verification does not write users,
@@ -10,19 +12,21 @@ surveys, emails or untitled authoring drafts into the local development database
 
 ## Reset and seed
 
-Stop any running application or worker, start the Docker services, then pass the
-local SCORM 1.2 ZIP file to the aggregate command:
+Stop any running application or worker and start the Docker services. The
+ignored asset directory must contain the recovered `private/` and
+`scorm-source/` trees before running:
 
 ```sh
 docker compose up -d
-pnpm run db:seed:local -- /path/to/recognizing-eating-disorders.zip
+pnpm run db:seed:local
 ```
 
 `db:seed:local` drops and recreates only the `public` schema of the local
 development `/upskill` PostgreSQL database, reapplies migrations and runs the
-comprehensive scenario seed. The reset refuses non-local hosts,
+portable snapshot seed. The reset refuses non-local hosts,
 non-development environments and any other database name. It does not delete
-MinIO objects or ElasticMQ messages.
+MinIO objects or ElasticMQ messages. Asset uploads are content-addressed or use
+immutable fixture keys, and an existing object is preserved.
 
 All credential accounts use `SEED_LEARNER_PASSWORD` from `.env.local`.
 
@@ -104,9 +108,40 @@ The operational-region response maps to the user's current profile region. A
 learner who does not work for a health service skips region selection.
 The seeded profile section also collects a required mobile number and optional
 email/SMS security-code preferences. Learner 4 uses the reserved synthetic
-mobile `+61491570009`, has SMS enabled and is seeded as SMS verified so the
-fixture remains deterministic without contacting a real device. Other seeded
-mobile values are also reserved development data.
+mobile `+61491570006`, has SMS enabled and is deliberately unverified so the
+verification flow can be exercised without contacting a real device. Other
+stored mobile values also remain in the ACMA reserved fictional range.
+
+## Controlled staging seed
+
+Staging accepts the same relational fixture as an additive, one-time operation.
+It preserves an existing account when its email matches a fixture user and
+remaps every fixture reference to that existing user ID. A complete prior seed
+is a no-op; a partial prior seed fails closed. Delivery captures, notifications,
+outbox jobs, sessions, password hashes, access-code ciphertext, Stripe IDs and
+verification challenges are not copied.
+
+Create the ignored asset archive locally with `pnpm run seed:assets:package`,
+transfer it to the instance through the protected deployment-artifact path, and
+extract it to a root-controlled directory readable by `ec2-user`. The active
+release installs `/usr/local/sbin/upskill-seed-staging`. That command requires
+`/opt/upskill/shared/upskill-seed.env` to be owned by `root:root` with mode
+`0600` and to contain:
+
+```dotenv
+ALLOW_STAGING_SEED=I_UNDERSTAND_THIS_ADDS_FIXTURE_DATA
+SEED_LEARNER_PASSWORD=<a unique value of at least 12 characters>
+SEED_ASSET_DIRECTORY=/opt/upskill/shared/current-seed-assets
+SEED_SMS_TEST_USER_EMAIL=learner4@codestudio.au
+SEED_SMS_TEST_PHONE=<the approved Australian E.164 staging test number>
+```
+
+The password and real test number must be supplied through the protected
+operator environment and must never be committed, placed in an SSM command, or
+printed to logs. The staging phone is inserted as SMS-enabled but unverified,
+with no active ownership claim, so the normal six-digit verification path is
+tested. The loader rejects the real-number override in development/test and
+rejects every seed attempt in production.
 
 ## eLearning catalog
 
@@ -177,5 +212,6 @@ August–November 2026 schedule:
 | CBT-E · 23–24 September          | Registration open across several regions.                             |
 | IMED Paediatric · 10–11 November | Registration open for a later event.                                  |
 
-The scenario seed refuses to run twice without a reset so partial duplicate
-authoring or workflow data cannot be mistaken for a valid fixture.
+The snapshot seed treats a complete rerun as a no-op and refuses partial fixture
+state so duplicate authoring or workflow data cannot be mistaken for a valid
+seed.
