@@ -308,6 +308,9 @@ export async function saveLearnerOnboardingStep(
     const itemIndex = items.findIndex((candidate) => candidate.id === itemId);
     const item = items[itemIndex];
     if (!item) return { status: "not-found" };
+    const itemDestination = mappings.find(
+      (mapping) => mapping.questionId === item.id,
+    )?.destination;
     const existingVisited = storedVisited(row.visitedItemIds);
     const smsQuestionId = mappedQuestionId(mappings, "smsEnabled");
     const phoneQuestionId = mappedQuestionId(mappings, "phone");
@@ -344,6 +347,12 @@ export async function saveLearnerOnboardingStep(
       if (!validation.valid)
         return { status: "invalid", message: validation.message };
       let validatedAnswer = validation.answer;
+      if (
+        item.kind === "checkbox" &&
+        typeof validatedAnswer === "undefined" &&
+        (itemDestination === "emailEnabled" || itemDestination === "smsEnabled")
+      )
+        validatedAnswer = false;
       if (
         mappings.some(
           (mapping) =>
@@ -436,9 +445,6 @@ export async function saveLearnerOnboardingStep(
       nextItems.length > 0 &&
       nextItems.every((candidate) => visited.has(candidate.id));
     const now = new Date();
-    const itemDestination = mappings.find(
-      (mapping) => mapping.questionId === item.id,
-    )?.destination;
     const currentItemId = completed
       ? null
       : (nextItems.find((candidate) => !visited.has(candidate.id))?.id ?? null);

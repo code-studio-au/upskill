@@ -630,11 +630,53 @@ try {
       await saveLearnerOnboardingStep(
         reassigned.assignmentId,
         "onboarding_email_enabled",
+        undefined,
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("user")
+        .select("emailEnabled")
+        .where("id", "=", user.id)
+        .executeTakeFirstOrThrow()
+    ).emailEnabled,
+    false,
+  );
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        reassigned.assignmentId,
+        "onboarding_email_enabled",
         true,
         user,
       )
     ).status,
     "advanced",
+  );
+  assert.equal(
+    (
+      await saveLearnerOnboardingStep(
+        reassigned.assignmentId,
+        "onboarding_sms_enabled",
+        undefined,
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("user")
+        .select("smsEnabled")
+        .where("id", "=", user.id)
+        .executeTakeFirstOrThrow()
+    ).smsEnabled,
+    false,
   );
   const requiredSmsCheckpoint = await saveLearnerOnboardingStep(
     reassigned.assignmentId,
