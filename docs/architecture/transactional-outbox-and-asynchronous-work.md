@@ -208,8 +208,9 @@ Monitor both the PostgreSQL outbox and SQS/worker layer.
 
 Useful outbox metrics:
 
-- unprocessed row count;
-- age of oldest available row;
+- unprocessed dispatchable-work count (excluding intentionally retained domain
+  facts without a subscriber);
+- age of oldest available dispatchable-work row;
 - attempts/retries by topic;
 - dispatch latency;
 - batch-limit saturation; and

@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import { randomBytes, randomInt, randomUUID } from "node:crypto";
 import type { Kysely, Transaction } from "kysely";
+import { onboardingProfileMappingSchema } from "#/features/onboarding/onboarding.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
@@ -25,9 +26,34 @@ import {
   normalizeContactEmail,
   type ContactVerificationChannel,
 } from "#/server/profile/contact-verification-core.server";
+import { z } from "#/validation/zod";
 
 const DEVELOPMENT_COOKIE = "upskill_onboarding_challenge";
 const SECURE_COOKIE = "__Host-upskill_onboarding_challenge";
+
+function hasVisitedProfileMapping(
+  mappingsValue: unknown,
+  visitedValue: unknown,
+  destination: "smsEnabled",
+): boolean {
+  const mappings = z
+    .array(onboardingProfileMappingSchema)
+    .safeParse(mappingsValue);
+  const visited = new Set(
+    Array.isArray(visitedValue)
+      ? visitedValue.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [],
+  );
+  return (
+    mappings.success &&
+    mappings.data.some(
+      (mapping) =>
+        mapping.destination === destination && visited.has(mapping.questionId),
+    )
+  );
+}
 
 function cookieName(): string {
   const { APP_ENV } = getServerEnv();
@@ -109,37 +135,46 @@ export async function findOnboardingContactVerification(
   };
 }
 
-export async function onboardingContactVerificationIsRequired(
-  database: Kysely<Database> | Transaction<Database>,
-  assignmentId: string,
-): Promise<boolean> {
-  return await database
-    .selectFrom("onboarding_assignment as assignment")
-    .innerJoin(
-      "onboarding_definition_version as definition",
-      "definition.id",
-      "assignment.definitionVersionId",
-    )
-    .select("definition.contactVerificationRequired")
-    .where("assignment.id", "=", assignmentId)
-    .executeTakeFirstOrThrow()
-    .then((row) => row.contactVerificationRequired);
-}
-
 export async function completeOnboardingIfVerified(
   transaction: Transaction<Database>,
   assignmentId: string,
   userId: string,
   now: Date,
 ): Promise<boolean> {
-  const verification = await findOnboardingContactVerification(
-    transaction,
-    userId,
-  );
+  const [verification, assignment] = await Promise.all([
+    findOnboardingContactVerification(transaction, userId),
+    transaction
+      .selectFrom("onboarding_assignment as assignment")
+      .innerJoin(
+        "onboarding_definition_version as definition",
+        "definition.id",
+        "assignment.definitionVersionId",
+      )
+      .innerJoin(
+        "onboarding_response as response",
+        "response.assignmentId",
+        "assignment.id",
+      )
+      .select([
+        "assignment.verificationDeferredAt",
+        "assignment.verificationSkippedAt",
+        "definition.contactVerificationRequired",
+        "response.submittedAt",
+      ])
+      .where("assignment.id", "=", assignmentId)
+      .where("assignment.userId", "=", userId)
+      .executeTakeFirst(),
+  ]);
+  if (!assignment?.submittedAt) return false;
   const pending =
     (verification.email.enabled && !verification.email.verified) ||
     (verification.sms.enabled && !verification.sms.verified);
-  if (pending) return false;
+  if (
+    pending &&
+    (assignment.contactVerificationRequired ||
+      (!assignment.verificationDeferredAt && !assignment.verificationSkippedAt))
+  )
+    return false;
   const completed = await transaction
     .updateTable("onboarding_assignment")
     .set({ status: "completed", completedAt: now })
@@ -166,6 +201,11 @@ export async function requestOnboardingContactVerification(
       "response.assignmentId",
       "assignment.id",
     )
+    .innerJoin(
+      "onboarding_definition_version as definition",
+      "definition.id",
+      "assignment.definitionVersionId",
+    )
     .innerJoin("user", "user.id", "assignment.userId")
     .select([
       "user.name",
@@ -176,12 +216,27 @@ export async function requestOnboardingContactVerification(
       "user.smsEnabled",
       "user.smsVerifiedAt",
       "assignment.status",
+      "definition.profileMappings",
+      "response.visitedItemIds",
       "response.submittedAt",
     ])
     .where("assignment.id", "=", input.assignmentId)
     .where("assignment.userId", "=", user.id)
     .executeTakeFirst();
-  if (!row || row.status !== "in_progress" || !row.submittedAt)
+  const earlySmsCheckpoint =
+    row &&
+    !row.submittedAt &&
+    input.channel === "sms" &&
+    hasVisitedProfileMapping(
+      row.profileMappings,
+      row.visitedItemIds,
+      "smsEnabled",
+    );
+  if (
+    !row ||
+    row.status !== "in_progress" ||
+    (!row.submittedAt && !earlySmsCheckpoint)
+  )
     return { status: "unavailable" };
   const channel = contactDestination(input.channel, row, {
     requireEnabled: true,
@@ -301,11 +356,6 @@ export async function verifyOnboardingContactCode(
           "assignment.id",
           "challenge.assignmentId",
         )
-        .innerJoin(
-          "onboarding_response as response",
-          "response.assignmentId",
-          "assignment.id",
-        )
         .innerJoin("user", "user.id", "challenge.userId")
         .select([
           "challenge.id",
@@ -316,7 +366,6 @@ export async function verifyOnboardingContactCode(
           "challenge.expiresAt",
           "challenge.consumedAt",
           "assignment.status",
-          "response.submittedAt",
           "user.email",
           "user.emailEnabled",
           "user.emailVerified",
@@ -339,7 +388,6 @@ export async function verifyOnboardingContactCode(
         challenge.consumedAt ||
         challenge.expiresAt <= now ||
         challenge.status !== "in_progress" ||
-        !challenge.submittedAt ||
         !channel ||
         contactSecretDigest(`${challenge.channel}:${channel.destination}`) !==
           challenge.destinationDigest
@@ -406,7 +454,9 @@ export async function verifyOnboardingContactCode(
 export async function skipOnboardingContactVerification(
   assignmentId: string,
   user: AuthenticatedUser,
-): Promise<"skipped" | "unavailable"> {
+): Promise<
+  { status: "skipped"; complete: boolean } | { status: "unavailable" }
+> {
   const now = new Date();
   const database = getDatabase();
   const assignment = await database
@@ -421,27 +471,49 @@ export async function skipOnboardingContactVerification(
       "response.assignmentId",
       "assignment.id",
     )
-    .select("assignment.id")
+    .innerJoin("user", "user.id", "assignment.userId")
+    .select([
+      "assignment.id",
+      "definition.profileMappings",
+      "response.visitedItemIds",
+      "response.submittedAt",
+      "user.phone",
+      "user.smsEnabled",
+      "user.smsVerifiedAt",
+    ])
     .where("assignment.id", "=", assignmentId)
     .where("assignment.userId", "=", user.id)
     .where("assignment.status", "=", "in_progress")
-    .where("response.submittedAt", "is not", null)
     .where("definition.contactVerificationRequired", "=", false)
     .executeTakeFirst();
-  if (!assignment) return "unavailable";
-  const completed = await database
+  const earlySmsCheckpoint =
+    assignment &&
+    !assignment.submittedAt &&
+    assignment.smsEnabled &&
+    !assignment.smsVerifiedAt &&
+    Boolean(assignment.phone) &&
+    hasVisitedProfileMapping(
+      assignment.profileMappings,
+      assignment.visitedItemIds,
+      "smsEnabled",
+    );
+  if (!assignment || (!assignment.submittedAt && !earlySmsCheckpoint))
+    return { status: "unavailable" };
+  const complete = Boolean(assignment.submittedAt);
+  const updated = await database
     .updateTable("onboarding_assignment")
     .set({
-      status: "completed",
-      completedAt: now,
-      verificationSkippedAt: now,
+      status: complete ? "completed" : "in_progress",
+      completedAt: complete ? now : null,
+      verificationDeferredAt: complete ? null : now,
+      verificationSkippedAt: complete ? now : null,
     })
     .where("id", "=", assignmentId)
     .where("userId", "=", user.id)
     .where("status", "=", "in_progress")
     .returning("id")
     .executeTakeFirst();
-  if (!completed) return "unavailable";
+  if (!updated) return { status: "unavailable" };
   logServerEvent({
     level: "info",
     event: "onboarding.contact_verification_skipped",
@@ -451,5 +523,5 @@ export async function skipOnboardingContactVerification(
       actorUserId: user.id,
     },
   });
-  return "skipped";
+  return { status: "skipped", complete };
 }

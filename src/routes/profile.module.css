@@ -16,24 +16,9 @@
   gap: var(--mantine-spacing-md);
 }
 
-.fieldGroup {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.fieldLabel {
-  color: var(--mantine-color-gray-8);
-  font-size: var(--mantine-font-size-sm);
-  font-weight: 600;
-}
-
-.readOnlyValue {
-  min-height: 2.75rem;
-  padding: 0.65rem 0.8rem;
-  overflow-wrap: anywhere;
-  border: 1px solid var(--mantine-color-gray-3);
-  border-radius: var(--mantine-radius-md);
-  background: var(--mantine-color-gray-0);
+.detailsGrid > * {
+  width: 100%;
+  align-self: start;
 }
 
 .preferenceList {
@@ -58,6 +43,11 @@
   flex: 0 0 auto;
   margin-top: 0.15rem;
   accent-color: var(--mantine-color-indigo-7);
+}
+
+.preference input:focus-visible {
+  outline: 2px solid var(--mantine-primary-color-filled);
+  outline-offset: 2px;
 }
 
 .preferenceCopy {

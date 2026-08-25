@@ -186,6 +186,26 @@ export async function activateOnboardingConfiguration(
         status: "invalid",
         message: "SMS enablement requires a mapped mobile number question.",
       };
+    const orderedItemIds = content.sections.flatMap((section) =>
+      section.items.map((item) => item.id),
+    );
+    const phoneQuestionId = profileMappings.find(
+      (mapping) => mapping.destination === "phone",
+    )?.questionId;
+    const smsQuestionId = profileMappings.find(
+      (mapping) => mapping.destination === "smsEnabled",
+    )?.questionId;
+    if (
+      phoneQuestionId &&
+      smsQuestionId &&
+      orderedItemIds.indexOf(phoneQuestionId) >
+        orderedItemIds.indexOf(smsQuestionId)
+    )
+      return {
+        status: "invalid",
+        message:
+          "The profile mobile number question must come before Profile SMS enabled so verification can follow the opt-in step.",
+      };
     for (const mapping of profileMappings) {
       const question = questions.get(mapping.questionId);
       if (!question)

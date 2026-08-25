@@ -31,16 +31,34 @@ import { z } from "#/validation/zod";
 import {
   completeOnboardingIfVerified,
   findOnboardingContactVerification,
-  onboardingContactVerificationIsRequired,
 } from "./onboarding-contact-verification.server";
 
 const DEFINITION_ID = "onboarding_definition_default";
+type ProfileMapping = z.infer<typeof onboardingProfileMappingSchema>;
+
+function profileMappings(value: unknown): Array<ProfileMapping> {
+  const parsed = z.array(onboardingProfileMappingSchema).safeParse(value);
+  return parsed.success ? parsed.data : [];
+}
+
+function mappedQuestionId(
+  mappings: Array<ProfileMapping>,
+  destination: ProfileMapping["destination"],
+): string | null {
+  return (
+    mappings.find((mapping) => mapping.destination === destination)
+      ?.questionId ?? null
+  );
+}
 
 async function findAssignment(userId: string): Promise<
   | {
       assignmentId: string;
       privacyNotice: string;
       privacyNoticeVersion: string;
+      profileMappings: unknown;
+      contactVerificationRequired: boolean;
+      verificationDeferredAt: Date | null;
       content: unknown;
       answers: unknown;
       visitedItemIds: unknown;
@@ -73,6 +91,9 @@ async function findAssignment(userId: string): Promise<
       "onboarding_assignment.id as assignmentId",
       "onboarding_definition_version.privacyNotice",
       "onboarding_definition_version.privacyNoticeVersion",
+      "onboarding_definition_version.profileMappings",
+      "onboarding_definition_version.contactVerificationRequired",
+      "onboarding_assignment.verificationDeferredAt",
       "survey_version.content",
       "onboarding_response.answers",
       "onboarding_response.visitedItemIds",
@@ -111,6 +132,8 @@ async function findAssignment(userId: string): Promise<
       "onboarding_definition_version.surveyVersionId",
       "onboarding_definition_version.privacyNotice",
       "onboarding_definition_version.privacyNoticeVersion",
+      "onboarding_definition_version.profileMappings",
+      "onboarding_definition_version.contactVerificationRequired",
       "survey_version.content",
     ])
     .where("onboarding_definition_version.definitionId", "=", DEFINITION_ID)
@@ -164,6 +187,9 @@ async function findAssignment(userId: string): Promise<
     assignmentId,
     privacyNotice: active.privacyNotice,
     privacyNoticeVersion: active.privacyNoticeVersion,
+    profileMappings: active.profileMappings,
+    contactVerificationRequired: active.contactVerificationRequired,
+    verificationDeferredAt: null,
     content: active.content,
     answers: {},
     visitedItemIds: [],
@@ -180,16 +206,29 @@ export async function findLearnerOnboarding(
   if (assignment === "complete" || assignment === "not-configured")
     return assignment;
   const content = parseSurveyVersionContent(assignment.content);
-  const [verification, verificationRequired] = await Promise.all([
-    findOnboardingContactVerification(getDatabase(), user.id),
-    onboardingContactVerificationIsRequired(
-      getDatabase(),
-      assignment.assignmentId,
-    ),
-  ]);
+  const verification = await findOnboardingContactVerification(
+    getDatabase(),
+    user.id,
+  );
+  const answers = storedAnswers(assignment.answers);
+  const visitedItemIds = storedVisited(assignment.visitedItemIds);
+  const mappings = profileMappings(assignment.profileMappings);
+  const smsQuestionId = mappedQuestionId(mappings, "smsEnabled");
+  const phoneQuestionId = mappedQuestionId(mappings, "phone");
+  const checkpoint =
+    smsQuestionId &&
+    visitedItemIds.includes(smsQuestionId) &&
+    answers[smsQuestionId] === true &&
+    verification.sms.enabled &&
+    !verification.sms.verified &&
+    verification.sms.destination &&
+    (assignment.contactVerificationRequired ||
+      !assignment.verificationDeferredAt)
+      ? { channel: "sms" as const, phoneQuestionId }
+      : null;
   const progress = deriveProgress(content, {
-    answers: storedAnswers(assignment.answers),
-    visitedItemIds: storedVisited(assignment.visitedItemIds),
+    answers,
+    visitedItemIds,
     currentItemId: assignment.currentItemId,
     completedAt: assignment.submittedAt,
   });
@@ -200,7 +239,11 @@ export async function findLearnerOnboarding(
     content,
     progress,
     submittedAt: assignment.submittedAt?.toISOString() ?? null,
-    verification: { required: verificationRequired, ...verification },
+    verification: {
+      required: assignment.contactVerificationRequired,
+      checkpoint,
+      ...verification,
+    },
   };
 }
 
@@ -232,6 +275,7 @@ export async function saveLearnerOnboardingStep(
       .select([
         "onboarding_assignment.status",
         "onboarding_definition_version.profileMappings",
+        "onboarding_definition_version.contactVerificationRequired",
         "onboarding_response.answers",
         "onboarding_response.visitedItemIds",
         "onboarding_response.currentItemId",
@@ -245,6 +289,7 @@ export async function saveLearnerOnboardingStep(
       .executeTakeFirst();
     if (!row) return { status: "not-found" };
     const content = parseSurveyVersionContent(row.content);
+    const mappings = profileMappings(row.profileMappings);
     const storedAnswerValues = storedAnswers(row.answers);
     const items = flattenedItems(content, storedAnswerValues);
     if (row.status === "completed") {
@@ -264,6 +309,29 @@ export async function saveLearnerOnboardingStep(
     const item = items[itemIndex];
     if (!item) return { status: "not-found" };
     const existingVisited = storedVisited(row.visitedItemIds);
+    const smsQuestionId = mappedQuestionId(mappings, "smsEnabled");
+    const phoneQuestionId = mappedQuestionId(mappings, "phone");
+    if (
+      row.contactVerificationRequired &&
+      smsQuestionId &&
+      existingVisited.includes(smsQuestionId) &&
+      itemId !== smsQuestionId &&
+      itemId !== phoneQuestionId
+    ) {
+      const verification = await findOnboardingContactVerification(
+        transaction,
+        user.id,
+      );
+      if (
+        verification.sms.enabled &&
+        !verification.sms.verified &&
+        verification.sms.destination
+      )
+        return {
+          status: "invalid",
+          message: "Verify your mobile number before continuing onboarding.",
+        };
+    }
     const alreadyVisited = existingVisited.includes(itemId);
     if (!alreadyVisited && row.currentItemId !== itemId)
       return {
@@ -276,12 +344,8 @@ export async function saveLearnerOnboardingStep(
       if (!validation.valid)
         return { status: "invalid", message: validation.message };
       let validatedAnswer = validation.answer;
-      const mappedDestination = z
-        .array(onboardingProfileMappingSchema)
-        .safeParse(row.profileMappings);
       if (
-        mappedDestination.success &&
-        mappedDestination.data.some(
+        mappings.some(
           (mapping) =>
             mapping.questionId === item.id && mapping.destination === "phone",
         ) &&
@@ -372,6 +436,9 @@ export async function saveLearnerOnboardingStep(
       nextItems.length > 0 &&
       nextItems.every((candidate) => visited.has(candidate.id));
     const now = new Date();
+    const itemDestination = mappings.find(
+      (mapping) => mapping.questionId === item.id,
+    )?.destination;
     const currentItemId = completed
       ? null
       : (nextItems.find((candidate) => !visited.has(candidate.id))?.id ?? null);
@@ -392,26 +459,43 @@ export async function saveLearnerOnboardingStep(
         status: "in_progress",
         startedAt: row.status === "assigned" ? now : undefined,
         completedAt: null,
-        verificationSkippedAt: null,
+        verificationDeferredAt:
+          itemDestination === "phone" ||
+          itemDestination === "emailEnabled" ||
+          itemDestination === "smsEnabled"
+            ? null
+            : undefined,
       })
       .where("id", "=", assignmentId)
       .execute();
+    await applyProfileMappings(
+      transaction,
+      user.id,
+      content,
+      answers,
+      row.profileMappings,
+      completed,
+    );
+    const verification = await findOnboardingContactVerification(
+      transaction,
+      user.id,
+    );
     let onboardingCompleted = false;
-    if (completed) {
-      await applyProfileMappings(
-        transaction,
-        user.id,
-        content,
-        answers,
-        row.profileMappings,
-      );
+    if (completed)
       onboardingCompleted = await completeOnboardingIfVerified(
         transaction,
         assignmentId,
         user.id,
         now,
       );
-    }
+    const verificationChannel =
+      itemDestination === "smsEnabled" &&
+      answers[item.id] === true &&
+      verification.sms.enabled &&
+      !verification.sms.verified &&
+      verification.sms.destination
+        ? ("sms" as const)
+        : null;
     const progress = deriveProgress(content, {
       answers,
       visitedItemIds,
@@ -432,6 +516,7 @@ export async function saveLearnerOnboardingStep(
       status: completed ? "submitted" : "advanced",
       progress,
       completedCourse: false,
+      ...(verificationChannel ? { verificationChannel } : {}),
     };
   });
 }
@@ -442,6 +527,7 @@ async function applyProfileMappings(
   content: ReturnType<typeof parseSurveyVersionContent>,
   answers: Record<string, SurveyAnswerValue>,
   value: unknown,
+  finalizing: boolean,
 ): Promise<void> {
   const parsed = z.array(onboardingProfileMappingSchema).safeParse(value);
   if (!parsed.success || parsed.data.length === 0) return;
@@ -496,11 +582,14 @@ async function applyProfileMappings(
       const phone = normalizeInternationalPhone(answer);
       if (phone) update.phone = phone;
     }
-    if (mapping.destination === "emailEnabled")
-      update.emailEnabled = answer === true;
-    if (mapping.destination === "smsEnabled")
-      update.smsEnabled = answer === true;
-    if (mapping.destination === "currentRegionId")
+    if (mapping.destination === "emailEnabled" && typeof answer === "boolean")
+      update.emailEnabled = answer;
+    if (mapping.destination === "smsEnabled" && typeof answer === "boolean")
+      update.smsEnabled = answer;
+    if (
+      mapping.destination === "currentRegionId" &&
+      (typeof answer === "string" || finalizing)
+    )
       update.currentRegionId = mappedRegionId ?? null;
   }
   if (update.phone) {

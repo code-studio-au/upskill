@@ -1,0 +1,7 @@
+[
+  "audit.log_requested",
+  "resource.version_delete_requested",
+  "scorm.package_ingest_requested",
+  "scorm.package_delete_requested",
+  "notification.delivery_requested"
+]

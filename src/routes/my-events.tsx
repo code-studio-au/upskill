@@ -18,7 +18,7 @@ export const Route = createFileRoute("/my-events")({
     if (onboarding.status === "ready")
       throw redirect({
         to: "/onboarding",
-        search: { verification: undefined },
+        search: { editContact: undefined, verification: undefined },
       });
     const dashboard = await getLearnerEventsDashboard();
     if (!dashboard)

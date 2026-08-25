@@ -101,6 +101,10 @@ export interface LearnerOnboarding {
   submittedAt: string | null;
   verification: {
     required: boolean;
+    checkpoint: {
+      channel: "sms";
+      phoneQuestionId: string | null;
+    } | null;
     email: {
       enabled: boolean;
       verified: boolean;
@@ -125,6 +129,7 @@ export type LearnerOnboardingStepResult =
       status: "advanced" | "submitted";
       progress: LearnerSurveyProgress;
       completedCourse: false;
+      verificationChannel?: "sms";
     }
   | { status: "invalid"; message: string }
   | { status: "not-found" }

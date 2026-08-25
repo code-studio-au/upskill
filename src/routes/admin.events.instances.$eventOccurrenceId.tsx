@@ -187,35 +187,31 @@ function EventInstanceOperationsPage() {
   );
   if (result.status === "forbidden") return <AdminAccessDenied />;
   const workspace = result.data;
-  const registrationMutationsAvailable =
-    workspace.occurrence.status === "published";
+  const occurrence = workspace.occurrence;
+  const registrationMutationsAvailable = occurrence.status === "published";
   if (search.view === "configuration")
     return (
       <Suspense fallback={<LoadingSpinner label="Loading event editor" />}>
         <AdminEventOccurrenceEditor
           publishedVersions={[
             {
-              eventTemplateId: workspace.occurrence.eventTemplateId,
-              eventTemplateVersionId:
-                workspace.occurrence.eventTemplateVersionId,
-              title: workspace.occurrence.templateTitle,
-              version: workspace.occurrence.templateVersion,
+              eventTemplateId: occurrence.eventTemplateId,
+              eventTemplateVersionId: occurrence.eventTemplateVersionId,
+              title: occurrence.templateTitle,
+              version: occurrence.templateVersion,
             },
           ]}
           occurrence={{
-            ...workspace.occurrence,
-            eventTemplateTitle: workspace.occurrence.templateTitle,
-            templateVersion: workspace.occurrence.templateVersion,
-            registrationOpensAt: workspace.occurrence.registrationOpensAt ?? "",
-            registrationClosesAt:
-              workspace.occurrence.registrationClosesAt ?? "",
-            coordinatorLockAt: workspace.occurrence.coordinatorLockAt ?? "",
-            localRegistrationOpensAt:
-              workspace.occurrence.localRegistrationOpensAt ?? "",
+            ...occurrence,
+            eventTemplateTitle: occurrence.templateTitle,
+            templateVersion: occurrence.templateVersion,
+            registrationOpensAt: occurrence.registrationOpensAt ?? "",
+            registrationClosesAt: occurrence.registrationClosesAt ?? "",
+            coordinatorLockAt: occurrence.coordinatorLockAt ?? "",
+            localRegistrationOpensAt: occurrence.localRegistrationOpensAt ?? "",
             localRegistrationClosesAt:
-              workspace.occurrence.localRegistrationClosesAt ?? "",
-            localCoordinatorLockAt:
-              workspace.occurrence.localCoordinatorLockAt ?? "",
+              occurrence.localRegistrationClosesAt ?? "",
+            localCoordinatorLockAt: occurrence.localCoordinatorLockAt ?? "",
             regions: workspace.regions.map((region) => region.name).join(", "),
           }}
           regionalCoverage={{
@@ -252,32 +248,31 @@ function EventInstanceOperationsPage() {
             Scheduled event
           </Text>
           <Group gap="sm" align="center">
-            <Title order={1}>{workspace.occurrence.title}</Title>
+            <Title order={1}>{occurrence.title}</Title>
             <Badge
-              color={
-                workspace.occurrence.status === "cancelled" ? "red" : "blue"
-              }
+              color={occurrence.status === "cancelled" ? "red" : "blue"}
               variant="light"
             >
-              {workspace.occurrence.status}
+              {occurrence.status}
             </Badge>
           </Group>
           <Text c="dimmed" size="sm">
-            {formatLocalDateTime(workspace.occurrence.startsAt, {
-              timeZone: workspace.occurrence.timezone,
+            {formatLocalDateTime(occurrence.startsAt, {
+              timeZone: occurrence.timezone,
             })}
             {" · "}
-            {workspace.occurrence.deliveryMode === "in_person"
-              ? "In person"
-              : "Virtual"}
+            {occurrence.deliveryMode === "in_person" ? "In person" : "Virtual"}
             {" · "}
-            {workspace.occurrence.templateTitle} · v
-            {workspace.occurrence.templateVersion}
+            {occurrence.templateTitle} · v{occurrence.templateVersion}
           </Text>
         </div>
         <Group gap="sm" className={classes.headerActions}>
-          {workspace.occurrence.status === "draft" ||
-          registrationMutationsAvailable ? (
+          <a
+            href={`/event-operations/${encodeURIComponent(occurrence.id)}?view=progress`}
+          >
+            Participant progress
+          </a>
+          {occurrence.status === "draft" || registrationMutationsAvailable ? (
             <Button
               variant="light"
               onClick={() => {
@@ -290,7 +285,7 @@ function EventInstanceOperationsPage() {
             </Button>
           ) : null}
           {registrationMutationsAvailable &&
-          workspace.occurrence.registrationMode !== "open_entry" ? (
+          occurrence.registrationMode !== "open_entry" ? (
             <Button
               onClick={() => {
                 setAddOpen(true);
@@ -350,21 +345,21 @@ function EventInstanceOperationsPage() {
                   items={[
                     [
                       "Starts",
-                      formatLocalDateTime(workspace.occurrence.startsAt, {
-                        timeZone: workspace.occurrence.timezone,
+                      formatLocalDateTime(occurrence.startsAt, {
+                        timeZone: occurrence.timezone,
                       }),
                     ],
                     [
                       "Ends",
-                      formatLocalDateTime(workspace.occurrence.endsAt, {
-                        timeZone: workspace.occurrence.timezone,
+                      formatLocalDateTime(occurrence.endsAt, {
+                        timeZone: occurrence.timezone,
                       }),
                     ],
-                    ["Timezone", workspace.occurrence.timezone],
+                    ["Timezone", occurrence.timezone],
                     [
                       "Delivery",
-                      workspace.occurrence.deliveryMode === "in_person"
-                        ? workspace.occurrence.venueName || "In person"
+                      occurrence.deliveryMode === "in_person"
+                        ? occurrence.venueName || "In person"
                         : "Virtual",
                     ],
                   ]}
@@ -379,27 +374,26 @@ function EventInstanceOperationsPage() {
                   items={[
                     [
                       "Access",
-                      workspace.occurrence.registrationMode
+                      occurrence.registrationMode
                         .replaceAll("_", " ")
                         .replace(/^./, (value) => value.toUpperCase()),
                     ],
                     [
                       "Approval",
-                      workspace.occurrence.approvalMode === "manual"
+                      occurrence.approvalMode === "manual"
                         ? "Manual"
                         : "Automatic",
                     ],
                     [
                       "Confirmed",
-                      `${String(workspace.occurrence.confirmedCount)} of ${String(workspace.occurrence.capacity)}`,
+                      `${String(occurrence.confirmedCount)} of ${String(occurrence.capacity)}`,
                     ],
-                    workspace.occurrence.registrationClosesAt
+                    occurrence.registrationClosesAt
                       ? [
                           "Registration closes",
-                          formatLocalDateTime(
-                            workspace.occurrence.registrationClosesAt,
-                            { timeZone: workspace.occurrence.timezone },
-                          ),
+                          formatLocalDateTime(occurrence.registrationClosesAt, {
+                            timeZone: occurrence.timezone,
+                          }),
                         ]
                       : null,
                   ]}
@@ -423,7 +417,7 @@ function EventInstanceOperationsPage() {
                   </div>
                   <MantineNativeSelect
                     label="Self check-in records"
-                    value={workspace.occurrence.openEntryAttendanceMode}
+                    value={occurrence.openEntryAttendanceMode}
                     disabled={processingId === "guest-attendance-mode"}
                     data={[
                       {
@@ -441,7 +435,7 @@ function EventInstanceOperationsPage() {
                       void action("guest-attendance-mode", () =>
                         setAdminEventGuestAttendanceMode({
                           data: {
-                            eventOccurrenceId: workspace.occurrence.id,
+                            eventOccurrenceId: occurrence.id,
                             mode,
                           },
                         }),
@@ -473,7 +467,7 @@ function EventInstanceOperationsPage() {
                           () =>
                             rotateAdminEventGuestAccess({
                               data: {
-                                eventOccurrenceId: workspace.occurrence.id,
+                                eventOccurrenceId: occurrence.id,
                               },
                             }),
                           "Guest access link replaced. The previous link no longer works.",
@@ -529,7 +523,7 @@ function EventInstanceOperationsPage() {
                             void action("lock-" + region.id, () =>
                               lockAdminEventRegion({
                                 data: {
-                                  eventOccurrenceId: workspace.occurrence.id,
+                                  eventOccurrenceId: occurrence.id,
                                   eventOccurrenceRegionId: region.id,
                                 },
                               }),
@@ -549,7 +543,7 @@ function EventInstanceOperationsPage() {
           <details className={classes.managementPanel}>
             <summary>Event lifecycle</summary>
             <Group gap="sm" className={classes.managementActions}>
-              {workspace.occurrence.status === "published" ? (
+              {occurrence.status === "published" ? (
                 <>
                   <Button
                     variant="light"
@@ -570,8 +564,8 @@ function EventInstanceOperationsPage() {
                   </Button>
                 </>
               ) : null}
-              {workspace.occurrence.status === "completed" ||
-              workspace.occurrence.status === "cancelled" ? (
+              {occurrence.status === "completed" ||
+              occurrence.status === "cancelled" ? (
                 <Button
                   variant="light"
                   onClick={() => {
@@ -593,16 +587,16 @@ function EventInstanceOperationsPage() {
                 {workspace.reschedules.map((reschedule) => (
                   <Text size="sm" key={reschedule.id}>
                     {formatLocalDateTime(reschedule.createdAt, {
-                      timeZone: workspace.occurrence.timezone,
+                      timeZone: occurrence.timezone,
                     })}
                     : {reschedule.registrationWindowPolicy.replaceAll("_", " ")}{" "}
                     ·{" "}
                     {formatLocalDateTime(reschedule.previousStartsAt, {
-                      timeZone: workspace.occurrence.timezone,
+                      timeZone: occurrence.timezone,
                     })}{" "}
                     →{" "}
                     {formatLocalDateTime(reschedule.nextStartsAt, {
-                      timeZone: workspace.occurrence.timezone,
+                      timeZone: occurrence.timezone,
                     })}{" "}
                     · {reschedule.actorName}
                   </Text>
@@ -658,7 +652,7 @@ function EventInstanceOperationsPage() {
                     </Title>
                     <Text size="sm" mt="xs">
                       {formatLocalDateTime(session.startsAt, {
-                        timeZone: workspace.occurrence.timezone,
+                        timeZone: occurrence.timezone,
                       })}
                     </Text>
                     <Text c="dimmed" size="sm">
@@ -717,8 +711,7 @@ function EventInstanceOperationsPage() {
                                 () =>
                                   recordAdminEventAttendance({
                                     data: {
-                                      eventOccurrenceId:
-                                        workspace.occurrence.id,
+                                      eventOccurrenceId: occurrence.id,
                                       eventSessionId: session.id,
                                       eventParticipationId:
                                         participant.eventParticipationId,
@@ -749,7 +742,7 @@ function EventInstanceOperationsPage() {
             <Suspense fallback={<LoadingSpinner label="Loading history" />}>
               <AdminEventActivityTable
                 activity={workspace.activity}
-                timezone={workspace.occurrence.timezone}
+                timezone={occurrence.timezone}
               />
             </Suspense>
           </Stack>
@@ -763,7 +756,7 @@ function EventInstanceOperationsPage() {
           <AdminCommunicationPlanEditor
             scope={{
               kind: "event_occurrence",
-              eventOccurrenceId: workspace.occurrence.id,
+              eventOccurrenceId: occurrence.id,
             }}
           />
         </Suspense>
@@ -779,7 +772,7 @@ function EventInstanceOperationsPage() {
           onAdd={(data) =>
             action("add-learner", async () => {
               const outcome = await addAdminEventRegistration({
-                data: { eventOccurrenceId: workspace.occurrence.id, ...data },
+                data: { eventOccurrenceId: occurrence.id, ...data },
               });
               if (outcome.status === "ready") setAddOpen(false);
               return outcome;
@@ -813,7 +806,7 @@ function EventInstanceOperationsPage() {
             void action("lifecycle", async () => {
               const outcome = await transitionAdminEventOccurrence({
                 data: {
-                  eventOccurrenceId: workspace.occurrence.id,
+                  eventOccurrenceId: occurrence.id,
                   target: lifecycleTarget,
                 },
               });

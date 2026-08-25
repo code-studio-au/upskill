@@ -1,5 +1,6 @@
 import "@tanstack/react-start/server-only";
 
+import dispatchableOutboxTopics from "../../../config/dispatchable-outbox-topics.json" with { type: "json" };
 import {
   AUDIT_LOG_TOPIC,
   parseAuditLogProjection,
@@ -10,8 +11,6 @@ import {
   NOTIFICATION_DELIVERY_TOPIC,
   parseWorkerMessage,
   RESOURCE_DELETION_TOPIC,
-  SCORM_DELETION_TOPIC,
-  SCORM_INGESTION_TOPIC,
 } from "#/server/queue/work-message";
 import { sendQueueMessage } from "#/server/queue/sqs.server";
 
@@ -40,13 +39,7 @@ export async function dispatchNextOutboxEvent(): Promise<OutboxDispatchOutcome> 
     const event = await transaction
       .selectFrom("outbox_event")
       .select(["id", "topic", "aggregateId", "payload", "attempts"])
-      .where("topic", "in", [
-        AUDIT_LOG_TOPIC,
-        RESOURCE_DELETION_TOPIC,
-        SCORM_INGESTION_TOPIC,
-        SCORM_DELETION_TOPIC,
-        NOTIFICATION_DELIVERY_TOPIC,
-      ])
+      .where("topic", "in", dispatchableOutboxTopics)
       .where("processedAt", "is", null)
       .where("availableAt", "<=", new Date())
       .orderBy("createdAt")

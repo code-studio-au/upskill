@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { Client } from "pg";
+import dispatchableOutboxTopics from "../config/dispatchable-outbox-topics.json" with { type: "json" };
 
 const [readyValue, workerValue] = process.argv.slice(2);
 const environment = process.env.APP_ENV;
@@ -11,11 +12,14 @@ const database = new Client({ connectionString: databaseUrl });
 let row;
 try {
   await database.connect();
-  const result = await database.query(`select
-    (select count(*)::integer from outbox_event where "processedAt" is null) as "outboxPending",
-    (select coalesce(extract(epoch from now() - min("availableAt")), 0)::integer from outbox_event where "processedAt" is null and "availableAt" <= now()) as "outboxOldestSeconds",
-    ((select count(*) from notification where status = 'unknown') +
-      (select count(*) from sms_delivery where status = 'unknown'))::integer as "uncertainDeliveries"`);
+  const result = await database.query(
+    `select
+      (select count(*)::integer from outbox_event where "processedAt" is null and topic = any($1::text[])) as "outboxPending",
+      (select coalesce(extract(epoch from now() - min("availableAt")), 0)::integer from outbox_event where "processedAt" is null and topic = any($1::text[]) and "availableAt" <= now()) as "outboxOldestSeconds",
+      ((select count(*) from notification where status = 'unknown') +
+        (select count(*) from sms_delivery where status = 'unknown'))::integer as "uncertainDeliveries"`,
+    [dispatchableOutboxTopics],
+  );
   row = result.rows[0];
 } finally {
   await database.end();

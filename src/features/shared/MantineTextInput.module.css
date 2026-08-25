@@ -14,11 +14,7 @@
   line-height: 1.55;
 }
 
-.description {
-  color: var(--mantine-color-dimmed);
-  font-size: var(--mantine-font-size-xs);
-}
-
+.description,
 .input {
   width: 100%;
   min-width: 0;

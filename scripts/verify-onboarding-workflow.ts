@@ -465,17 +465,34 @@ try {
     ).status,
     "advanced",
   );
-  assert.equal(
-    (
-      await saveLearnerOnboardingStep(
-        onboarding.assignmentId,
-        "onboarding_sms_enabled",
-        true,
-        user,
-      )
-    ).status,
-    "advanced",
+  const smsCheckpoint = await saveLearnerOnboardingStep(
+    onboarding.assignmentId,
+    "onboarding_sms_enabled",
+    true,
+    user,
   );
+  assert.equal(smsCheckpoint.status, "advanced");
+  assert.equal(smsCheckpoint.verificationChannel, "sms");
+  const pendingCheckpoint = await findLearnerOnboarding(user);
+  assert.equal(typeof pendingCheckpoint, "object");
+  if (typeof pendingCheckpoint === "string")
+    throw new Error("Expected in-progress onboarding");
+  assert.equal(pendingCheckpoint.submittedAt, null);
+  assert.deepEqual(pendingCheckpoint.verification.checkpoint, {
+    channel: "sms",
+    phoneQuestionId: "onboarding_phone",
+  });
+  const { skipOnboardingContactVerification } =
+    await import("#/server/onboarding/onboarding-contact-verification.server");
+  assert.deepEqual(
+    await skipOnboardingContactVerification(onboarding.assignmentId, user),
+    { status: "skipped", complete: false },
+  );
+  const resumedOnboarding = await findLearnerOnboarding(user);
+  assert.equal(typeof resumedOnboarding, "object");
+  if (typeof resumedOnboarding === "string")
+    throw new Error("Expected resumed onboarding");
+  assert.equal(resumedOnboarding.verification.checkpoint, null);
   assert.equal(
     (
       await saveLearnerOnboardingStep(
@@ -548,15 +565,6 @@ try {
     smsEnabled: true,
     smsVerifiedAt: null,
   });
-  const pendingVerification = await findLearnerOnboarding(user);
-  assert.equal(typeof pendingVerification, "object");
-  if (typeof pendingVerification === "string")
-    throw new Error("Expected onboarding contact verification");
-  assert.ok(pendingVerification.submittedAt);
-  assert.equal(
-    (await verifySmsContact(onboarding.assignmentId)).complete,
-    true,
-  );
   assert.equal(await findLearnerOnboarding(user), "complete");
   const { requireAdminReOnboarding } =
     await import("#/server/admin/admin-learner.server");
@@ -628,16 +636,27 @@ try {
     ).status,
     "advanced",
   );
+  const requiredSmsCheckpoint = await saveLearnerOnboardingStep(
+    reassigned.assignmentId,
+    "onboarding_sms_enabled",
+    true,
+    user,
+  );
+  assert.equal(requiredSmsCheckpoint.status, "advanced");
+  assert.equal(requiredSmsCheckpoint.verificationChannel, "sms");
+  const blockedRegion = await saveLearnerOnboardingStep(
+    reassigned.assignmentId,
+    "onboarding_works_in_region",
+    "onboarding_works_in_region_no",
+    user,
+  );
+  assert.deepEqual(blockedRegion, {
+    status: "invalid",
+    message: "Verify your mobile number before continuing onboarding.",
+  });
   assert.equal(
-    (
-      await saveLearnerOnboardingStep(
-        reassigned.assignmentId,
-        "onboarding_sms_enabled",
-        true,
-        user,
-      )
-    ).status,
-    "advanced",
+    (await verifySmsContact(reassigned.assignmentId)).complete,
+    false,
   );
   const skippedRegion = await saveLearnerOnboardingStep(
     reassigned.assignmentId,
@@ -662,15 +681,9 @@ try {
     ).status,
     "submitted",
   );
-  const { skipOnboardingContactVerification } =
-    await import("#/server/onboarding/onboarding-contact-verification.server");
-  assert.equal(
+  assert.deepEqual(
     await skipOnboardingContactVerification(reassigned.assignmentId, user),
-    "unavailable",
-  );
-  assert.equal(
-    (await verifySmsContact(reassigned.assignmentId)).complete,
-    true,
+    { status: "unavailable" },
   );
   const transferNow = new Date();
   const transferAssignmentId = "verify_onboarding_transfer_assignment";

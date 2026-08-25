@@ -1782,6 +1782,15 @@ test("platform administrators can inspect learner progress", async ({
     });
     await expect(declinedRegistrationRow).toContainText("Not approved");
     await expect(declinedRegistrationRow).not.toContainText("Pending");
+    await page.getByRole("link", { name: "Participant progress" }).click();
+    await expect(page).toHaveURL(/view=progress/u);
+    await expect(
+      page.getByRole("heading", { name: "Participant progress" }),
+    ).toBeVisible();
+    await expect(page.getByRole("table")).toContainText(
+      administratorUser.email,
+    );
+    await expect(page.getByText("1/1 attended")).toBeVisible();
     await page.goto("/my-events");
     const learnerEvent = page.getByRole("heading", {
       name: eventOccurrenceTitle,

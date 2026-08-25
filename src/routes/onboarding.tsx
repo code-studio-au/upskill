@@ -32,6 +32,7 @@ function redirectResponse(location: string, cookies: Array<string> = []) {
 
 export const Route = createFileRoute("/onboarding")({
   validateSearch: (search) => ({
+    editContact: search.editContact === "sms" ? "sms" : undefined,
     verification:
       typeof search.verification === "string" ? search.verification : undefined,
   }),
@@ -100,7 +101,11 @@ export const Route = createFileRoute("/onboarding")({
             user,
           );
           return redirectResponse(
-            result === "skipped" ? "/dashboard" : onboardingLocation(result),
+            result.status === "skipped"
+              ? result.complete
+                ? "/dashboard"
+                : "/onboarding"
+              : onboardingLocation(result.status),
             [verification.clearOnboardingVerificationChallengeCookie()],
           );
         }
@@ -134,13 +139,16 @@ export const Route = createFileRoute("/onboarding")({
 
 function OnboardingPage() {
   const onboarding = Route.useLoaderData();
-  const { verification } = Route.useSearch();
-  if (onboarding.submittedAt)
+  const { editContact, verification } = Route.useSearch();
+  const checkpoint = onboarding.verification.checkpoint;
+  if (onboarding.submittedAt || (checkpoint && editContact !== "sms"))
     return (
       <ContactVerification
         assignmentId={onboarding.assignmentId}
         state={onboarding.verification}
         status={verification}
+        channel={checkpoint?.channel}
+        canChangePhone={Boolean(checkpoint?.phoneQuestionId)}
       />
     );
   return (
@@ -158,16 +166,24 @@ function OnboardingPage() {
           submittedAt: onboarding.submittedAt,
         }}
         completionDescription="Your profile is ready."
+        initialItemId={
+          editContact === "sms"
+            ? (checkpoint?.phoneQuestionId ?? undefined)
+            : undefined
+        }
         returnAction={
           <Button component="a" href="/onboarding">
             Continue
           </Button>
         }
-        onAdvance={(itemId, answer) =>
-          saveOnboardingStep({
+        onAdvance={async (itemId, answer) => {
+          const result = await saveOnboardingStep({
             data: { assignmentId: onboarding.assignmentId, itemId, answer },
-          })
-        }
+          });
+          if ("verificationChannel" in result)
+            window.location.assign("/onboarding");
+          return result;
+        }}
       />
     </>
   );
@@ -177,19 +193,24 @@ function ContactVerification({
   assignmentId,
   state,
   status,
+  channel: requestedChannel,
+  canChangePhone,
 }: {
   assignmentId: string;
   state: LearnerOnboarding["verification"];
   status: string | undefined;
+  channel?: "sms" | undefined;
+  canChangePhone: boolean;
 }) {
   const enteringCode = status === "Code sent." || status === "Incorrect code.";
   const channel =
-    state.email.enabled && !state.email.verified ? "email" : "sms";
+    requestedChannel ??
+    (state.email.enabled && !state.email.verified ? "email" : "sms");
   const contact = state[channel];
   return (
     <main id="recovery">
       <h1>Verify contact</h1>
-      <p>Recommended. Codes expire in 10 minutes.</p>
+      <p>Codes expire in 10 minutes.</p>
       {status ? <p role="alert">{status}</p> : null}
       <form method="post">
         <input type="hidden" name="assignmentId" value={assignmentId} />
@@ -221,6 +242,9 @@ function ContactVerification({
             ) : null}
           </>
         )}
+        {channel === "sms" && canChangePhone ? (
+          <a href="/onboarding?editContact=sms">Change number</a>
+        ) : null}
         {!state.required ? (
           <button type="submit" name="intent" value="skip" formNoValidate>
             Skip for now
