@@ -43,3 +43,4 @@ is complete.
 | 0034 | [Source-neutral entitlements and Access Owner disclosure](0034-source-neutral-entitlements-and-access-owner-disclosure.md) | Accepted and implemented for course access                 |
 | 0035 | [Bulk-order Checkout and refund preservation](0035-bulk-order-checkout-and-refund-preservation.md)                         | Accepted and implemented for course access grants          |
 | 0036 | [Initial authenticated SCORM content delivery](0036-initial-scorm-content-delivery.md)                                     | Accepted and implemented                                   |
+| 0037 | [Portable pre-production snapshot fixture](0037-portable-pre-production-snapshot.md)                                       | Accepted and implemented                                   |

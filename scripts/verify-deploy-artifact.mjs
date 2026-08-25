@@ -53,8 +53,13 @@ try {
     "scripts/bootstrap-platform-admin.mjs",
     "scripts/invite-platform-admin.mjs",
     "scripts/validate-runtime-environment.ts",
+    "scripts/seed-current-snapshot.ts",
+    "scripts/fixtures/current-development-snapshot.json",
     "deploy/scripts/bootstrap-platform-admin.sh",
     "deploy/scripts/invite-platform-admin.sh",
+    "deploy/scripts/seed-staging.sh",
+    "src/server/access/access-code-encryption.server.ts",
+    "src/server/storage/object-storage.server.ts",
     "src/server/runtime-environment.ts",
     "src/validation/zod.server.ts",
   ])
@@ -153,6 +158,10 @@ try {
     stdio: "inherit",
   });
   execFileSync("bash", ["-n", "deploy/scripts/invite-platform-admin.sh"], {
+    cwd: extractedDirectory,
+    stdio: "inherit",
+  });
+  execFileSync("bash", ["-n", "deploy/scripts/seed-staging.sh"], {
     cwd: extractedDirectory,
     stdio: "inherit",
   });
