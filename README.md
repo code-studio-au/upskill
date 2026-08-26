@@ -308,7 +308,9 @@ Configure Stripe to send `checkout.session.completed`,
 `refund.created`, `refund.updated` and `refund.failed` events
 to `POST /api/stripe/webhook`. For local test-mode forwarding, use the Stripe
 CLI webhook secret as `STRIPE_WEBHOOK_SECRET`; the redirect success page never
-fulfils an order by itself.
+fulfils an order by itself. `pnpm run dev` starts without webhook forwarding
+when Stripe CLI is missing, signed out or offline, and prints a warning instead;
+checkout state will not advance from Stripe events until forwarding is restored.
 
 Configure TextBee to send `MESSAGE_SENT`, `MESSAGE_DELIVERED` and
 `MESSAGE_FAILED` events to `POST /api/textbee/webhook` on the public application

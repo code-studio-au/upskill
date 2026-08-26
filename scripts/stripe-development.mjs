@@ -12,6 +12,18 @@ export const stripeWebhookEvents = Object.freeze([
   "refund.failed",
 ]);
 
+function developmentWithoutStripeListener(environment, warning) {
+  return {
+    environment: {
+      ...environment,
+      STRIPE_WEBHOOK_SECRET:
+        environment.STRIPE_WEBHOOK_SECRET || OFFLINE_WEBHOOK_SECRET,
+    },
+    listener: null,
+    warning,
+  };
+}
+
 export function createStripeDevelopmentSetup({
   environment = process.env,
   run = spawnSync,
@@ -35,20 +47,12 @@ export function createStripeDevelopmentSetup({
     /(?:api\.stripe\.com|connection|dial tcp|dns|network|no such host|offline|timed? ?out|timeout)/u.test(
       failureDetail,
     );
-  if ((result.error || result.status !== 0) && networkUnavailable)
-    return {
-      environment: {
-        ...environment,
-        STRIPE_WEBHOOK_SECRET:
-          environment.STRIPE_WEBHOOK_SECRET || OFFLINE_WEBHOOK_SECRET,
-      },
-      listener: null,
-      warning:
-        "Stripe webhook forwarding is offline. Development will continue, but webhook-driven checkout updates require an internet connection.",
-    };
   if (result.error || result.status !== 0)
-    throw new Error(
-      "Stripe CLI is unavailable or not authenticated. Install Stripe CLI and run `stripe login` before starting development.",
+    return developmentWithoutStripeListener(
+      environment,
+      networkUnavailable
+        ? "Stripe webhook forwarding is offline. Development will continue, but webhook-driven checkout updates require an internet connection."
+        : "Stripe webhook forwarding is disabled because Stripe CLI is unavailable or not authenticated. Development will continue; install Stripe CLI and run `stripe login` to receive webhook-driven checkout updates.",
     );
 
   const signingSecret = result.stdout.trim();
