@@ -113,6 +113,78 @@ try {
     status: "revoked",
   });
 
+  const legacyAdminId = `verify_legacy_admin_${suffix}`;
+  const legacyAdminEmail = `legacy-admin-${suffix}@example.com`;
+  const legacyActivatedAt = new Date(now.getTime() - 60_000);
+  await database
+    .insertInto("user")
+    .values({
+      id: legacyAdminId,
+      name: "Existing unverified user",
+      email: legacyAdminEmail,
+      emailVerified: false,
+      image: null,
+      stripeCustomerId: null,
+      accountState: "active",
+      activatedAt: legacyActivatedAt,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute();
+  const legacyInvitation = await invitePlatformAdministrator(
+    { name: "Existing unverified user", email: legacyAdminEmail },
+    actor,
+  );
+  assert.deepEqual(legacyInvitation, {
+    status: "invited",
+    userId: legacyAdminId,
+  });
+  assert.equal(
+    await database
+      .selectFrom("platform_admin")
+      .select("userId")
+      .where("userId", "=", legacyAdminId)
+      .executeTakeFirst(),
+    undefined,
+  );
+  const legacyNotification = await database
+    .selectFrom("notification")
+    .select("payload")
+    .where("recipientUserId", "=", legacyAdminId)
+    .where("templateKey", "=", "account_setup_requested")
+    .orderBy("createdAt", "desc")
+    .executeTakeFirstOrThrow();
+  const legacySetupUrl = (legacyNotification.payload as { setupUrl?: unknown })
+    .setupUrl;
+  assert.equal(typeof legacySetupUrl, "string");
+  const legacyToken = new URLSearchParams(
+    new URL(legacySetupUrl as string).hash.slice(1),
+  ).get("token");
+  assert.ok(legacyToken);
+  await auth.api.resetPassword({
+    body: { token: legacyToken, newPassword: "verified-local-password" },
+  });
+  const verifiedLegacyAdmin = await database
+    .selectFrom("user")
+    .select(["emailVerified", "activatedAt"])
+    .where("id", "=", legacyAdminId)
+    .executeTakeFirstOrThrow();
+  assert.equal(verifiedLegacyAdmin.emailVerified, true);
+  assert.equal(
+    verifiedLegacyAdmin.activatedAt?.toISOString(),
+    legacyActivatedAt.toISOString(),
+  );
+  assert.ok(
+    await database
+      .selectFrom("platform_admin")
+      .select("userId")
+      .where("userId", "=", legacyAdminId)
+      .executeTakeFirst(),
+  );
+  assert.deepEqual(await removePlatformAdministrator(legacyAdminId, actor), {
+    status: "revoked",
+  });
+
   const invitedAdminEmail = `invited-admin-${suffix}@example.com`;
   const invited = await invitePlatformAdministrator(
     { name: "Invited administrator", email: invitedAdminEmail },
@@ -159,6 +231,81 @@ try {
     status: "revoked",
   });
 
+  const templateAdminId = `verify_template_admin_${suffix}`;
+  await database
+    .insertInto("user")
+    .values({
+      id: templateAdminId,
+      name: "Published template administrator",
+      email: `template-admin-${suffix}@example.com`,
+      emailVerified: true,
+      image: null,
+      stripeCustomerId: null,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("platform_admin")
+    .values({
+      userId: templateAdminId,
+      grantedByUserId: actor.id,
+      createdAt: now,
+    })
+    .execute();
+  const templateId = `verify_admin_template_${suffix}`;
+  const publishedTemplateVersionId = `verify_admin_template_v1_${suffix}`;
+  await database
+    .insertInto("event_template")
+    .values({
+      id: templateId,
+      title: "Published administrator default guard",
+      status: "published",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("event_template_version")
+    .values([
+      {
+        id: publishedTemplateVersionId,
+        eventTemplateId: templateId,
+        version: 1,
+        summary: "Published version",
+        description: "Retains the effective administrator default.",
+        hasCompletionCertificate: false,
+        accreditations: JSON.stringify([]),
+        publishedAt: now,
+        createdAt: now,
+      },
+      {
+        id: `verify_admin_template_v2_${suffix}`,
+        eventTemplateId: templateId,
+        version: 2,
+        summary: "Replacement draft",
+        description: "Does not yet replace the published version.",
+        hasCompletionCertificate: false,
+        accreditations: JSON.stringify([]),
+        publishedAt: null,
+        createdAt: now,
+      },
+    ])
+    .execute();
+  await database
+    .insertInto("event_template_version_admin_default")
+    .values({
+      eventTemplateVersionId: publishedTemplateVersionId,
+      userId: templateAdminId,
+      createdAt: now,
+    })
+    .execute();
+  assert.deepEqual(await removePlatformAdministrator(templateAdminId, actor), {
+    status: "event-responsibility",
+    eventAssignmentCount: 0,
+    templateDefaultCount: 1,
+  });
+
   const regionId = `verify_account_region_${suffix}`;
   await database
     .insertInto("coordination_region")
@@ -203,7 +350,7 @@ try {
   assert.ok(actions.has("authorization.platform_admin.revoked"));
 
   console.log(
-    "Verified admin-created learners, active and deferred administrator grants, revocation, and event-staff invitations",
+    "Verified admin-created learners, verified and legacy administrator grants, effective template revocation guards, and event-staff invitations",
   );
 } finally {
   await destroyDatabase();

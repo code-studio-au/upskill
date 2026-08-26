@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { randomBytes, randomUUID } from "node:crypto";
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
@@ -67,11 +67,15 @@ export async function refreshAccountSetupRequest(
   const createdAt = input.createdAt ?? new Date();
   const account = await transaction
     .selectFrom("user")
-    .select(["accountState", "setupRequestedAt"])
+    .select(["accountState", "emailVerified", "setupRequestedAt"])
     .where("id", "=", input.user.id)
     .forUpdate()
     .executeTakeFirst();
-  if (!account || account.accountState !== "provisional") return null;
+  if (
+    !account ||
+    (account.accountState !== "provisional" && account.emailVerified)
+  )
+    return null;
   if (
     input.minimumIntervalMs &&
     account.setupRequestedAt &&
@@ -133,7 +137,15 @@ export async function findAccountSetupRequest(
     .select(["user.name", "user.email"])
     .where("verification.identifier", "=", `reset-password:${token}`)
     .where("verification.expiresAt", ">", new Date())
-    .where("user.accountState", "=", "provisional")
+    .where((expression) =>
+      expression.or([
+        expression("user.accountState", "=", "provisional"),
+        expression.and([
+          expression("user.accountState", "=", "active"),
+          expression("user.emailVerified", "=", false),
+        ]),
+      ]),
+    )
     .executeTakeFirst();
   return request ? { status: "ready", ...request } : { status: "invalid" };
 }
@@ -151,11 +163,19 @@ export async function activateAccountAfterPasswordReset(
           accountState: "active",
           emailVerified: true,
           emailVerifiedAt: now,
-          activatedAt: now,
+          activatedAt: sql<Date>`coalesce("activatedAt", ${now})`,
           updatedAt: now,
         })
         .where("id", "=", userId)
-        .where("accountState", "=", "provisional")
+        .where((expression) =>
+          expression.or([
+            expression("accountState", "=", "provisional"),
+            expression.and([
+              expression("accountState", "=", "active"),
+              expression("emailVerified", "=", false),
+            ]),
+          ]),
+        )
         .returning("id")
         .executeTakeFirst();
       if (!activated) return;
@@ -221,12 +241,13 @@ export async function resendAccountSetup(
     .execute(async (transaction) => {
       const user = await transaction
         .selectFrom("user")
-        .select(["id", "name", "email", "accountState"])
+        .select(["id", "name", "email", "accountState", "emailVerified"])
         .where("id", "=", userId)
         .forUpdate()
         .executeTakeFirst();
       if (!user) return "not-found" as const;
-      if (user.accountState !== "provisional") return "already-active" as const;
+      if (user.accountState === "active" && user.emailVerified)
+        return "already-active" as const;
       await refreshAccountSetupRequest(transaction, {
         user,
         actorUserId: actor.id,

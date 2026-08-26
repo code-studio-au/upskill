@@ -120,7 +120,10 @@ export async function invitePlatformAdministrator(
           userId: provisioned.user.id,
         };
       const now = new Date();
-      if (provisioned.user.accountState === "active") {
+      if (
+        provisioned.user.accountState === "active" &&
+        provisioned.user.emailVerified
+      ) {
         await transaction
           .insertInto("platform_admin")
           .values({
@@ -237,15 +240,23 @@ export async function removePlatformAdministrator(
             "template.id",
             "version.eventTemplateId",
           )
-          .select(sql<number>`count(*)::integer`.as("count"))
+          .select(sql<number>`count(distinct template.id)::integer`.as("count"))
           .where("defaults.userId", "=", userId)
           .where("template.status", "!=", "archived")
           .where(
-            sql<boolean>`version.version = (
+            sql<boolean>`(
+            version.version = (
               select max(current_version.version)
               from event_template_version current_version
               where current_version."eventTemplateId" = version."eventTemplateId"
-            )`,
+            )
+            or version.version = (
+              select max(published_version.version)
+              from event_template_version published_version
+              where published_version."eventTemplateId" = version."eventTemplateId"
+                and published_version."publishedAt" is not null
+            )
+          )`,
           )
           .executeTakeFirstOrThrow(),
       ]);

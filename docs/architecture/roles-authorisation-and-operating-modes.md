@@ -152,14 +152,16 @@ resources, access grants, learner support/enrolment corrections, events,
 staff assignments, registration/attendance backstops, certificates, and
 administrative reporting.
 
-They also manage the platform-administrator directory. Existing active Users
-can be granted the role immediately; new people receive the shared account-setup
-invitation and the role becomes active only when setup succeeds. Administrators
-cannot revoke their own role or the final administrator. Revocation is blocked
-while the person remains an active Event Instance administrator or a default on
-the current version of a non-archived Event Template, requiring explicit
-replacement first. Pending invitations can be cancelled without deleting the
-User. Grants, invitations, cancellations and revocations are durably audited.
+They also manage the platform-administrator directory. Existing active and
+email-verified Users can be granted the role immediately; new or legacy
+unverified people receive the shared account-setup invitation and the role
+becomes active only when setup succeeds. Administrators cannot revoke their own
+role or the final administrator. Revocation is blocked while the person remains
+an active Event Instance administrator or a default on either the latest draft
+or latest published version of a non-archived Event Template, requiring
+explicit replacement first. Pending invitations can be cancelled without
+deleting the User. Grants, invitations, cancellations and revocations are
+durably audited.
 
 Platform Administrators may use the visual learning-analytics workspace across
 Courses and Events, with explicit exact-version/instance, date, completion and
