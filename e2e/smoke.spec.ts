@@ -610,9 +610,18 @@ test("validated catalogue search remains navigable", async ({ page }) => {
   ).toBeVisible();
   await expect(page.getByText(/1 CPD point/)).toBeVisible();
   await page.getByRole("button", { name: "Enrol in this course" }).click();
-  await expect(page).toHaveURL(
-    /\/login\?redirect=%2Fcourses%2Fpsychological-safety-at-work$/,
-  );
+  await expect(page).toHaveURL(/\/courses\/psychological-safety-at-work$/);
+  await expect(
+    page.getByRole("heading", { name: "Create your Upskill account" }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Email account setup" }).click();
+  await expect(page.getByText("Enter the person's name.")).toBeVisible();
+  await expect(page.getByText("Enter a valid email address.")).toBeVisible();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Create your Upskill account" }),
+  ).toHaveCount(0);
+  await page.goto("/login?redirect=%2Fcourses%2Fpsychological-safety-at-work");
   await expect(
     page.getByRole("heading", { name: "Sign in to Upskill" }),
   ).toBeVisible();
