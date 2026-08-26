@@ -12,10 +12,11 @@ may rate their current knowledge. Its questions will change over time, so the
 system must preserve what each User was asked without treating onboarding as
 learning progress.
 
-Open-entry Event check-in and administrator-created soft accounts are account
-provisioning paths, not alternative onboarding flows. They create or reuse a
-stable User with onboarding incomplete. After account setup and authentication,
-the same ordinary onboarding workflow applies.
+Open-entry Event check-in, administrator and Event staff invitations, and
+purchase-time account creation are account provisioning paths, not alternative
+onboarding flows. They all create or reuse one stable User with onboarding
+incomplete. After account setup and authentication, the same ordinary onboarding
+workflow applies.
 
 ## Decision Summary
 
@@ -51,6 +52,14 @@ verified with a six-digit code after questionnaire submission. Verification is
 recommended and skippable by default; an administrator can require every
 enabled method for a newly activated immutable version. Onboarding responses
 remain separate from Learning Evidence and course/event progress.
+
+The product exposes the shared provisional-account boundary from the learner
+directory, Event staff roster, and unauthenticated paid-offering flow. A new
+person receives one expiring account-setup email; a repeated invitation reuses
+the same User and refreshes setup only within the resend controls. Purchase-time
+setup returns the person to the exact Course or Event after activation so
+Stripe Checkout and the resulting entitlement always use an authenticated User.
+Public Better Auth sign-up remains disabled.
 
 Completed learners can open My profile from the account menu to view and update
 the current values projected by onboarding: full name, canonical mobile,

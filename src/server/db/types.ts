@@ -28,7 +28,12 @@ interface UserTable {
   stripeCustomerId: string | null;
   accountState: Generated<"provisional" | "active">;
   provisioningSource: Generated<
-    "administrator" | "open_entry" | "late_invitation" | "access_owner" | null
+    | "administrator"
+    | "open_entry"
+    | "late_invitation"
+    | "access_owner"
+    | "self_purchase"
+    | null
   >;
   provisionedByUserId: Generated<string | null>;
   setupRequestedAt: OptionalTimestamp;
@@ -96,6 +101,16 @@ interface PlatformAdminTable {
   userId: string;
   grantedByUserId: string | null;
   createdAt: Timestamp;
+}
+
+interface PlatformAdminInvitationTable {
+  id: string;
+  userId: string;
+  invitedByUserId: string;
+  invitedAt: Timestamp;
+  acceptedAt: Timestamp | null;
+  cancelledAt: Timestamp | null;
+  cancelledByUserId: string | null;
 }
 
 interface EventStaffEligibilityTable {
@@ -1269,6 +1284,10 @@ export type AuditEventAction =
   | "access_grant.administrator_created"
   | "access_grant.administrator_revoked"
   | "authorization.platform_admin.bootstrapped"
+  | "authorization.platform_admin.granted"
+  | "authorization.platform_admin.invitation_cancelled"
+  | "authorization.platform_admin.invited"
+  | "authorization.platform_admin.revoked"
   | "course.archived"
   | "course.created"
   | "course.deleted"
@@ -1427,6 +1446,7 @@ export interface Database {
   organization: OrganizationTable;
   organization_member: OrganizationMemberTable;
   platform_admin: PlatformAdminTable;
+  platform_admin_invitation: PlatformAdminInvitationTable;
   phone_verification_claim: PhoneVerificationClaimTable;
   bulk_order: BulkOrderTable;
   order: OrderTable;

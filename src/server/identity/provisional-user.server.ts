@@ -4,10 +4,17 @@ import { randomUUID } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { Database } from "#/server/db/types";
-import { createAccountSetupRequest } from "./account-setup.server";
+import {
+  createAccountSetupRequest,
+  refreshAccountSetupRequest,
+} from "./account-setup.server";
 
 export type ProvisionalUserSource =
-  "administrator" | "open_entry" | "late_invitation" | "access_owner";
+  | "administrator"
+  | "open_entry"
+  | "late_invitation"
+  | "access_owner"
+  | "self_purchase";
 
 export function normalizeUserEmail(email: string): string {
   return email.trim().toLocaleLowerCase("en-AU");
@@ -22,9 +29,20 @@ export async function provisionUser(
     actorUserId: string | null;
     sourceEventId: string;
     createdAt?: Date;
+    continuePath?: string;
+    refreshExistingSetup?: {
+      minimumIntervalMs?: number;
+      reason: "administrator" | "self_purchase";
+    };
   },
 ): Promise<{
-  user: { id: string; name: string; email: string; emailVerified: boolean };
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    emailVerified: boolean;
+    accountState: "provisional" | "active";
+  };
   created: boolean;
   notificationId: string | null;
 }> {
@@ -50,16 +68,32 @@ export async function provisionUser(
     .onConflict((conflict) =>
       conflict.expression(sql`lower(email)`).doNothing(),
     )
-    .returning(["id", "name", "email", "emailVerified"])
+    .returning(["id", "name", "email", "emailVerified", "accountState"])
     .executeTakeFirst();
   const user =
     inserted ??
     (await transaction
       .selectFrom("user")
-      .select(["id", "name", "email", "emailVerified"])
+      .select(["id", "name", "email", "emailVerified", "accountState"])
       .where(sql<boolean>`lower(email) = ${email}`)
       .executeTakeFirstOrThrow());
-  if (!inserted) return { user, created: false, notificationId: null };
+  if (!inserted) {
+    const notificationId = input.refreshExistingSetup
+      ? await refreshAccountSetupRequest(transaction, {
+          user,
+          actorUserId: input.actorUserId,
+          reason: input.refreshExistingSetup.reason,
+          ...(input.refreshExistingSetup.minimumIntervalMs === undefined
+            ? {}
+            : {
+                minimumIntervalMs: input.refreshExistingSetup.minimumIntervalMs,
+              }),
+          ...(input.continuePath ? { continuePath: input.continuePath } : {}),
+          createdAt,
+        })
+      : null;
+    return { user, created: false, notificationId };
+  }
 
   await recordDurableAuditEvent(transaction, {
     actorUserId: input.actorUserId,
@@ -76,6 +110,7 @@ export async function provisionUser(
     email: user.email,
     deduplicationKey: `account-setup:${input.sourceEventId}:${user.id}`,
     createdAt,
+    ...(input.continuePath ? { continuePath: input.continuePath } : {}),
   });
   return { user, created: true, notificationId };
 }

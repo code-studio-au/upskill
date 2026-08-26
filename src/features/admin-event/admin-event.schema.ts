@@ -81,6 +81,7 @@ export const adminEventTemplateSelectionSchema = z.object({
 
 export const adminEventStaffEligibilityGrantSchema = z
   .object({
+    name: z.optional(z.string().check(z.trim(), z.maxLength(200))),
     email: z.email("Enter a valid user email address.").check(z.maxLength(320)),
     responsibility: z.enum(["presenter", "coordinator"]),
     regionId: z.nullable(identifierSchema),
@@ -904,6 +905,7 @@ export type AdminEventMutationResult =
       eventTemplateVersionId?: string;
       eventOccurrenceId?: string;
       eligibilityId?: string;
+      accountInvited?: boolean;
       regionId?: string;
     }>
   | { status: "not-found" }

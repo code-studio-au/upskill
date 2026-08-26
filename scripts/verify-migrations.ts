@@ -101,6 +101,7 @@ try {
     "contact_verification_sms_capture",
     "organization",
     "platform_admin",
+    "platform_admin_invitation",
     "phone_verification_claim",
     "outbox_event",
     "scorm_attempt",
@@ -199,6 +200,7 @@ try {
     "phone_verification_claim_active_phone_uq",
     "phone_verification_claim_user_history_idx",
     "user_sms_verified_phone_uq",
+    "platform_admin_invitation_pending_uq",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -302,6 +304,23 @@ try {
   assert.match(
     auditActionDefinition.definition,
     /user\.phone_verification_transferred/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
+    /authorization\.platform_admin\.invited/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
+    /authorization\.platform_admin\.revoked/u,
+  );
+  const provisioningConstraint = await sql<{ definition: string }>`
+    select pg_get_constraintdef(oid) as definition
+    from pg_constraint
+    where conname = 'user_provisioning_source_ck'
+  `.execute(db);
+  assert.match(
+    provisioningConstraint.rows[0]?.definition ?? "",
+    /self_purchase/u,
   );
   const accountSetupEmail = await sql<{
     activeVersionId: string | null;

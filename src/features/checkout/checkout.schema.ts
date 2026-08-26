@@ -1,8 +1,19 @@
 import { z } from "#/validation/zod";
 import { courseSlugSchema } from "#/features/catalog/catalog.schema";
+import { accountInvitationSchema } from "#/features/auth/account-invitation.schema";
 
 export const checkoutCourseInputSchema = courseSlugSchema;
 export const checkoutEventInputSchema = courseSlugSchema;
+
+export const preparePurchaseAccountInputSchema = z.object({
+  ...accountInvitationSchema.shape,
+  offeringType: z.enum(["course", "event"]),
+  slug: courseSlugSchema.shape.slug,
+});
+
+export type PreparePurchaseAccountInput = z.infer<
+  typeof preparePurchaseAccountInputSchema
+>;
 
 const checkoutSessionIdSchema = z
   .string()

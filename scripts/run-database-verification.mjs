@@ -7,6 +7,7 @@ const verificationScripts = [
   "scripts/verify-platform-admin-invitation.ts",
   "scripts/verify-migrations.ts",
   "scripts/verify-platform-admin-bootstrap.ts",
+  "scripts/verify-account-provisioning.ts",
   "scripts/verify-audit-logging.ts",
   "scripts/verify-access-code-redemption.ts",
   "scripts/verify-course-checkout.ts",

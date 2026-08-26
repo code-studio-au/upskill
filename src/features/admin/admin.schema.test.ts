@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminAccountInviteSchema,
   adminLearnerParamsSchema,
   adminLearnerSearchSchema,
   adminProgressOverrideInputSchema,
 } from "./admin.schema";
 
 describe("admin learner inputs", () => {
+  it("normalizes a new account invitation", () => {
+    expect(
+      adminAccountInviteSchema.parse({
+        name: "  Learner Example ",
+        email: "learner@example.com",
+      }),
+    ).toEqual({ name: "Learner Example", email: "learner@example.com" });
+  });
   it("normalizes search input and invalid pages", () => {
     expect(
       adminLearnerSearchSchema.parse({ q: "  learner@example.com ", page: 0 }),
