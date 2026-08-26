@@ -1,7 +1,7 @@
 .formGrid {
   display: grid;
   grid-template-columns:
-    minmax(14rem, 2fr) minmax(10rem, 1fr) minmax(12rem, 1fr)
+    minmax(12rem, 1fr) minmax(14rem, 2fr) minmax(10rem, 1fr) minmax(12rem, 1fr)
     auto;
   gap: var(--mantine-spacing-md);
   align-items: end;

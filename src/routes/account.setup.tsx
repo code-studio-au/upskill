@@ -12,6 +12,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import {
   accountSetupPasswordSchema,
+  accountSetupContinuePathSchema,
   accountSetupTokenSchema,
 } from "#/features/auth/account-setup.schema";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
@@ -27,12 +28,22 @@ export const Route = createFileRoute("/account/setup")({
 });
 
 function AccountSetupPage() {
-  const [token] = useState(() => {
-    if (typeof window === "undefined") return "";
-    const parsed = accountSetupTokenSchema.safeParse(
-      new URLSearchParams(window.location.hash.slice(1)).get("token"),
+  const [{ token, continuePath }] = useState(() => {
+    if (typeof window === "undefined")
+      return { token: "", continuePath: "/dashboard" };
+    const parameters = new URLSearchParams(window.location.hash.slice(1));
+    const parsedToken = accountSetupTokenSchema.safeParse(
+      parameters.get("token"),
     );
-    return parsed.success ? parsed.data : "";
+    const parsedContinuePath = accountSetupContinuePathSchema.safeParse(
+      parameters.get("continue"),
+    );
+    return {
+      token: parsedToken.success ? parsedToken.data : "",
+      continuePath: parsedContinuePath.success
+        ? parsedContinuePath.data
+        : "/dashboard",
+    };
   });
   const [request, setRequest] = useState<
     | { status: "loading" }
@@ -95,7 +106,7 @@ function AccountSetupPage() {
           window.location.assign("/login");
           return;
         }
-        window.location.assign("/dashboard");
+        window.location.assign(continuePath);
       } catch {
         setError("Account setup is temporarily unavailable. Please try again.");
       }

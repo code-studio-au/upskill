@@ -10,6 +10,7 @@ import {
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
+import { provisionUser } from "#/server/identity/provisional-user.server";
 
 export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
   const database = getDatabase();
@@ -240,21 +241,39 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
 
 export async function grantAdminEventStaffEligibility(
   input: {
+    name?: string | undefined;
     email: string;
     responsibility: "presenter" | "coordinator";
     regionId: string | null;
   },
   administrator: AuthenticatedUser,
-): Promise<{ status: "granted" | "unchanged"; eligibilityId: string } | null> {
+): Promise<{
+  status: "granted" | "unchanged";
+  eligibilityId: string;
+  accountInvited: boolean;
+} | null> {
   const normalizedEmail = input.email.trim().toLocaleLowerCase("en-AU");
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
-      const user = await transaction
+      let user = await transaction
         .selectFrom("user")
         .select("id")
         .where(sql<boolean>`lower("email") = ${normalizedEmail}`)
         .executeTakeFirst();
+      let accountInvited = false;
+      if (!user && input.name?.trim()) {
+        const provisioned = await provisionUser(transaction, {
+          name: input.name,
+          email: normalizedEmail,
+          source: "administrator",
+          actorUserId: administrator.id,
+          sourceEventId: `staff-eligibility:${randomUUID()}`,
+          refreshExistingSetup: { reason: "administrator" },
+        });
+        user = { id: provisioned.user.id };
+        accountInvited = provisioned.notificationId !== null;
+      }
       if (!user) return null;
       if (input.responsibility === "coordinator") {
         if (!input.regionId) return null;
@@ -278,6 +297,7 @@ export async function grantAdminEventStaffEligibility(
         return {
           status: "unchanged" as const,
           eligibilityId: existing.id,
+          accountInvited,
         };
       const grantId = `staff_eligibility_${randomUUID()}`;
       await transaction
@@ -304,7 +324,11 @@ export async function grantAdminEventStaffEligibility(
           regionId: input.regionId,
         },
       });
-      return { status: "granted" as const, eligibilityId: grantId };
+      return {
+        status: "granted" as const,
+        eligibilityId: grantId,
+        accountInvited,
+      };
     });
 }
 

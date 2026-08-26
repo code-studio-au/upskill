@@ -10,6 +10,7 @@ import { firstFormError } from "#/features/shared/form-errors";
 import { LightweightAutocomplete } from "#/features/shared/LightweightAutocomplete";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
+import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import {
   Alert,
   Button,
@@ -27,6 +28,7 @@ import {
 import classes from "./AdminEventStaffRoster.module.css";
 
 const eligibilityDefaults: AdminEventStaffEligibilityGrantInput = {
+  name: "",
   email: "",
   responsibility: "presenter",
   regionId: null,
@@ -68,7 +70,11 @@ export function AdminEventStaffRoster({
         data: value,
       });
       if (result.status === "not-found") {
-        setError("The user or selected active region could not be found.");
+        setError(
+          value.name?.trim()
+            ? "The selected active region could not be found."
+            : "No account matches that email. Enter the person's name to invite them.",
+        );
         return;
       }
       if (result.status !== "ready") {
@@ -76,7 +82,9 @@ export function AdminEventStaffRoster({
         return;
       }
       setMessage(
-        `${value.responsibility === "presenter" ? "Presenter" : "Coordinator"} added to the eligible roster.`,
+        result.data.accountInvited
+          ? `${value.responsibility === "presenter" ? "Presenter" : "Coordinator"} invited and added to the eligible roster. Their operational access begins only after an Event assignment.`
+          : `${value.responsibility === "presenter" ? "Presenter" : "Coordinator"} added to the eligible roster.`,
       );
       form.reset();
       setEmailQuery("");
@@ -208,6 +216,21 @@ export function AdminEventStaffRoster({
         >
           <Stack gap="md">
             <div className={classes.formGrid}>
+              <form.Field name="name">
+                {(field) => (
+                  <MantineTextInput
+                    label="Name for a new account"
+                    placeholder="Only needed when inviting"
+                    maxLength={200}
+                    value={field.state.value ?? ""}
+                    error={firstFormError(field.state.meta.errors)}
+                    onBlur={field.handleBlur}
+                    onChange={(event) => {
+                      field.handleChange(event.currentTarget.value);
+                    }}
+                  />
+                )}
+              </form.Field>
               <form.Field name="email">
                 {(field) => (
                   <LightweightAutocomplete

@@ -6,6 +6,7 @@ interface NavigationItem {
   to:
     | "/admin"
     | "/admin/learners"
+    | "/admin/administrators"
     | "/admin/courses"
     | "/admin/events/templates"
     | "/admin/events/scheduled"
@@ -25,6 +26,7 @@ const groups: Array<{ label: string; items: Array<NavigationItem> }> = [
     items: [
       { label: "Overview", to: "/admin" },
       { label: "Learners", to: "/admin/learners" },
+      { label: "Administrators", to: "/admin/administrators" },
       { label: "Access grants", to: "/admin/access" },
       { label: "User onboarding", to: "/admin/onboarding" },
     ],

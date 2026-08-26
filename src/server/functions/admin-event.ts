@@ -105,6 +105,7 @@ export const grantAdminEventStaffEligibility = createServerFn({
       data: {
         outcome: "staff-eligibility-granted",
         eligibilityId: outcome.eligibilityId,
+        accountInvited: outcome.accountInvited,
       },
     };
   });

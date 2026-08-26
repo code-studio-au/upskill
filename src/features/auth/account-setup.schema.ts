@@ -28,3 +28,10 @@ export const accountSetupPasswordSchema = z
 export const accountSetupInputSchema = z.object({
   token: accountSetupTokenSchema,
 });
+
+export const accountSetupContinuePathSchema = z
+  .string()
+  .check(
+    z.maxLength(500),
+    z.regex(/^\/(?:courses|events)\/[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$/u),
+  );

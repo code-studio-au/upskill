@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  accountSetupContinuePathSchema,
   accountSetupPasswordSchema,
   accountSetupTokenSchema,
 } from "./account-setup.schema";
@@ -27,6 +28,18 @@ describe("account setup validation", () => {
         password: "short",
         confirmPassword: "different",
       }).success,
+    ).toBe(false);
+  });
+
+  it("allows only known offering paths after account activation", () => {
+    expect(
+      accountSetupContinuePathSchema.parse("/courses/clinical-leadership"),
+    ).toBe("/courses/clinical-leadership");
+    expect(
+      accountSetupContinuePathSchema.safeParse("https://example.com").success,
+    ).toBe(false);
+    expect(
+      accountSetupContinuePathSchema.safeParse("/admin/learners").success,
     ).toBe(false);
   });
 });

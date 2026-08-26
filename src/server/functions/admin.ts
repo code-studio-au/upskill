@@ -1,11 +1,16 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
   adminEnrollmentParamsSchema,
+  adminAccountInviteSchema,
+  adminAdministratorRemoveSchema,
   adminLearnerParamsSchema,
   adminLearnerSearchSchema,
   adminRequireReOnboardingSchema,
   adminProgressOverrideInputSchema,
   type AdminEnrollmentResult,
+  type AdminAccountInviteResult,
+  type AdminAdministratorDirectory,
+  type AdminAdministratorRemoveResult,
   type AdminProfileResult,
   type AdminProgressOverrideResult,
   type AdminResult,
@@ -25,6 +30,82 @@ export const getAdminOverview = createServerFn({ method: "GET" }).handler(
     return { status: "ready", data: await findAdminOverview(request.user) };
   },
 );
+
+export const getAdminAdministrators = createServerFn({ method: "GET" }).handler(
+  async (): Promise<AdminResult<AdminAdministratorDirectory>> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { findAdminAdministrators } =
+      await import("#/server/admin/admin-account.server");
+    return {
+      status: "ready",
+      data: await findAdminAdministrators(request.user),
+    };
+  },
+);
+
+export const inviteAdminLearner = createServerFn({ method: "POST" })
+  .validator(adminAccountInviteSchema)
+  .handler(async ({ data }): Promise<AdminAccountInviteResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { inviteAdminLearner: invite } =
+      await import("#/server/admin/admin-account.server");
+    return { status: "ready", data: await invite(data, request.user) };
+  });
+
+export const invitePlatformAdministrator = createServerFn({ method: "POST" })
+  .validator(adminAccountInviteSchema)
+  .handler(async ({ data }): Promise<AdminAccountInviteResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { invitePlatformAdministrator: invite } =
+      await import("#/server/admin/admin-account.server");
+    const outcome = await invite(data, request.user);
+    if (outcome.status === "already-administrator")
+      return { status: "conflict", reason: "already_administrator" };
+    return {
+      status: "ready",
+      data: { outcome: outcome.status, userId: outcome.userId },
+    };
+  });
+
+export const removePlatformAdministrator = createServerFn({ method: "POST" })
+  .validator(adminAdministratorRemoveSchema)
+  .handler(async ({ data }): Promise<AdminAdministratorRemoveResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { removePlatformAdministrator: remove } =
+      await import("#/server/admin/admin-account.server");
+    const outcome = await remove(data.userId, request.user);
+    if (outcome.status === "not-found") return { status: "not-found" };
+    if (outcome.status === "self")
+      return { status: "conflict", reason: "self" };
+    if (outcome.status === "last-administrator")
+      return { status: "conflict", reason: "last_administrator" };
+    if (outcome.status === "event-responsibility")
+      return {
+        status: "conflict",
+        reason: "event_responsibility",
+        eventAssignmentCount: outcome.eventAssignmentCount,
+        templateDefaultCount: outcome.templateDefaultCount,
+      };
+    return {
+      status: "ready",
+      data: {
+        outcome:
+          outcome.status === "revoked" ? "revoked" : "invitation_cancelled",
+      },
+    };
+  });
 
 export const getAdminLearners = createServerFn({ method: "GET" })
   .validator(adminLearnerSearchSchema)

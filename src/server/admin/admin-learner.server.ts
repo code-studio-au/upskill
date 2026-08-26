@@ -29,9 +29,14 @@ import {
 const PAGE_SIZE = 20;
 function learnerPredicate() {
   return sql<boolean>`not exists (
-    select 1 from platform_admin
-    where platform_admin."userId" = "user".id
-  )`;
+      select 1 from platform_admin
+      where platform_admin."userId" = "user".id
+    ) and not exists (
+      select 1 from platform_admin_invitation invitation
+      where invitation."userId" = "user".id
+        and invitation."acceptedAt" is null
+        and invitation."cancelledAt" is null
+    )`;
 }
 
 function searchPattern(query: string): string {
@@ -122,6 +127,7 @@ export async function findAdminLearners(
       "user.id",
       "user.name",
       "user.email",
+      "user.accountState",
       "user.createdAt",
       sql<number>`count("enrollment".id)::integer`.as("enrollments"),
       sql<number>`count("enrollment".id) filter (
@@ -133,7 +139,13 @@ export async function findAdminLearners(
         where "enrollment".status = 'completed'
       )::integer`.as("completedEnrollments"),
     ])
-    .groupBy(["user.id", "user.name", "user.email", "user.createdAt"])
+    .groupBy([
+      "user.id",
+      "user.name",
+      "user.email",
+      "user.accountState",
+      "user.createdAt",
+    ])
     .orderBy("user.name")
     .orderBy("user.id")
     .limit(PAGE_SIZE)
@@ -149,6 +161,7 @@ export async function findAdminLearners(
       enrollments: row.enrollments,
       activeEnrollments: row.activeEnrollments,
       completedEnrollments: row.completedEnrollments,
+      accountState: row.accountState,
     })),
     pagination: { page, pages, total: countRow.count, pageSize: PAGE_SIZE },
     query: input.q,

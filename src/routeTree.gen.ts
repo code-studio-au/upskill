@@ -21,6 +21,7 @@ import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as AccountSetupRouteImport } from './routes/account.setup'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccessRouteImport } from './routes/admin.access'
+import { Route as AdminAdministratorsRouteImport } from './routes/admin.administrators'
 import { Route as AdminModulesRouteImport } from './routes/admin.modules'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminOnboardingRouteImport } from './routes/admin.onboarding'
@@ -139,6 +140,11 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
 const AdminAccessRoute = AdminAccessRouteImport.update({
   id: '/access',
   path: '/access',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminAdministratorsRoute = AdminAdministratorsRouteImport.update({
+  id: '/administrators',
+  path: '/administrators',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminModulesRoute = AdminModulesRouteImport.update({
@@ -477,6 +483,7 @@ export interface FileRoutesByFullPath {
   '/profile': typeof ProfileRoute
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/administrators': typeof AdminAdministratorsRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
@@ -548,6 +555,7 @@ export interface FileRoutesByTo {
   '/profile': typeof ProfileRoute
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/administrators': typeof AdminAdministratorsRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
@@ -622,6 +630,7 @@ export interface FileRoutesById {
   '/profile': typeof ProfileRoute
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
+  '/admin/administrators': typeof AdminAdministratorsRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
@@ -697,6 +706,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/account/setup'
     | '/admin/access'
+    | '/admin/administrators'
     | '/admin/modules'
     | '/admin/notifications'
     | '/admin/onboarding'
@@ -768,6 +778,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/account/setup'
     | '/admin/access'
+    | '/admin/administrators'
     | '/admin/modules'
     | '/admin/notifications'
     | '/admin/onboarding'
@@ -841,6 +852,7 @@ export interface FileRouteTypes {
     | '/profile'
     | '/account/setup'
     | '/admin/access'
+    | '/admin/administrators'
     | '/admin/modules'
     | '/admin/notifications'
     | '/admin/onboarding'
@@ -1034,6 +1046,13 @@ declare module '@tanstack/react-router' {
       path: '/access'
       fullPath: '/admin/access'
       preLoaderRoute: typeof AdminAccessRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/administrators': {
+      id: '/admin/administrators'
+      path: '/administrators'
+      fullPath: '/admin/administrators'
+      preLoaderRoute: typeof AdminAdministratorsRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/modules': {
@@ -1454,6 +1473,7 @@ declare module '@tanstack/react-router' {
 
 interface AdminRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
+  AdminAdministratorsRoute: typeof AdminAdministratorsRoute
   AdminModulesRoute: typeof AdminModulesRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
   AdminOnboardingRoute: typeof AdminOnboardingRoute
@@ -1479,6 +1499,7 @@ interface AdminRouteChildren {
 
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
+  AdminAdministratorsRoute: AdminAdministratorsRoute,
   AdminModulesRoute: AdminModulesRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,
   AdminOnboardingRoute: AdminOnboardingRoute,

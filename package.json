@@ -57,6 +57,7 @@
     "seed:assets:package": "bash scripts/create-seed-assets.sh",
     "db:verify:migrations": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-migrations.ts",
     "db:verify:admin-bootstrap": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-platform-admin-invitation.ts scripts/verify-platform-admin-bootstrap.ts",
+    "db:verify:account-provisioning": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-account-provisioning.ts",
     "db:verify:audit": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-audit-logging.ts",
     "db:verify:access-codes": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-access-code-redemption.ts",
     "db:verify:checkout": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-course-checkout.ts",

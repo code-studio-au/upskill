@@ -34,6 +34,12 @@ directly. Stripe handles payment processing, while Upskill remains
 authoritative for the resulting order, access, enrolment, learning
 history, completion, and derived certificate eligibility.
 
+When the purchaser is not signed in, Upskill first creates or reuses a
+provisional User and sends the normal expiring account-setup link. Successful
+setup returns the purchaser to the selected offering; Stripe Checkout begins
+only from the resulting authenticated session. This avoids anonymous paid
+orders that cannot be safely attached to a User later.
+
 ### Organisation seat purchases
 
 Healthcare organisations may purchase fixed numbers of course places, commonly
@@ -229,6 +235,8 @@ inferred from unrelated nullable fields.
 
 ```text
 Learner chooses course
+  -> account setup first when unauthenticated
+  -> authenticated learner returns to the exact offering
   -> pending order + immutable order-item snapshot
   -> Stripe Checkout
   -> signed webhook

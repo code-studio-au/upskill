@@ -5,7 +5,16 @@ import {
   checkoutCourseInputSchema,
   checkoutEventInputSchema,
   checkoutStatusInputSchema,
+  preparePurchaseAccountInputSchema,
 } from "#/features/checkout/checkout.schema";
+
+export const preparePurchaseAccount = createServerFn({ method: "POST" })
+  .validator(preparePurchaseAccountInputSchema)
+  .handler(async ({ data }) => {
+    const { preparePurchaseAccount: prepare } =
+      await import("#/server/checkout/purchase-account.server");
+    return { status: await prepare(data) } as const;
+  });
 
 export const startBulkOrderCheckout = createServerFn({ method: "POST" })
   .validator(bulkOrderCheckoutInputSchema)

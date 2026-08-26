@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 940000,
+  "clientJavaScriptBytes": 954000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 280000,
+  "clientJavaScriptBrotliBytes": 286000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
@@ -18,7 +18,7 @@
     "CertificateAccreditationEditor": 2048,
     "OfferingImageEditor": 2048,
     "AdminEventStaffRoster": 34816,
-    "AdminEventOccurrenceEditor": 5376,
+    "AdminEventOccurrenceEditor": 5440,
     "AdminEventRegionalCoverageEditor": 1536,
     "EligibleStaffPicker": 1024,
     "EventOperationsProgress": 2560,

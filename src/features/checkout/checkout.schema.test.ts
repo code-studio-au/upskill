@@ -3,6 +3,7 @@ import {
   bulkOrderCheckoutInputSchema,
   capacityExtensionCheckoutInputSchema,
   checkoutSessionSearchSchema,
+  preparePurchaseAccountInputSchema,
 } from "./checkout.schema";
 
 describe("checkout session search", () => {
@@ -23,6 +24,35 @@ describe("checkout session search", () => {
       ).toThrow();
     },
   );
+});
+
+describe("purchase account preparation", () => {
+  it("accepts a bounded course purchaser identity", () => {
+    expect(
+      preparePurchaseAccountInputSchema.parse({
+        offeringType: "course",
+        slug: "clinical-leadership",
+        name: "  Learner Example  ",
+        email: "learner@example.com",
+      }),
+    ).toEqual({
+      offeringType: "course",
+      slug: "clinical-leadership",
+      name: "Learner Example",
+      email: "learner@example.com",
+    });
+  });
+
+  it("rejects an invalid offering type and email", () => {
+    expect(
+      preparePurchaseAccountInputSchema.safeParse({
+        offeringType: "anything",
+        slug: "clinical-leadership",
+        name: "Learner Example",
+        email: "not-an-email",
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe("bulk Checkout input", () => {

@@ -1,5 +1,6 @@
 import { z } from "#/validation/zod";
 import type { LearningPhase } from "#/features/learning/learning.schema";
+import { accountInvitationSchema } from "#/features/auth/account-invitation.schema";
 
 const adminIdentifierSchema = z
   .string()
@@ -19,6 +20,12 @@ export const adminLearnerSearchSchema = z.object({
 });
 
 export const adminLearnerParamsSchema = z.object({
+  userId: adminIdentifierSchema,
+});
+
+export const adminAccountInviteSchema = accountInvitationSchema;
+
+export const adminAdministratorRemoveSchema = z.object({
   userId: adminIdentifierSchema,
 });
 
@@ -75,7 +82,38 @@ interface AdminLearnerSummary {
   enrollments: number;
   activeEnrollments: number;
   completedEnrollments: number;
+  accountState: "provisional" | "active";
 }
+
+export interface AdminAdministratorDirectory {
+  currentUserId: string;
+  administrators: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    status: "active" | "pending";
+    since: string;
+  }>;
+}
+
+export type AdminAccountInviteInput = z.infer<typeof adminAccountInviteSchema>;
+
+export type AdminAccountInviteResult =
+  | AdminResult<{
+      outcome: "invited" | "resent" | "existing" | "granted" | "pending";
+      userId: string;
+    }>
+  | { status: "conflict"; reason: "already_administrator" };
+
+export type AdminAdministratorRemoveResult =
+  | AdminResult<{ outcome: "revoked" | "invitation_cancelled" }>
+  | { status: "not-found" }
+  | {
+      status: "conflict";
+      reason: "self" | "last_administrator" | "event_responsibility";
+      eventAssignmentCount?: number;
+      templateDefaultCount?: number;
+    };
 
 export interface AdminLearnerDirectory {
   learners: Array<AdminLearnerSummary>;

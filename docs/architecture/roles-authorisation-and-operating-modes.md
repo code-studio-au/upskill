@@ -152,6 +152,17 @@ resources, access grants, learner support/enrolment corrections, events,
 staff assignments, registration/attendance backstops, certificates, and
 administrative reporting.
 
+They also manage the platform-administrator directory. Existing active and
+email-verified Users can be granted the role immediately; new or legacy
+unverified people receive the shared account-setup invitation and the role
+becomes active only when setup succeeds. Administrators cannot revoke their own
+role or the final administrator. Revocation is blocked while the person remains
+an active Event Instance administrator or a default on either the latest draft
+or latest published version of a non-archived Event Template, requiring
+explicit replacement first. Pending invitations can be cancelled without
+deleting the User. Grants, invitations, cancellations and revocations are
+durably audited.
+
 Platform Administrators may use the visual learning-analytics workspace across
 Courses and Events, with explicit exact-version/instance, date, completion and
 current-versus-snapshotted-region filters. Chart drill-down remains an authorized
@@ -195,13 +206,9 @@ retaining historical attribution. Published/operational instances require at
 least one active assigned administrator; standard administrators can add/end
 assignments through audited commands.
 
-Standard-role revocation always takes effect immediately. Its impact workflow
-ends the disabled User's owner assignments, preserves attribution, uses a
-selected active replacement for sole-owner instances, and creates successor
-Event Template Versions without that default administrator. If no replacement is
-available, global Platform Administrator backstop keeps the Event operable while
-the instance/template is flagged for urgent reassignment; revoked authority is
-never restored automatically.
+Standard-role revocation takes effect immediately once active Event ownership
+and current Event Template defaults have been replaced. Historical attribution
+is retained and revoked authority is never restored automatically.
 
 Administration is a job function, not an assumption that the person is
 currently acting as every other persona. Sensitive/destructive actions
