@@ -19,6 +19,7 @@ import {
 } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import { isLearningComplete } from "#/server/learning/learning-completion.server";
+import { findAdminLearnerEvents } from "./admin-learner-events.server";
 import { flattenedItems } from "#/server/learning/learner-survey.server";
 import {
   findEffectiveEnrollmentProgressOverride,
@@ -191,7 +192,7 @@ export async function findAdminLearnerProfile(
     .executeTakeFirst();
   if (!learner) return null;
 
-  const [rows, onboardingRows, activeOnboarding] = await Promise.all([
+  const [rows, onboardingRows, activeOnboarding, events] = await Promise.all([
     database
       .selectFrom("enrollment")
       .innerJoin(
@@ -284,6 +285,7 @@ export async function findAdminLearnerProfile(
       .where("definition_version.activatedAt", "is not", null)
       .where("definition_version.deactivatedAt", "is", null)
       .executeTakeFirst(),
+    findAdminLearnerEvents(userId),
   ]);
   const moduleCompletionByEnrollment =
     await findEffectiveModuleCompletionForEnrollments(
@@ -347,6 +349,7 @@ export async function findAdminLearnerProfile(
         lastActivityAt: row.lastActivityAt?.toISOString() ?? null,
       };
     }),
+    events,
   };
 }
 

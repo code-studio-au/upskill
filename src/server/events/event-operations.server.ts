@@ -14,16 +14,22 @@ import {
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { findEventSurveyQrCatalogue } from "./event-survey-access.server";
 
-async function findEventParticipantProgress(
+interface EventParticipantProgressVisibility {
+  administrator: boolean;
+  coordinatorRegionIds: Array<string>;
+  participantUserId?: string;
+}
+
+export async function findEventParticipantProgress(
   eventOccurrenceId: string,
   eventTemplateVersionId: string,
   occurrenceStartsAt: string,
   occurrenceEndsAt: string,
   occurrenceTimezone: string,
-  access: EventOperationsAccess,
+  visibility: EventParticipantProgressVisibility,
 ): Promise<Array<EventParticipantProgress>> {
-  const administrator = canAdministerEvent(access);
-  if (!administrator && access.coordinatorRegionIds.length === 0) return [];
+  if (!visibility.administrator && visibility.coordinatorRegionIds.length === 0)
+    return [];
   const database = getDatabase();
   let participantQuery = database
     .selectFrom("event_participation as participation")
@@ -60,13 +66,19 @@ async function findEventParticipantProgress(
     )
     .orderBy("participation.nameSnapshot")
     .orderBy("participation.emailSnapshot");
-  if (!administrator)
+  if (visibility.participantUserId)
+    participantQuery = participantQuery.where(
+      "participation.userId",
+      "=",
+      visibility.participantUserId,
+    );
+  if (!visibility.administrator)
     participantQuery = participantQuery.where((expression) =>
       expression.or([
         expression(
           "registration.eventOccurrenceRegionId",
           "in",
-          access.coordinatorRegionIds,
+          visibility.coordinatorRegionIds,
         ),
         expression("participation.mode", "=", "open_entry"),
       ]),
@@ -478,7 +490,10 @@ export async function findEventOperationsWorkspace(
           workspace.occurrence.startsAt,
           workspace.occurrence.endsAt,
           workspace.occurrence.timezone,
-          access,
+          {
+            administrator,
+            coordinatorRegionIds: access.coordinatorRegionIds,
+          },
         )
       : [],
     canViewSurveyQrCatalogue

@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 954000,
+  "clientJavaScriptBytes": 967000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 286000,
+  "clientJavaScriptBrotliBytes": 289000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
@@ -10,6 +10,7 @@
   "routeIncrementalCssGzipBytes": 12288,
   "conditionalJavaScriptGzipBytes": {
     "AdminCoordinationRegionDirectory": 2304,
+    "AdminLearnerEventHistory": 1280,
     "AdminAccessGrantRedemptionTable": 1280,
     "AdminCourseProgramEditor": 2304,
     "AdminCourseRoster": 3072,
@@ -32,6 +33,7 @@
     "profile": 2304
   },
   "routeJavaScriptGzipBytes": {
+    "/admin/learners/$userId/events/$eventOccurrenceId": 3072,
     "/event-operations/": 8192,
     "/event-operations/$eventOccurrenceId": 8192,
     "/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId": 1536,
