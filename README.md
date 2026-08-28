@@ -327,12 +327,12 @@ invoice creation; Access Owners retrieve the Stripe-hosted invoice from their
 assigned-grant order history. Refund events update financial history only and
 never delete issued codes or learning access.
 
-`pnpm run dev` starts the authenticated Stripe CLI listener with the web,
-learning and SCORM-worker processes. It injects the listener's temporary signing
-secret without changing `.env.local`, so local Checkout fulfilment works while
-the development supervisor is running. Run `stripe login` once before starting
-development. A missing or unauthenticated Stripe CLI still fails clearly. If the
-CLI is installed and authenticated but Stripe cannot be reached, development
-continues without webhook forwarding and prints a warning; webhook-driven local
-Checkout updates remain unavailable until connectivity returns. If an active
-listener later disconnects, the web, learning and worker processes continue.
+When Stripe CLI is installed, authenticated and online, `pnpm run dev` starts
+its listener with the web, learning and SCORM-worker processes. It injects the
+listener's temporary signing secret without changing `.env.local`, so local
+Checkout fulfilment works while the development supervisor is running. Run
+`stripe login` once to enable that forwarding. A missing, signed-out or offline
+Stripe CLI instead produces a warning and development continues; webhook-driven
+local Checkout updates remain unavailable until forwarding is restored. If an
+active listener later disconnects, the web, learning and worker processes also
+continue.
