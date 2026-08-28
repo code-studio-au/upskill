@@ -24,13 +24,34 @@ describe("Stripe development listener", () => {
     expect(run).toHaveBeenCalledOnce();
   });
 
-  it("fails clearly when Stripe CLI authentication is unavailable", () => {
-    expect(() =>
-      createStripeDevelopmentSetup({
-        environment: {},
-        run: () => ({ status: 1, stdout: "", stderr: "not authenticated" }),
+  it("continues without a listener when Stripe CLI authentication is unavailable", () => {
+    const setup = createStripeDevelopmentSetup({
+      environment: { APP_ENV: "development" },
+      run: () => ({ status: 1, stdout: "", stderr: "not authenticated" }),
+    });
+
+    expect(setup.listener).toBeNull();
+    expect(setup.environment.STRIPE_WEBHOOK_SECRET).toBe(
+      "whsec_local_offline_development",
+    );
+    expect(setup.warning).toMatch(/run `stripe login`/u);
+  });
+
+  it("continues without a listener when Stripe CLI is not installed", () => {
+    const setup = createStripeDevelopmentSetup({
+      environment: { APP_ENV: "development" },
+      run: () => ({
+        error: Object.assign(new Error("spawnSync stripe ENOENT"), {
+          code: "ENOENT",
+        }),
+        status: null,
+        stdout: "",
+        stderr: "",
       }),
-    ).toThrow(/Install Stripe CLI and run `stripe login`/u);
+    });
+
+    expect(setup.listener).toBeNull();
+    expect(setup.warning).toMatch(/Development will continue/u);
   });
 
   it("continues without a listener when Stripe cannot reach the internet", () => {
