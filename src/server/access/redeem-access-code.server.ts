@@ -13,6 +13,10 @@ import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { issueCourseEntitlement } from "#/server/learning/course-entitlement.server";
 import { issueConfirmedEventRegistration } from "#/server/events/confirmed-event-registration.server";
+import {
+  claimEnterpriseContractAccess,
+  previewEnterpriseContractCode,
+} from "#/server/enterprise/enterprise-contract-access.server";
 import { encryptedAccessCodeMatches } from "./access-code-encryption.server";
 import {
   extractAccessCodeLookupId,
@@ -226,6 +230,10 @@ export async function previewAccessCode(
 ): Promise<AccessCodePreviewResult> {
   const database = getDatabase();
   const resolved = await resolveEligibleGrant(database, code, user, false);
+  if (resolved.status === "invalid")
+    return (
+      (await previewEnterpriseContractCode(database, code, user)) ?? resolved
+    );
   if (resolved.status !== "ready") return resolved;
   return {
     status: "ready",
@@ -254,6 +262,14 @@ export async function redeemAccessCode(
         user,
         true,
       );
+      if (resolved.status === "invalid")
+        return (
+          (await claimEnterpriseContractAccess(
+            transaction,
+            { code: input.code, noticeVersion: input.noticeVersion },
+            user,
+          )) ?? resolved
+        );
       if (resolved.status !== "ready") return resolved;
       const now = new Date();
       if (resolved.grant.offeringType === "event") {

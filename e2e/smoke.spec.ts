@@ -1162,6 +1162,18 @@ test("platform administrators can inspect learner progress", async ({
       `insert into "user" (id, name, email, "emailVerified") values ($1, $2, $3, true)`,
       [eventPresenter.id, eventPresenter.name, eventPresenter.email],
     );
+    await openAdminPage("Enterprise contracts");
+    await expect(
+      page.getByRole("heading", { name: "Enterprise contracts", exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Create contract" }),
+    ).toBeVisible();
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const enterpriseContractAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(enterpriseContractAccessibility.violations).toEqual([]);
     await openAdminPage("Email designer");
     await expect(
       page.getByRole("heading", { name: "Email designer", exact: true }),

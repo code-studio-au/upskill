@@ -1,5 +1,6 @@
 import "@tanstack/react-start/server-only";
 
+import { sql } from "kysely";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import { bulkPricingSchema } from "#/features/catalog/catalog.schema";
 import type {
@@ -18,14 +19,22 @@ import { decryptAccessCode } from "./access-code-encryption.server";
 export async function hasAccessOwnerAssignments(
   userId: string,
 ): Promise<boolean> {
-  return Boolean(
-    await getDatabase()
+  const database = getDatabase();
+  const [grant, contract] = await Promise.all([
+    database
       .selectFrom("access_grant_owner_assignment")
       .select("id")
       .where("userId", "=", userId)
       .where("revokedAt", "is", null)
       .executeTakeFirst(),
-  );
+    database
+      .selectFrom("enterprise_contract_owner_assignment")
+      .select("id")
+      .where("userId", "=", userId)
+      .where("revokedAt", "is", null)
+      .executeTakeFirst(),
+  ]);
+  return Boolean(grant || contract);
 }
 
 async function activateEligibleAssignments(
@@ -59,6 +68,32 @@ async function activateEligibleAssignments(
           subjectId: assignment.id,
           aggregateId: assignment.accessGrantId,
           metadata: { accessGrantId: assignment.accessGrantId },
+          createdAt: now,
+        });
+      }
+      const contractAssignments = await transaction
+        .selectFrom("enterprise_contract_owner_assignment")
+        .select(["id", "enterpriseContractId"])
+        .where("userId", "=", user.id)
+        .where("invitedEmail", "=", user.email.toLocaleLowerCase("en-AU"))
+        .where("activatedAt", "is", null)
+        .where("revokedAt", "is", null)
+        .forUpdate()
+        .execute();
+      for (const assignment of contractAssignments) {
+        await transaction
+          .updateTable("enterprise_contract_owner_assignment")
+          .set({ activatedAt: now })
+          .where("id", "=", assignment.id)
+          .where("activatedAt", "is", null)
+          .execute();
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: user.id,
+          action: "enterprise_contract.owner_activated",
+          subjectType: "enterprise_contract_owner_assignment",
+          subjectId: assignment.id,
+          aggregateId: assignment.enterpriseContractId,
+          metadata: {},
           createdAt: now,
         });
       }
@@ -159,7 +194,30 @@ export async function findAccessOwnerDashboard(
     .orderBy("organization.name")
     .orderBy("access_grant.createdAt")
     .execute();
-  if (grants.length === 0) return null;
+  const contractRows = await database
+    .selectFrom("enterprise_contract_owner_assignment as assignment")
+    .innerJoin(
+      "enterprise_contract as contract",
+      "contract.id",
+      "assignment.enterpriseContractId",
+    )
+    .innerJoin("organization", "organization.id", "contract.organizationId")
+    .select([
+      "contract.id",
+      "contract.name",
+      "contract.reference",
+      "contract.status",
+      "contract.startsAt",
+      "contract.expiresAt",
+      "organization.name as organizationName",
+    ])
+    .where("assignment.userId", "=", user.id)
+    .where("assignment.activatedAt", "is not", null)
+    .where("assignment.revokedAt", "is", null)
+    .orderBy("organization.name")
+    .orderBy("contract.createdAt")
+    .execute();
+  if (grants.length === 0 && contractRows.length === 0) return null;
   const grantIds = grants.map((grant) => grant.id);
   const [learners, eventLearners, orders] = await Promise.all([
     database
@@ -362,7 +420,78 @@ export async function findAccessOwnerDashboard(
       },
     ]);
   }
+  const contractIds = contractRows.map((contract) => contract.id);
+  const [contractLearners, employeeCounts] =
+    contractIds.length === 0
+      ? [[], []]
+      : await Promise.all([
+          database
+            .selectFrom("enterprise_contract_claim as claim")
+            .innerJoin("user", "user.id", "claim.userId")
+            .select([
+              "claim.enterpriseContractId",
+              "claim.emailSnapshot as email",
+              "claim.claimedAt",
+              "user.name",
+              sql<number>`(select count(*)::integer from entitlement where entitlement."originEnterpriseContractClaimId" = claim.id and entitlement."revokedAt" is null)`.as(
+                "courseEnrollmentCount",
+              ),
+              sql<number>`(select count(*)::integer from enterprise_contract_event_registration registration where registration."enterpriseContractClaimId" = claim.id)`.as(
+                "eventRegistrationCount",
+              ),
+            ])
+            .where("claim.enterpriseContractId", "in", contractIds)
+            .where("claim.revokedAt", "is", null)
+            .where("claim.informationReleaseAcceptedAt", "is not", null)
+            .orderBy("claim.claimedAt", "desc")
+            .execute(),
+          database
+            .selectFrom("enterprise_contract_employee_eligibility")
+            .select([
+              "enterpriseContractId",
+              sql<number>`count(*)::integer`.as("count"),
+            ])
+            .where("enterpriseContractId", "in", contractIds)
+            .where("removedAt", "is", null)
+            .groupBy("enterpriseContractId")
+            .execute(),
+        ]);
+  const learnersByContract = new Map<
+    string,
+    AccessOwnerDashboard["contracts"][number]["learners"]
+  >();
+  for (const learner of contractLearners) {
+    const entries = learnersByContract.get(learner.enterpriseContractId) ?? [];
+    entries.push({
+      name: learner.name,
+      email: learner.email,
+      claimedAt: learner.claimedAt.toISOString(),
+      courseEnrollmentCount: learner.courseEnrollmentCount,
+      eventRegistrationCount: learner.eventRegistrationCount,
+    });
+    learnersByContract.set(learner.enterpriseContractId, entries);
+  }
+  const countByContract = new Map(
+    employeeCounts.map((row) => [row.enterpriseContractId, row.count]),
+  );
+  const now = new Date();
   return {
+    contracts: contractRows.map((contract) => ({
+      id: contract.id,
+      name: contract.name,
+      reference: contract.reference,
+      organizationName: contract.organizationName,
+      status:
+        contract.status === "terminated"
+          ? "terminated"
+          : contract.expiresAt <= now
+            ? "expired"
+            : contract.status,
+      startsAt: contract.startsAt.toISOString(),
+      expiresAt: contract.expiresAt.toISOString(),
+      eligibleEmployeeCount: countByContract.get(contract.id) ?? 0,
+      learners: learnersByContract.get(contract.id) ?? [],
+    })),
     grants: grants.map((grant) => {
       const state = grantState(grant);
       const offeringType = grant.eventTitle
@@ -402,6 +531,33 @@ export async function findAccessOwnerDashboard(
       };
     }),
   };
+}
+
+export async function recordEnterpriseContractReportExport(
+  enterpriseContractId: string,
+  user: AuthenticatedUser,
+): Promise<boolean> {
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const assignment = await transaction
+        .selectFrom("enterprise_contract_owner_assignment")
+        .select("id")
+        .where("enterpriseContractId", "=", enterpriseContractId)
+        .where("userId", "=", user.id)
+        .where("activatedAt", "is not", null)
+        .where("revokedAt", "is", null)
+        .executeTakeFirst();
+      if (!assignment) return false;
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: user.id,
+        action: "enterprise_contract.report_exported",
+        subjectType: "enterprise_contract",
+        subjectId: enterpriseContractId,
+        metadata: { format: "csv" },
+      });
+      return true;
+    });
 }
 
 export async function findAccessOwnerInvoiceUrl(

@@ -45,6 +45,20 @@ function resultMessage(result: AccessCodeRedemptionResult): Message | null {
       body: `${result.offeringTitle} is already in your ${result.offeringType === "event" ? "events" : "learning"} area.`,
     };
   }
+  if (result.status === "activated") {
+    return {
+      color: "green",
+      title: "Enterprise access activated",
+      body: `${result.offeringTitle} now applies when you select a covered course from the catalogue.`,
+    };
+  }
+  if (result.status === "already-activated") {
+    return {
+      color: "blue",
+      title: "Enterprise access already active",
+      body: `${result.offeringTitle} is already linked to your account.`,
+    };
+  }
   if (result.status === "invalid") {
     return {
       color: "red",
@@ -114,7 +128,7 @@ export function AccessCodeRedemptionForm() {
         return;
       }
       setMessage(resultMessage(result));
-      if (result.status === "enrolled") {
+      if (result.status === "enrolled" || result.status === "activated") {
         setRedemptionComplete(true);
         setPreview(null);
         setAccepted(false);
@@ -206,9 +220,13 @@ export function AccessCodeRedemptionForm() {
             <Alert color="blue">
               By continuing, you allow {preview.organizationName} and its
               assigned Access Owners to view your name, the email used for this
-              redemption, this {preview.offeringType}, your progress and your
-              completion status. They cannot view your survey answers, detailed
-              SCORM data, other learning, or unrelated profile information.
+              redemption,{" "}
+              {preview.offeringType === "catalogue"
+                ? "covered course enrolments"
+                : `this ${preview.offeringType}`}
+              , your progress and completion status. They cannot view your
+              survey answers, detailed SCORM data, other learning, or unrelated
+              profile information.
             </Alert>
             <MantineCheckbox
               checked={accepted}
@@ -233,7 +251,9 @@ export function AccessCodeRedemptionForm() {
                 disabled={!hydrated || !accepted}
                 onClick={() => void confirmRedemption()}
               >
-                Agree and enrol
+                {preview.offeringType === "catalogue"
+                  ? "Agree and activate access"
+                  : "Agree and enrol"}
               </Button>
             </Group>
           </Stack>

@@ -15,8 +15,8 @@ export async function issueConfirmedEventRegistration(
   input: {
     eventOccurrenceId: string;
     user: AuthenticatedUser;
-    source: "paid_checkout" | "access_code";
-    eligibilitySource: "paid" | "access_code";
+    source: "paid_checkout" | "access_code" | "enterprise_contract";
+    eligibilitySource: "paid" | "access_code" | "enterprise_contract";
     createdAt: Date;
   },
 ): Promise<

@@ -22,6 +22,7 @@ import { Route as AccountSetupRouteImport } from './routes/account.setup'
 import { Route as AdminIndexRouteImport } from './routes/admin.index'
 import { Route as AdminAccessRouteImport } from './routes/admin.access'
 import { Route as AdminAdministratorsRouteImport } from './routes/admin.administrators'
+import { Route as AdminContractsRouteImport } from './routes/admin.contracts'
 import { Route as AdminModulesRouteImport } from './routes/admin.modules'
 import { Route as AdminNotificationsRouteImport } from './routes/admin.notifications'
 import { Route as AdminOnboardingRouteImport } from './routes/admin.onboarding'
@@ -77,6 +78,8 @@ import { Route as LearnEnrollmentIdSurveysCourseVersionItemIdRouteImport } from 
 import { Route as MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRouteImport } from './routes/my-events_.$eventOccurrenceId_.surveys.$eventTemplateVersionItemId'
 import { Route as AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport } from './routes/admin.learners.$userId_.enrollments.$enrollmentId'
 import { Route as AdminLearnersUserIdEventsEventOccurrenceIdRouteImport } from './routes/admin.learners.$userId_.events.$eventOccurrenceId'
+import { Route as ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRouteImport } from './routes/api.access-management.contracts.$enterpriseContractId.utilisation[.]csv'
+import { Route as ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRouteImport } from './routes/api.admin.contracts.$enterpriseContractId.utilisation[.]csv'
 import { Route as ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.courses.$slug.accreditation-logos.$assetId'
 import { Route as ApiCatalogCoursesSlugCoverImagesAssetIdRouteImport } from './routes/api.catalog.courses.$slug.cover-images.$assetId'
 import { Route as ApiCatalogEventsSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.events.$slug.accreditation-logos.$assetId'
@@ -146,6 +149,11 @@ const AdminAccessRoute = AdminAccessRouteImport.update({
 const AdminAdministratorsRoute = AdminAdministratorsRouteImport.update({
   id: '/administrators',
   path: '/administrators',
+  getParentRoute: () => AdminRoute,
+} as any)
+const AdminContractsRoute = AdminContractsRouteImport.update({
+  id: '/contracts',
+  path: '/contracts',
   getParentRoute: () => AdminRoute,
 } as any)
 const AdminModulesRoute = AdminModulesRouteImport.update({
@@ -447,6 +455,20 @@ const AdminLearnersUserIdEventsEventOccurrenceIdRoute =
     path: '/learners/$userId/events/$eventOccurrenceId',
     getParentRoute: () => AdminRoute,
   } as any)
+const ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute =
+  ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRouteImport.update(
+    {
+      id: '/api/access-management/contracts/$enterpriseContractId/utilisation.csv',
+      path: '/api/access-management/contracts/$enterpriseContractId/utilisation.csv',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
+const ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute =
+  ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRouteImport.update({
+    id: '/api/admin/contracts/$enterpriseContractId/utilisation.csv',
+    path: '/api/admin/contracts/$enterpriseContractId/utilisation.csv',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute =
   ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport.update({
     id: '/api/catalog/courses/$slug/accreditation-logos/$assetId',
@@ -491,6 +513,7 @@ export interface FileRoutesByFullPath {
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/administrators': typeof AdminAdministratorsRoute
+  '/admin/contracts': typeof AdminContractsRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
@@ -547,6 +570,8 @@ export interface FileRoutesByFullPath {
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
   '/admin/learners/$userId/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
+  '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
+  '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -564,6 +589,7 @@ export interface FileRoutesByTo {
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/administrators': typeof AdminAdministratorsRoute
+  '/admin/contracts': typeof AdminContractsRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
@@ -620,6 +646,8 @@ export interface FileRoutesByTo {
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
   '/admin/learners/$userId/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
+  '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
+  '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -640,6 +668,7 @@ export interface FileRoutesById {
   '/account/setup': typeof AccountSetupRoute
   '/admin/access': typeof AdminAccessRoute
   '/admin/administrators': typeof AdminAdministratorsRoute
+  '/admin/contracts': typeof AdminContractsRoute
   '/admin/modules': typeof AdminModulesRoute
   '/admin/notifications': typeof AdminNotificationsRoute
   '/admin/onboarding': typeof AdminOnboardingRoute
@@ -696,6 +725,8 @@ export interface FileRoutesById {
   '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId_/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
   '/admin/learners/$userId_/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
+  '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
+  '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -717,6 +748,7 @@ export interface FileRouteTypes {
     | '/account/setup'
     | '/admin/access'
     | '/admin/administrators'
+    | '/admin/contracts'
     | '/admin/modules'
     | '/admin/notifications'
     | '/admin/onboarding'
@@ -773,6 +805,8 @@ export interface FileRouteTypes {
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
     | '/admin/learners/$userId/events/$eventOccurrenceId'
+    | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
+    | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -790,6 +824,7 @@ export interface FileRouteTypes {
     | '/account/setup'
     | '/admin/access'
     | '/admin/administrators'
+    | '/admin/contracts'
     | '/admin/modules'
     | '/admin/notifications'
     | '/admin/onboarding'
@@ -846,6 +881,8 @@ export interface FileRouteTypes {
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
     | '/admin/learners/$userId/events/$eventOccurrenceId'
+    | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
+    | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -865,6 +902,7 @@ export interface FileRouteTypes {
     | '/account/setup'
     | '/admin/access'
     | '/admin/administrators'
+    | '/admin/contracts'
     | '/admin/modules'
     | '/admin/notifications'
     | '/admin/onboarding'
@@ -921,6 +959,8 @@ export interface FileRouteTypes {
     | '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId_/enrollments/$enrollmentId'
     | '/admin/learners/$userId_/events/$eventOccurrenceId'
+    | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
+    | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -969,6 +1009,8 @@ export interface RootRouteChildren {
   ApiScormAttemptsAttemptIdRoute: typeof ApiScormAttemptsAttemptIdRouteWithChildren
   LearnEnrollmentIdSurveysCourseVersionItemIdRoute: typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute: typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
+  ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute: typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
+  ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute: typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
   ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute: typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   ApiCatalogCoursesSlugCoverImagesAssetIdRoute: typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   ApiCatalogEventsSlugAccreditationLogosAssetIdRoute: typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -1066,6 +1108,13 @@ declare module '@tanstack/react-router' {
       path: '/administrators'
       fullPath: '/admin/administrators'
       preLoaderRoute: typeof AdminAdministratorsRouteImport
+      parentRoute: typeof AdminRoute
+    }
+    '/admin/contracts': {
+      id: '/admin/contracts'
+      path: '/contracts'
+      fullPath: '/admin/contracts'
+      preLoaderRoute: typeof AdminContractsRouteImport
       parentRoute: typeof AdminRoute
     }
     '/admin/modules': {
@@ -1453,6 +1502,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminLearnersUserIdEventsEventOccurrenceIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': {
+      id: '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
+      path: '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
+      fullPath: '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
+      preLoaderRoute: typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/admin/contracts/$enterpriseContractId/utilisation.csv': {
+      id: '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
+      path: '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
+      fullPath: '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
+      preLoaderRoute: typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/catalog/courses/$slug/accreditation-logos/$assetId': {
       id: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
       path: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
@@ -1494,6 +1557,7 @@ declare module '@tanstack/react-router' {
 interface AdminRouteChildren {
   AdminAccessRoute: typeof AdminAccessRoute
   AdminAdministratorsRoute: typeof AdminAdministratorsRoute
+  AdminContractsRoute: typeof AdminContractsRoute
   AdminModulesRoute: typeof AdminModulesRoute
   AdminNotificationsRoute: typeof AdminNotificationsRoute
   AdminOnboardingRoute: typeof AdminOnboardingRoute
@@ -1521,6 +1585,7 @@ interface AdminRouteChildren {
 const AdminRouteChildren: AdminRouteChildren = {
   AdminAccessRoute: AdminAccessRoute,
   AdminAdministratorsRoute: AdminAdministratorsRoute,
+  AdminContractsRoute: AdminContractsRoute,
   AdminModulesRoute: AdminModulesRoute,
   AdminNotificationsRoute: AdminNotificationsRoute,
   AdminOnboardingRoute: AdminOnboardingRoute,
@@ -1646,6 +1711,10 @@ const rootRouteChildren: RootRouteChildren = {
     LearnEnrollmentIdSurveysCourseVersionItemIdRoute,
   MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute:
     MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute,
+  ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute:
+    ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute,
+  ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute:
+    ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute,
   ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute:
     ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute,
   ApiCatalogCoursesSlugCoverImagesAssetIdRoute:

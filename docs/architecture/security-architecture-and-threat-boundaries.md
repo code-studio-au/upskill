@@ -248,8 +248,10 @@ proves possession.
 
 Blanket enterprise codes can be especially valuable. Combine possession
 with verified identity eligibility where contract policy allows
-(verified domains or future SSO), and support rotation without changing
-contract identity or historical entitlements.
+(verified domains or an uploaded exact employee-email list), and support
+rotation without changing contract identity or historical entitlements. SSO
+may provide a future higher-assurance eligibility source, but is not required
+by the current contract boundary.
 
 ## Stripe and Payment Integrity
 

@@ -5,6 +5,12 @@
   display: grid;
   gap: var(--mantine-spacing-lg);
 }
+
+.contractLearners {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+}
 .header,
 .grantHeader,
 .actions {

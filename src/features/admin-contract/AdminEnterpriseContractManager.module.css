@@ -1,0 +1,78 @@
+.header,
+.cardHeader,
+.facts,
+.actions,
+.issuedActions {
+  display: flex;
+  align-items: center;
+  gap: var(--mantine-spacing-sm);
+  flex-wrap: wrap;
+}
+
+.header,
+.cardHeader {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-md);
+}
+
+.contractGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-md);
+}
+
+.courseList {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-xs) var(--mantine-spacing-md);
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+}
+
+.pillList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-xs);
+}
+
+.ownerList {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+}
+
+.issuedCode {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: var(--mantine-font-size-md);
+}
+
+.sectionLabel {
+  margin-bottom: var(--mantine-spacing-xs);
+}
+
+@media (max-width: 62em) {
+  .contractGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 48em) {
+  .grid,
+  .courseList {
+    grid-template-columns: 1fr;
+  }
+
+  .actions > *,
+  .issuedActions > * {
+    flex: 1 1 100%;
+  }
+}

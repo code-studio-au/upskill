@@ -25,11 +25,12 @@ eligible workforce.
 
 - **Current Product:** organisation identity/membership, exact course-version
   and Event Occurrence access grants, explicit learning access/redemptions,
-  learner information-release evidence, and scoped Access Owner self-service
-  for assigned grants.
-- **Target Product:** first-class enterprise contracts, covered-offering scope,
-  eligibility rules, effective periods, source-neutral entitlements and scoped
-  Access Owner self-service for assigned grants/contracts.
+  learner information-release evidence, scoped Access Owner self-service for
+  assigned grants, and blanket contracts with Course/scheduled-Event coverage,
+  domain or uploaded employee eligibility, code rotation, linked renewal,
+  consent-gated lazy/automatic enrolment, Access Owners and CSV utilisation.
+- **Target Product:** dynamic contract collections and richer customer reporting
+  only when demonstrated use requires them.
 - **Future Possibilities:** SSO-backed eligibility, complex coverage versions
   and organisation/event reporting at demonstrated scale.
 
@@ -79,9 +80,10 @@ duplicate contract policy and make renewals/reporting harder.
 
 ## Target Product
 
-The following boundaries describe the accepted direction. The organisation,
-course-specific access-grant, course-entitlement and assigned-grant Access Owner
-subsets exist today; contracts and broad coverage do not.
+The following boundaries describe the implemented direction. Organisation,
+offering-specific access grants, source-neutral Course entitlements and scoped
+Access Owner views coexist with first-class blanket contracts. SSO is not part
+of the current eligibility boundary; uploaded exact employee email lists are.
 
 ## Domain Boundaries
 
@@ -186,9 +188,9 @@ conditional code paths.
 
 Defines who may claim access under the agreement.
 
-Initial rules may include verified email domains. Future requirements
-could include pre-provisioned employee lists, SSO organisation identity,
-invitation, or other contract-specific eligibility mechanisms.
+Current rules include verified email domains and replaceable uploaded exact
+employee email lists. SSO organisation identity remains a future option rather
+than a prerequisite for enterprise access.
 
 ### Organisation Access Code
 
@@ -258,10 +260,12 @@ Recommended flow:
 1.  learner authenticates;
 2.  submits enterprise code;
 3.  code resolves to active contract/access rule;
-4.  identity eligibility is checked (for example verified email domain);
+4.  identity eligibility is checked against a verified email domain or exact
+    uploaded employee email;
 5.  learner gains access to covered catalogue/offering selection; and
-6.  individual entitlements/enrolments are created as learning is
-    selected.
+6.  individual entitlements/enrolments are created as learning is selected, or
+    immediately after consent when the contract explicitly enables automatic
+    Course enrolment.
 
 Do not treat possession of a widely shared code as sufficient proof when
 the contract requires organisation-only access. Combine the code with
@@ -281,8 +285,8 @@ Rules should:
 - avoid treating email domain as permanent employment proof beyond the
   contract's intended risk model.
 
-For higher-assurance contracts, future SSO or explicit staff
-provisioning may be preferable.
+Uploaded exact employee eligibility is available when domains are too broad.
+Future higher-assurance contracts may still prefer SSO.
 
 ## Contract Lifecycle
 
@@ -586,27 +590,31 @@ entitlements/enrolments for the same intended access.
   support both courses and paid Events while preserving distributed and redeemed
   codes after refunds.
 
-### Enterprise contract phase
+### Implemented --- Enterprise contract phase
 
-- Add contract identity/lifecycle.
-- Add coverage records.
-- Add eligibility rules/domains.
-- Add blanket-code resolution.
-- Materialise individual entitlements on demand.
-- Add contract admin/audit workflows.
+- Contract identity and draft/active/suspended/terminated lifecycle.
+- Immutable stable-course and exact scheduled-Event coverage per commercial
+  period.
+- Verified-email-domain or uploaded exact-employee eligibility and
+  blanket-code claims.
+- Individual exact-version Course entitlements materialised lazily or through
+  consent-triggered automatic/bulk enrolment; covered Events create normal
+  capacity-controlled registrations.
+- Administrator contract directory, audited code reveal/rotation, renewal and
+  lifecycle actions.
+- Email-bound Contract Access Owners with consent-filtered utilisation views
+  and audited detailed CSV exports.
 
 ### Reporting phase
 
-- Add utilisation read models.
-- Add renewal/expiry operational views.
 - Add projections only if query cost requires them.
 
 ### Later
 
 - Organisation-facing customer portal if product demand warrants it.
 - SSO-based enterprise eligibility.
-- Automated provisioning/imports.
-- More sophisticated contract bundles and event coverage.
+- SSO-backed automatic provisioning.
+- Product-collection coverage and more sophisticated multi-period bundles.
 
 ## Design Checklist
 

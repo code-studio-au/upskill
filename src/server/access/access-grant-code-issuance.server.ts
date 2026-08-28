@@ -27,13 +27,19 @@ async function collectAvailableGrantCodes(
     candidates.set(candidate.lookupId, candidate.accessCode);
   }
   const existingGroups = await Promise.all(
-    chunks([...candidates.keys()], CODE_INSERT_BATCH_SIZE).map(
-      async (lookupIds) =>
-        await transaction
+    chunks([...candidates.keys()], CODE_INSERT_BATCH_SIZE).flatMap(
+      (lookupIds) => [
+        transaction
           .selectFrom("access_grant_code")
           .select("lookupId")
           .where("lookupId", "in", lookupIds)
           .execute(),
+        transaction
+          .selectFrom("enterprise_contract_code")
+          .select("lookupId")
+          .where("lookupId", "in", lookupIds)
+          .execute(),
+      ],
     ),
   );
   for (const row of existingGroups.flat()) candidates.delete(row.lookupId);

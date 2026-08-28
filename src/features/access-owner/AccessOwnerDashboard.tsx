@@ -99,6 +99,86 @@ export function AccessOwnerDashboard({
         <div className={classes.header}>
           <Title order={1}>Access management</Title>
         </div>
+        {dashboard.contracts.map((contract) => (
+          <Paper
+            component="article"
+            withBorder
+            radius="lg"
+            p="lg"
+            key={contract.id}
+          >
+            <Stack gap="md">
+              <div className={classes.grantHeader}>
+                <div>
+                  <Text c="indigo.7" fw={700}>
+                    {contract.organizationName}
+                  </Text>
+                  <Title order={2} size="h3">
+                    {contract.name}
+                  </Title>
+                  <Text size="sm" c="dimmed">
+                    {contract.reference}
+                  </Text>
+                </div>
+                <Badge color={contract.status === "active" ? "green" : "gray"}>
+                  {contract.status}
+                </Badge>
+              </div>
+              <dl className={classes.metrics}>
+                <div>
+                  <dt>Uploaded eligibility</dt>
+                  <dd>{contract.eligibleEmployeeCount}</dd>
+                </div>
+                <div>
+                  <dt>Claimed</dt>
+                  <dd>{contract.learners.length}</dd>
+                </div>
+                <div>
+                  <dt>Ends</dt>
+                  <dd>{formatLocalDate(contract.expiresAt)}</dd>
+                </div>
+              </dl>
+              <Group justify="flex-end">
+                <Button
+                  component="a"
+                  href={`/api/access-management/contracts/${encodeURIComponent(contract.id)}/utilisation.csv`}
+                  variant="default"
+                  size="xs"
+                >
+                  Export utilisation CSV
+                </Button>
+              </Group>
+              <Title order={3} size="h4">
+                Consent-sharing learners
+              </Title>
+              {contract.learners.length === 0 ? (
+                <Text c="dimmed" size="sm">
+                  No learners have claimed this contract and accepted
+                  information sharing.
+                </Text>
+              ) : (
+                <div className={classes.contractLearners}>
+                  {contract.learners.map((learner) => (
+                    <Paper
+                      withBorder
+                      radius="md"
+                      p="sm"
+                      key={`${learner.email}-${learner.claimedAt}`}
+                    >
+                      <Text fw={600}>{learner.name}</Text>
+                      <Text size="sm">{learner.email}</Text>
+                      <Text size="sm" c="dimmed">
+                        {learner.courseEnrollmentCount} courses ·{" "}
+                        {learner.eventRegistrationCount} events · claimed{" "}
+                        {formatLocalDate(learner.claimedAt)}
+                      </Text>
+                    </Paper>
+                  ))}
+                </div>
+              )}
+            </Stack>
+          </Paper>
+        ))}
         <div className={classes.grid}>
           {dashboard.grants.map((grant) => (
             <AccessGrantPanel grant={grant} key={grant.id} />
