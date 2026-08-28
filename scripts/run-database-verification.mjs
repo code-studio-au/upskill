@@ -18,6 +18,7 @@ const verificationScripts = [
   "scripts/verify-admin-progress-overrides.ts",
   "scripts/verify-admin-enrollment-management.ts",
   "scripts/verify-admin-access-grants.ts",
+  "scripts/verify-enterprise-contracts.ts",
   "scripts/verify-admin-course-authoring.ts",
   "scripts/verify-survey-workflow.ts",
   "scripts/verify-onboarding-workflow.ts",

@@ -11,6 +11,23 @@ export const accessOwnerInvoiceInputSchema = z.object({
 });
 
 export interface AccessOwnerDashboard {
+  contracts: Array<{
+    id: string;
+    name: string;
+    reference: string;
+    organizationName: string;
+    status: "draft" | "active" | "suspended" | "expired" | "terminated";
+    startsAt: string;
+    expiresAt: string;
+    eligibleEmployeeCount: number;
+    learners: Array<{
+      name: string;
+      email: string;
+      claimedAt: string;
+      courseEnrollmentCount: number;
+      eventRegistrationCount: number;
+    }>;
+  }>;
   grants: Array<{
     id: string;
     label: string;

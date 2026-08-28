@@ -154,3 +154,7 @@ export function addElapsedMilliseconds(date: Date, milliseconds: number): Date {
 export function utcEndOfDate(date: LocalDateIso): InstantIso {
   return `${date}T23:59:59.999Z` as InstantIso;
 }
+
+export function utcStartOfDate(date: LocalDateIso): InstantIso {
+  return `${date}T00:00:00.000Z` as InstantIso;
+}

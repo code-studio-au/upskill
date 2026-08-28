@@ -62,10 +62,12 @@ purchase annual blanket access for its workforce and receive a shared
 organisation code that allows eligible staff to access covered courses
 without individual payment.
 
-The current access-grant implementation is course-version oriented.
-Blanket multi-course contractual access should therefore become an
-explicit product/domain capability rather than a collection of
-course-specific exceptions.
+The current access-grant implementation remains course-version oriented.
+Blanket multi-course contractual access is now a separate first-class
+capability: an authenticated learner activates eligibility with an encrypted
+shared code plus verified email domain, then materialises exact-version course
+entitlements only as covered learning is selected. Events, renewal operations,
+customer ownership and wider coverage remain future increments.
 
 ## Domain philosophy
 
@@ -102,8 +104,8 @@ certificates, and learner routes.
 ## Current Product
 
 Upskill now uses an explicit source-neutral course-entitlement record between
-individual order, access-grant or administrator origin and the exact-version
-enrolment. Enterprise contracts and Event entitlement scopes remain target work.
+individual order, access-grant, Enterprise Contract or administrator origin and
+the exact-version enrolment. Event entitlement scopes remain target work.
 
 ### Orders and Stripe checkout
 
@@ -269,11 +271,11 @@ Organisation selects N seats and shared or single-use codes
 ```text
 Enterprise agreement
   -> organisation entitlement
-  -> covered learning scope
-  -> shared code / future SSO / eligibility check
+  -> covered Course versions and scheduled Event occurrences
+  -> shared code + verified domain or uploaded employee eligibility
+  -> explicit information-sharing consent
   -> individual access right materialised
-  -> exact version resolved
-  -> enrolment
+  -> exact Course version resolved or Event registration issued
 ```
 
 A blanket contract should not copy commerce-specific conditions into

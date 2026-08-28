@@ -13,6 +13,7 @@ import {
   instantToLocalDateTime,
   resolveZonedDateTime,
   utcEndOfDate,
+  utcStartOfDate,
 } from "./time.server";
 
 const local = (value: string) => value as LocalDateTimeIso;
@@ -81,5 +82,6 @@ describe("server time boundary", () => {
       new Date("2027-10-03T14:00:00.000Z"),
     );
     expect(utcEndOfDate(date("2027-12-31"))).toBe("2027-12-31T23:59:59.999Z");
+    expect(utcStartOfDate(date("2027-12-31"))).toBe("2027-12-31T00:00:00.000Z");
   });
 });

@@ -97,6 +97,103 @@ interface OrganizationMemberTable {
   createdAt: Timestamp;
 }
 
+interface EnterpriseContractTable {
+  id: string;
+  organizationId: string;
+  reference: string;
+  name: string;
+  status: "draft" | "active" | "suspended" | "terminated";
+  startsAt: Timestamp;
+  expiresAt: Timestamp;
+  enrollmentDurationDays: number;
+  autoEnrollCourses: Generated<boolean>;
+  renewedFromEnterpriseContractId: Generated<string | null>;
+  createdByUserId: string;
+  createdAt: Timestamp;
+  activatedAt: Timestamp | null;
+  suspendedAt: Timestamp | null;
+  terminatedAt: Timestamp | null;
+  terminatedByUserId: string | null;
+}
+
+interface EnterpriseContractCourseCoverageTable {
+  id: string;
+  enterpriseContractId: string;
+  courseId: string;
+  courseTitleSnapshot: string;
+  createdAt: Timestamp;
+}
+
+interface EnterpriseContractDomainTable {
+  enterpriseContractId: string;
+  domain: string;
+  createdAt: Timestamp;
+}
+
+interface EnterpriseContractEventCoverageTable {
+  id: string;
+  enterpriseContractId: string;
+  eventOccurrenceId: string;
+  eventTitleSnapshot: string;
+  createdAt: Timestamp;
+}
+
+interface EnterpriseContractEmployeeEligibilityTable {
+  id: string;
+  enterpriseContractId: string;
+  email: string;
+  name: string | null;
+  importedByUserId: string;
+  importedAt: Timestamp;
+  removedAt: Timestamp | null;
+  removedByUserId: string | null;
+}
+
+interface EnterpriseContractOwnerAssignmentTable {
+  id: string;
+  enterpriseContractId: string;
+  userId: string;
+  invitedEmail: string;
+  invitedByUserId: string;
+  invitedAt: Timestamp;
+  activatedAt: Timestamp | null;
+  revokedAt: Timestamp | null;
+  revokedByUserId: string | null;
+}
+
+interface EnterpriseContractCodeTable {
+  id: string;
+  enterpriseContractId: string;
+  lookupId: string;
+  encryptedAccessCode: string;
+  createdByUserId: string;
+  createdAt: Timestamp;
+  revokedAt: Timestamp | null;
+  revokedByUserId: string | null;
+}
+
+interface EnterpriseContractClaimTable {
+  id: string;
+  enterpriseContractId: string;
+  userId: string;
+  emailSnapshot: string;
+  informationReleaseNoticeVersion: string;
+  informationReleaseAcceptedAt: Timestamp;
+  claimedAt: Timestamp;
+  revokedAt: Timestamp | null;
+  revokedByUserId: string | null;
+}
+
+interface EnterpriseContractEventRegistrationTable {
+  id: string;
+  enterpriseContractId: string;
+  enterpriseContractClaimId: string;
+  enterpriseContractEventCoverageId: string;
+  eventRegistrationId: string;
+  userId: string;
+  registeredAt: Timestamp;
+}
+
 interface PlatformAdminTable {
   userId: string;
   grantedByUserId: string | null;
@@ -695,12 +792,14 @@ interface EventRegistrationTable {
     | "ordinary"
     | "paid_checkout"
     | "access_code"
+    | "enterprise_contract"
     | "late_invitation"
     | "administrator_override";
   eligibilitySource:
     | "unrestricted"
     | "paid"
     | "access_code"
+    | "enterprise_contract"
     | "verified_domain"
     | "administrator_override";
   status:
@@ -1060,10 +1159,14 @@ interface EntitlementTable {
   userId: string;
   courseVersionId: string;
   enrollmentId: string;
-  originType: "access_grant" | "order" | "administrator";
+  originType:
+    "access_grant" | "order" | "administrator" | "enterprise_contract";
   originAccessGrantId: string | null;
   originAccessGrantCodeId: string | null;
   originOrderId: string | null;
+  originEnterpriseContractId: Generated<string | null>;
+  originEnterpriseContractClaimId: Generated<string | null>;
+  originEnterpriseContractCoverageId: Generated<string | null>;
   redemptionEmailSnapshot: string;
   informationReleaseNoticeVersion: string | null;
   informationReleaseAcceptedAt: Timestamp | null;
@@ -1304,6 +1407,23 @@ export type AuditEventAction =
   | "email_design.published"
   | "email_design.reordered"
   | "email_design.rolled_back"
+  | "enterprise_contract.activated"
+  | "enterprise_contract.bulk_enrollment_completed"
+  | "enterprise_contract.claimed"
+  | "enterprise_contract.code_rotated"
+  | "enterprise_contract.code_revealed"
+  | "enterprise_contract.created"
+  | "enterprise_contract.eligibility_replaced"
+  | "enterprise_contract.entitlement_issued"
+  | "enterprise_contract.event_registered"
+  | "enterprise_contract.owner_activated"
+  | "enterprise_contract.owner_assigned"
+  | "enterprise_contract.owner_revoked"
+  | "enterprise_contract.renewed"
+  | "enterprise_contract.report_exported"
+  | "enterprise_contract.resumed"
+  | "enterprise_contract.suspended"
+  | "enterprise_contract.terminated"
   | "event_occurrence.created"
   | "event_occurrence.guest_access_rotated"
   | "event_occurrence.updated"
@@ -1389,6 +1509,15 @@ export interface Database {
   coordination_region: CoordinationRegionTable;
   enrollment: EnrollmentTable;
   entitlement: EntitlementTable;
+  enterprise_contract: EnterpriseContractTable;
+  enterprise_contract_claim: EnterpriseContractClaimTable;
+  enterprise_contract_code: EnterpriseContractCodeTable;
+  enterprise_contract_course_coverage: EnterpriseContractCourseCoverageTable;
+  enterprise_contract_domain: EnterpriseContractDomainTable;
+  enterprise_contract_employee_eligibility: EnterpriseContractEmployeeEligibilityTable;
+  enterprise_contract_event_coverage: EnterpriseContractEventCoverageTable;
+  enterprise_contract_event_registration: EnterpriseContractEventRegistrationTable;
+  enterprise_contract_owner_assignment: EnterpriseContractOwnerAssignmentTable;
   email_delivery_capture: EmailDeliveryCaptureTable;
   email_design: EmailDesignTable;
   email_design_version: EmailDesignVersionTable;

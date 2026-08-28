@@ -166,12 +166,14 @@ export interface AdminEventOccurrenceOperations {
       | "ordinary"
       | "paid_checkout"
       | "access_code"
+      | "enterprise_contract"
       | "late_invitation"
       | "administrator_override";
     eligibilitySource:
       | "unrestricted"
       | "paid"
       | "access_code"
+      | "enterprise_contract"
       | "verified_domain"
       | "administrator_override";
     status: EventRegistrationStatus;

@@ -10,7 +10,9 @@ import {
 } from "#/features/shared/mantine";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { PurchaseCourseButton } from "#/features/checkout/PurchaseCourseButton";
+import { EnterpriseCourseAccessButton } from "#/features/enterprise/EnterpriseCourseAccessButton";
 import { getCourse } from "#/server/functions/catalog";
+import { getEnterpriseCourseAccess } from "#/server/functions/enterprise-contract";
 import { topicLabel } from "#/features/shared/offering-topic";
 import classes from "./courses.$slug.module.css";
 
@@ -22,19 +24,22 @@ const audCurrencyFormatter = new Intl.NumberFormat("en-AU", {
 export const Route = createFileRoute("/courses/$slug")({
   ssr: true,
   loader: async ({ params }) => {
-    const course = await getCourse({ data: { slug: params.slug } });
+    const [course, enterpriseAccess] = await Promise.all([
+      getCourse({ data: { slug: params.slug } }),
+      getEnterpriseCourseAccess({ data: { slug: params.slug } }),
+    ]);
     if (!course) throw notFound();
-    return course;
+    return { course, enterpriseAccess };
   },
   head: ({ loaderData }) => ({
     meta: [
       {
         title: loaderData
-          ? `${loaderData.title} — Upskill`
+          ? `${loaderData.course.title} — Upskill`
           : "Course — Upskill",
       },
       ...(loaderData
-        ? [{ name: "description", content: loaderData.summary }]
+        ? [{ name: "description", content: loaderData.course.summary }]
         : []),
     ],
   }),
@@ -42,7 +47,7 @@ export const Route = createFileRoute("/courses/$slug")({
 });
 
 function CourseDetail() {
-  const course = Route.useLoaderData();
+  const { course, enterpriseAccess } = Route.useLoaderData();
   const standardPrice = audCurrencyFormatter.format(course.priceCents / 100);
   const currentPrice = audCurrencyFormatter.format(
     (course.salePriceCents ?? course.priceCents) / 100,
@@ -98,7 +103,15 @@ function CourseDetail() {
                   AUD, including applicable GST
                 </Text>
               </div>
-              <PurchaseCourseButton slug={course.slug} />
+              {enterpriseAccess.status === "ready" ||
+              enterpriseAccess.status === "already-enrolled" ? (
+                <EnterpriseCourseAccessButton
+                  access={enterpriseAccess}
+                  slug={course.slug}
+                />
+              ) : (
+                <PurchaseCourseButton slug={course.slug} />
+              )}
               {course.bulkPricing.enabled ? (
                 <Link
                   to="/courses/$slug/bulk-order"

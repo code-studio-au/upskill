@@ -94,6 +94,11 @@ try {
     "email_delivery_capture",
     "email_design",
     "email_design_version",
+    "enterprise_contract",
+    "enterprise_contract_claim",
+    "enterprise_contract_code",
+    "enterprise_contract_course_coverage",
+    "enterprise_contract_domain",
     "order",
     "order_item",
     "order_refund",
@@ -201,6 +206,11 @@ try {
     "phone_verification_claim_user_history_idx",
     "user_sms_verified_phone_uq",
     "platform_admin_invitation_pending_uq",
+    "enterprise_contract_reference_uq",
+    "enterprise_contract_organization_idx",
+    "enterprise_contract_code_active_uq",
+    "enterprise_contract_claim_user_uq",
+    "enterprise_contract_claim_user_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -312,6 +322,31 @@ try {
   assert.match(
     auditActionDefinition.definition,
     /authorization\.platform_admin\.revoked/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
+    /enterprise_contract\.entitlement_issued/u,
+  );
+  const enterpriseContractConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'enterprise_contract_period_ck',
+          'enterprise_contract_lifecycle_ck',
+          'enterprise_contract_course_coverage_uq',
+          'enterprise_contract_coverage_identity_uq',
+          'enterprise_contract_domain_normalized_ck',
+          'enterprise_contract_code_revocation_ck',
+          'enterprise_contract_claim_revocation_ck',
+          'enterprise_contract_claim_identity_uq',
+          'entitlement_enterprise_claim_origin_fk',
+          'entitlement_enterprise_coverage_origin_fk'
+        )`.execute(db);
+  assert.equal(
+    enterpriseContractConstraints.rows.length,
+    10,
+    "Enterprise contract periods, immutable coverage and entitlement lineage must be constrained",
   );
   const provisioningConstraint = await sql<{ definition: string }>`
     select pg_get_constraintdef(oid) as definition

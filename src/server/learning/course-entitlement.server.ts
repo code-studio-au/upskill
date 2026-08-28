@@ -12,7 +12,13 @@ export type CourseEntitlementOrigin =
       accessGrantCodeId?: string;
     }
   | { type: "order"; orderId: string }
-  | { type: "administrator" };
+  | { type: "administrator" }
+  | {
+      type: "enterprise_contract";
+      enterpriseContractId: string;
+      enterpriseContractClaimId: string;
+      enterpriseContractCoverageId: string;
+    };
 
 export async function issueCourseEntitlement(
   transaction: Transaction<Database>,
@@ -25,7 +31,11 @@ export async function issueCourseEntitlement(
     origin: CourseEntitlementOrigin;
     informationRelease?: { noticeVersion: string; acceptedAt: Date };
     createdAt: Date;
-    eventSource: "access-code" | "stripe-checkout" | "administrator";
+    eventSource:
+      | "access-code"
+      | "stripe-checkout"
+      | "administrator"
+      | "enterprise-contract";
   },
 ): Promise<{ enrollmentId: string; entitlementId: string }> {
   const enrollmentId = `enrollment_${randomUUID()}`;
@@ -65,6 +75,18 @@ export async function issueCourseEntitlement(
           : null,
       originOrderId:
         input.origin.type === "order" ? input.origin.orderId : null,
+      originEnterpriseContractId:
+        input.origin.type === "enterprise_contract"
+          ? input.origin.enterpriseContractId
+          : null,
+      originEnterpriseContractClaimId:
+        input.origin.type === "enterprise_contract"
+          ? input.origin.enterpriseContractClaimId
+          : null,
+      originEnterpriseContractCoverageId:
+        input.origin.type === "enterprise_contract"
+          ? input.origin.enterpriseContractCoverageId
+          : null,
       redemptionEmailSnapshot: input.userEmail.toLocaleLowerCase("en-AU"),
       informationReleaseNoticeVersion:
         input.informationRelease?.noticeVersion ?? null,

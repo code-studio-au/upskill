@@ -45,6 +45,21 @@ increased the complete all-route output by 16,793 bytes of JavaScript and 2,161
 bytes of CSS. Total caps therefore ratchet by 17 KB and 2 KB. Root preload,
 largest-asset and per-route caps remain unchanged.
 
+The initial Enterprise Contract vertical is isolated in `/admin/contracts`,
+with learner materialisation controls confined to the existing course-detail
+route. The administrator form, lifecycle actions and course selection plus the
+small learner action increased the complete lazy all-route output by no more
+than 17 KB of JavaScript and 5 KB Brotli. Those two total caps ratchet by the
+measured amounts; root preload, CSS, largest-asset and per-route limits remain
+unchanged.
+
+Completing that vertical added code rotation, renewal, exact-email CSV
+eligibility, consent-gated bulk fulfilment, scheduled-Event access and bounded
+Access Owner reporting. The measured all-route increase over the initial slice
+is 11.5 KB JavaScript and 2.7 KB Brotli, so the corresponding caps ratchet by
+12 KB and 3 KB. The new work remains route-scoped: root preload, CSS,
+largest-asset and per-route caps do not change.
+
 The first-class Event foundation initially kept `/admin/events` route-scoped and
 loaded its Template and occurrence authoring dialogs only when opened. This
 reduced the parent route chunk from 17.45 KB to 7.12 KB, with separate 3.22 KB

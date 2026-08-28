@@ -22,7 +22,7 @@ export type AccessCodePreviewResult =
   | {
       status: "ready";
       offeringTitle: string;
-      offeringType: "course" | "event";
+      offeringType: "course" | "event" | "catalogue";
       organizationName: string;
       accessKind: "bulk_purchase" | "enterprise_contract";
       noticeVersion: typeof INFORMATION_RELEASE_NOTICE_VERSION;
@@ -31,6 +31,11 @@ export type AccessCodePreviewResult =
       status: "already-enrolled";
       offeringTitle: string;
       offeringType: "course" | "event";
+    }
+  | {
+      status: "already-activated";
+      offeringTitle: string;
+      offeringType: "catalogue";
     }
   | { status: "invalid" }
   | { status: "unauthenticated" };
@@ -45,6 +50,16 @@ export type AccessCodeRedemptionResult =
       status: "already-enrolled";
       offeringTitle: string;
       offeringType: "course" | "event";
+    }
+  | {
+      status: "activated";
+      offeringTitle: string;
+      offeringType: "catalogue";
+    }
+  | {
+      status: "already-activated";
+      offeringTitle: string;
+      offeringType: "catalogue";
     }
   | { status: "invalid" }
   | { status: "unauthenticated" };

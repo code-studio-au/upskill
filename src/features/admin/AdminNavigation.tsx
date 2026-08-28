@@ -15,6 +15,7 @@ interface NavigationItem {
     | "/admin/surveys"
     | "/admin/resources"
     | "/admin/access"
+    | "/admin/contracts"
     | "/admin/emails"
     | "/admin/notifications"
     | "/admin/onboarding";
@@ -28,6 +29,7 @@ const groups: Array<{ label: string; items: Array<NavigationItem> }> = [
       { label: "Learners", to: "/admin/learners" },
       { label: "Administrators", to: "/admin/administrators" },
       { label: "Access grants", to: "/admin/access" },
+      { label: "Enterprise contracts", to: "/admin/contracts" },
       { label: "User onboarding", to: "/admin/onboarding" },
     ],
   },

@@ -12,7 +12,9 @@ import {
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import { topicLabel } from "#/features/shared/offering-topic";
 import { PurchaseEventButton } from "#/features/checkout/PurchaseEventButton";
+import { EnterpriseEventAccessButton } from "#/features/enterprise/EnterpriseEventAccessButton";
 import { getEvent } from "#/server/functions/catalog";
+import { getEnterpriseEventAccess } from "#/server/functions/enterprise-contract";
 import classes from "./courses.$slug.module.css";
 
 const audCurrency = new Intl.NumberFormat("en-AU", {
@@ -23,14 +25,19 @@ const audCurrency = new Intl.NumberFormat("en-AU", {
 export const Route = createFileRoute("/events/$slug")({
   ssr: true,
   loader: async ({ params }) => {
-    const event = await getEvent({ data: { slug: params.slug } });
+    const [event, enterpriseAccess] = await Promise.all([
+      getEvent({ data: { slug: params.slug } }),
+      getEnterpriseEventAccess({ data: { slug: params.slug } }),
+    ]);
     if (!event) throw notFound();
-    return event;
+    return { event, enterpriseAccess };
   },
   head: ({ loaderData }) => ({
     meta: [
       {
-        title: loaderData ? `${loaderData.title} — Upskill` : "Event — Upskill",
+        title: loaderData
+          ? `${loaderData.event.title} — Upskill`
+          : "Event — Upskill",
       },
     ],
   }),
@@ -38,7 +45,7 @@ export const Route = createFileRoute("/events/$slug")({
 });
 
 function EventDetailPage() {
-  const event = Route.useLoaderData();
+  const { event, enterpriseAccess } = Route.useLoaderData();
   const currentPrice = event.salePriceCents ?? event.priceCents;
   return (
     <Container size="lg" className={classes.page}>
@@ -94,7 +101,13 @@ function EventDetailPage() {
                   </Text>
                 </div>
               )}
-              {event.registrationMode === "paid_entry" ? (
+              {enterpriseAccess.status === "ready" ||
+              enterpriseAccess.status === "already-registered" ? (
+                <EnterpriseEventAccessButton
+                  access={enterpriseAccess}
+                  slug={event.slug}
+                />
+              ) : event.registrationMode === "paid_entry" ? (
                 <PurchaseEventButton slug={event.slug} />
               ) : event.registrationMode === "open_entry" &&
                 event.publicAccessReference ? (

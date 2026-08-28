@@ -264,17 +264,20 @@ Course access now follows explicit entitlement semantics:
 commercial source -> entitlement -> enrolment -> learning
 ```
 
-Add a first-class enterprise agreement model when blanket multi-course
-access is implemented, covering organisation, effective/renewal dates,
-covered offerings, eligibility, unlimited/capped access, and audit
-history.
+The first-class enterprise agreement model now covers organisation, effective
+periods, immutable Course and exact Event Occurrence coverage, verified-domain
+or uploaded-employee eligibility, blanket access claims, lazy or optional
+automatic exact-version entitlements, lifecycle, renewal, code rotation,
+contract Access Owners, audited utilisation exports and durable audit history.
 
 Bulk/enterprise grant creation adds email-bound Access Owner assignments, uses
 provisional account setup where needed, and provides a narrow consent-filtered
 assigned-source dashboard with CSV export. Course-version quantity tiers,
 initial shared/single-use bulk Checkout, replay-safe capacity extensions,
 invoice/payment history and refund-safe code preservation are implemented.
-First-class blanket contracts remain the next commercial step.
+The blanket-contract vertical and its customer operations are implemented.
+SSO-backed eligibility remains deliberately deferred; uploaded employee lists
+provide exact-email eligibility without provisioning accounts.
 This is resource-scoped customer self-service, not organisation-wide or
 platform administration.
 
