@@ -18,6 +18,7 @@ interface EventParticipantProgressVisibility {
   administrator: boolean;
   coordinatorRegionIds: Array<string>;
   participantUserId?: string;
+  includeInactiveRegistrations?: boolean;
 }
 
 export async function findEventParticipantProgress(
@@ -58,14 +59,15 @@ export async function findEventParticipantProgress(
       "region.name as regionName",
     ])
     .where("participation.eventOccurrenceId", "=", eventOccurrenceId)
-    .where((expression) =>
+    .orderBy("participation.nameSnapshot")
+    .orderBy("participation.emailSnapshot");
+  if (!(visibility.administrator && visibility.includeInactiveRegistrations))
+    participantQuery = participantQuery.where((expression) =>
       expression.or([
         expression("registration.status", "=", "selected"),
         expression("participation.mode", "=", "open_entry"),
       ]),
-    )
-    .orderBy("participation.nameSnapshot")
-    .orderBy("participation.emailSnapshot");
+    );
   if (visibility.participantUserId)
     participantQuery = participantQuery.where(
       "participation.userId",

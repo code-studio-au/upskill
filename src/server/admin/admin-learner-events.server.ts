@@ -87,11 +87,15 @@ function attendanceMetadata(value: unknown): {
   };
 }
 
-export async function findAdminLearnerEvents(
+async function findAdminLearnerEventRecords(
   userId: string,
-  eventOccurrenceId?: string,
+  options: {
+    eventOccurrenceId?: string;
+    includeDetails: boolean;
+  },
 ): Promise<Array<AdminLearnerEvent>> {
   const database = getDatabase();
+  const { eventOccurrenceId, includeDetails } = options;
   const [registrations, participations] = await Promise.all([
     database
       .selectFrom("event_registration as registration")
@@ -257,13 +261,15 @@ export async function findAdminLearnerEvents(
 
   const [sessions, attendance, transitions, regionDecisions] =
     await Promise.all([
-      database
-        .selectFrom("event_session")
-        .select(["id", "eventOccurrenceId", "title", "startsAt", "endsAt"])
-        .where("eventOccurrenceId", "in", realOccurrenceIds)
-        .orderBy("position")
-        .execute(),
-      participationIds.length > 0
+      includeDetails
+        ? database
+            .selectFrom("event_session")
+            .select(["id", "eventOccurrenceId", "title", "startsAt", "endsAt"])
+            .where("eventOccurrenceId", "in", realOccurrenceIds)
+            .orderBy("position")
+            .execute()
+        : Promise.resolve([]),
+      includeDetails && participationIds.length > 0
         ? database
             .selectFrom("event_attendance as attendance")
             .innerJoin(
@@ -288,7 +294,7 @@ export async function findAdminLearnerEvents(
             .where("attendance.eventParticipationId", "in", participationIds)
             .execute()
         : Promise.resolve([]),
-      registrationIds.length > 0
+      includeDetails && registrationIds.length > 0
         ? database
             .selectFrom("event_registration_transition as transition")
             .leftJoin("user as actor", "actor.id", "transition.actorUserId")
@@ -327,7 +333,7 @@ export async function findAdminLearnerEvents(
             .where("transition.eventRegistrationId", "in", registrationIds)
             .execute()
         : Promise.resolve([]),
-      registrationIds.length > 0
+      includeDetails && registrationIds.length > 0
         ? database
             .selectFrom("event_registration_region_decision as decision")
             .leftJoin("user as actor", "actor.id", "decision.decidedByUserId")
@@ -354,7 +360,7 @@ export async function findAdminLearnerEvents(
       .map((session) => `${participation.participationId}:${session.id}`),
   );
   const attendanceHistory =
-    auditSubjectIds.length > 0
+    includeDetails && auditSubjectIds.length > 0
       ? await database
           .selectFrom("audit_event as audit")
           .leftJoin("user as actor", "actor.id", "audit.actorUserId")
@@ -373,24 +379,27 @@ export async function findAdminLearnerEvents(
   const progressByParticipationId = new Map(
     (
       await Promise.all(
-        records.flatMap((record) => {
-          const source = record.participation ?? record.registration;
-          if (!record.participation || !source) return [];
-          return [
-            findEventParticipantProgress(
-              source.eventOccurrenceId,
-              source.eventTemplateVersionId,
-              source.startsAt.toISOString(),
-              source.endsAt.toISOString(),
-              source.timezone,
-              {
-                administrator: true,
-                coordinatorRegionIds: [],
-                participantUserId: userId,
-              },
-            ),
-          ];
-        }),
+        includeDetails
+          ? records.flatMap((record) => {
+              const source = record.participation ?? record.registration;
+              if (!record.participation || !source) return [];
+              return [
+                findEventParticipantProgress(
+                  source.eventOccurrenceId,
+                  source.eventTemplateVersionId,
+                  source.startsAt.toISOString(),
+                  source.endsAt.toISOString(),
+                  source.timezone,
+                  {
+                    administrator: true,
+                    coordinatorRegionIds: [],
+                    participantUserId: userId,
+                    includeInactiveRegistrations: true,
+                  },
+                ),
+              ];
+            })
+          : [],
       )
     )
       .flat()
@@ -422,6 +431,9 @@ export async function findAdminLearnerEvents(
           `${participation?.participationId ?? ""}:${session.id}`,
           session,
         ]),
+      );
+      const auditedAttendanceSubjects = new Set(
+        attendanceHistory.map((audit) => audit.subjectId),
       );
       const history: Array<AdminLearnerEventHistoryItem> = [
         ...transitions
@@ -468,6 +480,25 @@ export async function findAdminLearnerEvents(
                   sessionTitle: session.title,
                   state: metadata.state,
                   source: metadata.source,
+                },
+              ]
+            : [];
+        }),
+        ...attendance.flatMap((row) => {
+          if (row.eventParticipationId !== participation?.participationId)
+            return [];
+          const subjectId = `${row.eventParticipationId}:${row.eventSessionId}`;
+          const session = attendanceSubjects.get(subjectId);
+          return session && !auditedAttendanceSubjects.has(subjectId)
+            ? [
+                {
+                  id: `attendance-current:${subjectId}`,
+                  kind: "attendance" as const,
+                  occurredAt: row.recordedAt.toISOString(),
+                  actorName: row.recordedByName,
+                  sessionTitle: session.title,
+                  state: row.state,
+                  source: row.source,
                 },
               ]
             : [];
@@ -563,6 +594,12 @@ export async function findAdminLearnerEvents(
     );
 }
 
+export async function findAdminLearnerEvents(
+  userId: string,
+): Promise<Array<AdminLearnerEvent>> {
+  return await findAdminLearnerEventRecords(userId, { includeDetails: false });
+}
+
 export async function findAdminLearnerEventDetail(
   userId: string,
   eventOccurrenceId: string,
@@ -575,7 +612,10 @@ export async function findAdminLearnerEventDetail(
       .where("id", "=", userId)
       .where(learnerPredicate())
       .executeTakeFirst(),
-    findAdminLearnerEvents(userId, eventOccurrenceId),
+    findAdminLearnerEventRecords(userId, {
+      eventOccurrenceId,
+      includeDetails: true,
+    }),
   ]);
   const event = events[0];
   return learner && event ? { learner, event } : null;

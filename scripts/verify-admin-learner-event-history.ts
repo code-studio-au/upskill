@@ -15,6 +15,7 @@ const ids = {
   template: `verify_event_history_template_${suffix}`,
   version: `verify_event_history_version_${suffix}`,
   sessionDefinition: `verify_event_history_session_definition_${suffix}`,
+  legacySessionDefinition: `verify_event_history_legacy_session_definition_${suffix}`,
   section: `verify_event_history_section_${suffix}`,
   item: `verify_event_history_item_${suffix}`,
   occurrence: `verify_event_history_occurrence_${suffix}`,
@@ -26,6 +27,7 @@ const ids = {
   transitionSelected: `verify_event_history_transition_selected_${suffix}`,
   participation: `verify_event_history_participation_${suffix}`,
   session: `verify_event_history_session_${suffix}`,
+  legacySession: `verify_event_history_legacy_session_${suffix}`,
   attendanceAudit: `verify_event_history_attendance_audit_${suffix}`,
 };
 
@@ -93,15 +95,26 @@ try {
     .execute();
   await database
     .insertInto("event_template_session_definition")
-    .values({
-      id: ids.sessionDefinition,
-      eventTemplateVersionId: ids.version,
-      position: 0,
-      title: "Verified session",
-      durationMinutes: 60,
-      presenterRequired: false,
-      createdAt: now,
-    })
+    .values([
+      {
+        id: ids.sessionDefinition,
+        eventTemplateVersionId: ids.version,
+        position: 0,
+        title: "Verified session",
+        durationMinutes: 60,
+        presenterRequired: false,
+        createdAt: now,
+      },
+      {
+        id: ids.legacySessionDefinition,
+        eventTemplateVersionId: ids.version,
+        position: 1,
+        title: "Legacy self-check-in session",
+        durationMinutes: 60,
+        presenterRequired: false,
+        createdAt: now,
+      },
+    ])
     .execute();
   await database
     .insertInto("event_template_version_section")
@@ -196,21 +209,38 @@ try {
     .execute();
   await database
     .insertInto("event_session")
-    .values({
-      id: ids.session,
-      eventOccurrenceId: ids.occurrence,
-      sessionDefinitionId: ids.sessionDefinition,
-      position: 0,
-      title: "Verified session",
-      localStartsAt: "2025-08-20T09:00:00",
-      localEndsAt: "2025-08-20T10:00:00",
-      startsAt,
-      endsAt: sessionEndsAt,
-      presenterRequired: false,
-      venueName: "Verification venue",
-      venueAddress: "Sydney NSW",
-      virtualJoinUrl: null,
-    })
+    .values([
+      {
+        id: ids.session,
+        eventOccurrenceId: ids.occurrence,
+        sessionDefinitionId: ids.sessionDefinition,
+        position: 0,
+        title: "Verified session",
+        localStartsAt: "2025-08-20T09:00:00",
+        localEndsAt: "2025-08-20T10:00:00",
+        startsAt,
+        endsAt: sessionEndsAt,
+        presenterRequired: false,
+        venueName: "Verification venue",
+        venueAddress: "Sydney NSW",
+        virtualJoinUrl: null,
+      },
+      {
+        id: ids.legacySession,
+        eventOccurrenceId: ids.occurrence,
+        sessionDefinitionId: ids.legacySessionDefinition,
+        position: 1,
+        title: "Legacy self-check-in session",
+        localStartsAt: "2025-08-20T10:00:00",
+        localEndsAt: "2025-08-20T11:00:00",
+        startsAt: sessionEndsAt,
+        endsAt,
+        presenterRequired: false,
+        venueName: "Verification venue",
+        venueAddress: "Sydney NSW",
+        virtualJoinUrl: null,
+      },
+    ])
     .execute();
   await database
     .insertInto("event_registration")
@@ -300,15 +330,26 @@ try {
     .execute();
   await database
     .insertInto("event_attendance")
-    .values({
-      eventParticipationId: ids.participation,
-      eventSessionId: ids.session,
-      state: "attended",
-      source: "administrator",
-      recordedByUserId: ids.actor,
-      recordedAt: now,
-      updatedAt: now,
-    })
+    .values([
+      {
+        eventParticipationId: ids.participation,
+        eventSessionId: ids.session,
+        state: "attended",
+        source: "administrator",
+        recordedByUserId: ids.actor,
+        recordedAt: now,
+        updatedAt: now,
+      },
+      {
+        eventParticipationId: ids.participation,
+        eventSessionId: ids.legacySession,
+        state: "checked_in",
+        source: "self_check_in",
+        recordedByUserId: null,
+        recordedAt: now,
+        updatedAt: now,
+      },
+    ])
     .execute();
   await database
     .insertInto("audit_event")
@@ -344,36 +385,19 @@ try {
     event.participation.nameSnapshot,
     "Learner participation snapshot",
   );
-  const session = event.sessions[0];
-  assert.ok(session);
-  assert.equal(session.attendance.state, "attended");
-  assert.equal(
-    session.attendance.recordedByName,
-    "Event history administrator",
-  );
-  assert.ok(event.progress);
-  assert.equal(event.progress.state, "completed");
-  const section = event.progress.sections[0];
-  assert.ok(section);
-  assert.equal(section.state, "completed");
+  assert.deepEqual(event.sessions, []);
+  assert.equal(event.progress, null);
+  assert.deepEqual(event.history, []);
   assert.deepEqual(event.certificate, { offered: true, eligible: true });
-  assert.equal(
-    event.history.filter((item) => item.kind === "registration").length,
-    2,
-  );
-  assert.equal(
-    event.history.some(
-      (item) => item.kind === "attendance" && item.state === "attended",
-    ),
-    true,
-  );
-  assert.equal(
-    event.history.some((item) => item.kind === "region_decision"),
-    true,
-  );
   const profile = await findAdminLearnerProfile(ids.learner);
   assert.ok(profile);
   assert.equal(profile.events[0]?.key, ids.registration);
+
+  await database
+    .updateTable("event_registration")
+    .set({ status: "withdrawn", lockedInAt: null })
+    .where("id", "=", ids.registration)
+    .execute();
   const detail = await findAdminLearnerEventDetail(ids.learner, ids.occurrence);
   assert.ok(detail);
   assert.equal(
@@ -381,6 +405,42 @@ try {
     `event-history-learner-${suffix}@example.com`,
   );
   assert.equal(detail.event.key, ids.registration);
+  assert.equal(detail.event.registration?.status, "withdrawn");
+  const session = detail.event.sessions.find((item) => item.id === ids.session);
+  assert.ok(session);
+  assert.equal(session.attendance.state, "attended");
+  assert.equal(
+    session.attendance.recordedByName,
+    "Event history administrator",
+  );
+  assert.ok(detail.event.progress);
+  assert.equal(detail.event.progress.state, "completed");
+  const section = detail.event.progress.sections[0];
+  assert.ok(section);
+  assert.equal(section.state, "completed");
+  assert.equal(
+    detail.event.history.filter((item) => item.kind === "registration").length,
+    2,
+  );
+  assert.equal(
+    detail.event.history.some(
+      (item) => item.kind === "attendance" && item.state === "attended",
+    ),
+    true,
+  );
+  assert.equal(
+    detail.event.history.some((item) => item.kind === "region_decision"),
+    true,
+  );
+  assert.equal(
+    detail.event.history.some(
+      (item) =>
+        item.kind === "attendance" &&
+        item.state === "checked_in" &&
+        item.source === "self_check_in",
+    ),
+    true,
+  );
   assert.equal(
     await findAdminLearnerEventDetail(ids.learner, "missing_occurrence"),
     null,
@@ -408,7 +468,7 @@ try {
     .execute();
   await database
     .deleteFrom("event_session")
-    .where("id", "=", ids.session)
+    .where("eventOccurrenceId", "=", ids.occurrence)
     .execute();
   await database
     .deleteFrom("event_occurrence_region")
@@ -432,7 +492,7 @@ try {
     .execute();
   await database
     .deleteFrom("event_template_session_definition")
-    .where("id", "=", ids.sessionDefinition)
+    .where("eventTemplateVersionId", "=", ids.version)
     .execute();
   await database
     .deleteFrom("event_template_version")

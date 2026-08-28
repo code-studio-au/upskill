@@ -33,8 +33,17 @@ function progressColor(state: string): string {
 
 function eventState(event: AdminLearnerEvent): string {
   if (event.progress) return readable(event.progress.state);
+  if (event.participation?.completedAt) return "Completed";
+  if (event.participation?.checkedInAt) return "Checked in";
   if (event.registration) return readable(event.registration.status);
   return event.participation ? "Participating" : "No participation";
+}
+
+function eventColor(event: AdminLearnerEvent): string {
+  if (event.progress) return progressColor(event.progress.state);
+  if (event.participation?.completedAt) return "green";
+  if (event.participation?.checkedInAt) return "blue";
+  return registrationColor(event.registration?.status ?? "");
 }
 
 export function AdminLearnerEventHistory({
@@ -85,15 +94,7 @@ export function AdminLearnerEventHistory({
                 >
                   {readable(event.occurrence.status)}
                 </Badge>
-                <Badge
-                  color={
-                    event.progress
-                      ? progressColor(event.progress.state)
-                      : registrationColor(event.registration?.status ?? "")
-                  }
-                >
-                  {eventState(event)}
-                </Badge>
+                <Badge color={eventColor(event)}>{eventState(event)}</Badge>
               </Group>
             </div>
             <Stack gap="xs">
