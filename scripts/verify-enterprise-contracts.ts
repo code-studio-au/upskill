@@ -23,6 +23,7 @@ import {
   previewEnterpriseContractCode,
   registerWithEnterpriseContract,
 } from "#/server/enterprise/enterprise-contract-access.server";
+import { withdrawLearnerEventRegistration } from "#/server/learner/learner-event.server";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -675,6 +676,23 @@ try {
       )
     ).status,
     "already-registered",
+  );
+  assert.equal(
+    await withdrawLearnerEventRegistration(
+      ids.eventOccurrence,
+      users.secondEligible,
+    ),
+    "withdrawn",
+  );
+  assert.equal(
+    (
+      await findEnterpriseEventAccess(
+        "verify-enterprise-covered-event",
+        users.secondEligible,
+      )
+    ).status,
+    "already-registered",
+    "A retained withdrawn registration must not show an unusable registration action",
   );
   assert.equal(
     (

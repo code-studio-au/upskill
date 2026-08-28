@@ -352,7 +352,6 @@ async function resolveEventAccess(
     .select("event_registration.id")
     .where("event_registration.userId", "=", user.id)
     .where("event_occurrence.slug", "=", slug)
-    .where("event_registration.status", "not in", ["withdrawn", "cancelled"])
     .executeTakeFirst();
   if (existing) return { status: "already-registered" } as const;
   let query = database

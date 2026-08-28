@@ -796,6 +796,9 @@ export async function renewAdminEnterpriseContract(
       const normalizedReference = input.reference
         .trim()
         .toLocaleLowerCase("en-AU");
+      await sql`select pg_advisory_xact_lock(
+        hashtextextended(${`enterprise-contract-reference:${normalizedReference}`}, 0)
+      )`.execute(transaction);
       const duplicate = await transaction
         .selectFrom("enterprise_contract")
         .select("id")
