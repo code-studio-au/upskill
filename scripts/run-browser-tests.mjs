@@ -6,42 +6,17 @@ import { createDisposablePostgresDatabase } from "./disposable-postgres.mjs";
 const suite = process.argv[2] ?? "all";
 const playwright = path.resolve("node_modules/@playwright/test/cli.js");
 const browserSuites = {
-  all: [
-    [
-      "test",
-      "--grep-invert=platform administrators can inspect learner progress|learners run SCORM inside the course workspace",
-    ],
-    [
-      "test",
-      "--project=chromium-mobile",
-      "--grep=learners run SCORM inside the course workspace",
-    ],
-    [
-      "test",
-      "--project=chromium-mobile",
-      "--grep=platform administrators can inspect learner progress",
-    ],
-  ],
+  all: [["test"]],
   core: [
     [
       "test",
-      "--grep-invert=platform administrators can inspect learner progress|learners run SCORM inside the course workspace",
-    ],
-  ],
-  scorm: [
-    [
-      "test",
       "--project=chromium-mobile",
-      "--grep=learners run SCORM inside the course workspace",
+      "--project=firefox",
+      "--project=webkit",
     ],
   ],
-  admin: [
-    [
-      "test",
-      "--project=chromium-mobile",
-      "--grep=platform administrators can inspect learner progress",
-    ],
-  ],
+  scorm: [["test", "--project=chromium-mobile-scorm", "--no-deps"]],
+  admin: [["test", "--project=chromium-mobile-admin", "--no-deps"]],
   https: [
     [
       "test",

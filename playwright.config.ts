@@ -14,6 +14,19 @@ const secureServerPrefix = secure
   ? "pnpm run tls:local && UPSKILL_TLS_CERT_FILE=.local/tls/localhost.crt UPSKILL_TLS_KEY_FILE=.local/tls/localhost.key NODE_EXTRA_CA_CERTS=.local/tls/upskill-local-ca.crt "
   : "";
 const testProxyPrefix = "UPSKILL_TRUST_PROXY=true ";
+const scormJourney = /learners run SCORM inside the course workspace/u;
+const administratorJourney =
+  /platform administrators can inspect learner progress/u;
+const extendedJourneys = new RegExp(
+  `${scormJourney.source}|${administratorJourney.source}`,
+  "u",
+);
+const chromiumMobile = {
+  ...devices["Pixel 7"],
+  // Simulate distinct clients behind the trusted local reverse proxy so
+  // cross-browser sign-ins do not share BetterAuth's per-IP test bucket.
+  extraHTTPHeaders: { "x-real-ip": "192.0.2.10" },
+};
 
 export default defineConfig({
   testDir: "./e2e",
@@ -28,15 +41,12 @@ export default defineConfig({
   projects: [
     {
       name: "chromium-mobile",
-      use: {
-        ...devices["Pixel 7"],
-        // Simulate distinct clients behind the trusted local reverse proxy so
-        // cross-browser sign-ins do not share BetterAuth's per-IP test bucket.
-        extraHTTPHeaders: { "x-real-ip": "192.0.2.10" },
-      },
+      grepInvert: extendedJourneys,
+      use: chromiumMobile,
     },
     {
       name: "firefox",
+      grepInvert: extendedJourneys,
       use: {
         ...devices["Desktop Firefox"],
         extraHTTPHeaders: { "x-real-ip": "192.0.2.11" },
@@ -44,9 +54,28 @@ export default defineConfig({
     },
     {
       name: "webkit",
+      grepInvert: extendedJourneys,
       use: {
         ...devices["Desktop Safari"],
         extraHTTPHeaders: { "x-real-ip": "192.0.2.12" },
+      },
+    },
+    {
+      name: "chromium-mobile-scorm",
+      dependencies: ["chromium-mobile", "firefox", "webkit"],
+      grep: scormJourney,
+      use: {
+        ...chromiumMobile,
+        extraHTTPHeaders: { "x-real-ip": "192.0.2.20" },
+      },
+    },
+    {
+      name: "chromium-mobile-admin",
+      dependencies: ["chromium-mobile-scorm"],
+      grep: administratorJourney,
+      use: {
+        ...chromiumMobile,
+        extraHTTPHeaders: { "x-real-ip": "192.0.2.21" },
       },
     },
   ],

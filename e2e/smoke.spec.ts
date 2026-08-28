@@ -720,7 +720,7 @@ test("learners run SCORM inside the course workspace", async ({
   page,
 }, testInfo) => {
   test.skip(
-    testInfo.project.name !== "chromium-mobile",
+    testInfo.project.name !== "chromium-mobile-scorm",
     "The complete SCORM player journey runs once; boundaries remain cross-browser.",
   );
   const database = new Client({ connectionString: process.env.DATABASE_URL });
@@ -1094,7 +1094,7 @@ test("platform administrators can inspect learner progress", async ({
 }, testInfo) => {
   test.setTimeout(60_000);
   test.skip(
-    testInfo.project.name !== "chromium-mobile",
+    testInfo.project.name !== "chromium-mobile-admin",
     "The complete admin journey runs once; learner authentication remains cross-browser.",
   );
 

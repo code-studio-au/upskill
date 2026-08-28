@@ -117,6 +117,18 @@ for (const scriptName of [
     failures.push(
       `${scriptName} must use the disposable browser-test database`,
     );
+const browserTestRunner = fs.readFileSync(
+  path.join(root, "scripts/run-browser-tests.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  'all: [["test"]]',
+  '"--project=chromium-mobile-scorm"',
+  '"--project=chromium-mobile-admin"',
+  '"--no-deps"',
+])
+  if (!browserTestRunner.includes(invariant))
+    failures.push(`Browser-test orchestration is missing: ${invariant}`);
 for (const boundary of [
   "Disposable test databases require a PostgreSQL server on localhost",
   "create database",
@@ -144,6 +156,14 @@ const playwrightConfig = fs.readFileSync(
 );
 if (!playwrightConfig.includes("reuseExistingServer: false"))
   failures.push("Playwright must never reuse a developer server");
+for (const invariant of [
+  'name: "chromium-mobile-scorm"',
+  'dependencies: ["chromium-mobile", "firefox", "webkit"]',
+  'name: "chromium-mobile-admin"',
+  'dependencies: ["chromium-mobile-scorm"]',
+])
+  if (!playwrightConfig.includes(invariant))
+    failures.push(`Playwright project sequencing is missing: ${invariant}`);
 const developmentLauncher = fs.readFileSync(
   path.join(root, "scripts/start-development.mjs"),
   "utf8",
@@ -435,6 +455,23 @@ const ciWorkflow = fs.readFileSync(
   path.join(root, ".github/workflows/ci.yml"),
   "utf8",
 );
+for (const invariant of [
+  "actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830",
+  "path: ~/.cache/ms-playwright",
+  "steps.playwright-version.outputs.version",
+])
+  if (!ciWorkflow.includes(invariant))
+    failures.push(`Browser cache configuration is missing: ${invariant}`);
+const playwrightCacheIndex = ciWorkflow.indexOf("actions/cache@");
+const playwrightInstallIndex = ciWorkflow.indexOf(
+  "pnpm exec playwright install --with-deps",
+);
+if (
+  playwrightCacheIndex < 0 ||
+  playwrightInstallIndex < 0 ||
+  playwrightCacheIndex > playwrightInstallIndex
+)
+  failures.push("Playwright browsers must be restored before installation");
 for (const [name, workflow] of [
   ["CI", ciWorkflow],
   ["deployment", deployWorkflow],
