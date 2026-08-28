@@ -10,6 +10,7 @@ import {
 } from "#/features/shared/mantine";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { MantineProgress } from "#/features/shared/MantineProgress";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import {
   createFileRoute,
   Link,
@@ -17,7 +18,7 @@ import {
   redirect,
   useRouter,
 } from "@tanstack/react-router";
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { adminLearnerParamsSchema } from "#/features/admin/admin.schema";
 import {
@@ -25,6 +26,11 @@ import {
   requireAdminReOnboarding,
 } from "#/server/functions/admin";
 import classes from "./admin.module.css";
+
+const AdminLearnerEventHistory = lazy(async () => {
+  const module = await import("#/features/admin/AdminLearnerEventHistory");
+  return { default: module.AdminLearnerEventHistory };
+});
 
 export const Route = createFileRoute("/admin/learners/$userId")({
   ssr: false,
@@ -125,6 +131,26 @@ function AdminLearnerProfilePage() {
               <Text>No onboarding history.</Text>
             )}
           </Paper>
+        </Stack>
+      </section>
+
+      <section aria-labelledby="events-heading">
+        <Stack gap="md">
+          <div>
+            <Title order={2} id="events-heading">
+              Event participation
+            </Title>
+            <Text c="dimmed" size="sm" mt={4}>
+              Registration decisions, historical region snapshots, attendance,
+              progress, completion, and certificate eligibility.
+            </Text>
+          </div>
+          <Suspense fallback={<LoadingSpinner label="Loading event history" />}>
+            <AdminLearnerEventHistory
+              events={profile.events}
+              userId={profile.learner.id}
+            />
+          </Suspense>
         </Stack>
       </section>
 

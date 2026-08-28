@@ -4,6 +4,7 @@ import {
   adminAccountInviteSchema,
   adminAdministratorRemoveSchema,
   adminLearnerParamsSchema,
+  adminLearnerEventParamsSchema,
   adminLearnerSearchSchema,
   adminRequireReOnboardingSchema,
   adminProgressOverrideInputSchema,
@@ -15,6 +16,7 @@ import {
   type AdminProgressOverrideResult,
   type AdminResult,
   type AdminLearnerDirectory,
+  type AdminLearnerEventResult,
   type AdminOverview,
   type AdminRequireReOnboardingResult,
 } from "#/features/admin/admin.schema";
@@ -150,6 +152,22 @@ export const getAdminEnrollmentDetail = createServerFn({ method: "GET" })
     return enrollment
       ? { status: "ready", data: enrollment }
       : { status: "not-found" };
+  });
+
+export const getAdminLearnerEventDetail = createServerFn({ method: "GET" })
+  .validator(adminLearnerEventParamsSchema)
+  .handler(async ({ data }): Promise<AdminLearnerEventResult> => {
+    const { getAdministratorRequest } =
+      await import("#/server/admin/admin-access.server");
+    const request = await getAdministratorRequest();
+    if (request.status !== "ready") return request;
+    const { findAdminLearnerEventDetail } =
+      await import("#/server/admin/admin-learner-events.server");
+    const detail = await findAdminLearnerEventDetail(
+      data.userId,
+      data.eventOccurrenceId,
+    );
+    return detail ? { status: "ready", data: detail } : { status: "not-found" };
   });
 
 export const overrideAdminProgress = createServerFn({ method: "POST" })

@@ -104,7 +104,7 @@ verifiers, and CDK verification.
 | Customer Access Owner portal       | Orders, invoices, CSV and Stripe capacity extensions                       | Add contract-wide reporting and broader coverage                         |
 | Enterprise blanket access          | Partial concept                                                            | Add a first-class contract/coverage model                                |
 | Course administration              | Strong foundation                                                          | Add authoring workflow maturity as needed                                |
-| Learner administration             | Strong foundation                                                          | Add richer support tooling over time                                     |
+| Learner administration             | Course and Event support evidence views implemented                        | Add broader cross-domain support timelines as justified                  |
 | Events                             | Authoring, registration and blended-learning foundation                    | Add facilitated recovery and operational maturity                        |
 | Coordinator workflows              | Region-scoped review, progress and Survey QR operations                    | Add lifecycle alerts and recovery controls                               |
 | Presenter workflows                | Session-scoped attendance and Survey QR operations                         | Add recovery windows and printable/minimal export                        |
@@ -604,7 +604,9 @@ without understanding why.
   (implemented);
 - additional not-yet-authorable coordination, cancellation and access reminder
   coverage;
-- support read models;
+- support read models (implemented for onboarding, Course enrolment/progress,
+  Event registration/region snapshots, attendance, completion and audit
+  history);
 - carefully audited impersonation if still needed.
 
 ### Phase F --- Visual analytics

@@ -76,6 +76,7 @@ import { Route as EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRou
 import { Route as LearnEnrollmentIdSurveysCourseVersionItemIdRouteImport } from './routes/learn.$enrollmentId_.surveys.$courseVersionItemId'
 import { Route as MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRouteImport } from './routes/my-events_.$eventOccurrenceId_.surveys.$eventTemplateVersionItemId'
 import { Route as AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport } from './routes/admin.learners.$userId_.enrollments.$enrollmentId'
+import { Route as AdminLearnersUserIdEventsEventOccurrenceIdRouteImport } from './routes/admin.learners.$userId_.events.$eventOccurrenceId'
 import { Route as ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.courses.$slug.accreditation-logos.$assetId'
 import { Route as ApiCatalogCoursesSlugCoverImagesAssetIdRouteImport } from './routes/api.catalog.courses.$slug.cover-images.$assetId'
 import { Route as ApiCatalogEventsSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.events.$slug.accreditation-logos.$assetId'
@@ -440,6 +441,12 @@ const AdminLearnersUserIdEnrollmentsEnrollmentIdRoute =
     path: '/learners/$userId/enrollments/$enrollmentId',
     getParentRoute: () => AdminRoute,
   } as any)
+const AdminLearnersUserIdEventsEventOccurrenceIdRoute =
+  AdminLearnersUserIdEventsEventOccurrenceIdRouteImport.update({
+    id: '/learners/$userId_/events/$eventOccurrenceId',
+    path: '/learners/$userId/events/$eventOccurrenceId',
+    getParentRoute: () => AdminRoute,
+  } as any)
 const ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute =
   ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport.update({
     id: '/api/catalog/courses/$slug/accreditation-logos/$assetId',
@@ -539,6 +546,7 @@ export interface FileRoutesByFullPath {
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
+  '/admin/learners/$userId/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -611,6 +619,7 @@ export interface FileRoutesByTo {
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
+  '/admin/learners/$userId/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -686,6 +695,7 @@ export interface FileRoutesById {
   '/learn/$enrollmentId_/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   '/admin/learners/$userId_/enrollments/$enrollmentId': typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
+  '/admin/learners/$userId_/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -762,6 +772,7 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
+    | '/admin/learners/$userId/events/$eventOccurrenceId'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -834,6 +845,7 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId/enrollments/$enrollmentId'
+    | '/admin/learners/$userId/events/$eventOccurrenceId'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -908,6 +920,7 @@ export interface FileRouteTypes {
     | '/learn/$enrollmentId_/surveys/$courseVersionItemId'
     | '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId'
     | '/admin/learners/$userId_/enrollments/$enrollmentId'
+    | '/admin/learners/$userId_/events/$eventOccurrenceId'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -1433,6 +1446,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport
       parentRoute: typeof AdminRoute
     }
+    '/admin/learners/$userId_/events/$eventOccurrenceId': {
+      id: '/admin/learners/$userId_/events/$eventOccurrenceId'
+      path: '/learners/$userId/events/$eventOccurrenceId'
+      fullPath: '/admin/learners/$userId/events/$eventOccurrenceId'
+      preLoaderRoute: typeof AdminLearnersUserIdEventsEventOccurrenceIdRouteImport
+      parentRoute: typeof AdminRoute
+    }
     '/api/catalog/courses/$slug/accreditation-logos/$assetId': {
       id: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
       path: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
@@ -1495,6 +1515,7 @@ interface AdminRouteChildren {
   AdminEventsInstancesEventOccurrenceIdRoute: typeof AdminEventsInstancesEventOccurrenceIdRoute
   AdminEventsInstancesNewRoute: typeof AdminEventsInstancesNewRoute
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute: typeof AdminLearnersUserIdEnrollmentsEnrollmentIdRoute
+  AdminLearnersUserIdEventsEventOccurrenceIdRoute: typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
 }
 
 const AdminRouteChildren: AdminRouteChildren = {
@@ -1523,6 +1544,8 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminEventsInstancesNewRoute: AdminEventsInstancesNewRoute,
   AdminLearnersUserIdEnrollmentsEnrollmentIdRoute:
     AdminLearnersUserIdEnrollmentsEnrollmentIdRoute,
+  AdminLearnersUserIdEventsEventOccurrenceIdRoute:
+    AdminLearnersUserIdEventsEventOccurrenceIdRoute,
 }
 
 const AdminRouteWithChildren = AdminRoute._addFileChildren(AdminRouteChildren)

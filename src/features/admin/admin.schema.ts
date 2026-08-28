@@ -1,5 +1,6 @@
 import { z } from "#/validation/zod";
 import type { LearningPhase } from "#/features/learning/learning.schema";
+import type { EventParticipantProgress } from "#/features/event-operations/event-operations.schema";
 import { accountInvitationSchema } from "#/features/auth/account-invitation.schema";
 
 const adminIdentifierSchema = z
@@ -36,6 +37,11 @@ export const adminRequireReOnboardingSchema = z.object({
 export const adminEnrollmentParamsSchema = z.object({
   userId: adminIdentifierSchema,
   enrollmentId: adminIdentifierSchema,
+});
+
+export const adminLearnerEventParamsSchema = z.object({
+  userId: adminIdentifierSchema,
+  eventOccurrenceId: adminIdentifierSchema,
 });
 
 const progressOverrideFields = {
@@ -136,6 +142,135 @@ interface AdminLearnerEnrollment {
   lastActivityAt: string | null;
 }
 
+export type AdminLearnerEventHistoryItem =
+  | {
+      id: string;
+      kind: "registration";
+      occurredAt: string;
+      actorName: string | null;
+      source:
+        "learner" | "automatic" | "coordinator" | "administrator" | "deadline";
+      fromStatus: string | null;
+      toStatus: string;
+      fromRegionName: string | null;
+      toRegionName: string | null;
+      priority: number | null;
+    }
+  | {
+      id: string;
+      kind: "region_decision";
+      occurredAt: string;
+      actorName: string | null;
+      resolution:
+        | "registered_region_confirmed"
+        | "profile_region_confirmed"
+        | "profile_aligned_to_registration"
+        | "region_guest_confirmed";
+      reportingRegionName: string | null;
+      reportingRegionGroupName: string | null;
+    }
+  | {
+      id: string;
+      kind: "attendance";
+      occurredAt: string;
+      actorName: string | null;
+      sessionTitle: string;
+      state: "not_recorded" | "checked_in" | "attended" | "absent";
+      source:
+        | "system"
+        | "self_check_in"
+        | "coordinator"
+        | "presenter"
+        | "administrator";
+    };
+
+export interface AdminLearnerEvent {
+  key: string;
+  occurrence: {
+    id: string;
+    title: string;
+    slug: string;
+    status: "draft" | "published" | "cancelled" | "completed" | "archived";
+    deliveryMode: "in_person" | "virtual";
+    timezone: string;
+    startsAt: string;
+    endsAt: string;
+    eventTemplateTitle: string;
+    eventTemplateVersion: number;
+  };
+  registration: {
+    id: string;
+    status:
+      | "submitted"
+      | "coordinator_approved"
+      | "coordinator_declined"
+      | "selected"
+      | "waitlisted"
+      | "not_selected"
+      | "withdrawn"
+      | "cancelled";
+    source:
+      | "ordinary"
+      | "paid_checkout"
+      | "access_code"
+      | "late_invitation"
+      | "administrator_override";
+    eligibilitySource:
+      | "unrestricted"
+      | "paid"
+      | "access_code"
+      | "verified_domain"
+      | "administrator_override";
+    nameSnapshot: string;
+    emailSnapshot: string;
+    submittedAt: string;
+    coordinatorDecidedAt: string | null;
+    finalDecidedAt: string | null;
+    lockedInAt: string | null;
+    registrationRegion: {
+      code: string;
+      name: string;
+    } | null;
+    reportingRegionSnapshot: {
+      code: string | null;
+      name: string | null;
+      groupCode: string | null;
+      groupName: string | null;
+    } | null;
+  } | null;
+  participation: {
+    id: string;
+    mode: "registered" | "open_entry";
+    nameSnapshot: string;
+    emailSnapshot: string;
+    createdAt: string;
+    checkedInAt: string | null;
+    completedAt: string | null;
+  } | null;
+  sessions: Array<{
+    id: string;
+    title: string;
+    startsAt: string;
+    endsAt: string;
+    attendance: {
+      state: "not_recorded" | "checked_in" | "attended" | "absent";
+      source:
+        | "system"
+        | "self_check_in"
+        | "coordinator"
+        | "presenter"
+        | "administrator"
+        | null;
+      recordedAt: string | null;
+      updatedAt: string | null;
+      recordedByName: string | null;
+    };
+  }>;
+  progress: EventParticipantProgress | null;
+  certificate: { offered: boolean; eligible: boolean };
+  history: Array<AdminLearnerEventHistoryItem>;
+}
+
 export interface AdminLearnerProfile {
   learner: {
     id: string;
@@ -171,6 +306,12 @@ export interface AdminLearnerProfile {
     }>;
   };
   enrollments: Array<AdminLearnerEnrollment>;
+  events: Array<AdminLearnerEvent>;
+}
+
+export interface AdminLearnerEventDetail {
+  learner: { id: string; name: string; email: string };
+  event: AdminLearnerEvent;
 }
 
 interface AdminEnrollmentModule {
@@ -240,6 +381,9 @@ export type AdminProfileResult =
 
 export type AdminEnrollmentResult =
   AdminResult<AdminEnrollmentDetail> | { status: "not-found" };
+
+export type AdminLearnerEventResult =
+  AdminResult<AdminLearnerEventDetail> | { status: "not-found" };
 
 export type AdminProgressOverrideResult =
   AdminResult<{ outcome: "changed" | "unchanged" }> | { status: "not-found" };

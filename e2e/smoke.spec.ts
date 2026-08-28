@@ -1891,6 +1891,34 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Survey unavailable" }),
     ).toBeVisible();
+    await page.goto(`/admin/learners/${encodeURIComponent(eventPresenter.id)}`);
+    const eventProgressCard = page.getByRole("article").filter({
+      has: page.getByRole("heading", { name: eventOccurrenceTitle }),
+    });
+    await expect(eventProgressCard).toBeVisible();
+    await eventProgressCard
+      .getByRole("link", { name: "Review progress" })
+      .click();
+    await expect(
+      page.getByText("Learner event progress", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Overall event participation" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /Attendance/u }).click();
+    await expect(
+      page.getByRole("heading", { name: "Session attendance" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /Progress/u }).click();
+    await expect(
+      page.getByRole("heading", { name: "Section progress" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: /History/u }).click();
+    await expect(
+      page.getByRole("heading", {
+        name: "Registration and attendance history",
+      }),
+    ).toBeVisible();
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);
@@ -1942,6 +1970,12 @@ test("platform administrators can inspect learner progress", async ({
   ).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "Course enrolments" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Event participation" }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("This learner has no event registrations or participation."),
   ).toBeVisible();
   await expect(page.getByText("Leading through change")).toBeVisible();
   await page.getByRole("link", { name: "Review progress" }).first().click();

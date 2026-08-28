@@ -289,8 +289,8 @@ export async function submitPublicEventGuestAccess(
       const attendanceState = activeSessions.length
         ? access.openEntryAttendanceMode
         : "not_recorded";
-      for (const session of activeSessions)
-        await transaction
+      for (const session of activeSessions) {
+        const recorded = await transaction
           .insertInto("event_attendance")
           .values({
             eventParticipationId,
@@ -306,7 +306,22 @@ export async function submitPublicEventGuestAccess(
               .columns(["eventParticipationId", "eventSessionId"])
               .doNothing(),
           )
-          .execute();
+          .returning("eventSessionId")
+          .executeTakeFirst();
+        if (recorded)
+          await recordDurableAuditEvent(transaction, {
+            actorUserId: null,
+            action: "event_attendance.recorded",
+            subjectType: "event_attendance",
+            subjectId: `${eventParticipationId}:${session.id}`,
+            aggregateId: access.id,
+            metadata: {
+              state: access.openEntryAttendanceMode,
+              source: "self_check_in",
+            },
+            createdAt: now,
+          });
+      }
       if (activeSessions.length && !existing?.checkedInAt)
         await transaction
           .updateTable("event_participation")
