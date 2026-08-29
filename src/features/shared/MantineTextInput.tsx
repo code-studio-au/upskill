@@ -25,6 +25,7 @@ interface MantineTextInputProps {
   inputRef?: Ref<HTMLInputElement | HTMLTextAreaElement>;
   max?: number | undefined;
   maxLength?: number;
+  minLength?: number;
   min?: number | undefined;
   name?: string;
   onBlur?: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>;

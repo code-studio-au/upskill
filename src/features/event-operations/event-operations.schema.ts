@@ -67,6 +67,7 @@ export interface EventParticipantProgress {
   sections: Array<{
     id: string;
     title: string;
+    description: string;
     phase: "pre_event" | "session" | "post_event" | "follow_up";
     state: EventSectionProgressState;
     releaseAt: string;
@@ -78,6 +79,7 @@ export interface EventParticipantProgress {
       kind: "session" | "scorm" | "survey" | "resource";
       required: boolean;
       state: "completed" | "incomplete";
+      eventSessionId: string | null;
     }>;
   }>;
 }

@@ -216,6 +216,8 @@ export type AdminEnterpriseContractMutationResult =
       importedCount?: number;
       enrolledCount?: number;
       skippedCount?: number;
+      eventRegisteredCount?: number;
+      eventSkippedCount?: number;
     }>
   | {
       status: "conflict";

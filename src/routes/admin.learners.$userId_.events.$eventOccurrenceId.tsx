@@ -80,12 +80,8 @@ function AdminLearnerEventProgressPage() {
         tabs={[
           { value: "overview", label: "Overview" },
           {
-            value: "attendance",
-            label: `Attendance (${String(event.sessions.length)})`,
-          },
-          {
-            value: "progress",
-            label: `Progress (${String(event.progress?.sections.length ?? 0)})`,
+            value: "details",
+            label: "Details",
           },
           {
             value: "history",

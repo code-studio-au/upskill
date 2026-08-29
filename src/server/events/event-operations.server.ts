@@ -96,6 +96,7 @@ export async function findEventParticipantProgress(
           "id",
           "position",
           "title",
+          "description",
           "phase",
           "releaseAnchor",
           "releaseOffsetAmount",
@@ -217,6 +218,7 @@ export async function findEventParticipantProgress(
             kind: item.kind,
             required: item.required,
             state: completed ? ("completed" as const) : ("incomplete" as const),
+            eventSessionId: session?.id ?? null,
           };
         });
       const requiredItems = sectionItems.filter((item) => item.required);
@@ -228,6 +230,7 @@ export async function findEventParticipantProgress(
       return {
         id: section.id,
         title: section.title,
+        description: section.description,
         phase: section.phase,
         state: !available
           ? ("locked" as const)

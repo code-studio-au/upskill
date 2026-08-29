@@ -21,6 +21,7 @@ export function LightweightAutocomplete({
   loading = false,
   limit = 10,
   maxLength,
+  type = "email",
   className,
   onBlur,
   onChange,
@@ -36,6 +37,7 @@ export function LightweightAutocomplete({
   loading?: boolean;
   limit?: number;
   maxLength?: number | undefined;
+  type?: "email" | "search" | "text";
   className?: string | undefined;
   onBlur?: FocusEventHandler<HTMLInputElement> | undefined;
   onChange: (value: string) => void;
@@ -90,7 +92,7 @@ export function LightweightAutocomplete({
         <input
           id={id}
           className={classes.input}
-          type="email"
+          type={type}
           role="combobox"
           aria-autocomplete="list"
           aria-controls={listboxId}

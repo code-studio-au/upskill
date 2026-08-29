@@ -115,6 +115,8 @@ function readyMutation(outcome: {
   importedCount?: number;
   enrolledCount?: number;
   skippedCount?: number;
+  eventRegisteredCount?: number;
+  eventSkippedCount?: number;
 }) {
   if (outcome.status === "not-found" || outcome.status === "conflict")
     return outcome;
@@ -133,6 +135,12 @@ function readyMutation(outcome: {
       ...(outcome.skippedCount === undefined
         ? {}
         : { skippedCount: outcome.skippedCount }),
+      ...(outcome.eventRegisteredCount === undefined
+        ? {}
+        : { eventRegisteredCount: outcome.eventRegisteredCount }),
+      ...(outcome.eventSkippedCount === undefined
+        ? {}
+        : { eventSkippedCount: outcome.eventSkippedCount }),
     },
   };
 }

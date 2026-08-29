@@ -1,7 +1,7 @@
 {
-  "clientJavaScriptBytes": 996000,
+  "clientJavaScriptBytes": 1004000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 297000,
+  "clientJavaScriptBrotliBytes": 300000,
   "clientCssBrotliBytes": 36000,
   "largestJavaScriptAssetBytes": 460000,
   "rootPreloadJavaScriptGzipBytes": 163840,
@@ -33,6 +33,7 @@
     "profile": 2304
   },
   "routeJavaScriptGzipBytes": {
+    "/admin/contracts/new": 12288,
     "/admin/learners/$userId/events/$eventOccurrenceId": 3072,
     "/event-operations/": 8192,
     "/event-operations/$eventOccurrenceId": 8192,
