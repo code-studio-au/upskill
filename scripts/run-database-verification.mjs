@@ -106,6 +106,7 @@ try {
     DATABASE_URL: disposableDatabase.databaseUrl,
     MIGRATION_DATABASE_URL: disposableDatabase.databaseUrl,
     EMAIL_PROVIDER: "local_capture",
+    SEED_LEARNER_PASSWORD: "ci-only-snapshot-seed-password",
     SMS_PROVIDER: "local_capture",
   };
   for (const script of scriptsToRun) {

@@ -7,7 +7,7 @@ import type {
 } from "#/features/admin/admin.schema";
 import { sql } from "kysely";
 import { getDatabase } from "#/server/db/database.server";
-import { findEventParticipantProgress } from "#/server/events/event-operations.server";
+import { findEventParticipantProgressForOccurrences } from "#/server/events/event-operations.server";
 
 interface EventOccurrenceProjection {
   eventOccurrenceId: string;
@@ -376,32 +376,37 @@ async function findAdminLearnerEventRecords(
           .execute()
       : [];
 
+  const progressOccurrences = new Map(
+    records.flatMap((record) => {
+      const source = record.participation ?? record.registration;
+      return record.participation && source
+        ? [
+            [
+              source.eventOccurrenceId,
+              {
+                eventOccurrenceId: source.eventOccurrenceId,
+                eventTemplateVersionId: source.eventTemplateVersionId,
+                startsAt: source.startsAt.toISOString(),
+                endsAt: source.endsAt.toISOString(),
+                timezone: source.timezone,
+              },
+            ] as const,
+          ]
+        : [];
+    }),
+  );
   const progressByParticipationId = new Map(
     (
-      await Promise.all(
-        records.flatMap((record) => {
-          const source = record.participation ?? record.registration;
-          if (!record.participation || !source) return [];
-          return [
-            findEventParticipantProgress(
-              source.eventOccurrenceId,
-              source.eventTemplateVersionId,
-              source.startsAt.toISOString(),
-              source.endsAt.toISOString(),
-              source.timezone,
-              {
-                administrator: true,
-                coordinatorRegionIds: [],
-                participantUserId: userId,
-                includeInactiveRegistrations: true,
-              },
-            ),
-          ];
-        }),
+      await findEventParticipantProgressForOccurrences(
+        [...progressOccurrences.values()],
+        {
+          administrator: true,
+          coordinatorRegionIds: [],
+          participantUserId: userId,
+          includeInactiveRegistrations: true,
+        },
       )
-    )
-      .flat()
-      .map((progress) => [progress.eventParticipationId, progress]),
+    ).map((progress) => [progress.eventParticipationId, progress]),
   );
 
   return records

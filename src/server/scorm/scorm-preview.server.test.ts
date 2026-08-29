@@ -47,8 +47,22 @@ describe("SCORM administrator preview tokens", () => {
     const tampered = `${token.slice(0, separator)}x${token.slice(separator)}`;
     expect(verifyScormPreviewToken(tampered)).toBeNull();
     expect(scormPreviewCookie(token)).toContain("HttpOnly");
-    expect(scormPreviewCookie(token)).toContain("Path=/api/scorm/previews/");
+    expect(scormPreviewCookie(token)).toContain(
+      "Path=/api/scorm/previews/scorm_version_one",
+    );
     expect(scormPreviewCookie(token)).toContain("SameSite=Strict");
+  });
+
+  it("keeps concurrent package previews in independent cookies", () => {
+    const first = scormPreviewCookie(
+      issueScormPreviewToken("scorm_version_one"),
+    );
+    const second = scormPreviewCookie(
+      issueScormPreviewToken("scorm_version_two"),
+    );
+    expect(first.split("=", 1)[0]).not.toBe(second.split("=", 1)[0]);
+    expect(first).toContain("Path=/api/scorm/previews/scorm_version_one");
+    expect(second).toContain("Path=/api/scorm/previews/scorm_version_two");
   });
 
   it("uses a secure prefix compatible with its scoped staging path", () => {
@@ -56,8 +70,8 @@ describe("SCORM administrator preview tokens", () => {
     const cookie = scormPreviewCookie(
       issueScormPreviewToken("scorm_version_one"),
     );
-    expect(cookie).toMatch(/^__Secure-upskill_scorm_preview=/u);
-    expect(cookie).toContain("Path=/api/scorm/previews/");
+    expect(cookie).toMatch(/^__Secure-upskill_scorm_preview_[\w-]+=/u);
+    expect(cookie).toContain("Path=/api/scorm/previews/scorm_version_one");
     expect(cookie).toContain("Secure");
     expect(cookie).not.toContain("__Host-");
   });

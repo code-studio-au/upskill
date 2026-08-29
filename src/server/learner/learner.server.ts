@@ -11,7 +11,7 @@ import type {
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import { getDatabase } from "#/server/db/database.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
-import { findEventParticipantProgress } from "#/server/events/event-operations.server";
+import { findEventParticipantProgressForOccurrences } from "#/server/events/event-operations.server";
 import { findCourseProgressSummaries } from "#/server/learning/course-progress-summary.server";
 
 function emailDomain(email: string): string | null {
@@ -190,6 +190,9 @@ export async function findLearnerEventsDashboard(
       ),
     ]),
   ];
+  const participatedEventIds = new Set(
+    eventParticipations.map((participation) => participation.eventOccurrenceId),
+  );
 
   let eventQuery = getDatabase()
     .selectFrom("event_occurrence")
@@ -262,30 +265,24 @@ export async function findLearnerEventsDashboard(
           .where("occurrence_region.retiredAt", "is", null)
           .orderBy("occurrence_region.position")
           .execute(),
-        Promise.all(
-          eventRows.flatMap((event) => {
-            const participation = eventParticipations.find(
-              (candidate) =>
-                candidate.eventOccurrenceId === event.eventOccurrenceId,
-            );
-            return participation
-              ? [
-                  findEventParticipantProgress(
-                    event.eventOccurrenceId,
-                    event.eventTemplateVersionId,
-                    event.startsAt.toISOString(),
-                    event.endsAt.toISOString(),
-                    event.timezone,
-                    {
-                      administrator: false,
-                      coordinatorRegionIds: [],
-                      participantUserId: user.id,
-                    },
-                  ),
-                ]
-              : [];
-          }),
-        ).then((rows) => rows.flat()),
+        findEventParticipantProgressForOccurrences(
+          eventRows
+            .filter((event) =>
+              participatedEventIds.has(event.eventOccurrenceId),
+            )
+            .map((event) => ({
+              eventOccurrenceId: event.eventOccurrenceId,
+              eventTemplateVersionId: event.eventTemplateVersionId,
+              startsAt: event.startsAt.toISOString(),
+              endsAt: event.endsAt.toISOString(),
+              timezone: event.timezone,
+            })),
+          {
+            administrator: false,
+            coordinatorRegionIds: [],
+            participantUserId: user.id,
+          },
+        ),
       ])
     : [[], [], []];
   const registrationByEvent = new Map(

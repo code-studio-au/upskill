@@ -21,20 +21,61 @@ interface EventParticipantProgressVisibility {
   includeInactiveRegistrations?: boolean;
 }
 
-export async function findEventParticipantProgress(
-  eventOccurrenceId: string,
-  eventTemplateVersionId: string,
-  occurrenceStartsAt: string,
-  occurrenceEndsAt: string,
-  occurrenceTimezone: string,
+export interface EventParticipantProgressOccurrence {
+  eventOccurrenceId: string;
+  eventTemplateVersionId: string;
+  startsAt: string;
+  endsAt: string;
+  timezone: string;
+}
+
+function groupBy<Value>(
+  values: ReadonlyArray<Value>,
+  keyFor: (value: Value) => string,
+): Map<string, Array<Value>> {
+  const grouped = new Map<string, Array<Value>>();
+  for (const value of values) {
+    const key = keyFor(value);
+    const group = grouped.get(key);
+    if (group) group.push(value);
+    else grouped.set(key, [value]);
+  }
+  return grouped;
+}
+
+export async function findEventParticipantProgressForOccurrences(
+  requestedOccurrences: ReadonlyArray<EventParticipantProgressOccurrence>,
   visibility: EventParticipantProgressVisibility,
 ): Promise<Array<EventParticipantProgress>> {
+  if (requestedOccurrences.length === 0) return [];
   if (
     !visibility.administrator &&
     visibility.coordinatorRegionIds.length === 0 &&
     !visibility.participantUserId
   )
     return [];
+  const occurrenceById = new Map<string, EventParticipantProgressOccurrence>();
+  for (const occurrence of requestedOccurrences) {
+    const existing = occurrenceById.get(occurrence.eventOccurrenceId);
+    if (
+      existing &&
+      (existing.eventTemplateVersionId !== occurrence.eventTemplateVersionId ||
+        existing.startsAt !== occurrence.startsAt ||
+        existing.endsAt !== occurrence.endsAt ||
+        existing.timezone !== occurrence.timezone)
+    )
+      throw new Error("Conflicting event occurrence progress descriptors");
+    occurrenceById.set(occurrence.eventOccurrenceId, occurrence);
+  }
+  const occurrences = [...occurrenceById.values()];
+  const occurrenceIds = occurrences.map(
+    (occurrence) => occurrence.eventOccurrenceId,
+  );
+  const eventTemplateVersionIds = [
+    ...new Set(
+      occurrences.map((occurrence) => occurrence.eventTemplateVersionId),
+    ),
+  ];
   const database = getDatabase();
   let participantQuery = database
     .selectFrom("event_participation as participation")
@@ -55,6 +96,7 @@ export async function findEventParticipantProgress(
     )
     .select([
       "participation.id",
+      "participation.eventOccurrenceId",
       "participation.nameSnapshot as name",
       "participation.emailSnapshot as email",
       "participation.createdAt",
@@ -62,7 +104,8 @@ export async function findEventParticipantProgress(
       "registration.eventOccurrenceRegionId as regionId",
       "region.name as regionName",
     ])
-    .where("participation.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("participation.eventOccurrenceId", "in", occurrenceIds)
+    .orderBy("participation.eventOccurrenceId")
     .orderBy("participation.nameSnapshot")
     .orderBy("participation.emailSnapshot");
   if (!(visibility.administrator && visibility.includeInactiveRegistrations))
@@ -98,6 +141,7 @@ export async function findEventParticipantProgress(
         .selectFrom("event_template_version_section")
         .select([
           "id",
+          "eventTemplateVersionId",
           "position",
           "title",
           "description",
@@ -106,13 +150,15 @@ export async function findEventParticipantProgress(
           "releaseOffsetAmount",
           "releaseOffsetUnit",
         ])
-        .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+        .where("eventTemplateVersionId", "in", eventTemplateVersionIds)
+        .orderBy("eventTemplateVersionId")
         .orderBy("position")
         .execute(),
       database
         .selectFrom("event_template_version_item")
         .select([
           "id",
+          "eventTemplateVersionId",
           "sectionId",
           "position",
           "title",
@@ -120,13 +166,15 @@ export async function findEventParticipantProgress(
           "required",
           "sessionDefinitionId",
         ])
-        .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+        .where("eventTemplateVersionId", "in", eventTemplateVersionIds)
+        .orderBy("eventTemplateVersionId")
         .orderBy("position")
         .execute(),
       database
         .selectFrom("event_session")
-        .select(["id", "sessionDefinitionId", "endsAt"])
-        .where("eventOccurrenceId", "=", eventOccurrenceId)
+        .select(["id", "eventOccurrenceId", "sessionDefinitionId", "endsAt"])
+        .where("eventOccurrenceId", "in", occurrenceIds)
+        .orderBy("eventOccurrenceId")
         .orderBy("position")
         .execute(),
       database
@@ -155,11 +203,20 @@ export async function findEventParticipantProgress(
         .where("eventParticipationId", "in", participantIds)
         .execute(),
     ]);
-  const occurrenceStart = new Date(occurrenceStartsAt);
-  const occurrenceEnd = new Date(occurrenceEndsAt);
-  const finalSessionEnd = sessions.at(-1)?.endsAt ?? occurrenceEnd;
-  const sessionByDefinition = new Map(
-    sessions.map((session) => [session.sessionDefinitionId, session]),
+  const sectionsByTemplateVersion = groupBy(
+    sections,
+    (section) => section.eventTemplateVersionId,
+  );
+  const itemsBySection = groupBy(items, (item) => item.sectionId);
+  const sessionsByOccurrence = groupBy(
+    sessions,
+    (session) => session.eventOccurrenceId,
+  );
+  const sessionByOccurrenceAndDefinition = new Map(
+    sessions.map((session) => [
+      `${session.eventOccurrenceId}:${session.sessionDefinitionId}`,
+      session,
+    ]),
   );
   const completedEvidence = new Set(
     progress.flatMap((row) =>
@@ -188,12 +245,22 @@ export async function findEventParticipantProgress(
   const now = new Date();
 
   return participants.map((participant) => {
-    const projectedSections = sections.map((section) => {
+    const occurrence = occurrenceById.get(participant.eventOccurrenceId);
+    if (!occurrence)
+      throw new Error("Event participant has no progress descriptor");
+    const occurrenceStart = new Date(occurrence.startsAt);
+    const occurrenceEnd = new Date(occurrence.endsAt);
+    const finalSessionEnd =
+      sessionsByOccurrence.get(occurrence.eventOccurrenceId)?.at(-1)?.endsAt ??
+      occurrenceEnd;
+    const projectedSections = (
+      sectionsByTemplateVersion.get(occurrence.eventTemplateVersionId) ?? []
+    ).map((section) => {
       const releaseAt = calculateEventSectionReleaseAt({
         releaseAnchor: section.releaseAnchor,
         releaseOffsetAmount: section.releaseOffsetAmount,
         releaseOffsetUnit: section.releaseOffsetUnit,
-        timezone: occurrenceTimezone,
+        timezone: occurrence.timezone,
         participationCreatedAt: participant.createdAt,
         occurrenceStartsAt: occurrenceStart,
         occurrenceEndsAt: occurrenceEnd,
@@ -202,11 +269,12 @@ export async function findEventParticipantProgress(
       const available =
         releasedSections.has(`${participant.id}:${section.id}`) ||
         releaseAt <= now;
-      const sectionItems = items
-        .filter((item) => item.sectionId === section.id)
-        .map((item) => {
+      const sectionItems = (itemsBySection.get(section.id) ?? []).map(
+        (item) => {
           const session = item.sessionDefinitionId
-            ? sessionByDefinition.get(item.sessionDefinitionId)
+            ? sessionByOccurrenceAndDefinition.get(
+                `${occurrence.eventOccurrenceId}:${item.sessionDefinitionId}`,
+              )
             : null;
           const attendanceState = session
             ? attendanceByParticipantAndDefinition.get(
@@ -224,7 +292,8 @@ export async function findEventParticipantProgress(
             state: completed ? ("completed" as const) : ("incomplete" as const),
             eventSessionId: session?.id ?? null,
           };
-        });
+        },
+      );
       const requiredItems = sectionItems.filter((item) => item.required);
       const targets = requiredItems.length > 0 ? requiredItems : sectionItems;
       const completedItems = targets.filter(
@@ -300,6 +369,28 @@ export async function findEventParticipantProgress(
       sections: projectedSections,
     };
   });
+}
+
+async function findEventParticipantProgress(
+  eventOccurrenceId: string,
+  eventTemplateVersionId: string,
+  occurrenceStartsAt: string,
+  occurrenceEndsAt: string,
+  occurrenceTimezone: string,
+  visibility: EventParticipantProgressVisibility,
+): Promise<Array<EventParticipantProgress>> {
+  return findEventParticipantProgressForOccurrences(
+    [
+      {
+        eventOccurrenceId,
+        eventTemplateVersionId,
+        startsAt: occurrenceStartsAt,
+        endsAt: occurrenceEndsAt,
+        timezone: occurrenceTimezone,
+      },
+    ],
+    visibility,
+  );
 }
 
 export async function findAssignedEventOperations(

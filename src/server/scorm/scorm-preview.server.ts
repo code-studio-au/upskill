@@ -1,6 +1,11 @@
 import "@tanstack/react-start/server-only";
 
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 
@@ -20,11 +25,17 @@ export interface ScormPreviewPlayer {
   packageVersionId: string;
 }
 
-function cookieName(): string {
+function cookieName(packageVersionId: string): string {
   const { APP_ENV } = getServerEnv();
-  return APP_ENV === "production" || APP_ENV === "staging"
-    ? SECURE_COOKIE
-    : DEVELOPMENT_COOKIE;
+  const prefix =
+    APP_ENV === "production" || APP_ENV === "staging"
+      ? SECURE_COOKIE
+      : DEVELOPMENT_COOKIE;
+  const packageKey = createHash("sha256")
+    .update(packageVersionId, "utf8")
+    .digest("base64url")
+    .slice(0, 16);
+  return `${prefix}_${packageKey}`;
 }
 
 function signature(payload: string): Buffer {
@@ -83,11 +94,13 @@ export function verifyScormPreviewToken(token: string): PreviewClaims | null {
 }
 
 export function scormPreviewCookie(token: string): string {
+  const claims = verifyScormPreviewToken(token);
+  if (!claims) throw new Error("Cannot store an invalid SCORM preview token");
   const { APP_ENV } = getServerEnv();
   const secure = APP_ENV === "production" || APP_ENV === "staging";
   return [
-    `${cookieName()}=${token}`,
-    "Path=/api/scorm/previews/",
+    `${cookieName(claims.packageVersionId)}=${token}`,
+    `Path=/api/scorm/previews/${claims.packageVersionId}`,
     `Max-Age=${String(PREVIEW_LIFETIME_SECONDS)}`,
     "HttpOnly",
     "SameSite=Strict",
@@ -95,13 +108,17 @@ export function scormPreviewCookie(token: string): string {
   ].join("; ");
 }
 
-function readScormPreviewCookie(request: Request): string | null {
+function readScormPreviewCookie(
+  request: Request,
+  packageVersionId: string,
+): string | null {
   const cookie = request.headers.get("cookie");
   if (!cookie) return null;
+  const expectedName = cookieName(packageVersionId);
   for (const pair of cookie.split(";")) {
     const separator = pair.indexOf("=");
     if (separator < 0) continue;
-    if (pair.slice(0, separator).trim() === cookieName())
+    if (pair.slice(0, separator).trim() === expectedName)
       return pair.slice(separator + 1).trim();
   }
   return null;
@@ -127,7 +144,7 @@ export async function authorizedScormPreview(
   request: Request,
   packageVersionId: string,
 ): Promise<ScormPreviewPlayer | null> {
-  const token = readScormPreviewCookie(request);
+  const token = readScormPreviewCookie(request, packageVersionId);
   const claims = token ? verifyScormPreviewToken(token) : null;
   if (!claims || claims.packageVersionId !== packageVersionId) return null;
   return findScormPreviewPlayer(packageVersionId);
