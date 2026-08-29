@@ -42,6 +42,10 @@ interface SnapshotFixture {
   tables: Tables;
 }
 
+interface SeedCurrentSnapshotOptions {
+  provisionExternalAssets?: boolean;
+}
+
 const fixturePath = new URL(
   "./fixtures/current-development-snapshot.json",
   import.meta.url,
@@ -467,6 +471,50 @@ async function uploadAssets(fixture: SnapshotFixture): Promise<void> {
   }
 }
 
+function verifyExternalAssetMetadata(fixture: SnapshotFixture): void {
+  const sha256Pattern = /^[a-f0-9]{64}$/u;
+  const safeObjectKey = (value: string) => {
+    const normalized = path.posix.normalize(value);
+    return (
+      value.length > 0 &&
+      !path.posix.isAbsolute(value) &&
+      normalized !== "." &&
+      normalized !== ".." &&
+      !normalized.startsWith("../")
+    );
+  };
+  for (const table of ["accreditation_logo_asset", "offering_image_asset"])
+    for (const asset of fixture.tables[table] ?? []) {
+      const objectKey = String(asset.objectKey);
+      if (!safeObjectKey(objectKey))
+        throw new Error(`Unsafe fixture asset key: ${objectKey}`);
+      if (!sha256Pattern.test(String(asset.sha256)))
+        throw new Error(`Invalid fixture asset digest: ${objectKey}`);
+      if (
+        !Number.isSafeInteger(asset.sourceBytes) ||
+        Number(asset.sourceBytes) < 1
+      )
+        throw new Error(`Invalid fixture asset size: ${objectKey}`);
+      if (!String(asset.mediaType).includes("/"))
+        throw new Error(`Invalid fixture asset media type: ${objectKey}`);
+    }
+
+  const packageRow = fixture.tables.scorm_package_version[0];
+  const manifest = packageRow?.manifest as
+    { expandedBytes?: unknown; fileCount?: unknown } | undefined;
+  if (
+    !packageRow ||
+    !sha256Pattern.test(String(packageRow.sha256)) ||
+    !safeObjectKey(String(packageRow.contentPrefix)) ||
+    !String(packageRow.contentPrefix).startsWith("scorm/") ||
+    !Number.isSafeInteger(manifest?.fileCount) ||
+    Number(manifest?.fileCount) < 1 ||
+    !Number.isSafeInteger(manifest?.expandedBytes) ||
+    Number(manifest?.expandedBytes) < 1
+  )
+    throw new Error("Invalid SCORM seed asset metadata");
+}
+
 function publicReference(index: number): string {
   const suffix = index.toString(36).padStart(5, "0");
   return `${randomBytes(20).toString("base64url").slice(0, 27)}${suffix}`;
@@ -678,10 +726,17 @@ const insertionOrder = [
   "learning_item_progress",
 ] as const;
 
-export async function seedCurrentSnapshot(): Promise<void> {
+export async function seedCurrentSnapshot(
+  options: Readonly<SeedCurrentSnapshotOptions> = {},
+): Promise<void> {
   const configuredDatabaseUrl = process.env.DATABASE_URL;
   if (!configuredDatabaseUrl) throw new Error("DATABASE_URL is required");
   validateExecutionBoundary(configuredDatabaseUrl);
+  const provisionExternalAssets = options.provisionExternalAssets ?? true;
+  if (!provisionExternalAssets && appEnvironment !== "test")
+    throw new Error(
+      "External snapshot assets may only be omitted by the test verifier",
+    );
   const env = getServerEnv();
   const fixture = JSON.parse(
     await readFile(fixturePath, "utf8"),
@@ -689,6 +744,7 @@ export async function seedCurrentSnapshot(): Promise<void> {
   if (fixture.fixtureVersion !== 1)
     throw new Error("Unsupported snapshot fixture version");
   assertCurrentFeatureSamples(fixture);
+  verifyExternalAssetMetadata(fixture);
   normalizeSnapshotBaseVersions(fixture);
   overlaySmsTestPhone(fixture);
   const fixtureUserCount = fixture.tables.user.length;
@@ -708,7 +764,7 @@ export async function seedCurrentSnapshot(): Promise<void> {
     }
     await remapExistingUsers(client, fixture);
     await preserveMigrationSeededEmailDesigns(client, fixture);
-    await uploadAssets(fixture);
+    if (provisionExternalAssets) await uploadAssets(fixture);
     prepareRuntimeRows(fixture, await hashPassword(seedPassword));
     const activeEmailVersions = new Map(
       fixture.tables.email_design.map((row) => [

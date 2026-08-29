@@ -27,7 +27,7 @@ try {
   await existingCatalogueClient.end();
 }
 
-await seedCurrentSnapshot();
+await seedCurrentSnapshot({ provisionExternalAssets: false });
 
 const fixture = JSON.parse(
   await readFile(
