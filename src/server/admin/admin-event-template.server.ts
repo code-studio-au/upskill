@@ -522,10 +522,11 @@ export async function findAdminEventTemplate(
       .select([
         "survey_version.id",
         "learning_activity.title",
+        sql<"event" | "shared">`learning_activity."surveyType"`.as("type"),
         "learning_activity_version.version",
       ])
       .where("learning_activity_version.publishedAt", "is not", null)
-      .where("learning_activity.surveyUsage", "=", "learning")
+      .where("learning_activity.surveyType", "in", ["event", "shared"])
       .orderBy("learning_activity.title")
       .orderBy("learning_activity_version.version", "desc")
       .execute(),
@@ -657,7 +658,10 @@ async function validateEventDraftReferences(
           .where((expression) =>
             expression.or([
               expression("learning_activity_version.kind", "!=", "survey"),
-              expression("learning_activity.surveyUsage", "=", "learning"),
+              expression("learning_activity.surveyType", "in", [
+                "event",
+                "shared",
+              ]),
             ]),
           )
           .execute()
@@ -978,6 +982,7 @@ export async function saveAdminEventTemplateDraft(
 
 export async function createAdminEventTemplateVersion(
   eventTemplateId: string,
+  sourceVersionId: string,
   administrator: AuthenticatedUser,
 ): Promise<
   | { status: "created"; eventTemplateVersionId: string }
@@ -1013,15 +1018,19 @@ export async function createAdminEventTemplateVersion(
         .execute();
       if (versions.some((version) => !version.publishedAt))
         return { status: "conflict" } as const;
-      const source = versions[0];
+      const source = versions.find(
+        (version) => version.id === sourceVersionId && version.publishedAt,
+      );
       if (!source) return { status: "not-found" } as const;
+      const nextVersion =
+        Math.max(...versions.map(({ version }) => version)) + 1;
       const eventTemplateVersionId = `event_template_version_${randomUUID()}`;
       await transaction
         .insertInto("event_template_version")
         .values({
           id: eventTemplateVersionId,
           eventTemplateId,
-          version: source.version + 1,
+          version: nextVersion,
           topic: source.topic,
           summary: source.summary,
           description: source.description,
@@ -1075,7 +1084,7 @@ export async function createAdminEventTemplateVersion(
         subjectType: "event_template_version",
         subjectId: eventTemplateVersionId,
         aggregateId: eventTemplateId,
-        metadata: { sourceVersionId: source.id, version: source.version + 1 },
+        metadata: { sourceVersionId: source.id, version: nextVersion },
       });
       return { status: "created", eventTemplateVersionId } as const;
     });

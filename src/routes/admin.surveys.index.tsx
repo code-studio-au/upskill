@@ -3,12 +3,10 @@ import {
   Alert,
   Button,
   Group,
-  Paper,
   Stack,
   Text,
   Title,
 } from "#/features/shared/mantine";
-import { useForm } from "@tanstack/react-form";
 import {
   createFileRoute,
   Link,
@@ -20,23 +18,75 @@ import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
-import { firstFormError } from "#/features/shared/form-errors";
-import { adminSurveyCreateSchema } from "#/features/survey/survey.schema";
+import { PageTabs } from "#/features/shared/PageTabs";
+import { OrderedCatalogue } from "#/features/shared/OrderedCatalogue";
+import {
+  adminSurveyCreateSchema,
+  type AdminSurveySummary,
+} from "#/features/survey/survey.schema";
 import {
   createAdminSurvey,
   getAdminSurveys,
+  moveAdminSurvey,
 } from "#/server/functions/admin-survey";
 import classes from "./admin.surveys.module.css";
 
 interface SurveyCreateValues {
   title: string;
-  usage: "learning" | "onboarding";
+  type: "system" | "elearning" | "event" | "shared";
 }
 
 const defaultSurveyCreateValues: SurveyCreateValues = {
   title: "",
-  usage: "learning",
+  type: "elearning",
 };
+
+type SurveyType = SurveyCreateValues["type"];
+
+function SurveyCatalogue({ surveys }: { surveys: Array<AdminSurveySummary> }) {
+  return (
+    <OrderedCatalogue
+      empty="No surveys have been created in this section."
+      onMove={(id, direction) => {
+        void move(id, direction);
+      }}
+      items={surveys.map((survey) => ({
+        id: survey.id,
+        label: survey.title,
+        title: (
+          <Link
+            className={classes.cardTitleLink}
+            to="/admin/surveys/$surveyId"
+            params={{ surveyId: survey.id }}
+          >
+            <Title order={2} size="h3">
+              {survey.title}
+            </Title>
+          </Link>
+        ),
+        status: (
+          <Group gap="xs" wrap="wrap" justify="flex-end">
+            {survey.publishedVersion ? (
+              <Badge color="green">Published v{survey.publishedVersion}</Badge>
+            ) : (
+              <Badge color="gray">Not published</Badge>
+            )}
+            {survey.draftVersion ? (
+              <Badge color="gray">Draft v{survey.draftVersion}</Badge>
+            ) : null}
+          </Group>
+        ),
+      }))}
+    />
+  );
+}
+
+async function move(surveyId: string, direction: "down" | "up") {
+  const result = await moveAdminSurvey({
+    data: { surveyId, direction },
+  }).catch(() => null);
+  if (result) window.location.reload();
+}
 
 export const Route = createFileRoute("/admin/surveys/")({
   ssr: false,
@@ -56,13 +106,20 @@ function AdminSurveysPage() {
   const result = Route.useLoaderData();
   const router = useRouter();
   const [opened, setOpened] = useState(false);
+  const [type, setType] = useState<SurveyType>("system");
   const [error, setError] = useState<string | null>(null);
-  const surveyForm = useForm({
-    defaultValues: defaultSurveyCreateValues,
-    validators: { onSubmit: adminSurveyCreateSchema },
-    onSubmit: async ({ value }) => {
-      setError(null);
-      const created = await createAdminSurvey({ data: value });
+  const [creating, setCreating] = useState(false);
+  const [createValues, setCreateValues] = useState(defaultSurveyCreateValues);
+  const create = async () => {
+    setError(null);
+    const parsed = adminSurveyCreateSchema.safeParse(createValues);
+    if (!parsed.success) {
+      setError("Enter a survey title of at least two characters.");
+      return;
+    }
+    setCreating(true);
+    try {
+      const created = await createAdminSurvey({ data: parsed.data });
       if (created.status !== "ready") {
         setError("The survey could not be created.");
         return;
@@ -71,12 +128,35 @@ function AdminSurveysPage() {
         to: "/admin/surveys/$surveyId",
         params: { surveyId: created.data.surveyId },
       });
-    },
-  });
+    } catch {
+      setError("The survey could not be created.");
+    } finally {
+      setCreating(false);
+    }
+  };
   if (result.status === "forbidden") return <AdminAccessDenied />;
 
+  const systemSurveys = result.data.filter(
+    (survey) => survey.type === "system",
+  );
+  const elearningSurveys = result.data.filter(
+    (survey) => survey.type === "elearning",
+  );
+  const eventSurveys = result.data.filter((survey) => survey.type === "event");
+  const sharedSurveys = result.data.filter(
+    (survey) => survey.type === "shared",
+  );
+  const visibleSurveys =
+    type === "system"
+      ? systemSurveys
+      : type === "elearning"
+        ? elearningSurveys
+        : type === "event"
+          ? eventSurveys
+          : sharedSurveys;
+
   return (
-    <Stack gap="lg">
+    <Stack gap="xl">
       <Group justify="space-between" align="end" wrap="wrap">
         <div>
           <Text c="indigo.7" fw={700}>
@@ -86,7 +166,7 @@ function AdminSurveysPage() {
         </div>
         <Button
           onClick={() => {
-            surveyForm.reset();
+            setCreateValues(defaultSurveyCreateValues);
             setError(null);
             setOpened(true);
           }}
@@ -95,127 +175,100 @@ function AdminSurveysPage() {
         </Button>
       </Group>
 
-      {result.data.length === 0 ? (
-        <Alert title="No surveys yet">Create the first survey draft.</Alert>
-      ) : (
-        <Stack gap="md">
-          {result.data.map((survey) => (
-            <Paper key={survey.id} withBorder radius="lg" p="md">
-              <Stack gap="sm">
-                <Group justify="space-between" align="start" wrap="nowrap">
-                  <Link
-                    className={classes.cardTitleLink}
-                    to="/admin/surveys/$surveyId"
-                    params={{ surveyId: survey.id }}
-                  >
-                    <Title order={2} size="h3">
-                      {survey.title}
-                    </Title>
-                  </Link>
-                  <Group gap="xs" wrap="wrap" justify="flex-end">
-                    {survey.publishedVersion ? (
-                      <Badge color="green">
-                        Published v{survey.publishedVersion}
-                      </Badge>
-                    ) : null}
-                    {survey.draftVersion ? (
-                      <Badge color="gray">Draft v{survey.draftVersion}</Badge>
-                    ) : null}
-                  </Group>
-                </Group>
-                <Text c="dimmed" size="sm">
-                  {survey.usage === "onboarding"
-                    ? "Onboarding survey"
-                    : "Learning survey"}
-                </Text>
-              </Stack>
-            </Paper>
-          ))}
-        </Stack>
-      )}
+      <PageTabs
+        label="Survey catalogue"
+        value={type}
+        tabs={[
+          {
+            value: "system",
+            label: `System (${String(systemSurveys.length)})`,
+          },
+          {
+            value: "elearning",
+            label: `eLearning (${String(elearningSurveys.length)})`,
+          },
+          {
+            value: "event",
+            label: `Event (${String(eventSurveys.length)})`,
+          },
+          {
+            value: "shared",
+            label: `Shared (${String(sharedSurveys.length)})`,
+          },
+        ]}
+        onChange={setType}
+      />
+      <SurveyCatalogue surveys={visibleSurveys} />
 
       {opened ? (
-        <surveyForm.Subscribe selector={(state) => state.isSubmitting}>
-          {(isSubmitting) => (
-            <AppDialog
-              title="Create survey"
-              closeDisabled={isSubmitting}
-              onClose={() => {
-                if (!isSubmitting) setOpened(false);
-              }}
-            >
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void surveyForm.handleSubmit();
+        <AppDialog
+          title="Create survey"
+          closeDisabled={creating}
+          onClose={() => {
+            if (!creating) setOpened(false);
+          }}
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void create();
+            }}
+          >
+            <Stack gap="md">
+              <MantineTextInput
+                label="Survey title"
+                value={createValues.title}
+                onChange={(event) => {
+                  const nextTitle = event.currentTarget.value;
+                  setCreateValues((current) => ({
+                    ...current,
+                    title: nextTitle,
+                  }));
                 }}
-              >
-                <Stack gap="md">
-                  <surveyForm.Field name="title">
-                    {(field) => (
-                      <MantineTextInput
-                        label="Survey title"
-                        name={field.name}
-                        value={field.state.value}
-                        error={firstFormError(field.state.meta.errors)}
-                        onBlur={field.handleBlur}
-                        onChange={(event) => {
-                          field.handleChange(event.currentTarget.value);
-                        }}
-                        required
-                      />
-                    )}
-                  </surveyForm.Field>
-                  <surveyForm.Field name="usage">
-                    {(field) => (
-                      <MantineNativeSelect
-                        label="Survey purpose"
-                        value={field.state.value}
-                        data={[
-                          { value: "learning", label: "Learning activity" },
-                          { value: "onboarding", label: "User onboarding" },
-                        ]}
-                        onChange={(event) => {
-                          field.handleChange(
-                            event.currentTarget.value === "onboarding"
-                              ? "onboarding"
-                              : "learning",
-                          );
-                        }}
-                        required
-                      />
-                    )}
-                  </surveyForm.Field>
-                  {error ? <Alert color="red">{error}</Alert> : null}
-                  <Group justify="flex-end">
-                    <Button
-                      type="button"
-                      variant="default"
-                      disabled={isSubmitting}
-                      onClick={() => {
-                        setOpened(false);
-                      }}
-                    >
-                      Cancel
-                    </Button>
-                    <surveyForm.Subscribe selector={(state) => state.canSubmit}>
-                      {(canSubmit) => (
-                        <Button
-                          type="submit"
-                          loading={isSubmitting}
-                          disabled={!canSubmit}
-                        >
-                          Create draft
-                        </Button>
-                      )}
-                    </surveyForm.Subscribe>
-                  </Group>
-                </Stack>
-              </form>
-            </AppDialog>
-          )}
-        </surveyForm.Subscribe>
+                required
+              />
+              <MantineNativeSelect
+                label="Survey type"
+                value={createValues.type}
+                data={[
+                  { value: "system", label: "System onboarding" },
+                  { value: "elearning", label: "eLearning" },
+                  { value: "event", label: "Event" },
+                  { value: "shared", label: "Shared" },
+                ]}
+                onChange={(event) => {
+                  const nextType = event.currentTarget.value;
+                  setCreateValues((current) => ({
+                    ...current,
+                    type:
+                      nextType === "system" ||
+                      nextType === "event" ||
+                      nextType === "shared"
+                        ? nextType
+                        : "elearning",
+                  }));
+                }}
+                required
+              />
+              {error ? <Alert color="red">{error}</Alert> : null}
+              <Group justify="flex-end">
+                <Button
+                  type="button"
+                  variant="default"
+                  disabled={creating}
+                  onClick={() => {
+                    setOpened(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" loading={creating}>
+                  Create draft
+                </Button>
+              </Group>
+            </Stack>
+          </form>
+        </AppDialog>
       ) : null}
     </Stack>
   );

@@ -1,14 +1,8 @@
 import type { AdminLearnerEvent } from "./admin.schema";
 import { Badge } from "#/features/shared/Badge";
 import { formatLocalDateTime } from "#/features/shared/local-date";
-import {
-  Button,
-  Group,
-  Paper,
-  Stack,
-  Text,
-  Title,
-} from "#/features/shared/mantine";
+import { LearnerProgressCard } from "#/features/shared/LearnerProgressCard";
+import { Button, Group, Paper, Text } from "#/features/shared/mantine";
 import { Link } from "@tanstack/react-router";
 import classes from "./AdminLearnerEventHistory.module.css";
 import {
@@ -35,28 +29,19 @@ export function AdminLearnerEventHistory({
 
   return (
     <div className={classes.eventGrid}>
-      {events.map((event) => (
-        <Paper
-          component="article"
-          withBorder
-          radius="lg"
-          p="lg"
-          key={event.key}
-        >
-          <Stack gap="md">
-            <div className={classes.eventHeader}>
-              <div>
-                <Text c="indigo.7" fw={700} size="sm">
-                  {event.occurrence.eventTemplateTitle} · Published V
-                  {event.occurrence.eventTemplateVersion}
-                </Text>
-                <Title order={3}>{event.occurrence.title}</Title>
-                <Text c="dimmed" size="sm" mt={4}>
-                  {formatLocalDateTime(event.occurrence.startsAt, {
-                    timeZone: event.occurrence.timezone,
-                  })}
-                </Text>
-              </div>
+      {events.map((event) => {
+        return (
+          <LearnerProgressCard
+            key={event.key}
+            className={classes.eventCard}
+            title={event.occurrence.title}
+            subtitle={
+              <>
+                {event.occurrence.eventTemplateTitle} · Version{" "}
+                {event.occurrence.eventTemplateVersion}
+              </>
+            }
+            status={
               <Group gap="xs">
                 <Badge
                   color={
@@ -73,29 +58,44 @@ export function AdminLearnerEventHistory({
                   {learnerEventState(event)}
                 </Badge>
               </Group>
-            </div>
-            <Stack gap="xs">
-              <Link
-                to="/admin/learners/$userId/events/$eventOccurrenceId"
-                params={{ userId, eventOccurrenceId: event.occurrence.id }}
-                className={classes.buttonLink}
-              >
-                <Button component="span" fullWidth>
-                  Review progress
+            }
+            progress={event.progress?.sections ?? []}
+            progressTitle="Event progress"
+            actions={
+              <>
+                <Link
+                  to="/admin/learners/$userId/events/$eventOccurrenceId"
+                  params={{
+                    userId,
+                    eventOccurrenceId: event.occurrence.id,
+                  }}
+                  className={classes.buttonLink}
+                >
+                  <Button component="span" fullWidth>
+                    Review progress
+                  </Button>
+                </Link>
+                <Button
+                  component="a"
+                  href={`/admin/events/instances/${encodeURIComponent(event.occurrence.id)}`}
+                  className={classes.buttonLink}
+                  variant="subtle"
+                  fullWidth
+                >
+                  View scheduled event
                 </Button>
-              </Link>
-              <Button
-                component="a"
-                href={`/admin/events/instances/${encodeURIComponent(event.occurrence.id)}`}
-                variant="subtle"
-                fullWidth
-              >
-                View scheduled event
-              </Button>
-            </Stack>
-          </Stack>
-        </Paper>
-      ))}
+              </>
+            }
+          >
+            <Text size="sm">
+              Starts{" "}
+              {formatLocalDateTime(event.occurrence.startsAt, {
+                timeZone: event.occurrence.timezone,
+              })}
+            </Text>
+          </LearnerProgressCard>
+        );
+      })}
     </div>
   );
 }

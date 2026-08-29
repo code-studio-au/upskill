@@ -75,6 +75,7 @@ export async function findAdminOnboarding(): Promise<AdminOnboardingData> {
         "onboarding_definition_version.contactVerificationRequired",
         "onboarding_definition_version.activatedAt",
         "onboarding_definition_version.deactivatedAt",
+        "learning_activity.id as surveyId",
         "learning_activity.title as surveyTitle",
         "learning_activity_version.version as surveyVersion",
       ])
@@ -83,19 +84,46 @@ export async function findAdminOnboarding(): Promise<AdminOnboardingData> {
       .execute(),
   ]);
   const history: Array<OnboardingConfiguration> = configurationRows.map(
-    (row) => ({
-      id: row.id,
-      version: row.version,
-      surveyVersionId: row.surveyVersionId,
-      surveyTitle: row.surveyTitle,
-      surveyVersion: row.surveyVersion,
-      privacyNotice: row.privacyNotice,
-      privacyNoticeVersion: row.privacyNoticeVersion,
-      profileMappings: parseMappings(row.profileMappings),
-      contactVerificationRequired: row.contactVerificationRequired,
-      activatedAt: row.activatedAt?.toISOString() ?? "",
-      deactivatedAt: row.deactivatedAt?.toISOString() ?? null,
-    }),
+    (row) => {
+      const mappings = parseMappings(row.profileMappings);
+      const survey = surveyRows.find(
+        (candidate) => candidate.id === row.surveyVersionId,
+      );
+      const surveyContent = survey
+        ? parseSurveyVersionContent(survey.content)
+        : null;
+      const questions = new Map(
+        surveyContent
+          ? surveyContent.sections.flatMap((section) =>
+              section.items.flatMap((item) =>
+                item.kind === "instruction" ? [] : [[item.id, item] as const],
+              ),
+            )
+          : [],
+      );
+      return {
+        id: row.id,
+        version: row.version,
+        surveyId: row.surveyId,
+        surveyVersionId: row.surveyVersionId,
+        surveyTitle: surveyContent?.title ?? row.surveyTitle,
+        surveyVersion: row.surveyVersion,
+        privacyNotice: row.privacyNotice,
+        privacyNoticeVersion: row.privacyNoticeVersion,
+        profileMappings: mappings,
+        mappingDetails: mappings.map((mapping) => {
+          const question = questions.get(mapping.questionId);
+          return {
+            ...mapping,
+            prompt: question?.prompt ?? "Question unavailable",
+            questionType: question?.kind.replaceAll("_", " ") ?? "unknown",
+          };
+        }),
+        contactVerificationRequired: row.contactVerificationRequired,
+        activatedAt: row.activatedAt?.toISOString() ?? "",
+        deactivatedAt: row.deactivatedAt?.toISOString() ?? null,
+      };
+    },
   );
   return {
     active:
@@ -103,6 +131,7 @@ export async function findAdminOnboarding(): Promise<AdminOnboardingData> {
         (configuration) =>
           configuration.activatedAt && !configuration.deactivatedAt,
       ) ?? null,
+    versions: history,
     surveyVersions: surveyRows.map((row) => ({
       id: row.id,
       surveyId: row.surveyId,

@@ -430,10 +430,13 @@ export async function findAdminCourse(
           "survey_version.id",
           "learning_activity.id as surveyId",
           "learning_activity.title",
+          sql<"elearning" | "shared">`learning_activity."surveyType"`.as(
+            "type",
+          ),
           "learning_activity_version.version",
         ])
         .where("learning_activity_version.publishedAt", "is not", null)
-        .where("learning_activity.surveyUsage", "=", "learning")
+        .where("learning_activity.surveyType", "in", ["elearning", "shared"])
         .orderBy("learning_activity.title")
         .orderBy("learning_activity_version.version", "desc")
         .execute(),
@@ -627,7 +630,7 @@ async function validateDraftReferences(
           .select("survey_version.id as id")
           .where("survey_version.id", "in", surveyIds)
           .where("learning_activity_version.publishedAt", "is not", null)
-          .where("learning_activity.surveyUsage", "=", "learning")
+          .where("learning_activity.surveyType", "in", ["elearning", "shared"])
           .execute(),
     emailVersionIds.length === 0
       ? []
@@ -917,6 +920,7 @@ export async function saveAdminCourseDraft(
 
 export async function createAdminCourseVersion(
   courseId: string,
+  sourceVersionId: string,
   administrator: AuthenticatedUser,
 ): Promise<
   | { status: "created"; versionId: string }
@@ -941,15 +945,19 @@ export async function createAdminCourseVersion(
         .execute();
       if (versions.some((version) => version.publishedAt === null))
         return { status: "conflict" } as const;
-      const source = versions[0];
+      const source = versions.find(
+        (version) => version.id === sourceVersionId && version.publishedAt,
+      );
       if (!source) return { status: "not-found" } as const;
+      const nextVersion =
+        Math.max(...versions.map(({ version }) => version)) + 1;
       const versionId = `course_version_${randomUUID()}`;
       await transaction
         .insertInto("course_version")
         .values({
           id: versionId,
           courseId,
-          version: source.version + 1,
+          version: nextVersion,
           content: source.content,
           publishedAt: null,
         })
@@ -982,7 +990,11 @@ export async function createAdminCourseVersion(
         action: "course.version_created",
         subjectType: "course_version",
         subjectId: versionId,
-        metadata: { courseId, sourceVersionId: source.id },
+        metadata: {
+          courseId,
+          sourceVersionId: source.id,
+          version: nextVersion,
+        },
       });
       return { status: "created", versionId } as const;
     });

@@ -4,7 +4,7 @@ import { AppDialog } from "./AppDialog";
 
 interface ConfirmationDialogProps {
   cancelLabel?: string;
-  confirmColor?: string;
+  confirmColor?: "blue" | "gray" | "green" | "indigo" | "red";
   confirmLabel: string;
   description: string;
   onCancel: () => void;

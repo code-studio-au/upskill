@@ -386,7 +386,11 @@ try {
     "Learner participation snapshot",
   );
   assert.deepEqual(event.sessions, []);
-  assert.equal(event.progress, null);
+  assert.ok(event.progress);
+  assert.equal(event.progress.state, "completed");
+  assert.equal(event.progress.completedAvailableItems, 1);
+  assert.equal(event.progress.availableItems, 1);
+  assert.equal(event.progress.sections[0]?.state, "completed");
   assert.deepEqual(event.history, []);
   assert.deepEqual(event.certificate, { offered: true, eligible: true });
   const profile = await findAdminLearnerProfile(ids.learner);

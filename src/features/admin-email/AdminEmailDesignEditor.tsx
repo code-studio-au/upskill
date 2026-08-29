@@ -130,7 +130,10 @@ export function AdminEmailDesignEditor({ detail }: Props) {
     setError(null);
     try {
       const result = await createAdminEmailDraft({
-        data: { emailDesignId: detail.design.id },
+        data: {
+          emailDesignId: detail.design.id,
+          sourceVersionId: detail.version.id,
+        },
       });
       if (result.status !== "ready" || !result.data.versionId) {
         setError("A new draft could not be created.");
@@ -285,7 +288,7 @@ export function AdminEmailDesignEditor({ detail }: Props) {
                     disabled={working !== null}
                     onClick={() => void createDraft()}
                   >
-                    Create new version
+                    Create new version from v{detail.version.version}
                   </Button>
                 ) : null}
                 {!detail.version.active ? (

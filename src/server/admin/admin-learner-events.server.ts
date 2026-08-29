@@ -379,27 +379,25 @@ async function findAdminLearnerEventRecords(
   const progressByParticipationId = new Map(
     (
       await Promise.all(
-        includeDetails
-          ? records.flatMap((record) => {
-              const source = record.participation ?? record.registration;
-              if (!record.participation || !source) return [];
-              return [
-                findEventParticipantProgress(
-                  source.eventOccurrenceId,
-                  source.eventTemplateVersionId,
-                  source.startsAt.toISOString(),
-                  source.endsAt.toISOString(),
-                  source.timezone,
-                  {
-                    administrator: true,
-                    coordinatorRegionIds: [],
-                    participantUserId: userId,
-                    includeInactiveRegistrations: true,
-                  },
-                ),
-              ];
-            })
-          : [],
+        records.flatMap((record) => {
+          const source = record.participation ?? record.registration;
+          if (!record.participation || !source) return [];
+          return [
+            findEventParticipantProgress(
+              source.eventOccurrenceId,
+              source.eventTemplateVersionId,
+              source.startsAt.toISOString(),
+              source.endsAt.toISOString(),
+              source.timezone,
+              {
+                administrator: true,
+                coordinatorRegionIds: [],
+                participantUserId: userId,
+                includeInactiveRegistrations: true,
+              },
+            ),
+          ];
+        }),
       )
     )
       .flat()
@@ -590,7 +588,7 @@ async function findAdminLearnerEventRecords(
       };
     })
     .sort((left, right) =>
-      right.occurrence.startsAt.localeCompare(left.occurrence.startsAt),
+      left.occurrence.startsAt.localeCompare(right.occurrence.startsAt),
     );
 }
 

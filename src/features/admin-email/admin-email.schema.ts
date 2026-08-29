@@ -23,6 +23,11 @@ export const adminEmailDesignParamsSchema = z.object({
   emailDesignId: identifierSchema,
 });
 
+export const adminEmailDesignCreateVersionSchema = z.object({
+  emailDesignId: identifierSchema,
+  sourceVersionId: identifierSchema,
+});
+
 export const adminEmailDesignSearchSchema = z.object({
   versionId: z.optional(identifierSchema),
 });

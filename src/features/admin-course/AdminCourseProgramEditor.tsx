@@ -263,6 +263,18 @@ export function AdminCourseProgramEditor({
                     </summary>
 
                     <div className={classes.itemEditor}>
+                      {item.kind === "scorm" ? (
+                        <Button
+                          component="a"
+                          href={`/api/admin/scorm-packages/${encodeURIComponent(item.scormPackageVersionId)}/preview`}
+                          target="_blank"
+                          rel="noreferrer"
+                          size="compact-xs"
+                          variant="light"
+                        >
+                          Preview SCORM
+                        </Button>
+                      ) : null}
                       {item.kind === "automated_email" ? (
                         <Button
                           size="compact-xs"

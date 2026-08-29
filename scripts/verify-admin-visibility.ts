@@ -333,6 +333,28 @@ try {
   assert.equal(enrollment.courseVersion, 3);
   assert.equal(enrollment.moduleCount, 1);
   assert.equal(enrollment.completedModuleCount, 1);
+  assert.equal(
+    enrollment.sections.reduce(
+      (total, section) => total + section.completedItems,
+      0,
+    ),
+    1,
+  );
+  assert.equal(
+    enrollment.sections.reduce(
+      (total, section) => total + section.totalItems,
+      0,
+    ),
+    1,
+  );
+  assert.deepEqual(enrollment.sections, [
+    {
+      id: ids.section,
+      title: "Verified section",
+      completedItems: 1,
+      totalItems: 1,
+    },
+  ]);
   assert.ok(enrollment.lastActivityAt);
   assert.equal(await findAdminLearnerProfile(administrator.id), null);
 

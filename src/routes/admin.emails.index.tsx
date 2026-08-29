@@ -16,11 +16,11 @@ import { Badge } from "#/features/shared/Badge";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { PageTabs } from "#/features/shared/PageTabs";
+import { OrderedCatalogue } from "#/features/shared/OrderedCatalogue";
 import {
   Alert,
   Button,
   Group,
-  Paper,
   Stack,
   Text,
   Title,
@@ -53,67 +53,40 @@ function EmailCatalogue({
   empty: string;
 }) {
   return (
-    <Stack gap="md">
-      {designs.length === 0 ? (
-        <Alert>{empty}</Alert>
-      ) : (
-        <div className={classes.catalogueGrid}>
-          {designs.map((design, index) => (
-            <Paper
-              component="article"
-              key={design.id}
-              withBorder
-              radius="lg"
-              p="md"
-              className={classes.card}
-            >
-              <Group justify="space-between" align="start" wrap="nowrap">
-                <Link
-                  to="/admin/emails/$emailDesignId"
-                  params={{ emailDesignId: design.id }}
-                  search={{ versionId: undefined }}
-                  className={classes.cardTitleLink}
-                >
-                  <Title order={3} size="h3">
-                    {design.name}
-                  </Title>
-                </Link>
-                <Group gap="xs" wrap="wrap" justify="flex-end">
-                  {design.activeVersion ? (
-                    <Badge color="green">Active v{design.activeVersion}</Badge>
-                  ) : (
-                    <Badge color="gray">Not published</Badge>
-                  )}
-                  {design.draftVersion ? (
-                    <Badge color="gray">Draft v{design.draftVersion}</Badge>
-                  ) : null}
-                </Group>
-              </Group>
-              <div className={classes.catalogueOrder}>
-                <button
-                  aria-label="Up"
-                  disabled={index === 0}
-                  onClick={() => {
-                    void move(design.id, "up");
-                  }}
-                >
-                  ↑
-                </button>
-                <button
-                  aria-label="Down"
-                  disabled={index === designs.length - 1}
-                  onClick={() => {
-                    void move(design.id, "down");
-                  }}
-                >
-                  ↓
-                </button>
-              </div>
-            </Paper>
-          ))}
-        </div>
-      )}
-    </Stack>
+    <OrderedCatalogue
+      empty={empty}
+      onMove={(id, direction) => {
+        void move(id, direction);
+      }}
+      items={designs.map((design) => ({
+        id: design.id,
+        label: design.name,
+        title: (
+          <Link
+            to="/admin/emails/$emailDesignId"
+            params={{ emailDesignId: design.id }}
+            search={{ versionId: undefined }}
+            className={classes.cardTitleLink}
+          >
+            <Title order={3} size="h3">
+              {design.name}
+            </Title>
+          </Link>
+        ),
+        status: (
+          <Group gap="xs" wrap="wrap" justify="flex-end">
+            {design.activeVersion ? (
+              <Badge color="green">Active v{design.activeVersion}</Badge>
+            ) : (
+              <Badge color="gray">Not published</Badge>
+            )}
+            {design.draftVersion ? (
+              <Badge color="gray">Draft v{design.draftVersion}</Badge>
+            ) : null}
+          </Group>
+        ),
+      }))}
+    />
   );
 }
 

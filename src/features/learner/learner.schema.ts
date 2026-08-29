@@ -26,6 +26,7 @@ export interface LearnerEvent {
   slug: string;
   title: string;
   eventTemplateTitle: string;
+  eventTemplateVersion: number;
   deliveryMode: "in_person" | "virtual";
   timezone: string;
   startsAt: string;
@@ -35,6 +36,16 @@ export interface LearnerEvent {
   canRegister: boolean;
   registrationUnavailableReason: "not_open" | "closed" | "full" | null;
   regions: Array<{ id: string; name: string }>;
+  progress: {
+    completedItems: number;
+    totalItems: number;
+    sections: Array<{
+      id: string;
+      title: string;
+      completedItems: number;
+      totalItems: number;
+    }>;
+  } | null;
 }
 
 export interface LearnerCourse {
@@ -43,6 +54,7 @@ export interface LearnerCourse {
   title: string;
   summary: string;
   durationMinutes: number;
+  courseVersion: number;
   state: EnrollmentState;
   enrolledAt: string;
   completedAt: string | null;
@@ -50,6 +62,16 @@ export interface LearnerCourse {
   certificate: {
     enrollmentId: string;
   } | null;
+  progress: {
+    completedItems: number;
+    totalItems: number;
+    sections: Array<{
+      id: string;
+      title: string;
+      completedItems: number;
+      totalItems: number;
+    }>;
+  };
 }
 
 export interface AvailableCourse {

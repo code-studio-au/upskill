@@ -139,6 +139,12 @@ interface AdminLearnerEnrollment {
   removedAt: string | null;
   moduleCount: number;
   completedModuleCount: number;
+  sections: Array<{
+    id: string;
+    title: string;
+    completedItems: number;
+    totalItems: number;
+  }>;
   lastActivityAt: string | null;
 }
 
@@ -299,12 +305,23 @@ export interface AdminLearnerProfile {
       status: "assigned" | "in_progress" | "completed" | "superseded";
       source: "automatic" | "administrator" | "campaign";
       definitionVersion: number;
+      surveyId: string;
+      surveyVersionId: string;
       surveyTitle: string;
       surveyVersion: number;
       assignedAt: string;
       startedAt: string | null;
       completedAt: string | null;
       supersededAt: string | null;
+      responseSections: Array<{
+        id: string;
+        title: string;
+        answers: Array<{
+          id: string;
+          prompt: string;
+          answer: string;
+        }>;
+      }>;
     }>;
   };
   enrollments: Array<AdminLearnerEnrollment>;

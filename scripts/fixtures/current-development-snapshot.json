@@ -26,6 +26,28 @@
         "smsVerifiedAt": null
       },
       {
+        "id": "user_local_enterprise_owner",
+        "name": "Enterprise Contract Owner",
+        "email": "enterprise.owner@codestudio.au",
+        "emailVerified": true,
+        "image": null,
+        "stripeCustomerId": null,
+        "createdAt": "2026-08-25T00:00:00.000Z",
+        "updatedAt": "2026-08-25T00:00:00.000Z",
+        "accountState": "active",
+        "provisioningSource": "access_owner",
+        "provisionedByUserId": "user_local_admin",
+        "setupRequestedAt": null,
+        "activatedAt": "2026-08-25T00:00:00.000Z",
+        "phone": null,
+        "currentRegionId": null,
+        "profileData": {},
+        "emailEnabled": true,
+        "emailVerifiedAt": "2026-08-25T00:00:00.000Z",
+        "smsEnabled": false,
+        "smsVerifiedAt": null
+      },
+      {
         "id": "user_local_learner_18",
         "name": "Learner 18",
         "email": "learner18@codestudio.au",
@@ -1118,6 +1140,12 @@
         "userId": "user_local_learner_20",
         "role": "learner",
         "createdAt": "2026-08-21T02:32:48.528Z"
+      },
+      {
+        "organizationId": "organization_nsw_health",
+        "userId": "user_local_enterprise_owner",
+        "role": "owner",
+        "createdAt": "2026-08-25T00:00:00.000Z"
       }
     ],
     "coordination_region": [
@@ -1587,7 +1615,7 @@
         "id": "survey_version_31e86e55-adf4-430a-b678-c4b3d0352ed2",
         "activityId": "survey_10f878c7-e0ce-45c3-bf95-9c43f435c06d",
         "kind": "survey",
-        "version": 7,
+        "version": 1,
         "publishedAt": "2026-08-22T13:16:58.400Z",
         "createdAt": "2026-08-22T13:14:37.134Z"
       },
@@ -1619,7 +1647,7 @@
         "id": "survey_version_9b8b53bc-3f5a-4d35-ae34-5b8ebce11dad",
         "activityId": "survey_fe8d834e-7f5f-42ed-a8c4-9405d60a9b0d",
         "kind": "survey",
-        "version": 2,
+        "version": 1,
         "publishedAt": null,
         "createdAt": "2026-08-22T12:43:29.902Z"
       },
@@ -3719,7 +3747,7 @@
       {
         "id": "onboarding_definition_version_dff7705f-80ba-4a7e-b813-623813330cb1",
         "definitionId": "onboarding_definition_default",
-        "version": 3,
+        "version": 1,
         "surveyVersionId": "survey_version_31e86e55-adf4-430a-b678-c4b3d0352ed2",
         "privacyNotice": "Upskill Institute understands the importance of keeping personal information private. We collect profile and employment information to provide learning, event coordination and reporting services. We disclose personal information only with consent or where required or permitted by law. Contact admin@upskill.institute with questions about how information is handled.",
         "privacyNoticeVersion": "1",
@@ -5016,7 +5044,7 @@
       {
         "id": "course_version_e5f07a83-0d0f-4d66-a458-b4efe31c681d",
         "courseId": "course_7f6f52cd-5994-4d7a-9e15-e0c97489f889",
-        "version": 4,
+        "version": 1,
         "content": {
           "title": "The Essentials: Training Clinicians in Eating Disorders",
           "topic": "Understanding Eating Disorders",
@@ -5218,7 +5246,7 @@
       {
         "id": "course_version_40ac7ea5-8452-46ea-b1dd-1559e84a2615",
         "courseId": "course_aece3b2c-5cd1-483d-9a3d-e58192836001",
-        "version": 3,
+        "version": 1,
         "content": {
           "title": "The Foundations of Eating Disorders",
           "topic": "Understanding Eating Disorders",
@@ -5312,7 +5340,7 @@
       {
         "id": "course_version_acf719f9-9d09-448f-84d5-91680f985ee5",
         "courseId": "course_c5f1ffba-d372-4a8e-804d-f6149f22c5af",
-        "version": 4,
+        "version": 1,
         "content": {
           "title": "Meal Support in the Hospital Setting",
           "topic": "Meal Support",
@@ -5439,7 +5467,7 @@
       {
         "id": "course_version_0ae007e9-9d20-4e18-a819-eb65b7ee1808",
         "courseId": "course_722ff8fc-ae21-4184-a531-491df260cb1b",
-        "version": 4,
+        "version": 1,
         "content": {
           "title": "Eating Disorder Inpatient Management: Adults",
           "topic": "Inpatient Management",
@@ -5577,7 +5605,7 @@
       {
         "id": "course_version_e207789a-99ae-4eee-889f-6d241ea85e09",
         "courseId": "course_4920ad8b-b7d5-4bd2-8956-b910406904d5",
-        "version": 5,
+        "version": 1,
         "content": {
           "title": "Cognitive Behavioural Therapy (CBT) for Eating Disorders: A Practice Based Introduction",
           "topic": "Cognitive Behavioural Therapy (CBT)",
@@ -7208,7 +7236,7 @@
       {
         "id": "event_template_version_b5518908-992d-4780-8837-cbe48ff9848a",
         "eventTemplateId": "event_template_ffe3304e-de73-427a-bbc4-2fdfaa6f3e31",
-        "version": 2,
+        "version": 1,
         "summary": "Two-day practice-based CBT-E training for eating-disorder clinicians.",
         "description": "Preparation, two facilitated workshop days and post-event evaluation.",
         "hasCompletionCertificate": true,
@@ -15805,6 +15833,141 @@
         "revokedByUserId": null
       }
     ],
+    "enterprise_contract": [
+      {
+        "id": "enterprise_contract_upskilling_2026",
+        "organizationId": "organization_nsw_health",
+        "reference": "Upskilling 2026",
+        "name": "Upskilling",
+        "status": "active",
+        "startsAt": "2026-01-01T00:00:00.000Z",
+        "expiresAt": "2027-01-01T00:00:00.000Z",
+        "enrollmentDurationDays": 365,
+        "autoEnrollCourses": true,
+        "renewedFromEnterpriseContractId": null,
+        "createdByUserId": "user_local_admin",
+        "createdAt": "2026-08-25T00:00:00.000Z",
+        "activatedAt": "2026-08-25T00:00:00.000Z",
+        "suspendedAt": null,
+        "terminatedAt": null,
+        "terminatedByUserId": null
+      }
+    ],
+    "enterprise_contract_course_coverage": [
+      {
+        "id": "enterprise_contract_upskilling_2026_course_cbti",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "courseId": "course_4920ad8b-b7d5-4bd2-8956-b910406904d5",
+        "courseTitleSnapshot": "Cognitive Behavioural Therapy (CBT) for Eating Disorders: A Practice Based Introduction",
+        "createdAt": "2026-08-25T00:00:00.000Z"
+      },
+      {
+        "id": "enterprise_contract_upskilling_2026_course_imed",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "courseId": "course_722ff8fc-ae21-4184-a531-491df260cb1b",
+        "courseTitleSnapshot": "Eating Disorder Inpatient Management: Adults",
+        "createdAt": "2026-08-25T00:00:00.000Z"
+      },
+      {
+        "id": "enterprise_contract_upskilling_2026_course_meal_support",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "courseId": "course_c5f1ffba-d372-4a8e-804d-f6149f22c5af",
+        "courseTitleSnapshot": "Meal Support in the Hospital Setting",
+        "createdAt": "2026-08-25T00:00:00.000Z"
+      },
+      {
+        "id": "enterprise_contract_upskilling_2026_course_essentials",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "courseId": "course_7f6f52cd-5994-4d7a-9e15-e0c97489f889",
+        "courseTitleSnapshot": "The Essentials: Training Clinicians in Eating Disorders",
+        "createdAt": "2026-08-25T00:00:00.000Z"
+      }
+    ],
+    "enterprise_contract_domain": [],
+    "enterprise_contract_event_coverage": [
+      {
+        "id": "enterprise_contract_upskilling_2026_event_imed",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "eventOccurrenceId": "event_occurrence_6dd040e7-1466-445b-95c4-47bc5e5fdc2d",
+        "eventTitleSnapshot": "IMED Adults · 3–4 September 2026",
+        "createdAt": "2026-08-25T00:00:00.000Z"
+      },
+      {
+        "id": "enterprise_contract_upskilling_2026_event_sscm",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "eventOccurrenceId": "event_occurrence_315ff198-fecd-45bf-a332-d4391e64339d",
+        "eventTitleSnapshot": "SSCM · 9–10 September 2026",
+        "createdAt": "2026-08-25T00:00:00.000Z"
+      }
+    ],
+    "enterprise_contract_employee_eligibility": [
+      {
+        "id": "enterprise_contract_upskilling_2026_employee_15",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "email": "learner15@codestudio.au",
+        "name": "Learner 15",
+        "importedByUserId": "user_local_admin",
+        "importedAt": "2026-08-25T00:00:00.000Z",
+        "removedAt": null,
+        "removedByUserId": null
+      },
+      {
+        "id": "enterprise_contract_upskilling_2026_employee_16",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "email": "learner16@codestudio.au",
+        "name": "Learner 16",
+        "importedByUserId": "user_local_admin",
+        "importedAt": "2026-08-25T00:00:00.000Z",
+        "removedAt": null,
+        "removedByUserId": null
+      },
+      {
+        "id": "enterprise_contract_upskilling_2026_employee_17",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "email": "learner17@codestudio.au",
+        "name": "Learner 17",
+        "importedByUserId": "user_local_admin",
+        "importedAt": "2026-08-25T00:00:00.000Z",
+        "removedAt": null,
+        "removedByUserId": null
+      },
+      {
+        "id": "enterprise_contract_upskilling_2026_employee_18",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "email": "learner18@codestudio.au",
+        "name": "Learner 18",
+        "importedByUserId": "user_local_admin",
+        "importedAt": "2026-08-25T00:00:00.000Z",
+        "removedAt": null,
+        "removedByUserId": null
+      }
+    ],
+    "enterprise_contract_owner_assignment": [
+      {
+        "id": "enterprise_contract_upskilling_2026_owner",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "userId": "user_local_enterprise_owner",
+        "invitedEmail": "enterprise.owner@codestudio.au",
+        "invitedByUserId": "user_local_admin",
+        "invitedAt": "2026-08-25T00:00:00.000Z",
+        "activatedAt": "2026-08-25T00:00:00.000Z",
+        "revokedAt": null,
+        "revokedByUserId": null
+      }
+    ],
+    "enterprise_contract_code": [
+      {
+        "id": "enterprise_contract_upskilling_2026_code",
+        "enterpriseContractId": "enterprise_contract_upskilling_2026",
+        "codePrefix": "UPSKILLING-2026",
+        "createdByUserId": "user_local_admin",
+        "createdAt": "2026-08-25T00:00:00.000Z",
+        "revokedAt": null,
+        "revokedByUserId": null
+      }
+    ],
+    "enterprise_contract_claim": [],
+    "enterprise_contract_event_registration": [],
     "bulk_order": [],
     "order_refund": []
   }

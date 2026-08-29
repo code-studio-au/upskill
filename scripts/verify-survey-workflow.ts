@@ -28,6 +28,7 @@ const database = new Kysely<Database>({
   }),
 });
 let surveyId: string | undefined;
+let secondarySurveyId: string | undefined;
 
 async function cleanup(): Promise<void> {
   const existingSurvey = await database
@@ -36,7 +37,15 @@ async function cleanup(): Promise<void> {
     .where("kind", "=", "survey")
     .where("title", "=", "Verified learner survey")
     .executeTakeFirst();
+  const existingSecondarySurvey = await database
+    .selectFrom("learning_activity")
+    .select("id")
+    .where("kind", "=", "survey")
+    .where("title", "=", "Verified secondary survey")
+    .executeTakeFirst();
   const targetSurveyId = surveyId ?? existingSurvey?.id;
+  const targetSecondarySurveyId =
+    secondarySurveyId ?? existingSecondarySurvey?.id;
   await database
     .deleteFrom("survey_progress")
     .where("enrollmentId", "=", ids.enrollment)
@@ -76,16 +85,31 @@ async function cleanup(): Promise<void> {
       .where("id", "=", targetSurveyId)
       .execute();
   }
+  if (targetSecondarySurveyId) {
+    await database
+      .deleteFrom("learning_activity_version")
+      .where("activityId", "=", targetSecondarySurveyId)
+      .execute();
+    await database
+      .deleteFrom("learning_activity")
+      .where("id", "=", targetSecondarySurveyId)
+      .execute();
+  }
   await database
     .deleteFrom("outbox_event")
-    .where("aggregateId", "in", [ids.enrollment, targetSurveyId ?? "missing"])
+    .where("aggregateId", "in", [
+      ids.enrollment,
+      targetSurveyId ?? "missing",
+      targetSecondarySurveyId ?? "missing-secondary",
+    ])
     .execute();
   await database.transaction().execute(async (transaction) => {
     await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
       transaction,
     );
     await sql`delete from audit_event where "subjectId" in (
-      ${ids.enrollment}, ${targetSurveyId ?? "missing"}
+      ${ids.enrollment}, ${targetSurveyId ?? "missing"},
+      ${targetSecondarySurveyId ?? "missing-secondary"}
     )`.execute(transaction);
   });
   await database.deleteFrom("user").where("id", "=", ids.user).execute();
@@ -108,16 +132,39 @@ try {
   const {
     createAdminSurvey,
     createAdminSurveyVersion,
+    findAdminSurveys,
     findAdminSurvey,
+    moveAdminSurvey,
     publishAdminSurveyVersion,
     saveAdminSurveyDraft,
   } = await import("#/server/admin/admin-survey.server");
   const created = await createAdminSurvey(
     "Verified learner survey",
-    "learning",
+    "elearning",
     user,
   );
   surveyId = created.surveyId;
+  const secondary = await createAdminSurvey(
+    "Verified secondary survey",
+    "elearning",
+    user,
+  );
+  secondarySurveyId = secondary.surveyId;
+  assert.equal(
+    await moveAdminSurvey({ surveyId, direction: "down" }, user),
+    "moved",
+  );
+  const orderedSurveys = (await findAdminSurveys()).filter(
+    (survey) => survey.id === surveyId || survey.id === secondarySurveyId,
+  );
+  assert.deepEqual(
+    orderedSurveys.map((survey) => survey.id),
+    [secondarySurveyId, surveyId],
+  );
+  assert.equal(
+    orderedSurveys.every((survey) => survey.type === "elearning"),
+    true,
+  );
   const draft: AdminSurveyDraft = {
     surveyId,
     versionId: created.versionId,
@@ -205,11 +252,23 @@ try {
     "published",
   );
   assert.equal(await saveAdminSurveyDraft(draft, user), "published");
-  const nextVersion = await createAdminSurveyVersion(surveyId, user);
+  const nextVersion = await createAdminSurveyVersion(
+    surveyId,
+    created.versionId,
+    user,
+  );
   assert.equal(nextVersion.status, "created");
   const detail = await findAdminSurvey(surveyId);
   assert.ok(detail);
   assert.equal(detail.version.version, 2);
+  assert.deepEqual(
+    detail.versions.map((version) => version.id),
+    [nextVersion.versionId, created.versionId],
+  );
+  assert.equal(
+    (await findAdminSurvey(surveyId, created.versionId))?.version.id,
+    created.versionId,
+  );
   assert.equal(detail.draft.sections.length, 4);
   assert.equal(detail.draft.sections[0]?.items.length, 1);
 

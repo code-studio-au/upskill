@@ -18,8 +18,18 @@ interface Tables extends Record<string, Array<Row>> {
   access_grant: Array<Row>;
   access_grant_code: Array<Row>;
   account: Array<Row>;
+  course_version_item: Array<Row>;
   email_design: Array<Row>;
+  enterprise_contract: Array<Row>;
+  enterprise_contract_code: Array<Row>;
+  enterprise_contract_course_coverage: Array<Row>;
+  enterprise_contract_employee_eligibility: Array<Row>;
+  enterprise_contract_event_coverage: Array<Row>;
+  enterprise_contract_owner_assignment: Array<Row>;
   event_survey_access: Array<Row>;
+  event_template_version_item: Array<Row>;
+  learning_activity: Array<Row>;
+  learning_activity_version: Array<Row>;
   onboarding_response: Array<Row>;
   phone_verification_claim: Array<Row>;
   scorm_package_version: Array<Row>;
@@ -85,6 +95,51 @@ function databaseValue(value: unknown): unknown {
   return typeof value === "object" && value !== null
     ? JSON.stringify(value)
     : value;
+}
+
+function normalizeSnapshotBaseVersions(fixture: SnapshotFixture): void {
+  const versionedTables = [
+    ["course_version", "courseId"],
+    ["email_design_version", "emailDesignId"],
+    ["event_template_version", "eventTemplateId"],
+    ["learning_activity_version", "activityId"],
+    ["onboarding_definition_version", "definitionId"],
+  ] as const;
+  for (const [table, aggregateKey] of versionedTables) {
+    const aggregateIds = new Set<string>();
+    fixture.tables[table] = (fixture.tables[table] ?? []).map((row) => {
+      const aggregateId = String(row[aggregateKey]);
+      if (aggregateIds.has(aggregateId))
+        throw new Error(
+          `Snapshot-only seed contains retained history for ${table} ${aggregateId}`,
+        );
+      aggregateIds.add(aggregateId);
+      return { ...row, version: 1 };
+    });
+  }
+}
+
+function assertCurrentFeatureSamples(fixture: SnapshotFixture): void {
+  const requiredTables = [
+    "enterprise_contract",
+    "enterprise_contract_code",
+    "enterprise_contract_course_coverage",
+    "enterprise_contract_employee_eligibility",
+    "enterprise_contract_event_coverage",
+    "enterprise_contract_owner_assignment",
+  ] as const;
+  for (const table of requiredTables)
+    if (fixture.tables[table].length === 0)
+      throw new Error(`Snapshot fixture has no sample data for ${table}`);
+  const ownerIds = new Set(
+    fixture.tables.enterprise_contract_owner_assignment.map((row) =>
+      String(row.userId),
+    ),
+  );
+  if (!fixture.tables.user.some((row) => ownerIds.has(String(row.id))))
+    throw new Error(
+      "Snapshot fixture has no enterprise contract owner account",
+    );
 }
 
 async function insertRows(
@@ -248,6 +303,39 @@ async function preserveMigrationSeededEmailDesigns(
   fixture.tables.email_design_version = (
     fixture.tables.email_design_version ?? []
   ).filter((row) => !existingVersionIds.has(String(row.id)));
+
+  const occupiedPositions = await client.query<{
+    contextKey: string;
+    maximumPosition: number;
+  }>(
+    `select "contextKey", max(position)::integer as "maximumPosition"
+       from email_design
+      group by "contextKey"`,
+  );
+  const nextPositionByContext = new Map(
+    occupiedPositions.rows.map((row) => [
+      row.contextKey,
+      row.maximumPosition + 1,
+    ]),
+  );
+  const orderedFixtureDesigns = fixture.tables.email_design.toSorted(
+    (left, right) =>
+      String(left.contextKey).localeCompare(String(right.contextKey)) ||
+      Number(left.position) - Number(right.position) ||
+      String(left.id).localeCompare(String(right.id)),
+  );
+  const remappedPositions = new Map<string, number>();
+  for (const row of orderedFixtureDesigns) {
+    const contextKey = String(row.contextKey);
+    const nextPosition = nextPositionByContext.get(contextKey);
+    if (nextPosition === undefined) continue;
+    remappedPositions.set(String(row.id), nextPosition);
+    nextPositionByContext.set(contextKey, nextPosition + 1);
+  }
+  fixture.tables.email_design = fixture.tables.email_design.map((row) => ({
+    ...row,
+    position: remappedPositions.get(String(row.id)) ?? row.position,
+  }));
 }
 
 async function regularFiles(directory: string): Promise<Array<string>> {
@@ -401,6 +489,47 @@ function prepareRuntimeRows(
   fixture: SnapshotFixture,
   passwordHash: string,
 ): void {
+  const activityByVersion = new Map(
+    fixture.tables.learning_activity_version.map((row) => [
+      String(row.id),
+      String(row.activityId),
+    ]),
+  );
+  const courseSurveyIds = new Set(
+    fixture.tables.course_version_item
+      .filter((row) => row.kind === "survey")
+      .map((row) =>
+        activityByVersion.get(String(row.learningActivityVersionId)),
+      )
+      .filter((id): id is string => Boolean(id)),
+  );
+  const eventSurveyIds = new Set(
+    fixture.tables.event_template_version_item
+      .filter((row) => row.kind === "survey")
+      .map((row) =>
+        activityByVersion.get(String(row.learningActivityVersionId)),
+      )
+      .filter((id): id is string => Boolean(id)),
+  );
+  const positions = new Map<string, number>();
+  fixture.tables.learning_activity = fixture.tables.learning_activity.map(
+    (row) => {
+      if (row.kind !== "survey")
+        return { ...row, surveyType: null, surveyPosition: null };
+      const id = String(row.id);
+      const type =
+        row.surveyUsage === "onboarding"
+          ? "system"
+          : courseSurveyIds.has(id) && eventSurveyIds.has(id)
+            ? "shared"
+            : eventSurveyIds.has(id)
+              ? "event"
+              : "elearning";
+      const position = positions.get(type) ?? 0;
+      positions.set(type, position + 1);
+      return { ...row, surveyType: type, surveyPosition: position };
+    },
+  );
   fixture.tables.event_survey_access.forEach((row, index) => {
     row.publicReference = publicReference(index);
   });
@@ -443,6 +572,32 @@ function prepareRuntimeRows(
       };
     },
   );
+  const usedLookupIds = new Set(
+    fixture.tables.access_grant_code.map((row) => String(row.lookupId)),
+  );
+  fixture.tables.enterprise_contract_code =
+    fixture.tables.enterprise_contract_code.map((row) => {
+      const codePrefix = String(row.codePrefix);
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const issued = issueAccessCode(codePrefix);
+        if (!issued || usedLookupIds.has(issued.lookupId)) continue;
+        usedLookupIds.add(issued.lookupId);
+        const storedRow = { ...row };
+        delete storedRow.codePrefix;
+        return {
+          ...storedRow,
+          lookupId: issued.lookupId,
+          encryptedAccessCode: encryptAccessCode({
+            accessCode: issued.accessCode,
+            accessGrantId: String(row.enterpriseContractId),
+            lookupId: issued.lookupId,
+          }),
+        };
+      }
+      throw new Error(
+        `Could not issue enterprise contract code for ${String(row.id)}`,
+      );
+    });
 }
 
 const insertionOrder = [
@@ -482,6 +637,14 @@ const insertionOrder = [
   "event_template_version_item",
   "event_template_version_communication",
   "event_occurrence",
+  "enterprise_contract",
+  "enterprise_contract_course_coverage",
+  "enterprise_contract_domain",
+  "enterprise_contract_event_coverage",
+  "enterprise_contract_employee_eligibility",
+  "enterprise_contract_owner_assignment",
+  "enterprise_contract_code",
+  "enterprise_contract_claim",
   "event_occurrence_domain",
   "event_occurrence_region",
   "event_session",
@@ -493,6 +656,7 @@ const insertionOrder = [
   "event_occurrence_reschedule_region_coordinator",
   "event_region_review_round",
   "event_registration",
+  "enterprise_contract_event_registration",
   "event_registration_transition",
   "event_registration_region_decision",
   "event_participation",
@@ -514,7 +678,7 @@ const insertionOrder = [
   "learning_item_progress",
 ] as const;
 
-async function main(): Promise<void> {
+export async function seedCurrentSnapshot(): Promise<void> {
   const configuredDatabaseUrl = process.env.DATABASE_URL;
   if (!configuredDatabaseUrl) throw new Error("DATABASE_URL is required");
   validateExecutionBoundary(configuredDatabaseUrl);
@@ -524,7 +688,10 @@ async function main(): Promise<void> {
   ) as SnapshotFixture;
   if (fixture.fixtureVersion !== 1)
     throw new Error("Unsupported snapshot fixture version");
+  assertCurrentFeatureSamples(fixture);
+  normalizeSnapshotBaseVersions(fixture);
   overlaySmsTestPhone(fixture);
+  const fixtureUserCount = fixture.tables.user.length;
 
   const client = new Client({ connectionString: env.DATABASE_URL });
   await client.connect();
@@ -572,6 +739,9 @@ async function main(): Promise<void> {
       fixture.tables.event_template_version ?? []
     ).map((row) => ({ ...row, publishedAt: null }));
     await client.query("begin");
+    await client.query(
+      "select set_config('upskill.enterprise_contract_maintenance', 'on', true)",
+    );
     for (const table of insertionOrder)
       await insertRows(client, table, fixture.tables[table] ?? []);
     for (const [id, activeVersionId] of activeEmailVersions)
@@ -604,7 +774,7 @@ async function main(): Promise<void> {
           source: fixture.sourceDescription,
           fixtureRowsConsidered: totalRows,
           usersAdded: fixture.tables.user.length,
-          existingUsersReused: 44 - fixture.tables.user.length,
+          existingUsersReused: fixtureUserCount - fixture.tables.user.length,
           scormPackages: fixture.tables.scorm_package_version.length,
           smsTestOverride: Boolean(smsTestPhone),
         },
@@ -622,4 +792,4 @@ async function main(): Promise<void> {
 
 const invokedPath = process.argv[1];
 if (invokedPath && import.meta.url === pathToFileURL(invokedPath).href)
-  await main();
+  await seedCurrentSnapshot();

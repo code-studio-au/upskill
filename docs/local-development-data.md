@@ -82,15 +82,16 @@ the enforced group code `NSW-HEALTH`. Names follow the
 
 ### Presenters and Access Owners
 
-| Email                                     | Seeded responsibility         |
-| ----------------------------------------- | ----------------------------- |
-| `presenter.cbte@codestudio.au`            | CBT-E                         |
-| `presenter.imed_adults@codestudio.au`     | IMED Adults                   |
-| `presenter.sscm@codestudio.au`            | SSCM                          |
-| `presenter.fbt@codestudio.au`             | FBT                           |
-| `presenter.imed_paediatric@codestudio.au` | IMED Paediatric               |
-| `owner.shared@codestudio.au`              | Shared-code access grants     |
-| `owner.unique@codestudio.au`              | Single-use-code access grants |
+| Email                                     | Seeded responsibility          |
+| ----------------------------------------- | ------------------------------ |
+| `presenter.cbte@codestudio.au`            | CBT-E                          |
+| `presenter.imed_adults@codestudio.au`     | IMED Adults                    |
+| `presenter.sscm@codestudio.au`            | SSCM                           |
+| `presenter.fbt@codestudio.au`             | FBT                            |
+| `presenter.imed_paediatric@codestudio.au` | IMED Paediatric                |
+| `owner.shared@codestudio.au`              | Shared-code access grants      |
+| `owner.unique@codestudio.au`              | Single-use-code access grants  |
+| `enterprise.owner@codestudio.au`          | Upskilling enterprise contract |
 
 Each Event Template has one presenter and both of its full-day sessions retain
 that presenter when Event Instances are scheduled.
@@ -142,6 +143,45 @@ printed to logs. The staging phone is inserted as SMS-enabled but unverified,
 with no active ownership claim, so the normal six-digit verification path is
 tested. The loader rejects the real-number override in development/test and
 rejects every seed attempt in production.
+
+Run the additive operation directly with:
+
+```sh
+sudo /usr/local/sbin/upskill-seed-staging
+```
+
+### Destructive staging reset
+
+When a clean staging database is intentionally required, add these two guards to
+the same root-only `upskill-seed.env` file:
+
+```dotenv
+ALLOW_STAGING_RESET=I_UNDERSTAND_THIS_DELETES_ALL_STAGING_DATA
+STAGING_RESET_DATABASE_TARGET=<exact-database-host>:5432/<database-name>
+```
+
+The target must exactly match the host, resolved port and database name in all
+three deployed database URLs. The reset also requires `APP_ENV=staging`, the
+exact `https://staging.upskill.institute` application origin, the additive seed
+confirmation and a verified active release. Local, production and mismatched
+database targets are rejected.
+
+Select `reset-and-seed` in the Deploy workflow's **Staging database action**
+dropdown, or run this equivalent operator command through an authenticated SSM
+session:
+
+```sh
+sudo /usr/local/sbin/upskill-reset-and-seed-staging
+```
+
+This is destructive: it stops the web and worker, drops only the staging
+database's fixed `public` schema, reapplies every migration, restores the
+least-privilege runtime grants and loads the snapshot. It then restarts the
+services and verifies readiness against the active release identity. If any
+post-reset step fails, the services remain stopped so a partially rebuilt
+database cannot be served. Use the normal `preserve` workflow selection for
+ordinary deployments. Confirm the RDS backup/PITR window before resetting any
+staging data that may still be needed.
 
 ## eLearning catalog
 
@@ -215,3 +255,17 @@ August–November 2026 schedule:
 The snapshot seed treats a complete rerun as a no-op and refuses partial fixture
 state so duplicate authoring or workflow data cannot be mistaken for a valid
 seed.
+
+## Enterprise blanket contract
+
+The active **Upskilling 2026** sample belongs to New South Wales Health and
+contains four covered courses, two scheduled events, four uploaded eligible
+employees (Learners 15–18), a dedicated active Contract Owner, automatic
+fulfilment and an encrypted access code that administrators can reveal. No
+claim is pre-created, so claiming the contract exercises the real course and
+event fulfilment path.
+
+Because the portable fixture retains only each entity's current snapshot, every
+seeded Course, Event Template, Survey, Onboarding configuration and fixture
+Email version starts at version 1. Versions created after the seed retain their
+real history and increment normally.

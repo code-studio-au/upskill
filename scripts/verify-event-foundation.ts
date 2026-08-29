@@ -581,7 +581,7 @@ try {
 
   const createdSurvey = await createAdminSurvey(
     "Verification event survey",
-    "learning",
+    "event",
     administrator,
   );
   eventSurveyId = createdSurvey.surveyId;

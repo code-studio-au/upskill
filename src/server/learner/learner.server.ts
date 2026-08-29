@@ -11,6 +11,8 @@ import type {
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
 import { getDatabase } from "#/server/db/database.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
+import { findEventParticipantProgress } from "#/server/events/event-operations.server";
+import { findCourseProgressSummaries } from "#/server/learning/course-progress-summary.server";
 
 function emailDomain(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -37,15 +39,29 @@ export async function findLearnerDashboard(
       "enrollment.completedAt",
       "enrollment.expiresAt",
       "enrollment.removedAt",
+      "enrollment.courseVersionId",
       "course.slug",
+      "course_version.version as courseVersion",
       "course_version.content",
     ])
     .where("enrollment.userId", "=", user.id)
     .orderBy("enrollment.enrolledAt", "desc")
     .execute();
 
+  const courseProgress = await findCourseProgressSummaries(
+    getDatabase(),
+    enrollmentRows.map((row) => ({
+      enrollmentId: row.enrollmentId,
+      courseVersionId: row.courseVersionId,
+    })),
+  );
   const courses: Array<LearnerCourse> = enrollmentRows.map((row) => {
     const content = courseContentSchema.parse(row.content);
+    const progress = courseProgress.get(row.enrollmentId) ?? {
+      completedItems: 0,
+      totalItems: 0,
+      sections: [],
+    };
     const state = row.removedAt
       ? "cancelled"
       : row.expiresAt && row.expiresAt <= now
@@ -57,6 +73,7 @@ export async function findLearnerDashboard(
       title: content.title,
       summary: content.summary,
       durationMinutes: content.durationMinutes,
+      courseVersion: row.courseVersion,
       state,
       enrolledAt: row.enrolledAt.toISOString(),
       completedAt: row.completedAt?.toISOString() ?? null,
@@ -67,6 +84,11 @@ export async function findLearnerDashboard(
         content.hasCompletionCertificate
           ? { enrollmentId: row.enrollmentId }
           : null,
+      progress: {
+        completedItems: progress.completedItems,
+        totalItems: progress.totalItems,
+        sections: progress.sections,
+      },
     };
   });
 
@@ -154,7 +176,7 @@ export async function findLearnerEventsDashboard(
       .execute(),
     getDatabase()
       .selectFrom("event_participation")
-      .select(["eventOccurrenceId", "mode"])
+      .select(["id", "eventOccurrenceId", "mode"])
       .where("userId", "=", user.id)
       .execute(),
   ]);
@@ -186,6 +208,8 @@ export async function findLearnerEventsDashboard(
       "event_occurrence.slug",
       "event_occurrence.title",
       "event_template.title as eventTemplateTitle",
+      "event_template_version.id as eventTemplateVersionId",
+      "event_template_version.version as eventTemplateVersion",
       "event_occurrence.deliveryMode",
       "event_occurrence.registrationMode",
       "event_occurrence.approvalMode",
@@ -215,7 +239,7 @@ export async function findLearnerEventsDashboard(
         .where("event_occurrence.endsAt", ">", now);
   const eventRows = await eventQuery.execute();
   const eventIds = eventRows.map((event) => event.eventOccurrenceId);
-  const [eventDomains, eventRegions] = eventIds.length
+  const [eventDomains, eventRegions, participantProgress] = eventIds.length
     ? await Promise.all([
         getDatabase()
           .selectFrom("event_occurrence_domain")
@@ -238,8 +262,32 @@ export async function findLearnerEventsDashboard(
           .where("occurrence_region.retiredAt", "is", null)
           .orderBy("occurrence_region.position")
           .execute(),
+        Promise.all(
+          eventRows.flatMap((event) => {
+            const participation = eventParticipations.find(
+              (candidate) =>
+                candidate.eventOccurrenceId === event.eventOccurrenceId,
+            );
+            return participation
+              ? [
+                  findEventParticipantProgress(
+                    event.eventOccurrenceId,
+                    event.eventTemplateVersionId,
+                    event.startsAt.toISOString(),
+                    event.endsAt.toISOString(),
+                    event.timezone,
+                    {
+                      administrator: false,
+                      coordinatorRegionIds: [],
+                      participantUserId: user.id,
+                    },
+                  ),
+                ]
+              : [];
+          }),
+        ).then((rows) => rows.flat()),
       ])
-    : [[], []];
+    : [[], [], []];
   const registrationByEvent = new Map(
     eventRegistrations.map((registration) => [
       registration.eventOccurrenceId,
@@ -250,6 +298,18 @@ export async function findLearnerEventsDashboard(
     eventParticipations.map((participation) => [
       participation.eventOccurrenceId,
       participation.mode,
+    ]),
+  );
+  const participationIdByEvent = new Map(
+    eventParticipations.map((participation) => [
+      participation.eventOccurrenceId,
+      participation.id,
+    ]),
+  );
+  const progressByParticipationId = new Map(
+    participantProgress.map((progress) => [
+      progress.eventParticipationId,
+      progress,
     ]),
   );
   const events: Array<LearnerEvent> = eventRows.flatMap((event) => {
@@ -282,6 +342,7 @@ export async function findLearnerEventsDashboard(
         slug: event.slug,
         title: event.title,
         eventTemplateTitle: event.eventTemplateTitle,
+        eventTemplateVersion: event.eventTemplateVersion,
         deliveryMode: event.deliveryMode,
         timezone: event.timezone,
         startsAt: event.startsAt.toISOString(),
@@ -307,6 +368,26 @@ export async function findLearnerEventsDashboard(
             (region) => region.eventOccurrenceId === event.eventOccurrenceId,
           )
           .map((region) => ({ id: region.id, name: region.name })),
+        progress: (() => {
+          const participationId = participationIdByEvent.get(
+            event.eventOccurrenceId,
+          );
+          const progress = participationId
+            ? progressByParticipationId.get(participationId)
+            : undefined;
+          return progress
+            ? {
+                completedItems: progress.completedAvailableItems,
+                totalItems: progress.totalItems,
+                sections: progress.sections.map((section) => ({
+                  id: section.id,
+                  title: section.title,
+                  completedItems: section.completedItems,
+                  totalItems: section.totalItems,
+                })),
+              }
+            : null;
+        })(),
       },
     ];
   });

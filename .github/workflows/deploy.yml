@@ -3,55 +3,67 @@ name: Deploy
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: Target environment
+      release_selection:
+        description: Verified release to deploy
         required: true
+        default: latest-successful
         type: choice
-        options: [staging, production]
-      release_sha:
-        description: Exact 40-character main commit SHA to deploy
+        options:
+          - latest-successful
+      environment:
+        description: Protected deployment environment
         required: true
-        type: string
+        default: staging
+        type: choice
+        options:
+          - staging
+      staging_data:
+        description: Staging database action after deployment
+        required: true
+        default: preserve
+        type: choice
+        options:
+          - preserve
+          - reset-and-seed
 
 permissions:
   contents: read
-  id-token: write
-  attestations: write
-  artifact-metadata: write
 
 concurrency:
   group: deploy-${{ inputs.environment }}
   cancel-in-progress: false
 
 jobs:
-  authorize:
+  deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 2
+    timeout-minutes: 45
+    environment: ${{ inputs.environment }}
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+      id-token: write
     steps:
-      - name: Confirm exact main release
+      - name: Validate protected deployment request
         env:
-          REQUESTED_RELEASE_SHA: ${{ inputs.release_sha }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          RELEASE_SELECTION: ${{ inputs.release_selection }}
+          STAGING_DATA: ${{ inputs.staging_data }}
         run: |
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
             echo "Deployments must be dispatched from main" >&2
             exit 1
           fi
-          if [[ ! "$REQUESTED_RELEASE_SHA" =~ ^[a-f0-9]{40}$ ]]; then
-            echo "release_sha must be a full lowercase Git commit" >&2
+          if [[ "$RELEASE_SELECTION" != "latest-successful" || "$DEPLOY_ENVIRONMENT" != "staging" ]]; then
+            echo "Only the latest successful release may be deployed to staging" >&2
             exit 1
           fi
-          if [[ "$REQUESTED_RELEASE_SHA" != "$GITHUB_SHA" ]]; then
-            echo "release_sha must exactly match the selected main commit" >&2
+          if [[ "$STAGING_DATA" != "preserve" && "$STAGING_DATA" != "reset-and-seed" ]]; then
+            echo "Unsupported staging database action" >&2
             exit 1
           fi
-
-  deploy:
-    needs: authorize
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: ${{ inputs.environment }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Checkout protected deployment tooling
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
       - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
@@ -60,19 +72,98 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version-file: .node-version
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm run verify:app
-      - name: Package immutable release
-        run: bash scripts/create-deploy-artifact.sh
-      - name: Verify deploy artifact in isolation
+      - name: Resolve latest successful Release workflow run
+        id: selected-release
         env:
-          UPSKILL_RELEASE_ARTIFACT: artifacts/upskill-${{ github.sha }}.tar.gz
-        run: pnpm run verify:release
-      - name: Attest release provenance
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_run_id="$(
+            gh api \
+              "repos/${GITHUB_REPOSITORY}/actions/workflows/release.yml/runs?branch=main&status=success&per_page=20" \
+              --jq '[
+                .workflow_runs[]
+                | select(
+                    .path == ".github/workflows/release.yml" and
+                    .event == "workflow_run"
+                  )
+              ][0].id // empty'
+          )"
+          if [[ ! "$release_run_id" =~ ^[1-9][0-9]*$ ]]; then
+            echo "No eligible successful Release workflow run was found" >&2
+            exit 1
+          fi
+          run_details="$(
+            gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${release_run_id}" \
+              --jq '[.id, .path, .conclusion, .head_branch, .event] | @tsv'
+          )"
+          IFS=$'\t' read -r run_id run_path run_conclusion run_branch run_event <<<"$run_details"
+          if [[ "$run_id" != "$release_run_id" ||
+            "$run_path" != ".github/workflows/release.yml" ||
+            "$run_conclusion" != "success" ||
+            "$run_branch" != "main" ||
+            "$run_event" != "workflow_run" ]]; then
+            echo "Selected run must be a successful main Release workflow run" >&2
+            exit 1
+          fi
+          echo "run_id=${release_run_id}" >> "$GITHUB_OUTPUT"
+      - name: Download retained release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          subject-path: artifacts/upskill-${{ github.sha }}.tar.gz
+          github-token: ${{ github.token }}
+          merge-multiple: true
+          path: artifacts
+          pattern: upskill-release-*
+          run-id: ${{ steps.selected-release.outputs.run_id }}
+      - name: Resolve retained release identity
+        id: release
+        run: |
+          shopt -s nullglob
+          artifacts=(artifacts/upskill-*.tar.gz)
+          if [[ "${#artifacts[@]}" -ne 1 ]]; then
+            echo "Expected one retained release artifact, found ${#artifacts[@]}" >&2
+            exit 1
+          fi
+          artifact_path="${artifacts[0]}"
+          if [[ ! "$artifact_path" =~ ^artifacts/upskill-([a-f0-9]{40})\.tar\.gz$ ]]; then
+            echo "Retained release artifact name is invalid" >&2
+            exit 1
+          fi
+          release_sha="${BASH_REMATCH[1]}"
+          manifest_sha="$(tar -xOf "$artifact_path" .upskill-release.json | jq -er .gitSha)"
+          if [[ "$manifest_sha" != "$release_sha" || ! -f "${artifact_path}.sha256" ]]; then
+            echo "Retained release identity is inconsistent" >&2
+            exit 1
+          fi
+          {
+            echo "artifact_path=${artifact_path}"
+            echo "release_sha=${release_sha}"
+          } >> "$GITHUB_OUTPUT"
+      - name: Verify retained release bundle
+        env:
+          UPSKILL_EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          UPSKILL_RELEASE_ARTIFACT: ${{ steps.release.outputs.artifact_path }}
+        run: pnpm run verify:release
+      - name: Verify signed release provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ARTIFACT: ${{ steps.release.outputs.artifact_path }}
+        run: |
+          gh attestation verify "$RELEASE_ARTIFACT" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml"
+      - name: Summarize resolved deployment request
+        env:
+          RELEASE_RUN_ID: ${{ steps.selected-release.outputs.run_id }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          STAGING_DATA: ${{ inputs.staging_data }}
+        run: |
+          {
+            echo "### Resolved staging deployment"
+            echo
+            echo "- Release run: \`${RELEASE_RUN_ID}\`"
+            echo "- Source: \`${RELEASE_SHA}\`"
+            echo "- Staging data: \`${STAGING_DATA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
@@ -80,14 +171,19 @@ jobs:
       - name: Upload content-addressed artifact
         env:
           ARTIFACT_BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
-        run: aws s3 cp "artifacts/upskill-${GITHUB_SHA}.tar.gz" "s3://${ARTIFACT_BUCKET}/releases/${GITHUB_SHA}.tar.gz" --sse AES256
+          RELEASE_ARTIFACT: ${{ steps.release.outputs.artifact_path }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+        run: aws s3 cp "$RELEASE_ARTIFACT" "s3://${ARTIFACT_BUCKET}/releases/${RELEASE_SHA}.tar.gz" --sse AES256
       - name: Deploy atomically through SSM
         env:
           ARTIFACT_BUCKET: ${{ secrets.ARTIFACT_BUCKET }}
+          RELEASE_ARTIFACT: ${{ steps.release.outputs.artifact_path }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          STAGING_DATA: ${{ inputs.staging_data }}
           TARGET_ENVIRONMENT: ${{ inputs.environment }}
         run: |
-          checksum=$(cut -d ' ' -f 1 "artifacts/upskill-${GITHUB_SHA}.tar.gz.sha256")
-          parameters=$(jq -cn --arg bucket "$ARTIFACT_BUCKET" --arg sha "$GITHUB_SHA" --arg checksum "$checksum" '{commands:["aws s3 cp s3://"+$bucket+"/releases/"+$sha+".tar.gz /tmp/upskill-release.tar.gz","printf \"%s  %s\\n\" "+$checksum+" /tmp/upskill-release.tar.gz | sha256sum --check --strict -","tar -xOf /tmp/upskill-release.tar.gz deploy/scripts/install-release.sh >/tmp/install-release.sh","chmod 700 /tmp/install-release.sh","sudo /tmp/install-release.sh /tmp/upskill-release.tar.gz "+$sha+" "+$checksum]}')
+          checksum=$(cut -d ' ' -f 1 "${RELEASE_ARTIFACT}.sha256")
+          parameters=$(jq -cn --arg bucket "$ARTIFACT_BUCKET" --arg sha "$RELEASE_SHA" --arg checksum "$checksum" '{commands:["aws s3 cp s3://"+$bucket+"/releases/"+$sha+".tar.gz /tmp/upskill-release.tar.gz","printf \"%s  %s\\n\" "+$checksum+" /tmp/upskill-release.tar.gz | sha256sum --check --strict -","tar -xOf /tmp/upskill-release.tar.gz deploy/scripts/install-release.sh >/tmp/install-release.sh","chmod 700 /tmp/install-release.sh","sudo /tmp/install-release.sh /tmp/upskill-release.tar.gz "+$sha+" "+$checksum]}')
           instance_id=$(aws ec2 describe-instances \
             --filters "Name=tag:Application,Values=upskill" "Name=tag:Environment,Values=${TARGET_ENVIRONMENT}" "Name=instance-state-name,Values=running" \
             --query 'Reservations[].Instances[].InstanceId' --output text)
@@ -99,9 +195,22 @@ jobs:
             --document-name AWS-RunShellScript \
             --instance-ids "$instance_id" \
             --parameters "$parameters" \
-            --comment "Deploy ${GITHUB_SHA}" \
+            --comment "Deploy ${RELEASE_SHA}" \
             --query 'Command.CommandId' --output text)
           aws ssm wait command-executed --command-id "$command_id" --instance-id "$instance_id"
           aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance_id"
           status=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$instance_id" --query Status --output text)
           test "$status" = Success
+          if [[ "$STAGING_DATA" == "reset-and-seed" ]]; then
+            reset_parameters=$(jq -cn '{commands:["sudo /usr/local/sbin/upskill-reset-and-seed-staging"]}')
+            reset_command_id=$(aws ssm send-command \
+              --document-name AWS-RunShellScript \
+              --instance-ids "$instance_id" \
+              --parameters "$reset_parameters" \
+              --comment "Reset and seed staging after ${RELEASE_SHA}" \
+              --query 'Command.CommandId' --output text)
+            aws ssm wait command-executed --command-id "$reset_command_id" --instance-id "$instance_id"
+            aws ssm get-command-invocation --command-id "$reset_command_id" --instance-id "$instance_id"
+            reset_status=$(aws ssm get-command-invocation --command-id "$reset_command_id" --instance-id "$instance_id" --query Status --output text)
+            test "$reset_status" = Success
+          fi

@@ -1,8 +1,6 @@
 import "@mantine/core/styles/baseline.css";
 import "@mantine/core/styles/default-css-variables.css";
 import "@mantine/core/styles/global.css";
-import "@mantine/core/styles/Button.css";
-import "@mantine/core/styles/Loader.css";
 import "#/styles/global.css";
 
 import { Container, Group, Text } from "#/features/shared/mantine";

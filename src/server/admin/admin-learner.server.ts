@@ -3,7 +3,11 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
-import { parseSurveyVersionContent } from "#/features/survey/survey.schema";
+import {
+  parseSurveyVersionContent,
+  type SurveyAnswerValue,
+  type SurveyItem,
+} from "#/features/survey/survey.schema";
 import type {
   AdminEnrollmentDetail,
   AdminLearnerDirectory,
@@ -19,12 +23,15 @@ import {
 } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import { isLearningComplete } from "#/server/learning/learning-completion.server";
+import { findCourseProgressSummaries } from "#/server/learning/course-progress-summary.server";
 import { findAdminLearnerEvents } from "./admin-learner-events.server";
-import { flattenedItems } from "#/server/learning/learner-survey.server";
+import {
+  flattenedItems,
+  storedAnswers,
+} from "#/server/learning/learner-survey.server";
 import {
   findEffectiveEnrollmentProgressOverride,
   findEffectiveModuleCompletion,
-  findEffectiveModuleCompletionForEnrollments,
 } from "#/server/learning/progress-overrides.server";
 
 const PAGE_SIZE = 20;
@@ -42,6 +49,65 @@ function learnerPredicate() {
 
 function searchPattern(query: string): string {
   return `%${query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+}
+
+function formatHistoricalSurveyAnswer(
+  item: Exclude<SurveyItem, { kind: "instruction" }>,
+  answer: SurveyAnswerValue | undefined,
+): string {
+  if (answer === undefined) return "Not answered";
+  if (item.kind === "checkbox") return answer === true ? "Yes" : "No";
+  if (item.kind === "date" && typeof answer === "string") {
+    const [year, month, day] = answer.split("-");
+    if (year && month && day) return `${day}/${month}/${year}`;
+  }
+  if (
+    item.kind === "single_choice" ||
+    item.kind === "multiple_choice" ||
+    item.kind === "dropdown"
+  ) {
+    const selected = Array.isArray(answer) ? answer : [answer];
+    return selected
+      .map(
+        (value) =>
+          item.options.find((option) => option.id === value)?.label ??
+          String(value),
+      )
+      .join(", ");
+  }
+  return String(answer);
+}
+
+function historicalOnboardingResponse(contentValue: unknown, value: unknown) {
+  const content = parseSurveyVersionContent(contentValue);
+  const answers = storedAnswers(value);
+  const pathItemIds = new Set(
+    flattenedItems(content, answers).map((item) => item.id),
+  );
+  return {
+    title: content.title,
+    sections: content.sections.flatMap((section) => {
+      const questions = section.items.filter(
+        (item): item is Exclude<SurveyItem, { kind: "instruction" }> =>
+          item.kind !== "instruction" && pathItemIds.has(item.id),
+      );
+      if (questions.length === 0) return [];
+      return [
+        {
+          id: section.id,
+          title: section.title,
+          answers: questions.map((question) => ({
+            id: question.id,
+            prompt: question.prompt,
+            answer: formatHistoricalSurveyAnswer(
+              question,
+              answers[question.id],
+            ),
+          })),
+        },
+      ];
+    }),
+  };
 }
 
 export async function findAdminOverview(
@@ -258,6 +324,8 @@ export async function findAdminLearnerProfile(
         "assignment.completedAt",
         "assignment.supersededAt",
         "definition_version.version as definitionVersion",
+        "survey.id as surveyId",
+        "survey_version.id as surveyVersionId",
         "survey.title as surveyTitle",
         "survey_version.version as surveyVersion",
       ])
@@ -287,15 +355,34 @@ export async function findAdminLearnerProfile(
       .executeTakeFirst(),
     findAdminLearnerEvents(userId),
   ]);
-  const moduleCompletionByEnrollment =
-    await findEffectiveModuleCompletionForEnrollments(
-      database,
-      rows.map((row) => ({
-        enrollmentId: row.id,
-        courseVersionId: row.courseVersionId,
-      })),
-    );
-
+  const courseProgressByEnrollment = await findCourseProgressSummaries(
+    database,
+    rows.map((row) => ({
+      enrollmentId: row.id,
+      courseVersionId: row.courseVersionId,
+    })),
+  );
+  const onboardingResponses =
+    onboardingRows.length === 0
+      ? []
+      : await database
+          .selectFrom("onboarding_response as response")
+          .innerJoin(
+            "survey_version as survey_content",
+            "survey_content.id",
+            "response.surveyVersionId",
+          )
+          .select([
+            "response.assignmentId",
+            "response.answers",
+            "survey_content.content",
+          ])
+          .where(
+            "response.assignmentId",
+            "in",
+            onboardingRows.map((assignment) => assignment.id),
+          )
+          .execute();
   return {
     learner: {
       id: learner.id,
@@ -318,16 +405,32 @@ export async function findAdminLearnerProfile(
             assignment.status as never,
           ),
         ),
-      assignments: onboardingRows.map((assignment) => ({
-        ...assignment,
-        assignedAt: assignment.assignedAt.toISOString(),
-        startedAt: assignment.startedAt?.toISOString() ?? null,
-        completedAt: assignment.completedAt?.toISOString() ?? null,
-        supersededAt: assignment.supersededAt?.toISOString() ?? null,
-      })),
+      assignments: onboardingRows.map((assignment) => {
+        const response = onboardingResponses.find(
+          (candidate) => candidate.assignmentId === assignment.id,
+        );
+        const historicalResponse = response
+          ? historicalOnboardingResponse(response.content, response.answers)
+          : null;
+        return {
+          ...assignment,
+          surveyTitle: historicalResponse?.title ?? assignment.surveyTitle,
+          responseSections: historicalResponse?.sections ?? [],
+          assignedAt: assignment.assignedAt.toISOString(),
+          startedAt: assignment.startedAt?.toISOString() ?? null,
+          completedAt: assignment.completedAt?.toISOString() ?? null,
+          supersededAt: assignment.supersededAt?.toISOString() ?? null,
+        };
+      }),
     },
     enrollments: rows.map((row) => {
-      const moduleCompletion = moduleCompletionByEnrollment.get(row.id) ?? [];
+      const progress = courseProgressByEnrollment.get(row.id) ?? {
+        completedItems: 0,
+        totalItems: 0,
+        completedModules: 0,
+        totalModules: 0,
+        sections: [],
+      };
       return {
         id: row.id,
         courseSlug: row.courseSlug,
@@ -342,10 +445,9 @@ export async function findAdminLearnerProfile(
         completedAt: row.completedAt?.toISOString() ?? null,
         expiresAt: row.expiresAt?.toISOString() ?? null,
         removedAt: row.removedAt?.toISOString() ?? null,
-        moduleCount: moduleCompletion.length,
-        completedModuleCount: moduleCompletion.filter(
-          (module) => module.state === "completed",
-        ).length,
+        moduleCount: progress.totalModules,
+        completedModuleCount: progress.completedModules,
+        sections: progress.sections,
         lastActivityAt: row.lastActivityAt?.toISOString() ?? null,
       };
     }),
@@ -637,9 +739,9 @@ export async function findAdminEnrollmentDetail(
           targets.every((item) => item.state === "completed")
             ? ("completed" as const)
             : ("incomplete" as const),
-        completedItems: items.filter((item) => item.state === "completed")
+        completedItems: targets.filter((item) => item.state === "completed")
           .length,
-        totalItems: items.length,
+        totalItems: targets.length,
         items,
       };
     }),

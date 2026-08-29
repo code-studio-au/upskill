@@ -29,7 +29,11 @@ export async function findEventParticipantProgress(
   occurrenceTimezone: string,
   visibility: EventParticipantProgressVisibility,
 ): Promise<Array<EventParticipantProgress>> {
-  if (!visibility.administrator && visibility.coordinatorRegionIds.length === 0)
+  if (
+    !visibility.administrator &&
+    visibility.coordinatorRegionIds.length === 0 &&
+    !visibility.participantUserId
+  )
     return [];
   const database = getDatabase();
   let participantQuery = database
@@ -74,7 +78,7 @@ export async function findEventParticipantProgress(
       "=",
       visibility.participantUserId,
     );
-  if (!visibility.administrator)
+  if (!visibility.administrator && !visibility.participantUserId)
     participantQuery = participantQuery.where((expression) =>
       expression.or([
         expression(

@@ -15,6 +15,7 @@ import {
 } from "#/server/admin/admin-course.server";
 import {
   createAdminEventTemplateVersion,
+  findAdminEventTemplate,
   saveAdminEventTemplateDraft,
 } from "#/server/admin/admin-event.server";
 import {
@@ -297,7 +298,11 @@ try {
       .execute(),
     /immutable/iu,
   );
-  const copiedCourseVersion = await createAdminCourseVersion(courseId, actor);
+  const copiedCourseVersion = await createAdminCourseVersion(
+    courseId,
+    courseVersionId,
+    actor,
+  );
   assert.equal(copiedCourseVersion.status, "created");
   const copiedCoursePlan = await database
     .selectFrom("course_version_communication")
@@ -668,9 +673,16 @@ try {
     .execute();
   const copiedEventVersion = await createAdminEventTemplateVersion(
     eventTemplateId,
+    eventTemplateVersionId,
     actor,
   );
   assert.equal(copiedEventVersion.status, "created");
+  assert.deepEqual(
+    (
+      await findAdminEventTemplate(eventTemplateId, eventTemplateVersionId)
+    )?.versions.map((version) => version.id),
+    [copiedEventVersion.eventTemplateVersionId, eventTemplateVersionId],
+  );
   const copiedEventPlan = await database
     .selectFrom("event_template_version_communication")
     .select(["sectionId", "sessionDefinitionId"])

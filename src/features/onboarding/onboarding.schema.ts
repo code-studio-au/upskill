@@ -65,12 +65,19 @@ interface OnboardingSurveyVersionOption {
 export interface OnboardingConfiguration {
   id: string;
   version: number;
+  surveyId: string;
   surveyVersionId: string;
   surveyTitle: string;
   surveyVersion: number;
   privacyNotice: string;
   privacyNoticeVersion: string;
   profileMappings: Array<z.infer<typeof onboardingProfileMappingSchema>>;
+  mappingDetails: Array<{
+    questionId: string;
+    destination: z.infer<typeof onboardingProfileMappingSchema>["destination"];
+    prompt: string;
+    questionType: string;
+  }>;
   contactVerificationRequired: boolean;
   activatedAt: string;
   deactivatedAt: string | null;
@@ -78,6 +85,7 @@ export interface OnboardingConfiguration {
 
 export interface AdminOnboardingData {
   active: OnboardingConfiguration | null;
+  versions: Array<OnboardingConfiguration>;
   surveyVersions: Array<OnboardingSurveyVersionOption>;
 }
 

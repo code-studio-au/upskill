@@ -74,6 +74,11 @@ export const adminEventTemplateParamsSchema = z.object({
   eventTemplateId: identifierSchema,
 });
 
+export const adminEventTemplateCreateVersionSchema = z.object({
+  eventTemplateId: identifierSchema,
+  sourceVersionId: identifierSchema,
+});
+
 export const adminEventTemplateSelectionSchema = z.object({
   eventTemplateId: identifierSchema,
   eventTemplateVersionId: z.optional(identifierSchema),
@@ -797,7 +802,12 @@ export interface AdminEventTemplateDetail {
   }>;
   library: {
     modules: Array<{ id: string; title: string; version: number }>;
-    surveys: Array<{ id: string; title: string; version: number }>;
+    surveys: Array<{
+      id: string;
+      title: string;
+      version: number;
+      type: "event" | "shared";
+    }>;
     resources: Array<{ id: string; title: string; version: number }>;
   };
 }

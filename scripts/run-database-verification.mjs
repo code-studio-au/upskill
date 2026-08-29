@@ -32,6 +32,9 @@ const verificationScripts = [
   "scripts/verify-provisional-account-notifications.ts",
   "scripts/verify-notification-operations.ts",
   "scripts/verify-sms-delivery.ts",
+  // The snapshot seed deliberately persists a complete data set, so verify it
+  // after mutation-focused scripts have completed and cleaned up their rows.
+  "scripts/verify-current-snapshot-seed.ts",
 ];
 const migrationScript = verificationScripts[0];
 const requestedScripts = process.argv.slice(2);

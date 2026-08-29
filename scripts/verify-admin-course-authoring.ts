@@ -123,6 +123,12 @@ try {
         kind: "survey",
         title: "Verified survey",
         surveyUsage: "learning",
+        surveyType: "elearning",
+        surveyPosition: sql<number>`coalesce((
+          select max("surveyPosition")
+            from learning_activity
+           where "surveyType" = 'elearning'
+        ), -1) + 1`,
       },
     ])
     .execute();
@@ -300,6 +306,7 @@ try {
 
   const versioned = await authoring.createAdminCourseVersion(
     created.courseId,
+    created.versionId,
     administrator,
   );
   assert.equal(versioned.status, "created");
@@ -314,6 +321,10 @@ try {
   );
   const second = await authoring.findAdminCourse(created.courseId);
   assert.ok(second);
+  assert.deepEqual(
+    second.versions.map((version) => version.id),
+    [versioned.versionId, created.versionId],
+  );
   const [preparationSection, learningSection] = second.draft.sections;
   assert.ok(preparationSection);
   assert.ok(learningSection);

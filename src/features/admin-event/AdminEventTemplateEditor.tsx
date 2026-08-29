@@ -144,7 +144,10 @@ export function AdminEventTemplateEditor({
     setError(null);
     try {
       const result = await createAdminEventVersion({
-        data: { eventTemplateId: detail.template.id },
+        data: {
+          eventTemplateId: detail.template.id,
+          sourceVersionId: detail.version.id,
+        },
       });
       if (result.status !== "ready") {
         setError("A successor version could not be created.");
@@ -213,7 +216,7 @@ export function AdminEventTemplateEditor({
           Back to event templates
         </Button>
         <Group gap="sm" align="center">
-          <Title order={1}>{detail.template.title}</Title>
+          <Title order={1}>{draft.title}</Title>
           <Badge variant="light">Version {detail.version.version}</Badge>
         </Group>
       </div>
@@ -281,7 +284,7 @@ export function AdminEventTemplateEditor({
               loading={pending === "version"}
               onClick={() => void createVersion()}
             >
-              Create new version
+              Create new version from version {detail.version.version}
             </Button>
           )}
         </div>

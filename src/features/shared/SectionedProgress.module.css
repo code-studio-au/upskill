@@ -1,0 +1,21 @@
+.track {
+  display: flex;
+  gap: 0.1875rem;
+  min-width: 0;
+}
+
+.segment {
+  display: grid;
+  gap: 0.25rem;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.label {
+  overflow: hidden;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

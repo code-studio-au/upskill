@@ -1395,6 +1395,7 @@ test("platform administrators can inspect learner progress", async ({
     ).toBeVisible();
     await page.getByRole("button", { name: "Create survey" }).click();
     await page.getByLabel("Survey title").fill(surveyTitles[0] ?? "");
+    await page.getByLabel("Survey type").selectOption("event");
     await page.getByRole("button", { name: "Create draft" }).click();
     await page.getByLabel("Title").fill(surveyTitles[1] ?? "");
     await page.getByRole("button", { name: /Questions/u }).click();

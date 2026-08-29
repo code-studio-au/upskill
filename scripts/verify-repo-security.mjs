@@ -400,6 +400,14 @@ const installRelease = fs.readFileSync(
   path.join(root, "deploy/scripts/install-release.sh"),
   "utf8",
 );
+const stagingReset = fs.readFileSync(
+  path.join(root, "deploy/scripts/reset-and-seed-staging.sh"),
+  "utf8",
+);
+const stagingResetDatabase = fs.readFileSync(
+  path.join(root, "scripts/reset-staging-database.ts"),
+  "utf8",
+);
 const provisionRuntimeRoles = fs.readFileSync(
   path.join(root, "src/server/db/provision-runtime-roles.ts"),
   "utf8",
@@ -432,9 +440,27 @@ for (const invariant of [
   "Release failed readiness checks and was rolled back",
   "/usr/local/sbin/upskill-bootstrap-platform-admin",
   "/usr/local/sbin/upskill-invite-platform-admin",
+  "/usr/local/sbin/upskill-reset-and-seed-staging",
 ])
   if (!installRelease.includes(invariant))
     failures.push(`Release installation safety is missing: ${invariant}`);
+for (const invariant of [
+  "I_UNDERSTAND_THIS_DELETES_ALL_STAGING_DATA",
+  "APP_ENV=staging",
+  "STAGING_RESET_DATABASE_TARGET",
+  "flock -n",
+  "systemctl stop upskill-web upskill-worker",
+  "services remain stopped",
+  "scripts/reset-staging-database.ts --validate-only",
+  "src/server/db/provision-runtime-roles.ts",
+  "scripts/seed-current-snapshot.ts",
+  "api/ready?deploymentId=${release_sha}",
+])
+  if (
+    !stagingReset.includes(invariant) &&
+    !stagingResetDatabase.includes(invariant)
+  )
+    failures.push(`Staging reset safety is missing: ${invariant}`);
 const environmentPreflightIndex = installRelease.indexOf(
   "scripts/validate-runtime-environment.ts",
 );
@@ -449,6 +475,10 @@ if (
   );
 const deployWorkflow = fs.readFileSync(
   path.join(root, ".github/workflows/deploy.yml"),
+  "utf8",
+);
+const releaseWorkflow = fs.readFileSync(
+  path.join(root, ".github/workflows/release.yml"),
   "utf8",
 );
 const ciWorkflow = fs.readFileSync(
@@ -474,31 +504,62 @@ if (
   failures.push("Playwright browsers must be restored before installation");
 for (const [name, workflow] of [
   ["CI", ciWorkflow],
+  ["release", releaseWorkflow],
   ["deployment", deployWorkflow],
 ])
   if (!workflow.includes("fetch-depth: 0"))
     failures.push(`${name} verification must fetch the migration baseline tag`);
 for (const invariant of [
   'GITHUB_REF" != "refs/heads/main',
-  'REQUESTED_RELEASE_SHA" != "$GITHUB_SHA',
-  "attestations: write",
-  "artifact-metadata: write",
-  "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
-  "UPSKILL_RELEASE_ARTIFACT: artifacts/upskill-${{ github.sha }}.tar.gz",
-  "subject-path: artifacts/upskill-${{ github.sha }}.tar.gz",
+  "latest-successful",
+  "actions: read",
+  "attestations: read",
+  "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+  "gh attestation verify",
+  "UPSKILL_EXPECTED_RELEASE_SHA: ${{ steps.release.outputs.release_sha }}",
+  "staging_data:",
+  "default: preserve",
+  "reset-and-seed",
+  "sudo /usr/local/sbin/upskill-reset-and-seed-staging",
 ])
   if (!deployWorkflow.includes(invariant))
     failures.push(`Deployment authorization is missing: ${invariant}`);
-const attestationIndex = deployWorkflow.indexOf("actions/attest@");
-const artifactUploadIndex = deployWorkflow.indexOf(
-  'aws s3 cp "artifacts/upskill-${GITHUB_SHA}.tar.gz"',
+for (const invariant of [
+  "github.event.workflow_run.conclusion == 'success'",
+  "github.event.workflow_run.head_branch == 'main'",
+  "github.event.workflow_run.event == 'push'",
+  "github.event.workflow_run.head_repository.full_name == github.repository",
+  "attestations: write",
+  "artifact-metadata: write",
+  "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
+  "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+  "UPSKILL_RELEASE_ARTIFACT: artifacts/upskill-${{ env.RELEASE_SHA }}.tar.gz",
+  "subject-path: artifacts/upskill-${{ env.RELEASE_SHA }}.tar.gz",
+])
+  if (!releaseWorkflow.includes(invariant))
+    failures.push(`Release authorization is missing: ${invariant}`);
+const attestationIndex = releaseWorkflow.indexOf("actions/attest@");
+const artifactRetentionIndex = releaseWorkflow.indexOf(
+  "actions/upload-artifact@",
 );
 if (
   attestationIndex < 0 ||
-  artifactUploadIndex < 0 ||
-  attestationIndex > artifactUploadIndex
+  artifactRetentionIndex < 0 ||
+  attestationIndex > artifactRetentionIndex
 )
-  failures.push("The release artifact must be attested before S3 upload");
+  failures.push("The release artifact must be attested before retention");
+const provenanceVerificationIndex = deployWorkflow.indexOf(
+  "gh attestation verify",
+);
+const artifactUploadIndex = deployWorkflow.indexOf(
+  'aws s3 cp "$RELEASE_ARTIFACT"',
+);
+if (
+  provenanceVerificationIndex < 0 ||
+  artifactUploadIndex < 0 ||
+  provenanceVerificationIndex > artifactUploadIndex
+)
+  failures.push("Signed release provenance must be verified before S3 upload");
 const workflowChecksumIndex = deployWorkflow.indexOf(
   "sha256sum --check --strict -",
 );

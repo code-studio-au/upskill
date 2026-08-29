@@ -267,6 +267,8 @@ interface LearningActivityTable {
   kind: "scorm" | "survey" | "resource";
   title: string;
   surveyUsage: Generated<"learning" | "onboarding" | null>;
+  surveyType: Generated<"system" | "elearning" | "event" | "shared" | null>;
+  surveyPosition: Generated<number | null>;
   createdAt: Timestamp;
 }
 
@@ -1473,6 +1475,7 @@ export type AuditEventAction =
   | "scorm.package_version_removed"
   | "survey.created"
   | "survey.published"
+  | "survey.reordered"
   | "survey.version_created"
   | "user.provisional_created"
   | "user.account_activated"

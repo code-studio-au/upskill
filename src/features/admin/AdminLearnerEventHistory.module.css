@@ -3,6 +3,10 @@
   gap: var(--mantine-spacing-md);
 }
 
+.eventCard {
+  height: 100%;
+}
+
 .eventHeader {
   align-items: flex-start;
   display: flex;

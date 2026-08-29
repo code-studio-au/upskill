@@ -3,6 +3,19 @@ import type { CourseVersionUsage } from "#/features/admin-course/course-version-
 
 export const SCORM_MAX_ARCHIVE_BYTES = 250 * 1024 * 1024;
 
+const scormIdentifierSchema = z
+  .string()
+  .check(
+    z.trim(),
+    z.minLength(1),
+    z.maxLength(255),
+    z.regex(/^[A-Za-z0-9_-]+$/u),
+  );
+
+export const adminScormPreviewParamsSchema = z.object({
+  packageVersionId: scormIdentifierSchema,
+});
+
 const scormArchiveSchema = z
   .custom<File>(
     (value) => typeof File !== "undefined" && value instanceof File,

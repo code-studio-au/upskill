@@ -75,24 +75,35 @@ async function verifySmsContact(
 
 async function cleanup(): Promise<void> {
   const userIds = [user.id, transferUser.id];
+  const definitionVersions = await database
+    .selectFrom("onboarding_definition_version")
+    .select("id")
+    .where("definitionId", "=", "onboarding_definition_default")
+    .execute();
+  const definitionVersionIds = definitionVersions.map((version) => version.id);
   const assignments = await database
     .selectFrom("onboarding_assignment")
     .select("id")
-    .where("userId", "in", userIds)
+    .where((expression) =>
+      expression.or([
+        expression("userId", "in", userIds),
+        ...(definitionVersionIds.length > 0
+          ? [expression("definitionVersionId", "in", definitionVersionIds)]
+          : []),
+      ]),
+    )
     .execute();
-  if (assignments.length > 0)
+  const assignmentIds = assignments.map((assignment) => assignment.id);
+  if (assignmentIds.length > 0) {
     await database
       .deleteFrom("onboarding_response")
-      .where(
-        "assignmentId",
-        "in",
-        assignments.map((assignment) => assignment.id),
-      )
+      .where("assignmentId", "in", assignmentIds)
       .execute();
-  await database
-    .deleteFrom("onboarding_assignment")
-    .where("userId", "in", userIds)
-    .execute();
+    await database
+      .deleteFrom("onboarding_assignment")
+      .where("id", "in", assignmentIds)
+      .execute();
+  }
   const notifications = await database
     .selectFrom("notification")
     .select("id")
@@ -232,7 +243,7 @@ try {
     await import("#/server/admin/admin-survey.server");
   const created = await createAdminSurvey(
     "Verified onboarding",
-    "onboarding",
+    "system",
     user,
   );
   surveyId = created.surveyId;
@@ -377,7 +388,7 @@ try {
     await publishAdminSurveyVersion(surveyId, created.versionId, user),
     "published",
   );
-  const { activateOnboardingConfiguration } =
+  const { activateOnboardingConfiguration, findAdminOnboarding } =
     await import("#/server/onboarding/admin-onboarding.server");
   const activation = await activateOnboardingConfiguration(
     {
@@ -433,6 +444,19 @@ try {
     user,
   );
   assert.equal(secondActivation.status, "activated");
+  const adminOnboarding = await findAdminOnboarding();
+  assert.equal(adminOnboarding.active?.id, secondActivation.configurationId);
+  assert.deepEqual(
+    adminOnboarding.versions.map((configuration) => configuration.id),
+    [secondActivation.configurationId, activation.configurationId],
+  );
+  assert.equal(
+    adminOnboarding.versions.find(
+      (configuration) => configuration.id === activation.configurationId,
+    )?.privacyNotice,
+    "Verification privacy notice",
+  );
+  assert.ok(adminOnboarding.versions[0]?.mappingDetails.length);
   assert.equal(
     (
       await database

@@ -30,7 +30,7 @@
 }
 
 .enrollmentGrid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .stat,
@@ -52,6 +52,44 @@
 }
 
 .buttonLink {
+  text-decoration: none;
+}
+
+.historyEntry + .historyEntry {
+  border-top: 0.0625rem solid var(--mantine-color-gray-3);
+  padding-top: var(--mantine-spacing-sm);
+}
+
+.responseDetails summary {
+  margin-top: var(--mantine-spacing-xs);
+  color: var(--mantine-color-indigo-7);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.answerList {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  margin-block: var(--mantine-spacing-xs) 0;
+}
+
+.answerList div {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.answerList dt {
+  font-weight: 600;
+}
+
+.answerList dd {
+  margin: 0;
+  color: var(--mantine-color-dimmed);
+  overflow-wrap: anywhere;
+}
+
+.historySurveyLink {
+  justify-self: start;
   text-decoration: none;
 }
 

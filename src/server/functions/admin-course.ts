@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
+  adminCourseCreateVersionSchema,
   adminCourseDraftSchema,
   adminCourseEnrollmentCreateSchema,
   adminCourseEnrollmentRemoveSchema,
@@ -98,7 +99,7 @@ export const saveAdminCourse = createServerFn({ method: "POST" })
   });
 
 export const createAdminCourseVersion = createServerFn({ method: "POST" })
-  .validator(adminCourseParamsSchema)
+  .validator(adminCourseCreateVersionSchema)
   .handler(async ({ data }): Promise<AdminCourseMutationResult> => {
     const { getAdministratorRequest } =
       await import("#/server/admin/admin-access.server");
@@ -106,7 +107,11 @@ export const createAdminCourseVersion = createServerFn({ method: "POST" })
     if (request.status !== "ready") return request;
     const { createAdminCourseVersion: createVersion } =
       await import("#/server/admin/admin-course.server");
-    const outcome = await createVersion(data.courseId, request.user);
+    const outcome = await createVersion(
+      data.courseId,
+      data.sourceVersionId,
+      request.user,
+    );
     if (outcome.status !== "created") {
       if (outcome.status === "not-found") return { status: "not-found" };
       return { status: "conflict", reason: "draft_exists_or_archived" };
