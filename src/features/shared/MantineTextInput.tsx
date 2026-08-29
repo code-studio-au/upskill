@@ -2,6 +2,7 @@ import {
   useId,
   type ChangeEventHandler,
   type FocusEventHandler,
+  type KeyboardEventHandler,
   type ReactNode,
   type Ref,
 } from "react";
@@ -30,6 +31,7 @@ interface MantineTextInputProps {
   name?: string;
   onBlur?: FocusEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   onChange?: ChangeEventHandler<HTMLInputElement | HTMLTextAreaElement>;
+  onKeyDown?: KeyboardEventHandler<HTMLInputElement | HTMLTextAreaElement>;
   pattern?: string;
   placeholder?: string;
   readOnly?: boolean;

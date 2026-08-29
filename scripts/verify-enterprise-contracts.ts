@@ -818,6 +818,16 @@ try {
       .then((row) => row.count),
     1,
   );
+  const automaticDirectoryContract = (
+    await findAdminEnterpriseContracts()
+  ).contracts.find(
+    (contract) => contract.id === automaticContract.enterpriseContractId,
+  );
+  assert.equal(
+    automaticDirectoryContract?.eventRegistrationCount,
+    1,
+    "The admin contract directory must report event enrolments",
+  );
   const auditActions = await database
     .selectFrom("audit_event")
     .select("action")

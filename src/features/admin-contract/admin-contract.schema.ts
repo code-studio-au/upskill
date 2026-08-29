@@ -185,6 +185,7 @@ export interface AdminEnterpriseContractDirectory {
     }>;
     claimCount: number;
     entitlementCount: number;
+    eventRegistrationCount: number;
     createdAt: string;
   }>;
 }

@@ -273,6 +273,10 @@ export async function findAdminEnterpriseContracts(): Promise<AdminEnterpriseCon
           where entitlement."originEnterpriseContractId" = contract.id
         )`.as("entitlementCount"),
         sql<number>`(
+          select count(*)::integer from enterprise_contract_event_registration registration
+          where registration."enterpriseContractId" = contract.id
+        )`.as("eventRegistrationCount"),
+        sql<number>`(
           select count(*)::integer from enterprise_contract_employee_eligibility employee
           where employee."enterpriseContractId" = contract.id and employee."removedAt" is null
         )`.as("employeeEligibilityCount"),
@@ -400,6 +404,7 @@ export async function findAdminEnterpriseContracts(): Promise<AdminEnterpriseCon
       owners: ownersByContract.get(contract.id) ?? [],
       claimCount: contract.claimCount,
       entitlementCount: contract.entitlementCount,
+      eventRegistrationCount: contract.eventRegistrationCount,
       createdAt: contract.createdAt.toISOString(),
     })),
   };

@@ -6,19 +6,16 @@ import classes from "./AdminEnterpriseContractManager.module.css";
 export interface ContractCoverageOption {
   id: string;
   title: string;
-  description: string;
 }
 
 export function ContractCoveragePicker({
   label,
-  description,
   emptyMessage,
   options,
   selectedIds,
   onChange,
 }: {
   label: string;
-  description: string;
   emptyMessage: string;
   options: ReadonlyArray<ContractCoverageOption>;
   selectedIds: Array<string>;
@@ -35,12 +32,7 @@ export function ContractCoveragePicker({
 
   return (
     <Stack gap="sm">
-      <div>
-        <Text fw={600}>{label}</Text>
-        <Text c="dimmed" size="sm">
-          {description}
-        </Text>
-      </div>
+      <Text fw={600}>{label}</Text>
       <LightweightAutocomplete
         type="search"
         label={`Add ${label.toLocaleLowerCase("en-AU")}`}
@@ -52,7 +44,6 @@ export function ContractCoveragePicker({
         options={available.map((option) => ({
           value: option.id,
           label: option.title,
-          description: option.description,
         }))}
         limit={8}
         onChange={setQuery}
@@ -69,9 +60,6 @@ export function ContractCoveragePicker({
                 <div className={classes.selectionIdentity}>
                   <Text fw={600} size="sm">
                     {option.title}
-                  </Text>
-                  <Text c="dimmed" size="xs">
-                    {option.description}
                   </Text>
                 </div>
                 <Button

@@ -1,3 +1,4 @@
+import { useId, useRef, useState } from "react";
 import { Button, Group, Paper, Stack, Title } from "#/features/shared/mantine";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
@@ -20,6 +21,18 @@ export function AdminCourseBulkPricingEditor({
   individualPriceCents: number;
   onChange: (pricing: BulkPricing) => void;
 }) {
+  const tierKeyPrefix = useId();
+  const nextTierKey = useRef(bulkPricing.tiers.length);
+  const [tierKeys, setTierKeys] = useState(() =>
+    bulkPricing.tiers.map((_, index) => `${tierKeyPrefix}-${String(index)}`),
+  );
+
+  function createTierKey(): string {
+    const key = `${tierKeyPrefix}-${String(nextTierKey.current)}`;
+    nextTierKey.current += 1;
+    return key;
+  }
+
   return (
     <Paper withBorder radius="md" p="md">
       <Stack gap="md">
@@ -32,6 +45,8 @@ export function AdminCourseBulkPricingEditor({
             checked={bulkPricing.enabled}
             disabled={!editable}
             onChange={(checked) => {
+              if (checked && bulkPricing.tiers.length === 0)
+                setTierKeys([createTierKey()]);
               onChange({
                 enabled: checked,
                 tiers:
@@ -53,10 +68,7 @@ export function AdminCourseBulkPricingEditor({
         {bulkPricing.enabled ? (
           <Stack gap="sm">
             {bulkPricing.tiers.map((tier, index) => (
-              <div
-                className={classes.tier}
-                key={`${String(tier.minimumQuantity)}-${String(tier.unitPriceCents)}`}
-              >
+              <div className={classes.tier} key={tierKeys[index]}>
                 <MantineTextInput
                   label="Minimum seats"
                   type="number"
@@ -102,8 +114,14 @@ export function AdminCourseBulkPricingEditor({
                 />
                 {editable ? (
                   <Button
+                    type="button"
                     variant="default"
                     onClick={() => {
+                      setTierKeys((current) =>
+                        current.filter(
+                          (_, candidateIndex) => candidateIndex !== index,
+                        ),
+                      );
                       onChange({
                         ...bulkPricing,
                         tiers: bulkPricing.tiers.filter(
@@ -119,9 +137,12 @@ export function AdminCourseBulkPricingEditor({
             ))}
             {editable && bulkPricing.tiers.length < 20 ? (
               <Button
+                type="button"
                 variant="light"
                 onClick={() => {
                   const last = bulkPricing.tiers.at(-1);
+                  const tierKey = createTierKey();
+                  setTierKeys((current) => [...current, tierKey]);
                   onChange({
                     ...bulkPricing,
                     tiers: [

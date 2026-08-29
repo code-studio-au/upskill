@@ -152,6 +152,7 @@ function ContractCard({ contract }: { contract: AdminEnterpriseContract }) {
     ["Eligible employees", String(contract.employeeEligibilityCount)],
     ["Learners claimed", String(contract.claimCount)],
     ["Enrolments issued", String(contract.entitlementCount)],
+    ["Events enrolled", String(contract.eventRegistrationCount)],
   ];
   const coverage = [
     {
@@ -663,12 +664,17 @@ export function AdminEnterpriseContractManager({
     (count, contract) => count + contract.employeeEligibilityCount,
     0,
   );
+  const eventRegistrationCount = contracts.reduce(
+    (count, contract) => count + contract.eventRegistrationCount,
+    0,
+  );
   const summary = [
     ["Total contracts", contracts.length],
     ["Active", activeCount],
     ["Drafts", draftCount],
     ["Covered offerings", offeringCount],
     ["Eligible employees", employeeCount],
+    ["Events enrolled", eventRegistrationCount],
   ];
   return (
     <Stack gap="xl">

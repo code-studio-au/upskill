@@ -1191,6 +1191,30 @@ test("platform administrators can inspect learner progress", async ({
         name: "Add covered scheduled events",
       }),
     ).toBeVisible();
+    const domainInput = page.getByRole("textbox", {
+      name: "Eligible verified-email domains",
+    });
+    await domainInput.fill("example.org");
+    await domainInput.press("Enter");
+    const addedDomains = page.getByLabel(
+      "Eligible verified-email domains added",
+    );
+    await expect(
+      addedDomains.getByText("example.org", { exact: true }),
+    ).toBeVisible();
+    await addedDomains.getByRole("button", { name: "Remove" }).click();
+    await expect(addedDomains).not.toBeVisible();
+    const ownerInput = page.getByRole("textbox", {
+      name: "Contract Access Owners",
+    });
+    await ownerInput.fill("owner@example.org");
+    await ownerInput.press("Enter");
+    const addedOwners = page.getByLabel("Contract Access Owners added");
+    await expect(
+      addedOwners.getByText("owner@example.org", { exact: true }),
+    ).toBeVisible();
+    await addedOwners.getByRole("button", { name: "Remove" }).click();
+    await expect(addedOwners).not.toBeVisible();
     await courseCoverageCombobox.click();
     await page.getByRole("option").first().click();
     const selectedCourseCoverage = page.getByLabel("Covered courses selected");
@@ -1306,6 +1330,18 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page.getByLabel("Title")).toHaveValue(
       "E2E edited course draft",
     );
+    await page.getByLabel("Original price (AUD)").fill("100");
+    await page.getByLabel("Allow bulk purchases").check();
+    const minimumSeats = page.getByLabel("Minimum seats");
+    await minimumSeats.press("ControlOrMeta+A");
+    await minimumSeats.pressSequentially("12");
+    await expect(minimumSeats).toHaveValue("12");
+    await expect(minimumSeats).toBeFocused();
+    const pricePerSeat = page.getByLabel("Price per seat (AUD)");
+    await pricePerSeat.press("ControlOrMeta+A");
+    await pricePerSeat.pressSequentially("75");
+    await expect(pricePerSeat).toHaveValue("75");
+    await expect(pricePerSeat).toBeFocused();
     await page.getByRole("button", { name: "Program (0)" }).click();
     await page.getByRole("button", { name: "Add section" }).click();
     await page.getByRole("heading", { name: "Section 1" }).click();
