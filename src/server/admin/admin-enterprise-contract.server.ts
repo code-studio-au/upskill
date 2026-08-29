@@ -273,6 +273,10 @@ export async function findAdminEnterpriseContracts(): Promise<AdminEnterpriseCon
           where entitlement."originEnterpriseContractId" = contract.id
         )`.as("entitlementCount"),
         sql<number>`(
+          select count(*)::integer from enterprise_contract_event_registration registration
+          where registration."enterpriseContractId" = contract.id
+        )`.as("eventRegistrationCount"),
+        sql<number>`(
           select count(*)::integer from enterprise_contract_employee_eligibility employee
           where employee."enterpriseContractId" = contract.id and employee."removedAt" is null
         )`.as("employeeEligibilityCount"),
@@ -400,6 +404,7 @@ export async function findAdminEnterpriseContracts(): Promise<AdminEnterpriseCon
       owners: ownersByContract.get(contract.id) ?? [],
       claimCount: contract.claimCount,
       entitlementCount: contract.entitlementCount,
+      eventRegistrationCount: contract.eventRegistrationCount,
       createdAt: contract.createdAt.toISOString(),
     })),
   };
@@ -1075,7 +1080,7 @@ export async function bulkEnrollAdminEnterpriseContract(
         .where("id", "=", input.enterpriseContractId)
         .executeTakeFirst();
       if (!contract) return { status: "not-found" } as const;
-      const [claims, coverage] = await Promise.all([
+      const [claims, courseCoverage, eventCoverage] = await Promise.all([
         transaction
           .selectFrom("enterprise_contract_claim")
           .select((expression) => expression.fn.countAll<number>().as("count"))
@@ -1087,8 +1092,13 @@ export async function bulkEnrollAdminEnterpriseContract(
           .select((expression) => expression.fn.countAll<number>().as("count"))
           .where("enterpriseContractId", "=", contract.id)
           .executeTakeFirstOrThrow(),
+        transaction
+          .selectFrom("enterprise_contract_event_coverage")
+          .select((expression) => expression.fn.countAll<number>().as("count"))
+          .where("enterpriseContractId", "=", contract.id)
+          .executeTakeFirstOrThrow(),
       ]);
-      if (claims.count * coverage.count > 5_000)
+      if (claims.count * (courseCoverage.count + eventCoverage.count) > 5_000)
         return { status: "conflict", reason: "bulk_too_large" } as const;
       const result = await enrollEnterpriseContractClaims(
         transaction,
@@ -1101,7 +1111,7 @@ export async function bulkEnrollAdminEnterpriseContract(
         action: "enterprise_contract.bulk_enrollment_completed",
         subjectType: "enterprise_contract",
         subjectId: contract.id,
-        metadata: result,
+        metadata: { ...result },
         createdAt: now,
       });
       return {

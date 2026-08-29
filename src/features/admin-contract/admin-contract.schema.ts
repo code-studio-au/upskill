@@ -185,6 +185,7 @@ export interface AdminEnterpriseContractDirectory {
     }>;
     claimCount: number;
     entitlementCount: number;
+    eventRegistrationCount: number;
     createdAt: string;
   }>;
 }
@@ -216,6 +217,8 @@ export type AdminEnterpriseContractMutationResult =
       importedCount?: number;
       enrolledCount?: number;
       skippedCount?: number;
+      eventRegisteredCount?: number;
+      eventSkippedCount?: number;
     }>
   | {
       status: "conflict";

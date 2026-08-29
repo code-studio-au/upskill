@@ -1,52 +1,315 @@
 .header,
+.pageHeader,
 .cardHeader,
-.facts,
+.statusActions,
 .actions,
-.issuedActions {
+.formActions {
   display: flex;
+  gap: var(--mantine-spacing-md);
   align-items: center;
-  gap: var(--mantine-spacing-sm);
   flex-wrap: wrap;
 }
 
 .header,
-.cardHeader {
+.pageHeader,
+.cardHeader,
+.formActions {
   justify-content: space-between;
   align-items: flex-start;
 }
 
-.grid {
+.buttonLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.pageStack,
+.formStack {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--mantine-spacing-lg);
+}
+
+.formStack {
   gap: var(--mantine-spacing-md);
+}
+
+.eyebrow,
+.intro,
+.sectionHeading p,
+.formActions p {
+  margin: 0;
+}
+
+.eyebrow {
+  color: var(--mantine-color-indigo-7);
+  font-weight: 700;
+}
+
+.intro {
+  max-width: 47.5rem;
+  color: var(--mantine-color-dimmed);
+}
+
+.formSection {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  min-width: 0;
+  padding: var(--mantine-spacing-lg);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-body);
+}
+
+.formSection h2,
+.formSection p,
+.pageHeader h1,
+.pageStack > header h1 {
+  overflow-wrap: anywhere;
+}
+
+.sectionHeading h2,
+.pageHeader h1,
+.pageStack > header h1 {
+  margin: 0;
+}
+
+.sectionHeading p,
+.formActions p {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.grid,
+.formGrid,
+.formGridThree {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.formGridThree {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.checkboxPanel {
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.sectionDivider {
+  width: 100%;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.selectionList,
+.ownerList {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+}
+
+.addListRow > :first-child {
+  flex: 1;
+}
+
+.selectionIdentity,
+.ownerIdentity,
+.contractIdentity {
+  min-width: 0;
+}
+
+.selectionIdentity p,
+.ownerIdentity p,
+.contractIdentity p {
+  overflow-wrap: anywhere;
+}
+
+.selectionEmpty {
+  padding: var(--mantine-spacing-md);
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+  text-align: center;
+  border: 1px dashed var(--mantine-color-gray-4);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.formActions {
+  position: sticky;
+  z-index: 5;
+  bottom: var(--mantine-spacing-sm);
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: color-mix(in srgb, var(--mantine-color-body) 94%, transparent);
+  box-shadow: var(--mantine-shadow-sm);
+}
+
+.directorySummary {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .contractGrid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--mantine-spacing-md);
+  gap: var(--mantine-spacing-lg);
 }
 
-.courseList {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--mantine-spacing-xs) var(--mantine-spacing-md);
-  max-height: 18rem;
-  overflow-y: auto;
-  padding: var(--mantine-spacing-sm);
+.contractCard {
+  min-width: 0;
+  overflow: hidden;
   border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-body);
+}
+
+.contractCardBody {
+  display: grid;
+  gap: var(--mantine-spacing-lg);
+  padding: var(--mantine-spacing-xl);
+}
+
+.contractIdentity h2,
+.contractIdentity p,
+.contractSection h3,
+.contractSection p {
+  margin: 0;
+}
+
+.muted,
+.contractSection header p {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.ownerIdentity strong,
+.ownerIdentity small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.statusActions {
+  justify-content: flex-end;
+}
+
+.contractFacts {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-gray-2);
   border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.contractFacts > div {
+  min-width: 0;
+}
+
+.contractFacts span,
+.contractFacts strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.contractFacts span {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.contractFacts strong {
+  font-size: var(--mantine-font-size-sm);
+}
+
+.contractColumns {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.contractSection {
+  display: grid;
+  align-content: start;
+  gap: var(--mantine-spacing-md);
+  min-width: 0;
+  padding: var(--mantine-spacing-lg);
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-gray-0);
 }
 
 .pillList {
   display: flex;
-  flex-wrap: wrap;
   gap: var(--mantine-spacing-xs);
+  flex-wrap: wrap;
 }
 
-.ownerList {
+.coveragePill {
+  flex: 0 1 auto;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.ownerRow {
+  display: flex;
+  gap: var(--mantine-spacing-sm);
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--mantine-spacing-sm);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-body);
+}
+
+.managementDisclosure {
+  overflow: hidden;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+}
+
+.managementDisclosure > summary {
+  padding: var(--mantine-spacing-md);
+  list-style: none;
+  font-weight: 700;
+  cursor: pointer;
+  background: var(--mantine-color-gray-0);
+}
+
+.managementDisclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.managementDisclosure > summary::after {
+  float: right;
+  color: var(--mantine-color-indigo-7);
+  content: "Open";
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+}
+
+.managementDisclosure[open] > summary {
+  border-bottom: 1px solid var(--mantine-color-gray-2);
+}
+
+.managementDisclosure[open] > summary::after {
+  content: "Close";
+}
+
+.managementBody {
   display: grid;
-  gap: var(--mantine-spacing-xs);
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md);
+}
+
+.actions {
+  gap: var(--mantine-spacing-sm);
 }
 
 .issuedCode {
@@ -56,23 +319,80 @@
 }
 
 .sectionLabel {
+  display: block;
   margin-bottom: var(--mantine-spacing-xs);
+  font-size: var(--mantine-font-size-sm);
+}
+
+@media (max-width: 75em) {
+  .directorySummary,
+  .contractFacts {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 62em) {
-  .contractGrid {
+  .contractColumns {
     grid-template-columns: 1fr;
+  }
+
+  .formGridThree {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 48em) {
   .grid,
-  .courseList {
+  .formGrid,
+  .formGridThree,
+  .directorySummary,
+  .contractFacts {
     grid-template-columns: 1fr;
   }
 
+  .header,
+  .pageHeader,
+  .cardHeader,
+  .formActions,
+  .ownerRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .statusActions {
+    justify-content: flex-start;
+  }
+
   .actions > *,
-  .issuedActions > * {
-    flex: 1 1 100%;
+  .statusActions > *,
+  .formActions > :last-child,
+  .formActions > :last-child > *,
+  .ownerRow > button {
+    width: 100%;
+  }
+
+  .addListRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .addListRow > button {
+    width: 100%;
+  }
+
+  .contractSection {
+    padding: var(--mantine-spacing-md);
+  }
+
+  .contractCardBody {
+    padding: var(--mantine-spacing-lg);
+  }
+
+  .formSection {
+    padding: var(--mantine-spacing-md);
+  }
+
+  .formActions {
+    position: static;
   }
 }

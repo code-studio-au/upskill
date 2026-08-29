@@ -1,9 +1,9 @@
 type LocalDateValue = string | number | Date;
 
-const localDateFormatter = new Intl.DateTimeFormat(undefined, {
+const localDateFormatter = new Intl.DateTimeFormat("en-AU", {
   dateStyle: "medium",
 });
-const dateOnlyFormatter = new Intl.DateTimeFormat(undefined, {
+const dateOnlyFormatter = new Intl.DateTimeFormat("en-AU", {
   dateStyle: "medium",
   timeZone: "UTC",
 });
@@ -22,7 +22,7 @@ export function formatLocalDateTime(
   const key = options.timeZone ?? "local";
   let formatter = localDateTimeFormatters.get(key);
   if (!formatter) {
-    formatter = new Intl.DateTimeFormat(undefined, {
+    formatter = new Intl.DateTimeFormat("en-AU", {
       dateStyle: "medium",
       timeStyle: "short",
       ...options,

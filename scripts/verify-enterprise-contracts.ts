@@ -387,7 +387,7 @@ try {
       domains: "verified.example.com",
       courseIds: [ids.coveredCourse],
       eventOccurrenceIds: [ids.eventOccurrence],
-      ownerEmails: "",
+      ownerEmails: users.administrator.email,
     },
     users.administrator,
   );
@@ -438,6 +438,14 @@ try {
     users.administrator,
   );
   assert.equal(activated.status, "activated");
+  const { findAccessOwnerDashboard } =
+    await import("#/server/access/access-owner.server");
+  const contractOwnerDashboard = await findAccessOwnerDashboard(
+    users.administrator,
+  );
+  assert.ok(contractOwnerDashboard);
+  assert.deepEqual(contractOwnerDashboard.grants, []);
+  assert.equal(contractOwnerDashboard.contracts[0]?.id, contractId);
   await assert.rejects(
     database
       .updateTable("enterprise_contract")
@@ -747,7 +755,7 @@ try {
       accessCode: "VERIFY AUTO ENTERPRISE",
       domains: "outside.example.org",
       courseIds: [ids.uncoveredCourse],
-      eventOccurrenceIds: [],
+      eventOccurrenceIds: [ids.eventOccurrence],
       ownerEmails: "",
     },
     users.administrator,
@@ -786,6 +794,40 @@ try {
     "already-enrolled",
     "Automatic fulfilment must occur only after the learner accepts the claim notice",
   );
+  assert.equal(
+    (
+      await findEnterpriseEventAccess(
+        "verify-enterprise-covered-event",
+        users.wrongDomain,
+      )
+    ).status,
+    "already-registered",
+    "Automatic fulfilment must register covered scheduled events after consent",
+  );
+  assert.equal(
+    await database
+      .selectFrom("enterprise_contract_event_registration")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where(
+        "enterpriseContractId",
+        "=",
+        automaticContract.enterpriseContractId,
+      )
+      .where("userId", "=", users.wrongDomain.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    1,
+  );
+  const automaticDirectoryContract = (
+    await findAdminEnterpriseContracts()
+  ).contracts.find(
+    (contract) => contract.id === automaticContract.enterpriseContractId,
+  );
+  assert.equal(
+    automaticDirectoryContract?.eventRegistrationCount,
+    1,
+    "The admin contract directory must report event enrolments",
+  );
   const auditActions = await database
     .selectFrom("audit_event")
     .select("action")
@@ -811,7 +853,7 @@ try {
     assert.ok(actions.has(action), `Expected durable audit action ${action}`);
 
   console.log(
-    "Verified blanket contract authoring, domain eligibility, lazy exact-version enrolment, lifecycle preservation and audit lineage",
+    "Verified blanket contract authoring, eligibility, automatic course and event fulfilment, lifecycle preservation and audit lineage",
   );
 } finally {
   await cleanup();

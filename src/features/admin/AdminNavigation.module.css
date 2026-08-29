@@ -2,12 +2,21 @@
   position: sticky;
   top: 5rem;
   display: grid;
+  max-height: calc(100vh - 6rem);
+  max-height: calc(100dvh - 6rem);
   gap: 1.35rem;
   align-self: start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
   padding: 1rem;
   border: 1px solid var(--mantine-color-gray-2);
   border-radius: var(--mantine-radius-lg);
   background: var(--mantine-color-white);
+}
+
+.desktop::-webkit-scrollbar {
+  display: none;
 }
 
 .heading {

@@ -49,7 +49,7 @@ function resultMessage(result: AccessCodeRedemptionResult): Message | null {
     return {
       color: "green",
       title: "Enterprise access activated",
-      body: `${result.offeringTitle} now applies when you select a covered course from the catalogue.`,
+      body: `${result.offeringTitle} is linked to your account. Automatically fulfilled learning is now in your learning and events areas; other covered offerings remain available from the catalogue.`,
     };
   }
   if (result.status === "already-activated") {
@@ -222,7 +222,7 @@ export function AccessCodeRedemptionForm() {
               assigned Access Owners to view your name, the email used for this
               redemption,{" "}
               {preview.offeringType === "catalogue"
-                ? "covered course enrolments"
+                ? "covered course enrolments and event registrations"
                 : `this ${preview.offeringType}`}
               , your progress and completion status. They cannot view your
               survey answers, detailed SCORM data, other learning, or unrelated

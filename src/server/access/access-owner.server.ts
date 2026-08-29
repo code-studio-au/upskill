@@ -219,83 +219,86 @@ export async function findAccessOwnerDashboard(
     .execute();
   if (grants.length === 0 && contractRows.length === 0) return null;
   const grantIds = grants.map((grant) => grant.id);
-  const [learners, eventLearners, orders] = await Promise.all([
-    database
-      .selectFrom("entitlement")
-      .innerJoin("enrollment", "enrollment.id", "entitlement.enrollmentId")
-      .innerJoin("user", "user.id", "entitlement.userId")
-      .leftJoin(
-        "access_grant_code",
-        "access_grant_code.id",
-        "entitlement.originAccessGrantCodeId",
-      )
-      .innerJoin(
-        "course_version",
-        "course_version.id",
-        "entitlement.courseVersionId",
-      )
-      .select([
-        "entitlement.originAccessGrantId as accessGrantId",
-        "entitlement.redemptionEmailSnapshot as email",
-        "entitlement.grantedAt",
-        "enrollment.id as enrollmentId",
-        "enrollment.status",
-        "user.name",
-        "course_version.id as courseVersionId",
-        "course_version.content",
-        "access_grant_code.ordinal as codeNumber",
-      ])
-      .where("entitlement.originAccessGrantId", "in", grantIds)
-      .where("entitlement.informationReleaseAcceptedAt", "is not", null)
-      .where("entitlement.revokedAt", "is", null)
-      .orderBy("entitlement.grantedAt", "desc")
-      .execute(),
-    database
-      .selectFrom("event_access_redemption as redemption")
-      .innerJoin(
-        "event_participation as participation",
-        "participation.id",
-        "redemption.eventParticipationId",
-      )
-      .innerJoin("user", "user.id", "redemption.userId")
-      .leftJoin(
-        "access_grant_code",
-        "access_grant_code.id",
-        "redemption.accessGrantCodeId",
-      )
-      .select([
-        "redemption.accessGrantId",
-        "redemption.eventRegistrationId",
-        "redemption.redemptionEmailSnapshot as email",
-        "redemption.redeemedAt",
-        "participation.completedAt",
-        "user.name",
-        "access_grant_code.ordinal as codeNumber",
-      ])
-      .where("redemption.accessGrantId", "in", grantIds)
-      .orderBy("redemption.redeemedAt", "desc")
-      .execute(),
-    database
-      .selectFrom("bulk_order")
-      .innerJoin("order", "order.id", "bulk_order.orderId")
-      .innerJoin("order_item", "order_item.orderId", "order.id")
-      .select([
-        "bulk_order.accessGrantId",
-        "order.id",
-        "order.kind",
-        "order.status",
-        "order.currency",
-        "order.totalCents",
-        "order.refundedCents",
-        "order.stripeInvoiceId",
-        "order.createdAt",
-        "order_item.quantity",
-        "order_item.unitPriceCents",
-      ])
-      .where("bulk_order.accessGrantId", "in", grantIds)
-      .orderBy("order.createdAt", "desc")
-      .execute(),
-  ]);
+  const learnersQuery = database
+    .selectFrom("entitlement")
+    .innerJoin("enrollment", "enrollment.id", "entitlement.enrollmentId")
+    .innerJoin("user", "user.id", "entitlement.userId")
+    .leftJoin(
+      "access_grant_code",
+      "access_grant_code.id",
+      "entitlement.originAccessGrantCodeId",
+    )
+    .innerJoin(
+      "course_version",
+      "course_version.id",
+      "entitlement.courseVersionId",
+    )
+    .select([
+      "entitlement.originAccessGrantId as accessGrantId",
+      "entitlement.redemptionEmailSnapshot as email",
+      "entitlement.grantedAt",
+      "enrollment.id as enrollmentId",
+      "enrollment.status",
+      "user.name",
+      "course_version.id as courseVersionId",
+      "course_version.content",
+      "access_grant_code.ordinal as codeNumber",
+    ])
+    .where("entitlement.originAccessGrantId", "in", grantIds)
+    .where("entitlement.informationReleaseAcceptedAt", "is not", null)
+    .where("entitlement.revokedAt", "is", null)
+    .orderBy("entitlement.grantedAt", "desc");
+  const eventLearnersQuery = database
+    .selectFrom("event_access_redemption as redemption")
+    .innerJoin(
+      "event_participation as participation",
+      "participation.id",
+      "redemption.eventParticipationId",
+    )
+    .innerJoin("user", "user.id", "redemption.userId")
+    .leftJoin(
+      "access_grant_code",
+      "access_grant_code.id",
+      "redemption.accessGrantCodeId",
+    )
+    .select([
+      "redemption.accessGrantId",
+      "redemption.eventRegistrationId",
+      "redemption.redemptionEmailSnapshot as email",
+      "redemption.redeemedAt",
+      "participation.completedAt",
+      "user.name",
+      "access_grant_code.ordinal as codeNumber",
+    ])
+    .where("redemption.accessGrantId", "in", grantIds)
+    .orderBy("redemption.redeemedAt", "desc");
+  const ordersQuery = database
+    .selectFrom("bulk_order")
+    .innerJoin("order", "order.id", "bulk_order.orderId")
+    .innerJoin("order_item", "order_item.orderId", "order.id")
+    .select([
+      "bulk_order.accessGrantId",
+      "order.id",
+      "order.kind",
+      "order.status",
+      "order.currency",
+      "order.totalCents",
+      "order.refundedCents",
+      "order.stripeInvoiceId",
+      "order.createdAt",
+      "order_item.quantity",
+      "order_item.unitPriceCents",
+    ])
+    .where("bulk_order.accessGrantId", "in", grantIds)
+    .orderBy("order.createdAt", "desc");
+  const [learners, eventLearners, orders] =
+    grantIds.length === 0
+      ? [[], [], []]
+      : await Promise.all([
+          learnersQuery.execute(),
+          eventLearnersQuery.execute(),
+          ordersQuery.execute(),
+        ]);
   const enrollmentReferences = learners.map((learner) => ({
     enrollmentId: learner.enrollmentId,
     courseVersionId: learner.courseVersionId,

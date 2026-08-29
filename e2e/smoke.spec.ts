@@ -1167,13 +1167,109 @@ test("platform administrators can inspect learner progress", async ({
       page.getByRole("heading", { name: "Enterprise contracts", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: "Create contract" }),
+      page.getByRole("link", { name: "Create contract" }),
     ).toBeVisible();
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const enterpriseContractAccessibility = await new AxeBuilder({
       page,
     }).analyze();
     expect(enterpriseContractAccessibility.violations).toEqual([]);
+    await page.getByRole("link", { name: "Create contract" }).click();
+    await expect(page).toHaveURL("/admin/contracts/new");
+    await expect(
+      page.getByRole("heading", {
+        name: "Create enterprise contract",
+        exact: true,
+      }),
+    ).toBeVisible();
+    const courseCoverageCombobox = page.getByRole("combobox", {
+      name: "Add covered courses",
+    });
+    await expect(courseCoverageCombobox).toBeVisible();
+    await expect(
+      page.getByRole("combobox", {
+        name: "Add covered scheduled events",
+      }),
+    ).toBeVisible();
+    const domainInput = page.getByRole("textbox", {
+      name: "Eligible verified-email domains",
+    });
+    await domainInput.fill("example.org");
+    await domainInput.press("Enter");
+    const addedDomains = page.getByLabel(
+      "Eligible verified-email domains added",
+    );
+    await expect(
+      addedDomains.getByText("example.org", { exact: true }),
+    ).toBeVisible();
+    await addedDomains.getByRole("button", { name: "Remove" }).click();
+    await expect(addedDomains).not.toBeVisible();
+    const ownerInput = page.getByRole("textbox", {
+      name: "Contract Access Owners",
+    });
+    await ownerInput.fill("owner@example.org");
+    await ownerInput.press("Enter");
+    const addedOwners = page.getByLabel("Contract Access Owners added");
+    await expect(
+      addedOwners.getByText("owner@example.org", { exact: true }),
+    ).toBeVisible();
+    await addedOwners.getByRole("button", { name: "Remove" }).click();
+    await expect(addedOwners).not.toBeVisible();
+    await courseCoverageCombobox.click();
+    await page.getByRole("option").first().click();
+    const selectedCourseCoverage = page.getByLabel("Covered courses selected");
+    await expect(selectedCourseCoverage).toBeVisible();
+    await selectedCourseCoverage
+      .getByRole("button", { name: "Remove" })
+      .click();
+    await expect(
+      page.getByText("No courses added.", { exact: true }),
+    ).toBeVisible();
+    const enterpriseContractCreateAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(enterpriseContractCreateAccessibility.violations).toEqual([]);
+    await page
+      .getByLabel("Contract name")
+      .fill("E2E pending identity contract");
+    await page.getByLabel("Contract reference").fill("E2E-PENDING-IDENTITY");
+    await page.getByLabel("Organisation").fill("E2E Health");
+    await page.getByLabel("Shared eligibility code").fill("E2E-CONTRACT-2027");
+    await page.getByLabel("Starts").fill("2027-01-01");
+    await page.getByLabel("Ends").fill("2027-12-31");
+    await courseCoverageCombobox.click();
+    await page.getByRole("option").first().click();
+    await domainInput.fill("Pending.Example.ORG");
+    await page.getByRole("button", { name: "Create draft contract" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Contract draft created" }),
+    ).toBeVisible();
+    const pendingIdentityContract = await authoringDatabase.query<{
+      id: string;
+    }>(`select id from enterprise_contract where reference = $1`, [
+      "E2E-PENDING-IDENTITY",
+    ]);
+    expect(pendingIdentityContract.rows).toHaveLength(1);
+    const pendingIdentityDomains = await authoringDatabase.query<{
+      domain: string;
+    }>(
+      `select domain
+         from enterprise_contract_domain
+        where "enterpriseContractId" = $1`,
+      [pendingIdentityContract.rows[0]?.id],
+    );
+    expect(pendingIdentityDomains.rows).toEqual([
+      { domain: "pending.example.org" },
+    ]);
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const enterpriseContractSuccessAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(enterpriseContractSuccessAccessibility.violations).toEqual([]);
+    await page.getByRole("link", { name: "View enterprise contracts" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Enterprise contracts", exact: true }),
+    ).toBeVisible();
     await openAdminPage("Email designer");
     await expect(
       page.getByRole("heading", { name: "Email designer", exact: true }),
@@ -1270,6 +1366,18 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page.getByLabel("Title")).toHaveValue(
       "E2E edited course draft",
     );
+    await page.getByLabel("Original price (AUD)").fill("100");
+    await page.getByLabel("Allow bulk purchases").check();
+    const minimumSeats = page.getByLabel("Minimum seats");
+    await minimumSeats.press("ControlOrMeta+A");
+    await minimumSeats.pressSequentially("12");
+    await expect(minimumSeats).toHaveValue("12");
+    await expect(minimumSeats).toBeFocused();
+    const pricePerSeat = page.getByLabel("Price per seat (AUD)");
+    await pricePerSeat.press("ControlOrMeta+A");
+    await pricePerSeat.pressSequentially("75");
+    await expect(pricePerSeat).toHaveValue("75");
+    await expect(pricePerSeat).toBeFocused();
     await page.getByRole("button", { name: "Program (0)" }).click();
     await page.getByRole("button", { name: "Add section" }).click();
     await page.getByRole("heading", { name: "Section 1" }).click();
@@ -1903,6 +2011,38 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Survey unavailable" }),
     ).toBeVisible();
+    await authoringDatabase.query(
+      `update event_registration
+       set status = 'selected', "finalDecidedAt" = now(),
+         "finalDecidedByUserId" = $2, "lockedInAt" = now()
+       where id = 'e2e_event_declined_registration' and "userId" = $1`,
+      [eventPresenter.id, administratorUser.id],
+    );
+    await authoringDatabase.query(
+      `update event_occurrence set "confirmedCount" = 2 where id = $1`,
+      [occurrenceId],
+    );
+    await authoringDatabase.query(
+      `insert into event_participation
+        (id, "eventOccurrenceId", "userId", "registrationId", mode,
+          "nameSnapshot", "emailSnapshot")
+       values ('e2e_event_presenter_participation', $1, $2,
+         'e2e_event_declined_registration', 'registered', $3, $4)`,
+      [
+        occurrenceId,
+        eventPresenter.id,
+        eventPresenter.name,
+        eventPresenter.email,
+      ],
+    );
+    await authoringDatabase.query(
+      `insert into event_attendance
+        ("eventParticipationId", "eventSessionId", state, source,
+          "recordedByUserId", "recordedAt", "updatedAt")
+       values ('e2e_event_presenter_participation', $1, 'attended',
+         'administrator', $2, now(), now())`,
+      [occurrenceSessionId, administratorUser.id],
+    );
     await page.goto(`/admin/learners/${encodeURIComponent(eventPresenter.id)}`);
     const eventProgressCard = page.getByRole("article").filter({
       has: page.getByRole("heading", { name: eventOccurrenceTitle }),
@@ -1915,15 +2055,25 @@ test("platform administrators can inspect learner progress", async ({
       page.getByText("Learner event progress", { exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Overall event participation" }),
+      page.getByRole("heading", { name: "Overall event completion" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: /Attendance/u }).click();
-    await expect(
-      page.getByRole("heading", { name: "Session attendance" }),
-    ).toBeVisible();
-    await page.getByRole("button", { name: /Progress/u }).click();
     await expect(
       page.getByRole("heading", { name: "Section progress" }),
+    ).toBeVisible();
+    const liveWorkshopTask = page.getByRole("group", {
+      name: "Task: Live workshop",
+    });
+    await expect(liveWorkshopTask).toContainText("Completed");
+    await expect(liveWorkshopTask).toContainText("Attendance");
+    await expect(liveWorkshopTask).toContainText("Attended");
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const learnerEventProgressAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(learnerEventProgressAccessibility.violations).toEqual([]);
+    await page.getByRole("button", { name: "Details" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Event details" }),
     ).toBeVisible();
     await page.getByRole("button", { name: /History/u }).click();
     await expect(

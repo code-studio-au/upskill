@@ -1,14 +1,12 @@
-import { useForm } from "@tanstack/react-form";
-import { useRouter } from "@tanstack/react-router";
-import { useState } from "react";
+import { Link, useRouter } from "@tanstack/react-router";
+import { useState, type SyntheticEvent } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { Badge } from "#/features/shared/Badge";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
-import { firstFormError } from "#/features/shared/form-errors";
-import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { MantineFilePicker } from "#/features/shared/MantineFilePicker";
+import { formatLocalDate } from "#/features/shared/local-date";
 import {
   Alert,
   Button,
@@ -19,7 +17,6 @@ import {
   Title,
 } from "#/features/shared/mantine";
 import {
-  createAdminEnterpriseContract,
   assignAdminEnterpriseContractOwners,
   bulkEnrollAdminEnterpriseContract,
   renewAdminEnterpriseContract,
@@ -30,7 +27,6 @@ import {
   transitionAdminEnterpriseContract,
 } from "#/server/functions/admin-enterprise-contract";
 import {
-  adminEnterpriseContractCreateSchema,
   type AdminEnterpriseContract,
   type AdminEnterpriseContractDirectory,
   type AdminEnterpriseContractResult,
@@ -46,355 +42,6 @@ function statusColor(status: AdminEnterpriseContract["status"]): string {
   if (status === "draft") return "blue";
   if (status === "suspended" || status === "expired") return "orange";
   return "red";
-}
-
-const contractDateFormatter = new Intl.DateTimeFormat("en-AU", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  timeZone: "UTC",
-});
-
-function contractDate(value: string): string {
-  return contractDateFormatter.format(new Date(value));
-}
-
-function ContractForm({
-  courses,
-  events,
-  onDone,
-}: {
-  courses: AdminEnterpriseContractDirectory["courses"];
-  events: AdminEnterpriseContractDirectory["events"];
-  onDone: () => void;
-}) {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [issuedCode, setIssuedCode] = useState<string | null>(null);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
-    "idle",
-  );
-  const form = useForm({
-    defaultValues: {
-      name: "",
-      reference: "",
-      organizationName: "",
-      startsOn: "",
-      expiresOn: "",
-      enrollmentDurationDays: 365,
-      autoEnrollCourses: false,
-      accessCode: "",
-      domains: "",
-      courseIds: [] as Array<string>,
-      eventOccurrenceIds: [] as Array<string>,
-      ownerEmails: "",
-    },
-    validators: { onSubmit: adminEnterpriseContractCreateSchema },
-    onSubmit: async ({ value }) => {
-      setError(null);
-      const response = await createAdminEnterpriseContract({ data: value });
-      if (response.status === "conflict") {
-        setError(
-          response.reason === "duplicate_reference"
-            ? "That contract reference is already in use."
-            : "One or more selected courses are no longer available.",
-        );
-        return;
-      }
-      if (response.status !== "ready") {
-        setError("The enterprise contract could not be created.");
-        return;
-      }
-      setIssuedCode(response.data.accessCode ?? null);
-      setCopyState("idle");
-      await router.invalidate();
-    },
-  });
-
-  return (
-    <Stack gap="md">
-      {error ? <Alert color="red">{error}</Alert> : null}
-      {issuedCode ? (
-        <Alert color="green" title="Draft contract created">
-          <Stack gap="sm">
-            <Text size="sm">
-              Save the shared code, then activate the contract when its terms
-              are ready. Administrators can retrieve the code later.
-            </Text>
-            <code className={classes.issuedCode}>{issuedCode}</code>
-            <div className={classes.issuedActions}>
-              <Button
-                type="button"
-                variant="light"
-                onClick={() => {
-                  void navigator.clipboard
-                    .writeText(issuedCode)
-                    .then(() => {
-                      setCopyState("copied");
-                    })
-                    .catch(() => {
-                      setCopyState("failed");
-                    });
-                }}
-              >
-                {copyState === "copied" ? "Copied" : "Copy code"}
-              </Button>
-              <Button type="button" variant="default" onClick={onDone}>
-                Done
-              </Button>
-            </div>
-            {copyState === "failed" ? (
-              <Text size="sm">Select and copy the code manually.</Text>
-            ) : null}
-          </Stack>
-        </Alert>
-      ) : (
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void form.handleSubmit();
-          }}
-        >
-          <Stack gap="md">
-            <div className={classes.grid}>
-              <form.Field name="name">
-                {(field) => (
-                  <MantineTextInput
-                    label="Contract name"
-                    placeholder="2027 workforce learning agreement"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </form.Field>
-              <form.Field name="reference">
-                {(field) => (
-                  <MantineTextInput
-                    label="Contract reference"
-                    placeholder="NSW-HEALTH-2027"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </form.Field>
-              <form.Field name="organizationName">
-                {(field) => (
-                  <MantineTextInput
-                    label="Organisation"
-                    placeholder="Example Health"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </form.Field>
-              <form.Field name="accessCode">
-                {(field) => (
-                  <MantineTextInput
-                    label="Shared eligibility code"
-                    placeholder="EXAMPLE-HEALTH-2027"
-                    autoCapitalize="characters"
-                    autoComplete="off"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </form.Field>
-              <form.Field name="startsOn">
-                {(field) => (
-                  <MantineTextInput
-                    label="Starts"
-                    type="date"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </form.Field>
-              <form.Field name="expiresOn">
-                {(field) => (
-                  <MantineTextInput
-                    label="Ends"
-                    type="date"
-                    value={field.state.value}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(event.currentTarget.value);
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </form.Field>
-              <form.Field name="enrollmentDurationDays">
-                {(field) => (
-                  <MantineTextInput
-                    label="Learner access duration (days)"
-                    type="number"
-                    inputMode="numeric"
-                    min={1}
-                    max={3650}
-                    value={String(field.state.value)}
-                    onBlur={field.handleBlur}
-                    onChange={(event) => {
-                      field.handleChange(Number(event.currentTarget.value));
-                    }}
-                    error={firstFormError(field.state.meta.errors)}
-                    required
-                  />
-                )}
-              </form.Field>
-            </div>
-            <form.Field name="domains">
-              {(field) => (
-                <MantineTextInput
-                  component="textarea"
-                  label="Eligible verified-email domains"
-                  description="Optional when you will upload an exact employee email list before activation. A shared code is never sufficient by itself."
-                  placeholder="example.org, staff.example.com.au"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => {
-                    field.handleChange(event.currentTarget.value);
-                  }}
-                  error={firstFormError(field.state.meta.errors)}
-                />
-              )}
-            </form.Field>
-            <form.Field name="ownerEmails">
-              {(field) => (
-                <MantineTextInput
-                  label="Contract Access Owners (optional)"
-                  description="Verified owners can view consent-sharing utilisation and export reports."
-                  placeholder="learning.manager@example.org"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={(event) => {
-                    field.handleChange(event.currentTarget.value);
-                  }}
-                  error={firstFormError(field.state.meta.errors)}
-                />
-              )}
-            </form.Field>
-            <form.Field name="autoEnrollCourses">
-              {(field) => (
-                <MantineCheckbox
-                  checked={field.state.value}
-                  onChange={field.handleChange}
-                  label="Automatically enrol a learner in every covered course after they claim and accept information sharing"
-                />
-              )}
-            </form.Field>
-            <div>
-              <Text fw={600} size="sm" className={classes.sectionLabel}>
-                Covered courses
-              </Text>
-              <form.Subscribe selector={(state) => state.values.courseIds}>
-                {(courseIds) => {
-                  const selectedCourseIds = new Set(courseIds);
-                  return (
-                    <div className={classes.courseList}>
-                      {courses.map((course) => (
-                        <MantineCheckbox
-                          key={course.id}
-                          checked={selectedCourseIds.has(course.id)}
-                          onChange={(checked) => {
-                            form.setFieldValue(
-                              "courseIds",
-                              checked
-                                ? [...courseIds, course.id]
-                                : courseIds.filter((id) => id !== course.id),
-                            );
-                          }}
-                          label={`${course.title} · current published V${String(course.version)}`}
-                        />
-                      ))}
-                    </div>
-                  );
-                }}
-              </form.Subscribe>
-            </div>
-            {events.length > 0 ? (
-              <div>
-                <Text fw={600} size="sm" className={classes.sectionLabel}>
-                  Covered scheduled events (optional)
-                </Text>
-                <form.Subscribe
-                  selector={(state) => state.values.eventOccurrenceIds}
-                >
-                  {(eventOccurrenceIds) => {
-                    const selected = new Set(eventOccurrenceIds);
-                    return (
-                      <div className={classes.courseList}>
-                        {events.map((event) => (
-                          <MantineCheckbox
-                            key={event.id}
-                            checked={selected.has(event.id)}
-                            onChange={(checked) => {
-                              form.setFieldValue(
-                                "eventOccurrenceIds",
-                                checked
-                                  ? [...eventOccurrenceIds, event.id]
-                                  : eventOccurrenceIds.filter(
-                                      (id) => id !== event.id,
-                                    ),
-                              );
-                            }}
-                            label={`${event.title} · ${contractDate(event.startsAt)} · ${String(event.remainingPlaces)} places`}
-                          />
-                        ))}
-                      </div>
-                    );
-                  }}
-                </form.Subscribe>
-              </div>
-            ) : null}
-            <form.Subscribe
-              selector={(state) =>
-                [state.isSubmitting, state.canSubmit] as const
-              }
-            >
-              {([isSubmitting, canSubmit]) => (
-                <Group justify="flex-end">
-                  <Button
-                    type="submit"
-                    loading={isSubmitting}
-                    disabled={!canSubmit}
-                  >
-                    Create draft contract
-                  </Button>
-                </Group>
-              )}
-            </form.Subscribe>
-          </Stack>
-        </form>
-      )}
-    </Stack>
-  );
 }
 
 function ContractCard({ contract }: { contract: AdminEnterpriseContract }) {
@@ -470,7 +117,7 @@ function ContractCard({ contract }: { contract: AdminEnterpriseContract }) {
         return;
       }
       setMessage(
-        `${String(response.data.enrolledCount ?? 0)} enrolments created; ${String(response.data.skippedCount ?? 0)} existing enrolments skipped.`,
+        `${String(response.data.enrolledCount ?? 0)} course enrolments and ${String(response.data.eventRegisteredCount ?? 0)} event registrations created; ${String((response.data.skippedCount ?? 0) + (response.data.eventSkippedCount ?? 0))} unavailable or existing items skipped.`,
       );
       await router.invalidate();
     } finally {
@@ -496,211 +143,285 @@ function ContractCard({ contract }: { contract: AdminEnterpriseContract }) {
     }
   }
 
+  const facts = [
+    [
+      "Contract period",
+      `${formatLocalDate(contract.startsAt.slice(0, 10))} – ${formatLocalDate(contract.expiresAt.slice(0, 10))}`,
+    ],
+    ["Learner access", `${String(contract.enrollmentDurationDays)} days`],
+    ["Eligible employees", String(contract.employeeEligibilityCount)],
+    ["Learners claimed", String(contract.claimCount)],
+    ["Enrolments issued", String(contract.entitlementCount)],
+    ["Events enrolled", String(contract.eventRegistrationCount)],
+  ];
+  const coverage = [
+    {
+      label: "Courses",
+      empty: "No courses covered.",
+      items: contract.coverage.map((item) => ({
+        id: item.id,
+        title: item.courseTitle,
+      })),
+    },
+    {
+      label: "Scheduled events",
+      empty: "No scheduled events covered.",
+      items: contract.eventCoverage.map((item) => ({
+        id: item.id,
+        title: item.eventTitle,
+      })),
+    },
+  ];
+
   return (
-    <Paper component="article" withBorder radius="lg" p="lg">
-      <Stack gap="md">
+    <article className={classes.contractCard}>
+      <div className={classes.contractCardBody}>
         <div className={classes.cardHeader}>
-          <div>
-            <Text c="indigo.7" fw={700} size="sm">
-              {contract.organizationName}
-            </Text>
-            <Title order={3}>{contract.name}</Title>
-            <Text c="dimmed" size="sm">
-              {contract.reference}
-            </Text>
+          <div className={classes.contractIdentity}>
+            <p className={classes.eyebrow}>{contract.organizationName}</p>
+            <h2>{contract.name}</h2>
+            <p className={classes.muted}>Reference {contract.reference}</p>
           </div>
-          <Badge color={statusColor(contract.status)}>
-            {readable(contract.status)}
-          </Badge>
+          <div className={classes.statusActions}>
+            <Badge color={statusColor(contract.status)} variant="light">
+              {readable(contract.status)}
+            </Badge>
+            {contract.status === "draft" ? (
+              <Button
+                type="button"
+                loading={pending}
+                onClick={() => void transition("activate")}
+              >
+                Activate
+              </Button>
+            ) : null}
+            {contract.status === "active" ? (
+              <Button
+                type="button"
+                variant="light"
+                loading={pending}
+                onClick={() => void transition("suspend")}
+              >
+                Suspend
+              </Button>
+            ) : null}
+            {contract.status === "suspended" ? (
+              <Button
+                type="button"
+                loading={pending}
+                onClick={() => void transition("resume")}
+              >
+                Resume
+              </Button>
+            ) : null}
+          </div>
         </div>
+
         {message ? <Alert color="green">{message}</Alert> : null}
         {error ? <Alert color="red">{error}</Alert> : null}
-        <div className={classes.facts}>
-          <Badge variant="light">
-            {contractDate(contract.startsAt)} –{" "}
-            {contractDate(contract.expiresAt)}
-          </Badge>
-          <Badge variant="light">
-            {String(contract.claimCount)} eligible learners
-          </Badge>
-          <Badge variant="light">
-            {String(contract.entitlementCount)} enrolments issued
-          </Badge>
+
+        <div className={classes.contractFacts}>
+          {facts.map(([label, value]) => (
+            <div key={label}>
+              <span>{label}</span>
+              <strong>{value}</strong>
+            </div>
+          ))}
         </div>
-        <div>
-          <Text fw={600} size="sm" className={classes.sectionLabel}>
-            Covered courses
-          </Text>
-          <div className={classes.pillList}>
-            {contract.coverage.map((coverage) => (
-              <Badge key={coverage.id} variant="light">
-                {coverage.courseTitle}
-              </Badge>
+
+        <div className={classes.contractColumns}>
+          <section className={classes.contractSection}>
+            <header>
+              <h3>Eligibility and Access Owners</h3>
+              <p>Identity rules controlling who can claim the contract.</p>
+            </header>
+            <div>
+              <strong className={classes.sectionLabel}>
+                Verified-email domains
+              </strong>
+              {contract.domains.length ? (
+                <div className={classes.pillList}>
+                  {contract.domains.map((domain) => (
+                    <Badge
+                      key={domain}
+                      variant="light"
+                      className={classes.coveragePill}
+                    >
+                      {domain}
+                    </Badge>
+                  ))}
+                </div>
+              ) : (
+                <p className={classes.muted}>Uploaded employee list only</p>
+              )}
+            </div>
+            <div>
+              <strong className={classes.sectionLabel}>
+                Contract Access Owners
+              </strong>
+              {contract.owners.length ? (
+                <div className={classes.ownerList}>
+                  {contract.owners.map((owner) => (
+                    <div className={classes.ownerRow} key={owner.id}>
+                      <div className={classes.ownerIdentity}>
+                        <strong>{owner.email}</strong>
+                        <small className={classes.muted}>
+                          {owner.activated ? "Active" : "Invitation pending"}
+                        </small>
+                      </div>
+                      <Button
+                        type="button"
+                        size="compact-xs"
+                        variant="subtle"
+                        color="red"
+                        disabled={pending}
+                        onClick={() => void revokeOwner(owner.id)}
+                      >
+                        Remove
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className={classes.muted}>No Access Owners assigned.</p>
+              )}
+            </div>
+          </section>
+
+          <section className={classes.contractSection}>
+            <header>
+              <h3>Learning coverage</h3>
+              <p>Offerings learners can access under this contract.</p>
+            </header>
+            {coverage.map((group) => (
+              <div key={group.label}>
+                <strong className={classes.sectionLabel}>{group.label}</strong>
+                {group.items.length ? (
+                  <div className={classes.pillList}>
+                    {group.items.map((item) => (
+                      <Badge
+                        key={item.id}
+                        variant="light"
+                        className={classes.coveragePill}
+                      >
+                        {item.title}
+                      </Badge>
+                    ))}
+                  </div>
+                ) : (
+                  <p className={classes.muted}>{group.empty}</p>
+                )}
+              </div>
             ))}
-          </div>
+            <p>
+              <strong>Automatic fulfilment:</strong>{" "}
+              {contract.autoEnrollCourses
+                ? "Courses and scheduled events after learner consent"
+                : "Learner selects each covered offering"}
+            </p>
+          </section>
         </div>
-        {contract.eventCoverage.length > 0 ? (
-          <div>
-            <Text fw={600} size="sm" className={classes.sectionLabel}>
-              Covered scheduled events
-            </Text>
-            <div className={classes.pillList}>
-              {contract.eventCoverage.map((coverage) => (
-                <Badge key={coverage.id} variant="light">
-                  {coverage.eventTitle}
-                </Badge>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <Text size="sm" c="dimmed">
-          Eligibility: {contract.domains.join(", ")} · learner access lasts{" "}
-          {String(contract.enrollmentDurationDays)} days from enrolment ·{" "}
-          {String(contract.employeeEligibilityCount)} uploaded employee emails.
-        </Text>
-        <Text size="sm" c="dimmed">
-          Course fulfilment:{" "}
-          {contract.autoEnrollCourses
-            ? "automatic after learner consent"
-            : "learner selects each covered course"}
-          .
-        </Text>
-        {contract.owners.length > 0 ? (
-          <div>
-            <Text fw={600} size="sm" className={classes.sectionLabel}>
-              Contract Access Owners
-            </Text>
-            <div className={classes.ownerList}>
-              {contract.owners.map((owner) => (
-                <Group key={owner.id} gap="xs">
-                  <Badge variant="light">
-                    {owner.email} · {owner.activated ? "active" : "invited"}
-                  </Badge>
-                  <Button
-                    size="compact-xs"
-                    variant="subtle"
-                    color="red"
-                    disabled={pending}
-                    onClick={() => void revokeOwner(owner.id)}
-                  >
-                    Remove
-                  </Button>
-                </Group>
-              ))}
-            </div>
-          </div>
-        ) : null}
+
         {accessCode ? (
           <Alert color="gray" title="Shared eligibility code">
             <code className={classes.issuedCode}>{accessCode}</code>
           </Alert>
         ) : null}
-        <div className={classes.actions}>
-          <Button
-            type="button"
-            variant="default"
-            loading={pending}
-            onClick={() => void revealCode()}
-          >
-            Reveal code
-          </Button>
-          <Button
-            component="a"
-            href={`/api/admin/contracts/${encodeURIComponent(contract.id)}/utilisation.csv`}
-            variant="default"
-          >
-            Export utilisation
-          </Button>
-          {!["terminated", "expired"].includes(contract.status) ? (
-            <Button
-              type="button"
-              variant="default"
-              disabled={pending}
-              onClick={() => {
-                setOperation("rotate");
-              }}
-            >
-              Rotate code
-            </Button>
-          ) : null}
-          <Button
-            type="button"
-            variant="default"
-            disabled={pending}
-            onClick={() => {
-              setOperation("eligibility");
-            }}
-          >
-            Replace employee list
-          </Button>
-          <Button
-            type="button"
-            variant="default"
-            disabled={pending}
-            onClick={() => {
-              setOperation("owners");
-            }}
-          >
-            Add Access Owners
-          </Button>
-          {contract.status === "active" ? (
-            <Button
-              type="button"
-              variant="light"
-              disabled={pending}
-              onClick={() => void bulkEnroll()}
-            >
-              Enrol consented learners
-            </Button>
-          ) : null}
-          {!contract.renewalContractId && contract.status !== "draft" ? (
-            <Button
-              type="button"
-              variant="default"
-              disabled={pending}
-              onClick={() => {
-                setOperation("renew");
-              }}
-            >
-              Create renewal
-            </Button>
-          ) : null}
-          {contract.status === "draft" ? (
-            <Button
-              loading={pending}
-              onClick={() => void transition("activate")}
-            >
-              Activate
-            </Button>
-          ) : null}
-          {contract.status === "active" ? (
-            <Button
-              variant="light"
-              loading={pending}
-              onClick={() => void transition("suspend")}
-            >
-              Suspend
-            </Button>
-          ) : null}
-          {contract.status === "suspended" ? (
-            <Button loading={pending} onClick={() => void transition("resume")}>
-              Resume
-            </Button>
-          ) : null}
-          {!["terminated", "expired"].includes(contract.status) ? (
-            <Button
-              color="red"
-              variant="subtle"
-              disabled={pending}
-              onClick={() => {
-                setTerminateOpen(true);
-              }}
-            >
-              Terminate
-            </Button>
-          ) : null}
-        </div>
-      </Stack>
+
+        <details className={classes.managementDisclosure}>
+          <summary>Manage contract</summary>
+          <div className={classes.managementBody}>
+            <p className={classes.muted}>
+              Access codes, eligibility imports, owners, reporting and lifecycle
+              operations.
+            </p>
+            <div className={classes.actions}>
+              <Button
+                type="button"
+                variant="default"
+                loading={pending}
+                onClick={() => void revealCode()}
+              >
+                Reveal code
+              </Button>
+              <Button
+                component="a"
+                href={`/api/admin/contracts/${encodeURIComponent(contract.id)}/utilisation.csv`}
+                variant="default"
+              >
+                Export utilisation
+              </Button>
+              {!["terminated", "expired"].includes(contract.status) ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  disabled={pending}
+                  onClick={() => {
+                    setOperation("rotate");
+                  }}
+                >
+                  Rotate code
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant="default"
+                disabled={pending}
+                onClick={() => {
+                  setOperation("eligibility");
+                }}
+              >
+                Replace employee list
+              </Button>
+              <Button
+                type="button"
+                variant="default"
+                disabled={pending}
+                onClick={() => {
+                  setOperation("owners");
+                }}
+              >
+                Add Access Owners
+              </Button>
+              {contract.status === "active" ? (
+                <Button
+                  type="button"
+                  variant="light"
+                  disabled={pending}
+                  onClick={() => void bulkEnroll()}
+                >
+                  Fulfil consented learners
+                </Button>
+              ) : null}
+              {!contract.renewalContractId && contract.status !== "draft" ? (
+                <Button
+                  type="button"
+                  variant="default"
+                  disabled={pending}
+                  onClick={() => {
+                    setOperation("renew");
+                  }}
+                >
+                  Create renewal
+                </Button>
+              ) : null}
+              {!["terminated", "expired"].includes(contract.status) ? (
+                <Button
+                  type="button"
+                  color="red"
+                  variant="subtle"
+                  disabled={pending}
+                  onClick={() => {
+                    setTerminateOpen(true);
+                  }}
+                >
+                  Terminate
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </details>
+      </div>
       {terminateOpen ? (
         <ConfirmationDialog
           title="Terminate enterprise contract?"
@@ -728,7 +449,7 @@ function ContractCard({ contract }: { contract: AdminEnterpriseContract }) {
           }}
         />
       ) : null}
-    </Paper>
+    </article>
   );
 }
 
@@ -748,12 +469,6 @@ function ContractOperationDialog({
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [accessCode, setAccessCode] = useState("");
-  const [reference, setReference] = useState("");
-  const [name, setName] = useState(`${contract.name} renewal`);
-  const [startsOn, setStartsOn] = useState("");
-  const [expiresOn, setExpiresOn] = useState("");
-  const [ownerEmails, setOwnerEmails] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const title =
     operation === "rotate"
@@ -763,13 +478,24 @@ function ContractOperationDialog({
         : operation === "eligibility"
           ? "Replace employee eligibility list"
           : "Add Contract Access Owners";
-  async function submit(): Promise<void> {
+  async function submit(
+    event: SyntheticEvent<HTMLFormElement, SubmitEvent>,
+  ): Promise<void> {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const value = (name: string) => {
+      const entry = data.get(name);
+      return typeof entry === "string" ? entry : "";
+    };
     setPending(true);
     setError(null);
     try {
       if (operation === "rotate") {
         const response = await rotateAdminEnterpriseContractCode({
-          data: { enterpriseContractId: contract.id, accessCode },
+          data: {
+            enterpriseContractId: contract.id,
+            accessCode: value("accessCode"),
+          },
         });
         if (response.status !== "ready") throw new Error();
         if (!response.data.accessCode) throw new Error();
@@ -781,11 +507,11 @@ function ContractOperationDialog({
         const response = await renewAdminEnterpriseContract({
           data: {
             enterpriseContractId: contract.id,
-            name,
-            reference,
-            startsOn,
-            expiresOn,
-            accessCode,
+            name: value("name"),
+            reference: value("reference"),
+            startsOn: value("startsOn"),
+            expiresOn: value("expiresOn"),
+            accessCode: value("accessCode"),
           },
         });
         if (response.status !== "ready") throw new Error();
@@ -812,7 +538,10 @@ function ContractOperationDialog({
         });
       } else {
         const response = await assignAdminEnterpriseContractOwners({
-          data: { enterpriseContractId: contract.id, ownerEmails },
+          data: {
+            enterpriseContractId: contract.id,
+            ownerEmails: value("ownerEmails"),
+          },
         });
         if (response.status !== "ready") throw new Error();
         await onComplete({ message: "Contract Access Owners assigned." });
@@ -827,100 +556,87 @@ function ContractOperationDialog({
   }
   return (
     <AppDialog title={title} onClose={onClose} size="md">
-      <Stack gap="md">
-        {error ? <Alert color="red">{error}</Alert> : null}
-        {operation === "rotate" ? (
-          <MantineTextInput
-            label="New shared eligibility code"
-            value={accessCode}
-            onChange={(event) => {
-              setAccessCode(event.currentTarget.value);
-            }}
-            autoComplete="off"
-            required
-          />
-        ) : null}
-        {operation === "renew" ? (
-          <>
+      <form onSubmit={(event) => void submit(event)}>
+        <Stack gap="md">
+          {error ? <Alert color="red">{error}</Alert> : null}
+          {operation === "rotate" ? (
             <MantineTextInput
-              label="Renewal name"
-              value={name}
-              onChange={(event) => {
-                setName(event.currentTarget.value);
-              }}
-              required
-            />
-            <MantineTextInput
-              label="New reference"
-              value={reference}
-              onChange={(event) => {
-                setReference(event.currentTarget.value);
-              }}
-              required
-            />
-            <div className={classes.grid}>
-              <MantineTextInput
-                type="date"
-                label="Starts"
-                value={startsOn}
-                onChange={(event) => {
-                  setStartsOn(event.currentTarget.value);
-                }}
-                required
-              />
-              <MantineTextInput
-                type="date"
-                label="Ends"
-                value={expiresOn}
-                onChange={(event) => {
-                  setExpiresOn(event.currentTarget.value);
-                }}
-                required
-              />
-            </div>
-            <MantineTextInput
+              name="accessCode"
               label="New shared eligibility code"
-              value={accessCode}
-              onChange={(event) => {
-                setAccessCode(event.currentTarget.value);
-              }}
               autoComplete="off"
               required
             />
-          </>
-        ) : null}
-        {operation === "eligibility" ? (
-          <MantineFilePicker
-            accept=".csv,text/csv"
-            label="Employee eligibility CSV"
-            description="Use an email column and optional name column. This replaces the active uploaded list; prior import evidence is retained."
-            placeholder="Select CSV"
-            value={file}
-            onChange={setFile}
-            required
-          />
-        ) : null}
-        {operation === "owners" ? (
-          <MantineTextInput
-            component="textarea"
-            label="Owner emails"
-            description="Separate multiple verified email addresses with commas or new lines."
-            value={ownerEmails}
-            onChange={(event) => {
-              setOwnerEmails(event.currentTarget.value);
-            }}
-            required
-          />
-        ) : null}
-        <Group justify="flex-end">
-          <Button variant="default" disabled={pending} onClick={onClose}>
-            Cancel
-          </Button>
-          <Button loading={pending} onClick={() => void submit()}>
-            Confirm
-          </Button>
-        </Group>
-      </Stack>
+          ) : null}
+          {operation === "renew" ? (
+            <>
+              <MantineTextInput
+                name="name"
+                label="Renewal name"
+                defaultValue={`${contract.name} renewal`}
+                required
+              />
+              <MantineTextInput
+                name="reference"
+                label="New reference"
+                required
+              />
+              <div className={classes.grid}>
+                <MantineTextInput
+                  name="startsOn"
+                  type="date"
+                  label="Starts"
+                  required
+                />
+                <MantineTextInput
+                  name="expiresOn"
+                  type="date"
+                  label="Ends"
+                  required
+                />
+              </div>
+              <MantineTextInput
+                name="accessCode"
+                label="New shared eligibility code"
+                autoComplete="off"
+                required
+              />
+            </>
+          ) : null}
+          {operation === "eligibility" ? (
+            <MantineFilePicker
+              accept=".csv,text/csv"
+              label="Employee eligibility CSV"
+              description="Use an email column and optional name column. This replaces the active uploaded list; prior import evidence is retained."
+              placeholder="Select CSV"
+              value={file}
+              onChange={setFile}
+              required
+            />
+          ) : null}
+          {operation === "owners" ? (
+            <MantineTextInput
+              name="ownerEmails"
+              component="textarea"
+              label="Owner emails"
+              description="Separate multiple verified email addresses with commas or new lines."
+              required
+            />
+          ) : null}
+          <Group justify="flex-end">
+            <Button
+              type="button"
+              variant="default"
+              disabled={pending}
+              onClick={onClose}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" loading={pending}>
+              Confirm
+            </Button>
+          </Group>
+        </Stack>
+      </form>
     </AppDialog>
   );
 }
@@ -930,11 +646,38 @@ export function AdminEnterpriseContractManager({
 }: {
   result: AdminEnterpriseContractResult<AdminEnterpriseContractDirectory>;
 }) {
-  const [createOpen, setCreateOpen] = useState(false);
   if (result.status === "forbidden") return <AdminAccessDenied />;
   if (result.status === "unauthenticated") return null;
+  const contracts = result.data.contracts;
+  const activeCount = contracts.filter(
+    (contract) => contract.status === "active",
+  ).length;
+  const draftCount = contracts.filter(
+    (contract) => contract.status === "draft",
+  ).length;
+  const offeringCount = contracts.reduce(
+    (count, contract) =>
+      count + contract.coverage.length + contract.eventCoverage.length,
+    0,
+  );
+  const employeeCount = contracts.reduce(
+    (count, contract) => count + contract.employeeEligibilityCount,
+    0,
+  );
+  const eventRegistrationCount = contracts.reduce(
+    (count, contract) => count + contract.eventRegistrationCount,
+    0,
+  );
+  const summary = [
+    ["Total contracts", contracts.length],
+    ["Active", activeCount],
+    ["Drafts", draftCount],
+    ["Covered offerings", offeringCount],
+    ["Eligible employees", employeeCount],
+    ["Events enrolled", eventRegistrationCount],
+  ];
   return (
-    <Stack gap="lg">
+    <Stack gap="xl">
       <div className={classes.header}>
         <div>
           <Text c="indigo.7" fw={700}>
@@ -947,43 +690,51 @@ export function AdminEnterpriseContractManager({
             eligible learner selects a covered course.
           </Text>
         </div>
-        <Button
-          onClick={() => {
-            setCreateOpen(true);
-          }}
-        >
-          Create contract
-        </Button>
+        <Link to="/admin/contracts/new" className={classes.buttonLink}>
+          <Button component="span">Create contract</Button>
+        </Link>
       </div>
-      {result.data.contracts.length === 0 ? (
+      {contracts.length === 0 ? (
         <Alert title="No enterprise contracts">
           Create the first blanket learning agreement as a draft, review its
           coverage, then activate it.
         </Alert>
       ) : (
-        <div className={classes.contractGrid}>
-          {result.data.contracts.map((contract) => (
-            <ContractCard contract={contract} key={contract.id} />
-          ))}
-        </div>
+        <>
+          <section aria-label="Enterprise contract summary">
+            <div className={classes.directorySummary}>
+              {summary.map(([label, value]) => (
+                <Paper withBorder radius="lg" p="md" key={label}>
+                  <Text c="dimmed" size="xs" fw={700}>
+                    {label}
+                  </Text>
+                  <Text size="xl" fw={700}>
+                    {String(value)}
+                  </Text>
+                </Paper>
+              ))}
+            </div>
+          </section>
+          <section aria-labelledby="contract-directory-heading">
+            <Stack gap="md">
+              <div>
+                <Title order={2} id="contract-directory-heading">
+                  Contract directory
+                </Title>
+                <Text c="dimmed" size="sm">
+                  Review coverage and eligibility, then open management actions
+                  only when they are needed.
+                </Text>
+              </div>
+              <div className={classes.contractGrid}>
+                {contracts.map((contract) => (
+                  <ContractCard contract={contract} key={contract.id} />
+                ))}
+              </div>
+            </Stack>
+          </section>
+        </>
       )}
-      {createOpen ? (
-        <AppDialog
-          title="Create enterprise contract"
-          size="lg"
-          onClose={() => {
-            setCreateOpen(false);
-          }}
-        >
-          <ContractForm
-            courses={result.data.courses}
-            events={result.data.events}
-            onDone={() => {
-              setCreateOpen(false);
-            }}
-          />
-        </AppDialog>
-      ) : null}
     </Stack>
   );
 }

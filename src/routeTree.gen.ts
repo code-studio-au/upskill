@@ -38,6 +38,7 @@ import { Route as EventSurveysPublicReferenceRouteImport } from './routes/event-
 import { Route as EventsSlugRouteImport } from './routes/events.$slug'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
 import { Route as MyEventsEventOccurrenceIdRouteImport } from './routes/my-events_.$eventOccurrenceId'
+import { Route as AdminContractsNewRouteImport } from './routes/admin.contracts_.new'
 import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
 import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
 import { Route as AdminEmailsIndexRouteImport } from './routes/admin.emails.index'
@@ -235,6 +236,11 @@ const MyEventsEventOccurrenceIdRoute =
     path: '/my-events/$eventOccurrenceId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const AdminContractsNewRoute = AdminContractsNewRouteImport.update({
+  id: '/contracts_/new',
+  path: '/contracts/new',
+  getParentRoute: () => AdminRoute,
+} as any)
 const AdminCoursesIndexRoute = AdminCoursesIndexRouteImport.update({
   id: '/courses/',
   path: '/courses/',
@@ -530,6 +536,7 @@ export interface FileRoutesByFullPath {
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/event-operations/': typeof EventOperationsIndexRoute
+  '/admin/contracts/new': typeof AdminContractsNewRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/emails/$emailDesignId': typeof AdminEmailsEmailDesignIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
@@ -606,6 +613,7 @@ export interface FileRoutesByTo {
   '/admin': typeof AdminIndexRoute
   '/courses': typeof CoursesIndexRoute
   '/event-operations': typeof EventOperationsIndexRoute
+  '/admin/contracts/new': typeof AdminContractsNewRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/emails/$emailDesignId': typeof AdminEmailsEmailDesignIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
@@ -685,6 +693,7 @@ export interface FileRoutesById {
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/event-operations/': typeof EventOperationsIndexRoute
+  '/admin/contracts_/new': typeof AdminContractsNewRoute
   '/admin/courses/$courseId': typeof AdminCoursesCourseIdRoute
   '/admin/emails/$emailDesignId': typeof AdminEmailsEmailDesignIdRoute
   '/admin/events/$eventTemplateId': typeof AdminEventsEventTemplateIdRoute
@@ -765,6 +774,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/courses/'
     | '/event-operations/'
+    | '/admin/contracts/new'
     | '/admin/courses/$courseId'
     | '/admin/emails/$emailDesignId'
     | '/admin/events/$eventTemplateId'
@@ -841,6 +851,7 @@ export interface FileRouteTypes {
     | '/admin'
     | '/courses'
     | '/event-operations'
+    | '/admin/contracts/new'
     | '/admin/courses/$courseId'
     | '/admin/emails/$emailDesignId'
     | '/admin/events/$eventTemplateId'
@@ -919,6 +930,7 @@ export interface FileRouteTypes {
     | '/admin/'
     | '/courses/'
     | '/event-operations/'
+    | '/admin/contracts_/new'
     | '/admin/courses/$courseId'
     | '/admin/emails/$emailDesignId'
     | '/admin/events/$eventTemplateId'
@@ -1221,6 +1233,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/my-events/$eventOccurrenceId'
       preLoaderRoute: typeof MyEventsEventOccurrenceIdRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/admin/contracts_/new': {
+      id: '/admin/contracts_/new'
+      path: '/contracts/new'
+      fullPath: '/admin/contracts/new'
+      preLoaderRoute: typeof AdminContractsNewRouteImport
+      parentRoute: typeof AdminRoute
     }
     '/admin/courses/': {
       id: '/admin/courses/'
@@ -1563,6 +1582,7 @@ interface AdminRouteChildren {
   AdminOnboardingRoute: typeof AdminOnboardingRoute
   AdminResourcesRoute: typeof AdminResourcesRoute
   AdminIndexRoute: typeof AdminIndexRoute
+  AdminContractsNewRoute: typeof AdminContractsNewRoute
   AdminCoursesCourseIdRoute: typeof AdminCoursesCourseIdRoute
   AdminEmailsEmailDesignIdRoute: typeof AdminEmailsEmailDesignIdRoute
   AdminEventsEventTemplateIdRoute: typeof AdminEventsEventTemplateIdRoute
@@ -1591,6 +1611,7 @@ const AdminRouteChildren: AdminRouteChildren = {
   AdminOnboardingRoute: AdminOnboardingRoute,
   AdminResourcesRoute: AdminResourcesRoute,
   AdminIndexRoute: AdminIndexRoute,
+  AdminContractsNewRoute: AdminContractsNewRoute,
   AdminCoursesCourseIdRoute: AdminCoursesCourseIdRoute,
   AdminEmailsEmailDesignIdRoute: AdminEmailsEmailDesignIdRoute,
   AdminEventsEventTemplateIdRoute: AdminEventsEventTemplateIdRoute,
