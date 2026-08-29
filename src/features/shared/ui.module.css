@@ -27,7 +27,7 @@
 }
 
 .alert-green {
-  color: var(--mantine-color-green-light-color);
+  color: #176329;
   background: var(--mantine-color-green-light);
   border-color: var(--mantine-color-green-light-color);
 }

@@ -14,6 +14,7 @@ import {
   type ContractCoverageOption,
 } from "./ContractCoveragePicker";
 import { ContractIdentityListInput } from "./ContractIdentityListInput";
+import { mergeContractIdentityValues } from "./contract-identity-values";
 import classes from "./AdminEnterpriseContractManager.module.css";
 
 const formText = (data: FormData, name: string) => {
@@ -54,6 +55,14 @@ export function AdminEnterpriseContractCreate({
   async function submit(event: SyntheticEvent<HTMLFormElement, SubmitEvent>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
+    const submittedDomains = mergeContractIdentityValues(
+      domains,
+      formText(data, "pendingDomain"),
+    );
+    const submittedOwnerEmails = mergeContractIdentityValues(
+      ownerEmails,
+      formText(data, "pendingOwnerEmail"),
+    );
     const input = {
       name: formText(data, "name"),
       reference: formText(data, "reference"),
@@ -63,8 +72,8 @@ export function AdminEnterpriseContractCreate({
       enrollmentDurationDays: Number(formText(data, "enrollmentDurationDays")),
       autoEnrollCourses: autoEnroll,
       accessCode: formText(data, "accessCode"),
-      domains: domains.join(","),
-      ownerEmails: ownerEmails.join(","),
+      domains: submittedDomains.join(","),
+      ownerEmails: submittedOwnerEmails.join(","),
       courseIds,
       eventOccurrenceIds: eventIds,
     } as AdminEnterpriseContractCreateInput;
@@ -230,12 +239,14 @@ export function AdminEnterpriseContractCreate({
             </header>
             <div className={classes.formGrid}>
               <ContractIdentityListInput
+                name="pendingDomain"
                 label="Eligible verified-email domains"
                 kind="domain"
                 values={domains}
                 onChange={setDomains}
               />
               <ContractIdentityListInput
+                name="pendingOwnerEmail"
                 label="Contract Access Owners"
                 kind="email"
                 values={ownerEmails}

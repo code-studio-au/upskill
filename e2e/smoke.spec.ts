@@ -1225,12 +1225,48 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByText("No courses added.", { exact: true }),
     ).toBeVisible();
-    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const enterpriseContractCreateAccessibility = await new AxeBuilder({
       page,
     }).analyze();
     expect(enterpriseContractCreateAccessibility.violations).toEqual([]);
-    await page.getByRole("link", { name: "Back to contracts" }).click();
+    await page
+      .getByLabel("Contract name")
+      .fill("E2E pending identity contract");
+    await page.getByLabel("Contract reference").fill("E2E-PENDING-IDENTITY");
+    await page.getByLabel("Organisation").fill("E2E Health");
+    await page.getByLabel("Shared eligibility code").fill("E2E-CONTRACT-2027");
+    await page.getByLabel("Starts").fill("2027-01-01");
+    await page.getByLabel("Ends").fill("2027-12-31");
+    await courseCoverageCombobox.click();
+    await page.getByRole("option").first().click();
+    await domainInput.fill("Pending.Example.ORG");
+    await page.getByRole("button", { name: "Create draft contract" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Contract draft created" }),
+    ).toBeVisible();
+    const pendingIdentityContract = await authoringDatabase.query<{
+      id: string;
+    }>(`select id from enterprise_contract where reference = $1`, [
+      "E2E-PENDING-IDENTITY",
+    ]);
+    expect(pendingIdentityContract.rows).toHaveLength(1);
+    const pendingIdentityDomains = await authoringDatabase.query<{
+      domain: string;
+    }>(
+      `select domain
+         from enterprise_contract_domain
+        where "enterpriseContractId" = $1`,
+      [pendingIdentityContract.rows[0]?.id],
+    );
+    expect(pendingIdentityDomains.rows).toEqual([
+      { domain: "pending.example.org" },
+    ]);
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const enterpriseContractSuccessAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(enterpriseContractSuccessAccessibility.violations).toEqual([]);
+    await page.getByRole("link", { name: "View enterprise contracts" }).click();
     await expect(
       page.getByRole("heading", { name: "Enterprise contracts", exact: true }),
     ).toBeVisible();
