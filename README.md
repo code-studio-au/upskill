@@ -246,11 +246,15 @@ public DNS A records for the distinct application and learning origins using
 the application stack's Elastic IP output. Create the matching GitHub
 `staging` environment, restrict its deployment branches to `main`, and populate
 its two deployment secrets. This repository has one maintainer, so the
-environment deliberately has no required-reviewer rule; the manual workflow
-instead requires the exact 40-character `main` commit SHA as an independent
-confirmation. Run the first deployment from `main` and enter that SHA. The
-release is checksummed and receives signed GitHub build-provenance attestation
-before upload. It installs an nginx ACME configuration that returns only a
+environment deliberately has no required-reviewer rule. A successful `main`
+CI run automatically builds, verifies, attests and retains one immutable Release
+artifact for 90 days. To deploy, run the `Deploy` workflow from `main` and leave
+the `latest-successful`, `staging` and data-preserving dropdown options selected;
+no commit SHA or other text input is required. The deployment independently downloads the latest
+successful main Release, verifies its checksum and signed provenance, then
+uploads it to the environment artifact bucket. The staging-only selector keeps
+production promotion out of this convenience path until a separately governed
+production workflow is introduced. It installs an nginx ACME configuration that returns only a
 non-cacheable maintenance response over public HTTP until TLS is active. After
 DNS resolves, connect with SSM and run:
 
@@ -267,9 +271,10 @@ the restricted web/worker roles, activates atomically and verifies `/api/ready`
 against the commit SHA. Re-dispatching the active commit deliberately refreshes
 Secrets Manager configuration, validates it and restarts the web and worker;
 failed validation or readiness restores the previous environment files.
-Production seeding is prohibited. Staging has one explicit, additive snapshot
-seed for pre-production testing; it is separately confirmed, preserves existing
-users by email, uses a root-only operator environment, and is documented in
+Production seeding is prohibited. Staging has an explicit additive snapshot seed
+and a separate destructive reset-and-seed dropdown for deliberate clean-room
+testing. Both use a root-only operator environment; the reset option is never the
+default and requires an additional exact database-target guard. They are documented in
 [local development data](docs/local-development-data.md#controlled-staging-seed).
 Verify the published provenance for the exact downloaded release when required:
 

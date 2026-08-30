@@ -6,15 +6,25 @@ import {
 } from "@tanstack/react-router";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import { AdminSurveyEditor } from "#/features/survey/AdminSurveyEditor";
-import { adminSurveyParamsSchema } from "#/features/survey/survey.schema";
+import {
+  adminSurveyParamsSchema,
+  adminSurveySearchSchema,
+} from "#/features/survey/survey.schema";
 import { getAdminSurvey } from "#/server/functions/admin-survey";
 
 export const Route = createFileRoute("/admin/surveys/$surveyId")({
+  validateSearch: adminSurveySearchSchema,
+  loaderDeps: ({ search }) => ({ version: search.version }),
   ssr: false,
-  loader: async ({ params }) => {
+  loader: async ({ params, deps }) => {
     const parsed = adminSurveyParamsSchema.safeParse(params);
     if (!parsed.success) throw notFound();
-    const result = await getAdminSurvey({ data: parsed.data });
+    const result = await getAdminSurvey({
+      data: {
+        ...parsed.data,
+        ...(deps.version ? { versionId: deps.version } : {}),
+      },
+    });
     if (result.status === "unauthenticated")
       throw redirect({
         to: "/login",

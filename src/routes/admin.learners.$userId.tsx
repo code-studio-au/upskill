@@ -9,7 +9,7 @@ import {
   Title,
 } from "#/features/shared/mantine";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
-import { MantineProgress } from "#/features/shared/MantineProgress";
+import { LearnerProgressCard } from "#/features/shared/LearnerProgressCard";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import {
   createFileRoute,
@@ -108,23 +108,49 @@ function AdminLearnerProfilePage() {
             {profile.onboarding.assignments.length ? (
               <Stack gap="sm">
                 {profile.onboarding.assignments.map((assignment) => (
-                  <Group
-                    key={assignment.id}
-                    justify="space-between"
-                    align="flex-start"
-                  >
-                    <div>
-                      <Text fw={600}>{assignment.surveyTitle}</Text>
-                      <Text c="dimmed" size="sm">
-                        Onboarding version {assignment.definitionVersion} ·
-                        Survey version {assignment.surveyVersion} · Assigned{" "}
-                        {formatLocalDate(assignment.assignedAt)}
-                      </Text>
-                    </div>
-                    <Badge variant="light">
-                      {assignment.status.replaceAll("_", " ")}
-                    </Badge>
-                  </Group>
+                  <div key={assignment.id} className={classes.historyEntry}>
+                    <Group justify="space-between" align="flex-start">
+                      <div>
+                        <Text fw={600}>{assignment.surveyTitle}</Text>
+                        <Text c="dimmed" size="sm">
+                          Onboarding version {assignment.definitionVersion} ·
+                          Survey version {assignment.surveyVersion} · Assigned{" "}
+                          {formatLocalDate(assignment.assignedAt)}
+                        </Text>
+                      </div>
+                      <Badge variant="light">
+                        {assignment.status.replaceAll("_", " ")}
+                      </Badge>
+                    </Group>
+                    <details className={classes.responseDetails}>
+                      <summary>Review questions and answers</summary>
+                      <Stack gap="md">
+                        {assignment.responseSections.map((section) => (
+                          <div key={section.id}>
+                            <Text fw={700}>{section.title}</Text>
+                            <dl className={classes.answerList}>
+                              {section.answers.map((answer) => (
+                                <div key={answer.id}>
+                                  <dt>{answer.prompt}</dt>
+                                  <dd>{answer.answer}</dd>
+                                </div>
+                              ))}
+                            </dl>
+                          </div>
+                        ))}
+                        <Link
+                          to="/admin/surveys/$surveyId"
+                          params={{ surveyId: assignment.surveyId }}
+                          search={{ version: assignment.surveyVersionId }}
+                          className={classes.historySurveyLink}
+                        >
+                          <Button component="span" variant="light">
+                            Open survey version {assignment.surveyVersion}
+                          </Button>
+                        </Link>
+                      </Stack>
+                    </details>
+                  </div>
                 ))}
               </Stack>
             ) : (
@@ -162,79 +188,51 @@ function AdminLearnerProfilePage() {
           {profile.enrollments.length > 0 ? (
             <div className={classes.enrollmentGrid}>
               {profile.enrollments.map((enrollment) => {
-                const progress =
-                  enrollment.moduleCount === 0
-                    ? 0
-                    : Math.round(
-                        (enrollment.completedModuleCount /
-                          enrollment.moduleCount) *
-                          100,
-                      );
                 return (
-                  <Paper
-                    withBorder
-                    radius="lg"
-                    p="lg"
+                  <LearnerProgressCard
                     className={classes.enrollmentCard}
                     key={enrollment.id}
+                    title={enrollment.courseTitle}
+                    subtitle={`Version ${String(enrollment.courseVersion)}`}
+                    status={<Badge variant="light">{enrollment.status}</Badge>}
+                    progress={enrollment.sections}
+                    progressTitle="Course progress"
+                    actions={
+                      <>
+                        <Link
+                          to="/admin/learners/$userId/enrollments/$enrollmentId"
+                          params={{
+                            userId: profile.learner.id,
+                            enrollmentId: enrollment.id,
+                          }}
+                          className={classes.buttonLink}
+                        >
+                          <Button component="span" fullWidth>
+                            Review progress
+                          </Button>
+                        </Link>
+                        <Link
+                          to="/courses/$slug"
+                          params={{ slug: enrollment.courseSlug }}
+                          className={classes.buttonLink}
+                        >
+                          <Button component="span" variant="subtle" fullWidth>
+                            View public course
+                          </Button>
+                        </Link>
+                      </>
+                    }
                   >
-                    <Stack gap="md">
-                      <Group justify="space-between" align="flex-start">
-                        <div>
-                          <Title order={3}>{enrollment.courseTitle}</Title>
-                          <Text c="dimmed" size="sm">
-                            Published version {enrollment.courseVersion}
-                          </Text>
-                        </div>
-                        <Badge variant="light">{enrollment.status}</Badge>
-                      </Group>
-                      <div>
-                        <Group justify="space-between" mb={4}>
-                          <Text size="sm" fw={600}>
-                            Module progress
-                          </Text>
-                          <Text size="sm" c="dimmed">
-                            {enrollment.completedModuleCount}/
-                            {enrollment.moduleCount}
-                          </Text>
-                        </Group>
-                        <MantineProgress
-                          value={progress}
-                          aria-label={`${String(progress)}% complete`}
-                        />
-                      </div>
-                      <Text size="sm">
-                        Enrolled {formatLocalDate(enrollment.enrolledAt)}
+                    <Text size="sm">
+                      Enrolled {formatLocalDate(enrollment.enrolledAt)}
+                    </Text>
+                    {enrollment.lastActivityAt ? (
+                      <Text size="sm" c="dimmed">
+                        Last activity{" "}
+                        {formatLocalDate(enrollment.lastActivityAt)}
                       </Text>
-                      {enrollment.lastActivityAt ? (
-                        <Text size="sm" c="dimmed">
-                          Last activity{" "}
-                          {formatLocalDate(enrollment.lastActivityAt)}
-                        </Text>
-                      ) : null}
-                      <Link
-                        to="/admin/learners/$userId/enrollments/$enrollmentId"
-                        params={{
-                          userId: profile.learner.id,
-                          enrollmentId: enrollment.id,
-                        }}
-                        className={classes.buttonLink}
-                      >
-                        <Button component="span" fullWidth>
-                          Review progress
-                        </Button>
-                      </Link>
-                      <Link
-                        to="/courses/$slug"
-                        params={{ slug: enrollment.courseSlug }}
-                        className={classes.buttonLink}
-                      >
-                        <Button component="span" variant="subtle" fullWidth>
-                          View public course
-                        </Button>
-                      </Link>
-                    </Stack>
-                  </Paper>
+                    ) : null}
+                  </LearnerProgressCard>
                 );
               })}
             </div>

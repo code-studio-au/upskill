@@ -8,9 +8,10 @@ import {
   Title,
 } from "#/features/shared/mantine";
 import { useForm, useStore } from "@tanstack/react-form";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { firstFormError } from "#/features/shared/form-errors";
 import { PageTabs } from "#/features/shared/PageTabs";
 import { CourseVersionUsageList } from "#/features/admin-course/CourseVersionUsageList";
@@ -32,6 +33,7 @@ export function AdminSurveyEditor({
   detail: AdminSurveyDetail;
   onChanged: () => Promise<void>;
 }) {
+  const navigate = useNavigate({ from: "/admin/surveys/$surveyId" });
   const [pending, setPending] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +70,7 @@ export function AdminSurveyEditor({
       await onChanged();
     },
   });
+  const surveyTitle = useStore(surveyForm.store, (state) => state.values.title);
   const sections = useStore(surveyForm.store, (state) => state.values.sections);
 
   return (
@@ -78,7 +81,7 @@ export function AdminSurveyEditor({
             Back to surveys
           </Button>
           <Group gap="sm" mt="xs">
-            <Title order={1}>{detail.survey.title}</Title>
+            <Title order={1}>{surveyTitle}</Title>
             <Badge variant="light">Version {detail.version.version}</Badge>
             <Badge color={editable ? "blue" : "green"} variant="light">
               {editable ? "Draft" : "Published"}
@@ -121,12 +124,20 @@ export function AdminSurveyEditor({
                 setPending("new-version");
                 setError(null);
                 void createAdminSurveyVersion({
-                  data: { surveyId: detail.survey.id },
+                  data: {
+                    surveyId: detail.survey.id,
+                    sourceVersionId: detail.version.id,
+                  },
                 })
                   .then(async (result) => {
                     if (result.status !== "ready") {
                       setError("A draft survey version already exists.");
                       return;
+                    }
+                    if (result.data.versionId) {
+                      await navigate({
+                        search: { version: result.data.versionId },
+                      });
                     }
                     await onChanged();
                   })
@@ -135,11 +146,25 @@ export function AdminSurveyEditor({
                   });
               }}
             >
-              Create version {detail.version.version + 1}
+              Create new version from version {detail.version.version}
             </Button>
           )}
         </Group>
       </Group>
+
+      <Paper withBorder radius="lg" p="sm">
+        <MantineNativeSelect
+          label="Survey version"
+          value={detail.version.id}
+          data={detail.versions.map((version) => ({
+            value: version.id,
+            label: `Version ${String(version.version)} · ${version.publishedAt ? "Published" : "Draft"}`,
+          }))}
+          onChange={(event) => {
+            void navigate({ search: { version: event.currentTarget.value } });
+          }}
+        />
+      </Paper>
 
       {!editable ? (
         <Alert color="indigo" title="Published versions are immutable">

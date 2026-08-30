@@ -187,6 +187,9 @@ export function AdminResourceLibrary(props: AdminResourceLibraryProps) {
   const [removingId, setRemovingId] = useState<string>();
   const [target, setTarget] = useState<AdminResourceVersionSummary>();
   const [error, setError] = useState<string>();
+  const [selectedVersions, setSelectedVersions] = useState<
+    Record<string, string>
+  >({});
 
   async function remove(version: AdminResourceVersionSummary) {
     setRemovingId(version.id);
@@ -245,57 +248,79 @@ export function AdminResourceLibrary(props: AdminResourceLibraryProps) {
             </Paper>
           ) : (
             <div className={classes.library}>
-              {props.resources.map((resource) => (
-                <Paper
-                  component="article"
-                  withBorder
-                  radius="lg"
-                  p="md"
-                  key={resource.id}
-                >
-                  <Stack gap="sm">
-                    <Title order={3}>{resource.title}</Title>
-                    <ol className={classes.versionList}>
-                      {resource.versions.map((version) => (
-                        <li className={classes.versionItem} key={version.id}>
-                          <div>
-                            <Group gap="xs">
-                              <Text fw={700}>Version {version.version}</Text>
-                              <Badge variant="outline">
-                                {fileSize(version.sourceBytes)}
-                              </Badge>
-                            </Group>
-                            <Text size="sm" mt={4}>
-                              {version.displayName}
-                            </Text>
-                            {version.description ? (
-                              <Text c="dimmed" size="sm" mt={4}>
-                                {version.description}
+              {props.resources.map((resource) => {
+                const version =
+                  resource.versions.find(
+                    (candidate) =>
+                      candidate.id === selectedVersions[resource.id],
+                  ) ?? resource.versions[0];
+                return (
+                  <Paper
+                    component="article"
+                    withBorder
+                    radius="lg"
+                    p="md"
+                    key={resource.id}
+                  >
+                    <Stack gap="sm">
+                      <Title order={3}>{resource.title}</Title>
+                      {version ? (
+                        <>
+                          <MantineNativeSelect
+                            label="Resource version"
+                            value={version.id}
+                            data={resource.versions.map((candidate) => ({
+                              value: candidate.id,
+                              label: `Version ${String(candidate.version)}`,
+                            }))}
+                            onChange={(event) => {
+                              const nextVersionId = event.currentTarget.value;
+                              setSelectedVersions((current) => ({
+                                ...current,
+                                [resource.id]: nextVersionId,
+                              }));
+                            }}
+                          />
+                          <div className={classes.versionItem} key={version.id}>
+                            <div>
+                              <Group gap="xs">
+                                <Text fw={700}>Version {version.version}</Text>
+                                <Badge variant="outline">
+                                  {fileSize(version.sourceBytes)}
+                                </Badge>
+                              </Group>
+                              <Text size="sm" mt={4}>
+                                {version.displayName}
                               </Text>
+                              {version.description ? (
+                                <Text c="dimmed" size="sm" mt={4}>
+                                  {version.description}
+                                </Text>
+                              ) : null}
+                              <CourseVersionUsageList
+                                usages={version.courseUsages}
+                              />
+                            </div>
+                            {version.courseUsageCount === 0 ? (
+                              <Button
+                                color="red"
+                                variant="subtle"
+                                size="xs"
+                                loading={removingId === version.id}
+                                onClick={() => {
+                                  setTarget(version);
+                                }}
+                              >
+                                Remove version
+                              </Button>
                             ) : null}
-                            <CourseVersionUsageList
-                              usages={version.courseUsages}
-                            />
                           </div>
-                          {version.courseUsageCount === 0 ? (
-                            <Button
-                              color="red"
-                              variant="subtle"
-                              size="xs"
-                              loading={removingId === version.id}
-                              onClick={() => {
-                                setTarget(version);
-                              }}
-                            >
-                              Remove version
-                            </Button>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ol>
-                  </Stack>
-                </Paper>
-              ))}
+                        </>
+                      ) : null}
+                    </Stack>
+                  </Paper>
+                );
+              })}
             </div>
           )}
         </Stack>

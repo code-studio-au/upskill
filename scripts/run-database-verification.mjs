@@ -32,6 +32,9 @@ const verificationScripts = [
   "scripts/verify-provisional-account-notifications.ts",
   "scripts/verify-notification-operations.ts",
   "scripts/verify-sms-delivery.ts",
+  // The snapshot seed deliberately persists a complete data set, so verify it
+  // after mutation-focused scripts have completed and cleaned up their rows.
+  "scripts/verify-current-snapshot-seed.ts",
 ];
 const migrationScript = verificationScripts[0];
 const requestedScripts = process.argv.slice(2);
@@ -103,6 +106,7 @@ try {
     DATABASE_URL: disposableDatabase.databaseUrl,
     MIGRATION_DATABASE_URL: disposableDatabase.databaseUrl,
     EMAIL_PROVIDER: "local_capture",
+    SEED_LEARNER_PASSWORD: "ci-only-snapshot-seed-password",
     SMS_PROVIDER: "local_capture",
   };
   for (const script of scriptsToRun) {

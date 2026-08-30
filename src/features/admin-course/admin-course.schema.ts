@@ -36,6 +36,11 @@ export const adminCourseParamsSchema = z.object({
   courseId: identifierSchema,
 });
 
+export const adminCourseCreateVersionSchema = z.object({
+  courseId: identifierSchema,
+  sourceVersionId: identifierSchema,
+});
+
 export const adminCourseSelectionSchema = z.object({
   courseId: identifierSchema,
   courseVersionId: z.optional(identifierSchema),
@@ -241,6 +246,7 @@ interface AdminCourseSurveyOption {
   surveyId: string;
   title: string;
   version: number;
+  type: "elearning" | "shared";
 }
 
 export interface AdminCourseDetail {

@@ -250,8 +250,35 @@ export function AdminCourseEditor({
     return detail.library.surveys.map((survey) => ({
       value: survey.id,
       label: `${survey.title} · v${String(survey.version)}`,
+      type: survey.type,
     }));
   }, [detail.library.modules, detail.library.surveys, itemKind, resources]);
+
+  const referenceSelectData = useMemo(() => {
+    const emptyOption = {
+      value: "",
+      label:
+        referenceOptions.length === 0
+          ? "No published content available"
+          : "Choose content",
+    };
+    if (itemKind !== "survey") return [emptyOption, ...referenceOptions];
+    return [
+      emptyOption,
+      {
+        group: "eLearning surveys",
+        items: referenceOptions.filter(
+          (option) => "type" in option && option.type === "elearning",
+        ),
+      },
+      {
+        group: "Shared surveys",
+        items: referenceOptions.filter(
+          (option) => "type" in option && option.type === "shared",
+        ),
+      },
+    ];
+  }, [itemKind, referenceOptions]);
 
   function updateSection(
     sectionId: string,
@@ -321,7 +348,10 @@ export function AdminCourseEditor({
     setError(null);
     try {
       const result = await createAdminCourseVersion({
-        data: { courseId: detail.course.id },
+        data: {
+          courseId: detail.course.id,
+          sourceVersionId: detail.version.id,
+        },
       });
       if (result.status !== "ready" || !result.data.versionId) {
         setError("A draft version already exists.");
@@ -348,7 +378,7 @@ export function AdminCourseEditor({
           Back to courses
         </Button>
         <Group gap="sm" align="center">
-          <Title order={1}>{detail.course.title}</Title>
+          <Title order={1}>{draft.title}</Title>
           <Badge variant="light">Version {detail.version.version}</Badge>
         </Group>
       </div>
@@ -421,7 +451,7 @@ export function AdminCourseEditor({
               loading={pending === "new-version"}
               onClick={() => void createVersion()}
             >
-              Create new version
+              Create new version from version {detail.version.version}
             </Button>
           ) : null}
         </div>
@@ -848,16 +878,7 @@ export function AdminCourseEditor({
             />
             <MantineNativeSelect
               label="Content"
-              data={[
-                {
-                  value: "",
-                  label:
-                    referenceOptions.length === 0
-                      ? "No published content available"
-                      : "Choose content",
-                },
-                ...referenceOptions,
-              ]}
+              data={referenceSelectData}
               value={itemReference ?? ""}
               onChange={(event) => {
                 setItemReference(event.currentTarget.value || null);

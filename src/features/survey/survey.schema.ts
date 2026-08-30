@@ -364,10 +364,29 @@ export function parseSurveyVersionContent(
 
 export const adminSurveyCreateSchema = z.object({
   title: boundedText(160),
-  usage: z.enum(["learning", "onboarding"]),
+  type: z.enum(["system", "elearning", "event", "shared"]),
 });
 
 export const adminSurveyParamsSchema = z.object({ surveyId: identifierSchema });
+
+export const adminSurveySearchSchema = z.object({
+  version: z.optional(identifierSchema),
+});
+
+export const adminSurveyDetailParamsSchema = z.object({
+  surveyId: identifierSchema,
+  versionId: z.optional(identifierSchema),
+});
+
+export const adminSurveyCreateVersionSchema = z.object({
+  surveyId: identifierSchema,
+  sourceVersionId: identifierSchema,
+});
+
+export const adminSurveyMoveSchema = z.object({
+  surveyId: identifierSchema,
+  direction: z.enum(["up", "down"]),
+});
 
 export const adminSurveyVersionParamsSchema = z.object({
   surveyId: identifierSchema,
@@ -442,6 +461,8 @@ export interface AdminSurveySummary {
   id: string;
   title: string;
   usage: "learning" | "onboarding";
+  type: "system" | "elearning" | "event" | "shared";
+  position: number;
   draftVersion: number | null;
   publishedVersion: number | null;
   versions: Array<{
@@ -453,7 +474,12 @@ export interface AdminSurveySummary {
 }
 
 export interface AdminSurveyDetail {
-  survey: { id: string; title: string; usage: "learning" | "onboarding" };
+  survey: {
+    id: string;
+    title: string;
+    usage: "learning" | "onboarding";
+    type: "system" | "elearning" | "event" | "shared";
+  };
   version: {
     id: string;
     version: number;
@@ -532,7 +558,7 @@ export type AdminSurveyDetailResult =
 
 export type AdminSurveyMutationResult =
   | AdminSurveyResult<{
-      outcome: "created" | "saved" | "published";
+      outcome: "created" | "moved" | "saved" | "published";
       surveyId: string;
       versionId?: string;
     }>

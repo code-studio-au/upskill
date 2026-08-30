@@ -59,6 +59,7 @@ import { Route as ApiAdminScormPackagesRouteImport } from './routes/api.admin.sc
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
+import { Route as ApiScormPreviewRouteImport } from './routes/api.scorm.preview'
 import { Route as ApiStripeWebhookRouteImport } from './routes/api.stripe.webhook'
 import { Route as ApiTextbeeWebhookRouteImport } from './routes/api.textbee.webhook'
 import { Route as CoursesSlugBulkOrderRouteImport } from './routes/courses.$slug_.bulk-order'
@@ -74,6 +75,7 @@ import { Route as ApiLearningCertificatesEnrollmentIdRouteImport } from './route
 import { Route as ApiLearningEventCertificatesEventParticipationIdRouteImport } from './routes/api.learning.event-certificates.$eventParticipationId'
 import { Route as ApiLearningResourcesResourceVersionIdRouteImport } from './routes/api.learning.resources.$resourceVersionId'
 import { Route as ApiScormAttemptsAttemptIdRouteImport } from './routes/api.scorm.attempts.$attemptId'
+import { Route as ApiScormPreviewsPackageVersionIdRouteImport } from './routes/api.scorm.previews.$packageVersionId'
 import { Route as EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRouteImport } from './routes/event-operations.$eventOccurrenceId_.survey-qr.$eventSurveyAccessId'
 import { Route as LearnEnrollmentIdSurveysCourseVersionItemIdRouteImport } from './routes/learn.$enrollmentId_.surveys.$courseVersionItemId'
 import { Route as MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRouteImport } from './routes/my-events_.$eventOccurrenceId_.surveys.$eventTemplateVersionItemId'
@@ -81,11 +83,13 @@ import { Route as AdminLearnersUserIdEnrollmentsEnrollmentIdRouteImport } from '
 import { Route as AdminLearnersUserIdEventsEventOccurrenceIdRouteImport } from './routes/admin.learners.$userId_.events.$eventOccurrenceId'
 import { Route as ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRouteImport } from './routes/api.access-management.contracts.$enterpriseContractId.utilisation[.]csv'
 import { Route as ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRouteImport } from './routes/api.admin.contracts.$enterpriseContractId.utilisation[.]csv'
+import { Route as ApiAdminScormPackagesPackageVersionIdPreviewRouteImport } from './routes/api.admin.scorm-packages.$packageVersionId.preview'
 import { Route as ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.courses.$slug.accreditation-logos.$assetId'
 import { Route as ApiCatalogCoursesSlugCoverImagesAssetIdRouteImport } from './routes/api.catalog.courses.$slug.cover-images.$assetId'
 import { Route as ApiCatalogEventsSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.events.$slug.accreditation-logos.$assetId'
 import { Route as ApiCatalogEventsSlugCoverImagesAssetIdRouteImport } from './routes/api.catalog.events.$slug.cover-images.$assetId'
 import { Route as ApiScormAttemptsAttemptIdContentSplatRouteImport } from './routes/api.scorm.attempts.$attemptId.content.$'
+import { Route as ApiScormPreviewsPackageVersionIdContentSplatRouteImport } from './routes/api.scorm.previews.$packageVersionId.content.$'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -344,6 +348,11 @@ const ApiScormLaunchesRoute = ApiScormLaunchesRouteImport.update({
   path: '/api/scorm/launches',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiScormPreviewRoute = ApiScormPreviewRouteImport.update({
+  id: '/api/scorm/preview',
+  path: '/api/scorm/preview',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiStripeWebhookRoute = ApiStripeWebhookRouteImport.update({
   id: '/api/stripe/webhook',
   path: '/api/stripe/webhook',
@@ -429,6 +438,12 @@ const ApiScormAttemptsAttemptIdRoute =
     path: '/api/scorm/attempts/$attemptId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiScormPreviewsPackageVersionIdRoute =
+  ApiScormPreviewsPackageVersionIdRouteImport.update({
+    id: '/api/scorm/previews/$packageVersionId',
+    path: '/api/scorm/previews/$packageVersionId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute =
   EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRouteImport.update(
     {
@@ -475,6 +490,12 @@ const ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute =
     path: '/api/admin/contracts/$enterpriseContractId/utilisation.csv',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAdminScormPackagesPackageVersionIdPreviewRoute =
+  ApiAdminScormPackagesPackageVersionIdPreviewRouteImport.update({
+    id: '/$packageVersionId/preview',
+    path: '/$packageVersionId/preview',
+    getParentRoute: () => ApiAdminScormPackagesRoute,
+  } as any)
 const ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute =
   ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport.update({
     id: '/api/catalog/courses/$slug/accreditation-logos/$assetId',
@@ -504,6 +525,12 @@ const ApiScormAttemptsAttemptIdContentSplatRoute =
     id: '/content/$',
     path: '/content/$',
     getParentRoute: () => ApiScormAttemptsAttemptIdRoute,
+  } as any)
+const ApiScormPreviewsPackageVersionIdContentSplatRoute =
+  ApiScormPreviewsPackageVersionIdContentSplatRouteImport.update({
+    id: '/content/$',
+    path: '/content/$',
+    getParentRoute: () => ApiScormPreviewsPackageVersionIdRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -548,10 +575,11 @@ export interface FileRoutesByFullPath {
   '/api/admin/accreditation-logos': typeof ApiAdminAccreditationLogosRoute
   '/api/admin/offering-images': typeof ApiAdminOfferingImagesRouteWithChildren
   '/api/admin/resources': typeof ApiAdminResourcesRoute
-  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
+  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
+  '/api/scorm/preview': typeof ApiScormPreviewRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/api/textbee/webhook': typeof ApiTextbeeWebhookRoute
   '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
@@ -572,6 +600,7 @@ export interface FileRoutesByFullPath {
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/api/scorm/previews/$packageVersionId': typeof ApiScormPreviewsPackageVersionIdRouteWithChildren
   '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
@@ -579,11 +608,13 @@ export interface FileRoutesByFullPath {
   '/admin/learners/$userId/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
   '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
+  '/api/admin/scorm-packages/$packageVersionId/preview': typeof ApiAdminScormPackagesPackageVersionIdPreviewRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
   '/api/catalog/events/$slug/cover-images/$assetId': typeof ApiCatalogEventsSlugCoverImagesAssetIdRoute
   '/api/scorm/attempts/$attemptId/content/$': typeof ApiScormAttemptsAttemptIdContentSplatRoute
+  '/api/scorm/previews/$packageVersionId/content/$': typeof ApiScormPreviewsPackageVersionIdContentSplatRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -625,10 +656,11 @@ export interface FileRoutesByTo {
   '/api/admin/accreditation-logos': typeof ApiAdminAccreditationLogosRoute
   '/api/admin/offering-images': typeof ApiAdminOfferingImagesRouteWithChildren
   '/api/admin/resources': typeof ApiAdminResourcesRoute
-  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
+  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
+  '/api/scorm/preview': typeof ApiScormPreviewRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/api/textbee/webhook': typeof ApiTextbeeWebhookRoute
   '/courses/$slug/bulk-order': typeof CoursesSlugBulkOrderRoute
@@ -649,6 +681,7 @@ export interface FileRoutesByTo {
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/api/scorm/previews/$packageVersionId': typeof ApiScormPreviewsPackageVersionIdRouteWithChildren
   '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
@@ -656,11 +689,13 @@ export interface FileRoutesByTo {
   '/admin/learners/$userId/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
   '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
+  '/api/admin/scorm-packages/$packageVersionId/preview': typeof ApiAdminScormPackagesPackageVersionIdPreviewRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
   '/api/catalog/events/$slug/cover-images/$assetId': typeof ApiCatalogEventsSlugCoverImagesAssetIdRoute
   '/api/scorm/attempts/$attemptId/content/$': typeof ApiScormAttemptsAttemptIdContentSplatRoute
+  '/api/scorm/previews/$packageVersionId/content/$': typeof ApiScormPreviewsPackageVersionIdContentSplatRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -705,10 +740,11 @@ export interface FileRoutesById {
   '/api/admin/accreditation-logos': typeof ApiAdminAccreditationLogosRoute
   '/api/admin/offering-images': typeof ApiAdminOfferingImagesRouteWithChildren
   '/api/admin/resources': typeof ApiAdminResourcesRoute
-  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRoute
+  '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
+  '/api/scorm/preview': typeof ApiScormPreviewRoute
   '/api/stripe/webhook': typeof ApiStripeWebhookRoute
   '/api/textbee/webhook': typeof ApiTextbeeWebhookRoute
   '/courses/$slug_/bulk-order': typeof CoursesSlugBulkOrderRoute
@@ -729,6 +765,7 @@ export interface FileRoutesById {
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/api/scorm/previews/$packageVersionId': typeof ApiScormPreviewsPackageVersionIdRouteWithChildren
   '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId_/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId': typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
@@ -736,11 +773,13 @@ export interface FileRoutesById {
   '/admin/learners/$userId_/events/$eventOccurrenceId': typeof AdminLearnersUserIdEventsEventOccurrenceIdRoute
   '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
+  '/api/admin/scorm-packages/$packageVersionId/preview': typeof ApiAdminScormPackagesPackageVersionIdPreviewRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
   '/api/catalog/events/$slug/cover-images/$assetId': typeof ApiCatalogEventsSlugCoverImagesAssetIdRoute
   '/api/scorm/attempts/$attemptId/content/$': typeof ApiScormAttemptsAttemptIdContentSplatRoute
+  '/api/scorm/previews/$packageVersionId/content/$': typeof ApiScormPreviewsPackageVersionIdContentSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -790,6 +829,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
+    | '/api/scorm/preview'
     | '/api/stripe/webhook'
     | '/api/textbee/webhook'
     | '/courses/$slug/bulk-order'
@@ -810,6 +850,7 @@ export interface FileRouteTypes {
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/api/scorm/previews/$packageVersionId'
     | '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
@@ -817,11 +858,13 @@ export interface FileRouteTypes {
     | '/admin/learners/$userId/events/$eventOccurrenceId'
     | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
+    | '/api/admin/scorm-packages/$packageVersionId/preview'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
     | '/api/catalog/events/$slug/cover-images/$assetId'
     | '/api/scorm/attempts/$attemptId/content/$'
+    | '/api/scorm/previews/$packageVersionId/content/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -867,6 +910,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
+    | '/api/scorm/preview'
     | '/api/stripe/webhook'
     | '/api/textbee/webhook'
     | '/courses/$slug/bulk-order'
@@ -887,6 +931,7 @@ export interface FileRouteTypes {
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/api/scorm/previews/$packageVersionId'
     | '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
     | '/my-events/$eventOccurrenceId/surveys/$eventTemplateVersionItemId'
@@ -894,11 +939,13 @@ export interface FileRouteTypes {
     | '/admin/learners/$userId/events/$eventOccurrenceId'
     | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
+    | '/api/admin/scorm-packages/$packageVersionId/preview'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
     | '/api/catalog/events/$slug/cover-images/$assetId'
     | '/api/scorm/attempts/$attemptId/content/$'
+    | '/api/scorm/previews/$packageVersionId/content/$'
   id:
     | '__root__'
     | '/'
@@ -946,6 +993,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
+    | '/api/scorm/preview'
     | '/api/stripe/webhook'
     | '/api/textbee/webhook'
     | '/courses/$slug_/bulk-order'
@@ -966,6 +1014,7 @@ export interface FileRouteTypes {
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/api/scorm/previews/$packageVersionId'
     | '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId_/surveys/$courseVersionItemId'
     | '/my-events_/$eventOccurrenceId_/surveys/$eventTemplateVersionItemId'
@@ -973,11 +1022,13 @@ export interface FileRouteTypes {
     | '/admin/learners/$userId_/events/$eventOccurrenceId'
     | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
+    | '/api/admin/scorm-packages/$packageVersionId/preview'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
     | '/api/catalog/events/$slug/cover-images/$assetId'
     | '/api/scorm/attempts/$attemptId/content/$'
+    | '/api/scorm/previews/$packageVersionId/content/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1003,10 +1054,11 @@ export interface RootRouteChildren {
   ApiAdminAccreditationLogosRoute: typeof ApiAdminAccreditationLogosRoute
   ApiAdminOfferingImagesRoute: typeof ApiAdminOfferingImagesRouteWithChildren
   ApiAdminResourcesRoute: typeof ApiAdminResourcesRoute
-  ApiAdminScormPackagesRoute: typeof ApiAdminScormPackagesRoute
+  ApiAdminScormPackagesRoute: typeof ApiAdminScormPackagesRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
+  ApiScormPreviewRoute: typeof ApiScormPreviewRoute
   ApiStripeWebhookRoute: typeof ApiStripeWebhookRoute
   ApiTextbeeWebhookRoute: typeof ApiTextbeeWebhookRoute
   CoursesSlugBulkOrderRoute: typeof CoursesSlugBulkOrderRoute
@@ -1019,6 +1071,7 @@ export interface RootRouteChildren {
   ApiLearningEventCertificatesEventParticipationIdRoute: typeof ApiLearningEventCertificatesEventParticipationIdRoute
   ApiLearningResourcesResourceVersionIdRoute: typeof ApiLearningResourcesResourceVersionIdRoute
   ApiScormAttemptsAttemptIdRoute: typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  ApiScormPreviewsPackageVersionIdRoute: typeof ApiScormPreviewsPackageVersionIdRouteWithChildren
   LearnEnrollmentIdSurveysCourseVersionItemIdRoute: typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute: typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute: typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
@@ -1381,6 +1434,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiScormLaunchesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/scorm/preview': {
+      id: '/api/scorm/preview'
+      path: '/api/scorm/preview'
+      fullPath: '/api/scorm/preview'
+      preLoaderRoute: typeof ApiScormPreviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/stripe/webhook': {
       id: '/api/stripe/webhook'
       path: '/api/stripe/webhook'
@@ -1486,6 +1546,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiScormAttemptsAttemptIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/scorm/previews/$packageVersionId': {
+      id: '/api/scorm/previews/$packageVersionId'
+      path: '/api/scorm/previews/$packageVersionId'
+      fullPath: '/api/scorm/previews/$packageVersionId'
+      preLoaderRoute: typeof ApiScormPreviewsPackageVersionIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId': {
       id: '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId'
       path: '/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
@@ -1535,6 +1602,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/admin/scorm-packages/$packageVersionId/preview': {
+      id: '/api/admin/scorm-packages/$packageVersionId/preview'
+      path: '/$packageVersionId/preview'
+      fullPath: '/api/admin/scorm-packages/$packageVersionId/preview'
+      preLoaderRoute: typeof ApiAdminScormPackagesPackageVersionIdPreviewRouteImport
+      parentRoute: typeof ApiAdminScormPackagesRoute
+    }
     '/api/catalog/courses/$slug/accreditation-logos/$assetId': {
       id: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
       path: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
@@ -1569,6 +1643,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/api/scorm/attempts/$attemptId/content/$'
       preLoaderRoute: typeof ApiScormAttemptsAttemptIdContentSplatRouteImport
       parentRoute: typeof ApiScormAttemptsAttemptIdRoute
+    }
+    '/api/scorm/previews/$packageVersionId/content/$': {
+      id: '/api/scorm/previews/$packageVersionId/content/$'
+      path: '/content/$'
+      fullPath: '/api/scorm/previews/$packageVersionId/content/$'
+      preLoaderRoute: typeof ApiScormPreviewsPackageVersionIdContentSplatRouteImport
+      parentRoute: typeof ApiScormPreviewsPackageVersionIdRoute
     }
   }
 }
@@ -1667,6 +1748,20 @@ const ApiAdminOfferingImagesRouteWithChildren =
     ApiAdminOfferingImagesRouteChildren,
   )
 
+interface ApiAdminScormPackagesRouteChildren {
+  ApiAdminScormPackagesPackageVersionIdPreviewRoute: typeof ApiAdminScormPackagesPackageVersionIdPreviewRoute
+}
+
+const ApiAdminScormPackagesRouteChildren: ApiAdminScormPackagesRouteChildren = {
+  ApiAdminScormPackagesPackageVersionIdPreviewRoute:
+    ApiAdminScormPackagesPackageVersionIdPreviewRoute,
+}
+
+const ApiAdminScormPackagesRouteWithChildren =
+  ApiAdminScormPackagesRoute._addFileChildren(
+    ApiAdminScormPackagesRouteChildren,
+  )
+
 interface ApiScormAttemptsAttemptIdRouteChildren {
   ApiScormAttemptsAttemptIdContentSplatRoute: typeof ApiScormAttemptsAttemptIdContentSplatRoute
 }
@@ -1680,6 +1775,21 @@ const ApiScormAttemptsAttemptIdRouteChildren: ApiScormAttemptsAttemptIdRouteChil
 const ApiScormAttemptsAttemptIdRouteWithChildren =
   ApiScormAttemptsAttemptIdRoute._addFileChildren(
     ApiScormAttemptsAttemptIdRouteChildren,
+  )
+
+interface ApiScormPreviewsPackageVersionIdRouteChildren {
+  ApiScormPreviewsPackageVersionIdContentSplatRoute: typeof ApiScormPreviewsPackageVersionIdContentSplatRoute
+}
+
+const ApiScormPreviewsPackageVersionIdRouteChildren: ApiScormPreviewsPackageVersionIdRouteChildren =
+  {
+    ApiScormPreviewsPackageVersionIdContentSplatRoute:
+      ApiScormPreviewsPackageVersionIdContentSplatRoute,
+  }
+
+const ApiScormPreviewsPackageVersionIdRouteWithChildren =
+  ApiScormPreviewsPackageVersionIdRoute._addFileChildren(
+    ApiScormPreviewsPackageVersionIdRouteChildren,
   )
 
 const rootRouteChildren: RootRouteChildren = {
@@ -1705,10 +1815,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAdminAccreditationLogosRoute: ApiAdminAccreditationLogosRoute,
   ApiAdminOfferingImagesRoute: ApiAdminOfferingImagesRouteWithChildren,
   ApiAdminResourcesRoute: ApiAdminResourcesRoute,
-  ApiAdminScormPackagesRoute: ApiAdminScormPackagesRoute,
+  ApiAdminScormPackagesRoute: ApiAdminScormPackagesRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
+  ApiScormPreviewRoute: ApiScormPreviewRoute,
   ApiStripeWebhookRoute: ApiStripeWebhookRoute,
   ApiTextbeeWebhookRoute: ApiTextbeeWebhookRoute,
   CoursesSlugBulkOrderRoute: CoursesSlugBulkOrderRoute,
@@ -1728,6 +1839,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLearningResourcesResourceVersionIdRoute:
     ApiLearningResourcesResourceVersionIdRoute,
   ApiScormAttemptsAttemptIdRoute: ApiScormAttemptsAttemptIdRouteWithChildren,
+  ApiScormPreviewsPackageVersionIdRoute:
+    ApiScormPreviewsPackageVersionIdRouteWithChildren,
   LearnEnrollmentIdSurveysCourseVersionItemIdRoute:
     LearnEnrollmentIdSurveysCourseVersionItemIdRoute,
   MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute:

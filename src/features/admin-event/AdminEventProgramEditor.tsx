@@ -404,6 +404,18 @@ export function AdminEventProgramEditor({
                       </div>
                     </summary>
                     <div className={classes.itemEditor}>
+                      {item.kind === "scorm" ? (
+                        <Button
+                          component="a"
+                          href={`/api/admin/scorm-packages/${encodeURIComponent(item.learningActivityVersionId)}/preview`}
+                          target="_blank"
+                          rel="noreferrer"
+                          size="compact-xs"
+                          variant="light"
+                        >
+                          Preview SCORM
+                        </Button>
+                      ) : null}
                       {item.kind === "automated_email" ? (
                         <Button
                           size="compact-xs"
@@ -598,16 +610,45 @@ function ActivityAdder({
           }))
       : kind === "session"
         ? []
-        : detail.library[
-            kind === "scorm"
-              ? "modules"
-              : kind === "survey"
-                ? "surveys"
-                : "resources"
-          ].map((activity) => ({
-            value: activity.id,
-            label: `${activity.title} · v${String(activity.version)}`,
-          }));
+        : kind === "survey"
+          ? detail.library.surveys.map((survey) => ({
+              value: survey.id,
+              label: `${survey.title} · v${String(survey.version)}`,
+              type: survey.type,
+            }))
+          : detail.library[kind === "scorm" ? "modules" : "resources"].map(
+              (activity) => ({
+                value: activity.id,
+                label: `${activity.title} · v${String(activity.version)}`,
+              }),
+            );
+  const selectData =
+    kind === "survey"
+      ? [
+          {
+            value: "",
+            label: options.length ? "Select an item" : "None available",
+          },
+          {
+            group: "Event surveys",
+            items: options.filter(
+              (option) => "type" in option && option.type === "event",
+            ),
+          },
+          {
+            group: "Shared surveys",
+            items: options.filter(
+              (option) => "type" in option && option.type === "shared",
+            ),
+          },
+        ]
+      : [
+          {
+            value: "",
+            label: options.length ? "Select an item" : "None available",
+          },
+          ...options,
+        ];
 
   return (
     <div className={classes.adder}>
@@ -634,13 +675,7 @@ function ActivityAdder({
           <MantineNativeSelect
             label={kind === "automated_email" ? "Email template" : "Item"}
             value={reference}
-            data={[
-              {
-                value: "",
-                label: options.length ? "Select an item" : "None available",
-              },
-              ...options,
-            ]}
+            data={selectData}
             onChange={(event) => {
               setReference(event.currentTarget.value);
             }}

@@ -1,7 +1,6 @@
 import {
   Alert,
   Button,
-  Group,
   Paper,
   Stack,
   Text,
@@ -18,6 +17,7 @@ import {
   withdrawLearnerEvent,
 } from "#/server/functions/learner";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
+import { LearnerProgressCard } from "#/features/shared/LearnerProgressCard";
 import { groupLearnerEvents } from "./learner-event-grouping";
 import classes from "./LearnerEventSection.module.css";
 
@@ -252,97 +252,104 @@ function LearnerEventCard({
   onWithdraw: (eventOccurrenceId: string) => Promise<void>;
 }) {
   return (
-    <Paper withBorder radius="lg" p="lg">
-      <Stack gap="sm">
-        <Group justify="space-between" align="start" wrap="wrap">
-          <div>
-            <Title order={4}>{event.title}</Title>
-            <Text size="sm" c="dimmed">
-              {event.eventTemplateTitle}
-            </Text>
-          </div>
-          <Badge color={statusColor(event)} variant="light">
-            {statusLabel(event)}
-          </Badge>
-        </Group>
-        <Text size="sm">
-          {formatLocalDateTime(event.startsAt, {
-            timeZone: event.timezone,
-          })}
-          {" – "}
-          {formatLocalDateTime(event.endsAt, {
-            timeZone: event.timezone,
-          })}
-        </Text>
-        <Text size="sm" c="dimmed">
-          {event.deliveryMode === "virtual" ? "Virtual" : "In person"} ·{" "}
-          {event.timezone}
-        </Text>
-        {event.registrationStatus === "selected" ||
-        event.participationMode === "open_entry" ? (
-          <Link
-            to="/my-events/$eventOccurrenceId"
-            params={{ eventOccurrenceId: event.eventOccurrenceId }}
-          >
-            <Button component="span">Open event</Button>
-          </Link>
-        ) : null}
-        {!event.registrationStatus && !event.participationMode ? (
-          <Stack gap="xs">
-            {event.canRegister && event.regions.length > 0 ? (
-              <MantineNativeSelect
-                label="Your region"
-                value={selectedRegion}
-                data={[
-                  {
-                    value: "",
-                    label: "Select your region",
-                    disabled: true,
-                  },
-                  ...event.regions.map((region) => ({
-                    value: region.id,
-                    label: region.name,
-                  })),
-                ]}
-                onChange={(change) => {
-                  onRegionChange(change.currentTarget.value);
+    <LearnerProgressCard
+      className={classes.eventCard}
+      title={event.title}
+      subtitle={`${event.eventTemplateTitle} · Version ${String(event.eventTemplateVersion)}`}
+      status={
+        <Badge color={statusColor(event)} variant="light">
+          {statusLabel(event)}
+        </Badge>
+      }
+      progress={event.progress?.sections ?? null}
+      progressTitle="Event progress"
+      actions={
+        <>
+          {event.registrationStatus === "selected" ||
+          event.participationMode === "open_entry" ? (
+            <Link
+              to="/my-events/$eventOccurrenceId"
+              params={{ eventOccurrenceId: event.eventOccurrenceId }}
+              className={classes.actionLink}
+            >
+              <Button component="span" fullWidth>
+                Open event
+              </Button>
+            </Link>
+          ) : null}
+          {!event.registrationStatus && !event.participationMode ? (
+            <Stack gap="xs">
+              {event.canRegister && event.regions.length > 0 ? (
+                <MantineNativeSelect
+                  label="Your region"
+                  value={selectedRegion}
+                  data={[
+                    {
+                      value: "",
+                      label: "Select your region",
+                      disabled: true,
+                    },
+                    ...event.regions.map((region) => ({
+                      value: region.id,
+                      label: region.name,
+                    })),
+                  ]}
+                  onChange={(change) => {
+                    onRegionChange(change.currentTarget.value);
+                  }}
+                  required
+                />
+              ) : null}
+              <Button
+                fullWidth
+                disabled={
+                  !event.canRegister ||
+                  (event.regions.length > 0 && !selectedRegion)
+                }
+                loading={processing}
+                onClick={() => {
+                  void onRegister(
+                    event.eventOccurrenceId,
+                    selectedRegion || null,
+                  );
                 }}
-                required
-              />
-            ) : null}
+              >
+                {unavailableLabel(event)}
+              </Button>
+            </Stack>
+          ) : !event.participationMode &&
+            event.registrationStatus !== "withdrawn" &&
+            event.registrationStatus !== "cancelled" &&
+            event.registrationStatus !== "not_selected" &&
+            event.registrationStatus !== "coordinator_declined" ? (
             <Button
-              disabled={
-                !event.canRegister ||
-                (event.regions.length > 0 && !selectedRegion)
-              }
+              variant="subtle"
+              color="red"
+              fullWidth
               loading={processing}
               onClick={() => {
-                void onRegister(
-                  event.eventOccurrenceId,
-                  selectedRegion || null,
-                );
+                void onWithdraw(event.eventOccurrenceId);
               }}
             >
-              {unavailableLabel(event)}
+              Withdraw registration
             </Button>
-          </Stack>
-        ) : !event.participationMode &&
-          event.registrationStatus !== "withdrawn" &&
-          event.registrationStatus !== "cancelled" &&
-          event.registrationStatus !== "not_selected" &&
-          event.registrationStatus !== "coordinator_declined" ? (
-          <Button
-            variant="subtle"
-            color="red"
-            loading={processing}
-            onClick={() => {
-              void onWithdraw(event.eventOccurrenceId);
-            }}
-          >
-            Withdraw registration
-          </Button>
-        ) : null}
-      </Stack>
-    </Paper>
+          ) : null}
+        </>
+      }
+    >
+      <Text size="sm">
+        {formatLocalDateTime(event.startsAt, {
+          timeZone: event.timezone,
+        })}
+        {" – "}
+        {formatLocalDateTime(event.endsAt, {
+          timeZone: event.timezone,
+        })}
+      </Text>
+      <Text size="sm" c="dimmed">
+        {event.deliveryMode === "virtual" ? "Virtual" : "In person"} ·{" "}
+        {event.timezone}
+      </Text>
+    </LearnerProgressCard>
   );
 }

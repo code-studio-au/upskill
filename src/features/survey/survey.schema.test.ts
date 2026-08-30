@@ -1,11 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
+  adminSurveyCreateSchema,
+  adminSurveyMoveSchema,
   learnerSurveyStepSchema,
   parseSurveyVersionContent,
   surveyVersionContentSchema,
 } from "./survey.schema";
 
 describe("survey contracts", () => {
+  it("accepts only the governed survey catalogue types and move directions", () => {
+    for (const type of ["system", "elearning", "event", "shared"])
+      expect(
+        adminSurveyCreateSchema.safeParse({ title: "Feedback", type }).success,
+      ).toBe(true);
+    expect(
+      adminSurveyCreateSchema.safeParse({
+        title: "Feedback",
+        type: "learning",
+      }).success,
+    ).toBe(false);
+    expect(
+      adminSurveyMoveSchema.safeParse({
+        surveyId: "survey_1",
+        direction: "up",
+      }).success,
+    ).toBe(true);
+    expect(
+      adminSurveyMoveSchema.safeParse({
+        surveyId: "survey_1",
+        direction: "sideways",
+      }).success,
+    ).toBe(false);
+  });
+
   it("accepts ordered sections with questions and instruction blocks", () => {
     expect(
       surveyVersionContentSchema.safeParse({

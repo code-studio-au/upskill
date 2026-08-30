@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
+import { sql } from "kysely";
 import type {
   AdminSurveyDetail,
   AdminSurveyDraft,
@@ -142,9 +143,11 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
   const [surveys, versions, courseUsage] = await Promise.all([
     database
       .selectFrom("learning_activity")
-      .select(["id", "title", "surveyUsage"])
+      .select(["id", "title", "surveyUsage", "surveyType", "surveyPosition"])
       .where("kind", "=", "survey")
-      .orderBy("title")
+      .orderBy("surveyType")
+      .orderBy("surveyPosition")
+      .orderBy("id")
       .execute(),
     database
       .selectFrom("learning_activity_version")
@@ -162,6 +165,8 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
       id: survey.id,
       title: survey.title,
       usage: survey.surveyUsage === "onboarding" ? "onboarding" : "learning",
+      type: survey.surveyType ?? "elearning",
+      position: survey.surveyPosition ?? 0,
       draftVersion:
         surveyVersions.find((version) => version.publishedAt === null)
           ?.version ?? null,
@@ -180,11 +185,12 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
 
 export async function findAdminSurvey(
   surveyId: string,
+  requestedVersionId?: string,
 ): Promise<AdminSurveyDetail | null> {
   const database = getDatabase();
   const survey = await database
     .selectFrom("learning_activity")
-    .select(["id", "title", "surveyUsage"])
+    .select(["id", "title", "surveyUsage", "surveyType"])
     .where("id", "=", surveyId)
     .where("kind", "=", "survey")
     .executeTakeFirst();
@@ -205,8 +211,11 @@ export async function findAdminSurvey(
     .where("learning_activity_version.activityId", "=", surveyId)
     .orderBy("learning_activity_version.version", "desc")
     .execute();
-  const version =
-    versions.find((candidate) => candidate.publishedAt === null) ?? versions[0];
+  const version = requestedVersionId
+    ? versions.find((candidate) => candidate.id === requestedVersionId)
+    : (versions.find((candidate) => candidate.publishedAt === null) ??
+      versions[0]);
+  if (requestedVersionId && !version) return null;
   if (!version) throw new Error("Survey has no version");
   const parsedContent = parseSurveyVersionContent(version.content);
   const [courseUsage, regionDirectoryOptions] = await Promise.all([
@@ -222,6 +231,7 @@ export async function findAdminSurvey(
       id: survey.id,
       title: survey.title,
       usage: survey.surveyUsage === "onboarding" ? "onboarding" : "learning",
+      type: survey.surveyType ?? "elearning",
     },
     version: {
       id: version.id,
@@ -253,7 +263,7 @@ export async function findAdminSurvey(
 
 export async function createAdminSurvey(
   title: string,
-  usage: "learning" | "onboarding",
+  type: "system" | "elearning" | "event" | "shared",
   user: AuthenticatedUser,
 ): Promise<{ surveyId: string; versionId: string }> {
   const database = getDatabase();
@@ -261,13 +271,26 @@ export async function createAdminSurvey(
   const versionId = `survey_version_${randomUUID()}`;
   const now = new Date();
   await database.transaction().execute(async (transaction) => {
+    await sql`select pg_advisory_xact_lock(
+      hashtext(${`survey_order:${type}`})
+    )`.execute(transaction);
+    const last = await transaction
+      .selectFrom("learning_activity")
+      .select(({ fn }) =>
+        fn.max<number | null>("surveyPosition").as("position"),
+      )
+      .where("kind", "=", "survey")
+      .where("surveyType", "=", type)
+      .executeTakeFirstOrThrow();
     await transaction
       .insertInto("learning_activity")
       .values({
         id: surveyId,
         kind: "survey",
         title,
-        surveyUsage: usage,
+        surveyUsage: type === "system" ? "onboarding" : "learning",
+        surveyType: type,
+        surveyPosition: (last.position ?? -1) + 1,
         createdAt: now,
       })
       .execute();
@@ -291,11 +314,71 @@ export async function createAdminSurvey(
       action: "survey.created",
       subjectType: "survey",
       subjectId: surveyId,
-      metadata: { usage, versionId },
+      metadata: { type, versionId },
       createdAt: now,
     });
   });
   return { surveyId, versionId };
+}
+
+export async function moveAdminSurvey(
+  input: { surveyId: string; direction: "down" | "up" },
+  user: AuthenticatedUser,
+): Promise<"boundary" | "moved" | "not-found"> {
+  return getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const candidate = await transaction
+        .selectFrom("learning_activity")
+        .select(["id", "surveyType"])
+        .where("id", "=", input.surveyId)
+        .where("kind", "=", "survey")
+        .executeTakeFirst();
+      if (!candidate?.surveyType) return "not-found";
+      await sql`select pg_advisory_xact_lock(
+        hashtext(${`survey_order:${candidate.surveyType}`})
+      )`.execute(transaction);
+      const surveys = await transaction
+        .selectFrom("learning_activity")
+        .select(["id", "surveyPosition"])
+        .where("kind", "=", "survey")
+        .where("surveyType", "=", candidate.surveyType)
+        .orderBy("surveyPosition")
+        .orderBy("id")
+        .forUpdate()
+        .execute();
+      const index = surveys.findIndex((survey) => survey.id === candidate.id);
+      const current = surveys[index];
+      const target = surveys[index + (input.direction === "up" ? -1 : 1)];
+      if (!current?.surveyPosition && current?.surveyPosition !== 0)
+        return "not-found";
+      if (!target?.surveyPosition && target?.surveyPosition !== 0)
+        return "boundary";
+      await transaction
+        .updateTable("learning_activity")
+        .set({ surveyPosition: target.surveyPosition })
+        .where("id", "=", current.id)
+        .executeTakeFirstOrThrow();
+      await transaction
+        .updateTable("learning_activity")
+        .set({ surveyPosition: current.surveyPosition })
+        .where("id", "=", target.id)
+        .executeTakeFirstOrThrow();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: user.id,
+        action: "survey.reordered",
+        subjectType: "survey",
+        subjectId: current.id,
+        aggregateId: current.id,
+        metadata: {
+          direction: input.direction,
+          fromPosition: current.surveyPosition,
+          toPosition: target.surveyPosition,
+          type: candidate.surveyType,
+        },
+      });
+      return "moved";
+    });
 }
 
 export async function saveAdminSurveyDraft(
@@ -366,6 +449,7 @@ export async function saveAdminSurveyDraft(
 
 export async function createAdminSurveyVersion(
   surveyId: string,
+  sourceVersionId: string,
   user: AuthenticatedUser,
 ): Promise<
   | { status: "created"; versionId: string }
@@ -389,6 +473,7 @@ export async function createAdminSurveyVersion(
         "learning_activity_version.id",
       )
       .select([
+        "learning_activity_version.id",
         "learning_activity_version.version",
         "survey_version.content",
         "learning_activity_version.publishedAt",
@@ -398,8 +483,11 @@ export async function createAdminSurveyVersion(
       .execute();
     if (versions.some((version) => version.publishedAt === null))
       return { status: "draft-exists" } as const;
-    const latest = versions[0];
-    if (!latest?.publishedAt) return { status: "unpublished" } as const;
+    const source = versions.find(
+      (version) => version.id === sourceVersionId && version.publishedAt,
+    );
+    if (!source) return { status: "unpublished" } as const;
+    const nextVersion = Math.max(...versions.map(({ version }) => version)) + 1;
     const versionId = `survey_version_${randomUUID()}`;
     const now = new Date();
     await transaction
@@ -408,7 +496,7 @@ export async function createAdminSurveyVersion(
         id: versionId,
         activityId: surveyId,
         kind: "survey",
-        version: latest.version + 1,
+        version: nextVersion,
         publishedAt: null,
         createdAt: now,
       })
@@ -417,7 +505,7 @@ export async function createAdminSurveyVersion(
       .insertInto("survey_version")
       .values({
         id: versionId,
-        content: parseSurveyVersionContent(latest.content),
+        content: parseSurveyVersionContent(source.content),
       })
       .execute();
     await recordDurableAuditEvent(transaction, {
@@ -425,7 +513,11 @@ export async function createAdminSurveyVersion(
       action: "survey.version_created",
       subjectType: "survey",
       subjectId: surveyId,
-      metadata: { versionId, version: latest.version + 1 },
+      metadata: {
+        versionId,
+        version: nextVersion,
+        sourceVersionId: source.id,
+      },
       createdAt: now,
     });
     return { status: "created", versionId } as const;

@@ -13,6 +13,7 @@ function event(
     slug: eventOccurrenceId,
     title: eventOccurrenceId,
     eventTemplateTitle: "Test Event Template",
+    eventTemplateVersion: 1,
     deliveryMode: "virtual",
     timezone: "Australia/Sydney",
     startsAt: "2026-08-20T09:00:00.000Z",
@@ -23,6 +24,7 @@ function event(
       registrationStatus === null && registrationUnavailableReason === null,
     registrationUnavailableReason,
     regions: [],
+    progress: null,
   };
 }
 

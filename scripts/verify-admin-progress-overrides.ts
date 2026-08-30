@@ -394,6 +394,20 @@ try {
   assert.ok(correctedEnrollment);
   assert.equal(correctedEnrollment.moduleCount, 2);
   assert.equal(correctedEnrollment.completedModuleCount, 2);
+  assert.equal(
+    correctedEnrollment.sections.reduce(
+      (total, section) => total + section.completedItems,
+      0,
+    ),
+    2,
+  );
+  assert.equal(
+    correctedEnrollment.sections.reduce(
+      (total, section) => total + section.totalItems,
+      0,
+    ),
+    2,
+  );
   const { findLearnerWorkspace } =
     await import("#/server/learning/learner-workspace.server");
   const learnerWorkspace = await findLearnerWorkspace(ids.enrollment, learner);

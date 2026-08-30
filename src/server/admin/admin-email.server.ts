@@ -285,6 +285,7 @@ export async function moveAdminEmailDesign(
 
 export async function createAdminEmailDraft(
   emailDesignId: string,
+  sourceVersionId: string,
   user: AuthenticatedUser,
 ): Promise<
   | { status: "created"; versionId: string }
@@ -306,11 +307,14 @@ export async function createAdminEmailDraft(
       .where("publishedAt", "is", null)
       .executeTakeFirst();
     if (existingDraft) return { status: "draft-exists" };
-    const active = await transaction
+    const source = await transaction
       .selectFrom("email_design_version")
       .selectAll()
-      .where("id", "=", design.activeVersionId)
-      .executeTakeFirstOrThrow();
+      .where("id", "=", sourceVersionId)
+      .where("emailDesignId", "=", design.id)
+      .where("publishedAt", "is not", null)
+      .executeTakeFirst();
+    if (!source) return { status: "not-found" };
     const latest = await transaction
       .selectFrom("email_design_version")
       .select(({ fn }) => fn.max<number | null>("version").as("latest"))
@@ -325,11 +329,11 @@ export async function createAdminEmailDraft(
         id: versionId,
         emailDesignId: design.id,
         version: nextVersion,
-        contractKey: active.contractKey,
-        contractVersion: active.contractVersion,
-        subject: active.subject,
-        textBody: active.textBody,
-        referencedVariables: storedVariableKeys(active.referencedVariables),
+        contractKey: source.contractKey,
+        contractVersion: source.contractVersion,
+        subject: source.subject,
+        textBody: source.textBody,
+        referencedVariables: storedVariableKeys(source.referencedVariables),
         createdByUserId: user.id,
         publishedByUserId: null,
         publishedAt: null,
@@ -347,7 +351,7 @@ export async function createAdminEmailDraft(
       subjectType: "email_design_version",
       subjectId: versionId,
       aggregateId: design.id,
-      metadata: { version: nextVersion },
+      metadata: { version: nextVersion, sourceVersionId: source.id },
       createdAt: now,
     });
     return { status: "created", versionId };

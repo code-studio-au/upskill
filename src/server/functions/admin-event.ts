@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
+  adminEventTemplateCreateVersionSchema,
   adminCoordinationRegionSaveSchema,
   adminCoordinationRegionStatusSchema,
   adminEventOccurrenceFormSchema,
@@ -10,7 +11,6 @@ import {
   adminEventStaffEligibilityGrantSchema,
   adminEventStaffEligibilityParamsSchema,
   adminEventTemplateDraftSchema,
-  adminEventTemplateParamsSchema,
   adminEventTemplateSelectionSchema,
   adminEventTemplateVersionParamsSchema,
   type AdminEventMutationResult,
@@ -246,7 +246,7 @@ export const saveAdminEventTemplate = createServerFn({ method: "POST" })
   });
 
 export const createAdminEventVersion = createServerFn({ method: "POST" })
-  .validator(adminEventTemplateParamsSchema)
+  .validator(adminEventTemplateCreateVersionSchema)
   .handler(async ({ data }): Promise<AdminEventMutationResult> => {
     const { getAdministratorRequest } =
       await import("#/server/admin/admin-access.server");
@@ -256,6 +256,7 @@ export const createAdminEventVersion = createServerFn({ method: "POST" })
       await import("#/server/admin/admin-event.server");
     const outcome = await createAdminEventTemplateVersion(
       data.eventTemplateId,
+      data.sourceVersionId,
       request.user,
     );
     if (outcome.status !== "created") {

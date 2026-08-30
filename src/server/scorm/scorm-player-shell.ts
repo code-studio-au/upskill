@@ -51,6 +51,26 @@ export function buildScormProgressSavedShell(): string {
 </html>`;
 }
 
+export function buildScormPreviewShell(packageVersionId: string): string {
+  const versionId = escapeHtml(packageVersionId);
+  return `<!doctype html>
+<html lang="en" data-package-version-id="${versionId}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SCORM preview</title>
+    <link rel="stylesheet" href="/api/scorm/previews/${versionId}?runtime=style">
+    <script src="/api/scorm/previews/${versionId}?runtime=script" defer></script>
+  </head>
+  <body>
+    <main>
+      <div id="scorm-status" role="status">Preparing read-only preview…</div>
+      <iframe id="scorm-content" title="SCORM content preview"></iframe>
+    </main>
+  </body>
+</html>`;
+}
+
 export const SCORM_RUNTIME_STYLES = `
 html, body, main { width: 100%; min-height: 100%; margin: 0; }
 body { background: #f8f9fa; color: #1f2937; font: 600 1rem/1.5 system-ui, sans-serif; }

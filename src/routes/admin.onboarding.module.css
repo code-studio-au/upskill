@@ -27,16 +27,6 @@
   margin: 0;
 }
 
-.page h1::before {
-  display: block;
-  color: var(--mantine-color-indigo-7);
-  content: "Workspace";
-  font-family: var(--mantine-font-family);
-  font-size: var(--mantine-font-size-md);
-  font-weight: 700;
-  line-height: var(--mantine-line-height);
-}
-
 .page > section {
   padding: var(--mantine-spacing-lg);
   border: 1px solid var(--mantine-color-default-border);
@@ -77,6 +67,33 @@
 
 .page form > button {
   justify-self: end;
+}
+
+.surveyLink {
+  justify-self: start;
+  text-decoration: none;
+}
+
+.mappingList {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+  margin: 0;
+}
+
+.mappingList div {
+  display: grid;
+  gap: 0.125rem;
+}
+
+.mappingList dt {
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.mappingList dd {
+  margin: 0;
+  color: var(--mantine-color-dimmed);
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 36em) {

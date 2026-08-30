@@ -1,0 +1,44 @@
+.card {
+  min-width: 0;
+  padding: var(--mantine-spacing-lg);
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-lg);
+  background: var(--mantine-color-body);
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-md);
+}
+
+.header,
+.summary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-sm);
+}
+
+.header {
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--mantine-h3-font-size);
+  font-weight: var(--mantine-h3-font-weight);
+  line-height: var(--mantine-h3-line-height);
+}
+
+.subtitle,
+.count {
+  margin: 0;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.progressTitle {
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}

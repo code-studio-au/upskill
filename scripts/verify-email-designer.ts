@@ -136,7 +136,11 @@ try {
     /immutable/iu,
   );
 
-  const second = await createAdminEmailDraft(created.emailDesignId, actor);
+  const second = await createAdminEmailDraft(
+    created.emailDesignId,
+    created.versionId,
+    actor,
+  );
   assert.equal(second.status, "created");
   assert.equal(
     await saveAdminEmailDraft({

@@ -2,6 +2,15 @@
   white-space: normal;
 }
 
+.eventCard {
+  width: 100%;
+}
+
+.actionLink {
+  display: block;
+  text-decoration: none;
+}
+
 @media (max-width: 36em) {
   .eventTabs {
     display: grid;

@@ -1,0 +1,241 @@
+.root {
+  --button-color: var(--mantine-color-white);
+  --button-bg: var(--mantine-color-indigo-7);
+  --button-border: var(--mantine-color-indigo-7);
+  --button-hover: var(--mantine-color-indigo-8);
+
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  padding: 0.45rem var(--mantine-spacing-md);
+  gap: var(--mantine-spacing-xs);
+  border: 1px solid var(--button-border);
+  border-radius: var(--mantine-radius-md);
+  background: var(--button-bg);
+  color: var(--button-color);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: center;
+  text-decoration: none;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+
+.root:hover:not(:disabled, [aria-disabled="true"]) {
+  background: var(--button-hover);
+}
+
+.root:disabled,
+.root[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.default {
+  --button-color: var(--mantine-color-text);
+  --button-bg: var(--mantine-color-body);
+  --button-border: var(--mantine-color-default-border);
+  --button-hover: var(--mantine-color-default-hover);
+}
+
+.light,
+.outline,
+.subtle {
+  --button-color: var(--mantine-color-indigo-9);
+  --button-bg: var(--mantine-color-indigo-light);
+  --button-border: transparent;
+  --button-hover: var(--mantine-color-indigo-light-hover);
+}
+
+.outline {
+  --button-bg: transparent;
+  --button-border: var(--mantine-color-indigo-7);
+}
+
+.subtle {
+  --button-bg: transparent;
+}
+
+.red {
+  --button-color: var(--mantine-color-white);
+  --button-bg: var(--mantine-color-red-7);
+  --button-border: var(--mantine-color-red-7);
+  --button-hover: var(--mantine-color-red-8);
+}
+
+.red.light,
+.red.outline,
+.red.subtle {
+  --button-color: var(--mantine-color-red-8);
+  --button-bg: var(--mantine-color-red-light);
+  --button-border: transparent;
+  --button-hover: var(--mantine-color-red-light-hover);
+}
+
+.red.outline {
+  --button-bg: transparent;
+  --button-border: var(--mantine-color-red-7);
+}
+
+.red.subtle,
+.gray.subtle {
+  --button-bg: transparent;
+}
+
+.green {
+  --button-bg: var(--mantine-color-green-7);
+  --button-border: var(--mantine-color-green-7);
+  --button-hover: var(--mantine-color-green-8);
+}
+
+.green.light,
+.green.outline,
+.green.subtle {
+  --button-color: var(--mantine-color-green-9);
+  --button-bg: var(--mantine-color-green-light);
+  --button-border: transparent;
+  --button-hover: var(--mantine-color-green-light-hover);
+}
+
+.green.outline {
+  --button-bg: transparent;
+  --button-border: var(--mantine-color-green-7);
+}
+
+.green.subtle {
+  --button-bg: transparent;
+}
+
+.blue {
+  --button-bg: var(--mantine-color-blue-7);
+  --button-border: var(--mantine-color-blue-7);
+  --button-hover: var(--mantine-color-blue-8);
+}
+
+.blue.light,
+.blue.outline,
+.blue.subtle {
+  --button-color: var(--mantine-color-blue-9);
+  --button-bg: var(--mantine-color-blue-light);
+  --button-border: transparent;
+  --button-hover: var(--mantine-color-blue-light-hover);
+}
+
+.blue.outline {
+  --button-bg: transparent;
+  --button-border: var(--mantine-color-blue-7);
+}
+
+.blue.subtle {
+  --button-bg: transparent;
+}
+
+.gray {
+  --button-color: var(--mantine-color-gray-8);
+  --button-bg: var(--mantine-color-gray-light);
+  --button-border: transparent;
+  --button-hover: var(--mantine-color-gray-light-hover);
+}
+
+.xs,
+.compact-xs {
+  min-height: 1.875rem;
+  padding: 0.25rem var(--mantine-spacing-xs);
+  font-size: var(--mantine-font-size-xs);
+}
+
+.compact-xs {
+  min-height: 1.625rem;
+}
+
+.sm,
+.compact-sm {
+  min-height: 2.125rem;
+}
+
+.compact-sm {
+  min-height: 1.875rem;
+  padding-block: 0.25rem;
+}
+
+.lg {
+  min-height: 2.75rem;
+  padding-inline: var(--mantine-spacing-lg);
+  font-size: var(--mantine-font-size-md);
+}
+
+.fullWidth {
+  width: 100%;
+}
+
+.fitContent {
+  width: fit-content;
+}
+
+.paddingX0 {
+  padding-inline: 0;
+}
+
+.radiusSm {
+  border-radius: var(--mantine-radius-sm);
+}
+
+.margin-sm {
+  margin-top: var(--mantine-spacing-sm);
+}
+
+.margin-md {
+  margin-top: var(--mantine-spacing-md);
+}
+
+.margin-lg {
+  margin-top: var(--mantine-spacing-lg);
+}
+
+.margin-xl {
+  margin-top: var(--mantine-spacing-xl);
+}
+
+.label {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mantine-spacing-xs);
+}
+
+.loading .label {
+  opacity: 0;
+}
+
+.loader {
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid currentcolor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: button-spin 700ms linear infinite;
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .root {
+    transition: none;
+  }
+
+  .loader {
+    animation: none;
+  }
+}

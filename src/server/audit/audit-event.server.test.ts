@@ -98,6 +98,7 @@ describe("audit event boundary", () => {
       "scorm.package_version_removed",
       "survey.created",
       "survey.published",
+      "survey.reordered",
       "survey.version_created",
       "user.account_activated",
       "user.account_setup_resent",

@@ -1,0 +1,42 @@
+.grid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-sm);
+  min-width: 0;
+}
+
+.order {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--mantine-spacing-sm);
+  padding-top: var(--mantine-spacing-sm);
+  border-top: 1px solid var(--mantine-color-default-border);
+}
+
+.order button {
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid var(--mantine-color-default-border);
+  border-radius: var(--mantine-radius-sm);
+  background: var(--mantine-color-body);
+  color: var(--mantine-color-text);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+}
+
+.order button:hover:not(:disabled) {
+  background: var(--mantine-color-default-hover);
+}
+
+.order button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}

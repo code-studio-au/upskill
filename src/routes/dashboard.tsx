@@ -14,6 +14,7 @@ import { AccessCodeRedemptionForm } from "#/features/access/AccessCodeRedemption
 import { LearnerCertificateAction } from "#/features/learner/LearnerCertificateAction";
 import { formatLocalDate } from "#/features/shared/local-date";
 import { AppDialog } from "#/features/shared/AppDialog";
+import { LearnerProgressCard } from "#/features/shared/LearnerProgressCard";
 import type { LearnerCourse } from "#/features/learner/learner.schema";
 import { getLearnerDashboard } from "#/server/functions/learner";
 import { getLearnerOnboarding } from "#/server/functions/onboarding";
@@ -164,33 +165,23 @@ function CourseSection({
         {courses.length > 0 ? (
           <div className={classes.grid}>
             {courses.map((course) => (
-              <Paper
-                withBorder
-                radius="lg"
-                p="md"
+              <LearnerProgressCard
                 className={classes.courseCard}
                 key={course.enrollmentId}
-              >
-                <Stack gap="md" h="100%">
-                  <Group justify="space-between">
+                title={course.title}
+                subtitle={`Version ${String(course.courseVersion)}`}
+                status={
+                  <Group gap="xs">
                     <Badge variant="light">{statusLabel(course)}</Badge>
                     <Text size="sm" c="dimmed">
                       {course.durationMinutes} min
                     </Text>
                   </Group>
-                  <Title order={3}>{course.title}</Title>
-                  <Text c="dimmed" className={classes.courseSummary}>
-                    {course.summary}
-                  </Text>
-                  <Text size="sm">
-                    Enrolled {formatLocalDate(course.enrolledAt)}
-                  </Text>
-                  {course.expiresAt ? (
-                    <Text size="sm" c="dimmed">
-                      Access until {formatLocalDate(course.expiresAt)}
-                    </Text>
-                  ) : null}
-                  {course.state === "active" || course.state === "completed" ? (
+                }
+                progress={course.progress.sections}
+                progressTitle="Course progress"
+                actions={
+                  course.state === "active" || course.state === "completed" ? (
                     <Stack gap="xs">
                       <Link
                         to="/learn/$enrollmentId"
@@ -221,9 +212,21 @@ function CourseSection({
                           : "View course"}
                       </Button>
                     </Link>
-                  )}
-                </Stack>
-              </Paper>
+                  )
+                }
+              >
+                <Text c="dimmed" className={classes.courseSummary}>
+                  {course.summary}
+                </Text>
+                <Text size="sm">
+                  Enrolled {formatLocalDate(course.enrolledAt)}
+                </Text>
+                {course.expiresAt ? (
+                  <Text size="sm" c="dimmed">
+                    Access until {formatLocalDate(course.expiresAt)}
+                  </Text>
+                ) : null}
+              </LearnerProgressCard>
             ))}
           </div>
         ) : (

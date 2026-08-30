@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      attestations: write
+      artifact-metadata: write
+      contents: read
+    env:
+      RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_SHA }}
+      - name: Validate verified main release
+        env:
+          VERIFIED_HEAD_REPOSITORY: ${{ github.event.workflow_run.head_repository.full_name }}
+        run: |
+          resolved_sha="$(git rev-parse HEAD)"
+          if [[ ! "$RELEASE_SHA" =~ ^[a-f0-9]{40}$ ||
+            "$resolved_sha" != "$RELEASE_SHA" ||
+            "$VERIFIED_HEAD_REPOSITORY" != "$GITHUB_REPOSITORY" ]]; then
+            echo "The verified main release identity is invalid" >&2
+            exit 1
+          fi
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+        with:
+          version: 11.0.8
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Build production release
+        run: pnpm run build
+      - name: Package immutable release
+        env:
+          GITHUB_SHA: ${{ env.RELEASE_SHA }}
+        run: bash scripts/create-deploy-artifact.sh
+      - name: Verify release artifact in isolation
+        env:
+          UPSKILL_EXPECTED_RELEASE_SHA: ${{ env.RELEASE_SHA }}
+          UPSKILL_RELEASE_ARTIFACT: artifacts/upskill-${{ env.RELEASE_SHA }}.tar.gz
+        run: pnpm run verify:release
+      - name: Attest release provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: artifacts/upskill-${{ env.RELEASE_SHA }}.tar.gz
+      - name: Retain verified release bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: upskill-release-${{ env.RELEASE_SHA }}
+          path: |
+            artifacts/upskill-${{ env.RELEASE_SHA }}.tar.gz
+            artifacts/upskill-${{ env.RELEASE_SHA }}.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 90

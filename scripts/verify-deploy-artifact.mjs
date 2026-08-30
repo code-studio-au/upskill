@@ -5,10 +5,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 const root = path.resolve(import.meta.dirname, "..");
-const releaseSha = execFileSync("git", ["rev-parse", "HEAD"], {
+const repositorySha = execFileSync("git", ["rev-parse", "HEAD"], {
   cwd: root,
   encoding: "utf8",
 }).trim();
+const releaseSha = process.env.UPSKILL_EXPECTED_RELEASE_SHA ?? repositorySha;
+if (!/^[a-f0-9]{40}$/u.test(releaseSha))
+  throw new Error("Expected release SHA must be a full lowercase Git commit");
 const temporaryDirectory = mkdtempSync(
   path.join(tmpdir(), "upskill-artifact-verification-"),
 );
@@ -52,11 +55,13 @@ try {
   for (const relativePath of [
     "scripts/bootstrap-platform-admin.mjs",
     "scripts/invite-platform-admin.mjs",
+    "scripts/reset-staging-database.ts",
     "scripts/validate-runtime-environment.ts",
     "scripts/seed-current-snapshot.ts",
     "scripts/fixtures/current-development-snapshot.json",
     "deploy/scripts/bootstrap-platform-admin.sh",
     "deploy/scripts/invite-platform-admin.sh",
+    "deploy/scripts/reset-and-seed-staging.sh",
     "deploy/scripts/seed-staging.sh",
     "src/server/access/access-code-encryption.server.ts",
     "src/server/storage/object-storage.server.ts",
@@ -126,6 +131,14 @@ try {
   );
   execFileSync(
     process.execPath,
+    ["--check", "scripts/reset-staging-database.ts"],
+    {
+      cwd: extractedDirectory,
+      stdio: "inherit",
+    },
+  );
+  execFileSync(
+    process.execPath,
     [
       "--input-type=module",
       "--eval",
@@ -169,6 +182,10 @@ try {
     stdio: "inherit",
   });
   execFileSync("bash", ["-n", "deploy/scripts/invite-platform-admin.sh"], {
+    cwd: extractedDirectory,
+    stdio: "inherit",
+  });
+  execFileSync("bash", ["-n", "deploy/scripts/reset-and-seed-staging.sh"], {
     cwd: extractedDirectory,
     stdio: "inherit",
   });

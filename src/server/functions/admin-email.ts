@@ -1,10 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
+  adminEmailDesignCreateVersionSchema,
   adminEmailDesignCreateSchema,
   adminEmailDesignDetailParamsSchema,
   adminEmailDesignDraftSchema,
   adminEmailDesignMoveSchema,
-  adminEmailDesignParamsSchema,
   adminEmailDesignVersionParamsSchema,
   type AdminEmailDesignSummary,
   type AdminEmailDetailResult,
@@ -75,7 +75,7 @@ export const moveAdminEmailDesign = createServerFn({ method: "POST" })
   });
 
 export const createAdminEmailDraft = createServerFn({ method: "POST" })
-  .validator(adminEmailDesignParamsSchema)
+  .validator(adminEmailDesignCreateVersionSchema)
   .handler(async ({ data }): Promise<AdminEmailMutationResult> => {
     const { getAdministratorRequest } =
       await import("#/server/admin/admin-access.server");
@@ -83,7 +83,11 @@ export const createAdminEmailDraft = createServerFn({ method: "POST" })
     if (request.status !== "ready") return request;
     const { createAdminEmailDraft: createDraft } =
       await import("#/server/admin/admin-email.server");
-    const result = await createDraft(data.emailDesignId, request.user);
+    const result = await createDraft(
+      data.emailDesignId,
+      data.sourceVersionId,
+      request.user,
+    );
     if (result.status !== "created")
       return result.status === "not-found"
         ? { status: "not-found" }

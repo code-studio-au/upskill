@@ -17,6 +17,7 @@ import {
 } from "#/features/scorm/scorm-package.schema";
 import classes from "./admin-scorm.module.css";
 import { CourseVersionUsageList } from "#/features/admin-course/CourseVersionUsageList";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 
 interface AdminScormModuleLibraryProps {
   packages: Array<AdminScormPackageSummary>;
@@ -78,7 +79,7 @@ function ScormVersionItem({
     version.courseUsageCount === 0 &&
     version.attemptCount === 0;
   return (
-    <li className={classes.versionItem}>
+    <div className={classes.versionItem}>
       <div>
         <Text c="dimmed" size="sm" mt={4}>
           {fileSize(version.sourceBytes)} · {version.attemptCount} learner
@@ -92,10 +93,22 @@ function ScormVersionItem({
           </Text>
         ) : null}
       </div>
-      {showStatus || (removable && !removing) ? (
+      {showStatus || version.status === "ready" || (removable && !removing) ? (
         <Stack gap="xs" className={classes.versionActions}>
           {showStatus ? (
             <ScormVersionStatus removing={removing} version={version} />
+          ) : null}
+          {version.status === "ready" ? (
+            <Button
+              component="a"
+              href={`/api/admin/scorm-packages/${encodeURIComponent(version.id)}/preview`}
+              target="_blank"
+              rel="noreferrer"
+              variant="light"
+              size="xs"
+            >
+              Preview version {version.version}
+            </Button>
           ) : null}
           {removable && !removing ? (
             <Button
@@ -110,7 +123,7 @@ function ScormVersionItem({
           ) : null}
         </Stack>
       ) : null}
-    </li>
+    </div>
   );
 }
 
@@ -123,6 +136,9 @@ export function AdminScormModuleLibrary({
   const [removalTarget, setRemovalTarget] =
     useState<AdminScormPackageVersionSummary>();
   const [removalError, setRemovalError] = useState<string>();
+  const [selectedVersions, setSelectedVersions] = useState<
+    Record<string, string>
+  >({});
 
   async function refreshLibrary(): Promise<void> {
     setRefreshing(true);
@@ -206,7 +222,10 @@ export function AdminScormModuleLibrary({
         ) : (
           <div className={classes.moduleLibrary}>
             {packages.map((item) => {
-              const latestVersion = item.versions[0];
+              const selectedVersion =
+                item.versions.find(
+                  (version) => version.id === selectedVersions[item.id],
+                ) ?? item.versions[0];
               return (
                 <Paper
                   component="article"
@@ -225,26 +244,40 @@ export function AdminScormModuleLibrary({
                       <Title order={3} className={classes.moduleTitle}>
                         {item.title}
                       </Title>
-                      {latestVersion ? (
+                      {selectedVersion ? (
                         <ScormVersionStatus
-                          version={latestVersion}
-                          removing={removingVersionId === latestVersion.id}
+                          version={selectedVersion}
+                          removing={removingVersionId === selectedVersion.id}
                         />
                       ) : null}
                     </Group>
-                    <ol className={classes.versionList}>
-                      {item.versions.map((version, index) => (
-                        <ScormVersionItem
-                          key={version.id}
-                          version={version}
-                          showStatus={index > 0}
-                          removing={removingVersionId === version.id}
-                          onRemove={() => {
-                            setRemovalTarget(version);
+                    {selectedVersion ? (
+                      <>
+                        <MantineNativeSelect
+                          label="Module version"
+                          value={selectedVersion.id}
+                          data={item.versions.map((version) => ({
+                            value: version.id,
+                            label: `Version ${String(version.version)}`,
+                          }))}
+                          onChange={(event) => {
+                            const nextVersionId = event.currentTarget.value;
+                            setSelectedVersions((current) => ({
+                              ...current,
+                              [item.id]: nextVersionId,
+                            }));
                           }}
                         />
-                      ))}
-                    </ol>
+                        <ScormVersionItem
+                          version={selectedVersion}
+                          showStatus={false}
+                          removing={removingVersionId === selectedVersion.id}
+                          onRemove={() => {
+                            setRemovalTarget(selectedVersion);
+                          }}
+                        />
+                      </>
+                    ) : null}
                   </Stack>
                 </Paper>
               );
