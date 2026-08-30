@@ -11,6 +11,7 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
+import { sectionHasPublicationContent } from "#/features/shared/section-publication";
 import { formatCommunicationTiming } from "#/features/admin-email/communication-options";
 import { EligibleStaffPicker } from "./EligibleStaffPicker";
 import type {
@@ -371,8 +372,15 @@ export function AdminEventProgramEditor({
               </details>
 
               <div className={classes.itemList}>
-                {section.items.length === 0 ? (
-                  <div className={classes.emptySection}>No items yet</div>
+                {!sectionHasPublicationContent(
+                  section,
+                  (item) => item.kind !== "automated_email",
+                ) ? (
+                  <Alert color="orange" title="Empty learning section">
+                    Add a learning item or remove this section before
+                    publishing. Automated emails do not create learner-facing
+                    section content.
+                  </Alert>
                 ) : null}
                 {section.items.map((item, itemIndex) => (
                   <details className={classes.item} key={item.id}>

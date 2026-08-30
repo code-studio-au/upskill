@@ -287,8 +287,9 @@ export function SurveySectionsEditor({
               }}
             />
             {section.items.length === 0 ? (
-              <Alert title="Empty section">
-                Add a question or instruction block.
+              <Alert color="orange" title="Empty section">
+                Add a question or instruction block, or remove this section
+                before publishing.
               </Alert>
             ) : null}
             {section.items.map((item, itemIndex) => (

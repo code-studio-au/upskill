@@ -246,6 +246,18 @@ try {
       },
     ],
   };
+  const emptySectionDraft = structuredClone(draft);
+  emptySectionDraft.sections.push({
+    id: "survey_section_empty",
+    title: "Empty follow-up",
+    description: "Must block publication.",
+    items: [],
+  });
+  assert.equal(await saveAdminSurveyDraft(emptySectionDraft, user), "saved");
+  assert.equal(
+    await publishAdminSurveyVersion(surveyId, created.versionId, user),
+    "invalid",
+  );
   assert.equal(await saveAdminSurveyDraft(draft, user), "saved");
   assert.equal(
     await publishAdminSurveyVersion(surveyId, created.versionId, user),

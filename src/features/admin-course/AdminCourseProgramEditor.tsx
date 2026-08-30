@@ -11,6 +11,7 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
+import { sectionHasPublicationContent } from "#/features/shared/section-publication";
 import type {
   AdminCourseDetail,
   AdminCourseDraft,
@@ -229,8 +230,15 @@ export function AdminCourseProgramEditor({
               </details>
 
               <div className={classes.itemList}>
-                {section.items.length === 0 ? (
-                  <div className={classes.emptySection}>No items yet</div>
+                {!sectionHasPublicationContent(
+                  section,
+                  (item) => item.kind !== "automated_email",
+                ) ? (
+                  <Alert color="orange" title="Empty learning section">
+                    Add a learning item or remove this section before
+                    publishing. Automated emails do not create learner-facing
+                    section content.
+                  </Alert>
                 ) : null}
                 {section.items.map((item, itemIndex) => (
                   <details key={item.id} className={classes.item}>

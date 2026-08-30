@@ -1391,6 +1391,12 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page.getByLabel("Section title")).toHaveValue(
       "E2E edited section title",
     );
+    await page.getByRole("button", { name: "Save and publish" }).click();
+    await expect(
+      page.getByText(
+        "Add at least one learning item to “E2E edited section title” or remove that empty section before publishing.",
+      ),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Save draft" }).click();
     await expect(page.getByText("Draft saved.")).toBeVisible();
 
@@ -1404,6 +1410,12 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: "Create draft" }).click();
     await page.getByLabel("Title").fill(surveyTitles[1] ?? "");
     await page.getByRole("button", { name: /Questions/u }).click();
+    await page.getByRole("button", { name: "Publish version" }).click();
+    await expect(
+      page.getByText(
+        "Add at least one question or instruction to “Section 1” or remove that empty section before publishing.",
+      ),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Add single choice" }).click();
     await page.getByLabel("Question 1").fill("Was this survey useful?");
     await page.getByLabel("Learner-facing label 1").fill("Yes");
@@ -1630,6 +1642,12 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("heading", { name: "New section" }).click();
     await page.getByText("Section details", { exact: true }).click();
     await page.getByLabel("Section title").fill("Event session");
+    await page.getByRole("button", { name: "Save and publish" }).click();
+    await expect(
+      page.getByText(
+        "Add at least one learning item to “Event session” or remove that empty section before publishing.",
+      ),
+    ).toBeVisible();
     await page
       .getByLabel("Release relative to")
       .selectOption("occurrence_start");

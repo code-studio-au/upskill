@@ -1043,10 +1043,17 @@ export async function publishAdminCourseVersion(
             "sections",
           ),
           sql<number>`count(course_version_item.id)::integer`.as("items"),
+          sql<number>`count(distinct course_version_section.id) filter (where course_version_item.id is null)::integer`.as(
+            "emptySections",
+          ),
         ])
         .where("course_version_section.courseVersionId", "=", versionId)
         .executeTakeFirstOrThrow();
-      if (structure.sections === 0 || structure.items === 0)
+      if (
+        structure.sections === 0 ||
+        structure.items === 0 ||
+        structure.emptySections > 0
+      )
         return "conflict" as const;
       const now = new Date();
       await transaction
