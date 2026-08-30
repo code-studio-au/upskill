@@ -8,6 +8,7 @@ import type {
   AdminCommunicationWorkspace,
   CommunicationScope,
 } from "#/features/admin-email/admin-communication.schema";
+import { normalizeEventCommunicationAudience } from "#/features/admin-email/communication-options";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
@@ -379,7 +380,15 @@ export async function findAdminCommunicationWorkspace(
       sessions,
       templates,
       variableGroups,
-      items: rows.map(effectiveItem),
+      items: rows.map((row) =>
+        effectiveItem({
+          ...row,
+          audience: normalizeEventCommunicationAudience(
+            row.trigger,
+            row.audience,
+          ),
+        }),
+      ),
     };
   }
 
@@ -461,6 +470,7 @@ export async function findAdminCommunicationWorkspace(
     variableGroups,
     items: rows.map((row) => ({
       ...row,
+      audience: normalizeEventCommunicationAudience(row.trigger, row.audience),
       emailDesignName: row.designName,
       emailDesignVersion: row.designVersion,
       subjectOverridden: row.overrideState === "overridden",
@@ -1039,7 +1049,10 @@ export async function materializeEventOccurrenceCommunications(
         sessionDefinitionId: plan.sessionDefinitionId,
         position: plan.position,
         label: plan.label,
-        audience: plan.audience,
+        audience: normalizeEventCommunicationAudience(
+          plan.trigger,
+          plan.audience,
+        ),
         trigger: plan.trigger,
         offsetAmount: plan.offsetAmount,
         offsetUnit: plan.offsetUnit,
@@ -1161,7 +1174,10 @@ async function reviseOccurrenceCommunication(
           sessionDefinitionId: current.sessionDefinitionId,
           position: current.position,
           label: current.label,
-          audience: current.audience,
+          audience: normalizeEventCommunicationAudience(
+            current.trigger,
+            current.audience,
+          ),
           trigger: current.trigger,
           offsetAmount: next.offsetAmount,
           offsetUnit: next.offsetUnit,

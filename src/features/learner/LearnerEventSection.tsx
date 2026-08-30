@@ -364,7 +364,8 @@ function LearnerEventCard({
       </Text>
       {event.completedAt ? (
         <Text size="sm" c="dimmed">
-          Completed {formatLocalDate(event.completedAt)}
+          Completed{" "}
+          {formatLocalDate(event.completedAt, { timeZone: event.timezone })}
         </Text>
       ) : null}
     </LearnerProgressCard>

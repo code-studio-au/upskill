@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { eventScheduleEmailItemSchema } from "./admin-communication.schema";
-import { eventCommunicationAudiencesForTrigger } from "./communication-options";
+import {
+  eventCommunicationAudiencesForTrigger,
+  normalizeEventCommunicationAudience,
+} from "./communication-options";
 
 const baseItem = {
   id: "communication_1",
@@ -46,5 +49,20 @@ describe("event communication trigger audiences", () => {
         audience: "administrators",
       }).success,
     ).toBe(true);
+  });
+
+  it("compatibly normalizes retained participant-specific plans", () => {
+    expect(
+      normalizeEventCommunicationAudience(
+        "event_completed",
+        "confirmed_participants",
+      ),
+    ).toBe("affected_learner");
+    expect(
+      normalizeEventCommunicationAudience("section_release", "presenters"),
+    ).toBe("affected_learner");
+    expect(
+      normalizeEventCommunicationAudience("event_end", "administrators"),
+    ).toBe("administrators");
   });
 });

@@ -667,6 +667,21 @@ try {
   assert.equal(eventPlanAfterDraftSave.sectionId, eventSectionId);
   assert.equal(eventActivityPosition.position, 7);
   await database
+    .updateTable("event_template_version_communication")
+    .set({ audience: "confirmed_participants" })
+    .where("id", "=", eventCompletedCommunicationId)
+    .executeTakeFirstOrThrow();
+  const retainedTemplate = await findAdminEventTemplate(
+    eventTemplateId,
+    eventTemplateVersionId,
+  );
+  assert.ok(retainedTemplate);
+  const retainedCompletionPlan = retainedTemplate.draft.sections
+    .flatMap((section) => section.items)
+    .find((item) => item.id === eventCompletedCommunicationId);
+  assert.equal(retainedCompletionPlan?.kind, "automated_email");
+  assert.equal(retainedCompletionPlan.audience, "affected_learner");
+  await database
     .updateTable("event_template_version")
     .set({ publishedAt: now })
     .where("id", "=", eventTemplateVersionId)
@@ -694,6 +709,20 @@ try {
     .executeTakeFirstOrThrow();
   assert.ok(copiedEventPlan.sectionId);
   assert.ok(copiedEventPlan.sessionDefinitionId);
+  assert.equal(
+    await database
+      .selectFrom("event_template_version_communication")
+      .select("audience")
+      .where(
+        "eventTemplateVersionId",
+        "=",
+        copiedEventVersion.eventTemplateVersionId,
+      )
+      .where("trigger", "=", "event_completed")
+      .executeTakeFirstOrThrow()
+      .then((plan) => plan.audience),
+    "affected_learner",
+  );
 
   const eventOccurrenceId = `verify_communication_occurrence_${suffix}`;
   const eventSessionId = `verify_communication_occurrence_session_${suffix}`;
@@ -782,6 +811,11 @@ try {
     eventOccurrenceId,
   });
   assert.ok(inheritedWorkspace);
+  assert.equal(
+    inheritedWorkspace.items.find((item) => item.trigger === "event_completed")
+      ?.audience,
+    "affected_learner",
+  );
   const inherited = inheritedWorkspace.items[0];
   assert.ok(inherited);
   assert.equal(inherited.overrideState, "inherited");

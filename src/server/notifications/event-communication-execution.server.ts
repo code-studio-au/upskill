@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import { normalizeEventCommunicationAudience } from "#/features/admin-email/communication-options";
 import {
   buildEventNotificationVariables,
   type EventCommunicationContentSnapshot,
@@ -599,12 +600,6 @@ async function enqueueEventTriggeredCommunications(
       "=",
       input.eventTemplateVersionSectionId ?? "",
     );
-  if (["event_completed", "section_release"].includes(input.trigger))
-    communicationsQuery = communicationsQuery.where(
-      "communication.audience",
-      "=",
-      "affected_learner",
-    );
   const communications = await communicationsQuery.execute();
   let created = 0;
   for (const communication of communications) {
@@ -614,13 +609,17 @@ async function enqueueEventTriggeredCommunications(
       !communication.publishedAt
     )
       continue;
+    const audience = normalizeEventCommunicationAudience(
+      input.trigger,
+      communication.audience,
+    );
     const recipients =
-      communication.audience === "affected_learner"
+      audience === "affected_learner"
         ? [input.affectedRecipient]
         : await scheduledRecipients(
             transaction,
             input.eventOccurrenceId,
-            communication.audience,
+            audience,
           );
     for (const recipient of recipients) {
       const variables = await buildEventNotificationVariables(transaction, {
@@ -637,7 +636,7 @@ async function enqueueEventTriggeredCommunications(
         eventOccurrenceId: input.eventOccurrenceId,
         eventOccurrenceCommunicationRevisionId: communication.id,
         trigger: input.trigger,
-        audience: communication.audience,
+        audience,
         eventRegistrationId: input.affectedRecipient.registrationId,
         eventParticipationId: input.affectedRecipient.participationId,
         eventTemplateVersionSectionId:

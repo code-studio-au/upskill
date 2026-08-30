@@ -16,6 +16,15 @@ const affectedLearnerOnlyEventTriggers = new Set([
   "section_release",
 ]);
 
+export function normalizeEventCommunicationAudience<TAudience extends string>(
+  trigger: string,
+  audience: TAudience,
+): TAudience | "affected_learner" {
+  return affectedLearnerOnlyEventTriggers.has(trigger)
+    ? "affected_learner"
+    : audience;
+}
+
 export function eventCommunicationAudiencesForTrigger(trigger: string) {
   return affectedLearnerOnlyEventTriggers.has(trigger)
     ? eventCommunicationAudiences.filter(
