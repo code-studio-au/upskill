@@ -150,14 +150,6 @@
   background: var(--mantine-color-gray-0);
 }
 
-.emptySection {
-  padding: 1rem;
-  border: 1px dashed var(--mantine-color-gray-4);
-  border-radius: var(--mantine-radius-md);
-  color: var(--mantine-color-gray-6);
-  text-align: center;
-}
-
 .adder {
   display: grid;
   gap: 0.5rem;

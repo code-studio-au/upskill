@@ -45,6 +45,10 @@ import { firstFormError } from "#/features/shared/form-errors";
 import { createFriendlySlug } from "#/features/shared/friendly-slug";
 import { PageTabs } from "#/features/shared/PageTabs";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
+import {
+  findSectionPublicationIssue,
+  sectionPublicationMessage,
+} from "#/features/shared/section-publication";
 import classes from "./AdminCourseEditor.module.css";
 
 const CertificateAccreditationEditor = lazy(async () => {
@@ -141,6 +145,15 @@ export function AdminCourseEditor({
       }
       setError(null);
       setMessage(null);
+      const sectionIssue = findSectionPublicationIssue(
+        parsed.data.sections,
+        (item) => item.kind !== "automated_email",
+      );
+      if (submitIntent.current === "publish" && sectionIssue) {
+        setEditorView("program");
+        setError(sectionPublicationMessage(sectionIssue, "learning item"));
+        return;
+      }
       const saved = await saveAdminCourse({ data: parsed.data });
       if (saved.status !== "ready") {
         setError(

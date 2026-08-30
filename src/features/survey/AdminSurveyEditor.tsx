@@ -15,6 +15,10 @@ import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { firstFormError } from "#/features/shared/form-errors";
 import { PageTabs } from "#/features/shared/PageTabs";
 import { CourseVersionUsageList } from "#/features/admin-course/CourseVersionUsageList";
+import {
+  findSectionPublicationIssue,
+  sectionPublicationMessage,
+} from "#/features/shared/section-publication";
 import { SurveySectionsEditor } from "./SurveySectionsEditor";
 import {
   adminSurveyDraftSchema,
@@ -48,6 +52,14 @@ export function AdminSurveyEditor({
     onSubmit: async ({ value }) => {
       setMessage(null);
       setError(null);
+      const sectionIssue = findSectionPublicationIssue(value.sections);
+      if (submitIntent.current === "publish" && sectionIssue) {
+        setEditorView("questions");
+        setError(
+          sectionPublicationMessage(sectionIssue, "question or instruction"),
+        );
+        return;
+      }
       const result = await saveAdminSurvey({ data: value });
       if (result.status !== "ready") {
         setError("The survey draft could not be saved.");

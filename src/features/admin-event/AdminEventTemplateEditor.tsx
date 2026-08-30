@@ -30,6 +30,10 @@ import { PageTabs } from "#/features/shared/PageTabs";
 import { EligibleStaffPicker } from "./EligibleStaffPicker";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
+import {
+  findSectionPublicationIssue,
+  sectionPublicationMessage,
+} from "#/features/shared/section-publication";
 
 const CertificateAccreditationEditor = lazy(async () => {
   const module =
@@ -86,6 +90,15 @@ export function AdminEventTemplateEditor({
       setError(null);
       setMessage(null);
       try {
+        const sectionIssue = findSectionPublicationIssue(
+          parsed.data.sections,
+          (item) => item.kind !== "automated_email",
+        );
+        if (intent.current === "publish" && sectionIssue) {
+          setEditorView("program");
+          setError(sectionPublicationMessage(sectionIssue, "learning item"));
+          return;
+        }
         const saved = await saveAdminEventTemplate({ data: parsed.data });
         if (saved.status !== "ready") {
           setError(

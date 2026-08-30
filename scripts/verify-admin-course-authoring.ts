@@ -275,6 +275,25 @@ try {
       },
     ],
   };
+  const emptySectionDraft = structuredClone(firstDraft);
+  emptySectionDraft.sections.push({
+    id: "section_verify_empty",
+    title: "Empty follow-up",
+    description: "Must block publication.",
+    items: [],
+  });
+  assert.equal(
+    await authoring.saveAdminCourseDraft(emptySectionDraft, administrator),
+    "saved",
+  );
+  assert.equal(
+    await authoring.publishAdminCourseVersion(
+      created.courseId,
+      created.versionId,
+      administrator,
+    ),
+    "conflict",
+  );
   assert.equal(
     await authoring.saveAdminCourseDraft(firstDraft, administrator),
     "saved",
