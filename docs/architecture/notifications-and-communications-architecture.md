@@ -806,14 +806,20 @@ real email.
 - manual/deadline regional-list lock notices to assigned Event Instance
   administrators,
   deduplicated per occurrence and region;
-- final assigned-administrator confirmation; **implemented for newly selected
-  affected learners; waitlist, not-selected and corrected decisions remain**
+- final assigned-administrator outcomes; **implemented for selected,
+  waitlisted, not-selected and cancelled decisions, with delivery-time
+  suppression when a corrected decision supersedes queued work**
 - expiring user-specific late-registration invitations and account-setup/login
   routing;
-- cancellation/reschedule;
+- cancellation/reschedule; **implemented for current registrants, confirmed
+  participants and active operational assignments, with participant-specific
+  cancellation for retired reschedule regions and stale-reschedule
+  suppression**
 - event/session reminders; **durable `event_start`, `event_end` and
   `session_start` execution implemented**
-- incomplete pre-work reminders;
+- incomplete pre-work reminders; **implemented as event-start-anchored durable
+  schedules that select confirmed learners with available, outstanding required
+  pre-event work and recheck it immediately before delivery**
 - Section release and Event completion notices; **implemented for authored
   `section_release` and `event_completed` plans**. Broader follow-up message
   types remain future work;

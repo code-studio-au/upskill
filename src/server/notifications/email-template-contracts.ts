@@ -281,6 +281,24 @@ const eventVariables = [
     "Event end",
     "24 August 2026 at 4:30 pm",
   ),
+  emailVariable(
+    "Event",
+    "event.previousStartsAt",
+    "Previous event start",
+    "17 August 2026 at 9:00 am",
+  ),
+  emailVariable(
+    "Event",
+    "event.previousEndsAt",
+    "Previous event end",
+    "17 August 2026 at 4:30 pm",
+  ),
+  emailVariable(
+    "Event",
+    "event.reschedulePolicy",
+    "Registration window change",
+    "Existing registration window retained",
+  ),
   emailVariable("Event", "event.date", "Event date", "24 August 2026"),
   emailVariable("Event", "event.startTime", "Event start time", "9:00 am"),
   emailVariable("Event", "event.endTime", "Event end time", "4:30 pm"),
@@ -571,6 +589,24 @@ const progressVariables = [
     "progress.remainingItemCount",
     "Remaining activity count",
     "2",
+  ),
+  emailVariable(
+    "Progress",
+    "progress.completedPreworkItemCount",
+    "Completed pre-work activity count",
+    "2",
+  ),
+  emailVariable(
+    "Progress",
+    "progress.totalPreworkItemCount",
+    "Total pre-work activity count",
+    "3",
+  ),
+  emailVariable(
+    "Progress",
+    "progress.remainingPreworkItemCount",
+    "Remaining pre-work activity count",
+    "1",
   ),
 ];
 

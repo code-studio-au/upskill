@@ -282,6 +282,10 @@ try {
   }>`select conname as constraint_name, pg_get_constraintdef(oid) as definition
       from pg_constraint
       where conname in (
+        'event_template_communication_trigger_ck',
+        'event_template_communication_audience_ck',
+        'event_occurrence_communication_trigger_ck',
+        'event_occurrence_communication_audience_ck',
         'event_communication_schedule_trigger_ck',
         'notification_template_ck'
       )`.execute(db);
@@ -293,8 +297,38 @@ try {
   );
   const scheduleTriggerDefinition =
     executionDefinition.get("event_communication_schedule_trigger_ck") ?? "";
-  for (const trigger of ["event_start", "event_end", "session_start"])
+  for (const trigger of [
+    "event_start",
+    "event_end",
+    "session_start",
+    "prework_incomplete",
+  ])
     assert.match(scheduleTriggerDefinition, new RegExp(trigger, "iu"));
+  const lifecycleTriggers = [
+    "registration_waitlisted",
+    "registration_not_selected",
+    "registration_cancelled",
+    "event_rescheduled",
+    "event_cancelled",
+    "prework_incomplete",
+  ];
+  for (const constraint of [
+    "event_template_communication_trigger_ck",
+    "event_occurrence_communication_trigger_ck",
+  ])
+    for (const trigger of lifecycleTriggers)
+      assert.match(
+        executionDefinition.get(constraint) ?? "",
+        new RegExp(trigger, "iu"),
+      );
+  for (const constraint of [
+    "event_template_communication_audience_ck",
+    "event_occurrence_communication_audience_ck",
+  ])
+    assert.match(
+      executionDefinition.get(constraint) ?? "",
+      /active_registrants/iu,
+    );
   assert.match(
     executionDefinition.get("notification_template_ck") ?? "",
     /phone_verification_transferred.*offering_course.*offering_event/iu,

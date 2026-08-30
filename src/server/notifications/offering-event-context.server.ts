@@ -92,6 +92,7 @@ export async function buildEventNotificationVariables(
     eventOccurrenceId: string;
     communication: EventCommunicationContentSnapshot;
     recipient: EventNotificationRecipient;
+    eventRescheduleId?: string;
   },
 ): Promise<Record<string, string>> {
   const event = await transaction
@@ -148,6 +149,7 @@ export async function buildEventNotificationVariables(
     presenters,
     occurrenceRegions,
     recipientParticipation,
+    reschedule,
   ] = await Promise.all([
     transaction
       .selectFrom("event_session")
@@ -200,6 +202,19 @@ export async function buildEventNotificationVariables(
           .where("userId", "=", input.recipient.userId)
           .executeTakeFirst()
       : Promise.resolve(undefined),
+    input.eventRescheduleId
+      ? transaction
+          .selectFrom("event_occurrence_reschedule")
+          .select([
+            "previousStartsAt",
+            "previousEndsAt",
+            "previousTimezone",
+            "registrationWindowPolicy",
+          ])
+          .where("id", "=", input.eventRescheduleId)
+          .where("eventOccurrenceId", "=", event.id)
+          .executeTakeFirst()
+      : Promise.resolve(undefined),
   ]);
 
   const environment = getServerEnv();
@@ -224,6 +239,19 @@ export async function buildEventNotificationVariables(
   variables["event.description"] = event.description;
   variables["event.startsAt"] = formatDateTime(event.startsAt, event.timezone);
   variables["event.endsAt"] = formatDateTime(event.endsAt, event.timezone);
+  variables["event.previousStartsAt"] = reschedule
+    ? formatDateTime(reschedule.previousStartsAt, reschedule.previousTimezone)
+    : "";
+  variables["event.previousEndsAt"] = reschedule
+    ? formatDateTime(reschedule.previousEndsAt, reschedule.previousTimezone)
+    : "";
+  variables["event.reschedulePolicy"] = reschedule
+    ? {
+        keep: "Existing registration window retained",
+        replace_future: "Future registration dates updated",
+        reopen: "Registration reopened",
+      }[reschedule.registrationWindowPolicy]
+    : "";
   variables["event.date"] = formatDate(event.startsAt, event.timezone);
   variables["event.startTime"] = formatTime(event.startsAt, event.timezone);
   variables["event.endTime"] = formatTime(event.endsAt, event.timezone);
@@ -402,9 +430,25 @@ export async function buildEventNotificationVariables(
           .where("id", "=", input.recipient.participationId)
           .executeTakeFirst(),
         transaction
-          .selectFrom("event_template_version_item")
-          .select(["id", "kind", "sessionDefinitionId"])
-          .where("eventTemplateVersionId", "=", event.eventTemplateVersionId)
+          .selectFrom("event_template_version_item as item")
+          .innerJoin(
+            "event_template_version_section as section",
+            "section.id",
+            "item.sectionId",
+          )
+          .select([
+            "item.id",
+            "item.kind",
+            "item.required",
+            "item.sectionId",
+            "item.sessionDefinitionId",
+            "section.phase",
+          ])
+          .where(
+            "item.eventTemplateVersionId",
+            "=",
+            event.eventTemplateVersionId,
+          )
           .execute(),
         transaction
           .selectFrom("learning_item_progress")
@@ -439,14 +483,26 @@ export async function buildEventNotificationVariables(
         .filter((entry) => entry.state === "attended")
         .map((entry) => entry.sessionDefinitionId),
     );
-    const completedCount = items.filter((item) =>
+    const itemCompleted = (item: (typeof items)[number]): boolean =>
       item.kind === "session"
         ? Boolean(
             item.sessionDefinitionId &&
             attendedDefinitions.has(item.sessionDefinitionId),
           )
-        : learningCompleted.has(item.id),
-    ).length;
+        : learningCompleted.has(item.id);
+    const completedCount = items.filter(itemCompleted).length;
+    const preworkItems = items.filter((item) => item.phase === "pre_event");
+    const preworkSectionIds = new Set(
+      preworkItems.map((item) => item.sectionId),
+    );
+    const preworkTargets = [...preworkSectionIds].flatMap((sectionId) => {
+      const sectionItems = preworkItems.filter(
+        (item) => item.sectionId === sectionId,
+      );
+      const requiredItems = sectionItems.filter((item) => item.required);
+      return requiredItems.length ? requiredItems : sectionItems;
+    });
+    const completedPreworkCount = preworkTargets.filter(itemCompleted).length;
     const progressPercent = items.length
       ? Math.round((completedCount / items.length) * 100)
       : 0;
@@ -455,6 +511,13 @@ export async function buildEventNotificationVariables(
     variables["progress.totalItemCount"] = String(items.length);
     variables["progress.remainingItemCount"] = String(
       Math.max(0, items.length - completedCount),
+    );
+    variables["progress.completedPreworkItemCount"] = String(
+      completedPreworkCount,
+    );
+    variables["progress.totalPreworkItemCount"] = String(preworkTargets.length);
+    variables["progress.remainingPreworkItemCount"] = String(
+      Math.max(0, preworkTargets.length - completedPreworkCount),
     );
     variables["attendance.status"] = participation?.completedAt
       ? "Completed"

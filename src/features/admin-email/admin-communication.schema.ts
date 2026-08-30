@@ -1,4 +1,5 @@
 import type { EmailTemplateVariableGroup } from "./admin-email.schema";
+import { eventCommunicationAudiencesForTrigger } from "./communication-options";
 import { z } from "#/validation/zod";
 
 const id = z.string().check(z.trim(), z.minLength(1), z.maxLength(255));
@@ -22,6 +23,7 @@ const courseCommunicationAudienceSchema = z.enum([
 ]);
 const eventCommunicationAudienceSchema = z.enum([
   "affected_learner",
+  "active_registrants",
   "confirmed_participants",
   "presenters",
   "coordinators",
@@ -36,6 +38,12 @@ const courseCommunicationTriggerSchema = z.enum([
 const eventCommunicationTriggerSchema = z.enum([
   "registration_submitted",
   "registration_selected",
+  "registration_waitlisted",
+  "registration_not_selected",
+  "registration_cancelled",
+  "event_rescheduled",
+  "event_cancelled",
+  "prework_incomplete",
   "event_start",
   "event_end",
   "session_start",
@@ -73,14 +81,14 @@ export const eventScheduleEmailItemSchema = z
   .check(
     z.superRefine((item, context) => {
       if (
-        ["event_completed", "section_release"].includes(item.trigger) &&
-        item.audience !== "affected_learner"
+        !eventCommunicationAudiencesForTrigger(item.trigger).some(
+          (audience) => audience.value === item.audience,
+        )
       )
         context.addIssue({
           code: "custom",
           path: ["audience"],
-          message:
-            "Completion and section-release emails must target the affected learner.",
+          message: "The selected audience is not valid for this trigger.",
         });
     }),
   );

@@ -8,6 +8,7 @@ import type {
 } from "./admin-communication.schema";
 import type { EmailTemplateVariableGroup } from "./admin-email.schema";
 import {
+  defaultEventCommunicationAudience,
   courseCommunicationAudiences,
   courseCommunicationTriggers,
   eventCommunicationAudiencesForTrigger,
@@ -259,7 +260,10 @@ export function ScheduleEmailEditor({
                           (audience) => audience.value === values.audience,
                         )
                       )
-                        form.setFieldValue("audience", "affected_learner");
+                        form.setFieldValue(
+                          "audience",
+                          defaultEventCommunicationAudience(trigger),
+                        );
                     }}
                     required
                   />

@@ -21,12 +21,18 @@ const baseItem = {
 
 describe("event communication trigger audiences", () => {
   it("limits participant-specific triggers to the affected learner", () => {
-    expect(eventCommunicationAudiencesForTrigger("event_completed")).toEqual([
-      { value: "affected_learner", label: "Affected learner" },
-    ]);
-    expect(eventCommunicationAudiencesForTrigger("section_release")).toEqual([
-      { value: "affected_learner", label: "Affected learner" },
-    ]);
+    for (const trigger of [
+      "event_completed",
+      "registration_cancelled",
+      "registration_not_selected",
+      "registration_selected",
+      "registration_submitted",
+      "registration_waitlisted",
+      "section_release",
+    ])
+      expect(eventCommunicationAudiencesForTrigger(trigger)).toEqual([
+        { value: "affected_learner", label: "Affected learner" },
+      ]);
     expect(eventScheduleEmailItemSchema.safeParse(baseItem).success).toBe(true);
     expect(
       eventScheduleEmailItemSchema.safeParse({
@@ -36,12 +42,58 @@ describe("event communication trigger audiences", () => {
     ).toBe(false);
   });
 
+  it("targets incomplete pre-work reminders only to confirmed participants", () => {
+    expect(eventCommunicationAudiencesForTrigger("prework_incomplete")).toEqual(
+      [
+        {
+          value: "confirmed_participants",
+          label: "Confirmed participants",
+        },
+      ],
+    );
+    expect(
+      eventScheduleEmailItemSchema.safeParse({
+        ...baseItem,
+        trigger: "prework_incomplete",
+        audience: "confirmed_participants",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("offers operational audiences for event cancellation and rescheduling", () => {
+    for (const trigger of ["event_cancelled", "event_rescheduled"]) {
+      const audiences = eventCommunicationAudiencesForTrigger(trigger).map(
+        (audience) => audience.value,
+      );
+      expect(audiences).toEqual([
+        "active_registrants",
+        "confirmed_participants",
+        "presenters",
+        "coordinators",
+        "administrators",
+      ]);
+      expect(
+        eventScheduleEmailItemSchema.safeParse({
+          ...baseItem,
+          trigger,
+          audience: "administrators",
+        }).success,
+      ).toBe(true);
+    }
+  });
+
   it("retains operational audiences for occurrence-level triggers", () => {
     expect(
       eventCommunicationAudiencesForTrigger("event_end").map(
         (audience) => audience.value,
       ),
-    ).toContain("administrators");
+    ).toEqual([
+      "affected_learner",
+      "confirmed_participants",
+      "presenters",
+      "coordinators",
+      "administrators",
+    ]);
     expect(
       eventScheduleEmailItemSchema.safeParse({
         ...baseItem,
@@ -62,7 +114,22 @@ describe("event communication trigger audiences", () => {
       normalizeEventCommunicationAudience("section_release", "presenters"),
     ).toBe("affected_learner");
     expect(
+      normalizeEventCommunicationAudience(
+        "prework_incomplete",
+        "administrators",
+      ),
+    ).toBe("confirmed_participants");
+    expect(
+      normalizeEventCommunicationAudience(
+        "event_cancelled",
+        "affected_learner",
+      ),
+    ).toBe("active_registrants");
+    expect(
       normalizeEventCommunicationAudience("event_end", "administrators"),
     ).toBe("administrators");
+    expect(
+      normalizeEventCommunicationAudience("event_end", "active_registrants"),
+    ).toBe("confirmed_participants");
   });
 });
