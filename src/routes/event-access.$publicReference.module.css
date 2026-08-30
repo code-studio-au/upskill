@@ -1,10 +1,205 @@
+.page {
+  min-height: calc(100dvh - 3.75rem);
+  padding-block: clamp(1.5rem, 6vw, 4rem);
+  background:
+    radial-gradient(
+      circle at 12% 12%,
+      rgb(74 104 230 / 12%),
+      transparent 28rem
+    ),
+    linear-gradient(145deg, #f8faff 0%, #eef3ff 100%);
+}
+
+.shell {
+  width: 100%;
+}
+
+.card,
+.unavailableCard {
+  background: rgb(255 255 255 / 96%);
+  box-shadow: 0 1.25rem 3.5rem rgb(34 65 133 / 12%);
+}
+
+.card {
+  overflow: hidden;
+}
+
+.layout {
+  display: grid;
+  min-width: 0;
+}
+
+.eventPanel,
+.actionPanel {
+  min-width: 0;
+  padding: clamp(1.5rem, 5vw, 3rem);
+}
+
+.eventPanel {
+  color: var(--mantine-color-white);
+  background:
+    linear-gradient(rgb(36 59 153 / 86%), rgb(30 50 132 / 94%)),
+    url("/brand/home-arrow-background.jpg") center / cover;
+}
+
+.eventPanel h1,
+.eventPanel p {
+  color: inherit;
+}
+
+.eyebrow {
+  margin-bottom: 0.45rem;
+  color: var(--mantine-color-indigo-1);
+  font-size: var(--mantine-font-size-sm);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.eventTitle,
+.unavailableTitle {
+  overflow-wrap: anywhere;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.eventTitle {
+  max-width: 18ch;
+  color: var(--mantine-color-white);
+  font-size: clamp(2rem, 5vw, 3.25rem);
+}
+
+.panelCopy {
+  max-width: 34rem;
+  line-height: 1.65;
+  opacity: 0.9;
+}
+
+.eventFacts {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.eventFacts > div {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid rgb(255 255 255 / 18%);
+  border-radius: var(--mantine-radius-md);
+  background: rgb(255 255 255 / 9%);
+}
+
+.eventFacts dt {
+  color: var(--mantine-color-indigo-1);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.eventFacts dd {
+  margin: 0;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.timezone {
+  opacity: 0.78;
+}
+
+.actionPanel {
+  align-self: center;
+  background: var(--mantine-color-white);
+}
+
 .form {
   display: grid;
   gap: var(--mantine-spacing-lg);
 }
 
+.fieldGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.privacyNotice,
+.destination {
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.privacyNotice {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+}
+
+.destination {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.secureNote {
+  max-width: 34rem;
+  margin-inline: auto;
+  text-align: center;
+}
+
+.unavailableCard {
+  width: min(100%, 40rem);
+  margin-inline: auto;
+}
+
+.unavailableTitle {
+  font-size: clamp(1.9rem, 5vw, 2.75rem);
+}
+
+@media (min-width: 54rem) {
+  .layout {
+    grid-template-columns: minmax(18rem, 0.9fr) minmax(26rem, 1.1fr);
+  }
+
+  .eventPanel {
+    min-height: 34rem;
+  }
+
+  .fieldGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 36rem) {
+  .page {
+    padding-block: 0;
+    background: var(--mantine-color-white);
+  }
+
+  .shell {
+    padding-inline: 0;
+  }
+
+  .card,
+  .unavailableCard {
+    border-inline: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .eventPanel,
+  .actionPanel {
+    padding: 1.5rem 1rem;
+  }
+
+  .eventTitle {
+    font-size: clamp(1.9rem, 10vw, 2.5rem);
+  }
+
   .form {
     gap: var(--mantine-spacing-md);
+  }
+
+  .unavailableCard {
+    min-height: calc(100dvh - 3.75rem);
   }
 }

@@ -1827,6 +1827,36 @@ test("platform administrators can inspect learner progress", async ({
     const administratorUser = administrator.rows[0];
     if (!administratorUser)
       throw new Error("Expected the seeded administrator");
+    const eventAccess = await authoringDatabase.query<{
+      publicReference: string;
+    }>(
+      `select "publicReference" from event_guest_access
+       where "eventOccurrenceId" = $1 and "revokedAt" is null`,
+      [occurrenceId],
+    );
+    const eventAccessReference = eventAccess.rows[0]?.publicReference;
+    if (!eventAccessReference)
+      throw new Error("Expected the open-entry Event access link");
+    await page.goto(`/event-access/${eventAccessReference}`);
+    await expect(
+      page.getByRole("heading", { name: eventOccurrenceTitle, level: 1 }),
+    ).toBeVisible();
+    await expect(page.getByText("Starts", { exact: true })).toBeVisible();
+    await expect(page.getByText("Ends", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Full name")).toHaveValue(
+      administratorUser.name,
+    );
+    await expect(page.getByLabel("Email address")).toHaveValue(
+      administratorUser.email,
+    );
+    await expect(page.getByLabel("Full name")).toBeEditable();
+    await expect(page.getByLabel("Email address")).toBeEditable();
+    await expect(
+      page.getByLabel(/I agree that my name, email and event activity/u),
+    ).not.toBeChecked();
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const eventAccessAccessibility = await new AxeBuilder({ page }).analyze();
+    expect(eventAccessAccessibility.violations).toEqual([]);
     const occurrenceRegion = await authoringDatabase.query<{ id: string }>(
       `select id from event_occurrence_region
        where "eventOccurrenceId" = $1 and "regionId" = $2`,
