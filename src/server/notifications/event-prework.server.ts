@@ -47,7 +47,7 @@ export async function hasIncompleteAvailableEventPrework(
   )
     return false;
 
-  const [sections, items, completed, attendance, lastSession] =
+  const [sections, items, completed, attendance, lastSession, releases] =
     await Promise.all([
       database
         .selectFrom("event_template_version_section")
@@ -99,6 +99,11 @@ export async function hasIncompleteAvailableEventPrework(
         .where("eventOccurrenceId", "=", input.eventOccurrenceId)
         .orderBy("endsAt", "desc")
         .executeTakeFirst(),
+      database
+        .selectFrom("event_section_release")
+        .select("eventTemplateVersionSectionId")
+        .where("eventParticipationId", "=", input.eventParticipationId)
+        .execute(),
     ]);
   const completedIds = new Set(
     completed.flatMap((row) =>
@@ -109,6 +114,9 @@ export async function hasIncompleteAvailableEventPrework(
     attendance
       .filter((row) => row.state === "attended")
       .map((row) => row.sessionDefinitionId),
+  );
+  const releasedSectionIds = new Set(
+    releases.map((release) => release.eventTemplateVersionSectionId),
   );
   return sections.some((section) => {
     const releaseAt = calculateEventSectionReleaseAt({
@@ -121,7 +129,8 @@ export async function hasIncompleteAvailableEventPrework(
       occurrenceEndsAt: participation.endsAt,
       finalSessionEndsAt: lastSession?.endsAt ?? participation.endsAt,
     });
-    if (releaseAt > input.now) return false;
+    if (!releasedSectionIds.has(section.id) && releaseAt > input.now)
+      return false;
     const sectionItems = items.filter((item) => item.sectionId === section.id);
     const required = sectionItems.filter((item) => item.required);
     const targets = required.length ? required : sectionItems;

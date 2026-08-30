@@ -457,7 +457,7 @@ try {
       title: "Pre-event",
       description: "",
       phase: "pre_event",
-      releaseAnchor: "participation_created",
+      releaseAnchor: "occurrence_start",
       releaseOffsetAmount: 0,
       releaseOffsetUnit: "minute",
       createdAt: now,
@@ -530,7 +530,7 @@ try {
             title: "Renamed pre-event",
             description: "",
             phase: "pre_event",
-            releaseAnchor: "participation_created",
+            releaseAnchor: "occurrence_start",
             releaseOffsetAmount: 0,
             releaseOffsetUnit: "minute",
             items: [
@@ -1168,11 +1168,11 @@ try {
       await enqueueRegistrationSubmittedEventCommunications(transaction, {
         eventOccurrenceId,
         eventRegistrationId: registrationId,
-        triggerEventId: `verify_submitted_transition_${suffix}`,
+        triggerEventId: `verify_automatic_submission_${suffix}`,
         createdAt: new Date("2026-09-03T00:00:00.000Z"),
       }),
-      0,
-      "A queued receipt must not be created after the registration is selected",
+      1,
+      "Automatic approval must retain the registration-submitted communication",
     );
     assert.equal(
       await ensureEventSectionReleased(transaction, {
@@ -1206,7 +1206,7 @@ try {
     .where("templateKey", "=", "offering_event")
     .orderBy("createdAt")
     .execute();
-  assert.equal(offeringNotifications.length, 6);
+  assert.equal(offeringNotifications.length, 7);
   const scheduledNotifications = offeringNotifications.filter((notification) =>
     notification.deduplicationKey.startsWith("event_communication_schedule_"),
   );
@@ -1215,11 +1215,17 @@ try {
       `verify_selected_transition_${suffix}`,
     ),
   );
+  const submittedNotification = offeringNotifications.find((notification) =>
+    notification.deduplicationKey.includes(
+      `verify_automatic_submission_${suffix}`,
+    ),
+  );
   const completedNotification = offeringNotifications.find((notification) =>
     notification.deduplicationKey.includes(`verify_event_completed_${suffix}`),
   );
   assert.equal(scheduledNotifications.length, 3);
   assert.ok(selectedNotification);
+  assert.ok(submittedNotification);
   assert.ok(completedNotification);
   const completedPayload = completedNotification.payload as {
     anchorAt: string | null;
@@ -1299,6 +1305,7 @@ try {
     new Set(captures.map((capture) => capture.subject)),
     new Set([
       "Your event: Communication event - Sydney",
+      "Submitted: Communication event - Sydney",
       "Confirmed: Communication event - Sydney",
       "Event ended: Communication event - Sydney",
       "Session: Sydney workshop",
@@ -1361,7 +1368,7 @@ try {
       trigger: "event_rescheduled" as const,
       audience: "active_registrants" as const,
       subject: "New date: {{event.title}}",
-      offsetAmount: 0,
+      offsetAmount: 1,
     },
     {
       trigger: "event_cancelled" as const,
@@ -1405,6 +1412,31 @@ try {
         createdAt: now,
       })),
     )
+    .execute();
+  await database
+    .insertInto("event_occurrence_communication_revision")
+    .values({
+      id: `verify_presenter_reschedule_revision_${suffix}`,
+      logicalId: `verify_presenter_reschedule_logical_${suffix}`,
+      eventOccurrenceId,
+      sourceTemplateCommunicationId: eventSelectedCommunicationId,
+      revision: 1,
+      active: true,
+      overrideState: "inherited",
+      emailDesignVersionId: eventEmail.versionId,
+      sectionId: eventSectionId,
+      sessionDefinitionId: null,
+      position: 40,
+      label: "Presenter reschedule",
+      audience: "presenters",
+      trigger: "event_rescheduled",
+      offsetAmount: 1,
+      offsetUnit: "minute",
+      subject: "Presenter schedule changed: {{event.title}}",
+      textBody: "The event schedule changed. View {{event.dashboardUrl}}.",
+      createdByUserId: actor.id,
+      createdAt: now,
+    })
     .execute();
 
   await database.transaction().execute(async (transaction) => {
@@ -1574,22 +1606,56 @@ try {
         anchorAt: rescheduledAt,
         createdAt: rescheduledAt,
       }),
-      1,
+      2,
     );
   });
-  const rescheduleNotification = await database
+  const rescheduleNotifications = await database
     .selectFrom("notification")
     .select(["id", "payload"])
     .where("deduplicationKey", "like", `%${rescheduleId}%`)
-    .executeTakeFirstOrThrow();
+    .execute();
+  assert.equal(rescheduleNotifications.length, 2);
+  const rescheduleNotification = rescheduleNotifications.find(
+    (notification) =>
+      (notification.payload as { audience: string }).audience ===
+      "active_registrants",
+  );
+  const presenterRescheduleNotification = rescheduleNotifications.find(
+    (notification) =>
+      (notification.payload as { audience: string }).audience === "presenters",
+  );
+  assert.ok(rescheduleNotification);
+  assert.ok(presenterRescheduleNotification);
   assert.equal(
     (rescheduleNotification.payload as { variables: Record<string, string> })
       .variables["event.previousStartsAt"],
     "15 September 2026 at 9:00 am",
   );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "withdrawn", lockedInAt: null })
+    .where("id", "=", registrationId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_presenter_assignment")
+    .set({
+      endedAt: new Date("2026-09-05T00:00:30.000Z"),
+      endReason: "assignment_ended",
+    })
+    .where("id", "=", `verify_communication_presenter_${suffix}`)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(await deliverNotification(rescheduleNotification.id), {
-    status: "delivered",
+    status: "superseded",
   });
+  assert.deepEqual(
+    await deliverNotification(presenterRescheduleNotification.id),
+    { status: "superseded" },
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: now })
+    .where("id", "=", registrationId)
+    .executeTakeFirstOrThrow();
 
   const cancelledAt = new Date("2026-09-06T00:00:00.000Z");
   await database.transaction().execute(async (transaction) => {

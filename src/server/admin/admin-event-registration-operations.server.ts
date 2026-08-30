@@ -433,6 +433,7 @@ export async function decideAdminEventFinalRegistration(
       if (!occurrence || !registration) return "not-found" as const;
       if (occurrence.status !== "published")
         return "invalid-transition" as const;
+      if (registration.status === decision) return "unchanged" as const;
       const attendance = await transaction
         .selectFrom("event_participation as participation")
         .innerJoin(

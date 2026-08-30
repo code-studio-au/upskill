@@ -78,6 +78,83 @@ const offeringEventPayloadSchema = z.object({
   variables: z.record(z.string(), z.string()),
 });
 
+type OfferingEventPayload = z.infer<typeof offeringEventPayloadSchema>;
+
+async function eventAudienceRecipientApplicable(
+  database: ReturnType<typeof getDatabase>,
+  payload: OfferingEventPayload,
+  recipientUserId: string,
+): Promise<boolean> {
+  if (payload.audience === "active_registrants") {
+    if (!payload.eventRegistrationId) return false;
+    return Boolean(
+      await database
+        .selectFrom("event_registration")
+        .select("id")
+        .where("id", "=", payload.eventRegistrationId)
+        .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
+        .where("userId", "=", recipientUserId)
+        .where("status", "not in", ["cancelled", "not_selected", "withdrawn"])
+        .executeTakeFirst(),
+    );
+  }
+  if (
+    payload.audience === "affected_learner" ||
+    payload.audience === "confirmed_participants"
+  ) {
+    if (!payload.eventRegistrationId) return false;
+    return Boolean(
+      await database
+        .selectFrom("event_registration")
+        .select("id")
+        .where("id", "=", payload.eventRegistrationId)
+        .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
+        .where("userId", "=", recipientUserId)
+        .where("status", "=", "selected")
+        .executeTakeFirst(),
+    );
+  }
+  if (payload.audience === "administrators")
+    return Boolean(
+      await database
+        .selectFrom("event_admin_assignment")
+        .select("id")
+        .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
+        .where("userId", "=", recipientUserId)
+        .where("endedAt", "is", null)
+        .executeTakeFirst(),
+    );
+  if (payload.audience === "presenters")
+    return Boolean(
+      await database
+        .selectFrom("event_presenter_assignment")
+        .select("id")
+        .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
+        .where("userId", "=", recipientUserId)
+        .where("endedAt", "is", null)
+        .executeTakeFirst(),
+    );
+  return Boolean(
+    await database
+      .selectFrom("event_coordinator_assignment as assignment")
+      .innerJoin(
+        "event_occurrence_region as occurrenceRegion",
+        "occurrenceRegion.id",
+        "assignment.eventOccurrenceRegionId",
+      )
+      .select("assignment.id")
+      .where(
+        "occurrenceRegion.eventOccurrenceId",
+        "=",
+        payload.eventOccurrenceId,
+      )
+      .where("assignment.userId", "=", recipientUserId)
+      .where("assignment.endedAt", "is", null)
+      .where("occurrenceRegion.retiredAt", "is", null)
+      .executeTakeFirst(),
+  );
+}
+
 const offeringCoursePayloadSchema = z.object({
   version: z.literal(1),
   kind: z.literal("offering_course"),
@@ -95,7 +172,7 @@ const offeringCoursePayloadSchema = z.object({
 });
 
 async function eventNotificationApplicable(
-  payload: z.infer<typeof offeringEventPayloadSchema>,
+  payload: OfferingEventPayload,
   recipientUserId: string,
 ): Promise<boolean> {
   const database = getDatabase();
@@ -122,9 +199,15 @@ async function eventNotificationApplicable(
       .orderBy("createdAt", "desc")
       .orderBy("id", "desc")
       .executeTakeFirst();
-    return (
-      latest?.id === payload.eventRescheduleId &&
-      latest.createdAt.toISOString() === payload.anchorAt
+    if (
+      latest?.id !== payload.eventRescheduleId ||
+      latest.createdAt.toISOString() !== payload.anchorAt
+    )
+      return false;
+    return await eventAudienceRecipientApplicable(
+      database,
+      payload,
+      recipientUserId,
     );
   }
   if (payload.trigger === "event_completed") {
@@ -171,22 +254,23 @@ async function eventNotificationApplicable(
       registration_cancelled: "cancelled",
       registration_not_selected: "not_selected",
       registration_selected: "selected",
-      registration_submitted: "submitted",
       registration_waitlisted: "waitlisted",
     } as const;
-    return Boolean(
-      await database
-        .selectFrom("event_registration")
-        .select("id")
-        .where("id", "=", payload.eventRegistrationId)
-        .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
-        .where(
-          "status",
-          "=",
-          expectedStatus[payload.trigger as keyof typeof expectedStatus],
-        )
-        .executeTakeFirst(),
-    );
+    let query = database
+      .selectFrom("event_registration")
+      .select("id")
+      .where("id", "=", payload.eventRegistrationId)
+      .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
+      .where("userId", "=", recipientUserId);
+    query =
+      payload.trigger === "registration_submitted"
+        ? query.where("status", "in", ["submitted", "selected"])
+        : query.where(
+            "status",
+            "=",
+            expectedStatus[payload.trigger as keyof typeof expectedStatus],
+          );
+    return Boolean(await query.executeTakeFirst());
   }
   if (payload.trigger === "prework_incomplete") {
     if (!payload.eventRegistrationId || !payload.eventParticipationId)
@@ -199,61 +283,12 @@ async function eventNotificationApplicable(
       now: new Date(),
     });
   }
-  if (
-    ["event_start", "event_end", "session_start"].includes(payload.trigger) &&
-    payload.eventRegistrationId
-  )
-    return Boolean(
-      await database
-        .selectFrom("event_registration")
-        .select("id")
-        .where("id", "=", payload.eventRegistrationId)
-        .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
-        .where("status", "=", "selected")
-        .executeTakeFirst(),
+  if (["event_start", "event_end", "session_start"].includes(payload.trigger))
+    return await eventAudienceRecipientApplicable(
+      database,
+      payload,
+      recipientUserId,
     );
-  if (["event_start", "event_end", "session_start"].includes(payload.trigger)) {
-    if (payload.audience === "administrators")
-      return Boolean(
-        await database
-          .selectFrom("event_admin_assignment")
-          .select("id")
-          .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
-          .where("userId", "=", recipientUserId)
-          .where("endedAt", "is", null)
-          .executeTakeFirst(),
-      );
-    if (payload.audience === "presenters")
-      return Boolean(
-        await database
-          .selectFrom("event_presenter_assignment")
-          .select("id")
-          .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
-          .where("userId", "=", recipientUserId)
-          .where("endedAt", "is", null)
-          .executeTakeFirst(),
-      );
-    if (payload.audience === "coordinators")
-      return Boolean(
-        await database
-          .selectFrom("event_coordinator_assignment as assignment")
-          .innerJoin(
-            "event_occurrence_region as occurrenceRegion",
-            "occurrenceRegion.id",
-            "assignment.eventOccurrenceRegionId",
-          )
-          .select("assignment.id")
-          .where(
-            "occurrenceRegion.eventOccurrenceId",
-            "=",
-            payload.eventOccurrenceId,
-          )
-          .where("assignment.userId", "=", recipientUserId)
-          .where("assignment.endedAt", "is", null)
-          .where("occurrenceRegion.retiredAt", "is", null)
-          .executeTakeFirst(),
-      );
-  }
   return true;
 }
 

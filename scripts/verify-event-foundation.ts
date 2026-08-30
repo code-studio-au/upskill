@@ -1638,6 +1638,16 @@ try {
     ),
     "updated",
   );
+  assert.equal(
+    await decideAdminEventFinalRegistration(
+      eventOccurrenceId,
+      learnerRegistration.id,
+      "waitlisted",
+      administrator,
+    ),
+    "unchanged",
+    "Repeating a final decision must not create another transition or outcome message",
+  );
   const learnerParticipationId = await database
     .selectFrom("event_participation")
     .select("id")

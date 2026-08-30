@@ -621,7 +621,11 @@ async function enqueueEventTransitionCommunications(
     registration_submitted: "submitted",
     registration_waitlisted: "waitlisted",
   }[input.trigger];
-  if (recipient.status !== expectedStatus) return 0;
+  const statusMatches =
+    input.trigger === "registration_submitted"
+      ? recipient.status === "submitted" || recipient.status === "selected"
+      : recipient.status === expectedStatus;
+  if (!statusMatches) return 0;
   return await enqueueEventTriggeredCommunications(transaction, {
     eventOccurrenceId: input.eventOccurrenceId,
     triggerEventId: input.triggerEventId,
