@@ -1230,7 +1230,7 @@ interface EventCommunicationScheduleTable {
   revision: number;
   eventOccurrenceId: string;
   eventOccurrenceCommunicationRevisionId: string;
-  trigger: "event_end" | "event_start" | "session_start";
+  trigger: "event_end" | "event_start" | "prework_incomplete" | "session_start";
   dueAt: Timestamp;
   status: Generated<
     "pending" | "processing" | "completed" | "failed" | "superseded"
@@ -1305,6 +1305,7 @@ type CourseCommunicationTrigger =
   | "enrollment_created"
   | "enrollment_expiring";
 type EventCommunicationAudience =
+  | "active_registrants"
   | "administrators"
   | "affected_learner"
   | "confirmed_participants"
@@ -1314,8 +1315,14 @@ type EventCommunicationTrigger =
   | "event_completed"
   | "event_end"
   | "event_start"
+  | "event_cancelled"
+  | "event_rescheduled"
+  | "prework_incomplete"
+  | "registration_cancelled"
+  | "registration_not_selected"
   | "registration_selected"
   | "registration_submitted"
+  | "registration_waitlisted"
   | "section_release"
   | "session_start";
 

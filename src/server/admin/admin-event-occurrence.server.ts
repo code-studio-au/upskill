@@ -20,7 +20,11 @@ import { ensureEventGuestAccessRecord } from "#/server/events/event-guest-access
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.server";
 import { materializeEventOccurrenceCommunications } from "#/server/admin/admin-communication.server";
-import { refreshEventCommunicationSchedules } from "#/server/notifications/event-communication-execution.server";
+import {
+  enqueueEventOccurrenceLifecycleCommunications,
+  enqueueRegistrationOutcomeEventCommunications,
+  refreshEventCommunicationSchedules,
+} from "#/server/notifications/event-communication-execution.server";
 import {
   addElapsedDuration,
   addElapsedMilliseconds,
@@ -1000,10 +1004,11 @@ export async function rescheduleAdminEventOccurrence(
               })
               .where("id", "=", registration.id)
               .execute();
+            const transitionId = `event_registration_transition_${randomUUID()}`;
             await transaction
               .insertInto("event_registration_transition")
               .values({
-                id: `event_registration_transition_${randomUUID()}`,
+                id: transitionId,
                 eventRegistrationId: registration.id,
                 fromStatus: registration.status,
                 toStatus: "cancelled",
@@ -1013,6 +1018,13 @@ export async function rescheduleAdminEventOccurrence(
                 occurredAt: now,
               })
               .execute();
+            await enqueueRegistrationOutcomeEventCommunications(transaction, {
+              eventOccurrenceId,
+              eventRegistrationId: registration.id,
+              triggerEventId: transitionId,
+              outcome: "cancelled",
+              createdAt: now,
+            });
           }
         }
       }
@@ -1269,6 +1281,13 @@ export async function rescheduleAdminEventOccurrence(
         eventOccurrenceId,
         now,
       );
+      await enqueueEventOccurrenceLifecycleCommunications(transaction, {
+        eventOccurrenceId,
+        triggerEventId: rescheduleId,
+        trigger: "event_rescheduled",
+        anchorAt: now,
+        createdAt: now,
+      });
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "event_occurrence.rescheduled",

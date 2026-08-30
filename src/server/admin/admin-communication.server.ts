@@ -51,6 +51,7 @@ type EventInput = {
   sessionDefinitionId: string | null;
   audience:
     | "administrators"
+    | "active_registrants"
     | "affected_learner"
     | "confirmed_participants"
     | "coordinators"
@@ -61,6 +62,12 @@ type EventInput = {
     | "event_start"
     | "registration_selected"
     | "registration_submitted"
+    | "registration_waitlisted"
+    | "registration_not_selected"
+    | "registration_cancelled"
+    | "event_rescheduled"
+    | "event_cancelled"
+    | "prework_incomplete"
     | "section_release"
     | "session_start";
   offsetAmount: number;

@@ -605,8 +605,9 @@ without understanding why.
 - notification domain, exact delivery snapshots, all authorable Course/Event
   trigger execution, durable occurrence schedules and delivery-time suppression
   (implemented);
-- additional not-yet-authorable coordination, cancellation and access reminder
-  coverage;
+- cancellation, reschedule, final waitlist/not-selected/cancelled outcomes and
+  incomplete pre-work reminder coverage (implemented); regional lock,
+  late-invitation expiry and post-event requirement reminders remain;
 - support read models (implemented for onboarding, Course enrolment/progress,
   Event registration/region snapshots, attendance, completion and audit
   history);

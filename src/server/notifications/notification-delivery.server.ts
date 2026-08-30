@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { z } from "#/validation/zod.server";
+import { hasIncompleteAvailableEventPrework } from "./event-prework.server";
 import {
   getEmailProvider,
   isAmbiguousEmailDeliveryError,
@@ -48,23 +49,31 @@ const offeringEventPayloadSchema = z.object({
   eventOccurrenceCommunicationRevisionId: z.string().min(1).max(200),
   audience: z.enum([
     "administrators",
+    "active_registrants",
     "affected_learner",
     "confirmed_participants",
     "coordinators",
     "presenters",
   ]),
   trigger: z.enum([
+    "event_cancelled",
     "event_completed",
     "event_end",
+    "event_rescheduled",
     "event_start",
+    "prework_incomplete",
+    "registration_cancelled",
+    "registration_not_selected",
     "registration_selected",
     "registration_submitted",
+    "registration_waitlisted",
     "section_release",
     "session_start",
   ]),
   eventRegistrationId: z.string().min(1).max(200).nullable(),
   eventParticipationId: z.string().min(1).max(200).nullable(),
   eventTemplateVersionSectionId: z.string().min(1).max(200).nullable(),
+  eventRescheduleId: z.string().min(1).max(200).nullable().optional(),
   anchorAt: z.optional(z.nullable(z.iso.datetime())),
   variables: z.record(z.string(), z.string()),
 });
@@ -95,8 +104,29 @@ async function eventNotificationApplicable(
     .select("status")
     .where("id", "=", payload.eventOccurrenceId)
     .executeTakeFirst();
-  if (!occurrence || ["cancelled", "archived"].includes(occurrence.status))
-    return false;
+  if (!occurrence) return false;
+  if (payload.trigger === "event_cancelled")
+    return ["cancelled", "archived"].includes(occurrence.status);
+  if (["cancelled", "archived"].includes(occurrence.status)) return false;
+  if (payload.trigger === "event_rescheduled") {
+    if (
+      !payload.anchorAt ||
+      !payload.eventRescheduleId ||
+      occurrence.status !== "published"
+    )
+      return false;
+    const latest = await database
+      .selectFrom("event_occurrence_reschedule")
+      .select(["id", "createdAt"])
+      .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
+      .orderBy("createdAt", "desc")
+      .orderBy("id", "desc")
+      .executeTakeFirst();
+    return (
+      latest?.id === payload.eventRescheduleId &&
+      latest.createdAt.toISOString() === payload.anchorAt
+    );
+  }
   if (payload.trigger === "event_completed") {
     if (!payload.eventParticipationId) return false;
     const participation = await database
@@ -127,17 +157,47 @@ async function eventNotificationApplicable(
         .executeTakeFirst(),
     );
   }
-  if (payload.trigger === "registration_selected") {
+  if (
+    [
+      "registration_cancelled",
+      "registration_not_selected",
+      "registration_selected",
+      "registration_submitted",
+      "registration_waitlisted",
+    ].includes(payload.trigger)
+  ) {
     if (!payload.eventRegistrationId) return false;
+    const expectedStatus = {
+      registration_cancelled: "cancelled",
+      registration_not_selected: "not_selected",
+      registration_selected: "selected",
+      registration_submitted: "submitted",
+      registration_waitlisted: "waitlisted",
+    } as const;
     return Boolean(
       await database
         .selectFrom("event_registration")
         .select("id")
         .where("id", "=", payload.eventRegistrationId)
         .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
-        .where("status", "=", "selected")
+        .where(
+          "status",
+          "=",
+          expectedStatus[payload.trigger as keyof typeof expectedStatus],
+        )
         .executeTakeFirst(),
     );
+  }
+  if (payload.trigger === "prework_incomplete") {
+    if (!payload.eventRegistrationId || !payload.eventParticipationId)
+      return false;
+    return await hasIncompleteAvailableEventPrework(database, {
+      eventOccurrenceId: payload.eventOccurrenceId,
+      eventRegistrationId: payload.eventRegistrationId,
+      eventParticipationId: payload.eventParticipationId,
+      userId: recipientUserId,
+      now: new Date(),
+    });
   }
   if (
     ["event_start", "event_end", "session_start"].includes(payload.trigger) &&
@@ -326,6 +386,7 @@ export async function deliverNotification(
         eventRegistrationId: payload.eventRegistrationId,
         eventParticipationId: payload.eventParticipationId,
         eventTemplateVersionSectionId: payload.eventTemplateVersionSectionId,
+        eventRescheduleId: payload.eventRescheduleId ?? null,
         anchorAt: payload.anchorAt ?? null,
       };
     } else {

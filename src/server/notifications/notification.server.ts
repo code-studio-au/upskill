@@ -177,21 +177,29 @@ export async function enqueueOfferingEventNotification(
     eventOccurrenceCommunicationRevisionId: string;
     audience:
       | "administrators"
+      | "active_registrants"
       | "affected_learner"
       | "confirmed_participants"
       | "coordinators"
       | "presenters";
     trigger:
+      | "event_cancelled"
       | "event_completed"
       | "event_end"
+      | "event_rescheduled"
       | "event_start"
+      | "prework_incomplete"
+      | "registration_cancelled"
+      | "registration_not_selected"
       | "registration_selected"
       | "registration_submitted"
+      | "registration_waitlisted"
       | "section_release"
       | "session_start";
     eventRegistrationId?: string | null;
     eventParticipationId?: string | null;
     eventTemplateVersionSectionId?: string | null;
+    eventRescheduleId?: string | null;
     anchorAt?: Date;
     variables: Readonly<Record<string, string>>;
     createdAt: Date;
@@ -217,6 +225,7 @@ export async function enqueueOfferingEventNotification(
       eventParticipationId: input.eventParticipationId ?? null,
       eventTemplateVersionSectionId:
         input.eventTemplateVersionSectionId ?? null,
+      eventRescheduleId: input.eventRescheduleId ?? null,
       anchorAt: input.anchorAt?.toISOString() ?? null,
       variables: input.variables,
     },

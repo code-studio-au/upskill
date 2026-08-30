@@ -123,6 +123,165 @@ function normalizeSnapshotBaseVersions(fixture: SnapshotFixture): void {
   }
 }
 
+function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
+  const version = (fixture.tables.event_template_version ?? []).find(
+    (candidate) =>
+      candidate.publishedAt &&
+      (fixture.tables.event_occurrence ?? []).some(
+        (occurrence) => occurrence.eventTemplateVersionId === candidate.id,
+      ),
+  );
+  if (!version)
+    throw new Error("Snapshot fixture has no published event sample");
+  const section = (fixture.tables.event_template_version_section ?? []).find(
+    (candidate) =>
+      candidate.eventTemplateVersionId === version.id &&
+      candidate.phase === "pre_event",
+  );
+  if (!section)
+    throw new Error("Snapshot fixture event sample has no pre-event section");
+  const emailVersion = (fixture.tables.email_design_version ?? []).find(
+    (candidate) =>
+      candidate.contractKey === "offering.event" && candidate.publishedAt,
+  );
+  if (!emailVersion)
+    throw new Error("Snapshot fixture has no published event email version");
+
+  const samples = [
+    {
+      trigger: "registration_waitlisted",
+      audience: "affected_learner",
+      label: "Waitlist outcome",
+      subject: "You are on the waitlist for {{event.title}}",
+      textBody:
+        "Hello {{user.firstName}},\n\nYou are currently waitlisted for {{event.title}}. Check your event page for updates: {{event.dashboardUrl}}",
+      offsetAmount: 0,
+      offsetUnit: "minute",
+    },
+    {
+      trigger: "registration_not_selected",
+      audience: "affected_learner",
+      label: "Not-selected outcome",
+      subject: "Your registration outcome for {{event.title}}",
+      textBody:
+        "Hello {{user.firstName}},\n\nYou were not selected for {{event.title}}. Contact {{platform.supportEmail}} if you need assistance.",
+      offsetAmount: 0,
+      offsetUnit: "minute",
+    },
+    {
+      trigger: "registration_cancelled",
+      audience: "affected_learner",
+      label: "Registration cancelled",
+      subject: "Your registration for {{event.title}} was cancelled",
+      textBody:
+        "Hello {{user.firstName}},\n\nYour registration for {{event.title}} was cancelled. Contact {{platform.supportEmail}} if this was unexpected.",
+      offsetAmount: 0,
+      offsetUnit: "minute",
+    },
+    {
+      trigger: "event_rescheduled",
+      audience: "active_registrants",
+      label: "Event rescheduled",
+      subject: "New schedule for {{event.title}}",
+      textBody:
+        "Hello {{user.firstName}},\n\n{{event.title}} changed from {{event.previousStartsAt}} to {{event.startsAt}}. {{event.reschedulePolicy}}. Review the current details: {{event.dashboardUrl}}",
+      offsetAmount: 0,
+      offsetUnit: "minute",
+    },
+    {
+      trigger: "event_cancelled",
+      audience: "active_registrants",
+      label: "Event cancelled",
+      subject: "{{event.title}} was cancelled",
+      textBody:
+        "Hello {{user.firstName}},\n\n{{event.title}} was cancelled. Contact {{platform.supportEmail}} if you need assistance.",
+      offsetAmount: 0,
+      offsetUnit: "minute",
+    },
+    {
+      trigger: "prework_incomplete",
+      audience: "confirmed_participants",
+      label: "Incomplete pre-work reminder",
+      subject: "Complete your pre-work for {{event.title}}",
+      textBody:
+        "Hello {{user.firstName}},\n\nYou have {{progress.remainingPreworkItemCount}} pre-work activities remaining before {{event.title}}. Continue here: {{event.dashboardUrl}}",
+      offsetAmount: -3,
+      offsetUnit: "day",
+    },
+  ] as const;
+  const templateRows =
+    fixture.tables.event_template_version_communication ?? [];
+  const existingTemplatePositions = [
+    ...templateRows,
+    ...fixture.tables.event_template_version_item,
+  ]
+    .filter((row) => row.eventTemplateVersionId === version.id)
+    .map((row) => Number(row.position));
+  const firstTemplatePosition = Math.max(-1, ...existingTemplatePositions) + 1;
+  const createdAt = String(version.publishedAt);
+  const sourceIds = new Map<string, string>();
+  for (const [index, sample] of samples.entries()) {
+    const id = `seed_event_communication_${sample.trigger}`;
+    sourceIds.set(sample.trigger, id);
+    templateRows.push({
+      id,
+      eventTemplateVersionId: version.id,
+      sectionId: section.id,
+      sessionDefinitionId: null,
+      position: firstTemplatePosition + index,
+      label: sample.label,
+      emailDesignVersionId: emailVersion.id,
+      audience: sample.audience,
+      trigger: sample.trigger,
+      offsetAmount: sample.offsetAmount,
+      offsetUnit: sample.offsetUnit,
+      subjectOverride: sample.subject,
+      textBodyOverride: sample.textBody,
+      createdByUserId: emailVersion.createdByUserId ?? null,
+      createdAt,
+      updatedAt: createdAt,
+    });
+  }
+  fixture.tables.event_template_version_communication = templateRows;
+
+  const occurrenceRows =
+    fixture.tables.event_occurrence_communication_revision ?? [];
+  for (const occurrence of fixture.tables.event_occurrence ?? []) {
+    if (occurrence.eventTemplateVersionId !== version.id) continue;
+    const existingPositions = occurrenceRows
+      .filter((row) => row.eventOccurrenceId === occurrence.id)
+      .map((row) => Number(row.position));
+    const firstPosition = Math.max(-1, ...existingPositions) + 1;
+    for (const [index, sample] of samples.entries()) {
+      const sourceTemplateCommunicationId = sourceIds.get(sample.trigger);
+      assert.ok(sourceTemplateCommunicationId);
+      occurrenceRows.push({
+        id: `seed_event_communication_revision_${String(occurrence.id).replaceAll("event_occurrence_", "")}_${sample.trigger}`,
+        logicalId: `seed_event_communication_${String(occurrence.id).replaceAll("event_occurrence_", "")}_${sample.trigger}`,
+        eventOccurrenceId: occurrence.id,
+        sourceTemplateCommunicationId,
+        revision: 1,
+        active: true,
+        overrideState: "inherited",
+        emailDesignVersionId: emailVersion.id,
+        sectionId: section.id,
+        sessionDefinitionId: null,
+        position: firstPosition + index,
+        label: sample.label,
+        audience: sample.audience,
+        trigger: sample.trigger,
+        offsetAmount: sample.offsetAmount,
+        offsetUnit: sample.offsetUnit,
+        subject: sample.subject,
+        textBody: sample.textBody,
+        createdByUserId: emailVersion.createdByUserId ?? null,
+        createdAt,
+      });
+    }
+  }
+  fixture.tables.event_occurrence_communication_revision = occurrenceRows;
+}
+
 function assertCurrentFeatureSamples(fixture: SnapshotFixture): void {
   const requiredTables = [
     "enterprise_contract",
@@ -144,6 +303,21 @@ function assertCurrentFeatureSamples(fixture: SnapshotFixture): void {
     throw new Error(
       "Snapshot fixture has no enterprise contract owner account",
     );
+  const eventTriggers = new Set(
+    (fixture.tables.event_template_version_communication ?? []).map((row) =>
+      String(row.trigger),
+    ),
+  );
+  for (const trigger of [
+    "registration_waitlisted",
+    "registration_not_selected",
+    "registration_cancelled",
+    "event_rescheduled",
+    "event_cancelled",
+    "prework_incomplete",
+  ])
+    if (!eventTriggers.has(trigger))
+      throw new Error(`Snapshot fixture has no sample for ${trigger}`);
 }
 
 async function insertRows(
@@ -743,6 +917,7 @@ export async function seedCurrentSnapshot(
   ) as SnapshotFixture;
   if (fixture.fixtureVersion !== 1)
     throw new Error("Unsupported snapshot fixture version");
+  addEventLifecycleCommunicationSamples(fixture);
   assertCurrentFeatureSamples(fixture);
   verifyExternalAssetMetadata(fixture);
   normalizeSnapshotBaseVersions(fixture);

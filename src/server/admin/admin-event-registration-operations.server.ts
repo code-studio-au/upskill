@@ -13,6 +13,8 @@ import {
 import { resendAccountSetup } from "#/server/identity/account-setup.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 import {
+  enqueueEventOccurrenceLifecycleCommunications,
+  enqueueRegistrationOutcomeEventCommunications,
   enqueueRegistrationSelectedEventCommunications,
   enqueueRegistrationSubmittedEventCommunications,
   supersedeEventCommunicationSchedules,
@@ -546,6 +548,14 @@ export async function decideAdminEventFinalRegistration(
           eventOccurrenceId,
           eventRegistrationId: registration.id,
           triggerEventId: transitionId,
+          createdAt: now,
+        });
+      else if (decision !== "selected")
+        await enqueueRegistrationOutcomeEventCommunications(transaction, {
+          eventOccurrenceId,
+          eventRegistrationId: registration.id,
+          triggerEventId: transitionId,
+          outcome: decision,
           createdAt: now,
         });
       await recordDurableAuditEvent(transaction, {
@@ -1147,6 +1157,13 @@ export async function transitionAdminEventOccurrence(
       if (!allowed) return "invalid-transition" as const;
       const now = new Date();
       if (target === "cancelled") {
+        await enqueueEventOccurrenceLifecycleCommunications(transaction, {
+          eventOccurrenceId,
+          triggerEventId: `event-cancelled:${eventOccurrenceId}:${now.toISOString()}`,
+          trigger: "event_cancelled",
+          anchorAt: now,
+          createdAt: now,
+        });
         const registrations = await transaction
           .selectFrom("event_registration")
           .select(["id", "status", "coordinatorPriority"])

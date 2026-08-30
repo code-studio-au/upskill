@@ -26,6 +26,8 @@ import {
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import {
+  enqueueEventOccurrenceLifecycleCommunications,
+  enqueueRegistrationOutcomeEventCommunications,
   enqueueRegistrationSubmittedEventCommunications,
   enqueueRegistrationSelectedEventCommunications,
   enqueueEventParticipationCommunications,
@@ -1169,7 +1171,8 @@ try {
         triggerEventId: `verify_submitted_transition_${suffix}`,
         createdAt: new Date("2026-09-03T00:00:00.000Z"),
       }),
-      1,
+      0,
+      "A queued receipt must not be created after the registration is selected",
     );
     assert.equal(
       await ensureEventSectionReleased(transaction, {
@@ -1203,7 +1206,7 @@ try {
     .where("templateKey", "=", "offering_event")
     .orderBy("createdAt")
     .execute();
-  assert.equal(offeringNotifications.length, 7);
+  assert.equal(offeringNotifications.length, 6);
   const scheduledNotifications = offeringNotifications.filter((notification) =>
     notification.deduplicationKey.startsWith("event_communication_schedule_"),
   );
@@ -1297,7 +1300,6 @@ try {
     new Set([
       "Your event: Communication event - Sydney",
       "Confirmed: Communication event - Sydney",
-      "Submitted: Communication event - Sydney",
       "Event ended: Communication event - Sydney",
       "Session: Sydney workshop",
       "Released: Renamed pre-event",
@@ -1332,8 +1334,292 @@ try {
     eventRegistrationId: registrationId,
     eventParticipationId: participationId,
     eventTemplateVersionSectionId: null,
+    eventRescheduleId: null,
     anchorAt: null,
   });
+
+  const lifecyclePlans = [
+    {
+      trigger: "registration_waitlisted" as const,
+      audience: "affected_learner" as const,
+      subject: "Waitlisted: {{event.title}}",
+      offsetAmount: 0,
+    },
+    {
+      trigger: "registration_not_selected" as const,
+      audience: "affected_learner" as const,
+      subject: "Registration outcome: {{event.title}}",
+      offsetAmount: 0,
+    },
+    {
+      trigger: "registration_cancelled" as const,
+      audience: "affected_learner" as const,
+      subject: "Registration cancelled: {{event.title}}",
+      offsetAmount: 0,
+    },
+    {
+      trigger: "event_rescheduled" as const,
+      audience: "active_registrants" as const,
+      subject: "New date: {{event.title}}",
+      offsetAmount: 0,
+    },
+    {
+      trigger: "event_cancelled" as const,
+      audience: "active_registrants" as const,
+      subject: "Event cancelled: {{event.title}}",
+      offsetAmount: 0,
+    },
+    {
+      trigger: "prework_incomplete" as const,
+      audience: "confirmed_participants" as const,
+      subject: "Pre-work remaining: {{event.title}}",
+      offsetAmount: -1,
+    },
+  ];
+  await database
+    .insertInto("event_occurrence_communication_revision")
+    .values(
+      lifecyclePlans.map((plan, position) => ({
+        id: `verify_lifecycle_revision_${plan.trigger}_${suffix}`,
+        logicalId: `verify_lifecycle_logical_${plan.trigger}_${suffix}`,
+        eventOccurrenceId,
+        sourceTemplateCommunicationId: eventSelectedCommunicationId,
+        revision: 1,
+        active: true,
+        overrideState: "inherited" as const,
+        emailDesignVersionId: eventEmail.versionId,
+        sectionId: eventSectionId,
+        sessionDefinitionId: null,
+        position: 20 + position,
+        label: plan.trigger,
+        audience: plan.audience,
+        trigger: plan.trigger,
+        offsetAmount: plan.offsetAmount,
+        offsetUnit: plan.trigger === "prework_incomplete" ? "day" : "minute",
+        subject: plan.subject,
+        textBody:
+          plan.trigger === "event_rescheduled"
+            ? "Changed from {{event.previousStartsAt}} to {{event.startsAt}}. {{event.reschedulePolicy}}."
+            : "Hello {{user.firstName}}, view {{event.dashboardUrl}}. Status: {{registration.status}}.",
+        createdByUserId: actor.id,
+        createdAt: now,
+      })),
+    )
+    .execute();
+
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("event_registration")
+      .set({ status: "waitlisted", lockedInAt: null })
+      .where("id", "=", registrationId)
+      .executeTakeFirstOrThrow();
+    assert.equal(
+      await enqueueRegistrationOutcomeEventCommunications(transaction, {
+        eventOccurrenceId,
+        eventRegistrationId: registrationId,
+        triggerEventId: `waitlisted_${suffix}`,
+        outcome: "waitlisted",
+        createdAt: now,
+      }),
+      1,
+    );
+  });
+  const waitlistNotificationId = await database
+    .selectFrom("notification")
+    .select("id")
+    .where("deduplicationKey", "like", `%waitlisted_${suffix}%`)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.id);
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("event_registration")
+      .set({ status: "not_selected", lockedInAt: null })
+      .where("id", "=", registrationId)
+      .executeTakeFirstOrThrow();
+    assert.equal(
+      await enqueueRegistrationOutcomeEventCommunications(transaction, {
+        eventOccurrenceId,
+        eventRegistrationId: registrationId,
+        triggerEventId: `not_selected_${suffix}`,
+        outcome: "not_selected",
+        createdAt: now,
+      }),
+      1,
+    );
+  });
+  const notSelectedNotificationId = await database
+    .selectFrom("notification")
+    .select("id")
+    .where("deduplicationKey", "like", `%not_selected_${suffix}%`)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.id);
+  assert.deepEqual(await deliverNotification(waitlistNotificationId), {
+    status: "superseded",
+  });
+  assert.deepEqual(await deliverNotification(notSelectedNotificationId), {
+    status: "delivered",
+  });
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("event_registration")
+      .set({ status: "cancelled", lockedInAt: null })
+      .where("id", "=", registrationId)
+      .executeTakeFirstOrThrow();
+    assert.equal(
+      await enqueueRegistrationOutcomeEventCommunications(transaction, {
+        eventOccurrenceId,
+        eventRegistrationId: registrationId,
+        triggerEventId: `registration_cancelled_${suffix}`,
+        outcome: "cancelled",
+        createdAt: now,
+      }),
+      1,
+    );
+  });
+  const cancelledRegistrationNotificationId = await database
+    .selectFrom("notification")
+    .select("id")
+    .where("deduplicationKey", "like", `%registration_cancelled_${suffix}%`)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.id);
+  assert.deepEqual(
+    await deliverNotification(cancelledRegistrationNotificationId),
+    { status: "delivered" },
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: now })
+    .where("id", "=", registrationId)
+    .executeTakeFirstOrThrow();
+
+  await database.transaction().execute(async (transaction) => {
+    await refreshEventCommunicationSchedules(
+      transaction,
+      eventOccurrenceId,
+      new Date("2026-09-10T00:00:00.000Z"),
+    );
+  });
+  const preworkOutcome = await processNextEventCommunicationSchedule(
+    new Date("2026-09-14T23:00:00.000Z"),
+  );
+  assert.equal(preworkOutcome.status, "completed");
+  assert.equal(preworkOutcome.recipientCount, 1);
+  const preworkNotification = await database
+    .selectFrom("notification")
+    .select(["id", "payload"])
+    .where("deduplicationKey", "like", "event_communication_schedule_%")
+    .where("payload", "@>", JSON.stringify({ trigger: "prework_incomplete" }))
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (preworkNotification.payload as { variables?: Record<string, string> })
+      .variables?.["progress.remainingPreworkItemCount"],
+    "1",
+  );
+  await database
+    .insertInto("event_attendance")
+    .values({
+      eventParticipationId: participationId,
+      eventSessionId,
+      state: "attended",
+      source: "administrator",
+      recordedByUserId: actor.id,
+      recordedAt: now,
+      updatedAt: now,
+    })
+    .execute();
+  assert.deepEqual(await deliverNotification(preworkNotification.id), {
+    status: "superseded",
+  });
+
+  const rescheduleId = `verify_reschedule_${suffix}`;
+  const rescheduledAt = new Date("2026-09-05T00:00:00.000Z");
+  await database
+    .insertInto("event_occurrence_reschedule")
+    .values({
+      id: rescheduleId,
+      eventOccurrenceId,
+      registrationWindowPolicy: "keep",
+      previousTimezone: "Australia/Sydney",
+      previousLocalStartsAt: "2026-09-15T09:00:00",
+      previousLocalEndsAt: "2026-09-15T17:00:00",
+      previousLocalRegistrationOpensAt: null,
+      previousLocalRegistrationClosesAt: null,
+      previousLocalCoordinatorLockAt: null,
+      previousStartsAt: new Date("2026-09-14T23:00:00.000Z"),
+      previousEndsAt: new Date("2026-09-15T07:00:00.000Z"),
+      previousRegistrationOpensAt: null,
+      previousRegistrationClosesAt: null,
+      previousCoordinatorLockAt: null,
+      nextTimezone: "Australia/Sydney",
+      nextLocalStartsAt: "2026-09-16T09:00:00",
+      nextLocalEndsAt: "2026-09-16T17:00:00",
+      nextLocalRegistrationOpensAt: null,
+      nextLocalRegistrationClosesAt: null,
+      nextLocalCoordinatorLockAt: null,
+      nextStartsAt: new Date("2026-09-15T23:00:00.000Z"),
+      nextEndsAt: new Date("2026-09-16T07:00:00.000Z"),
+      nextRegistrationOpensAt: null,
+      nextRegistrationClosesAt: null,
+      nextCoordinatorLockAt: null,
+      actorUserId: actor.id,
+      createdAt: rescheduledAt,
+    })
+    .execute();
+  await database.transaction().execute(async (transaction) => {
+    assert.equal(
+      await enqueueEventOccurrenceLifecycleCommunications(transaction, {
+        eventOccurrenceId,
+        triggerEventId: rescheduleId,
+        trigger: "event_rescheduled",
+        anchorAt: rescheduledAt,
+        createdAt: rescheduledAt,
+      }),
+      1,
+    );
+  });
+  const rescheduleNotification = await database
+    .selectFrom("notification")
+    .select(["id", "payload"])
+    .where("deduplicationKey", "like", `%${rescheduleId}%`)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (rescheduleNotification.payload as { variables: Record<string, string> })
+      .variables["event.previousStartsAt"],
+    "15 September 2026 at 9:00 am",
+  );
+  assert.deepEqual(await deliverNotification(rescheduleNotification.id), {
+    status: "delivered",
+  });
+
+  const cancelledAt = new Date("2026-09-06T00:00:00.000Z");
+  await database.transaction().execute(async (transaction) => {
+    assert.equal(
+      await enqueueEventOccurrenceLifecycleCommunications(transaction, {
+        eventOccurrenceId,
+        triggerEventId: `event_cancelled_${suffix}`,
+        trigger: "event_cancelled",
+        anchorAt: cancelledAt,
+        createdAt: cancelledAt,
+      }),
+      1,
+    );
+    await transaction
+      .updateTable("event_occurrence")
+      .set({ status: "cancelled", updatedAt: cancelledAt })
+      .where("id", "=", eventOccurrenceId)
+      .executeTakeFirstOrThrow();
+  });
+  const eventCancellationNotification = await database
+    .selectFrom("notification")
+    .select("id")
+    .where("deduplicationKey", "like", `%event_cancelled_${suffix}%`)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await deliverNotification(eventCancellationNotification.id),
+    {
+      status: "delivered",
+    },
+  );
   await assert.rejects(
     database
       .updateTable("event_template_version_communication")

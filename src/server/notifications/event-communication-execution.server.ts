@@ -10,6 +10,7 @@ import {
   type EventCommunicationContentSnapshot,
   type EventNotificationRecipient,
 } from "./offering-event-context.server";
+import { hasIncompleteAvailableEventPrework } from "./event-prework.server";
 import { enqueueOfferingEventNotification } from "./notification.server";
 
 const SCHEDULE_LEASE_MILLISECONDS = 15 * 60_000;
@@ -17,6 +18,7 @@ const MAX_SCHEDULE_ATTEMPTS = 5;
 const DEFAULT_SCHEDULE_BATCH_SIZE = 25;
 
 type EventCommunicationAudience =
+  | "active_registrants"
   | "affected_learner"
   | "confirmed_participants"
   | "presenters"
@@ -24,11 +26,17 @@ type EventCommunicationAudience =
   | "administrators";
 
 type EventCommunicationTrigger =
+  | "event_cancelled"
   | "event_completed"
   | "event_end"
+  | "event_rescheduled"
   | "event_start"
+  | "prework_incomplete"
+  | "registration_cancelled"
+  | "registration_not_selected"
   | "registration_selected"
   | "registration_submitted"
+  | "registration_waitlisted"
   | "section_release"
   | "session_start";
 
@@ -103,7 +111,12 @@ export async function refreshEventCommunicationSchedules(
     ])
     .where("eventOccurrenceId", "=", eventOccurrenceId)
     .where("active", "=", true)
-    .where("trigger", "in", ["event_start", "event_end", "session_start"])
+    .where("trigger", "in", [
+      "event_start",
+      "event_end",
+      "session_start",
+      "prework_incomplete",
+    ])
     .execute();
 
   for (const communication of communications) {
@@ -193,7 +206,7 @@ export async function refreshEventCommunicationSchedules(
         eventOccurrenceId,
         eventOccurrenceCommunicationRevisionId: communication.id,
         trigger: communication.trigger as
-          "event_end" | "event_start" | "session_start",
+          "event_end" | "event_start" | "prework_incomplete" | "session_start",
         dueAt,
         status: "pending",
         attempts: 0,
@@ -247,12 +260,41 @@ async function confirmedRecipients(
     .execute();
 }
 
+async function activeRegistrantRecipients(
+  transaction: Transaction<Database>,
+  eventOccurrenceId: string,
+): Promise<Array<EventNotificationRecipient>> {
+  return await transaction
+    .selectFrom("event_registration as registration")
+    .innerJoin("user", "user.id", "registration.userId")
+    .leftJoin(
+      "event_participation as participation",
+      "participation.registrationId",
+      "registration.id",
+    )
+    .select([
+      "user.id as userId",
+      "user.name",
+      "user.email",
+      "registration.id as registrationId",
+      "participation.id as participationId",
+    ])
+    .where("registration.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("registration.status", "not in", [
+      "cancelled",
+      "not_selected",
+      "withdrawn",
+    ])
+    .orderBy("registration.id")
+    .execute();
+}
+
 async function staffRecipients(
   transaction: Transaction<Database>,
   eventOccurrenceId: string,
   audience: Exclude<
     EventCommunicationAudience,
-    "affected_learner" | "confirmed_participants"
+    "active_registrants" | "affected_learner" | "confirmed_participants"
   >,
 ): Promise<Array<EventNotificationRecipient>> {
   if (audience === "administrators") {
@@ -309,9 +351,11 @@ async function scheduledRecipients(
   audience: EventCommunicationAudience,
 ): Promise<Array<EventNotificationRecipient>> {
   const recipients =
-    audience === "affected_learner" || audience === "confirmed_participants"
-      ? await confirmedRecipients(transaction, eventOccurrenceId)
-      : await staffRecipients(transaction, eventOccurrenceId, audience);
+    audience === "active_registrants"
+      ? await activeRegistrantRecipients(transaction, eventOccurrenceId)
+      : audience === "affected_learner" || audience === "confirmed_participants"
+        ? await confirmedRecipients(transaction, eventOccurrenceId)
+        : await staffRecipients(transaction, eventOccurrenceId, audience);
   return [
     ...new Map(
       recipients.map((recipient) => [recipient.userId, recipient]),
@@ -325,7 +369,8 @@ async function materializeSchedule(
     id: string;
     eventOccurrenceId: string;
     eventOccurrenceCommunicationRevisionId: string;
-    trigger: "event_end" | "event_start" | "session_start";
+    trigger:
+      "event_end" | "event_start" | "prework_incomplete" | "session_start";
   },
   createdAt: Date,
 ): Promise<number> {
@@ -371,11 +416,32 @@ async function materializeSchedule(
     !communication.publishedAt
   )
     return 0;
-  const recipients = await scheduledRecipients(
+  let recipients = await scheduledRecipients(
     transaction,
     schedule.eventOccurrenceId,
     communication.audience,
   );
+  if (schedule.trigger === "prework_incomplete")
+    recipients = (
+      await Promise.all(
+        recipients.map(async (recipient) => ({
+          recipient,
+          applicable: Boolean(
+            recipient.registrationId &&
+            recipient.participationId &&
+            (await hasIncompleteAvailableEventPrework(transaction, {
+              eventOccurrenceId: schedule.eventOccurrenceId,
+              eventRegistrationId: recipient.registrationId,
+              eventParticipationId: recipient.participationId,
+              userId: recipient.userId,
+              now: createdAt,
+            })),
+          ),
+        })),
+      )
+    )
+      .filter((entry) => entry.applicable)
+      .map((entry) => entry.recipient);
   const content: EventCommunicationContentSnapshot = communication;
   for (const recipient of recipients) {
     const variables = await buildEventNotificationVariables(transaction, {
@@ -520,7 +586,12 @@ async function enqueueEventTransitionCommunications(
     eventOccurrenceId: string;
     eventRegistrationId: string;
     triggerEventId: string;
-    trigger: "registration_selected" | "registration_submitted";
+    trigger:
+      | "registration_cancelled"
+      | "registration_not_selected"
+      | "registration_selected"
+      | "registration_submitted"
+      | "registration_waitlisted";
     createdAt: Date;
   },
 ): Promise<number> {
@@ -543,11 +614,14 @@ async function enqueueEventTransitionCommunications(
     .where("registration.id", "=", input.eventRegistrationId)
     .where("registration.eventOccurrenceId", "=", input.eventOccurrenceId)
     .executeTakeFirstOrThrow();
-  if (
-    input.trigger === "registration_selected" &&
-    recipient.status !== "selected"
-  )
-    return 0;
+  const expectedStatus = {
+    registration_cancelled: "cancelled",
+    registration_not_selected: "not_selected",
+    registration_selected: "selected",
+    registration_submitted: "submitted",
+    registration_waitlisted: "waitlisted",
+  }[input.trigger];
+  if (recipient.status !== expectedStatus) return 0;
   return await enqueueEventTriggeredCommunications(transaction, {
     eventOccurrenceId: input.eventOccurrenceId,
     triggerEventId: input.triggerEventId,
@@ -563,7 +637,7 @@ async function enqueueEventTriggeredCommunications(
     eventOccurrenceId: string;
     triggerEventId: string;
     trigger: EventCommunicationTrigger;
-    affectedRecipient: EventNotificationRecipient;
+    affectedRecipient?: EventNotificationRecipient;
     eventTemplateVersionSectionId?: string;
     anchorAt?: Date;
     createdAt: Date;
@@ -615,7 +689,9 @@ async function enqueueEventTriggeredCommunications(
     );
     const recipients =
       audience === "affected_learner"
-        ? [input.affectedRecipient]
+        ? input.affectedRecipient
+          ? [input.affectedRecipient]
+          : []
         : await scheduledRecipients(
             transaction,
             input.eventOccurrenceId,
@@ -626,6 +702,9 @@ async function enqueueEventTriggeredCommunications(
         eventOccurrenceId: input.eventOccurrenceId,
         communication,
         recipient,
+        ...(input.trigger === "event_rescheduled"
+          ? { eventRescheduleId: input.triggerEventId }
+          : {}),
       });
       await enqueueOfferingEventNotification(transaction, {
         recipient,
@@ -637,10 +716,12 @@ async function enqueueEventTriggeredCommunications(
         eventOccurrenceCommunicationRevisionId: communication.id,
         trigger: input.trigger,
         audience,
-        eventRegistrationId: input.affectedRecipient.registrationId,
-        eventParticipationId: input.affectedRecipient.participationId,
+        eventRegistrationId: recipient.registrationId,
+        eventParticipationId: recipient.participationId,
         eventTemplateVersionSectionId:
           input.eventTemplateVersionSectionId ?? null,
+        eventRescheduleId:
+          input.trigger === "event_rescheduled" ? input.triggerEventId : null,
         ...(input.anchorAt ? { anchorAt: input.anchorAt } : {}),
         variables,
         createdAt: input.createdAt,
@@ -673,6 +754,49 @@ export async function enqueueRegistrationSelectedEventCommunications(
   return await enqueueEventTransitionCommunications(transaction, {
     ...input,
     trigger: "registration_selected",
+  });
+}
+
+export async function enqueueRegistrationOutcomeEventCommunications(
+  transaction: Transaction<Database>,
+  input: {
+    eventOccurrenceId: string;
+    eventRegistrationId: string;
+    triggerEventId: string;
+    outcome: "cancelled" | "not_selected" | "waitlisted";
+    createdAt: Date;
+  },
+): Promise<number> {
+  const trigger = {
+    cancelled: "registration_cancelled",
+    not_selected: "registration_not_selected",
+    waitlisted: "registration_waitlisted",
+  } as const;
+  return await enqueueEventTransitionCommunications(transaction, {
+    eventOccurrenceId: input.eventOccurrenceId,
+    eventRegistrationId: input.eventRegistrationId,
+    triggerEventId: input.triggerEventId,
+    trigger: trigger[input.outcome],
+    createdAt: input.createdAt,
+  });
+}
+
+export async function enqueueEventOccurrenceLifecycleCommunications(
+  transaction: Transaction<Database>,
+  input: {
+    eventOccurrenceId: string;
+    triggerEventId: string;
+    trigger: "event_cancelled" | "event_rescheduled";
+    anchorAt: Date;
+    createdAt: Date;
+  },
+): Promise<number> {
+  return await enqueueEventTriggeredCommunications(transaction, {
+    eventOccurrenceId: input.eventOccurrenceId,
+    triggerEventId: input.triggerEventId,
+    trigger: input.trigger,
+    anchorAt: input.anchorAt,
+    createdAt: input.createdAt,
   });
 }
 
