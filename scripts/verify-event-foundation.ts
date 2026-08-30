@@ -496,6 +496,17 @@ try {
   );
   assert.ok(coordinatorEligibility);
   assert.equal(coordinatorEligibility.status, "granted");
+  const coordinatorEligibilityId = coordinatorEligibility.eligibilityId;
+  async function setCoordinatorEligibilityRevoked(revoked: boolean) {
+    await database
+      .updateTable("event_staff_eligibility")
+      .set({
+        revokedAt: revoked ? new Date() : null,
+        revokedByUserId: revoked ? administrator.id : null,
+      })
+      .where("id", "=", coordinatorEligibilityId)
+      .executeTakeFirstOrThrow();
+  }
   assert.equal(
     (
       await grantAdminEventStaffEligibility(
@@ -789,6 +800,16 @@ try {
     .deleteFrom("event_template_version_section")
     .where("id", "=", `event_empty_section_${suffix}`)
     .executeTakeFirstOrThrow();
+  await setCoordinatorEligibilityRevoked(true);
+  assert.equal(
+    await publishAdminEventTemplateVersion(
+      eventTemplateId,
+      eventTemplateVersionId,
+      administrator,
+    ),
+    "conflict",
+  );
+  await setCoordinatorEligibilityRevoked(false);
   assert.equal(
     await publishAdminEventTemplateVersion(
       eventTemplateId,
@@ -863,6 +884,18 @@ try {
       minimumDurationMinutes: 120,
     },
   );
+  await setCoordinatorEligibilityRevoked(true);
+  assert.deepEqual(
+    await createAdminEventOccurrence(
+      {
+        ...occurrenceInput,
+        slug: `verification-workshop-stale-coordinator-${suffix}`,
+      },
+      administrator,
+    ),
+    { status: "conflict" },
+  );
+  await setCoordinatorEligibilityRevoked(false);
   const createdOccurrence = await createAdminEventOccurrence(
     occurrenceInput,
     administrator,

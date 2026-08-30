@@ -111,6 +111,8 @@ export async function createAdminEventOccurrence(
         activeAdminDefaults,
         sessionDefinitions,
         presenterDefaults,
+        configuredCoordinatorDefaults,
+        activeCoordinatorDefaults,
         regions,
       ] = await Promise.all([
         transaction
@@ -150,6 +152,23 @@ export async function createAdminEventOccurrence(
           .where("defaults.eventTemplateVersionId", "=", version.id)
           .execute(),
         transaction
+          .selectFrom("event_template_version_coordinator_default")
+          .select(["regionId", "userId"])
+          .where("eventTemplateVersionId", "=", version.id)
+          .execute(),
+        transaction
+          .selectFrom("event_template_version_coordinator_default as defaults")
+          .innerJoin("event_staff_eligibility as eligibility", (join) =>
+            join
+              .onRef("eligibility.userId", "=", "defaults.userId")
+              .onRef("eligibility.regionId", "=", "defaults.regionId")
+              .on("eligibility.responsibility", "=", "coordinator")
+              .on("eligibility.revokedAt", "is", null),
+          )
+          .select(["defaults.regionId", "defaults.userId"])
+          .where("defaults.eventTemplateVersionId", "=", version.id)
+          .execute(),
+        transaction
           .selectFrom("event_template_version_region as template_region")
           .innerJoin(
             "coordination_region as region",
@@ -169,6 +188,8 @@ export async function createAdminEventOccurrence(
       if (
         configuredAdminDefaults.length === 0 ||
         activeAdminDefaults.length !== configuredAdminDefaults.length ||
+        activeCoordinatorDefaults.length !==
+          configuredCoordinatorDefaults.length ||
         sessionDefinitions.length === 0
       )
         return { status: "conflict" } as const;
@@ -182,18 +203,6 @@ export async function createAdminEventOccurrence(
         )
       )
         return { status: "conflict" } as const;
-      const coordinatorDefaults = await transaction
-        .selectFrom("event_template_version_coordinator_default as defaults")
-        .innerJoin("event_staff_eligibility as eligibility", (join) =>
-          join
-            .onRef("eligibility.userId", "=", "defaults.userId")
-            .onRef("eligibility.regionId", "=", "defaults.regionId")
-            .on("eligibility.responsibility", "=", "coordinator")
-            .on("eligibility.revokedAt", "is", null),
-        )
-        .select(["defaults.regionId", "defaults.userId"])
-        .where("defaults.eventTemplateVersionId", "=", version.id)
-        .execute();
       if (
         regions.some(
           (region) =>
@@ -355,7 +364,7 @@ export async function createAdminEventOccurrence(
             retiredAt: null,
           })
           .execute();
-        for (const coordinator of coordinatorDefaults.filter(
+        for (const coordinator of activeCoordinatorDefaults.filter(
           (candidate) => candidate.regionId === region.regionId,
         ))
           await transaction

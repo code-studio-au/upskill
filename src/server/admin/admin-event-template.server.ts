@@ -1284,10 +1284,29 @@ export async function publishAdminEventTemplateVersion(
           sql<number>`count(*) filter (
             where region.status = 'active' and region.kind = 'operational'
           )::integer`.as("active"),
+          sql<number>`(select count(*)::integer
+            from event_template_version_coordinator_default defaults
+            where defaults."eventTemplateVersionId" = ${eventTemplateVersionId})`.as(
+            "configuredCoordinators",
+          ),
+          sql<number>`(select count(*)::integer
+            from event_template_version_coordinator_default defaults
+            inner join event_staff_eligibility eligibility
+              on eligibility."userId" = defaults."userId"
+              and eligibility."regionId" = defaults."regionId"
+              and eligibility.responsibility = 'coordinator'
+              and eligibility."revokedAt" is null
+            where defaults."eventTemplateVersionId" = ${eventTemplateVersionId})`.as(
+            "activeCoordinators",
+          ),
         ])
         .where("regions.eventTemplateVersionId", "=", eventTemplateVersionId)
         .executeTakeFirstOrThrow();
-      if (regionCoverage.configured !== regionCoverage.active)
+      if (
+        regionCoverage.configured !== regionCoverage.active ||
+        regionCoverage.configuredCoordinators !==
+          regionCoverage.activeCoordinators
+      )
         return "conflict" as const;
       const now = new Date();
       await transaction
