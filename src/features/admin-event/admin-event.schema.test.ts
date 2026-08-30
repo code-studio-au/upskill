@@ -266,14 +266,14 @@ describe("event administration schemas", () => {
     ).toBe(false);
   });
 
-  it("requires confirmed, uniquely owned regional reschedule coverage", () => {
+  it("allows optional coordinators with confirmed, unique regional coverage", () => {
     const validReschedule = {
       eventOccurrenceId: "event_occurrence_1",
       occurrence: validOccurrenceForm,
       registrationWindowPolicy: "reopen" as const,
       regionsConfirmed: true as const,
       regionalCoverage: {
-        regions: [{ regionId: "region_1", coordinatorIds: ["coordinator_1"] }],
+        regions: [{ regionId: "region_1", coordinatorIds: [] }],
         retirements: [
           { regionId: "region_2", disposition: "future_only" as const },
         ],

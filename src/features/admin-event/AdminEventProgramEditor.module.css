@@ -12,6 +12,7 @@
 }
 
 .sectionCard[open] {
+  overflow: visible;
   border-color: var(--mantine-color-indigo-2);
   box-shadow: var(--mantine-shadow-xs);
 }
@@ -125,6 +126,10 @@
   border-inline-start: 0.2rem solid var(--mantine-color-indigo-4);
   border-radius: var(--mantine-radius-md);
   background: var(--mantine-color-white);
+}
+
+.item[open] {
+  overflow: visible;
 }
 
 .itemSummary {

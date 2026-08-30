@@ -374,21 +374,7 @@ export async function revokeAdminEventStaffEligibility(
   eligibilityId: string,
   administrator: AuthenticatedUser,
 ): Promise<
-  | { status: "revoked"; endedAssignmentCount: number }
-  | { status: "not-found" }
-  | {
-      status: "conflict";
-      coordinatorCoverage: Array<{
-        eventOccurrenceId: string;
-        eventOccurrenceRegionId: string;
-        occurrenceTitle: string;
-        occurrenceStatus: "draft" | "published";
-        occurrenceStartsAt: string;
-        occurrenceTimezone: string;
-        regionName: string;
-        regionCode: string;
-      }>;
-    }
+  { status: "revoked"; endedAssignmentCount: number } | { status: "not-found" }
 > {
   return await getDatabase()
     .transaction()
@@ -410,64 +396,13 @@ export async function revokeAdminEventStaffEligibility(
                 "occurrenceRegion.id",
                 "assignment.eventOccurrenceRegionId",
               )
-              .innerJoin(
-                "event_occurrence as occurrence",
-                "occurrence.id",
-                "occurrenceRegion.eventOccurrenceId",
-              )
-              .innerJoin(
-                "coordination_region as region",
-                "region.id",
-                "occurrenceRegion.regionId",
-              )
-              .select([
-                "assignment.id as assignmentId",
-                "occurrenceRegion.id as eventOccurrenceRegionId",
-                "occurrenceRegion.retiredAt",
-                "occurrence.id as eventOccurrenceId",
-                "occurrence.title as occurrenceTitle",
-                "occurrence.status as occurrenceStatus",
-                "occurrence.startsAt as occurrenceStartsAt",
-                "occurrence.timezone as occurrenceTimezone",
-                "region.name as regionName",
-                "region.code as regionCode",
-                sql<number>`(select count(*)::integer
-                  from event_coordinator_assignment other
-                  where other."eventOccurrenceRegionId" = "occurrenceRegion".id
-                    and other."userId" <> ${grant.userId}
-                    and other."endedAt" is null)`.as("otherCoordinatorCount"),
-              ])
+              .select("assignment.id as assignmentId")
               .where("assignment.userId", "=", grant.userId)
               .where("assignment.endedAt", "is", null)
               .where("occurrenceRegion.regionId", "=", grant.regionId)
-              .orderBy("occurrence.startsAt", "asc")
-              .orderBy("occurrence.id", "asc")
               .forUpdate(["assignment", "occurrenceRegion"])
               .execute()
           : [];
-      const coordinatorCoverage = coordinatorAssignments.flatMap(
-        (assignment) =>
-          !assignment.retiredAt &&
-          (assignment.occurrenceStatus === "draft" ||
-            assignment.occurrenceStatus === "published") &&
-          assignment.otherCoordinatorCount === 0
-            ? [
-                {
-                  eventOccurrenceId: assignment.eventOccurrenceId,
-                  eventOccurrenceRegionId: assignment.eventOccurrenceRegionId,
-                  occurrenceTitle: assignment.occurrenceTitle,
-                  occurrenceStatus: assignment.occurrenceStatus,
-                  occurrenceStartsAt:
-                    assignment.occurrenceStartsAt.toISOString(),
-                  occurrenceTimezone: assignment.occurrenceTimezone,
-                  regionName: assignment.regionName,
-                  regionCode: assignment.regionCode,
-                },
-              ]
-            : [],
-      );
-      if (coordinatorCoverage.length)
-        return { status: "conflict", coordinatorCoverage } as const;
       const revokedAt = new Date();
       if (coordinatorAssignments.length)
         await transaction

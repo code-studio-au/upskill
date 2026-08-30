@@ -2,13 +2,11 @@ import { useForm } from "@tanstack/react-form";
 import { useEffect, useState } from "react";
 import {
   adminEventStaffEligibilityGrantSchema,
-  type AdminEventCoordinatorCoverageImpact,
   type AdminEventStaffEligibilityGrantInput,
   type AdminEventWorkspace,
 } from "./admin-event.schema";
 import { firstFormError } from "#/features/shared/form-errors";
 import { LightweightAutocomplete } from "#/features/shared/LightweightAutocomplete";
-import { formatLocalDateTime } from "#/features/shared/local-date";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import {
@@ -48,9 +46,6 @@ export function AdminEventStaffRoster({
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [coverageImpact, setCoverageImpact] = useState<
-    Array<AdminEventCoordinatorCoverageImpact>
-  >([]);
   const [emailQuery, setEmailQuery] = useState("");
   const [responsibility, setResponsibility] = useState<
     "presenter" | "coordinator"
@@ -126,18 +121,10 @@ export function AdminEventStaffRoster({
     setRevokingId(eligibilityId);
     setError(null);
     setMessage(null);
-    setCoverageImpact([]);
     try {
       const result = await revokeAdminEventStaffEligibility({
         data: { eligibilityId },
       });
-      if (
-        result.status === "conflict" &&
-        result.reason === "coordinator_coverage_required"
-      ) {
-        setCoverageImpact(result.coordinatorCoverage ?? []);
-        return;
-      }
       if (result.status !== "ready") {
         setError("Staff eligibility could not be removed.");
         return;
@@ -162,48 +149,6 @@ export function AdminEventStaffRoster({
       {error ? (
         <Alert color="red" role="alert">
           {error}
-        </Alert>
-      ) : null}
-      {coverageImpact.length ? (
-        <Alert
-          color="red"
-          role="alert"
-          title="Replacement coordinator required"
-        >
-          <Stack gap="sm">
-            <Text size="sm">
-              This person is the only active coordinator for the following
-              operational Event Instance regions. Add another eligible
-              coordinator to each region before removing this eligibility.
-            </Text>
-            {coverageImpact.map((impact) => (
-              <Paper
-                withBorder
-                radius="md"
-                p="sm"
-                key={impact.eventOccurrenceRegionId}
-              >
-                <Group justify="space-between" align="center" wrap="wrap">
-                  <div>
-                    <Text fw={700}>{impact.occurrenceTitle}</Text>
-                    <Text c="dimmed" size="sm">
-                      {impact.regionName} · {impact.regionCode} ·{" "}
-                      {formatLocalDateTime(impact.occurrenceStartsAt, {
-                        timeZone: impact.occurrenceTimezone,
-                      })}
-                    </Text>
-                  </div>
-                  <Button
-                    component="a"
-                    href={`/admin/events/instances/${encodeURIComponent(impact.eventOccurrenceId)}?view=configuration`}
-                    variant="light"
-                  >
-                    Configure coordinators
-                  </Button>
-                </Group>
-              </Paper>
-            ))}
-          </Stack>
         </Alert>
       ) : null}
       <Paper withBorder radius="lg" p="md">

@@ -198,12 +198,6 @@ export async function createAdminEventOccurrence(
         regions.some(
           (region) =>
             region.kind !== "operational" || region.status !== "active",
-        ) ||
-        regions.some(
-          (region) =>
-            !coordinatorDefaults.some(
-              (coordinator) => coordinator.regionId === region.regionId,
-            ),
         )
       )
         return { status: "conflict" } as const;
@@ -742,9 +736,6 @@ export async function rescheduleAdminEventOccurrence(
           : [],
       ]);
       if (
-        input.regionalCoverage.regions.some(
-          (region) => region.coordinatorIds.length === 0,
-        ) ||
         validRegions.length !== input.regionalCoverage.regions.length ||
         !desiredCoordinatorSelections.every((selection) =>
           validCoordinatorEligibility.some(
@@ -1086,16 +1077,17 @@ export async function rescheduleAdminEventOccurrence(
             registrationDisposition: null,
           })
           .execute();
-        await transaction
-          .insertInto("event_occurrence_reschedule_region_coordinator")
-          .values(
-            desired.coordinatorIds.map((userId) => ({
-              eventOccurrenceRescheduleId: rescheduleId,
-              eventOccurrenceRegionId,
-              userId,
-            })),
-          )
-          .execute();
+        if (desired.coordinatorIds.length)
+          await transaction
+            .insertInto("event_occurrence_reschedule_region_coordinator")
+            .values(
+              desired.coordinatorIds.map((userId) => ({
+                eventOccurrenceRescheduleId: rescheduleId,
+                eventOccurrenceRegionId,
+                userId,
+              })),
+            )
+            .execute();
         nextActiveRegions.push({
           id: eventOccurrenceRegionId,
           regionId: desired.regionId,
@@ -1329,14 +1321,6 @@ export async function publishAdminEventOccurrence(
                   and presenters."eventSessionId" = sessions.id
                   and presenters."endedAt" is null
               ))`.as("uncoveredPresenterSessions"),
-          sql<number>`(select count(*)::integer from event_occurrence_region regions
-            where regions."eventOccurrenceId" = ${eventOccurrenceId}
-              and regions."retiredAt" is null
-              and not exists (
-                select 1 from event_coordinator_assignment coordinators
-                where coordinators."eventOccurrenceRegionId" = regions.id
-                  and coordinators."endedAt" is null
-              ))`.as("uncoveredRegions"),
           sql<number>`(select count(*)::integer from event_occurrence_domain
             where "eventOccurrenceId" = ${eventOccurrenceId})`.as("domains"),
         ])
@@ -1349,7 +1333,6 @@ export async function publishAdminEventOccurrence(
         coverage.admins === 0 ||
         coverage.sessions === 0 ||
         coverage.uncoveredPresenterSessions > 0 ||
-        coverage.uncoveredRegions > 0 ||
         (occurrence.registrationMode === "required_restricted" &&
           coverage.domains === 0) ||
         locationInvalid

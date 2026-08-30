@@ -37,7 +37,9 @@ export function EligibleStaffPicker({
     <Stack gap="xs">
       {selectedIds.length ? (
         selectedIds.map((personId) => {
-          const person = people.find((candidate) => candidate.id === personId);
+          const person =
+            candidates.find((candidate) => candidate.id === personId) ??
+            people.find((candidate) => candidate.id === personId);
           const eligible = candidates.some(
             (candidate) => candidate.id === personId,
           );
