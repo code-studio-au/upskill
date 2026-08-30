@@ -788,16 +788,17 @@ async function replaceEventDraftStructure(
         position,
       })
       .execute();
-    await transaction
-      .insertInto("event_template_version_coordinator_default")
-      .values(
-        region.coordinatorIds.map((userId) => ({
-          eventTemplateVersionId: draft.eventTemplateVersionId,
-          regionId: region.regionId,
-          userId,
-        })),
-      )
-      .execute();
+    if (region.coordinatorIds.length)
+      await transaction
+        .insertInto("event_template_version_coordinator_default")
+        .values(
+          region.coordinatorIds.map((userId) => ({
+            eventTemplateVersionId: draft.eventTemplateVersionId,
+            regionId: region.regionId,
+            userId,
+          })),
+        )
+        .execute();
   }
   for (const [sectionPosition, section] of draft.sections.entries()) {
     await transaction
@@ -1283,22 +1284,28 @@ export async function publishAdminEventTemplateVersion(
           sql<number>`count(*) filter (
             where region.status = 'active' and region.kind = 'operational'
           )::integer`.as("active"),
-          sql<number>`count(*) filter (where exists (
-            select 1 from event_template_version_coordinator_default coordinators
+          sql<number>`(select count(*)::integer
+            from event_template_version_coordinator_default defaults
+            where defaults."eventTemplateVersionId" = ${eventTemplateVersionId})`.as(
+            "configuredCoordinators",
+          ),
+          sql<number>`(select count(*)::integer
+            from event_template_version_coordinator_default defaults
             inner join event_staff_eligibility eligibility
-              on eligibility."userId" = coordinators."userId"
+              on eligibility."userId" = defaults."userId"
+              and eligibility."regionId" = defaults."regionId"
               and eligibility.responsibility = 'coordinator'
-              and eligibility."regionId" = coordinators."regionId"
               and eligibility."revokedAt" is null
-            where coordinators."eventTemplateVersionId" = regions."eventTemplateVersionId"
-              and coordinators."regionId" = regions."regionId"
-          ))::integer`.as("covered"),
+            where defaults."eventTemplateVersionId" = ${eventTemplateVersionId})`.as(
+            "activeCoordinators",
+          ),
         ])
         .where("regions.eventTemplateVersionId", "=", eventTemplateVersionId)
         .executeTakeFirstOrThrow();
       if (
         regionCoverage.configured !== regionCoverage.active ||
-        regionCoverage.configured !== regionCoverage.covered
+        regionCoverage.configuredCoordinators !==
+          regionCoverage.activeCoordinators
       )
         return "conflict" as const;
       const now = new Date();

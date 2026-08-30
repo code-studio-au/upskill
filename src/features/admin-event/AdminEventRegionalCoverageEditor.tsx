@@ -40,12 +40,7 @@ export function AdminEventRegionalCoverageEditor({
   function setRegionActive(regionId: string, active: boolean) {
     const current = currentByRegion.get(regionId);
     if (active) {
-      const firstCoordinator = options.availableCoordinators.find(
-        (coordinator) => coordinator.regionId === regionId,
-      );
-      const coordinatorIds =
-        current?.coordinatorIds ??
-        (firstCoordinator ? [firstCoordinator.id] : []);
+      const coordinatorIds = current?.coordinatorIds ?? [];
       onChange({
         regions: [...value.regions, { regionId, coordinatorIds }],
         retirements: value.retirements.filter(
@@ -82,7 +77,6 @@ export function AdminEventRegionalCoverageEditor({
             <Stack gap="sm">
               <MantineCheckbox
                 checked={Boolean(configured)}
-                disabled={!configured && eligibleCoordinators.length === 0}
                 label={`${region.parentName ? `${region.parentName} — ` : ""}${region.name} (${region.code})`}
                 onChange={(active) => {
                   setRegionActive(region.id, active);
@@ -95,7 +89,6 @@ export function AdminEventRegionalCoverageEditor({
                     candidates={eligibleCoordinators}
                     people={options.availableUsers}
                     selectedIds={configured.coordinatorIds}
-                    minimumSelected={1}
                     disabled={false}
                     onChange={(coordinatorIds) => {
                       onChange({

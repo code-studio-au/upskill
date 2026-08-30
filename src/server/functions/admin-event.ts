@@ -123,12 +123,6 @@ export const revokeAdminEventStaffEligibility = createServerFn({
       await import("#/server/admin/admin-event.server");
     const outcome = await revokeEligibility(data.eligibilityId, request.user);
     if (outcome.status === "not-found") return { status: "not-found" };
-    if (outcome.status === "conflict")
-      return {
-        status: "conflict",
-        reason: "coordinator_coverage_required",
-        coordinatorCoverage: outcome.coordinatorCoverage,
-      };
     return {
       status: "ready",
       data: {

@@ -105,7 +105,7 @@ export function AdminEventTemplateEditor({
         });
         if (published.status !== "ready") {
           setError(
-            "Add at least one section and session, and cover every required administrator, presenter and region coordinator before publishing.",
+            "Add at least one section and session, assign an active administrator, and cover every session that requires a presenter before publishing.",
           );
           return;
         }
@@ -548,7 +548,6 @@ export function AdminEventTemplateEditor({
                         )}
                         people={detail.people.users}
                         selectedIds={region.coordinatorIds}
-                        minimumSelected={1}
                         disabled={!detail.version.editable}
                         onChange={(coordinatorIds) => {
                           setDraft((current) => ({

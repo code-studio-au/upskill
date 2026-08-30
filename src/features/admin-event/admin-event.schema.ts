@@ -259,9 +259,7 @@ const adminEventTemplateSectionSchema = z
 
 const adminEventTemplateRegionSchema = z.object({
   regionId: identifierSchema,
-  coordinatorIds: z
-    .array(identifierSchema)
-    .check(z.minLength(1), z.maxLength(20)),
+  coordinatorIds: z.array(identifierSchema).check(z.maxLength(20)),
 });
 
 export const adminEventTemplateDraftSchema = z
@@ -641,7 +639,6 @@ export const adminEventOccurrenceUpdateFormSchema = z.object({
 const adminEventOccurrenceRescheduleRegionSchema = z.object({
   regionId: identifierSchema,
   coordinatorIds: z.array(identifierSchema).check(
-    z.minLength(1, "Assign at least one coordinator."),
     z.maxLength(20),
     z.refine(
       (ids) => new Set(ids).size === ids.length,
@@ -744,17 +741,6 @@ export interface AdminEventPersonOption {
   id: string;
   name: string;
   email: string;
-}
-
-export interface AdminEventCoordinatorCoverageImpact {
-  eventOccurrenceId: string;
-  eventOccurrenceRegionId: string;
-  occurrenceTitle: string;
-  occurrenceStatus: "draft" | "published";
-  occurrenceStartsAt: string;
-  occurrenceTimezone: string;
-  regionName: string;
-  regionCode: string;
 }
 
 interface AdminEventPresenterOption extends AdminEventPersonOption {
@@ -929,10 +915,8 @@ export type AdminEventMutationResult =
         | "regions_not_confirmed"
         | "region_code_in_use"
         | "region_not_retirable"
-        | "coordinator_coverage_required"
         | "event_too_short"
         | "occurrence_not_publishable";
-      coordinatorCoverage?: Array<AdminEventCoordinatorCoverageImpact>;
       minimumDurationMinutes?: number;
     };
 

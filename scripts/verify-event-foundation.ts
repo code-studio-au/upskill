@@ -496,6 +496,17 @@ try {
   );
   assert.ok(coordinatorEligibility);
   assert.equal(coordinatorEligibility.status, "granted");
+  const coordinatorEligibilityId = coordinatorEligibility.eligibilityId;
+  async function setCoordinatorEligibilityRevoked(revoked: boolean) {
+    await database
+      .updateTable("event_staff_eligibility")
+      .set({
+        revokedAt: revoked ? new Date() : null,
+        revokedByUserId: revoked ? administrator.id : null,
+      })
+      .where("id", "=", coordinatorEligibilityId)
+      .executeTakeFirstOrThrow();
+  }
   assert.equal(
     (
       await grantAdminEventStaffEligibility(
@@ -789,6 +800,16 @@ try {
     .deleteFrom("event_template_version_section")
     .where("id", "=", `event_empty_section_${suffix}`)
     .executeTakeFirstOrThrow();
+  await setCoordinatorEligibilityRevoked(true);
+  assert.equal(
+    await publishAdminEventTemplateVersion(
+      eventTemplateId,
+      eventTemplateVersionId,
+      administrator,
+    ),
+    "conflict",
+  );
+  await setCoordinatorEligibilityRevoked(false);
   assert.equal(
     await publishAdminEventTemplateVersion(
       eventTemplateId,
@@ -863,6 +884,18 @@ try {
       minimumDurationMinutes: 120,
     },
   );
+  await setCoordinatorEligibilityRevoked(true);
+  assert.deepEqual(
+    await createAdminEventOccurrence(
+      {
+        ...occurrenceInput,
+        slug: `verification-workshop-stale-coordinator-${suffix}`,
+      },
+      administrator,
+    ),
+    { status: "conflict" },
+  );
+  await setCoordinatorEligibilityRevoked(false);
   const createdOccurrence = await createAdminEventOccurrence(
     occurrenceInput,
     administrator,
@@ -1002,23 +1035,6 @@ try {
     .where("eventOccurrenceId", "=", eventOccurrenceId)
     .where("regionId", "=", coordinationRegionId)
     .executeTakeFirstOrThrow();
-  const blockedCoordinatorRevocation = await revokeAdminEventStaffEligibility(
-    coordinatorEligibility.eligibilityId,
-    administrator,
-  );
-  assert.equal(blockedCoordinatorRevocation.status, "conflict");
-  assert.deepEqual(blockedCoordinatorRevocation.coordinatorCoverage, [
-    {
-      eventOccurrenceId,
-      eventOccurrenceRegionId: occurrenceRegion.id,
-      occurrenceTitle: "Verification workshop · Rescheduled",
-      occurrenceStatus: "published",
-      occurrenceStartsAt: rescheduledStartsAt.toISOString(),
-      occurrenceTimezone: "Australia/Sydney",
-      regionName: "Verification region",
-      regionCode: `VERIFY-${suffix}`.toLocaleUpperCase("en-AU"),
-    },
-  ]);
   assert.equal(session.title, "Workshop session");
   assert.equal(
     session.startsAt.toISOString(),
@@ -2424,7 +2440,7 @@ try {
   );
 
   console.log(
-    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, coverage-safe Coordinator eligibility revocation, staff/session snapshots, scoped coordinator and presenter operations, occurrence-owned guarded Survey QR access, verified email/SMS OTP exact-Survey task recovery, restricted-domain administrator addition, acknowledged profile-region mismatches, region-guest overrides, audited profile-region alignment, exceptional locked-list reassignment, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
+    "Verified immutable Event Template publication, exact-version occurrence scheduling, retained reschedule history and review rounds, locked-round registration rejection, regional coverage retirement and registration disposition, assignment-ending optional Coordinator eligibility revocation, staff/session snapshots, scoped coordinator and presenter operations, occurrence-owned guarded Survey QR access, verified email/SMS OTP exact-Survey task recovery, restricted-domain administrator addition, acknowledged profile-region mismatches, region-guest overrides, audited profile-region alignment, exceptional locked-list reassignment, capacity-safe final selection, lifecycle-safe learner withdrawal and final decisions, retained registration transitions, attendance evidence, authorized participant progress projection and capacity constraints",
   );
 } finally {
   await cleanup();
