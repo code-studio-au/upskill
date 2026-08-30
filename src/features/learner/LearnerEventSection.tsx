@@ -9,7 +9,10 @@ import {
 import { Link, useRouter } from "@tanstack/react-router";
 import { useState, type ReactNode } from "react";
 import { Badge } from "#/features/shared/Badge";
-import { formatLocalDateTime } from "#/features/shared/local-date";
+import {
+  formatLocalDate,
+  formatLocalDateTime,
+} from "#/features/shared/local-date";
 import { PageTabs, type PageTab } from "#/features/shared/PageTabs";
 import type { LearnerEvent } from "./learner.schema";
 import {
@@ -19,6 +22,7 @@ import {
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { LearnerProgressCard } from "#/features/shared/LearnerProgressCard";
 import { groupLearnerEvents } from "./learner-event-grouping";
+import { LearnerCertificateAction } from "./LearnerCertificateAction";
 import classes from "./LearnerEventSection.module.css";
 
 type EventView = "registrations" | "available" | "history";
@@ -33,12 +37,14 @@ const viewContent: Record<EventView, { title: string; empty: string }> = {
     empty: "There are no other events available to you.",
   },
   history: {
-    title: "Registration history",
-    empty: "You do not have any previous registration outcomes.",
+    title: "Event history",
+    empty:
+      "You do not have any completed events or previous registration outcomes.",
   },
 };
 
 function statusLabel(event: LearnerEvent): string {
+  if (event.completedAt) return "Completed";
   if (event.participationMode === "open_entry") return "Event joined";
   if (!event.registrationStatus) {
     if (event.registrationUnavailableReason === "not_open")
@@ -62,6 +68,7 @@ function statusLabel(event: LearnerEvent): string {
 }
 
 function statusColor(event: LearnerEvent): string {
+  if (event.completedAt) return "green";
   if (event.participationMode === "open_entry") return "green";
   if (event.registrationStatus === "selected") return "green";
   if (event.registrationStatus === "coordinator_approved") return "teal";
@@ -267,15 +274,20 @@ function LearnerEventCard({
         <>
           {event.registrationStatus === "selected" ||
           event.participationMode === "open_entry" ? (
-            <Link
-              to="/my-events/$eventOccurrenceId"
-              params={{ eventOccurrenceId: event.eventOccurrenceId }}
-              className={classes.actionLink}
-            >
-              <Button component="span" fullWidth>
-                Open event
-              </Button>
-            </Link>
+            <Stack gap="xs">
+              <Link
+                to="/my-events/$eventOccurrenceId"
+                params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                className={classes.actionLink}
+              >
+                <Button component="span" fullWidth>
+                  {event.completedAt ? "Review event" : "Open event"}
+                </Button>
+              </Link>
+              {event.certificate ? (
+                <LearnerCertificateAction certificate={event.certificate} />
+              ) : null}
+            </Stack>
           ) : null}
           {!event.registrationStatus && !event.participationMode ? (
             <Stack gap="xs">
@@ -350,6 +362,12 @@ function LearnerEventCard({
         {event.deliveryMode === "virtual" ? "Virtual" : "In person"} ·{" "}
         {event.timezone}
       </Text>
+      {event.completedAt ? (
+        <Text size="sm" c="dimmed">
+          Completed{" "}
+          {formatLocalDate(event.completedAt, { timeZone: event.timezone })}
+        </Text>
+      ) : null}
     </LearnerProgressCard>
   );
 }

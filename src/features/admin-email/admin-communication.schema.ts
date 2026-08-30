@@ -63,12 +63,27 @@ export const courseScheduleEmailItemSchema = z.object({
   trigger: courseCommunicationTriggerSchema,
 });
 
-export const eventScheduleEmailItemSchema = z.object({
-  ...scheduleEmailFields,
-  audience: eventCommunicationAudienceSchema,
-  trigger: eventCommunicationTriggerSchema,
-  sessionItemId: optionalId,
-});
+export const eventScheduleEmailItemSchema = z
+  .object({
+    ...scheduleEmailFields,
+    audience: eventCommunicationAudienceSchema,
+    trigger: eventCommunicationTriggerSchema,
+    sessionItemId: optionalId,
+  })
+  .check(
+    z.superRefine((item, context) => {
+      if (
+        ["event_completed", "section_release"].includes(item.trigger) &&
+        item.audience !== "affected_learner"
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["audience"],
+          message:
+            "Completion and section-release emails must target the affected learner.",
+        });
+    }),
+  );
 
 export type CourseScheduleEmailItem = z.infer<
   typeof courseScheduleEmailItemSchema

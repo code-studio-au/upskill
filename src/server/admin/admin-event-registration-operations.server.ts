@@ -269,7 +269,10 @@ export async function recordAdminEventAttendance(
       });
       await completeEventParticipationIfReady(
         transaction,
-        input.eventParticipationId,
+        {
+          eventParticipationId: input.eventParticipationId,
+          source: "attendance",
+        },
         now,
       );
       return "recorded" as const;

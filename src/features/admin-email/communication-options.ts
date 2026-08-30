@@ -3,13 +3,35 @@ export const courseCommunicationAudiences = [
   { value: "active_enrollees", label: "Active enrolled learners" },
 ] as const;
 
-export const eventCommunicationAudiences = [
+const eventCommunicationAudiences = [
   { value: "affected_learner", label: "Affected learner" },
   { value: "confirmed_participants", label: "Confirmed participants" },
   { value: "presenters", label: "Presenters" },
   { value: "coordinators", label: "Regional coordinators" },
   { value: "administrators", label: "Event administrators" },
 ] as const;
+
+const affectedLearnerOnlyEventTriggers = new Set([
+  "event_completed",
+  "section_release",
+]);
+
+export function normalizeEventCommunicationAudience<TAudience extends string>(
+  trigger: string,
+  audience: TAudience,
+): TAudience | "affected_learner" {
+  return affectedLearnerOnlyEventTriggers.has(trigger)
+    ? "affected_learner"
+    : audience;
+}
+
+export function eventCommunicationAudiencesForTrigger(trigger: string) {
+  return affectedLearnerOnlyEventTriggers.has(trigger)
+    ? eventCommunicationAudiences.filter(
+        (audience) => audience.value === "affected_learner",
+      )
+    : eventCommunicationAudiences;
+}
 
 export const courseCommunicationTriggers = [
   { value: "enrollment_created", label: "Enrolment created" },

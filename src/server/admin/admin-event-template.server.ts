@@ -23,6 +23,7 @@ import {
   offeringImageSchema,
   type OfferingImage,
 } from "#/features/shared/offering-image";
+import { normalizeEventCommunicationAudience } from "#/features/admin-email/communication-options";
 
 export async function createAdminEventTemplate(
   input: AdminEventTemplateCreateInput,
@@ -320,7 +321,10 @@ async function loadEventTemplateDraft(
       kind: "automated_email",
       title: communication.label,
       emailDesignVersionId: communication.emailDesignVersionId,
-      audience: communication.audience,
+      audience: normalizeEventCommunicationAudience(
+        communication.trigger,
+        communication.audience,
+      ),
       trigger: communication.trigger,
       offsetAmount: communication.offsetAmount,
       offsetUnit: communication.offsetUnit,

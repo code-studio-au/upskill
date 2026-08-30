@@ -2137,6 +2137,69 @@ try {
   );
   assert.equal(learnerWorkspace.workspace.completionState, "completed");
   assert.equal(learnerWorkspace.workspace.certificateAvailable, true);
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("action", "=", "event_participation.completed")
+      .where("subjectId", "=", participationId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    1,
+  );
+  assert.equal(
+    await recordAdminEventAttendance(
+      {
+        eventOccurrenceId,
+        eventParticipationId: participationId,
+        eventSessionId: session.id,
+        state: "absent",
+      },
+      administrator,
+    ),
+    "recorded",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_participation")
+      .select("completedAt")
+      .where("id", "=", participationId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.completedAt),
+    null,
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("action", "=", "event_participation.completion_revoked")
+      .where("subjectId", "=", participationId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    1,
+  );
+  assert.equal(
+    await recordAdminEventAttendance(
+      {
+        eventOccurrenceId,
+        eventParticipationId: participationId,
+        eventSessionId: session.id,
+        state: "attended",
+      },
+      administrator,
+    ),
+    "recorded",
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("action", "=", "event_participation.completed")
+      .where("subjectId", "=", participationId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    2,
+  );
   const administratorProgressAccess = await getEventOperationsAccess(
     administrator,
     eventOccurrenceId,

@@ -769,7 +769,10 @@ export async function recordScormProgress(
             .execute();
           await completeEventParticipationIfReady(
             transaction,
-            session.eventParticipationId,
+            {
+              eventParticipationId: session.eventParticipationId,
+              source: "scorm",
+            },
             now,
           );
         }

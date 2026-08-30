@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import { normalizeEventCommunicationAudience } from "#/features/admin-email/communication-options";
 import {
   buildEventNotificationVariables,
   type EventCommunicationContentSnapshot,
@@ -564,6 +565,7 @@ async function enqueueEventTriggeredCommunications(
     trigger: EventCommunicationTrigger;
     affectedRecipient: EventNotificationRecipient;
     eventTemplateVersionSectionId?: string;
+    anchorAt?: Date;
     createdAt: Date;
   },
 ): Promise<number> {
@@ -607,13 +609,17 @@ async function enqueueEventTriggeredCommunications(
       !communication.publishedAt
     )
       continue;
+    const audience = normalizeEventCommunicationAudience(
+      input.trigger,
+      communication.audience,
+    );
     const recipients =
-      communication.audience === "affected_learner"
+      audience === "affected_learner"
         ? [input.affectedRecipient]
         : await scheduledRecipients(
             transaction,
             input.eventOccurrenceId,
-            communication.audience,
+            audience,
           );
     for (const recipient of recipients) {
       const variables = await buildEventNotificationVariables(transaction, {
@@ -630,11 +636,12 @@ async function enqueueEventTriggeredCommunications(
         eventOccurrenceId: input.eventOccurrenceId,
         eventOccurrenceCommunicationRevisionId: communication.id,
         trigger: input.trigger,
-        audience: communication.audience,
+        audience,
         eventRegistrationId: input.affectedRecipient.registrationId,
         eventParticipationId: input.affectedRecipient.participationId,
         eventTemplateVersionSectionId:
           input.eventTemplateVersionSectionId ?? null,
+        ...(input.anchorAt ? { anchorAt: input.anchorAt } : {}),
         variables,
         createdAt: input.createdAt,
         availableAt: new Date(
@@ -701,12 +708,14 @@ export async function enqueueEventParticipationCommunications(
       "participation.eventOccurrenceId",
       "participation.registrationId",
       "participation.id as participationId",
+      "participation.completedAt",
       "user.id as userId",
       "user.name",
       "user.email",
     ])
     .where("participation.id", "=", input.eventParticipationId)
     .executeTakeFirstOrThrow();
+  if (input.trigger === "event_completed" && !recipient.completedAt) return 0;
   return await enqueueEventTriggeredCommunications(transaction, {
     eventOccurrenceId: recipient.eventOccurrenceId,
     triggerEventId: input.triggerEventId,
@@ -716,6 +725,9 @@ export async function enqueueEventParticipationCommunications(
       ? {
           eventTemplateVersionSectionId: input.eventTemplateVersionSectionId,
         }
+      : {}),
+    ...(input.trigger === "event_completed" && recipient.completedAt
+      ? { anchorAt: recipient.completedAt }
       : {}),
     createdAt: input.createdAt,
   });

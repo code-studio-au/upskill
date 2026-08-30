@@ -392,7 +392,10 @@ export async function advanceLearnerEventSurvey(
         .execute();
       await completeEventParticipationIfReady(
         transaction,
-        input.eventParticipationId,
+        {
+          eventParticipationId: input.eventParticipationId,
+          source: "survey",
+        },
         now,
       );
       return { status: "submitted", progress, completedCourse: false } as const;

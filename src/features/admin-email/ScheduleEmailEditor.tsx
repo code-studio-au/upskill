@@ -10,7 +10,7 @@ import type { EmailTemplateVariableGroup } from "./admin-email.schema";
 import {
   courseCommunicationAudiences,
   courseCommunicationTriggers,
-  eventCommunicationAudiences,
+  eventCommunicationAudiencesForTrigger,
   eventCommunicationTriggers,
 } from "./communication-options";
 import { EmailBodyEditor } from "./EmailBodyEditor";
@@ -130,10 +130,10 @@ export function ScheduleEmailEditor({
       onClose();
     },
   });
-  const audiences =
+  const audiencesFor = (trigger: string) =>
     scope.kind === "course"
       ? courseCommunicationAudiences
-      : eventCommunicationAudiences;
+      : eventCommunicationAudiencesForTrigger(trigger);
   const triggers =
     scope.kind === "course"
       ? courseCommunicationTriggers
@@ -234,7 +234,7 @@ export function ScheduleEmailEditor({
                     label="Audience"
                     value={values.audience}
                     disabled={!editable}
-                    data={audiences}
+                    data={audiencesFor(values.trigger)}
                     onChange={(event) => {
                       form.setFieldValue(
                         "audience",
@@ -250,11 +250,16 @@ export function ScheduleEmailEditor({
                     disabled={!editable}
                     data={triggers}
                     onChange={(event) => {
-                      form.setFieldValue(
-                        "trigger",
-                        event.currentTarget
-                          .value as ScheduleEmailItem["trigger"],
-                      );
+                      const trigger = event.currentTarget
+                        .value as ScheduleEmailItem["trigger"];
+                      form.setFieldValue("trigger", trigger);
+                      if (
+                        scope.kind === "event_template" &&
+                        !eventCommunicationAudiencesForTrigger(trigger).some(
+                          (audience) => audience.value === values.audience,
+                        )
+                      )
+                        form.setFieldValue("audience", "affected_learner");
                     }}
                     required
                   />

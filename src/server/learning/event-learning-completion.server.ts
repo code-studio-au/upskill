@@ -1,13 +1,21 @@
 import "@tanstack/react-start/server-only";
 
 import type { Transaction } from "kysely";
+import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { Database } from "#/server/db/types";
+
+export type EventCompletionSource =
+  "attendance" | "resource" | "scorm" | "survey" | "workspace";
 
 export async function completeEventParticipationIfReady(
   transaction: Transaction<Database>,
-  eventParticipationId: string,
+  input: {
+    eventParticipationId: string;
+    source: EventCompletionSource;
+  },
   now: Date,
 ): Promise<boolean> {
+  const { eventParticipationId } = input;
   const participation = await transaction
     .selectFrom("event_participation as participation")
     .innerJoin(
@@ -109,6 +117,17 @@ export async function completeEventParticipationIfReady(
       .returning("id")
       .executeTakeFirst();
     if (completed) {
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: null,
+        action: "event_participation.completed",
+        subjectType: "event_participation",
+        subjectId: eventParticipationId,
+        metadata: {
+          eventTemplateVersionId: participation.eventTemplateVersionId,
+          source: input.source,
+        },
+        createdAt: now,
+      });
       const { enqueueEventParticipationCommunications } =
         await import("#/server/notifications/event-communication-execution.server");
       await enqueueEventParticipationCommunications(transaction, {
@@ -119,11 +138,26 @@ export async function completeEventParticipationIfReady(
       });
     }
   }
-  if (!complete && participation.completedAt)
-    await transaction
+  if (!complete && participation.completedAt) {
+    const revoked = await transaction
       .updateTable("event_participation")
       .set({ completedAt: null })
       .where("id", "=", eventParticipationId)
-      .execute();
+      .where("completedAt", "is not", null)
+      .returning("id")
+      .executeTakeFirst();
+    if (revoked)
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: null,
+        action: "event_participation.completion_revoked",
+        subjectType: "event_participation",
+        subjectId: eventParticipationId,
+        metadata: {
+          eventTemplateVersionId: participation.eventTemplateVersionId,
+          source: input.source,
+        },
+        createdAt: now,
+      });
+  }
   return complete;
 }

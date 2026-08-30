@@ -192,6 +192,7 @@ export async function enqueueOfferingEventNotification(
     eventRegistrationId?: string | null;
     eventParticipationId?: string | null;
     eventTemplateVersionSectionId?: string | null;
+    anchorAt?: Date;
     variables: Readonly<Record<string, string>>;
     createdAt: Date;
     availableAt?: Date;
@@ -216,6 +217,7 @@ export async function enqueueOfferingEventNotification(
       eventParticipationId: input.eventParticipationId ?? null,
       eventTemplateVersionSectionId:
         input.eventTemplateVersionSectionId ?? null,
+      anchorAt: input.anchorAt?.toISOString() ?? null,
       variables: input.variables,
     },
     createdAt: input.createdAt,

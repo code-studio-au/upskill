@@ -24,7 +24,7 @@ function safeFilename(value: string): string {
     .trim()
     .replaceAll(/\s+/gu, "-")
     .slice(0, 100);
-  return `${filename || "course"}-completion-certificate.pdf`;
+  return `${filename || "learning"}-completion-certificate.pdf`;
 }
 
 async function hydrateAccreditationLogos(
