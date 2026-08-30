@@ -531,6 +531,7 @@ for (const invariant of [
   "github.event.workflow_run.head_repository.full_name == github.repository",
   "attestations: write",
   "artifact-metadata: write",
+  "id-token: write",
   "actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6",
   "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
   "UPSKILL_RELEASE_ARTIFACT: artifacts/upskill-${{ env.RELEASE_SHA }}.tar.gz",

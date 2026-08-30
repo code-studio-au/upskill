@@ -25,6 +25,7 @@ jobs:
       attestations: write
       artifact-metadata: write
       contents: read
+      id-token: write
     env:
       RELEASE_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
