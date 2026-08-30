@@ -249,7 +249,10 @@ export async function findLearnerEventWorkspace(
     await database.transaction().execute(async (transaction) => {
       await completeEventParticipationIfReady(
         transaction,
-        participation.participationId,
+        {
+          eventParticipationId: participation.participationId,
+          source: "workspace",
+        },
         now,
       );
     });

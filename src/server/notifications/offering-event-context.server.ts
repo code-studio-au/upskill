@@ -142,55 +142,65 @@ export async function buildEventNotificationVariables(
     ])
     .where("user.id", "=", input.recipient.userId)
     .executeTakeFirst();
-  const [sessions, administrators, presenters, occurrenceRegions] =
-    await Promise.all([
-      transaction
-        .selectFrom("event_session")
-        .select([
-          "id",
-          "sessionDefinitionId",
-          "title",
-          "startsAt",
-          "endsAt",
-          "venueName",
-          "venueAddress",
-          "virtualJoinUrl",
-        ])
-        .where("eventOccurrenceId", "=", event.id)
-        .orderBy("position")
-        .execute(),
-      transaction
-        .selectFrom("event_admin_assignment as assignment")
-        .innerJoin("user", "user.id", "assignment.userId")
-        .select(["user.name", "user.email"])
-        .where("assignment.eventOccurrenceId", "=", event.id)
-        .where("assignment.endedAt", "is", null)
-        .execute(),
-      transaction
-        .selectFrom("event_presenter_assignment as assignment")
-        .innerJoin("user", "user.id", "assignment.userId")
-        .select(["user.name", "user.email"])
-        .where("assignment.eventOccurrenceId", "=", event.id)
-        .where("assignment.endedAt", "is", null)
-        .execute(),
-      transaction
-        .selectFrom("event_occurrence_region as occurrenceRegion")
-        .innerJoin(
-          "coordination_region as region",
-          "region.id",
-          "occurrenceRegion.regionId",
-        )
-        .leftJoin(
-          "coordination_region as parent",
-          "parent.id",
-          "region.parentId",
-        )
-        .select(["region.name", "parent.name as parentName"])
-        .where("occurrenceRegion.eventOccurrenceId", "=", event.id)
-        .where("occurrenceRegion.retiredAt", "is", null)
-        .orderBy("occurrenceRegion.position")
-        .execute(),
-    ]);
+  const [
+    sessions,
+    administrators,
+    presenters,
+    occurrenceRegions,
+    recipientParticipation,
+  ] = await Promise.all([
+    transaction
+      .selectFrom("event_session")
+      .select([
+        "id",
+        "sessionDefinitionId",
+        "title",
+        "startsAt",
+        "endsAt",
+        "venueName",
+        "venueAddress",
+        "virtualJoinUrl",
+      ])
+      .where("eventOccurrenceId", "=", event.id)
+      .orderBy("position")
+      .execute(),
+    transaction
+      .selectFrom("event_admin_assignment as assignment")
+      .innerJoin("user", "user.id", "assignment.userId")
+      .select(["user.name", "user.email"])
+      .where("assignment.eventOccurrenceId", "=", event.id)
+      .where("assignment.endedAt", "is", null)
+      .execute(),
+    transaction
+      .selectFrom("event_presenter_assignment as assignment")
+      .innerJoin("user", "user.id", "assignment.userId")
+      .select(["user.name", "user.email"])
+      .where("assignment.eventOccurrenceId", "=", event.id)
+      .where("assignment.endedAt", "is", null)
+      .execute(),
+    transaction
+      .selectFrom("event_occurrence_region as occurrenceRegion")
+      .innerJoin(
+        "coordination_region as region",
+        "region.id",
+        "occurrenceRegion.regionId",
+      )
+      .leftJoin("coordination_region as parent", "parent.id", "region.parentId")
+      .select(["region.name", "parent.name as parentName"])
+      .where("occurrenceRegion.eventOccurrenceId", "=", event.id)
+      .where("occurrenceRegion.retiredAt", "is", null)
+      .orderBy("occurrenceRegion.position")
+      .execute(),
+    input.recipient.participationId
+      ? transaction
+          .selectFrom("event_participation")
+          .select("completedAt")
+          .where("id", "=", input.recipient.participationId)
+          .where("eventOccurrenceId", "=", event.id)
+          .where("userId", "=", input.recipient.userId)
+          .executeTakeFirst()
+      : Promise.resolve(undefined),
+  ]);
 
   const environment = getServerEnv();
   const baseUrl = new URL(environment.APP_ORIGIN).origin;
@@ -263,14 +273,20 @@ export async function buildEventNotificationVariables(
     ),
     "No configured region groups",
   );
-  variables["event.certificateAvailable"] = event.hasCompletionCertificate
-    ? "Available after completion"
-    : "Not available";
+  const certificateEligible = Boolean(
+    event.hasCompletionCertificate && recipientParticipation?.completedAt,
+  );
+  variables["event.certificateAvailable"] = certificateEligible
+    ? "Available now"
+    : event.hasCompletionCertificate
+      ? "Available after completion"
+      : "Not available";
   variables["event.dashboardUrl"] = `${baseUrl}/my-events/${event.id}`;
   variables["event.publicUrl"] = `${baseUrl}/events/${event.slug}`;
-  variables["event.certificateUrl"] = input.recipient.participationId
-    ? `${baseUrl}/api/learning/event-certificates/${input.recipient.participationId}`
-    : "";
+  variables["event.certificateUrl"] =
+    certificateEligible && input.recipient.participationId
+      ? `${baseUrl}/api/learning/event-certificates/${input.recipient.participationId}`
+      : "";
 
   if (input.communication.sectionId) {
     const section = await transaction

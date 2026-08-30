@@ -16,6 +16,7 @@ import {
   redirect,
 } from "@tanstack/react-router";
 import { LearnerProgramSections } from "#/features/learning/LearnerProgramSections";
+import { LearnerCertificateAction } from "#/features/learner/LearnerCertificateAction";
 import { learnerEventWorkspaceInputSchema } from "#/features/learner/learner-event-workspace.schema";
 import { getLearnerEventWorkspace } from "#/server/functions/learner";
 import classes from "#/features/learning/LearnerWorkspaceLayout.module.css";
@@ -90,6 +91,14 @@ function LearnerEventWorkspacePage() {
                   ? "Completed"
                   : "In progress"}
               </Badge>
+              {workspace.completedAt ? (
+                <Text size="sm" c="dimmed">
+                  Completed{" "}
+                  {formatLocalDateTime(workspace.completedAt, {
+                    timeZone: workspace.timezone,
+                  })}
+                </Text>
+              ) : null}
               <div>
                 <Text size="sm" c="dimmed">
                   Schedule
@@ -120,13 +129,11 @@ function LearnerEventWorkspacePage() {
                 <Text size="sm">Virtual event</Text>
               )}
               {workspace.certificateAvailable ? (
-                <Button
-                  component="a"
-                  href={`/api/learning/event-certificates/${encodeURIComponent(workspace.eventParticipationId)}`}
-                  target="_blank"
-                >
-                  Download certificate
-                </Button>
+                <LearnerCertificateAction
+                  certificate={{
+                    eventParticipationId: workspace.eventParticipationId,
+                  }}
+                />
               ) : null}
               <Button component={Link} to="/my-events" variant="light">
                 Back to My events

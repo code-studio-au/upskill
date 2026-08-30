@@ -144,12 +144,13 @@ Private PDF resources are managed at `/admin/resources`. Uploads create stable
 resources or immutable new versions; unreferenced versions can be removed, with
 durable audit and retryable exact-object cleanup through the content worker.
 Referenced PDF versions link back to each exact course version that uses them.
-Courses configured with a completion certificate expose a download only while
-the learner's exact enrolment is currently completed. The authenticated route
-rechecks ownership, completion and the exact course-version setting, renders the
-PDF on demand and returns private, non-cacheable bytes. It stores no certificate
-row or object. An administrator completion override therefore removes the
-download immediately; recompletion restores it immediately.
+Courses and Events configured with a completion certificate expose a download
+only while the learner's exact enrolment or Event Participation is currently
+completed. The authenticated route rechecks ownership, completion and the exact
+pinned-version setting, renders the PDF on demand and returns private,
+non-cacheable bytes. It stores no certificate row or object. A Course completion
+override or corrected Event evidence therefore removes the download
+immediately; recompletion restores it immediately.
 
 Real, legally shareable SCORM packages can be exercised without committing
 their contents:

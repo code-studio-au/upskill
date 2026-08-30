@@ -170,11 +170,12 @@ cleanup request atomically, then the content worker deletes the private object.
 
 Completion certificates are derived documents rather than persisted domain
 state. A same-origin authenticated download rechecks ownership, the exact
-enrolled course version, its certificate setting and the enrolment's current
-completed state, then renders the PDF synchronously and returns private,
-non-cacheable bytes. No certificate database row, S3 object, queue command or
-issuance audit record exists. An administrator completion override removes
-download eligibility immediately; recompletion restores it immediately.
+enrolled Course Version or Event Participation's pinned Event Template Version,
+its certificate setting and the current completed state, then renders the PDF
+synchronously and returns private, non-cacheable bytes. No certificate database
+row, S3 object, queue command or issuance audit record exists. A Course
+completion override or corrected Event evidence removes download eligibility
+immediately; recompletion restores it immediately.
 
 A transactional outbox dispatcher and SQS-backed worker handle Stripe
 fulfilment, SCORM extraction, resource cleanup, email and scheduled rules. The

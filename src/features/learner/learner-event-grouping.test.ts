@@ -7,6 +7,7 @@ function event(
   registrationStatus: LearnerEvent["registrationStatus"],
   registrationUnavailableReason: LearnerEvent["registrationUnavailableReason"] = null,
   participationMode: LearnerEvent["participationMode"] = null,
+  completedAt: string | null = null,
 ): LearnerEvent {
   return {
     eventOccurrenceId,
@@ -20,6 +21,8 @@ function event(
     endsAt: "2026-08-20T12:00:00.000Z",
     registrationStatus,
     participationMode,
+    completedAt,
+    certificate: null,
     canRegister:
       registrationStatus === null && registrationUnavailableReason === null,
     registrationUnavailableReason,
@@ -43,6 +46,20 @@ describe("groupLearnerEvents", () => {
       event("waitlisted", "waitlisted"),
       event("cancelled", "cancelled", "closed"),
       event("open-entry", null, "closed", "open_entry"),
+      event(
+        "completed-selected",
+        "selected",
+        "closed",
+        null,
+        "2026-08-20T12:30:00.000Z",
+      ),
+      event(
+        "completed-open-entry",
+        null,
+        "closed",
+        "open_entry",
+        "2026-08-20T12:30:00.000Z",
+      ),
     ]);
 
     expect(grouped.registrations.map((item) => item.eventOccurrenceId)).toEqual(
@@ -53,6 +70,8 @@ describe("groupLearnerEvents", () => {
       "withdrawn",
       "not-selected",
       "cancelled",
+      "completed-selected",
+      "completed-open-entry",
     ]);
     expect(grouped.available.map((item) => item.eventOccurrenceId)).toEqual([
       "available",

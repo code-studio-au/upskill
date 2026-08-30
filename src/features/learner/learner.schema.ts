@@ -33,6 +33,10 @@ export interface LearnerEvent {
   endsAt: string;
   registrationStatus: LearnerEventRegistrationStatus | null;
   participationMode: "open_entry" | null;
+  completedAt: string | null;
+  certificate: {
+    eventParticipationId: string;
+  } | null;
   canRegister: boolean;
   registrationUnavailableReason: "not_open" | "closed" | "full" | null;
   regions: Array<{ id: string; name: string }>;

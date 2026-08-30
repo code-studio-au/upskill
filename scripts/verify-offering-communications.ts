@@ -440,7 +440,7 @@ try {
       version: 1,
       summary: "",
       description: "",
-      hasCompletionCertificate: false,
+      hasCompletionCertificate: true,
       accreditations: JSON.stringify([]),
       publishedAt: null,
       createdAt: now,
@@ -518,7 +518,7 @@ try {
         summary: "Communication event summary",
         description: "Communication event description",
         coverImage: null,
-        hasCompletionCertificate: false,
+        hasCompletionCertificate: true,
         accreditations: [],
         defaultAdministratorIds: [actor.id],
         regions: [],
@@ -1178,16 +1178,76 @@ try {
       `verify_selected_transition_${suffix}`,
     ),
   );
+  const completedNotification = offeringNotifications.find((notification) =>
+    notification.deduplicationKey.includes(`verify_event_completed_${suffix}`),
+  );
   assert.equal(scheduledNotifications.length, 3);
   assert.ok(selectedNotification);
+  assert.ok(completedNotification);
+  const completedPayload = completedNotification.payload as {
+    anchorAt: string | null;
+    variables: Record<string, string>;
+  };
+  assert.equal(completedPayload.anchorAt, "2026-09-16T07:01:00.000Z");
+  assert.equal(
+    completedPayload.variables["event.certificateAvailable"],
+    "Available now",
+  );
+  assert.equal(
+    completedPayload.variables["event.certificateUrl"],
+    `http://localhost:3000/api/learning/event-certificates/${participationId}`,
+  );
+  const selectedVariables = (
+    selectedNotification.payload as { variables: Record<string, string> }
+  ).variables;
+  assert.equal(
+    selectedVariables["event.certificateAvailable"],
+    "Available after completion",
+  );
+  assert.equal(selectedVariables["event.certificateUrl"], "");
   assert.equal(
     selectedNotification.subjectTemplateSnapshot,
     "Confirmed: {{event.title}}",
   );
-  for (const notification of offeringNotifications)
+  await database
+    .updateTable("event_participation")
+    .set({ completedAt: null })
+    .where("id", "=", participationId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await deliverNotification(completedNotification.id), {
+    status: "superseded",
+  });
+  for (const notification of offeringNotifications) {
+    if (notification.id === completedNotification.id) continue;
     assert.deepEqual(await deliverNotification(notification.id), {
       status: "delivered",
     });
+  }
+  const recompletedAt = new Date("2026-09-16T08:01:00.000Z");
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("event_participation")
+      .set({ completedAt: recompletedAt })
+      .where("id", "=", participationId)
+      .executeTakeFirstOrThrow();
+    assert.equal(
+      await enqueueEventParticipationCommunications(transaction, {
+        eventParticipationId: participationId,
+        triggerEventId: `verify_event_recompleted_${suffix}`,
+        trigger: "event_completed",
+        createdAt: recompletedAt,
+      }),
+      1,
+    );
+  });
+  const recompletedNotification = await database
+    .selectFrom("notification")
+    .select("id")
+    .where("deduplicationKey", "like", `%verify_event_recompleted_${suffix}%`)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await deliverNotification(recompletedNotification.id), {
+    status: "delivered",
+  });
   const captures = await database
     .selectFrom("email_delivery_capture")
     .select(["subject", "textBody"])
@@ -1238,6 +1298,7 @@ try {
     eventRegistrationId: registrationId,
     eventParticipationId: participationId,
     eventTemplateVersionSectionId: null,
+    anchorAt: null,
   });
   await assert.rejects(
     database

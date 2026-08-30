@@ -564,6 +564,7 @@ async function enqueueEventTriggeredCommunications(
     trigger: EventCommunicationTrigger;
     affectedRecipient: EventNotificationRecipient;
     eventTemplateVersionSectionId?: string;
+    anchorAt?: Date;
     createdAt: Date;
   },
 ): Promise<number> {
@@ -597,6 +598,12 @@ async function enqueueEventTriggeredCommunications(
       "communication.sectionId",
       "=",
       input.eventTemplateVersionSectionId ?? "",
+    );
+  if (["event_completed", "section_release"].includes(input.trigger))
+    communicationsQuery = communicationsQuery.where(
+      "communication.audience",
+      "=",
+      "affected_learner",
     );
   const communications = await communicationsQuery.execute();
   let created = 0;
@@ -635,6 +642,7 @@ async function enqueueEventTriggeredCommunications(
         eventParticipationId: input.affectedRecipient.participationId,
         eventTemplateVersionSectionId:
           input.eventTemplateVersionSectionId ?? null,
+        ...(input.anchorAt ? { anchorAt: input.anchorAt } : {}),
         variables,
         createdAt: input.createdAt,
         availableAt: new Date(
@@ -701,12 +709,14 @@ export async function enqueueEventParticipationCommunications(
       "participation.eventOccurrenceId",
       "participation.registrationId",
       "participation.id as participationId",
+      "participation.completedAt",
       "user.id as userId",
       "user.name",
       "user.email",
     ])
     .where("participation.id", "=", input.eventParticipationId)
     .executeTakeFirstOrThrow();
+  if (input.trigger === "event_completed" && !recipient.completedAt) return 0;
   return await enqueueEventTriggeredCommunications(transaction, {
     eventOccurrenceId: recipient.eventOccurrenceId,
     triggerEventId: input.triggerEventId,
@@ -716,6 +726,9 @@ export async function enqueueEventParticipationCommunications(
       ? {
           eventTemplateVersionSectionId: input.eventTemplateVersionSectionId,
         }
+      : {}),
+    ...(input.trigger === "event_completed" && recipient.completedAt
+      ? { anchorAt: recipient.completedAt }
       : {}),
     createdAt: input.createdAt,
   });

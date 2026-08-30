@@ -778,6 +778,13 @@ post-work, and explicit authorised corrections. Completion should be
 deterministic and able to reuse the common on-demand certificate-eligibility
 boundary.
 
+A transition into or out of completion is audited once at the same transaction
+boundary as the completion timestamp. Corrected attendance or learning evidence
+revokes certificate access immediately; satisfying the exact requirements again
+creates a new completion transition. Learner dashboards keep incomplete
+post-event work active, move genuinely completed Events into Event history, and
+surface the same current certificate eligibility as the Event workspace.
+
 ## Attendance Model
 
 A minimal confirmed-attendance vocabulary is `not_recorded`, `attended`, and
@@ -946,6 +953,13 @@ deterministic event completion requirements such as attendance plus
 required pre/post activities. Reuse the common authenticated on-demand
 certificate renderer rather than creating event-specific persisted certificate
 state or a PDF pipeline.
+
+Completion email variables expose a certificate URL only for the affected
+learner's currently completed participation. Delayed completion notifications
+retain the exact completion timestamp and are suppressed after revocation,
+including when a later recompletion exists. `event_completed` and
+`section_release` are participant-specific triggers and cannot fan out to other
+participants.
 
 ## Reporting
 

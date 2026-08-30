@@ -65,6 +65,7 @@ const offeringEventPayloadSchema = z.object({
   eventRegistrationId: z.string().min(1).max(200).nullable(),
   eventParticipationId: z.string().min(1).max(200).nullable(),
   eventTemplateVersionSectionId: z.string().min(1).max(200).nullable(),
+  anchorAt: z.optional(z.nullable(z.iso.datetime())),
   variables: z.record(z.string(), z.string()),
 });
 
@@ -104,7 +105,11 @@ async function eventNotificationApplicable(
       .where("id", "=", payload.eventParticipationId)
       .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
       .executeTakeFirst();
-    return participation?.completedAt !== null && Boolean(participation);
+    return Boolean(
+      participation?.completedAt &&
+      (!payload.anchorAt ||
+        participation.completedAt.toISOString() === payload.anchorAt),
+    );
   }
   if (payload.trigger === "section_release") {
     if (!payload.eventParticipationId || !payload.eventTemplateVersionSectionId)
@@ -321,6 +326,7 @@ export async function deliverNotification(
         eventRegistrationId: payload.eventRegistrationId,
         eventParticipationId: payload.eventParticipationId,
         eventTemplateVersionSectionId: payload.eventTemplateVersionSectionId,
+        anchorAt: payload.anchorAt ?? null,
       };
     } else {
       const payload = offeringCoursePayloadSchema.parse(notification.payload);

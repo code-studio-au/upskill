@@ -331,7 +331,7 @@ export async function submitPublicEventGuestAccess(
       if (activeSessions.length)
         await completeEventParticipationIfReady(
           transaction,
-          eventParticipationId,
+          { eventParticipationId, source: "attendance" },
           now,
         );
 

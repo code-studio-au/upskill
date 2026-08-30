@@ -257,7 +257,10 @@ export async function getLearnerPdfResource(
           .execute();
         await completeEventParticipationIfReady(
           transaction,
-          input.eventParticipationId,
+          {
+            eventParticipationId: input.eventParticipationId,
+            source: "resource",
+          },
           now,
         );
         return true;

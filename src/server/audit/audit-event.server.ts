@@ -60,6 +60,8 @@ export const durableAuditActions = [
   "event_occurrence.published",
   "event_occurrence.lifecycle_changed",
   "event_occurrence.rescheduled",
+  "event_participation.completed",
+  "event_participation.completion_revoked",
   "event_staff.eligibility_granted",
   "event_staff.eligibility_revoked",
   "coordination_region.created",

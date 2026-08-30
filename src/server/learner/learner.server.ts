@@ -176,7 +176,7 @@ export async function findLearnerEventsDashboard(
       .execute(),
     getDatabase()
       .selectFrom("event_participation")
-      .select(["id", "eventOccurrenceId", "mode"])
+      .select(["id", "eventOccurrenceId", "mode", "completedAt"])
       .where("userId", "=", user.id)
       .execute(),
   ]);
@@ -213,6 +213,7 @@ export async function findLearnerEventsDashboard(
       "event_template.title as eventTemplateTitle",
       "event_template_version.id as eventTemplateVersionId",
       "event_template_version.version as eventTemplateVersion",
+      "event_template_version.hasCompletionCertificate",
       "event_occurrence.deliveryMode",
       "event_occurrence.registrationMode",
       "event_occurrence.approvalMode",
@@ -294,7 +295,7 @@ export async function findLearnerEventsDashboard(
   const participationByEvent = new Map(
     eventParticipations.map((participation) => [
       participation.eventOccurrenceId,
-      participation.mode,
+      participation,
     ]),
   );
   const participationIdByEvent = new Map(
@@ -312,10 +313,9 @@ export async function findLearnerEventsDashboard(
   const events: Array<LearnerEvent> = eventRows.flatMap((event) => {
     const registrationStatus =
       registrationByEvent.get(event.eventOccurrenceId) ?? null;
+    const participation = participationByEvent.get(event.eventOccurrenceId);
     const participationMode =
-      participationByEvent.get(event.eventOccurrenceId) === "open_entry"
-        ? "open_entry"
-        : null;
+      participation?.mode === "open_entry" ? "open_entry" : null;
     const eligible =
       event.registrationMode === "required_unrestricted" ||
       (user.emailVerified &&
@@ -346,6 +346,11 @@ export async function findLearnerEventsDashboard(
         endsAt: event.endsAt.toISOString(),
         registrationStatus,
         participationMode,
+        completedAt: participation?.completedAt?.toISOString() ?? null,
+        certificate:
+          participation?.completedAt && event.hasCompletionCertificate
+            ? { eventParticipationId: participation.id }
+            : null,
         canRegister:
           !participationMode &&
           !registrationStatus &&
