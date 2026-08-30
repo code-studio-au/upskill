@@ -4,7 +4,7 @@ import type { Kysely } from "kysely";
 import type { Database } from "#/server/db/types";
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 
-export async function hasIncompleteAvailableEventPrework(
+async function hasIncompleteAvailableEventWork(
   database: Kysely<Database>,
   input: {
     eventOccurrenceId: string;
@@ -13,6 +13,8 @@ export async function hasIncompleteAvailableEventPrework(
     userId: string;
     now: Date;
   },
+  phases: ReadonlyArray<"pre_event" | "post_event" | "follow_up">,
+  occurrenceStatuses: ReadonlyArray<"completed" | "published">,
 ): Promise<boolean> {
   const participation = await database
     .selectFrom("event_participation as participation")
@@ -42,7 +44,7 @@ export async function hasIncompleteAvailableEventPrework(
     .executeTakeFirst();
   if (
     !participation ||
-    participation.status !== "published" ||
+    !occurrenceStatuses.includes(participation.status as never) ||
     participation.registrationStatus !== "selected"
   )
     return false;
@@ -62,7 +64,7 @@ export async function hasIncompleteAvailableEventPrework(
           "=",
           participation.eventTemplateVersionId,
         )
-        .where("phase", "=", "pre_event")
+        .where("phase", "in", phases)
         .execute(),
       database
         .selectFrom("event_template_version_item")
@@ -141,4 +143,32 @@ export async function hasIncompleteAvailableEventPrework(
         : !completedIds.has(item.id),
     );
   });
+}
+
+type EventOutstandingWorkInput = Parameters<
+  typeof hasIncompleteAvailableEventWork
+>[1];
+
+export async function hasIncompleteAvailableEventPrework(
+  database: Kysely<Database>,
+  input: EventOutstandingWorkInput,
+): Promise<boolean> {
+  return await hasIncompleteAvailableEventWork(
+    database,
+    input,
+    ["pre_event"],
+    ["published"],
+  );
+}
+
+export async function hasIncompleteAvailableEventPostwork(
+  database: Kysely<Database>,
+  input: EventOutstandingWorkInput,
+): Promise<boolean> {
+  return await hasIncompleteAvailableEventWork(
+    database,
+    input,
+    ["post_event", "follow_up"],
+    ["published", "completed"],
+  );
 }

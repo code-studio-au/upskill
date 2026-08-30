@@ -113,7 +113,7 @@ verifiers, and CDK verification.
 | Open-entry guest check-in          | Initial guarded workflow implemented                                       | Add broader lifecycle and support controls                               |
 | Passwordless prerequisite recovery | Email/SMS OTP and exact-Survey task sessions implemented                   | Add scoped facilitated Survey fallback                                   |
 | Staged Event release               | Implemented learner foundation                                             | Add notification and open-entry workflow maturity                        |
-| Regional Event selection           | Implemented operational foundation                                         | Add assignment alerts and late-invitation UX maturity                    |
+| Regional Event selection           | Review, deadline locks and late invitations implemented                    | Add broader recovery controls only when operational need is demonstrated |
 | Automated email/notifications      | Durable triggers plus audited delivery operations                          | Add retention controls and broader message types                         |
 | Reporting/visual analytics         | Basic read boundaries                                                      | Add filtered charts/tables; project only when justified                  |
 | Global support/impersonation       | Future possibility                                                         | Add carefully with audit safeguards                                      |
@@ -605,9 +605,9 @@ without understanding why.
 - notification domain, exact delivery snapshots, all authorable Course/Event
   trigger execution, durable occurrence schedules and delivery-time suppression
   (implemented);
-- cancellation, reschedule, final waitlist/not-selected/cancelled outcomes and
-  incomplete pre-work reminder coverage (implemented); regional lock,
-  late-invitation expiry and post-event requirement reminders remain;
+- cancellation, reschedule, final waitlist/not-selected/cancelled outcomes,
+  incomplete pre-work and post-event requirement reminders, regional
+  review/lock notices, and expiring late invitations (implemented);
 - support read models (implemented for onboarding, Course enrolment/progress,
   Event registration/region snapshots, attendance, completion and audit
   history);

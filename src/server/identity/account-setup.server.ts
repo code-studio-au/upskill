@@ -25,6 +25,8 @@ export async function createAccountSetupRequest(
     deduplicationKey: string;
     createdAt: Date;
     continuePath?: string;
+    purpose?: "late_registration_invitation";
+    eventLateRegistrationInvitationId?: string;
   },
 ): Promise<string> {
   const token = createSetupToken();
@@ -58,9 +60,11 @@ export async function refreshAccountSetupRequest(
   input: {
     user: { id: string; name: string; email: string };
     actorUserId: string | null;
-    reason: "administrator" | "self_purchase";
+    reason: "administrator" | "late_invitation" | "self_purchase";
     minimumIntervalMs?: number;
     continuePath?: string;
+    purpose?: "late_registration_invitation";
+    eventLateRegistrationInvitationId?: string;
     createdAt?: Date;
   },
 ): Promise<string | null> {
@@ -113,6 +117,13 @@ export async function refreshAccountSetupRequest(
     deduplicationKey: `account-setup:${input.reason}:${randomUUID()}:${input.user.id}`,
     createdAt,
     ...(input.continuePath ? { continuePath: input.continuePath } : {}),
+    ...(input.purpose ? { purpose: input.purpose } : {}),
+    ...(input.eventLateRegistrationInvitationId
+      ? {
+          eventLateRegistrationInvitationId:
+            input.eventLateRegistrationInvitationId,
+        }
+      : {}),
   });
   await recordDurableAuditEvent(transaction, {
     actorUserId: input.actorUserId,

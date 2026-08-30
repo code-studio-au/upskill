@@ -33,7 +33,7 @@ function deliverySource(database: ReturnType<typeof getDatabase>) {
   const email = database.selectFrom("notification").select([
     "notification.id",
     sql<"email" | "sms">`'email'`.as("channel"),
-    sql<string>`coalesce(notification.payload ->> 'trigger', notification."templateKey")`.as(
+    sql<string>`coalesce(notification.payload ->> 'purpose', notification.payload ->> 'trigger', notification."templateKey")`.as(
       "purpose",
     ),
     "notification.recipientName",
@@ -151,18 +151,26 @@ export async function findAdminNotificationOperations(
     database
       .selectFrom("event_communication_schedule")
       .select([
-        sql<number>`count(*) filter (where status in ('pending', 'processing'))::integer`.as(
-          "active",
-        ),
-        sql<number>`count(*) filter (
-            where status in ('pending', 'processing') and "dueAt" <= ${now}
-          )::integer`.as("overdue"),
-        sql<number>`count(*) filter (where status = 'failed')::integer`.as(
-          "failed",
-        ),
-        sql<Date | null>`min("dueAt") filter (
-            where status in ('pending', 'processing') and "dueAt" <= ${now}
-          )`.as("oldestOverdueAt"),
+        sql<number>`(
+          count(*) filter (where status in ('pending', 'processing'))
+          + (select count(*) from event_operational_communication_schedule
+             where status in ('pending', 'processing'))
+        )::integer`.as("active"),
+        sql<number>`(
+          count(*) filter (where status in ('pending', 'processing') and "dueAt" <= ${now})
+          + (select count(*) from event_operational_communication_schedule
+             where status in ('pending', 'processing') and "dueAt" <= ${now})
+        )::integer`.as("overdue"),
+        sql<number>`(
+          count(*) filter (where status = 'failed')
+          + (select count(*) from event_operational_communication_schedule
+             where status = 'failed')
+        )::integer`.as("failed"),
+        sql<Date | null>`least(
+          min("dueAt") filter (where status in ('pending', 'processing') and "dueAt" <= ${now}),
+          (select min("dueAt") from event_operational_communication_schedule
+           where status in ('pending', 'processing') and "dueAt" <= ${now})
+        )`.as("oldestOverdueAt"),
       ])
       .executeTakeFirstOrThrow(),
     database

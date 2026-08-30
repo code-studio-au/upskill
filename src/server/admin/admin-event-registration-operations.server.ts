@@ -12,6 +12,7 @@ import {
 } from "#/server/identity/provisional-user.server";
 import { resendAccountSetup } from "#/server/identity/account-setup.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
+import { revokeOutstandingEventLateInvitations } from "#/server/events/event-late-registration-invitation.server";
 import {
   enqueueEventOccurrenceLifecycleCommunications,
   enqueueRegistrationOutcomeEventCommunications,
@@ -19,6 +20,10 @@ import {
   enqueueRegistrationSubmittedEventCommunications,
   supersedeEventCommunicationSchedules,
 } from "#/server/notifications/event-communication-execution.server";
+import {
+  enqueueRegionalListLockedNotifications,
+  supersedeEventOperationalCommunicationSchedules,
+} from "#/server/notifications/event-operational-communication.server";
 
 function domainFromEmail(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -402,6 +407,13 @@ export async function lockAdminEventRegion(
         subjectType: "event_region_review_round",
         subjectId: review.id,
         aggregateId: eventOccurrenceId,
+        createdAt: now,
+      });
+      await enqueueRegionalListLockedNotifications(transaction, {
+        eventOccurrenceId,
+        eventRegionReviewRoundId: review.id,
+        lockedAt: now,
+        lockSource: source,
         createdAt: now,
       });
       return "locked" as const;
@@ -1158,6 +1170,12 @@ export async function transitionAdminEventOccurrence(
       if (!allowed) return "invalid-transition" as const;
       const now = new Date();
       if (target === "cancelled") {
+        await revokeOutstandingEventLateInvitations(
+          transaction,
+          eventOccurrenceId,
+          actor,
+          now,
+        );
         await enqueueEventOccurrenceLifecycleCommunications(transaction, {
           eventOccurrenceId,
           triggerEventId: `event-cancelled:${eventOccurrenceId}:${now.toISOString()}`,
@@ -1212,6 +1230,11 @@ export async function transitionAdminEventOccurrence(
           eventOccurrenceId,
           now,
         );
+      await supersedeEventOperationalCommunicationSchedules(
+        transaction,
+        eventOccurrenceId,
+        now,
+      );
       await recordDurableAuditEvent(transaction, {
         actorUserId: actor.id,
         action: "event_occurrence.lifecycle_changed",

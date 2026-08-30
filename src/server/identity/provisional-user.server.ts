@@ -32,8 +32,10 @@ export async function provisionUser(
     continuePath?: string;
     refreshExistingSetup?: {
       minimumIntervalMs?: number;
-      reason: "administrator" | "self_purchase";
+      reason: "administrator" | "late_invitation" | "self_purchase";
     };
+    setupPurpose?: "late_registration_invitation";
+    eventLateRegistrationInvitationId?: string;
   },
 ): Promise<{
   user: {
@@ -89,6 +91,13 @@ export async function provisionUser(
                 minimumIntervalMs: input.refreshExistingSetup.minimumIntervalMs,
               }),
           ...(input.continuePath ? { continuePath: input.continuePath } : {}),
+          ...(input.setupPurpose ? { purpose: input.setupPurpose } : {}),
+          ...(input.eventLateRegistrationInvitationId
+            ? {
+                eventLateRegistrationInvitationId:
+                  input.eventLateRegistrationInvitationId,
+              }
+            : {}),
           createdAt,
         })
       : null;
@@ -111,6 +120,13 @@ export async function provisionUser(
     deduplicationKey: `account-setup:${input.sourceEventId}:${user.id}`,
     createdAt,
     ...(input.continuePath ? { continuePath: input.continuePath } : {}),
+    ...(input.setupPurpose ? { purpose: input.setupPurpose } : {}),
+    ...(input.eventLateRegistrationInvitationId
+      ? {
+          eventLateRegistrationInvitationId:
+            input.eventLateRegistrationInvitationId,
+        }
+      : {}),
   });
   return { user, created: true, notificationId };
 }

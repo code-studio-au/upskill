@@ -67,6 +67,7 @@ type EventInput = {
     | "registration_cancelled"
     | "event_rescheduled"
     | "event_cancelled"
+    | "post_event_incomplete"
     | "prework_incomplete"
     | "section_release"
     | "session_start";

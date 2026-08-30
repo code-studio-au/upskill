@@ -415,7 +415,11 @@ try {
   const eventTemplateId = `verify_communication_event_template_${suffix}`;
   const eventTemplateVersionId = `verify_communication_event_version_${suffix}`;
   const eventSectionId = `verify_communication_event_section_${suffix}`;
+  const eventPostSectionId = `verify_communication_event_post_section_${suffix}`;
   const eventSessionItemId = `verify_communication_event_item_${suffix}`;
+  const eventPostSurveyActivityId = `verify_communication_event_post_survey_${suffix}`;
+  const eventPostSurveyVersionId = `verify_communication_event_post_survey_version_${suffix}`;
+  const eventPostSurveyItemId = `verify_communication_event_post_survey_item_${suffix}`;
   const eventCommunicationId = `verify_communication_event_plan_${suffix}`;
   const eventSelectedCommunicationId = `verify_communication_event_selected_plan_${suffix}`;
   const eventSubmittedCommunicationId = `verify_communication_event_submitted_plan_${suffix}`;
@@ -423,6 +427,7 @@ try {
   const eventSessionCommunicationId = `verify_communication_event_session_plan_${suffix}`;
   const eventReleaseCommunicationId = `verify_communication_event_release_plan_${suffix}`;
   const eventCompletedCommunicationId = `verify_communication_event_completed_plan_${suffix}`;
+  const eventPostworkCommunicationId = `verify_communication_event_postwork_plan_${suffix}`;
   const eventSessionDefinitionId = `verify_communication_event_session_${suffix}`;
   await database
     .insertInto("event_template")
@@ -489,6 +494,39 @@ try {
       learningActivityVersionId: null,
       sessionDefinitionId: eventSessionDefinitionId,
       createdAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("learning_activity")
+    .values({
+      id: eventPostSurveyActivityId,
+      kind: "survey",
+      title: "Post-event reflection",
+      surveyUsage: "learning",
+      surveyType: "event",
+      // Keep this cross-gate fixture outside the compact positions used by the
+      // current-snapshot seed that runs later in the shared disposable database.
+      surveyPosition: 10_000,
+      createdAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values({
+      id: eventPostSurveyVersionId,
+      activityId: eventPostSurveyActivityId,
+      kind: "survey",
+      version: 1,
+      publishedAt: now,
+      createdAt: now,
+    })
+    .execute();
+  await database
+    .insertInto("survey_version")
+    .values({
+      id: eventPostSurveyVersionId,
+      kind: "survey",
+      content: { schemaVersion: 1, questions: [] },
     })
     .execute();
   assert.equal(
@@ -637,6 +675,39 @@ try {
               },
             ],
           },
+          {
+            id: eventPostSectionId,
+            title: "Post-event",
+            description: "",
+            phase: "post_event",
+            releaseAnchor: "occurrence_end",
+            releaseOffsetAmount: 0,
+            releaseOffsetUnit: "minute",
+            items: [
+              {
+                id: eventPostworkCommunicationId,
+                kind: "automated_email",
+                title: "Post-event work remaining",
+                emailDesignVersionId: eventEmail.versionId,
+                audience: "confirmed_participants",
+                trigger: "post_event_incomplete",
+                sessionItemId: null,
+                offsetAmount: 0,
+                offsetUnit: "minute",
+                subjectOverride: "Post-event work: {{event.title}}",
+                textBodyOverride:
+                  "Hello {{user.firstName}}, complete your remaining post-event work: {{event.dashboardUrl}}.",
+              },
+              {
+                id: eventPostSurveyItemId,
+                kind: "survey",
+                title: "Post-event reflection",
+                required: true,
+                durationMinutes: 5,
+                learningActivityVersionId: eventPostSurveyVersionId,
+              },
+            ],
+          },
         ],
       },
       actor,
@@ -664,7 +735,7 @@ try {
   const eventActivityPosition = await database
     .selectFrom("event_template_version_item")
     .select("position")
-    .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+    .where("id", "=", eventSessionItemId)
     .executeTakeFirstOrThrow();
   assert.equal(eventPlanAfterDraftSave.sectionId, eventSectionId);
   assert.equal(eventActivityPosition.position, 7);
@@ -708,6 +779,7 @@ try {
       "=",
       copiedEventVersion.eventTemplateVersionId,
     )
+    .where("trigger", "=", "event_start")
     .executeTakeFirstOrThrow();
   assert.ok(copiedEventPlan.sectionId);
   assert.ok(copiedEventPlan.sessionDefinitionId);
@@ -818,7 +890,9 @@ try {
       ?.audience,
     "affected_learner",
   );
-  const inherited = inheritedWorkspace.items[0];
+  const inherited = inheritedWorkspace.items.find(
+    (item) => item.trigger === "event_start",
+  );
   assert.ok(inherited);
   assert.equal(inherited.overrideState, "inherited");
   assert.equal(inherited.subject, "Your event: {{event.title}}");
@@ -867,7 +941,9 @@ try {
     eventOccurrenceId,
   });
   assert.ok(overriddenWorkspace);
-  const overridden = overriddenWorkspace.items[0];
+  const overridden = overriddenWorkspace.items.find(
+    (item) => item.logicalId === inherited.logicalId,
+  );
   assert.ok(overridden);
   assert.equal(overridden.revision, 2);
   assert.equal(overridden.overrideState, "overridden");
@@ -883,7 +959,9 @@ try {
     eventOccurrenceId,
   });
   assert.ok(resetWorkspace);
-  const reset = resetWorkspace.items[0];
+  const reset = resetWorkspace.items.find(
+    (item) => item.logicalId === inherited.logicalId,
+  );
   assert.ok(reset);
   assert.equal(reset.revision, 3);
   assert.equal(reset.overrideState, "inherited");
@@ -996,6 +1074,12 @@ try {
         dueAt: "2026-09-13T23:00:00.000Z",
       },
       {
+        trigger: "post_event_incomplete",
+        revision: 1,
+        status: "pending",
+        dueAt: "2026-09-15T07:00:00.000Z",
+      },
+      {
         trigger: "session_start",
         revision: 1,
         status: "pending",
@@ -1071,6 +1155,18 @@ try {
         dueAt: "2026-09-14T23:00:00.000Z",
       },
       {
+        trigger: "post_event_incomplete",
+        revision: 1,
+        status: "superseded",
+        dueAt: "2026-09-15T07:00:00.000Z",
+      },
+      {
+        trigger: "post_event_incomplete",
+        revision: 2,
+        status: "pending",
+        dueAt: "2026-09-16T07:00:00.000Z",
+      },
+      {
         trigger: "session_start",
         revision: 1,
         status: "superseded",
@@ -1100,6 +1196,14 @@ try {
       new Date("2026-09-14T23:00:00.000Z"),
     ),
     { status: "no-work" },
+  );
+  assert.equal(
+    (
+      await processNextEventCommunicationSchedule(
+        new Date("2026-09-16T07:00:00.000Z"),
+      )
+    ).status,
+    "completed",
   );
   assert.equal(
     (
@@ -1206,7 +1310,7 @@ try {
     .where("templateKey", "=", "offering_event")
     .orderBy("createdAt")
     .execute();
-  assert.equal(offeringNotifications.length, 7);
+  assert.equal(offeringNotifications.length, 8);
   const scheduledNotifications = offeringNotifications.filter((notification) =>
     notification.deduplicationKey.startsWith("event_communication_schedule_"),
   );
@@ -1223,7 +1327,7 @@ try {
   const completedNotification = offeringNotifications.find((notification) =>
     notification.deduplicationKey.includes(`verify_event_completed_${suffix}`),
   );
-  assert.equal(scheduledNotifications.length, 3);
+  assert.equal(scheduledNotifications.length, 4);
   assert.ok(selectedNotification);
   assert.ok(submittedNotification);
   assert.ok(completedNotification);
@@ -1257,11 +1361,47 @@ try {
     .set({ completedAt: null })
     .where("id", "=", participationId)
     .executeTakeFirstOrThrow();
+  await database
+    .insertInto("learning_item_progress")
+    .values({
+      id: `verify_postwork_progress_${suffix}`,
+      enrollmentId: null,
+      courseVersionItemId: null,
+      eventParticipationId: participationId,
+      eventTemplateVersionItemId: eventPostSurveyItemId,
+      state: "completed",
+      completedAt: new Date("2026-09-16T07:02:00.000Z"),
+      updatedAt: new Date("2026-09-16T07:02:00.000Z"),
+    })
+    .execute();
   assert.deepEqual(await deliverNotification(completedNotification.id), {
     status: "superseded",
   });
+  const postworkNotification = offeringNotifications.find(
+    (notification) =>
+      (notification.payload as { trigger: string }).trigger ===
+      "post_event_incomplete",
+  );
+  assert.ok(postworkNotification);
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "completed" })
+    .where("id", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await deliverNotification(postworkNotification.id), {
+    status: "superseded",
+  });
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published" })
+    .where("id", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
   for (const notification of offeringNotifications) {
-    if (notification.id === completedNotification.id) continue;
+    if (
+      notification.id === completedNotification.id ||
+      notification.id === postworkNotification.id
+    )
+      continue;
     assert.deepEqual(await deliverNotification(notification.id), {
       status: "delivered",
     });
@@ -1340,7 +1480,9 @@ try {
     audience: "affected_learner",
     eventRegistrationId: registrationId,
     eventParticipationId: participationId,
+    eventRegionReviewRoundId: null,
     eventTemplateVersionSectionId: null,
+    eventLateRegistrationInvitationId: null,
     eventRescheduleId: null,
     anchorAt: null,
   });

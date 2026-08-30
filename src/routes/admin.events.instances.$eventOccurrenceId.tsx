@@ -31,10 +31,11 @@ import {
   Title,
 } from "#/features/shared/mantine";
 import {
-  addAdminEventRegistration,
+  createAdminEventLateInvitation,
   getAdminEventOccurrenceOperations,
   lockAdminEventRegion,
   recordAdminEventAttendance,
+  revokeAdminEventLateInvitation,
   rotateAdminEventGuestAccess,
   setAdminEventGuestAttendanceMode,
   transitionAdminEventOccurrence,
@@ -167,7 +168,7 @@ function EventInstanceOperationsPage() {
             duplicate_registration:
               "This learner already has a registration for this event.",
             registration_unavailable:
-              "Registrations cannot be added to this event in its current state.",
+              "Late invitations cannot be sent for this event in its current state.",
             account_already_active:
               "This learner has already completed account setup.",
           };
@@ -189,6 +190,14 @@ function EventInstanceOperationsPage() {
   const workspace = result.data;
   const occurrence = workspace.occurrence;
   const registrationMutationsAvailable = occurrence.status === "published";
+  const lateInvitationsAvailable = Boolean(
+    registrationMutationsAvailable &&
+    occurrence.registrationClosesAt &&
+    new Date(occurrence.registrationClosesAt) <= new Date() &&
+    new Date(occurrence.startsAt) > new Date() &&
+    occurrence.registrationMode !== "open_entry" &&
+    occurrence.registrationMode !== "paid_entry",
+  );
   if (search.view === "configuration")
     return (
       <Suspense fallback={<LoadingSpinner label="Loading event editor" />}>
@@ -284,14 +293,13 @@ function EventInstanceOperationsPage() {
               Edit event
             </Button>
           ) : null}
-          {registrationMutationsAvailable &&
-          occurrence.registrationMode !== "open_entry" ? (
+          {lateInvitationsAvailable ? (
             <Button
               onClick={() => {
                 setAddOpen(true);
               }}
             >
-              Add learner
+              Invite learner
             </Button>
           ) : null}
         </Group>
@@ -607,20 +615,97 @@ function EventInstanceOperationsPage() {
         </Stack>
       ) : null}
       {search.view === "registrations" ? (
-        workspace.registrations.length ? (
-          <Suspense fallback={<LoadingSpinner label="Loading registrations" />}>
-            <AdminEventRegistrationTable
-              workspace={workspace}
-              priorities={priorities}
-              processingId={processingId}
-              mutationsAvailable={registrationMutationsAvailable}
-              setPriorities={setPriorities}
-              action={action}
-            />
-          </Suspense>
-        ) : (
-          <Alert title="No registrations" />
-        )
+        <Stack gap="lg">
+          {workspace.invitations.length ? (
+            <Paper withBorder radius="lg" p="md">
+              <Stack gap="md">
+                <Group justify="space-between">
+                  <Title order={2}>Late registration invitations</Title>
+                  <Badge variant="light">{workspace.invitations.length}</Badge>
+                </Group>
+                {workspace.invitations.map((invitation) => (
+                  <Group
+                    key={invitation.id}
+                    justify="space-between"
+                    align="start"
+                    wrap="wrap"
+                  >
+                    <div>
+                      <Text fw={600}>{invitation.name}</Text>
+                      <Text c="dimmed" size="sm">
+                        {invitation.email}
+                        {invitation.regionName
+                          ? ` · ${invitation.regionName}`
+                          : ""}
+                      </Text>
+                      <Text c="dimmed" size="xs">
+                        Expires{" "}
+                        {formatLocalDateTime(invitation.expiresAt, {
+                          timeZone: occurrence.timezone,
+                        })}
+                      </Text>
+                    </div>
+                    <Group gap="sm">
+                      <Badge
+                        color={
+                          invitation.status === "pending"
+                            ? "blue"
+                            : invitation.status === "accepted"
+                              ? "green"
+                              : "gray"
+                        }
+                        variant="light"
+                      >
+                        {invitation.status}
+                      </Badge>
+                      {invitation.status === "pending" ? (
+                        <Button
+                          size="compact-sm"
+                          variant="subtle"
+                          color="red"
+                          loading={
+                            processingId === `revoke-invite-${invitation.id}`
+                          }
+                          onClick={() =>
+                            void action(
+                              `revoke-invite-${invitation.id}`,
+                              () =>
+                                revokeAdminEventLateInvitation({
+                                  data: {
+                                    eventOccurrenceId: occurrence.id,
+                                    invitationId: invitation.id,
+                                  },
+                                }),
+                              "Invitation revoked.",
+                            )
+                          }
+                        >
+                          Revoke
+                        </Button>
+                      ) : null}
+                    </Group>
+                  </Group>
+                ))}
+              </Stack>
+            </Paper>
+          ) : null}
+          {workspace.registrations.length ? (
+            <Suspense
+              fallback={<LoadingSpinner label="Loading registrations" />}
+            >
+              <AdminEventRegistrationTable
+                workspace={workspace}
+                priorities={priorities}
+                processingId={processingId}
+                mutationsAvailable={registrationMutationsAvailable}
+                setPriorities={setPriorities}
+                action={action}
+              />
+            </Suspense>
+          ) : (
+            <Alert title="No registrations" />
+          )}
+        </Stack>
       ) : null}
 
       {search.view === "staffing" ? (
@@ -771,7 +856,7 @@ function EventInstanceOperationsPage() {
           }}
           onAdd={(data) =>
             action("add-learner", async () => {
-              const outcome = await addAdminEventRegistration({
+              const outcome = await createAdminEventLateInvitation({
                 data: { eventOccurrenceId: occurrence.id, ...data },
               });
               if (outcome.status === "ready") setAddOpen(false);
@@ -834,14 +919,16 @@ function AddLearnerDialog({
     email: string;
     eventOccurrenceRegionId: string | null;
     overrideDomainRestriction: boolean;
+    expiresInDays: number;
   }) => Promise<void>;
 }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [regionId, setRegionId] = useState("");
   const [override, setOverride] = useState(false);
+  const [expiresInDays, setExpiresInDays] = useState("7");
   return (
-    <AppDialog title="Add learner to event" onClose={onClose}>
+    <AppDialog title="Invite learner to event" onClose={onClose}>
       <Stack gap="md">
         <MantineTextInput
           label="Learner email"
@@ -883,6 +970,20 @@ function AddLearnerDialog({
             onChange={setOverride}
           />
         ) : null}
+        <MantineNativeSelect
+          label="Invitation expires"
+          value={expiresInDays}
+          data={[
+            { value: "1", label: "In 1 day" },
+            { value: "3", label: "In 3 days" },
+            { value: "7", label: "In 7 days" },
+            { value: "14", label: "In 14 days" },
+            { value: "30", label: "In 30 days" },
+          ]}
+          onChange={(event) => {
+            setExpiresInDays(event.currentTarget.value);
+          }}
+        />
         <Group justify="end">
           <Button variant="subtle" onClick={onClose}>
             Cancel
@@ -898,10 +999,11 @@ function AddLearnerDialog({
                 email,
                 eventOccurrenceRegionId: regionId || null,
                 overrideDomainRestriction: override,
+                expiresInDays: Number(expiresInDays),
               })
             }
           >
-            Add registration
+            Send invitation
           </Button>
         </Group>
       </Stack>

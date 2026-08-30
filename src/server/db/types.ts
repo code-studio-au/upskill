@@ -861,6 +861,24 @@ interface EventRegistrationRegionDecisionTable {
   supersededAt: Timestamp | null;
 }
 
+interface EventLateRegistrationInvitationTable {
+  id: string;
+  eventOccurrenceId: string;
+  userId: string;
+  eventOccurrenceRegionId: string | null;
+  recipientNameSnapshot: string;
+  recipientEmailSnapshot: string;
+  tokenDigest: string;
+  overrideDomainRestriction: boolean;
+  expiresAt: Timestamp;
+  createdByUserId: string;
+  createdAt: Timestamp;
+  acceptedAt: Timestamp | null;
+  acceptedRegistrationId: string | null;
+  revokedAt: Timestamp | null;
+  revokedByUserId: string | null;
+}
+
 interface EventParticipationTable {
   id: string;
   eventOccurrenceId: string;
@@ -1230,7 +1248,33 @@ interface EventCommunicationScheduleTable {
   revision: number;
   eventOccurrenceId: string;
   eventOccurrenceCommunicationRevisionId: string;
-  trigger: "event_end" | "event_start" | "prework_incomplete" | "session_start";
+  trigger:
+    | "event_end"
+    | "event_start"
+    | "post_event_incomplete"
+    | "prework_incomplete"
+    | "session_start";
+  dueAt: Timestamp;
+  status: Generated<
+    "pending" | "processing" | "completed" | "failed" | "superseded"
+  >;
+  attempts: Generated<number>;
+  availableAt: Timestamp;
+  lastErrorCode: string | null;
+  recipientCount: number | null;
+  processedAt: Timestamp | null;
+  supersededAt: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface EventOperationalCommunicationScheduleTable {
+  id: string;
+  logicalId: string;
+  revision: number;
+  eventOccurrenceId: string;
+  eventRegionReviewRoundId: string;
+  kind: "regional_review_due" | "regional_lock_due";
   dueAt: Timestamp;
   status: Generated<
     "pending" | "processing" | "completed" | "failed" | "superseded"
@@ -1317,6 +1361,7 @@ type EventCommunicationTrigger =
   | "event_start"
   | "event_cancelled"
   | "event_rescheduled"
+  | "post_event_incomplete"
   | "prework_incomplete"
   | "registration_cancelled"
   | "registration_not_selected"
@@ -1448,6 +1493,9 @@ export type AuditEventAction =
   | "coordination_region.retired"
   | "coordination_region.reactivated"
   | "event_attendance.recorded"
+  | "event_late_registration_invitation.accepted"
+  | "event_late_registration_invitation.created"
+  | "event_late_registration_invitation.revoked"
   | "event_prerequisite.recovery_verified"
   | "event_region_review.locked"
   | "event_registration.administrator_added"
@@ -1541,6 +1589,8 @@ export interface Database {
   event_occurrence: EventOccurrenceTable;
   event_occurrence_communication_revision: EventOccurrenceCommunicationRevisionTable;
   event_communication_schedule: EventCommunicationScheduleTable;
+  event_late_registration_invitation: EventLateRegistrationInvitationTable;
+  event_operational_communication_schedule: EventOperationalCommunicationScheduleTable;
   event_occurrence_domain: EventOccurrenceDomainTable;
   event_occurrence_region: EventOccurrenceRegionTable;
   event_occurrence_reschedule: EventOccurrenceRescheduleTable;

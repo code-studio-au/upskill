@@ -25,6 +25,7 @@ import {
   enqueueRegistrationOutcomeEventCommunications,
   refreshEventCommunicationSchedules,
 } from "#/server/notifications/event-communication-execution.server";
+import { refreshEventOperationalCommunicationSchedules } from "#/server/notifications/event-operational-communication.server";
 import {
   addElapsedDuration,
   addElapsedMilliseconds,
@@ -541,6 +542,11 @@ export async function updateAdminEventOccurrence(
           .execute();
 
       await refreshEventCommunicationSchedules(
+        transaction,
+        eventOccurrenceId,
+        now,
+      );
+      await refreshEventOperationalCommunicationSchedules(
         transaction,
         eventOccurrenceId,
         now,
@@ -1281,6 +1287,11 @@ export async function rescheduleAdminEventOccurrence(
         eventOccurrenceId,
         now,
       );
+      await refreshEventOperationalCommunicationSchedules(
+        transaction,
+        eventOccurrenceId,
+        now,
+      );
       await enqueueEventOccurrenceLifecycleCommunications(transaction, {
         eventOccurrenceId,
         triggerEventId: rescheduleId,
@@ -1373,6 +1384,11 @@ export async function publishAdminEventOccurrence(
         .where("id", "=", eventOccurrenceId)
         .executeTakeFirstOrThrow();
       await refreshEventCommunicationSchedules(
+        transaction,
+        eventOccurrenceId,
+        now,
+      );
+      await refreshEventOperationalCommunicationSchedules(
         transaction,
         eventOccurrenceId,
         now,

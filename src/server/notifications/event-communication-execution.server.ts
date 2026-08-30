@@ -10,8 +10,12 @@ import {
   type EventCommunicationContentSnapshot,
   type EventNotificationRecipient,
 } from "./offering-event-context.server";
-import { hasIncompleteAvailableEventPrework } from "./event-prework.server";
+import {
+  hasIncompleteAvailableEventPostwork,
+  hasIncompleteAvailableEventPrework,
+} from "./event-prework.server";
 import { enqueueOfferingEventNotification } from "./notification.server";
+import { processNextEventOperationalCommunicationSchedule } from "./event-operational-communication.server";
 
 const SCHEDULE_LEASE_MILLISECONDS = 15 * 60_000;
 const MAX_SCHEDULE_ATTEMPTS = 5;
@@ -31,6 +35,7 @@ type EventCommunicationTrigger =
   | "event_end"
   | "event_rescheduled"
   | "event_start"
+  | "post_event_incomplete"
   | "prework_incomplete"
   | "registration_cancelled"
   | "registration_not_selected"
@@ -115,6 +120,7 @@ export async function refreshEventCommunicationSchedules(
       "event_start",
       "event_end",
       "session_start",
+      "post_event_incomplete",
       "prework_incomplete",
     ])
     .execute();
@@ -161,7 +167,8 @@ export async function refreshEventCommunicationSchedules(
             .executeTakeFirst()
         : undefined;
     const anchor =
-      communication.trigger === "event_end"
+      communication.trigger === "event_end" ||
+      communication.trigger === "post_event_incomplete"
         ? occurrence.endsAt
         : communication.trigger === "session_start"
           ? session?.startsAt
@@ -206,7 +213,11 @@ export async function refreshEventCommunicationSchedules(
         eventOccurrenceId,
         eventOccurrenceCommunicationRevisionId: communication.id,
         trigger: communication.trigger as
-          "event_end" | "event_start" | "prework_incomplete" | "session_start",
+          | "event_end"
+          | "event_start"
+          | "post_event_incomplete"
+          | "prework_incomplete"
+          | "session_start",
         dueAt,
         status: "pending",
         attempts: 0,
@@ -370,7 +381,11 @@ async function materializeSchedule(
     eventOccurrenceId: string;
     eventOccurrenceCommunicationRevisionId: string;
     trigger:
-      "event_end" | "event_start" | "prework_incomplete" | "session_start";
+      | "event_end"
+      | "event_start"
+      | "post_event_incomplete"
+      | "prework_incomplete"
+      | "session_start";
   },
   createdAt: Date,
 ): Promise<number> {
@@ -408,8 +423,12 @@ async function materializeSchedule(
     .select("status")
     .where("id", "=", schedule.eventOccurrenceId)
     .executeTakeFirstOrThrow();
+  const occurrenceEligible =
+    occurrence.status === "published" ||
+    (schedule.trigger === "post_event_incomplete" &&
+      occurrence.status === "completed");
   if (
-    occurrence.status !== "published" ||
+    !occurrenceEligible ||
     !communication.active ||
     communication.contractKey !== "offering.event" ||
     communication.contractVersion !== 1 ||
@@ -430,6 +449,27 @@ async function materializeSchedule(
             recipient.registrationId &&
             recipient.participationId &&
             (await hasIncompleteAvailableEventPrework(transaction, {
+              eventOccurrenceId: schedule.eventOccurrenceId,
+              eventRegistrationId: recipient.registrationId,
+              eventParticipationId: recipient.participationId,
+              userId: recipient.userId,
+              now: createdAt,
+            })),
+          ),
+        })),
+      )
+    )
+      .filter((entry) => entry.applicable)
+      .map((entry) => entry.recipient);
+  if (schedule.trigger === "post_event_incomplete")
+    recipients = (
+      await Promise.all(
+        recipients.map(async (recipient) => ({
+          recipient,
+          applicable: Boolean(
+            recipient.registrationId &&
+            recipient.participationId &&
+            (await hasIncompleteAvailableEventPostwork(transaction, {
               eventOccurrenceId: schedule.eventOccurrenceId,
               eventRegistrationId: recipient.registrationId,
               eventParticipationId: recipient.participationId,
@@ -573,7 +613,12 @@ export async function processAvailableEventCommunicationSchedules(
     throw new RangeError("Schedule batch limit must be a positive integer");
   const outcomes: Array<ProcessedScheduleOutcome> = [];
   for (let index = 0; index < limit; index += 1) {
-    const outcome = await processNextEventCommunicationSchedule();
+    const operational =
+      await processNextEventOperationalCommunicationSchedule();
+    const outcome =
+      operational.status === "no-work"
+        ? await processNextEventCommunicationSchedule()
+        : operational;
     if (outcome.status === "no-work") return { outcomes, limitReached: false };
     outcomes.push(outcome);
   }

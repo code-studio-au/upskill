@@ -33,5 +33,7 @@ export const accountSetupContinuePathSchema = z
   .string()
   .check(
     z.maxLength(500),
-    z.regex(/^\/(?:courses|events)\/[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?$/u),
+    z.regex(
+      /^(?:\/(?:courses|events)\/[a-z0-9]+(?:[a-z0-9-]*[a-z0-9])?|\/event-invitation#token=[A-Za-z0-9_-]{43})$/u,
+    ),
   );

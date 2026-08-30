@@ -1,6 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
-  adminEventAddRegistrationSchema,
   adminEventAttendanceSchema,
   adminEventAccountSetupSchema,
   adminEventCoordinatorDecisionSchema,
@@ -8,6 +7,8 @@ import {
   adminEventGuestAccessRotateSchema,
   adminEventGuestAttendanceModeSchema,
   adminEventLifecycleSchema,
+  adminEventLateInvitationCreateSchema,
+  adminEventLateInvitationRevokeSchema,
   adminEventOccurrenceOperationsParamsSchema,
   adminEventRegionLockSchema,
   adminEventRegistrationProfileRegionAlignmentSchema,
@@ -227,14 +228,14 @@ export const confirmAdminEventRegistrationRegionGuest = createServerFn({
     return { status: "ready" };
   });
 
-export const addAdminEventRegistration = createServerFn({ method: "POST" })
-  .validator(adminEventAddRegistrationSchema)
+export const createAdminEventLateInvitation = createServerFn({ method: "POST" })
+  .validator(adminEventLateInvitationCreateSchema)
   .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
     const request = await administratorRequest();
     if (request.status !== "ready") return request;
-    const { addAdminEventRegistration: add } =
-      await import("#/server/admin/admin-event-operations.server");
-    const outcome = await add(data, request.user);
+    const { createEventLateRegistrationInvitation: invite } =
+      await import("#/server/events/event-late-registration-invitation.server");
+    const outcome = await invite(data, request.user);
     if (outcome === "not-found") return { status: "not-found" };
     if (outcome === "unavailable")
       return { status: "conflict", reason: "registration_unavailable" };
@@ -242,6 +243,24 @@ export const addAdminEventRegistration = createServerFn({ method: "POST" })
       return { status: "conflict", reason: "domain_override_required" };
     if (outcome === "duplicate")
       return { status: "conflict", reason: "duplicate_registration" };
+    return { status: "ready" };
+  });
+
+export const revokeAdminEventLateInvitation = createServerFn({ method: "POST" })
+  .validator(adminEventLateInvitationRevokeSchema)
+  .handler(async ({ data }): Promise<AdminEventOperationsMutationResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { revokeEventLateRegistrationInvitation: revoke } =
+      await import("#/server/events/event-late-registration-invitation.server");
+    const outcome = await revoke(
+      data.eventOccurrenceId,
+      data.invitationId,
+      request.user,
+    );
+    if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "unavailable")
+      return { status: "conflict", reason: "invalid_transition" };
     return { status: "ready" };
   });
 

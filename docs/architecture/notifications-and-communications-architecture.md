@@ -801,16 +801,18 @@ real email.
 
 ### Phase 2 --- Event communications
 
-- registration submitted; **implemented**. Coordinator review reminders before
-  the lock deadline remain a separate, not-yet-authorable communication type;
+- registration submitted; **implemented**. System-owned regional review-ready
+  notices are sent to the current Coordinators at registration close;
 - manual/deadline regional-list lock notices to assigned Event Instance
   administrators,
-  deduplicated per occurrence and region;
+  deduplicated per retained regional review round; **implemented**, including
+  deadline enforcement by the communication worker;
 - final assigned-administrator outcomes; **implemented for selected,
   waitlisted, not-selected and cancelled decisions, with delivery-time
   suppression when a corrected decision supersedes queued work**
-- expiring user-specific late-registration invitations and account-setup/login
-  routing;
+- expiring, one-time, identity-bound late-registration invitations and
+  account-setup/login routing; **implemented with revocation and delivery-time
+  stale suppression**;
 - cancellation/reschedule; **implemented for current registrants, confirmed
   participants and active operational assignments, with participant-specific
   cancellation for retired reschedule regions and stale-reschedule
@@ -820,6 +822,9 @@ real email.
 - incomplete pre-work reminders; **implemented as event-start-anchored durable
   schedules that select confirmed learners with available, outstanding required
   pre-event work and recheck it immediately before delivery**
+- outstanding post-event and follow-up requirement reminders; **implemented as
+  event-end-anchored durable schedules with availability and delivery-time
+  completion rechecks**;
 - Section release and Event completion notices; **implemented for authored
   `section_release` and `event_completed` plans**. Broader follow-up message
   types remain future work;

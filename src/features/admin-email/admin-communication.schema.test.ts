@@ -42,22 +42,25 @@ describe("event communication trigger audiences", () => {
     ).toBe(false);
   });
 
-  it("targets incomplete pre-work reminders only to confirmed participants", () => {
-    expect(eventCommunicationAudiencesForTrigger("prework_incomplete")).toEqual(
-      [
+  it("targets incomplete event-work reminders only to confirmed participants", () => {
+    for (const trigger of [
+      "prework_incomplete",
+      "post_event_incomplete",
+    ] as const) {
+      expect(eventCommunicationAudiencesForTrigger(trigger)).toEqual([
         {
           value: "confirmed_participants",
           label: "Confirmed participants",
         },
-      ],
-    );
-    expect(
-      eventScheduleEmailItemSchema.safeParse({
-        ...baseItem,
-        trigger: "prework_incomplete",
-        audience: "confirmed_participants",
-      }).success,
-    ).toBe(true);
+      ]);
+      expect(
+        eventScheduleEmailItemSchema.safeParse({
+          ...baseItem,
+          trigger,
+          audience: "confirmed_participants",
+        }).success,
+      ).toBe(true);
+    }
   });
 
   it("offers operational audiences for event cancellation and rescheduling", () => {
@@ -117,6 +120,12 @@ describe("event communication trigger audiences", () => {
       normalizeEventCommunicationAudience(
         "prework_incomplete",
         "administrators",
+      ),
+    ).toBe("confirmed_participants");
+    expect(
+      normalizeEventCommunicationAudience(
+        "post_event_incomplete",
+        "coordinators",
       ),
     ).toBe("confirmed_participants");
     expect(

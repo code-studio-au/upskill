@@ -48,6 +48,12 @@ import {
   verifyEventRecoveryCode,
 } from "#/server/events/event-prerequisite-recovery.server";
 import {
+  acceptEventLateRegistrationInvitation,
+  createEventLateRegistrationInvitation,
+  findEventLateRegistrationInvitation,
+  revokeEventLateRegistrationInvitation,
+} from "#/server/events/event-late-registration-invitation.server";
+import {
   ensureEventGuestAccessRecord,
   findPublicEventGuestAccess,
   rotateEventGuestAccessRecord,
@@ -60,6 +66,7 @@ import {
 import { findLearnerEventsDashboard } from "#/server/learner/learner.server";
 import { ensureEventSectionReleased } from "#/server/learning/event-section-release.server";
 import { findLearnerEventWorkspace } from "#/server/learning/learner-event-workspace.server";
+import { processNextEventOperationalCommunicationSchedule } from "#/server/notifications/event-operational-communication.server";
 import {
   dateToInstant,
   instantToLocalDateTime,
@@ -182,6 +189,28 @@ async function cleanup(): Promise<void> {
     const registrationIds = await database
       .selectFrom("event_registration")
       .select("id")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .execute();
+    const invitationIds = await database
+      .selectFrom("event_late_registration_invitation")
+      .select("id")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .execute();
+    await database
+      .deleteFrom("notification")
+      .where(
+        sql<boolean>`payload ->> 'eventOccurrenceId' = ${eventOccurrenceId}`,
+      )
+      .execute();
+    for (const invitation of invitationIds)
+      await database
+        .deleteFrom("notification")
+        .where(
+          sql<boolean>`payload ->> 'eventLateRegistrationInvitationId' = ${invitation.id}`,
+        )
+        .execute();
+    await database
+      .deleteFrom("event_late_registration_invitation")
       .where("eventOccurrenceId", "=", eventOccurrenceId)
       .execute();
     if (registrationIds.length)
@@ -1053,20 +1082,48 @@ try {
     1,
   );
 
+  assert.deepEqual(
+    await database
+      .selectFrom("event_operational_communication_schedule")
+      .select(["kind", "dueAt", "status"])
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .orderBy("kind")
+      .execute()
+      .then((rows) =>
+        rows.map((row) => ({
+          ...row,
+          dueAt: row.dueAt.toISOString(),
+        })),
+      ),
+    [
+      {
+        kind: "regional_lock_due",
+        dueAt: coordinatorLockAt.toISOString(),
+        status: "pending",
+      },
+      {
+        kind: "regional_review_due",
+        dueAt: registrationClosesAt.toISOString(),
+        status: "pending",
+      },
+    ],
+  );
+  const initialReviewRound = await database
+    .selectFrom("event_region_review_round")
+    .select("id")
+    .where("eventOccurrenceRegionId", "=", occurrenceRegion.id)
+    .where("round", "=", 1)
+    .executeTakeFirstOrThrow();
   const lockedAt = new Date();
   await database
-    .insertInto("event_region_review_round")
-    .values({
-      id: `event_region_review_round_initial_${suffix}`,
-      eventOccurrenceRegionId: occurrenceRegion.id,
-      round: 1,
-      registrationClosesAt,
-      coordinatorLockAt,
+    .updateTable("event_region_review_round")
+    .set({
       lockedAt,
       lockedByUserId: administrator.id,
       lockSource: "administrator",
     })
-    .execute();
+    .where("id", "=", initialReviewRound.id)
+    .executeTakeFirstOrThrow();
   const finalStartsAt = new Date(
     rescheduledStartsAt.getTime() + 24 * 60 * 60 * 1000,
   );
@@ -1224,6 +1281,23 @@ try {
     ),
     "locked",
   );
+  assert.equal(
+    await database
+      .selectFrom("notification")
+      .select("id")
+      .where("recipientUserId", "=", administrator.id)
+      .where(
+        "payload",
+        "@>",
+        JSON.stringify({
+          trigger: "regional_list_locked",
+          eventOccurrenceId,
+        }),
+      )
+      .executeTakeFirst()
+      .then(Boolean),
+    true,
+  );
   assert.deepEqual(
     await registerLearnerForEvent(
       eventOccurrenceId,
@@ -1290,6 +1364,35 @@ try {
     .where("eventOccurrenceId", "=", eventOccurrenceId)
     .where("userId", "=", regionGuestUser.id)
     .executeTakeFirstOrThrow();
+  const addedRegionReviewRound = await database
+    .selectFrom("event_region_review_round")
+    .select("id")
+    .where("eventOccurrenceRegionId", "=", addedOccurrenceRegion.id)
+    .orderBy("round", "desc")
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_registration")
+    .set({ reviewRoundId: addedRegionReviewRound.id })
+    .where("id", "=", regionGuestRegistration.id)
+    .executeTakeFirstOrThrow();
+  const regionalReviewOutcome =
+    await processNextEventOperationalCommunicationSchedule(reopenedClosesAt);
+  assert.equal(regionalReviewOutcome.status, "completed");
+  assert.equal(regionalReviewOutcome.recipientCount, 1);
+  const regionalReviewNotification = await database
+    .selectFrom("notification")
+    .select("payload")
+    .where("recipientUserId", "=", administrator.id)
+    .where("payload", "@>", JSON.stringify({ trigger: "regional_review_due" }))
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      regionalReviewNotification.payload as {
+        variables: Record<string, string>;
+      }
+    ).variables["event.operationsUrl"],
+    `http://localhost:3000/event-operations/${eventOccurrenceId}`,
+  );
   assert.equal(
     await alignAdminEventRegistrationProfileRegion(
       eventOccurrenceId,
@@ -2404,6 +2507,179 @@ try {
       .then((row) => row.state),
     "attended",
   );
+  const lateInvitationWindow = new Date(Date.now() - 60_000);
+  await database
+    .updateTable("event_occurrence")
+    .set({ registrationClosesAt: lateInvitationWindow })
+    .where("id", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await createEventLateRegistrationInvitation(
+      {
+        eventOccurrenceId,
+        name: presenter.name,
+        email: presenter.email,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: true,
+        expiresInDays: 7,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const lateInvitation = await database
+    .selectFrom("event_late_registration_invitation")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", presenter.id)
+    .executeTakeFirstOrThrow();
+  const lateInvitationNotification = await database
+    .selectFrom("notification")
+    .select(["id", "payload"])
+    .where("recipientUserId", "=", presenter.id)
+    .where(
+      "payload",
+      "@>",
+      JSON.stringify({
+        eventLateRegistrationInvitationId: lateInvitation.id,
+      }),
+    )
+    .executeTakeFirstOrThrow();
+  const lateInvitationUrl = (
+    lateInvitationNotification.payload as {
+      variables: Record<string, string>;
+    }
+  ).variables["event.invitationUrl"];
+  assert.ok(lateInvitationUrl);
+  const lateInvitationToken = new URL(lateInvitationUrl).hash.replace(
+    "#token=",
+    "",
+  );
+  assert.match(lateInvitationToken, /^[A-Za-z0-9_-]{43}$/u);
+  assert.deepEqual(
+    await findEventLateRegistrationInvitation(lateInvitationToken, learner),
+    { status: "forbidden" },
+  );
+  assert.equal(
+    (await findEventLateRegistrationInvitation(lateInvitationToken, presenter))
+      .status,
+    "ready",
+  );
+  assert.deepEqual(
+    await acceptEventLateRegistrationInvitation(lateInvitationToken, presenter),
+    { status: "registered", eventOccurrenceId },
+  );
+  assert.deepEqual(
+    await findEventLateRegistrationInvitation(lateInvitationToken, presenter),
+    { status: "accepted", eventOccurrenceId },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_registration")
+      .select([
+        "source",
+        "status",
+        "reviewRoundId",
+        "regionalReviewWaivedByUserId",
+      ])
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .where("userId", "=", presenter.id)
+      .executeTakeFirstOrThrow(),
+    {
+      source: "late_invitation",
+      status: "submitted",
+      reviewRoundId: null,
+      regionalReviewWaivedByUserId: administrator.id,
+    },
+  );
+  assert.equal(
+    await database
+      .selectFrom("notification")
+      .select("status")
+      .where("id", "=", lateInvitationNotification.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.status),
+    "superseded",
+  );
+
+  const allowedDomainInvitationEmail = `late-invitation-${suffix}@health.example.org`;
+  assert.equal(
+    await createEventLateRegistrationInvitation(
+      {
+        eventOccurrenceId,
+        name: "Allowed-domain late learner",
+        email: allowedDomainInvitationEmail,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: false,
+        expiresInDays: 2,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const allowedDomainLateInvitation = await database
+    .selectFrom("event_late_registration_invitation as invitation")
+    .innerJoin("user", "user.id", "invitation.userId")
+    .select("invitation.id")
+    .where("invitation.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("user.email", "=", allowedDomainInvitationEmail)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await revokeEventLateRegistrationInvitation(
+      eventOccurrenceId,
+      allowedDomainLateInvitation.id,
+      administrator,
+    ),
+    "revoked",
+  );
+
+  const provisionalInvitationEmail = `late-invitation-${suffix}@outside.example.net`;
+  assert.equal(
+    await createEventLateRegistrationInvitation(
+      {
+        eventOccurrenceId,
+        name: "Late invitation learner",
+        email: provisionalInvitationEmail,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: true,
+        expiresInDays: 2,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const provisionalLateInvitation = await database
+    .selectFrom("event_late_registration_invitation as invitation")
+    .innerJoin("user", "user.id", "invitation.userId")
+    .select(["invitation.id", "user.accountState"])
+    .where("invitation.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("user.email", "=", provisionalInvitationEmail)
+    .executeTakeFirstOrThrow();
+  assert.equal(provisionalLateInvitation.accountState, "provisional");
+  assert.equal(
+    await database
+      .selectFrom("notification")
+      .select("id")
+      .where(
+        "payload",
+        "@>",
+        JSON.stringify({
+          purpose: "late_registration_invitation",
+          eventLateRegistrationInvitationId: provisionalLateInvitation.id,
+        }),
+      )
+      .executeTakeFirst()
+      .then(Boolean),
+    true,
+  );
+  assert.equal(
+    await revokeEventLateRegistrationInvitation(
+      eventOccurrenceId,
+      provisionalLateInvitation.id,
+      administrator,
+    ),
+    "revoked",
+  );
   await database
     .updateTable("event_registration")
     .set({ status: "selected", lockedInAt: new Date() })
@@ -2432,6 +2708,16 @@ try {
       administrator,
     ),
     "updated",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_operational_communication_schedule")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .where("status", "in", ["pending", "processing"])
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    0,
   );
   assert.equal(
     await decideAdminEventFinalRegistration(
