@@ -66,7 +66,10 @@ import {
 import { findLearnerEventsDashboard } from "#/server/learner/learner.server";
 import { ensureEventSectionReleased } from "#/server/learning/event-section-release.server";
 import { findLearnerEventWorkspace } from "#/server/learning/learner-event-workspace.server";
-import { processNextEventOperationalCommunicationSchedule } from "#/server/notifications/event-operational-communication.server";
+import {
+  processNextEventOperationalCommunicationSchedule,
+  refreshEventOperationalCommunicationSchedules,
+} from "#/server/notifications/event-operational-communication.server";
 import {
   dateToInstant,
   instantToLocalDateTime,
@@ -1107,6 +1110,52 @@ try {
         status: "pending",
       },
     ],
+  );
+  const operationalEventOccurrenceId = eventOccurrenceId;
+  assert.ok(operationalEventOccurrenceId);
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("event_occurrence")
+      .set({ approvalMode: "automatic" })
+      .where("id", "=", operationalEventOccurrenceId)
+      .executeTakeFirstOrThrow();
+    await refreshEventOperationalCommunicationSchedules(
+      transaction,
+      operationalEventOccurrenceId,
+      new Date(),
+    );
+  });
+  assert.equal(
+    await database
+      .selectFrom("event_operational_communication_schedule")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventOccurrenceId", "=", operationalEventOccurrenceId)
+      .where("status", "in", ["pending", "processing"])
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    0,
+  );
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("event_occurrence")
+      .set({ approvalMode: "manual" })
+      .where("id", "=", operationalEventOccurrenceId)
+      .executeTakeFirstOrThrow();
+    await refreshEventOperationalCommunicationSchedules(
+      transaction,
+      operationalEventOccurrenceId,
+      new Date(),
+    );
+  });
+  assert.equal(
+    await database
+      .selectFrom("event_operational_communication_schedule")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventOccurrenceId", "=", operationalEventOccurrenceId)
+      .where("status", "in", ["pending", "processing"])
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    2,
   );
   const initialReviewRound = await database
     .selectFrom("event_region_review_round")
@@ -2600,6 +2649,89 @@ try {
       .executeTakeFirstOrThrow()
       .then((row) => row.status),
     "superseded",
+  );
+
+  assert.equal(
+    await createEventLateRegistrationInvitation(
+      {
+        eventOccurrenceId,
+        name: coordinator.name,
+        email: coordinator.email,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: true,
+        expiresInDays: 7,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const reconciledInvitation = await database
+    .selectFrom("event_late_registration_invitation")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", coordinator.id)
+    .executeTakeFirstOrThrow();
+  const reconciledInvitationNotification = await database
+    .selectFrom("notification")
+    .select("payload")
+    .where("recipientUserId", "=", coordinator.id)
+    .where(
+      "payload",
+      "@>",
+      JSON.stringify({
+        eventLateRegistrationInvitationId: reconciledInvitation.id,
+      }),
+    )
+    .executeTakeFirstOrThrow();
+  const reconciledInvitationUrl = (
+    reconciledInvitationNotification.payload as {
+      variables: Record<string, string>;
+    }
+  ).variables["event.invitationUrl"];
+  assert.ok(reconciledInvitationUrl);
+  const reconciledInvitationToken = new URL(
+    reconciledInvitationUrl,
+  ).hash.replace("#token=", "");
+  assert.equal(
+    await addAdminEventRegistration(
+      {
+        eventOccurrenceId,
+        name: coordinator.name,
+        email: coordinator.email,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: true,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const reconciledRegistration = await database
+    .selectFrom("event_registration")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", coordinator.id)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await acceptEventLateRegistrationInvitation(
+      reconciledInvitationToken,
+      coordinator,
+    ),
+    { status: "already-registered", eventOccurrenceId },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select(["action", "metadata"])
+      .where("action", "=", "event_late_registration_invitation.accepted")
+      .where("subjectId", "=", reconciledInvitation.id)
+      .executeTakeFirstOrThrow(),
+    {
+      action: "event_late_registration_invitation.accepted",
+      metadata: {
+        registrationId: reconciledRegistration.id,
+        reconciledExistingRegistration: true,
+      },
+    },
   );
 
   const allowedDomainInvitationEmail = `late-invitation-${suffix}@health.example.org`;

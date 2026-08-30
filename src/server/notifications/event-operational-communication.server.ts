@@ -77,10 +77,12 @@ export async function refreshEventOperationalCommunicationSchedules(
   );
   const occurrence = await transaction
     .selectFrom("event_occurrence")
-    .select("status")
+    .select(["status", "approvalMode"])
     .where("id", "=", eventOccurrenceId)
     .executeTakeFirstOrThrow();
-  if (occurrence.status === "published")
+  const schedulesRegionalReview =
+    occurrence.status === "published" && occurrence.approvalMode === "manual";
+  if (schedulesRegionalReview)
     await ensureInitialReviewRounds(transaction, eventOccurrenceId);
 
   const rounds = await transaction
@@ -120,7 +122,7 @@ export async function refreshEventOperationalCommunicationSchedules(
     .execute();
   for (const active of activeSchedules)
     if (
-      occurrence.status !== "published" ||
+      !schedulesRegionalReview ||
       !currentRoundIds.has(active.eventRegionReviewRoundId)
     )
       await transaction
@@ -128,7 +130,7 @@ export async function refreshEventOperationalCommunicationSchedules(
         .set({ status: "superseded", supersededAt: now, updatedAt: now })
         .where("id", "=", active.id)
         .executeTakeFirstOrThrow();
-  if (occurrence.status !== "published") return;
+  if (!schedulesRegionalReview) return;
 
   for (const round of currentByRegion.values()) {
     for (const definition of [

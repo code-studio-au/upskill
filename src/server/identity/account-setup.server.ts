@@ -65,6 +65,7 @@ export async function refreshAccountSetupRequest(
     continuePath?: string;
     purpose?: "late_registration_invitation";
     eventLateRegistrationInvitationId?: string;
+    preserveExistingRequests?: boolean;
     createdAt?: Date;
   },
 ): Promise<string | null> {
@@ -87,24 +88,26 @@ export async function refreshAccountSetupRequest(
       input.minimumIntervalMs
   )
     return null;
-  await transaction
-    .deleteFrom("verification")
-    .where("value", "=", input.user.id)
-    .where("identifier", "like", "reset-password:%")
-    .execute();
-  await transaction
-    .updateTable("notification")
-    .set({
-      status: "superseded",
-      payload: { version: 1 },
-      supersededAt: createdAt,
-      lastErrorCode: null,
-      updatedAt: createdAt,
-    })
-    .where("recipientUserId", "=", input.user.id)
-    .where("templateKey", "=", "account_setup_requested")
-    .where("status", "in", ["pending", "processing", "failed"])
-    .execute();
+  if (!input.preserveExistingRequests) {
+    await transaction
+      .deleteFrom("verification")
+      .where("value", "=", input.user.id)
+      .where("identifier", "like", "reset-password:%")
+      .execute();
+    await transaction
+      .updateTable("notification")
+      .set({
+        status: "superseded",
+        payload: { version: 1 },
+        supersededAt: createdAt,
+        lastErrorCode: null,
+        updatedAt: createdAt,
+      })
+      .where("recipientUserId", "=", input.user.id)
+      .where("templateKey", "=", "account_setup_requested")
+      .where("status", "in", ["pending", "processing", "failed"])
+      .execute();
+  }
   await transaction
     .updateTable("user")
     .set({ setupRequestedAt: createdAt, updatedAt: createdAt })
@@ -140,25 +143,28 @@ export async function refreshAccountSetupRequest(
 export async function findAccountSetupRequest(
   token: string,
 ): Promise<
-  { status: "ready"; name: string; email: string } | { status: "invalid" }
+  | { status: "active" }
+  | { status: "ready"; name: string; email: string }
+  | { status: "invalid" }
 > {
   const request = await getDatabase()
     .selectFrom("verification")
     .innerJoin("user", "user.id", "verification.value")
-    .select(["user.name", "user.email"])
+    .select([
+      "user.name",
+      "user.email",
+      "user.accountState",
+      "user.emailVerified",
+    ])
     .where("verification.identifier", "=", `reset-password:${token}`)
     .where("verification.expiresAt", ">", new Date())
-    .where((expression) =>
-      expression.or([
-        expression("user.accountState", "=", "provisional"),
-        expression.and([
-          expression("user.accountState", "=", "active"),
-          expression("user.emailVerified", "=", false),
-        ]),
-      ]),
-    )
     .executeTakeFirst();
-  return request ? { status: "ready", ...request } : { status: "invalid" };
+  if (!request) return { status: "invalid" };
+  if (request.accountState === "active" && request.emailVerified)
+    return { status: "active" };
+  if (request.accountState === "provisional" || !request.emailVerified)
+    return { status: "ready", name: request.name, email: request.email };
+  return { status: "invalid" };
 }
 
 export async function activateAccountAfterPasswordReset(

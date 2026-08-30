@@ -32,6 +32,7 @@ export async function provisionUser(
     continuePath?: string;
     refreshExistingSetup?: {
       minimumIntervalMs?: number;
+      preserveExistingRequests?: boolean;
       reason: "administrator" | "late_invitation" | "self_purchase";
     };
     setupPurpose?: "late_registration_invitation";
@@ -90,6 +91,9 @@ export async function provisionUser(
             : {
                 minimumIntervalMs: input.refreshExistingSetup.minimumIntervalMs,
               }),
+          ...(input.refreshExistingSetup.preserveExistingRequests
+            ? { preserveExistingRequests: true }
+            : {}),
           ...(input.continuePath ? { continuePath: input.continuePath } : {}),
           ...(input.setupPurpose ? { purpose: input.setupPurpose } : {}),
           ...(input.eventLateRegistrationInvitationId

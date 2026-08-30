@@ -47,6 +47,7 @@ function AccountSetupPage() {
   });
   const [request, setRequest] = useState<
     | { status: "loading" }
+    | { status: "active" }
     | { status: "ready"; name: string; email: string }
     | { status: "invalid" }
     | { status: "unavailable" }
@@ -62,7 +63,13 @@ function AccountSetupPage() {
     let active = true;
     void getAccountSetupRequest({ data: { token } })
       .then((result) => {
-        if (active) setRequest(result);
+        if (!active) return;
+        if (result.status === "active") {
+          setRequest(result);
+          window.location.assign(continuePath);
+          return;
+        }
+        setRequest(result);
       })
       .catch(() => {
         if (active) setRequest({ status: "unavailable" });
@@ -70,7 +77,7 @@ function AccountSetupPage() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [continuePath, token]);
   const form = useForm({
     defaultValues: { password: "", confirmPassword: "" },
     validators: { onSubmit: accountSetupPasswordSchema },
@@ -123,6 +130,8 @@ function AccountSetupPage() {
       >
         {request.status === "loading" ? (
           <LoadingSpinner label="Loading account setup" />
+        ) : request.status === "active" ? (
+          <LoadingSpinner label="Continuing to your invitation" />
         ) : request.status === "invalid" ? (
           <Stack gap="lg">
             <Title order={1}>Setup link unavailable</Title>

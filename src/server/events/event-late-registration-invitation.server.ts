@@ -159,7 +159,10 @@ export async function createEventLateRegistrationInvitation(
         sourceEventId: invitationId,
         createdAt: now,
         continuePath: invitationPath(token),
-        refreshExistingSetup: { reason: "late_invitation" },
+        refreshExistingSetup: {
+          reason: "late_invitation",
+          preserveExistingRequests: true,
+        },
         setupPurpose: "late_registration_invitation",
         eventLateRegistrationInvitationId: invitationId,
       });
@@ -486,6 +489,18 @@ export async function acceptEventLateRegistrationInvitation(
           .where("id", "=", invitation.id)
           .executeTakeFirstOrThrow();
         await supersedeInvitationNotifications(transaction, invitation.id, now);
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: user.id,
+          action: "event_late_registration_invitation.accepted",
+          subjectType: "event_late_registration_invitation",
+          subjectId: invitation.id,
+          aggregateId: invitation.eventOccurrenceId,
+          metadata: {
+            registrationId: existing.id,
+            reconciledExistingRegistration: true,
+          },
+          createdAt: now,
+        });
         return {
           status: "already-registered",
           eventOccurrenceId: invitation.eventOccurrenceId,
