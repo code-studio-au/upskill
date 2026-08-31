@@ -1298,8 +1298,9 @@ export async function rescheduleAdminEventOccurrence(
           transaction,
           {
             eventOccurrenceId,
+            previousTitle: occurrence.title,
             previousStartsAt: occurrence.startsAt,
-            nextStartsAt,
+            previousTimezone: occurrence.timezone,
           },
           administrator,
           now,

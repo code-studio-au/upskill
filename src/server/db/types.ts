@@ -1225,6 +1225,7 @@ interface NotificationTable {
   emailDesignVersionId: string;
   subjectTemplateSnapshot: string;
   textBodyTemplateSnapshot: string;
+  accountSetupVerificationId: Generated<string | null>;
   status: Generated<
     "pending" | "processing" | "delivered" | "failed" | "superseded" | "unknown"
   >;

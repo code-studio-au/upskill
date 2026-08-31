@@ -188,6 +188,7 @@ try {
     "event_guest_access_active_occurrence_uq",
     "user_email_normalized_uq",
     "notification_pending_idx",
+    "notification_account_setup_verification_idx",
     "email_design_catalogue_name_idx",
     "email_design_catalogue_position_idx",
     "email_design_context_position_uq",

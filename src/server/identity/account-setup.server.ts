@@ -9,7 +9,6 @@ import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { accountSetupContinuePathSchema } from "#/features/auth/account-setup.schema";
 import { enqueueAccountSetupNotification } from "#/server/notifications/notification.server";
-import { z } from "#/validation/zod.server";
 
 const ACCOUNT_SETUP_TTL_MS = 72 * 60 * 60 * 1_000;
 const RESET_PASSWORD_IDENTIFIER_PREFIX = "reset-password:";
@@ -20,43 +19,28 @@ function createSetupToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-const invitationSetupPayloadSchema = z.object({ setupUrl: z.url() });
-const accountSetupTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/u);
-
 export async function invalidateLateInvitationAccountSetupRequests(
   transaction: Transaction<Database>,
   invitationId: string,
 ): Promise<number> {
   const notifications = await transaction
     .selectFrom("notification")
-    .select("payload")
+    .select("accountSetupVerificationId")
     .where("templateKey", "=", "account_setup_requested")
+    .where("accountSetupVerificationId", "is not", null)
     .where(
       sql<boolean>`payload ->> 'eventLateRegistrationInvitationId' = ${invitationId}`,
     )
     .execute();
-  const identifiers = [
-    ...new Set(
-      notifications.flatMap((notification) => {
-        const payload = invitationSetupPayloadSchema.safeParse(
-          notification.payload,
-        );
-        if (!payload.success) return [];
-        const token = accountSetupTokenSchema.safeParse(
-          new URLSearchParams(new URL(payload.data.setupUrl).hash.slice(1)).get(
-            "token",
-          ),
-        );
-        return token.success
-          ? [`${RESET_PASSWORD_IDENTIFIER_PREFIX}${token.data}`]
-          : [];
-      }),
-    ),
-  ];
-  if (!identifiers.length) return 0;
+  const verificationIds = notifications.flatMap((notification) =>
+    notification.accountSetupVerificationId
+      ? [notification.accountSetupVerificationId]
+      : [],
+  );
+  if (!verificationIds.length) return 0;
   const deleted = await transaction
     .deleteFrom("verification")
-    .where("identifier", "in", identifiers)
+    .where("id", "in", verificationIds)
     .returning("id")
     .execute();
   return deleted.length;
@@ -77,10 +61,11 @@ export async function createAccountSetupRequest(
   },
 ): Promise<string> {
   const token = createSetupToken();
+  const verificationId = `verification_${randomUUID()}`;
   await transaction
     .insertInto("verification")
     .values({
-      id: `verification_${randomUUID()}`,
+      id: verificationId,
       identifier: `${RESET_PASSWORD_IDENTIFIER_PREFIX}${token}`,
       value: input.userId,
       expiresAt:
@@ -101,6 +86,7 @@ export async function createAccountSetupRequest(
   return await enqueueAccountSetupNotification(transaction, {
     ...input,
     setupUrl: setupUrl.toString(),
+    accountSetupVerificationId: verificationId,
   });
 }
 

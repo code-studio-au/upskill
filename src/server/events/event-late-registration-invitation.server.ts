@@ -385,8 +385,9 @@ export async function reconcileEventLateInvitationsAfterReschedule(
   transaction: Transaction<Database>,
   input: {
     eventOccurrenceId: string;
+    previousTitle: string;
     previousStartsAt: Date;
-    nextStartsAt: Date;
+    previousTimezone: string;
   },
   actor: AuthenticatedUser,
   now: Date,
@@ -395,6 +396,7 @@ export async function reconcileEventLateInvitationsAfterReschedule(
     .selectFrom("event_occurrence")
     .select([
       "id",
+      "title",
       "status",
       "startsAt",
       "timezone",
@@ -457,18 +459,25 @@ export async function reconcileEventLateInvitationsAfterReschedule(
       occurrence.registrationMode !== "required_restricted" ||
       invitation.overrideDomainRestriction ||
       Boolean(domain && domains.has(domain));
-    const expiryNeedsReplacement =
-      input.nextStartsAt < input.previousStartsAt &&
-      invitation.expiresAt > input.nextStartsAt;
+    const communicatedSnapshotChanged =
+      occurrence.title !== input.previousTitle ||
+      occurrence.startsAt.getTime() !== input.previousStartsAt.getTime() ||
+      occurrence.timezone !== input.previousTimezone;
+    const replacementExpiresAt =
+      invitation.expiresAt < occurrence.startsAt
+        ? invitation.expiresAt
+        : occurrence.startsAt;
+    const canReissue =
+      communicatedSnapshotChanged && replacementExpiresAt > now;
     if (
-      !expiryNeedsReplacement &&
+      !communicatedSnapshotChanged &&
       eventCanAcceptLateInvitations &&
       regionIsValid &&
       domainIsValid
     )
       continue;
     if (
-      expiryNeedsReplacement &&
+      canReissue &&
       eventCanAcceptLateInvitations &&
       regionIsValid &&
       domainIsValid
@@ -482,7 +491,7 @@ export async function reconcileEventLateInvitationsAfterReschedule(
           email: invitation.recipientEmailSnapshot,
           eventOccurrenceRegionId: invitation.eventOccurrenceRegionId,
           overrideDomainRestriction: invitation.overrideDomainRestriction,
-          expiresAt: occurrence.startsAt,
+          expiresAt: replacementExpiresAt,
           replacementReason: "event_rescheduled",
         },
         actor,

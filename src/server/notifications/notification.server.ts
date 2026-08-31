@@ -25,6 +25,7 @@ async function enqueueEmailNotification(
     textBodyTemplateSnapshot: string;
     deduplicationKey: string;
     payload: unknown;
+    accountSetupVerificationId?: string;
     createdAt: Date;
     availableAt?: Date;
   },
@@ -42,6 +43,7 @@ async function enqueueEmailNotification(
       emailDesignVersionId: input.emailDesignVersionId,
       subjectTemplateSnapshot: input.subjectTemplateSnapshot,
       textBodyTemplateSnapshot: input.textBodyTemplateSnapshot,
+      accountSetupVerificationId: input.accountSetupVerificationId ?? null,
       deduplicationKey: input.deduplicationKey,
       payload: input.payload,
       lastErrorCode: null,
@@ -90,6 +92,7 @@ export async function enqueueAccountSetupNotification(
     setupUrl: string;
     purpose?: "late_registration_invitation";
     eventLateRegistrationInvitationId?: string;
+    accountSetupVerificationId: string;
     createdAt: Date;
   },
 ): Promise<string> {
@@ -116,6 +119,7 @@ export async function enqueueAccountSetupNotification(
     subjectTemplateSnapshot: emailDesignVersion.subject,
     textBodyTemplateSnapshot: emailDesignVersion.textBody,
     deduplicationKey: input.deduplicationKey,
+    accountSetupVerificationId: input.accountSetupVerificationId,
     payload: {
       version: 1,
       setupUrl: input.setupUrl,

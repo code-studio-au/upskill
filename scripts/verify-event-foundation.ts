@@ -3019,7 +3019,7 @@ try {
   );
   const provisionalSetupNotification = await database
     .selectFrom("notification")
-    .select(["id", "payload"])
+    .select(["id", "payload", "accountSetupVerificationId"])
     .where(
       "payload",
       "@>",
@@ -3029,6 +3029,7 @@ try {
       }),
     )
     .executeTakeFirstOrThrow();
+  assert.ok(provisionalSetupNotification.accountSetupVerificationId);
   const provisionalSetupUrl = (
     provisionalSetupNotification.payload as { setupUrl?: unknown }
   ).setupUrl;
@@ -3045,6 +3046,26 @@ try {
       .executeTakeFirstOrThrow()
       .then((verification) => verification.expiresAt.toISOString()),
     provisionalLateInvitation.expiresAt.toISOString(),
+  );
+  assert.deepEqual(await deliverNotification(provisionalSetupNotification.id), {
+    status: "delivered",
+  });
+  assert.deepEqual(
+    await database
+      .selectFrom("notification")
+      .select(["status", "payload", "accountSetupVerificationId"])
+      .where("id", "=", provisionalSetupNotification.id)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "delivered",
+      payload: {
+        version: 1,
+        purpose: "late_registration_invitation",
+        eventLateRegistrationInvitationId: provisionalLateInvitation.id,
+      },
+      accountSetupVerificationId:
+        provisionalSetupNotification.accountSetupVerificationId,
+    },
   );
   const earlierInvitationStartsAt = new Date(
     coverageRevisionStartsAt.getTime() - 60 * 60 * 1000,
@@ -3100,7 +3121,7 @@ try {
       .where("id", "=", provisionalSetupNotification.id)
       .executeTakeFirstOrThrow()
       .then((row) => row.status),
-    "superseded",
+    "delivered",
   );
   assert.equal(
     await database
@@ -3125,7 +3146,7 @@ try {
   );
   const replacementSetupNotification = await database
     .selectFrom("notification")
-    .select("payload")
+    .select(["id", "payload"])
     .where(
       "payload",
       "@>",
@@ -3169,10 +3190,107 @@ try {
       }),
     { reissued: 1, revoked: 0 },
   );
+  const laterInvitationStartsAt = new Date(
+    earlierInvitationStartsAt.getTime() + 2 * 60 * 60 * 1000,
+  );
+  const laterInvitationEndsAt = new Date(
+    earlierInvitationEndsAt.getTime() + 2 * 60 * 60 * 1000,
+  );
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      eventOccurrenceId,
+      {
+        occurrence: {
+          ...occurrenceInput,
+          title: "Verification workshop · Later invitation snapshot",
+          slug: `verification-workshop-later-invitation-${suffix}`,
+          startsAt: laterInvitationStartsAt.toISOString(),
+          endsAt: laterInvitationEndsAt.toISOString(),
+          localStartsAt: localVerificationTime(laterInvitationStartsAt),
+          localEndsAt: localVerificationTime(laterInvitationEndsAt),
+          capacity: 3,
+          venueName: "Updated Verification Centre",
+          venueAddress: "2 Test Street, Sydney NSW",
+          domains: "health.example.org",
+        },
+        registrationWindowPolicy: "keep",
+        regionsConfirmed: true,
+        regionalCoverage: {
+          regions: [
+            {
+              regionId: addedCoordinationRegionId,
+              coordinatorIds: [administrator.id],
+            },
+          ],
+          retirements: [],
+        },
+      },
+      administrator,
+    ),
+    "rescheduled",
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_late_registration_invitation")
+      .select("revokedAt")
+      .where("id", "=", replacementInvitation.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.revokedAt),
+  );
+  assert.equal(
+    await database
+      .selectFrom("notification")
+      .select("status")
+      .where("id", "=", replacementSetupNotification.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.status),
+    "superseded",
+  );
+  assert.equal(
+    await database
+      .selectFrom("verification")
+      .select("id")
+      .where("identifier", "=", `reset-password:${replacementSetupToken}`)
+      .executeTakeFirst(),
+    undefined,
+  );
+  const laterReplacementInvitation = await database
+    .selectFrom("event_late_registration_invitation as invitation")
+    .innerJoin("user", "user.id", "invitation.userId")
+    .select(["invitation.id", "invitation.expiresAt"])
+    .where("invitation.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("user.email", "=", provisionalInvitationEmail)
+    .where("invitation.revokedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  assert.notEqual(laterReplacementInvitation.id, replacementInvitation.id);
+  assert.equal(
+    laterReplacementInvitation.expiresAt.toISOString(),
+    earlierInvitationStartsAt.toISOString(),
+  );
+  const laterReplacementSetupNotification = await database
+    .selectFrom("notification")
+    .select("payload")
+    .where(
+      "payload",
+      "@>",
+      JSON.stringify({
+        purpose: "late_registration_invitation",
+        eventLateRegistrationInvitationId: laterReplacementInvitation.id,
+      }),
+    )
+    .executeTakeFirstOrThrow();
+  const laterReplacementSetupUrl = (
+    laterReplacementSetupNotification.payload as { setupUrl?: unknown }
+  ).setupUrl;
+  assert.equal(typeof laterReplacementSetupUrl, "string");
+  const laterReplacementSetupToken = new URLSearchParams(
+    new URL(laterReplacementSetupUrl as string).hash.slice(1),
+  ).get("token");
+  assert.ok(laterReplacementSetupToken);
   assert.equal(
     await revokeEventLateRegistrationInvitation(
       eventOccurrenceId,
-      replacementInvitation.id,
+      laterReplacementInvitation.id,
       administrator,
     ),
     "revoked",
@@ -3181,7 +3299,7 @@ try {
     await database
       .selectFrom("verification")
       .select("id")
-      .where("identifier", "=", `reset-password:${replacementSetupToken}`)
+      .where("identifier", "=", `reset-password:${laterReplacementSetupToken}`)
       .executeTakeFirst(),
     undefined,
   );
