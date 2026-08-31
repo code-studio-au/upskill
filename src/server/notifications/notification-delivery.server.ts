@@ -204,7 +204,7 @@ async function eventNotificationApplicable(
   const database = getDatabase();
   const occurrence = await database
     .selectFrom("event_occurrence")
-    .select(["status", "startsAt"])
+    .select(["status", "startsAt", "approvalMode"])
     .where("id", "=", payload.eventOccurrenceId)
     .executeTakeFirst();
   if (!occurrence) return false;
@@ -277,7 +277,8 @@ async function eventNotificationApplicable(
     if (
       !payload.eventRegionReviewRoundId ||
       !payload.anchorAt ||
-      occurrence.status !== "published"
+      occurrence.status !== "published" ||
+      occurrence.approvalMode !== "manual"
     )
       return false;
     const review = await database

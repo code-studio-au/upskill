@@ -70,6 +70,7 @@ import {
   processNextEventOperationalCommunicationSchedule,
   refreshEventOperationalCommunicationSchedules,
 } from "#/server/notifications/event-operational-communication.server";
+import { deliverNotification } from "#/server/notifications/notification-delivery.server";
 import {
   dateToInstant,
   instantToLocalDateTime,
@@ -1330,23 +1331,33 @@ try {
     ),
     "locked",
   );
-  assert.equal(
-    await database
-      .selectFrom("notification")
-      .select("id")
-      .where("recipientUserId", "=", administrator.id)
-      .where(
-        "payload",
-        "@>",
-        JSON.stringify({
-          trigger: "regional_list_locked",
-          eventOccurrenceId,
-        }),
-      )
-      .executeTakeFirst()
-      .then(Boolean),
-    true,
+  const regionalListLockedNotification = await database
+    .selectFrom("notification")
+    .select("id")
+    .where("recipientUserId", "=", administrator.id)
+    .where(
+      "payload",
+      "@>",
+      JSON.stringify({
+        trigger: "regional_list_locked",
+        eventOccurrenceId,
+      }),
+    )
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_occurrence")
+    .set({ approvalMode: "automatic" })
+    .where("id", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await deliverNotification(regionalListLockedNotification.id),
+    { status: "superseded" },
   );
+  await database
+    .updateTable("event_occurrence")
+    .set({ approvalMode: "manual" })
+    .where("id", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await registerLearnerForEvent(
       eventOccurrenceId,
@@ -1430,7 +1441,7 @@ try {
   assert.equal(regionalReviewOutcome.recipientCount, 1);
   const regionalReviewNotification = await database
     .selectFrom("notification")
-    .select("payload")
+    .select(["id", "payload"])
     .where("recipientUserId", "=", administrator.id)
     .where("payload", "@>", JSON.stringify({ trigger: "regional_review_due" }))
     .executeTakeFirstOrThrow();
@@ -1442,6 +1453,19 @@ try {
     ).variables["event.operationsUrl"],
     `http://localhost:3000/event-operations/${eventOccurrenceId}`,
   );
+  await database
+    .updateTable("event_occurrence")
+    .set({ approvalMode: "automatic" })
+    .where("id", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await deliverNotification(regionalReviewNotification.id), {
+    status: "superseded",
+  });
+  await database
+    .updateTable("event_occurrence")
+    .set({ approvalMode: "manual" })
+    .where("id", "=", eventOccurrenceId)
+    .executeTakeFirstOrThrow();
   assert.equal(
     await alignAdminEventRegistrationProfileRegion(
       eventOccurrenceId,

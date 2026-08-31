@@ -18,6 +18,66 @@ import {
 } from "#/server/functions/event-late-invitation";
 import classes from "./login.module.css";
 
+const invitationResumeStoragePrefix = "upskill.event-invite.";
+
+function readInvitationSecret(): {
+  resumeStorageKey: string | null;
+  token: string;
+} {
+  if (typeof window === "undefined")
+    return { resumeStorageKey: null, token: "" };
+  const fragmentToken = eventLateInvitationTokenSchema.safeParse(
+    new URLSearchParams(window.location.hash.slice(1)).get("token"),
+  );
+  if (fragmentToken.success)
+    return { resumeStorageKey: null, token: fragmentToken.data };
+  const resumeId = new URLSearchParams(window.location.search).get("resume");
+  if (!resumeId || resumeId.length !== 36 || /[^\da-f-]/u.test(resumeId))
+    return { resumeStorageKey: null, token: "" };
+  const resumeStorageKey = `${invitationResumeStoragePrefix}${resumeId}`;
+  try {
+    const resumedToken = eventLateInvitationTokenSchema.safeParse(
+      window.sessionStorage.getItem(resumeStorageKey),
+    );
+    return {
+      resumeStorageKey,
+      token: resumedToken.success ? resumedToken.data : "",
+    };
+  } catch {
+    return { resumeStorageKey: null, token: "" };
+  }
+}
+
+function removeInvitationResume(resumeStorageKey: string | null): void {
+  if (!resumeStorageKey) return;
+  try {
+    window.sessionStorage.removeItem(resumeStorageKey);
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts.
+  }
+}
+
+function redirectToInvitationLogin(
+  token: string,
+  previousResumeStorageKey: string | null,
+): boolean {
+  try {
+    const resumeId = window.crypto.randomUUID();
+    window.sessionStorage.setItem(
+      `${invitationResumeStoragePrefix}${resumeId}`,
+      token,
+    );
+    removeInvitationResume(previousResumeStorageKey);
+    const destination = `/event-invitation?resume=${resumeId}`;
+    window.location.assign(
+      `/login?redirect=${encodeURIComponent(destination)}`,
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 type InvitationState =
   | { status: "loading" }
   | {
@@ -47,13 +107,7 @@ export const Route = createFileRoute("/event-invitation")({
 });
 
 function EventInvitationPage() {
-  const [token] = useState(() => {
-    if (typeof window === "undefined") return "";
-    const parsed = eventLateInvitationTokenSchema.safeParse(
-      new URLSearchParams(window.location.hash.slice(1)).get("token"),
-    );
-    return parsed.success ? parsed.data : "";
-  });
+  const [{ resumeStorageKey, token }] = useState(readInvitationSecret);
   const [invitation, setInvitation] = useState<InvitationState>(
     token ? { status: "loading" } : { status: "invalid" },
   );
@@ -68,12 +122,11 @@ function EventInvitationPage() {
       .then((result) => {
         if (!active) return;
         if (result.status === "unauthenticated") {
-          const destination = `/event-invitation#token=${token}`;
-          window.location.assign(
-            `/login?redirect=${encodeURIComponent(destination)}`,
-          );
+          if (!redirectToInvitationLogin(token, resumeStorageKey))
+            setInvitation({ status: "unavailable" });
           return;
         }
+        removeInvitationResume(resumeStorageKey);
         setInvitation(result);
       })
       .catch(() => {
@@ -82,7 +135,7 @@ function EventInvitationPage() {
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [resumeStorageKey, token]);
 
   const accept = async () => {
     if (!token || invitation.status !== "ready") return;
@@ -91,9 +144,8 @@ function EventInvitationPage() {
     try {
       const result = await acceptEventLateInvitation({ data: { token } });
       if (result.status === "unauthenticated") {
-        window.location.assign(
-          `/login?redirect=${encodeURIComponent(`/event-invitation#token=${token}`)}`,
-        );
+        if (!redirectToInvitationLogin(token, null))
+          setError("Sign-in continuation is unavailable in this browser.");
         return;
       }
       if (

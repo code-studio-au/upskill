@@ -256,6 +256,7 @@ export async function up(db: Kysely<unknown>): Promise<void> {
       cross join (values ('regional_review_due'), ('regional_lock_due'))
         as schedule(kind)
      where occurrence.status = 'published'
+       and occurrence."approvalMode" = 'manual'
        and region."retiredAt" is null
        and review."lockedAt" is null
        and not exists (
