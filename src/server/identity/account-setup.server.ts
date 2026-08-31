@@ -11,6 +11,9 @@ import { accountSetupContinuePathSchema } from "#/features/auth/account-setup.sc
 import { enqueueAccountSetupNotification } from "#/server/notifications/notification.server";
 
 const ACCOUNT_SETUP_TTL_MS = 72 * 60 * 60 * 1_000;
+const RESET_PASSWORD_IDENTIFIER_PREFIX = "reset-password:";
+const ACCOUNT_SETUP_CONTINUATION_IDENTIFIER_PREFIX =
+  "account-setup-continuation:";
 
 function createSetupToken(): string {
   return randomBytes(32).toString("base64url");
@@ -35,7 +38,7 @@ export async function createAccountSetupRequest(
     .insertInto("verification")
     .values({
       id: `verification_${randomUUID()}`,
-      identifier: `reset-password:${token}`,
+      identifier: `${RESET_PASSWORD_IDENTIFIER_PREFIX}${token}`,
       value: input.userId,
       expiresAt:
         input.setupExpiresAt ??
@@ -96,7 +99,7 @@ export async function refreshAccountSetupRequest(
     await transaction
       .deleteFrom("verification")
       .where("value", "=", input.user.id)
-      .where("identifier", "like", "reset-password:%")
+      .where("identifier", "like", `${RESET_PASSWORD_IDENTIFIER_PREFIX}%`)
       .execute();
     await transaction
       .updateTable("notification")
@@ -160,14 +163,21 @@ export async function findAccountSetupRequest(
       "user.email",
       "user.accountState",
       "user.emailVerified",
+      "verification.identifier",
     ])
-    .where("verification.identifier", "=", `reset-password:${token}`)
+    .where("verification.identifier", "in", [
+      `${RESET_PASSWORD_IDENTIFIER_PREFIX}${token}`,
+      `${ACCOUNT_SETUP_CONTINUATION_IDENTIFIER_PREFIX}${token}`,
+    ])
     .where("verification.expiresAt", ">", new Date())
     .executeTakeFirst();
   if (!request) return { status: "invalid" };
   if (request.accountState === "active" && request.emailVerified)
     return { status: "active" };
-  if (request.accountState === "provisional" || !request.emailVerified)
+  if (
+    request.identifier === `${RESET_PASSWORD_IDENTIFIER_PREFIX}${token}` &&
+    (request.accountState === "provisional" || !request.emailVerified)
+  )
     return { status: "ready", name: request.name, email: request.email };
   return { status: "invalid" };
 }
@@ -201,6 +211,15 @@ export async function activateAccountAfterPasswordReset(
         .returning("id")
         .executeTakeFirst();
       if (!activated) return;
+      await transaction
+        .updateTable("verification")
+        .set({
+          identifier: sql<string>`replace("identifier", ${RESET_PASSWORD_IDENTIFIER_PREFIX}, ${ACCOUNT_SETUP_CONTINUATION_IDENTIFIER_PREFIX})`,
+          updatedAt: now,
+        })
+        .where("value", "=", userId)
+        .where("identifier", "like", `${RESET_PASSWORD_IDENTIFIER_PREFIX}%`)
+        .execute();
       const invitation = await transaction
         .selectFrom("platform_admin_invitation")
         .select(["id", "invitedByUserId"])

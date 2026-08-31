@@ -310,6 +310,36 @@ try {
   assert.deepEqual(await findAccountSetupRequest(secondInvitationSetupToken), {
     status: "active",
   });
+  assert.equal(
+    await database
+      .selectFrom("verification")
+      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .where("value", "=", firstInvitationSetup.user.id)
+      .where("identifier", "like", "reset-password:%")
+      .executeTakeFirstOrThrow()
+      .then((row) => String(row.count)),
+    "0",
+  );
+  assert.ok(
+    await database
+      .selectFrom("verification")
+      .select("id")
+      .where(
+        "identifier",
+        "=",
+        `account-setup-continuation:${secondInvitationSetupToken}`,
+      )
+      .where("value", "=", firstInvitationSetup.user.id)
+      .executeTakeFirst(),
+  );
+  await assert.rejects(
+    auth.api.resetPassword({
+      body: {
+        token: secondInvitationSetupToken,
+        newPassword: "must-not-replace-active-password",
+      },
+    }),
+  );
   const preservedInvitationSetupNotifications = await database
     .selectFrom("notification")
     .select(["id", "payload", "status"])

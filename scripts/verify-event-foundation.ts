@@ -2812,7 +2812,7 @@ try {
         email: provisionalInvitationEmail,
         eventOccurrenceRegionId: addedOccurrenceRegion.id,
         overrideDomainRestriction: true,
-        expiresInDays: 7,
+        expiresInDays: 30,
       },
       administrator,
     ),
@@ -2826,6 +2826,10 @@ try {
     .where("user.email", "=", provisionalInvitationEmail)
     .executeTakeFirstOrThrow();
   assert.equal(provisionalLateInvitation.accountState, "provisional");
+  assert.equal(
+    provisionalLateInvitation.expiresAt.toISOString(),
+    coverageRevisionStartsAt.toISOString(),
+  );
   const provisionalSetupNotification = await database
     .selectFrom("notification")
     .select("payload")

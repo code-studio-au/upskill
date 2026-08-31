@@ -153,7 +153,10 @@ export async function createEventLateRegistrationInvitation(
       const invitationId = `event_late_registration_invitation_${randomUUID()}`;
       const token = invitationToken();
       const expiresAt = new Date(
-        now.getTime() + input.expiresInDays * 24 * 60 * 60 * 1_000,
+        Math.min(
+          now.getTime() + input.expiresInDays * 24 * 60 * 60 * 1_000,
+          occurrence.startsAt.getTime(),
+        ),
       );
       const provisioned = await provisionUser(transaction, {
         name: existingUser?.name ?? input.name,
