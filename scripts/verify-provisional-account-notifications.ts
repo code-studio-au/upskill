@@ -267,7 +267,7 @@ try {
   assert.equal(secondInvitationSetup.user.id, firstInvitationSetup.user.id);
   const invitationSetupNotifications = await database
     .selectFrom("notification")
-    .select(["payload", "status"])
+    .select(["id", "payload", "status"])
     .where("recipientUserId", "=", firstInvitationSetup.user.id)
     .where("templateKey", "=", "account_setup_requested")
     .orderBy("createdAt")
@@ -310,6 +310,25 @@ try {
   assert.deepEqual(await findAccountSetupRequest(secondInvitationSetupToken), {
     status: "active",
   });
+  const preservedInvitationSetupNotifications = await database
+    .selectFrom("notification")
+    .select(["id", "payload", "status"])
+    .where(
+      "id",
+      "in",
+      invitationSetupNotifications.map((entry) => entry.id),
+    )
+    .orderBy("createdAt")
+    .execute();
+  assert.deepEqual(
+    preservedInvitationSetupNotifications.map((entry) => entry.status),
+    ["pending", "pending"],
+  );
+  for (const entry of preservedInvitationSetupNotifications)
+    assert.equal(
+      typeof (entry.payload as { setupUrl?: unknown }).setupUrl,
+      "string",
+    );
 
   const rolledBackEmail = `rolled-back-${suffix}@example.com`;
   await assert.rejects(

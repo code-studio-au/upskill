@@ -237,6 +237,7 @@ export async function activateAccountAfterPasswordReset(
         .set({ payload: { version: 1 }, updatedAt: now })
         .where("recipientUserId", "=", userId)
         .where("templateKey", "=", "account_setup_requested")
+        .where("status", "not in", ["pending", "processing", "failed"])
         .execute();
       await recordDurableAuditEvent(transaction, {
         actorUserId: userId,

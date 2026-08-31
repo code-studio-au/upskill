@@ -2598,6 +2598,20 @@ try {
       },
       administrator,
     ),
+    "not-found",
+  );
+  assert.equal(
+    await createEventLateRegistrationInvitation(
+      {
+        eventOccurrenceId,
+        name: presenter.name,
+        email: presenter.email,
+        eventOccurrenceRegionId: addedOccurrenceRegion.id,
+        overrideDomainRestriction: true,
+        expiresInDays: 7,
+      },
+      administrator,
+    ),
     "created",
   );
   const lateInvitation = await database
@@ -2681,7 +2695,7 @@ try {
         eventOccurrenceId,
         name: coordinator.name,
         email: coordinator.email,
-        eventOccurrenceRegionId: null,
+        eventOccurrenceRegionId: addedOccurrenceRegion.id,
         overrideDomainRestriction: true,
         expiresInDays: 7,
       },
@@ -2765,7 +2779,7 @@ try {
         eventOccurrenceId,
         name: "Allowed-domain late learner",
         email: allowedDomainInvitationEmail,
-        eventOccurrenceRegionId: null,
+        eventOccurrenceRegionId: addedOccurrenceRegion.id,
         overrideDomainRestriction: false,
         expiresInDays: 2,
       },
@@ -2796,7 +2810,7 @@ try {
         eventOccurrenceId,
         name: "Late invitation learner",
         email: provisionalInvitationEmail,
-        eventOccurrenceRegionId: null,
+        eventOccurrenceRegionId: addedOccurrenceRegion.id,
         overrideDomainRestriction: true,
         expiresInDays: 2,
       },

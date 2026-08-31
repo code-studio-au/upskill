@@ -135,16 +135,20 @@ export async function createEventLateRegistrationInvitation(
           return "override-required" as const;
       }
 
-      if (input.eventOccurrenceRegionId) {
-        const region = await transaction
-          .selectFrom("event_occurrence_region")
-          .select("id")
-          .where("id", "=", input.eventOccurrenceRegionId)
-          .where("eventOccurrenceId", "=", occurrence.id)
-          .where("retiredAt", "is", null)
-          .executeTakeFirst();
-        if (!region) return "not-found" as const;
-      }
+      const occurrenceRegions = await transaction
+        .selectFrom("event_occurrence_region")
+        .select("id")
+        .where("eventOccurrenceId", "=", occurrence.id)
+        .where("retiredAt", "is", null)
+        .execute();
+      if (
+        (occurrenceRegions.length > 0 && !input.eventOccurrenceRegionId) ||
+        (input.eventOccurrenceRegionId &&
+          !occurrenceRegions.some(
+            (region) => region.id === input.eventOccurrenceRegionId,
+          ))
+      )
+        return "not-found" as const;
 
       const invitationId = `event_late_registration_invitation_${randomUUID()}`;
       const token = invitationToken();
