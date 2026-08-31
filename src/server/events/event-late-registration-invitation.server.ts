@@ -389,9 +389,6 @@ export async function reconcileEventLateInvitationsAfterReschedule(
   actor: AuthenticatedUser,
   now: Date,
 ): Promise<{ reissued: number; revoked: number }> {
-  if (input.nextStartsAt >= input.previousStartsAt)
-    return { reissued: 0, revoked: 0 };
-
   const occurrence = await transaction
     .selectFrom("event_occurrence")
     .select([
@@ -412,11 +409,11 @@ export async function reconcileEventLateInvitationsAfterReschedule(
       "recipientNameSnapshot",
       "recipientEmailSnapshot",
       "overrideDomainRestriction",
+      "expiresAt",
     ])
     .where("eventOccurrenceId", "=", input.eventOccurrenceId)
     .where("acceptedAt", "is", null)
     .where("revokedAt", "is", null)
-    .where("expiresAt", ">", input.nextStartsAt)
     .execute();
   if (!invitations.length) return { reissued: 0, revoked: 0 };
 
@@ -458,7 +455,22 @@ export async function reconcileEventLateInvitationsAfterReschedule(
       occurrence.registrationMode !== "required_restricted" ||
       invitation.overrideDomainRestriction ||
       Boolean(domain && domains.has(domain));
-    if (eventCanAcceptLateInvitations && regionIsValid && domainIsValid) {
+    const expiryNeedsReplacement =
+      input.nextStartsAt < input.previousStartsAt &&
+      invitation.expiresAt > input.nextStartsAt;
+    if (
+      !expiryNeedsReplacement &&
+      eventCanAcceptLateInvitations &&
+      regionIsValid &&
+      domainIsValid
+    )
+      continue;
+    if (
+      expiryNeedsReplacement &&
+      eventCanAcceptLateInvitations &&
+      regionIsValid &&
+      domainIsValid
+    ) {
       await issueEventLateRegistrationInvitation(
         transaction,
         {
@@ -529,6 +541,7 @@ export async function findEventLateRegistrationInvitation(
     .select([
       "invitation.id",
       "invitation.userId",
+      "invitation.eventOccurrenceRegionId",
       "invitation.recipientEmailSnapshot",
       "invitation.expiresAt",
       "invitation.acceptedAt",
@@ -562,6 +575,20 @@ export async function findEventLateRegistrationInvitation(
     invitation.eventStartsAt <= new Date() ||
     invitation.registrationMode === "open_entry" ||
     invitation.registrationMode === "paid_entry"
+  )
+    return { status: "unavailable" };
+  const activeRegion = await getDatabase()
+    .selectFrom("event_occurrence_region")
+    .select("id")
+    .where("eventOccurrenceId", "=", invitation.eventOccurrenceId)
+    .where("retiredAt", "is", null)
+    .$if(Boolean(invitation.eventOccurrenceRegionId), (query) =>
+      query.where("id", "=", invitation.eventOccurrenceRegionId ?? ""),
+    )
+    .executeTakeFirst();
+  if (
+    (invitation.eventOccurrenceRegionId && !activeRegion) ||
+    (!invitation.eventOccurrenceRegionId && activeRegion)
   )
     return { status: "unavailable" };
   return {
@@ -711,15 +738,37 @@ export async function acceptEventLateRegistrationInvitation(
           ? "verified_domain"
           : "administrator_override";
       }
-      if (invitation.eventOccurrenceRegionId) {
-        const region = await transaction
-          .selectFrom("event_occurrence_region")
-          .select("id")
-          .where("id", "=", invitation.eventOccurrenceRegionId)
-          .where("eventOccurrenceId", "=", invitation.eventOccurrenceId)
-          .where("retiredAt", "is", null)
-          .executeTakeFirst();
-        if (!region) return { status: "unavailable" } as const;
+      const activeRegion = await transaction
+        .selectFrom("event_occurrence_region")
+        .select("id")
+        .where("eventOccurrenceId", "=", invitation.eventOccurrenceId)
+        .where("retiredAt", "is", null)
+        .$if(Boolean(invitation.eventOccurrenceRegionId), (query) =>
+          query.where("id", "=", invitation.eventOccurrenceRegionId ?? ""),
+        )
+        .executeTakeFirst();
+      if (
+        (invitation.eventOccurrenceRegionId && !activeRegion) ||
+        (!invitation.eventOccurrenceRegionId && activeRegion)
+      ) {
+        const now = new Date();
+        await transaction
+          .updateTable("event_late_registration_invitation")
+          .set({ revokedAt: now, revokedByUserId: user.id })
+          .where("id", "=", invitation.id)
+          .where("revokedAt", "is", null)
+          .execute();
+        await supersedeInvitationNotifications(transaction, invitation.id, now);
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: user.id,
+          action: "event_late_registration_invitation.revoked",
+          subjectType: "event_late_registration_invitation",
+          subjectId: invitation.id,
+          aggregateId: invitation.eventOccurrenceId,
+          metadata: { reason: "region_requirements_changed" },
+          createdAt: now,
+        });
+        return { status: "unavailable" } as const;
       }
 
       const now = new Date();

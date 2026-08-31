@@ -110,6 +110,12 @@ const presenter: AuthenticatedUser = {
   email: `verify-event-presenter-${suffix}@example.com`,
   emailVerified: true,
 };
+const regionlessInvitee: AuthenticatedUser = {
+  id: `verify_event_regionless_invitee_${suffix}`,
+  name: "Regionless invitation learner",
+  email: `verify-event-regionless-${suffix}@example.com`,
+  emailVerified: true,
+};
 const coordinationRegionId = `coordination_region_${suffix}`;
 const addedCoordinationRegionId = `coordination_region_added_${suffix}`;
 const outsideCoordinationRegionId = `coordination_region_outside_${suffix}`;
@@ -357,6 +363,7 @@ async function cleanup(): Promise<void> {
         learner.id,
         coordinator.id,
         presenter.id,
+        regionlessInvitee.id,
       ])
       .execute();
   });
@@ -371,6 +378,7 @@ async function cleanup(): Promise<void> {
       learner.id,
       coordinator.id,
       presenter.id,
+      regionlessInvitee.id,
     ])
     .execute();
   await database
@@ -380,7 +388,7 @@ async function cleanup(): Promise<void> {
   await database.deleteFrom("user").where("id", "=", learner.id).execute();
   await database
     .deleteFrom("user")
-    .where("id", "in", [coordinator.id, presenter.id])
+    .where("id", "in", [coordinator.id, presenter.id, regionlessInvitee.id])
     .execute();
   await database
     .updateTable("user")
@@ -432,6 +440,12 @@ try {
         id: presenter.id,
         name: presenter.name,
         email: presenter.email,
+        emailVerified: true,
+      },
+      {
+        id: regionlessInvitee.id,
+        name: regionlessInvitee.name,
+        email: regionlessInvitee.email,
         emailVerified: true,
       },
     ])
@@ -2586,6 +2600,88 @@ try {
     .set({ registrationClosesAt: lateInvitationWindow })
     .where("id", "=", eventOccurrenceId)
     .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_occurrence_region")
+    .set({ retiredAt: new Date() })
+    .where("id", "=", addedOccurrenceRegion.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await createEventLateRegistrationInvitation(
+      {
+        eventOccurrenceId,
+        name: regionlessInvitee.name,
+        email: regionlessInvitee.email,
+        eventOccurrenceRegionId: null,
+        overrideDomainRestriction: true,
+        expiresInDays: 7,
+      },
+      administrator,
+    ),
+    "created",
+  );
+  const regionlessInvitation = await database
+    .selectFrom("event_late_registration_invitation")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", regionlessInvitee.id)
+    .where("revokedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  const regionlessInvitationNotification = await database
+    .selectFrom("notification")
+    .select(["id", "payload"])
+    .where(
+      "payload",
+      "@>",
+      JSON.stringify({
+        eventLateRegistrationInvitationId: regionlessInvitation.id,
+      }),
+    )
+    .executeTakeFirstOrThrow();
+  const regionlessInvitationUrl = (
+    regionlessInvitationNotification.payload as {
+      variables: Record<string, string>;
+    }
+  ).variables["event.invitationUrl"];
+  assert.ok(regionlessInvitationUrl);
+  const regionlessInvitationToken = new URL(
+    regionlessInvitationUrl,
+  ).hash.replace("#token=", "");
+  await database
+    .updateTable("event_occurrence_region")
+    .set({ retiredAt: null })
+    .where("id", "=", addedOccurrenceRegion.id)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await findEventLateRegistrationInvitation(
+      regionlessInvitationToken,
+      regionlessInvitee,
+    ),
+    { status: "unavailable" },
+  );
+  assert.deepEqual(
+    await acceptEventLateRegistrationInvitation(
+      regionlessInvitationToken,
+      regionlessInvitee,
+    ),
+    { status: "unavailable" },
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_late_registration_invitation")
+      .select("revokedAt")
+      .where("id", "=", regionlessInvitation.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.revokedAt),
+  );
+  assert.equal(
+    await database
+      .selectFrom("notification")
+      .select("status")
+      .where("id", "=", regionlessInvitationNotification.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.status),
+    "superseded",
+  );
   assert.equal(
     await createEventLateRegistrationInvitation(
       {
