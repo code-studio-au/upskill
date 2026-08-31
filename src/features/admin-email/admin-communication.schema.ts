@@ -44,6 +44,7 @@ const eventCommunicationTriggerSchema = z.enum([
   "event_rescheduled",
   "event_cancelled",
   "prework_incomplete",
+  "post_event_incomplete",
   "event_start",
   "event_end",
   "session_start",

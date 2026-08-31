@@ -36,6 +36,16 @@ describe("account setup validation", () => {
       accountSetupContinuePathSchema.parse("/courses/clinical-leadership"),
     ).toBe("/courses/clinical-leadership");
     expect(
+      accountSetupContinuePathSchema.parse(
+        `/event-invitation#token=${"a".repeat(43)}`,
+      ),
+    ).toBe(`/event-invitation#token=${"a".repeat(43)}`);
+    expect(
+      accountSetupContinuePathSchema.safeParse(
+        "/event-invitation#token=too-short",
+      ).success,
+    ).toBe(false);
+    expect(
       accountSetupContinuePathSchema.safeParse("https://example.com").success,
     ).toBe(false);
     expect(

@@ -121,6 +121,32 @@ for (const [index, filename] of migrationFiles.entries()) {
 if (migrationFiles.length < baselineEntries.length)
   throw new Error("One or more frozen migrations were removed");
 
+const operationalCommunicationMigration = await readFile(
+  path.join(migrationsDirectory, "0081_event_operational_communications.ts"),
+  "utf8",
+);
+const operationalScheduleBackfillStart =
+  operationalCommunicationMigration.indexOf(
+    "insert into event_operational_communication_schedule",
+  );
+const operationalScheduleBackfillEnd =
+  operationalCommunicationMigration.indexOf(
+    "`.execute(db);",
+    operationalScheduleBackfillStart,
+  );
+const operationalScheduleBackfill = operationalCommunicationMigration.slice(
+  operationalScheduleBackfillStart,
+  operationalScheduleBackfillEnd,
+);
+if (
+  operationalScheduleBackfillStart < 0 ||
+  operationalScheduleBackfillEnd < 0 ||
+  !operationalScheduleBackfill.includes(`occurrence."approvalMode" = 'manual'`)
+)
+  throw new Error(
+    "Event operational schedule backfill must exclude automatic-approval events",
+  );
+
 console.log(
   `Verified ${baselineEntries.length} frozen migrations against ${baselineTag} (${baselineCommit}) and ${migrationFiles.length - baselineEntries.length} forward-only migration(s)`,
 );

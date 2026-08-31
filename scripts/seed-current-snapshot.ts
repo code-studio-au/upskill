@@ -140,6 +140,15 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
   );
   if (!section)
     throw new Error("Snapshot fixture event sample has no pre-event section");
+  const postEventSection = (
+    fixture.tables.event_template_version_section ?? []
+  ).find(
+    (candidate) =>
+      candidate.eventTemplateVersionId === version.id &&
+      candidate.phase === "post_event",
+  );
+  if (!postEventSection)
+    throw new Error("Snapshot fixture event sample has no post-event section");
   const emailVersion = (fixture.tables.email_design_version ?? []).find(
     (candidate) =>
       candidate.contractKey === "offering.event" && candidate.publishedAt,
@@ -150,6 +159,7 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
   const samples = [
     {
       trigger: "registration_waitlisted",
+      sectionId: section.id,
       audience: "affected_learner",
       label: "Waitlist outcome",
       subject: "You are on the waitlist for {{event.title}}",
@@ -160,6 +170,7 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
     },
     {
       trigger: "registration_not_selected",
+      sectionId: section.id,
       audience: "affected_learner",
       label: "Not-selected outcome",
       subject: "Your registration outcome for {{event.title}}",
@@ -170,6 +181,7 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
     },
     {
       trigger: "registration_cancelled",
+      sectionId: section.id,
       audience: "affected_learner",
       label: "Registration cancelled",
       subject: "Your registration for {{event.title}} was cancelled",
@@ -180,6 +192,7 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
     },
     {
       trigger: "event_rescheduled",
+      sectionId: section.id,
       audience: "active_registrants",
       label: "Event rescheduled",
       subject: "New schedule for {{event.title}}",
@@ -190,6 +203,7 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
     },
     {
       trigger: "event_cancelled",
+      sectionId: section.id,
       audience: "active_registrants",
       label: "Event cancelled",
       subject: "{{event.title}} was cancelled",
@@ -200,12 +214,24 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
     },
     {
       trigger: "prework_incomplete",
+      sectionId: section.id,
       audience: "confirmed_participants",
       label: "Incomplete pre-work reminder",
       subject: "Complete your pre-work for {{event.title}}",
       textBody:
         "Hello {{user.firstName}},\n\nYou have {{progress.remainingPreworkItemCount}} pre-work activities remaining before {{event.title}}. Continue here: {{event.dashboardUrl}}",
       offsetAmount: -3,
+      offsetUnit: "day",
+    },
+    {
+      trigger: "post_event_incomplete",
+      sectionId: postEventSection.id,
+      audience: "confirmed_participants",
+      label: "Incomplete post-event work reminder",
+      subject: "Complete your post-event work for {{event.title}}",
+      textBody:
+        "Hello {{user.firstName}},\n\nYou have {{progress.remainingPostEventItemCount}} post-event activities remaining for {{event.title}}. Continue here: {{event.dashboardUrl}}",
+      offsetAmount: 1,
       offsetUnit: "day",
     },
   ] as const;
@@ -226,7 +252,7 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
     templateRows.push({
       id,
       eventTemplateVersionId: version.id,
-      sectionId: section.id,
+      sectionId: sample.sectionId,
       sessionDefinitionId: null,
       position: firstTemplatePosition + index,
       label: sample.label,
@@ -264,7 +290,7 @@ function addEventLifecycleCommunicationSamples(fixture: SnapshotFixture): void {
         active: true,
         overrideState: "inherited",
         emailDesignVersionId: emailVersion.id,
-        sectionId: section.id,
+        sectionId: sample.sectionId,
         sessionDefinitionId: null,
         position: firstPosition + index,
         label: sample.label,
@@ -315,6 +341,7 @@ function assertCurrentFeatureSamples(fixture: SnapshotFixture): void {
     "event_rescheduled",
     "event_cancelled",
     "prework_incomplete",
+    "post_event_incomplete",
   ])
     if (!eventTriggers.has(trigger))
       throw new Error(`Snapshot fixture has no sample for ${trigger}`);

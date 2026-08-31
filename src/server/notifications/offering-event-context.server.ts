@@ -310,6 +310,8 @@ export async function buildEventNotificationVariables(
       ? "Available after completion"
       : "Not available";
   variables["event.dashboardUrl"] = `${baseUrl}/my-events/${event.id}`;
+  variables["event.operationsUrl"] =
+    `${baseUrl}/admin/events/instances/${event.id}`;
   variables["event.publicUrl"] = `${baseUrl}/events/${event.slug}`;
   variables["event.certificateUrl"] =
     certificateEligible && input.recipient.participationId
@@ -503,6 +505,21 @@ export async function buildEventNotificationVariables(
       return requiredItems.length ? requiredItems : sectionItems;
     });
     const completedPreworkCount = preworkTargets.filter(itemCompleted).length;
+    const postEventItems = items.filter(
+      (item) => item.phase === "post_event" || item.phase === "follow_up",
+    );
+    const postEventSectionIds = new Set(
+      postEventItems.map((item) => item.sectionId),
+    );
+    const postEventTargets = [...postEventSectionIds].flatMap((sectionId) => {
+      const sectionItems = postEventItems.filter(
+        (item) => item.sectionId === sectionId,
+      );
+      const requiredItems = sectionItems.filter((item) => item.required);
+      return requiredItems.length ? requiredItems : sectionItems;
+    });
+    const completedPostEventCount =
+      postEventTargets.filter(itemCompleted).length;
     const progressPercent = items.length
       ? Math.round((completedCount / items.length) * 100)
       : 0;
@@ -518,6 +535,15 @@ export async function buildEventNotificationVariables(
     variables["progress.totalPreworkItemCount"] = String(preworkTargets.length);
     variables["progress.remainingPreworkItemCount"] = String(
       Math.max(0, preworkTargets.length - completedPreworkCount),
+    );
+    variables["progress.completedPostEventItemCount"] = String(
+      completedPostEventCount,
+    );
+    variables["progress.totalPostEventItemCount"] = String(
+      postEventTargets.length,
+    );
+    variables["progress.remainingPostEventItemCount"] = String(
+      Math.max(0, postEventTargets.length - completedPostEventCount),
     );
     variables["attendance.status"] = participation?.completedAt
       ? "Completed"

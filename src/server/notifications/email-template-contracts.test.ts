@@ -73,7 +73,10 @@ describe("governed email template contracts", () => {
     expect(eventKeys).toEqual(
       expect.arrayContaining([
         "attendance.status",
+        "event.invitationUrl",
+        "event.operationsUrl",
         "event.registrationClosesAt",
+        "progress.remainingPostEventItemCount",
         "registration.regionGroupCode",
         "session.virtualJoinUrl",
       ]),

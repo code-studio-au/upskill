@@ -22,7 +22,10 @@ const affectedLearnerOnlyEventTriggers = new Set([
   "section_release",
 ]);
 
-const confirmedParticipantsOnlyEventTriggers = new Set(["prework_incomplete"]);
+const confirmedParticipantsOnlyEventTriggers = new Set([
+  "post_event_incomplete",
+  "prework_incomplete",
+]);
 
 const occurrenceLifecycleEventTriggers = new Set([
   "event_cancelled",
@@ -93,6 +96,10 @@ export const eventCommunicationTriggers = [
   { value: "event_rescheduled", label: "Event rescheduled" },
   { value: "event_cancelled", label: "Event cancelled" },
   { value: "prework_incomplete", label: "Pre-work remains incomplete" },
+  {
+    value: "post_event_incomplete",
+    label: "Post-event requirements remain incomplete",
+  },
   { value: "event_start", label: "Event start" },
   { value: "event_end", label: "Event end" },
   { value: "session_start", label: "Session start" },

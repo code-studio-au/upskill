@@ -4,7 +4,7 @@ import type { Kysely } from "kysely";
 import type { Database } from "#/server/db/types";
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 
-export async function hasIncompleteAvailableEventPrework(
+async function hasIncompleteAvailableEventWork(
   database: Kysely<Database>,
   input: {
     eventOccurrenceId: string;
@@ -13,6 +13,8 @@ export async function hasIncompleteAvailableEventPrework(
     userId: string;
     now: Date;
   },
+  phases: ReadonlyArray<"pre_event" | "post_event" | "follow_up">,
+  occurrenceStatuses: ReadonlyArray<"completed" | "published">,
 ): Promise<boolean> {
   const participation = await database
     .selectFrom("event_participation as participation")
@@ -42,7 +44,7 @@ export async function hasIncompleteAvailableEventPrework(
     .executeTakeFirst();
   if (
     !participation ||
-    participation.status !== "published" ||
+    !occurrenceStatuses.includes(participation.status as never) ||
     participation.registrationStatus !== "selected"
   )
     return false;
@@ -62,7 +64,7 @@ export async function hasIncompleteAvailableEventPrework(
           "=",
           participation.eventTemplateVersionId,
         )
-        .where("phase", "=", "pre_event")
+        .where("phase", "in", phases)
         .execute(),
       database
         .selectFrom("event_template_version_item")
@@ -141,4 +143,138 @@ export async function hasIncompleteAvailableEventPrework(
         : !completedIds.has(item.id),
     );
   });
+}
+
+type EventOutstandingWorkInput = Parameters<
+  typeof hasIncompleteAvailableEventWork
+>[1];
+
+export async function hasIncompleteAvailableEventPrework(
+  database: Kysely<Database>,
+  input: EventOutstandingWorkInput,
+): Promise<boolean> {
+  return await hasIncompleteAvailableEventWork(
+    database,
+    input,
+    ["pre_event"],
+    ["published"],
+  );
+}
+
+export async function hasIncompleteAvailableEventPostwork(
+  database: Kysely<Database>,
+  input: EventOutstandingWorkInput,
+): Promise<boolean> {
+  return await hasIncompleteAvailableEventWork(
+    database,
+    input,
+    ["post_event", "follow_up"],
+    ["published", "completed"],
+  );
+}
+
+export async function findLatestUnavailableEventPostworkReleaseAt(
+  database: Kysely<Database>,
+  input: EventOutstandingWorkInput,
+): Promise<Date | null> {
+  const participation = await database
+    .selectFrom("event_participation as participation")
+    .innerJoin(
+      "event_registration as registration",
+      "registration.id",
+      "participation.registrationId",
+    )
+    .innerJoin(
+      "event_occurrence as occurrence",
+      "occurrence.id",
+      "participation.eventOccurrenceId",
+    )
+    .select([
+      "participation.createdAt",
+      "occurrence.eventTemplateVersionId",
+      "occurrence.startsAt",
+      "occurrence.endsAt",
+      "occurrence.timezone",
+      "occurrence.status",
+      "registration.status as registrationStatus",
+    ])
+    .where("participation.id", "=", input.eventParticipationId)
+    .where("participation.registrationId", "=", input.eventRegistrationId)
+    .where("participation.eventOccurrenceId", "=", input.eventOccurrenceId)
+    .where("participation.userId", "=", input.userId)
+    .executeTakeFirst();
+  if (
+    !participation ||
+    !(["published", "completed"] as const).includes(
+      participation.status as never,
+    ) ||
+    participation.registrationStatus !== "selected"
+  )
+    return null;
+
+  const [sections, itemSections, lastSession, releases] = await Promise.all([
+    database
+      .selectFrom("event_template_version_section")
+      .select([
+        "id",
+        "releaseAnchor",
+        "releaseOffsetAmount",
+        "releaseOffsetUnit",
+      ])
+      .where(
+        "eventTemplateVersionId",
+        "=",
+        participation.eventTemplateVersionId,
+      )
+      .where("phase", "in", ["post_event", "follow_up"])
+      .execute(),
+    database
+      .selectFrom("event_template_version_item")
+      .select("sectionId")
+      .distinct()
+      .where(
+        "eventTemplateVersionId",
+        "=",
+        participation.eventTemplateVersionId,
+      )
+      .execute(),
+    database
+      .selectFrom("event_session")
+      .select("endsAt")
+      .where("eventOccurrenceId", "=", input.eventOccurrenceId)
+      .orderBy("endsAt", "desc")
+      .executeTakeFirst(),
+    database
+      .selectFrom("event_section_release")
+      .select("eventTemplateVersionSectionId")
+      .where("eventParticipationId", "=", input.eventParticipationId)
+      .execute(),
+  ]);
+  const sectionIdsWithItems = new Set(
+    itemSections.map((item) => item.sectionId),
+  );
+  const releasedSectionIds = new Set(
+    releases.map((release) => release.eventTemplateVersionSectionId),
+  );
+  let latest: Date | null = null;
+  for (const section of sections) {
+    if (
+      !sectionIdsWithItems.has(section.id) ||
+      releasedSectionIds.has(section.id)
+    )
+      continue;
+    const releaseAt = calculateEventSectionReleaseAt({
+      releaseAnchor: section.releaseAnchor,
+      releaseOffsetAmount: section.releaseOffsetAmount,
+      releaseOffsetUnit: section.releaseOffsetUnit,
+      timezone: participation.timezone,
+      participationCreatedAt: participation.createdAt,
+      occurrenceStartsAt: participation.startsAt,
+      occurrenceEndsAt: participation.endsAt,
+      finalSessionEndsAt: lastSession?.endsAt ?? participation.endsAt,
+    });
+    if (releaseAt > input.now && (!latest || releaseAt > latest))
+      latest = releaseAt;
+  }
+  return latest;
 }

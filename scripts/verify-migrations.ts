@@ -12,6 +12,7 @@ import { down as rollbackPrivateAccreditationLogoReferences } from "#/server/db/
 import { down as rollbackEventTemplateAssetShapes } from "#/server/db/migrations/0059_event_template_asset_shapes";
 import { down as rollbackDurableEventCommunications } from "#/server/db/migrations/0061_durable_event_communications";
 import { down as rollbackTransferableVerifiedPhoneClaims } from "#/server/db/migrations/0069_transferable_verified_phone_claims";
+import { down as rollbackEventOperationalCommunications } from "#/server/db/migrations/0081_event_operational_communications";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -55,6 +56,8 @@ try {
     "event_access_redemption",
     "event_attendance",
     "event_communication_schedule",
+    "event_late_registration_invitation",
+    "event_operational_communication_schedule",
     "event_coordinator_assignment",
     "event_guest_access",
     "event_occurrence",
@@ -185,6 +188,7 @@ try {
     "event_guest_access_active_occurrence_uq",
     "user_email_normalized_uq",
     "notification_pending_idx",
+    "notification_account_setup_verification_idx",
     "email_design_catalogue_name_idx",
     "email_design_catalogue_position_idx",
     "email_design_context_position_uq",
@@ -195,6 +199,10 @@ try {
     "event_occurrence_communication_occurrence_idx",
     "event_communication_schedule_active_uq",
     "event_communication_schedule_due_idx",
+    "event_late_registration_invitation_occurrence_idx",
+    "event_late_registration_invitation_pending_uq",
+    "event_operational_communication_schedule_active_uq",
+    "event_operational_communication_schedule_due_idx",
     "notification_operations_idx",
     "contact_verification_onboarding_rate_idx",
     "contact_verification_profile_rate_idx",
@@ -302,6 +310,7 @@ try {
     "event_end",
     "session_start",
     "prework_incomplete",
+    "post_event_incomplete",
   ])
     assert.match(scheduleTriggerDefinition, new RegExp(trigger, "iu"));
   const lifecycleTriggers = [
@@ -816,6 +825,7 @@ try {
   const phoneClaimRollbackSentinel = "verify phone claim migration rollback";
   await assert.rejects(
     db.transaction().execute(async (transaction) => {
+      await rollbackEventOperationalCommunications(transaction);
       await rollbackTransferableVerifiedPhoneClaims(transaction);
       throw new Error(phoneClaimRollbackSentinel);
     }),

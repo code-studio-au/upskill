@@ -223,6 +223,143 @@ try {
     "already-active",
   );
 
+  const invitationSetupEmail = `late-invitation-setup-${suffix}@example.com`;
+  const firstInvitationId = `late_invitation_first_${suffix}`;
+  const secondInvitationId = `late_invitation_second_${suffix}`;
+  const firstInvitationSetup = await database
+    .transaction()
+    .execute(async (transaction) =>
+      provisionUser(transaction, {
+        name: "Late invitation setup learner",
+        email: invitationSetupEmail,
+        source: "late_invitation",
+        actorUserId: actorId,
+        sourceEventId: firstInvitationId,
+        continuePath: `/event-invitation#token=${"a".repeat(43)}`,
+        refreshExistingSetup: {
+          reason: "late_invitation",
+          preserveExistingRequests: true,
+        },
+        setupPurpose: "late_registration_invitation",
+        eventLateRegistrationInvitationId: firstInvitationId,
+      }),
+    );
+  const secondInvitationSetup = await database
+    .transaction()
+    .execute(async (transaction) =>
+      provisionUser(transaction, {
+        name: "Late invitation setup learner",
+        email: invitationSetupEmail,
+        source: "late_invitation",
+        actorUserId: actorId,
+        sourceEventId: secondInvitationId,
+        continuePath: `/event-invitation#token=${"b".repeat(43)}`,
+        refreshExistingSetup: {
+          reason: "late_invitation",
+          preserveExistingRequests: true,
+        },
+        setupPurpose: "late_registration_invitation",
+        eventLateRegistrationInvitationId: secondInvitationId,
+      }),
+    );
+  assert.equal(firstInvitationSetup.created, true);
+  assert.equal(secondInvitationSetup.created, false);
+  assert.equal(secondInvitationSetup.user.id, firstInvitationSetup.user.id);
+  const invitationSetupNotifications = await database
+    .selectFrom("notification")
+    .select(["id", "payload", "status"])
+    .where("recipientUserId", "=", firstInvitationSetup.user.id)
+    .where("templateKey", "=", "account_setup_requested")
+    .orderBy("createdAt")
+    .execute();
+  assert.equal(invitationSetupNotifications.length, 2);
+  assert.deepEqual(
+    invitationSetupNotifications.map((entry) => entry.status),
+    ["pending", "pending"],
+  );
+  const invitationSetupTokens = invitationSetupNotifications.map((entry) => {
+    const setupUrl = (entry.payload as { setupUrl?: unknown }).setupUrl;
+    assert.equal(typeof setupUrl, "string");
+    const setupToken = new URLSearchParams(
+      new URL(setupUrl as string).hash.slice(1),
+    ).get("token");
+    assert.ok(setupToken);
+    return setupToken;
+  });
+  const firstInvitationSetupToken = invitationSetupTokens[0];
+  const secondInvitationSetupToken = invitationSetupTokens[1];
+  assert.ok(firstInvitationSetupToken);
+  assert.ok(secondInvitationSetupToken);
+  assert.equal(
+    (await findAccountSetupRequest(firstInvitationSetupToken)).status,
+    "ready",
+  );
+  assert.equal(
+    (await findAccountSetupRequest(secondInvitationSetupToken)).status,
+    "ready",
+  );
+  await auth.api.resetPassword({
+    body: {
+      token: firstInvitationSetupToken,
+      newPassword: "late-invitation-password",
+    },
+  });
+  assert.deepEqual(await findAccountSetupRequest(firstInvitationSetupToken), {
+    status: "invalid",
+  });
+  assert.deepEqual(await findAccountSetupRequest(secondInvitationSetupToken), {
+    status: "active",
+  });
+  assert.equal(
+    await database
+      .selectFrom("verification")
+      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .where("value", "=", firstInvitationSetup.user.id)
+      .where("identifier", "like", "reset-password:%")
+      .executeTakeFirstOrThrow()
+      .then((row) => String(row.count)),
+    "0",
+  );
+  assert.ok(
+    await database
+      .selectFrom("verification")
+      .select("id")
+      .where(
+        "identifier",
+        "=",
+        `account-setup-continuation:${secondInvitationSetupToken}`,
+      )
+      .where("value", "=", firstInvitationSetup.user.id)
+      .executeTakeFirst(),
+  );
+  await assert.rejects(
+    auth.api.resetPassword({
+      body: {
+        token: secondInvitationSetupToken,
+        newPassword: "must-not-replace-active-password",
+      },
+    }),
+  );
+  const preservedInvitationSetupNotifications = await database
+    .selectFrom("notification")
+    .select(["id", "payload", "status"])
+    .where(
+      "id",
+      "in",
+      invitationSetupNotifications.map((entry) => entry.id),
+    )
+    .orderBy("createdAt")
+    .execute();
+  assert.deepEqual(
+    preservedInvitationSetupNotifications.map((entry) => entry.status),
+    ["pending", "pending"],
+  );
+  for (const entry of preservedInvitationSetupNotifications)
+    assert.equal(
+      typeof (entry.payload as { setupUrl?: unknown }).setupUrl,
+      "string",
+    );
+
   const rolledBackEmail = `rolled-back-${suffix}@example.com`;
   await assert.rejects(
     database.transaction().execute(async (transaction) => {
@@ -245,7 +382,7 @@ try {
   assert.equal(String(rolledBackCount.count), "0");
 
   console.log(
-    "Verified provisional-user idempotency, secure setup activation, resend supersession, delivery claiming and transactional rollback",
+    "Verified provisional-user idempotency, secure setup activation, multi-invitation continuation, resend supersession, delivery claiming and transactional rollback",
   );
 } finally {
   await destroyDatabase();

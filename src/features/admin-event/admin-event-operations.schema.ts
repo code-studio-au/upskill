@@ -51,12 +51,18 @@ export const adminEventRegistrationRegionMismatchAcknowledgementSchema =
     registrationId: identifier,
   });
 
-export const adminEventAddRegistrationSchema = z.object({
+export const adminEventLateInvitationCreateSchema = z.object({
   eventOccurrenceId: identifier,
   name: z.string().check(z.trim(), z.minLength(1), z.maxLength(200)),
   email: z.email().check(z.maxLength(320)),
   eventOccurrenceRegionId: z.nullable(identifier),
   overrideDomainRestriction: z.boolean(),
+  expiresInDays: z.number().check(z.int(), z.minimum(1), z.maximum(30)),
+});
+
+export const adminEventLateInvitationRevokeSchema = z.object({
+  eventOccurrenceId: identifier,
+  invitationId: identifier,
 });
 
 export const adminEventAttendanceSchema = z.object({
@@ -208,6 +214,18 @@ export interface AdminEventOccurrenceOperations {
     finalDecisionLocked: boolean;
     accountState: "provisional" | "active";
     setupRequestedAt: string | null;
+  }>;
+  invitations: Array<{
+    id: string;
+    userId: string;
+    name: string;
+    email: string;
+    regionName: string | null;
+    createdAt: string;
+    expiresAt: string;
+    acceptedAt: string | null;
+    revokedAt: string | null;
+    status: "accepted" | "expired" | "pending" | "revoked";
   }>;
   regions: Array<{
     id: string;

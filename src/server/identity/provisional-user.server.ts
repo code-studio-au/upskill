@@ -29,11 +29,15 @@ export async function provisionUser(
     actorUserId: string | null;
     sourceEventId: string;
     createdAt?: Date;
+    setupExpiresAt?: Date;
     continuePath?: string;
     refreshExistingSetup?: {
       minimumIntervalMs?: number;
-      reason: "administrator" | "self_purchase";
+      preserveExistingRequests?: boolean;
+      reason: "administrator" | "late_invitation" | "self_purchase";
     };
+    setupPurpose?: "late_registration_invitation";
+    eventLateRegistrationInvitationId?: string;
   },
 ): Promise<{
   user: {
@@ -88,7 +92,20 @@ export async function provisionUser(
             : {
                 minimumIntervalMs: input.refreshExistingSetup.minimumIntervalMs,
               }),
+          ...(input.refreshExistingSetup.preserveExistingRequests
+            ? { preserveExistingRequests: true }
+            : {}),
           ...(input.continuePath ? { continuePath: input.continuePath } : {}),
+          ...(input.setupExpiresAt
+            ? { setupExpiresAt: input.setupExpiresAt }
+            : {}),
+          ...(input.setupPurpose ? { purpose: input.setupPurpose } : {}),
+          ...(input.eventLateRegistrationInvitationId
+            ? {
+                eventLateRegistrationInvitationId:
+                  input.eventLateRegistrationInvitationId,
+              }
+            : {}),
           createdAt,
         })
       : null;
@@ -110,7 +127,15 @@ export async function provisionUser(
     email: user.email,
     deduplicationKey: `account-setup:${input.sourceEventId}:${user.id}`,
     createdAt,
+    ...(input.setupExpiresAt ? { setupExpiresAt: input.setupExpiresAt } : {}),
     ...(input.continuePath ? { continuePath: input.continuePath } : {}),
+    ...(input.setupPurpose ? { purpose: input.setupPurpose } : {}),
+    ...(input.eventLateRegistrationInvitationId
+      ? {
+          eventLateRegistrationInvitationId:
+            input.eventLateRegistrationInvitationId,
+        }
+      : {}),
   });
   return { user, created: true, notificationId };
 }

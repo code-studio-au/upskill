@@ -92,6 +92,7 @@ export async function findAdminEventOccurrenceOperations(
     rescheduleRows,
     availableRegionRows,
     regionDecisionRows,
+    invitationRows,
   ] = await Promise.all([
     database
       .selectFrom("event_registration as registration")
@@ -372,6 +373,32 @@ export async function findAdminEventOccurrenceOperations(
       .where("registration.eventOccurrenceId", "=", eventOccurrenceId)
       .where("decision.supersededAt", "is", null)
       .execute(),
+    database
+      .selectFrom("event_late_registration_invitation as invitation")
+      .leftJoin(
+        "event_occurrence_region as occurrenceRegion",
+        "occurrenceRegion.id",
+        "invitation.eventOccurrenceRegionId",
+      )
+      .leftJoin(
+        "coordination_region as region",
+        "region.id",
+        "occurrenceRegion.regionId",
+      )
+      .select([
+        "invitation.id",
+        "invitation.userId",
+        "invitation.recipientNameSnapshot as name",
+        "invitation.recipientEmailSnapshot as email",
+        "region.name as regionName",
+        "invitation.createdAt",
+        "invitation.expiresAt",
+        "invitation.acceptedAt",
+        "invitation.revokedAt",
+      ])
+      .where("invitation.eventOccurrenceId", "=", eventOccurrenceId)
+      .orderBy("invitation.createdAt", "desc")
+      .execute(),
   ]);
 
   const now = new Date();
@@ -468,6 +495,20 @@ export async function findAdminEventOccurrenceOperations(
             : null,
       };
     }),
+    invitations: invitationRows.map((invitation) => ({
+      ...invitation,
+      createdAt: invitation.createdAt.toISOString(),
+      expiresAt: invitation.expiresAt.toISOString(),
+      acceptedAt: invitation.acceptedAt?.toISOString() ?? null,
+      revokedAt: invitation.revokedAt?.toISOString() ?? null,
+      status: invitation.acceptedAt
+        ? ("accepted" as const)
+        : invitation.revokedAt
+          ? ("revoked" as const)
+          : invitation.expiresAt <= now
+            ? ("expired" as const)
+            : ("pending" as const),
+    })),
     regions: regionRows.map((region) => {
       const review = reviewsByRegion.get(region.id);
       return {

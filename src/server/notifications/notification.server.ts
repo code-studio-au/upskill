@@ -25,6 +25,7 @@ async function enqueueEmailNotification(
     textBodyTemplateSnapshot: string;
     deduplicationKey: string;
     payload: unknown;
+    accountSetupVerificationId?: string;
     createdAt: Date;
     availableAt?: Date;
   },
@@ -42,6 +43,7 @@ async function enqueueEmailNotification(
       emailDesignVersionId: input.emailDesignVersionId,
       subjectTemplateSnapshot: input.subjectTemplateSnapshot,
       textBodyTemplateSnapshot: input.textBodyTemplateSnapshot,
+      accountSetupVerificationId: input.accountSetupVerificationId ?? null,
       deduplicationKey: input.deduplicationKey,
       payload: input.payload,
       lastErrorCode: null,
@@ -88,6 +90,9 @@ export async function enqueueAccountSetupNotification(
     email: string;
     deduplicationKey: string;
     setupUrl: string;
+    purpose?: "late_registration_invitation";
+    eventLateRegistrationInvitationId?: string;
+    accountSetupVerificationId: string;
     createdAt: Date;
   },
 ): Promise<string> {
@@ -114,7 +119,14 @@ export async function enqueueAccountSetupNotification(
     subjectTemplateSnapshot: emailDesignVersion.subject,
     textBodyTemplateSnapshot: emailDesignVersion.textBody,
     deduplicationKey: input.deduplicationKey,
-    payload: { version: 1, setupUrl: input.setupUrl },
+    accountSetupVerificationId: input.accountSetupVerificationId,
+    payload: {
+      version: 1,
+      setupUrl: input.setupUrl,
+      purpose: input.purpose ?? null,
+      eventLateRegistrationInvitationId:
+        input.eventLateRegistrationInvitationId ?? null,
+    },
     createdAt: input.createdAt,
   });
 }
@@ -188,7 +200,11 @@ export async function enqueueOfferingEventNotification(
       | "event_end"
       | "event_rescheduled"
       | "event_start"
+      | "late_registration_invitation"
+      | "post_event_incomplete"
       | "prework_incomplete"
+      | "regional_list_locked"
+      | "regional_review_due"
       | "registration_cancelled"
       | "registration_not_selected"
       | "registration_selected"
@@ -200,6 +216,8 @@ export async function enqueueOfferingEventNotification(
     eventParticipationId?: string | null;
     eventTemplateVersionSectionId?: string | null;
     eventRescheduleId?: string | null;
+    eventLateRegistrationInvitationId?: string | null;
+    eventRegionReviewRoundId?: string | null;
     anchorAt?: Date;
     variables: Readonly<Record<string, string>>;
     createdAt: Date;
@@ -226,11 +244,50 @@ export async function enqueueOfferingEventNotification(
       eventTemplateVersionSectionId:
         input.eventTemplateVersionSectionId ?? null,
       eventRescheduleId: input.eventRescheduleId ?? null,
+      eventLateRegistrationInvitationId:
+        input.eventLateRegistrationInvitationId ?? null,
+      eventRegionReviewRoundId: input.eventRegionReviewRoundId ?? null,
       anchorAt: input.anchorAt?.toISOString() ?? null,
       variables: input.variables,
     },
     createdAt: input.createdAt,
     ...(input.availableAt ? { availableAt: input.availableAt } : {}),
+  });
+}
+
+export async function enqueueSystemEventNotification(
+  transaction: Kysely<Database>,
+  input: Omit<
+    Parameters<typeof enqueueOfferingEventNotification>[1],
+    | "emailDesignVersionId"
+    | "eventOccurrenceCommunicationRevisionId"
+    | "subjectTemplateSnapshot"
+    | "textBodyTemplateSnapshot"
+  > & {
+    systemKey:
+      | "event_late_registration_invitation"
+      | "event_regional_list_locked"
+      | "event_regional_review_due";
+  },
+): Promise<string> {
+  const version = await transaction
+    .selectFrom("email_design as design")
+    .innerJoin(
+      "email_design_version as version",
+      "version.id",
+      "design.activeVersionId",
+    )
+    .select(["version.id", "version.subject", "version.textBody"])
+    .where("design.catalogue", "=", "system")
+    .where("design.systemKey", "=", input.systemKey)
+    .where("version.publishedAt", "is not", null)
+    .executeTakeFirstOrThrow();
+  return await enqueueOfferingEventNotification(transaction, {
+    ...input,
+    emailDesignVersionId: version.id,
+    eventOccurrenceCommunicationRevisionId: `system:${input.systemKey}`,
+    subjectTemplateSnapshot: version.subject,
+    textBodyTemplateSnapshot: version.textBody,
   });
 }
 

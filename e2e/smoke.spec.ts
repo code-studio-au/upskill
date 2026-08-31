@@ -1019,6 +1019,31 @@ test("learners can end their authenticated session", async ({ page }) => {
   await expect(page).toHaveURL(/\/login\?redirect=%2Fdashboard$/);
 });
 
+test("event invitation secrets stay out of the login request", async ({
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "chromium-mobile",
+    "The invitation sign-in continuation runs once across the browser matrix.",
+  );
+  const invitationToken = "z".repeat(43);
+  await page.goto(`/event-invitation#token=${invitationToken}`);
+  await expect(page).toHaveURL(/\/login\?redirect=/u);
+  const loginUrl = new URL(page.url());
+  const redirect = loginUrl.searchParams.get("redirect");
+  expect(loginUrl.search).not.toContain(invitationToken);
+  const resumeId = redirect?.match(
+    /^\/event-invitation\?resume=([0-9a-f-]{36})$/u,
+  )?.[1];
+  expect(resumeId).toBeTruthy();
+  expect(
+    await page.evaluate(
+      (storageKey) => window.sessionStorage.getItem(storageKey),
+      `upskill.event-invite.${resumeId ?? ""}`,
+    ),
+  ).toBe(invitationToken);
+});
+
 test("provisional learners can activate an account from a setup link", async ({
   page,
 }, testInfo) => {

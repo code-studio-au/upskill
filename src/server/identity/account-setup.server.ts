@@ -11,9 +11,39 @@ import { accountSetupContinuePathSchema } from "#/features/auth/account-setup.sc
 import { enqueueAccountSetupNotification } from "#/server/notifications/notification.server";
 
 const ACCOUNT_SETUP_TTL_MS = 72 * 60 * 60 * 1_000;
+const RESET_PASSWORD_IDENTIFIER_PREFIX = "reset-password:";
+const ACCOUNT_SETUP_CONTINUATION_IDENTIFIER_PREFIX =
+  "account-setup-continuation:";
 
 function createSetupToken(): string {
   return randomBytes(32).toString("base64url");
+}
+
+export async function invalidateLateInvitationAccountSetupRequests(
+  transaction: Transaction<Database>,
+  invitationId: string,
+): Promise<number> {
+  const notifications = await transaction
+    .selectFrom("notification")
+    .select("accountSetupVerificationId")
+    .where("templateKey", "=", "account_setup_requested")
+    .where("accountSetupVerificationId", "is not", null)
+    .where(
+      sql<boolean>`payload ->> 'eventLateRegistrationInvitationId' = ${invitationId}`,
+    )
+    .execute();
+  const verificationIds = notifications.flatMap((notification) =>
+    notification.accountSetupVerificationId
+      ? [notification.accountSetupVerificationId]
+      : [],
+  );
+  if (!verificationIds.length) return 0;
+  const deleted = await transaction
+    .deleteFrom("verification")
+    .where("id", "in", verificationIds)
+    .returning("id")
+    .execute();
+  return deleted.length;
 }
 
 export async function createAccountSetupRequest(
@@ -24,17 +54,23 @@ export async function createAccountSetupRequest(
     email: string;
     deduplicationKey: string;
     createdAt: Date;
+    setupExpiresAt?: Date;
     continuePath?: string;
+    purpose?: "late_registration_invitation";
+    eventLateRegistrationInvitationId?: string;
   },
 ): Promise<string> {
   const token = createSetupToken();
+  const verificationId = `verification_${randomUUID()}`;
   await transaction
     .insertInto("verification")
     .values({
-      id: `verification_${randomUUID()}`,
-      identifier: `reset-password:${token}`,
+      id: verificationId,
+      identifier: `${RESET_PASSWORD_IDENTIFIER_PREFIX}${token}`,
       value: input.userId,
-      expiresAt: new Date(input.createdAt.getTime() + ACCOUNT_SETUP_TTL_MS),
+      expiresAt:
+        input.setupExpiresAt ??
+        new Date(input.createdAt.getTime() + ACCOUNT_SETUP_TTL_MS),
       createdAt: input.createdAt,
       updatedAt: input.createdAt,
     })
@@ -50,6 +86,7 @@ export async function createAccountSetupRequest(
   return await enqueueAccountSetupNotification(transaction, {
     ...input,
     setupUrl: setupUrl.toString(),
+    accountSetupVerificationId: verificationId,
   });
 }
 
@@ -58,10 +95,14 @@ export async function refreshAccountSetupRequest(
   input: {
     user: { id: string; name: string; email: string };
     actorUserId: string | null;
-    reason: "administrator" | "self_purchase";
+    reason: "administrator" | "late_invitation" | "self_purchase";
     minimumIntervalMs?: number;
     continuePath?: string;
+    purpose?: "late_registration_invitation";
+    eventLateRegistrationInvitationId?: string;
+    preserveExistingRequests?: boolean;
     createdAt?: Date;
+    setupExpiresAt?: Date;
   },
 ): Promise<string | null> {
   const createdAt = input.createdAt ?? new Date();
@@ -83,24 +124,26 @@ export async function refreshAccountSetupRequest(
       input.minimumIntervalMs
   )
     return null;
-  await transaction
-    .deleteFrom("verification")
-    .where("value", "=", input.user.id)
-    .where("identifier", "like", "reset-password:%")
-    .execute();
-  await transaction
-    .updateTable("notification")
-    .set({
-      status: "superseded",
-      payload: { version: 1 },
-      supersededAt: createdAt,
-      lastErrorCode: null,
-      updatedAt: createdAt,
-    })
-    .where("recipientUserId", "=", input.user.id)
-    .where("templateKey", "=", "account_setup_requested")
-    .where("status", "in", ["pending", "processing", "failed"])
-    .execute();
+  if (!input.preserveExistingRequests) {
+    await transaction
+      .deleteFrom("verification")
+      .where("value", "=", input.user.id)
+      .where("identifier", "like", `${RESET_PASSWORD_IDENTIFIER_PREFIX}%`)
+      .execute();
+    await transaction
+      .updateTable("notification")
+      .set({
+        status: "superseded",
+        payload: { version: 1 },
+        supersededAt: createdAt,
+        lastErrorCode: null,
+        updatedAt: createdAt,
+      })
+      .where("recipientUserId", "=", input.user.id)
+      .where("templateKey", "=", "account_setup_requested")
+      .where("status", "in", ["pending", "processing", "failed"])
+      .execute();
+  }
   await transaction
     .updateTable("user")
     .set({ setupRequestedAt: createdAt, updatedAt: createdAt })
@@ -112,7 +155,15 @@ export async function refreshAccountSetupRequest(
     email: input.user.email,
     deduplicationKey: `account-setup:${input.reason}:${randomUUID()}:${input.user.id}`,
     createdAt,
+    ...(input.setupExpiresAt ? { setupExpiresAt: input.setupExpiresAt } : {}),
     ...(input.continuePath ? { continuePath: input.continuePath } : {}),
+    ...(input.purpose ? { purpose: input.purpose } : {}),
+    ...(input.eventLateRegistrationInvitationId
+      ? {
+          eventLateRegistrationInvitationId:
+            input.eventLateRegistrationInvitationId,
+        }
+      : {}),
   });
   await recordDurableAuditEvent(transaction, {
     actorUserId: input.actorUserId,
@@ -129,25 +180,35 @@ export async function refreshAccountSetupRequest(
 export async function findAccountSetupRequest(
   token: string,
 ): Promise<
-  { status: "ready"; name: string; email: string } | { status: "invalid" }
+  | { status: "active" }
+  | { status: "ready"; name: string; email: string }
+  | { status: "invalid" }
 > {
   const request = await getDatabase()
     .selectFrom("verification")
     .innerJoin("user", "user.id", "verification.value")
-    .select(["user.name", "user.email"])
-    .where("verification.identifier", "=", `reset-password:${token}`)
+    .select([
+      "user.name",
+      "user.email",
+      "user.accountState",
+      "user.emailVerified",
+      "verification.identifier",
+    ])
+    .where("verification.identifier", "in", [
+      `${RESET_PASSWORD_IDENTIFIER_PREFIX}${token}`,
+      `${ACCOUNT_SETUP_CONTINUATION_IDENTIFIER_PREFIX}${token}`,
+    ])
     .where("verification.expiresAt", ">", new Date())
-    .where((expression) =>
-      expression.or([
-        expression("user.accountState", "=", "provisional"),
-        expression.and([
-          expression("user.accountState", "=", "active"),
-          expression("user.emailVerified", "=", false),
-        ]),
-      ]),
-    )
     .executeTakeFirst();
-  return request ? { status: "ready", ...request } : { status: "invalid" };
+  if (!request) return { status: "invalid" };
+  if (request.accountState === "active" && request.emailVerified)
+    return { status: "active" };
+  if (
+    request.identifier === `${RESET_PASSWORD_IDENTIFIER_PREFIX}${token}` &&
+    (request.accountState === "provisional" || !request.emailVerified)
+  )
+    return { status: "ready", name: request.name, email: request.email };
+  return { status: "invalid" };
 }
 
 export async function activateAccountAfterPasswordReset(
@@ -179,6 +240,15 @@ export async function activateAccountAfterPasswordReset(
         .returning("id")
         .executeTakeFirst();
       if (!activated) return;
+      await transaction
+        .updateTable("verification")
+        .set({
+          identifier: sql<string>`replace("identifier", ${RESET_PASSWORD_IDENTIFIER_PREFIX}, ${ACCOUNT_SETUP_CONTINUATION_IDENTIFIER_PREFIX})`,
+          updatedAt: now,
+        })
+        .where("value", "=", userId)
+        .where("identifier", "like", `${RESET_PASSWORD_IDENTIFIER_PREFIX}%`)
+        .execute();
       const invitation = await transaction
         .selectFrom("platform_admin_invitation")
         .select(["id", "invitedByUserId"])
@@ -220,6 +290,7 @@ export async function activateAccountAfterPasswordReset(
         .set({ payload: { version: 1 }, updatedAt: now })
         .where("recipientUserId", "=", userId)
         .where("templateKey", "=", "account_setup_requested")
+        .where("status", "not in", ["pending", "processing", "failed"])
         .execute();
       await recordDurableAuditEvent(transaction, {
         actorUserId: userId,

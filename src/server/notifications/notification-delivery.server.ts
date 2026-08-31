@@ -4,7 +4,10 @@ import { randomUUID } from "node:crypto";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { z } from "#/validation/zod.server";
-import { hasIncompleteAvailableEventPrework } from "./event-prework.server";
+import {
+  hasIncompleteAvailableEventPostwork,
+  hasIncompleteAvailableEventPrework,
+} from "./event-prework.server";
 import {
   getEmailProvider,
   isAmbiguousEmailDeliveryError,
@@ -33,6 +36,10 @@ function safeErrorCode(error: unknown): string {
 const accountSetupPayloadSchema = z.object({
   version: z.literal(1),
   setupUrl: z.url(),
+  purpose: z.nullable(z.literal("late_registration_invitation")).optional(),
+  eventLateRegistrationInvitationId: z
+    .nullable(z.string().min(1).max(200))
+    .optional(),
 });
 
 const phoneVerificationTransferredPayloadSchema = z.object({
@@ -61,7 +68,11 @@ const offeringEventPayloadSchema = z.object({
     "event_end",
     "event_rescheduled",
     "event_start",
+    "late_registration_invitation",
+    "post_event_incomplete",
     "prework_incomplete",
+    "regional_list_locked",
+    "regional_review_due",
     "registration_cancelled",
     "registration_not_selected",
     "registration_selected",
@@ -74,6 +85,13 @@ const offeringEventPayloadSchema = z.object({
   eventParticipationId: z.string().min(1).max(200).nullable(),
   eventTemplateVersionSectionId: z.string().min(1).max(200).nullable(),
   eventRescheduleId: z.string().min(1).max(200).nullable().optional(),
+  eventLateRegistrationInvitationId: z
+    .string()
+    .min(1)
+    .max(200)
+    .nullable()
+    .optional(),
+  eventRegionReviewRoundId: z.string().min(1).max(200).nullable().optional(),
   anchorAt: z.optional(z.nullable(z.iso.datetime())),
   variables: z.record(z.string(), z.string()),
 });
@@ -134,25 +152,33 @@ async function eventAudienceRecipientApplicable(
         .where("endedAt", "is", null)
         .executeTakeFirst(),
     );
-  return Boolean(
-    await database
-      .selectFrom("event_coordinator_assignment as assignment")
-      .innerJoin(
-        "event_occurrence_region as occurrenceRegion",
-        "occurrenceRegion.id",
-        "assignment.eventOccurrenceRegionId",
-      )
-      .select("assignment.id")
-      .where(
-        "occurrenceRegion.eventOccurrenceId",
-        "=",
-        payload.eventOccurrenceId,
-      )
-      .where("assignment.userId", "=", recipientUserId)
-      .where("assignment.endedAt", "is", null)
-      .where("occurrenceRegion.retiredAt", "is", null)
-      .executeTakeFirst(),
-  );
+  let coordinatorQuery = database
+    .selectFrom("event_coordinator_assignment as assignment")
+    .innerJoin(
+      "event_occurrence_region as occurrenceRegion",
+      "occurrenceRegion.id",
+      "assignment.eventOccurrenceRegionId",
+    )
+    .select("assignment.id")
+    .where("occurrenceRegion.eventOccurrenceId", "=", payload.eventOccurrenceId)
+    .where("assignment.userId", "=", recipientUserId)
+    .where("assignment.endedAt", "is", null)
+    .where("occurrenceRegion.retiredAt", "is", null);
+  if (payload.eventRegionReviewRoundId)
+    coordinatorQuery = coordinatorQuery.where((expression) =>
+      expression.exists(
+        expression
+          .selectFrom("event_region_review_round as review")
+          .select("review.id")
+          .where("review.id", "=", payload.eventRegionReviewRoundId ?? "")
+          .whereRef(
+            "review.eventOccurrenceRegionId",
+            "=",
+            "assignment.eventOccurrenceRegionId",
+          ),
+      ),
+    );
+  return Boolean(await coordinatorQuery.executeTakeFirst());
 }
 
 const offeringCoursePayloadSchema = z.object({
@@ -178,7 +204,7 @@ async function eventNotificationApplicable(
   const database = getDatabase();
   const occurrence = await database
     .selectFrom("event_occurrence")
-    .select("status")
+    .select(["status", "startsAt", "approvalMode"])
     .where("id", "=", payload.eventOccurrenceId)
     .executeTakeFirst();
   if (!occurrence) return false;
@@ -222,6 +248,61 @@ async function eventNotificationApplicable(
       participation?.completedAt &&
       (!payload.anchorAt ||
         participation.completedAt.toISOString() === payload.anchorAt),
+    );
+  }
+  if (payload.trigger === "late_registration_invitation") {
+    if (
+      !payload.eventLateRegistrationInvitationId ||
+      occurrence.status !== "published" ||
+      occurrence.startsAt <= new Date()
+    )
+      return false;
+    return Boolean(
+      await database
+        .selectFrom("event_late_registration_invitation")
+        .select("id")
+        .where("id", "=", payload.eventLateRegistrationInvitationId)
+        .where("eventOccurrenceId", "=", payload.eventOccurrenceId)
+        .where("userId", "=", recipientUserId)
+        .where("acceptedAt", "is", null)
+        .where("revokedAt", "is", null)
+        .where("expiresAt", ">", new Date())
+        .executeTakeFirst(),
+    );
+  }
+  if (
+    payload.trigger === "regional_review_due" ||
+    payload.trigger === "regional_list_locked"
+  ) {
+    if (
+      !payload.eventRegionReviewRoundId ||
+      !payload.anchorAt ||
+      occurrence.status !== "published" ||
+      occurrence.approvalMode !== "manual"
+    )
+      return false;
+    const review = await database
+      .selectFrom("event_region_review_round")
+      .select(["lockedAt", "registrationClosesAt", "coordinatorLockAt"])
+      .where("id", "=", payload.eventRegionReviewRoundId)
+      .executeTakeFirst();
+    if (!review) return false;
+    if (payload.trigger === "regional_review_due") {
+      if (
+        review.lockedAt ||
+        review.registrationClosesAt.toISOString() !== payload.anchorAt ||
+        review.coordinatorLockAt <= new Date()
+      )
+        return false;
+    } else if (
+      !review.lockedAt ||
+      review.lockedAt.toISOString() !== payload.anchorAt
+    )
+      return false;
+    return await eventAudienceRecipientApplicable(
+      database,
+      payload,
+      recipientUserId,
     );
   }
   if (payload.trigger === "section_release") {
@@ -276,6 +357,17 @@ async function eventNotificationApplicable(
     if (!payload.eventRegistrationId || !payload.eventParticipationId)
       return false;
     return await hasIncompleteAvailableEventPrework(database, {
+      eventOccurrenceId: payload.eventOccurrenceId,
+      eventRegistrationId: payload.eventRegistrationId,
+      eventParticipationId: payload.eventParticipationId,
+      userId: recipientUserId,
+      now: new Date(),
+    });
+  }
+  if (payload.trigger === "post_event_incomplete") {
+    if (!payload.eventRegistrationId || !payload.eventParticipationId)
+      return false;
+    return await hasIncompleteAvailableEventPostwork(database, {
       eventOccurrenceId: payload.eventOccurrenceId,
       eventRegistrationId: payload.eventRegistrationId,
       eventParticipationId: payload.eventParticipationId,
@@ -374,9 +466,55 @@ export async function deliverNotification(
     let retainedPayload: Record<string, unknown> = { version: 1 };
     if (notification.templateKey === "account_setup_requested") {
       const payload = accountSetupPayloadSchema.parse(notification.payload);
+      if (payload.eventLateRegistrationInvitationId) {
+        const applicable = await database
+          .selectFrom("event_late_registration_invitation as invitation")
+          .innerJoin(
+            "event_occurrence as occurrence",
+            "occurrence.id",
+            "invitation.eventOccurrenceId",
+          )
+          .select("invitation.id")
+          .where(
+            "invitation.id",
+            "=",
+            payload.eventLateRegistrationInvitationId,
+          )
+          .where("invitation.userId", "=", notification.recipientUserId)
+          .where("invitation.acceptedAt", "is", null)
+          .where("invitation.revokedAt", "is", null)
+          .where("invitation.expiresAt", ">", new Date())
+          .where("occurrence.status", "=", "published")
+          .where("occurrence.startsAt", ">", new Date())
+          .executeTakeFirst();
+        if (!applicable) {
+          const supersededAt = new Date();
+          await database
+            .updateTable("notification")
+            .set({
+              status: "superseded",
+              supersededAt,
+              updatedAt: supersededAt,
+            })
+            .where("id", "=", notification.id)
+            .where("status", "=", "processing")
+            .execute();
+          return { status: "superseded" };
+        }
+      }
       variables = {
         "user.fullName": notification.recipientName,
         "account.setupUrl": payload.setupUrl,
+      };
+      retainedPayload = {
+        version: payload.version,
+        ...(payload.purpose ? { purpose: payload.purpose } : {}),
+        ...(payload.eventLateRegistrationInvitationId
+          ? {
+              eventLateRegistrationInvitationId:
+                payload.eventLateRegistrationInvitationId,
+            }
+          : {}),
       };
     } else if (notification.templateKey === "phone_verification_transferred") {
       const payload = phoneVerificationTransferredPayloadSchema.parse(
@@ -422,6 +560,9 @@ export async function deliverNotification(
         eventParticipationId: payload.eventParticipationId,
         eventTemplateVersionSectionId: payload.eventTemplateVersionSectionId,
         eventRescheduleId: payload.eventRescheduleId ?? null,
+        eventLateRegistrationInvitationId:
+          payload.eventLateRegistrationInvitationId ?? null,
+        eventRegionReviewRoundId: payload.eventRegionReviewRoundId ?? null,
         anchorAt: payload.anchorAt ?? null,
       };
     } else {

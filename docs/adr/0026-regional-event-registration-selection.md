@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted; regional review and selection are implemented. Expiring
-user-specific late invitations remain pending.
+Accepted and implemented, including regional review/lock notifications and
+expiring user-specific late invitations.
 
 ## Context
 
