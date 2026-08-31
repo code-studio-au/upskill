@@ -62,6 +62,140 @@ async function supersedeInvitationNotifications(
     .execute();
 }
 
+async function issueEventLateRegistrationInvitation(
+  transaction: Transaction<Database>,
+  input: {
+    eventOccurrenceId: string;
+    timezone: string;
+    name: string;
+    email: string;
+    eventOccurrenceRegionId: string | null;
+    overrideDomainRestriction: boolean;
+    expiresAt: Date;
+    replacementReason: "event_rescheduled" | "replaced";
+  },
+  actor: AuthenticatedUser,
+  now: Date,
+): Promise<void> {
+  const invitationId = `event_late_registration_invitation_${randomUUID()}`;
+  const token = invitationToken();
+  const provisioned = await provisionUser(transaction, {
+    name: input.name,
+    email: input.email,
+    source: "late_invitation",
+    actorUserId: actor.id,
+    sourceEventId: invitationId,
+    createdAt: now,
+    setupExpiresAt: input.expiresAt,
+    continuePath: invitationPath(token),
+    refreshExistingSetup: {
+      reason: "late_invitation",
+      preserveExistingRequests: true,
+    },
+    setupPurpose: "late_registration_invitation",
+    eventLateRegistrationInvitationId: invitationId,
+  });
+
+  const replaced = await transaction
+    .updateTable("event_late_registration_invitation")
+    .set({ revokedAt: now, revokedByUserId: actor.id })
+    .where("eventOccurrenceId", "=", input.eventOccurrenceId)
+    .where("userId", "=", provisioned.user.id)
+    .where("acceptedAt", "is", null)
+    .where("revokedAt", "is", null)
+    .returning("id")
+    .execute();
+  for (const invitation of replaced) {
+    await supersedeInvitationNotifications(transaction, invitation.id, now);
+    await recordDurableAuditEvent(transaction, {
+      actorUserId: actor.id,
+      action: "event_late_registration_invitation.revoked",
+      subjectType: "event_late_registration_invitation",
+      subjectId: invitation.id,
+      aggregateId: input.eventOccurrenceId,
+      metadata: { reason: input.replacementReason },
+      createdAt: now,
+    });
+  }
+
+  await transaction
+    .insertInto("event_late_registration_invitation")
+    .values({
+      id: invitationId,
+      eventOccurrenceId: input.eventOccurrenceId,
+      userId: provisioned.user.id,
+      eventOccurrenceRegionId: input.eventOccurrenceRegionId,
+      recipientNameSnapshot: provisioned.user.name,
+      recipientEmailSnapshot: provisioned.user.email,
+      tokenDigest: tokenDigest(token),
+      overrideDomainRestriction: input.overrideDomainRestriction,
+      expiresAt: input.expiresAt,
+      createdByUserId: actor.id,
+      createdAt: now,
+      acceptedAt: null,
+      acceptedRegistrationId: null,
+      revokedAt: null,
+      revokedByUserId: null,
+    })
+    .execute();
+
+  if (
+    provisioned.user.accountState === "active" &&
+    provisioned.user.emailVerified
+  ) {
+    const recipient = {
+      userId: provisioned.user.id,
+      name: provisioned.user.name,
+      email: provisioned.user.email,
+      registrationId: null,
+      participationId: null,
+    };
+    const variables = await buildEventNotificationVariables(transaction, {
+      eventOccurrenceId: input.eventOccurrenceId,
+      communication: {
+        id: `system:${invitationId}`,
+        sectionId: null,
+        sessionDefinitionId: null,
+      },
+      recipient,
+    });
+    variables["event.invitationUrl"] = invitationUrl(token);
+    variables["event.invitationExpiresAt"] = new Intl.DateTimeFormat("en-AU", {
+      dateStyle: "long",
+      timeStyle: "short",
+      timeZone: input.timezone,
+    }).format(input.expiresAt);
+    await enqueueSystemEventNotification(transaction, {
+      systemKey: "event_late_registration_invitation",
+      recipient,
+      deduplicationKey: `event-late-invitation:${invitationId}:${recipient.userId}`,
+      eventOccurrenceId: input.eventOccurrenceId,
+      trigger: "late_registration_invitation",
+      audience: "affected_learner",
+      eventLateRegistrationInvitationId: invitationId,
+      anchorAt: now,
+      variables,
+      createdAt: now,
+    });
+  }
+
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: actor.id,
+    action: "event_late_registration_invitation.created",
+    subjectType: "event_late_registration_invitation",
+    subjectId: invitationId,
+    aggregateId: input.eventOccurrenceId,
+    metadata: {
+      userId: provisioned.user.id,
+      eventOccurrenceRegionId: input.eventOccurrenceRegionId,
+      expiresAt: input.expiresAt.toISOString(),
+      overrideDomainRestriction: input.overrideDomainRestriction,
+      accountState: provisioned.user.accountState,
+    },
+    createdAt: now,
+  });
+}
+
 export async function createEventLateRegistrationInvitation(
   input: {
     eventOccurrenceId: string;
@@ -150,132 +284,27 @@ export async function createEventLateRegistrationInvitation(
       )
         return "not-found" as const;
 
-      const invitationId = `event_late_registration_invitation_${randomUUID()}`;
-      const token = invitationToken();
       const expiresAt = new Date(
         Math.min(
           now.getTime() + input.expiresInDays * 24 * 60 * 60 * 1_000,
           occurrence.startsAt.getTime(),
         ),
       );
-      const provisioned = await provisionUser(transaction, {
-        name: existingUser?.name ?? input.name,
-        email,
-        source: "late_invitation",
-        actorUserId: actor.id,
-        sourceEventId: invitationId,
-        createdAt: now,
-        setupExpiresAt: expiresAt,
-        continuePath: invitationPath(token),
-        refreshExistingSetup: {
-          reason: "late_invitation",
-          preserveExistingRequests: true,
-        },
-        setupPurpose: "late_registration_invitation",
-        eventLateRegistrationInvitationId: invitationId,
-      });
-
-      const replaced = await transaction
-        .updateTable("event_late_registration_invitation")
-        .set({ revokedAt: now, revokedByUserId: actor.id })
-        .where("eventOccurrenceId", "=", occurrence.id)
-        .where("userId", "=", provisioned.user.id)
-        .where("acceptedAt", "is", null)
-        .where("revokedAt", "is", null)
-        .returning("id")
-        .execute();
-      for (const invitation of replaced) {
-        await supersedeInvitationNotifications(transaction, invitation.id, now);
-        await recordDurableAuditEvent(transaction, {
-          actorUserId: actor.id,
-          action: "event_late_registration_invitation.revoked",
-          subjectType: "event_late_registration_invitation",
-          subjectId: invitation.id,
-          aggregateId: occurrence.id,
-          metadata: { reason: "replaced" },
-          createdAt: now,
-        });
-      }
-
-      await transaction
-        .insertInto("event_late_registration_invitation")
-        .values({
-          id: invitationId,
+      await issueEventLateRegistrationInvitation(
+        transaction,
+        {
           eventOccurrenceId: occurrence.id,
-          userId: provisioned.user.id,
+          timezone: occurrence.timezone,
+          name: existingUser?.name ?? input.name,
+          email,
           eventOccurrenceRegionId: input.eventOccurrenceRegionId,
-          recipientNameSnapshot: provisioned.user.name,
-          recipientEmailSnapshot: provisioned.user.email,
-          tokenDigest: tokenDigest(token),
           overrideDomainRestriction: input.overrideDomainRestriction,
           expiresAt,
-          createdByUserId: actor.id,
-          createdAt: now,
-          acceptedAt: null,
-          acceptedRegistrationId: null,
-          revokedAt: null,
-          revokedByUserId: null,
-        })
-        .execute();
-
-      if (
-        provisioned.user.accountState === "active" &&
-        provisioned.user.emailVerified
-      ) {
-        const recipient = {
-          userId: provisioned.user.id,
-          name: provisioned.user.name,
-          email: provisioned.user.email,
-          registrationId: null,
-          participationId: null,
-        };
-        const variables = await buildEventNotificationVariables(transaction, {
-          eventOccurrenceId: occurrence.id,
-          communication: {
-            id: `system:${invitationId}`,
-            sectionId: null,
-            sessionDefinitionId: null,
-          },
-          recipient,
-        });
-        variables["event.invitationUrl"] = invitationUrl(token);
-        variables["event.invitationExpiresAt"] = new Intl.DateTimeFormat(
-          "en-AU",
-          {
-            dateStyle: "long",
-            timeStyle: "short",
-            timeZone: occurrence.timezone,
-          },
-        ).format(expiresAt);
-        await enqueueSystemEventNotification(transaction, {
-          systemKey: "event_late_registration_invitation",
-          recipient,
-          deduplicationKey: `event-late-invitation:${invitationId}:${recipient.userId}`,
-          eventOccurrenceId: occurrence.id,
-          trigger: "late_registration_invitation",
-          audience: "affected_learner",
-          eventLateRegistrationInvitationId: invitationId,
-          anchorAt: now,
-          variables,
-          createdAt: now,
-        });
-      }
-
-      await recordDurableAuditEvent(transaction, {
-        actorUserId: actor.id,
-        action: "event_late_registration_invitation.created",
-        subjectType: "event_late_registration_invitation",
-        subjectId: invitationId,
-        aggregateId: occurrence.id,
-        metadata: {
-          userId: provisioned.user.id,
-          eventOccurrenceRegionId: input.eventOccurrenceRegionId,
-          expiresAt: expiresAt.toISOString(),
-          overrideDomainRestriction: input.overrideDomainRestriction,
-          accountState: provisioned.user.accountState,
+          replacementReason: "replaced",
         },
-        createdAt: now,
-      });
+        actor,
+        now,
+      );
       return "created" as const;
     });
 }
@@ -350,6 +379,128 @@ export async function revokeOutstandingEventLateInvitations(
   return revoked.length;
 }
 
+export async function reconcileEventLateInvitationsAfterReschedule(
+  transaction: Transaction<Database>,
+  input: {
+    eventOccurrenceId: string;
+    previousStartsAt: Date;
+    nextStartsAt: Date;
+  },
+  actor: AuthenticatedUser,
+  now: Date,
+): Promise<{ reissued: number; revoked: number }> {
+  if (input.nextStartsAt >= input.previousStartsAt)
+    return { reissued: 0, revoked: 0 };
+
+  const occurrence = await transaction
+    .selectFrom("event_occurrence")
+    .select([
+      "id",
+      "status",
+      "startsAt",
+      "timezone",
+      "registrationClosesAt",
+      "registrationMode",
+    ])
+    .where("id", "=", input.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  const invitations = await transaction
+    .selectFrom("event_late_registration_invitation")
+    .select([
+      "id",
+      "eventOccurrenceRegionId",
+      "recipientNameSnapshot",
+      "recipientEmailSnapshot",
+      "overrideDomainRestriction",
+    ])
+    .where("eventOccurrenceId", "=", input.eventOccurrenceId)
+    .where("acceptedAt", "is", null)
+    .where("revokedAt", "is", null)
+    .where("expiresAt", ">", input.nextStartsAt)
+    .execute();
+  if (!invitations.length) return { reissued: 0, revoked: 0 };
+
+  const activeRegions = new Set(
+    (
+      await transaction
+        .selectFrom("event_occurrence_region")
+        .select("id")
+        .where("eventOccurrenceId", "=", input.eventOccurrenceId)
+        .where("retiredAt", "is", null)
+        .execute()
+    ).map((region) => region.id),
+  );
+  const domains = new Set(
+    (
+      await transaction
+        .selectFrom("event_occurrence_domain")
+        .select("domain")
+        .where("eventOccurrenceId", "=", input.eventOccurrenceId)
+        .execute()
+    ).map((row) => row.domain),
+  );
+  const eventCanAcceptLateInvitations =
+    occurrence.status === "published" &&
+    occurrence.startsAt > now &&
+    occurrence.registrationClosesAt !== null &&
+    occurrence.registrationClosesAt <= now &&
+    occurrence.registrationMode !== "open_entry" &&
+    occurrence.registrationMode !== "paid_entry";
+  let reissued = 0;
+  let revoked = 0;
+
+  for (const invitation of invitations) {
+    const regionIsValid = invitation.eventOccurrenceRegionId
+      ? activeRegions.has(invitation.eventOccurrenceRegionId)
+      : activeRegions.size === 0;
+    const domain = emailDomain(invitation.recipientEmailSnapshot);
+    const domainIsValid =
+      occurrence.registrationMode !== "required_restricted" ||
+      invitation.overrideDomainRestriction ||
+      Boolean(domain && domains.has(domain));
+    if (eventCanAcceptLateInvitations && regionIsValid && domainIsValid) {
+      await issueEventLateRegistrationInvitation(
+        transaction,
+        {
+          eventOccurrenceId: occurrence.id,
+          timezone: occurrence.timezone,
+          name: invitation.recipientNameSnapshot,
+          email: invitation.recipientEmailSnapshot,
+          eventOccurrenceRegionId: invitation.eventOccurrenceRegionId,
+          overrideDomainRestriction: invitation.overrideDomainRestriction,
+          expiresAt: occurrence.startsAt,
+          replacementReason: "event_rescheduled",
+        },
+        actor,
+        now,
+      );
+      reissued += 1;
+      continue;
+    }
+
+    const result = await transaction
+      .updateTable("event_late_registration_invitation")
+      .set({ revokedAt: now, revokedByUserId: actor.id })
+      .where("id", "=", invitation.id)
+      .where("revokedAt", "is", null)
+      .returning("id")
+      .executeTakeFirst();
+    if (!result) continue;
+    await supersedeInvitationNotifications(transaction, invitation.id, now);
+    await recordDurableAuditEvent(transaction, {
+      actorUserId: actor.id,
+      action: "event_late_registration_invitation.revoked",
+      subjectType: "event_late_registration_invitation",
+      subjectId: invitation.id,
+      aggregateId: input.eventOccurrenceId,
+      metadata: { reason: "event_rescheduled" },
+      createdAt: now,
+    });
+    revoked += 1;
+  }
+  return { reissued, revoked };
+}
+
 export async function findEventLateRegistrationInvitation(
   token: string,
   user: AuthenticatedUser,
@@ -387,6 +538,7 @@ export async function findEventLateRegistrationInvitation(
       "occurrence.startsAt as eventStartsAt",
       "occurrence.timezone",
       "occurrence.status as eventStatus",
+      "occurrence.registrationMode",
     ])
     .where("invitation.tokenDigest", "=", tokenDigest(token))
     .executeTakeFirst();
@@ -407,7 +559,9 @@ export async function findEventLateRegistrationInvitation(
   if (invitation.expiresAt <= new Date()) return { status: "expired" };
   if (
     invitation.eventStatus !== "published" ||
-    invitation.eventStartsAt <= new Date()
+    invitation.eventStartsAt <= new Date() ||
+    invitation.registrationMode === "open_entry" ||
+    invitation.registrationMode === "paid_entry"
   )
     return { status: "unavailable" };
   return {
@@ -482,6 +636,29 @@ export async function acceptEventLateRegistrationInvitation(
         invitation.startsAt <= new Date()
       )
         return { status: "unavailable" } as const;
+      if (
+        invitation.registrationMode === "open_entry" ||
+        invitation.registrationMode === "paid_entry"
+      ) {
+        const now = new Date();
+        await transaction
+          .updateTable("event_late_registration_invitation")
+          .set({ revokedAt: now, revokedByUserId: user.id })
+          .where("id", "=", invitation.id)
+          .where("revokedAt", "is", null)
+          .execute();
+        await supersedeInvitationNotifications(transaction, invitation.id, now);
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: user.id,
+          action: "event_late_registration_invitation.revoked",
+          subjectType: "event_late_registration_invitation",
+          subjectId: invitation.id,
+          aggregateId: invitation.eventOccurrenceId,
+          metadata: { reason: "registration_mode_changed" },
+          createdAt: now,
+        });
+        return { status: "unavailable" } as const;
+      }
 
       const existing = await transaction
         .selectFrom("event_registration")

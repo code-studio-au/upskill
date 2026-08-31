@@ -17,6 +17,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { ensureEventSurveyAccessRecords } from "#/server/events/event-survey-access.server";
 import { ensureEventGuestAccessRecord } from "#/server/events/event-guest-access.server";
+import { reconcileEventLateInvitationsAfterReschedule } from "#/server/events/event-late-registration-invitation.server";
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.server";
 import { materializeEventOccurrenceCommunications } from "#/server/admin/admin-communication.server";
@@ -1292,6 +1293,17 @@ export async function rescheduleAdminEventOccurrence(
         eventOccurrenceId,
         now,
       );
+      const lateInvitationReconciliation =
+        await reconcileEventLateInvitationsAfterReschedule(
+          transaction,
+          {
+            eventOccurrenceId,
+            previousStartsAt: occurrence.startsAt,
+            nextStartsAt,
+          },
+          administrator,
+          now,
+        );
       await enqueueEventOccurrenceLifecycleCommunications(transaction, {
         eventOccurrenceId,
         triggerEventId: rescheduleId,
@@ -1311,6 +1323,8 @@ export async function rescheduleAdminEventOccurrence(
           addedRegionCount: addedRegions.length,
           retiredRegionCount: removedRegions.length,
           cancelledRegistrationCount,
+          reissuedLateInvitationCount: lateInvitationReconciliation.reissued,
+          revokedLateInvitationCount: lateInvitationReconciliation.revoked,
         },
         createdAt: now,
       });
