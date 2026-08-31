@@ -141,10 +141,7 @@ async function issueEventLateRegistrationInvitation(
     })
     .execute();
 
-  if (
-    provisioned.user.accountState === "active" &&
-    provisioned.user.emailVerified
-  ) {
+  if (!provisioned.notificationId) {
     const recipient = {
       userId: provisioned.user.id,
       name: provisioned.user.name,

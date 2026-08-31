@@ -11,6 +11,7 @@ import {
   type EventNotificationRecipient,
 } from "./offering-event-context.server";
 import {
+  findLatestUnavailableEventPostworkReleaseAt,
   hasIncompleteAvailableEventPostwork,
   hasIncompleteAvailableEventPrework,
 } from "./event-prework.server";
@@ -53,6 +54,7 @@ export type EventCommunicationScheduleOutcome =
       recipientCount: number;
     }
   | { status: "retry"; scheduleId: string }
+  | { status: "deferred"; scheduleId: string; availableAt: Date }
   | { status: "failed"; scheduleId: string };
 
 type ProcessedScheduleOutcome = Exclude<
@@ -388,7 +390,7 @@ async function materializeSchedule(
       | "session_start";
   },
   createdAt: Date,
-): Promise<number> {
+): Promise<{ recipientCount: number } | { deferUntil: Date }> {
   const communication = await transaction
     .selectFrom("event_occurrence_communication_revision as communication")
     .innerJoin(
@@ -434,7 +436,7 @@ async function materializeSchedule(
     communication.contractVersion !== 1 ||
     !communication.publishedAt
   )
-    return 0;
+    return { recipientCount: 0 };
   let recipients = await scheduledRecipients(
     transaction,
     schedule.eventOccurrenceId,
@@ -461,7 +463,26 @@ async function materializeSchedule(
     )
       .filter((entry) => entry.applicable)
       .map((entry) => entry.recipient);
-  if (schedule.trigger === "post_event_incomplete")
+  if (schedule.trigger === "post_event_incomplete") {
+    const futureReleases = await Promise.all(
+      recipients.map(async (recipient) =>
+        recipient.registrationId && recipient.participationId
+          ? await findLatestUnavailableEventPostworkReleaseAt(transaction, {
+              eventOccurrenceId: schedule.eventOccurrenceId,
+              eventRegistrationId: recipient.registrationId,
+              eventParticipationId: recipient.participationId,
+              userId: recipient.userId,
+              now: createdAt,
+            })
+          : null,
+      ),
+    );
+    const deferUntil = futureReleases.reduce<Date | null>(
+      (latest, releaseAt) =>
+        releaseAt && (!latest || releaseAt > latest) ? releaseAt : latest,
+      null,
+    );
+    if (deferUntil) return { deferUntil };
     recipients = (
       await Promise.all(
         recipients.map(async (recipient) => ({
@@ -482,6 +503,7 @@ async function materializeSchedule(
     )
       .filter((entry) => entry.applicable)
       .map((entry) => entry.recipient);
+  }
   const content: EventCommunicationContentSnapshot = communication;
   for (const recipient of recipients) {
     const variables = await buildEventNotificationVariables(transaction, {
@@ -505,7 +527,7 @@ async function materializeSchedule(
       createdAt,
     });
   }
-  return recipients.length;
+  return { recipientCount: recipients.length };
 }
 
 export async function processNextEventCommunicationSchedule(
@@ -562,12 +584,32 @@ export async function processNextEventCommunicationSchedule(
           schedule.attempts !== claimed.attempt
         )
           return null;
-        const count = await materializeSchedule(transaction, schedule, now);
+        const materialized = await materializeSchedule(
+          transaction,
+          schedule,
+          now,
+        );
+        if ("deferUntil" in materialized) {
+          await transaction
+            .updateTable("event_communication_schedule")
+            .set({
+              status: "pending",
+              attempts: claimed.attempt - 1,
+              availableAt: materialized.deferUntil,
+              lastErrorCode: null,
+              updatedAt: now,
+            })
+            .where("id", "=", schedule.id)
+            .where("status", "=", "processing")
+            .where("attempts", "=", claimed.attempt)
+            .executeTakeFirstOrThrow();
+          return materialized;
+        }
         await transaction
           .updateTable("event_communication_schedule")
           .set({
             status: "completed",
-            recipientCount: count,
+            recipientCount: materialized.recipientCount,
             processedAt: now,
             lastErrorCode: null,
             updatedAt: now,
@@ -576,13 +618,19 @@ export async function processNextEventCommunicationSchedule(
           .where("status", "=", "processing")
           .where("attempts", "=", claimed.attempt)
           .executeTakeFirstOrThrow();
-        return count;
+        return materialized;
       });
     if (recipientCount === null) return { status: "no-work" };
+    if ("deferUntil" in recipientCount)
+      return {
+        status: "deferred",
+        scheduleId: claimed.id,
+        availableAt: recipientCount.deferUntil,
+      };
     return {
       status: "completed",
       scheduleId: claimed.id,
-      recipientCount,
+      recipientCount: recipientCount.recipientCount,
     };
   } catch (error) {
     const failed = claimed.attempt >= MAX_SCHEDULE_ATTEMPTS;

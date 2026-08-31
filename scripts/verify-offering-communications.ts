@@ -681,8 +681,8 @@ try {
             description: "",
             phase: "post_event",
             releaseAnchor: "occurrence_end",
-            releaseOffsetAmount: 0,
-            releaseOffsetUnit: "minute",
+            releaseOffsetAmount: 1,
+            releaseOffsetUnit: "day",
             items: [
               {
                 id: eventPostworkCommunicationId,
@@ -1197,29 +1197,24 @@ try {
     ),
     { status: "no-work" },
   );
-  assert.equal(
-    (
-      await processNextEventCommunicationSchedule(
-        new Date("2026-09-16T07:00:00.000Z"),
-      )
-    ).status,
+  const sharedDueAt = new Date("2026-09-16T07:00:00.000Z");
+  const sharedDueOutcomes = [
+    await processNextEventCommunicationSchedule(sharedDueAt),
+    await processNextEventCommunicationSchedule(sharedDueAt),
+    await processNextEventCommunicationSchedule(sharedDueAt),
+  ];
+  assert.deepEqual(sharedDueOutcomes.map((outcome) => outcome.status).sort(), [
     "completed",
+    "completed",
+    "deferred",
+  ]);
+  const deferredPostwork = sharedDueOutcomes.find(
+    (outcome) => outcome.status === "deferred",
   );
+  assert.ok(deferredPostwork);
   assert.equal(
-    (
-      await processNextEventCommunicationSchedule(
-        new Date("2026-09-16T07:00:00.000Z"),
-      )
-    ).status,
-    "completed",
-  );
-  assert.equal(
-    (
-      await processNextEventCommunicationSchedule(
-        new Date("2026-09-16T07:00:00.000Z"),
-      )
-    ).status,
-    "completed",
+    deferredPostwork.availableAt.toISOString(),
+    "2026-09-17T07:00:00.000Z",
   );
   assert.deepEqual(
     await processNextEventCommunicationSchedule(
@@ -1227,6 +1222,29 @@ try {
     ),
     { status: "no-work" },
   );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_communication_schedule")
+      .select(["status", "attempts", "availableAt", "processedAt"])
+      .where("trigger", "=", "post_event_incomplete")
+      .where("status", "=", "pending")
+      .executeTakeFirstOrThrow()
+      .then((schedule) => ({
+        ...schedule,
+        availableAt: schedule.availableAt.toISOString(),
+      })),
+    {
+      status: "pending",
+      attempts: 0,
+      availableAt: "2026-09-17T07:00:00.000Z",
+      processedAt: null,
+    },
+  );
+  const releasedPostworkOutcome = await processNextEventCommunicationSchedule(
+    new Date("2026-09-17T07:00:00.000Z"),
+  );
+  assert.equal(releasedPostworkOutcome.status, "completed");
+  assert.equal(releasedPostworkOutcome.recipientCount, 1);
 
   const selectedWorkspace = await findAdminCommunicationWorkspace({
     kind: "event_occurrence",
