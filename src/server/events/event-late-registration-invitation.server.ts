@@ -7,6 +7,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
+import { invalidateLateInvitationAccountSetupRequests } from "#/server/identity/account-setup.server";
 import {
   normalizeUserEmail,
   provisionUser,
@@ -47,6 +48,7 @@ async function supersedeInvitationNotifications(
   invitationId: string,
   now: Date,
 ): Promise<void> {
+  await invalidateLateInvitationAccountSetupRequests(transaction, invitationId);
   await transaction
     .updateTable("notification")
     .set({

@@ -2990,7 +2990,6 @@ try {
     ),
     "revoked",
   );
-
   const provisionalInvitationEmail = `late-invitation-${suffix}@outside.example.net`;
   assert.equal(
     await createEventLateRegistrationInvitation(
@@ -3103,6 +3102,14 @@ try {
       .then((row) => row.status),
     "superseded",
   );
+  assert.equal(
+    await database
+      .selectFrom("verification")
+      .select("id")
+      .where("identifier", "=", `reset-password:${provisionalSetupToken}`)
+      .executeTakeFirst(),
+    undefined,
+  );
   const replacementInvitation = await database
     .selectFrom("event_late_registration_invitation as invitation")
     .innerJoin("user", "user.id", "invitation.userId")
@@ -3169,6 +3176,14 @@ try {
       administrator,
     ),
     "revoked",
+  );
+  assert.equal(
+    await database
+      .selectFrom("verification")
+      .select("id")
+      .where("identifier", "=", `reset-password:${replacementSetupToken}`)
+      .executeTakeFirst(),
+    undefined,
   );
   await database
     .updateTable("event_registration")
