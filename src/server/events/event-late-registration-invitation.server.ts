@@ -162,6 +162,7 @@ export async function createEventLateRegistrationInvitation(
         actorUserId: actor.id,
         sourceEventId: invitationId,
         createdAt: now,
+        setupExpiresAt: expiresAt,
         continuePath: invitationPath(token),
         refreshExistingSetup: {
           reason: "late_invitation",

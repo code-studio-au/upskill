@@ -24,6 +24,7 @@ export async function createAccountSetupRequest(
     email: string;
     deduplicationKey: string;
     createdAt: Date;
+    setupExpiresAt?: Date;
     continuePath?: string;
     purpose?: "late_registration_invitation";
     eventLateRegistrationInvitationId?: string;
@@ -36,7 +37,9 @@ export async function createAccountSetupRequest(
       id: `verification_${randomUUID()}`,
       identifier: `reset-password:${token}`,
       value: input.userId,
-      expiresAt: new Date(input.createdAt.getTime() + ACCOUNT_SETUP_TTL_MS),
+      expiresAt:
+        input.setupExpiresAt ??
+        new Date(input.createdAt.getTime() + ACCOUNT_SETUP_TTL_MS),
       createdAt: input.createdAt,
       updatedAt: input.createdAt,
     })
@@ -67,6 +70,7 @@ export async function refreshAccountSetupRequest(
     eventLateRegistrationInvitationId?: string;
     preserveExistingRequests?: boolean;
     createdAt?: Date;
+    setupExpiresAt?: Date;
   },
 ): Promise<string | null> {
   const createdAt = input.createdAt ?? new Date();
@@ -119,6 +123,7 @@ export async function refreshAccountSetupRequest(
     email: input.user.email,
     deduplicationKey: `account-setup:${input.reason}:${randomUUID()}:${input.user.id}`,
     createdAt,
+    ...(input.setupExpiresAt ? { setupExpiresAt: input.setupExpiresAt } : {}),
     ...(input.continuePath ? { continuePath: input.continuePath } : {}),
     ...(input.purpose ? { purpose: input.purpose } : {}),
     ...(input.eventLateRegistrationInvitationId

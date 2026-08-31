@@ -2812,7 +2812,7 @@ try {
         email: provisionalInvitationEmail,
         eventOccurrenceRegionId: addedOccurrenceRegion.id,
         overrideDomainRestriction: true,
-        expiresInDays: 2,
+        expiresInDays: 7,
       },
       administrator,
     ),
@@ -2821,26 +2821,39 @@ try {
   const provisionalLateInvitation = await database
     .selectFrom("event_late_registration_invitation as invitation")
     .innerJoin("user", "user.id", "invitation.userId")
-    .select(["invitation.id", "user.accountState"])
+    .select(["invitation.id", "invitation.expiresAt", "user.accountState"])
     .where("invitation.eventOccurrenceId", "=", eventOccurrenceId)
     .where("user.email", "=", provisionalInvitationEmail)
     .executeTakeFirstOrThrow();
   assert.equal(provisionalLateInvitation.accountState, "provisional");
+  const provisionalSetupNotification = await database
+    .selectFrom("notification")
+    .select("payload")
+    .where(
+      "payload",
+      "@>",
+      JSON.stringify({
+        purpose: "late_registration_invitation",
+        eventLateRegistrationInvitationId: provisionalLateInvitation.id,
+      }),
+    )
+    .executeTakeFirstOrThrow();
+  const provisionalSetupUrl = (
+    provisionalSetupNotification.payload as { setupUrl?: unknown }
+  ).setupUrl;
+  assert.equal(typeof provisionalSetupUrl, "string");
+  const provisionalSetupToken = new URLSearchParams(
+    new URL(provisionalSetupUrl as string).hash.slice(1),
+  ).get("token");
+  assert.ok(provisionalSetupToken);
   assert.equal(
     await database
-      .selectFrom("notification")
-      .select("id")
-      .where(
-        "payload",
-        "@>",
-        JSON.stringify({
-          purpose: "late_registration_invitation",
-          eventLateRegistrationInvitationId: provisionalLateInvitation.id,
-        }),
-      )
-      .executeTakeFirst()
-      .then(Boolean),
-    true,
+      .selectFrom("verification")
+      .select("expiresAt")
+      .where("identifier", "=", `reset-password:${provisionalSetupToken}`)
+      .executeTakeFirstOrThrow()
+      .then((verification) => verification.expiresAt.toISOString()),
+    provisionalLateInvitation.expiresAt.toISOString(),
   );
   assert.equal(
     await revokeEventLateRegistrationInvitation(
