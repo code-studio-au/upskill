@@ -664,6 +664,8 @@ export async function findEventOperationsWorkspace(
       name: registration.name,
       email: registration.email,
       status: registration.status,
+      registrationQuestionnaireStatus:
+        registration.registrationQuestionnaireStatus,
       regionId: registration.regionId,
       regionName: registration.regionName,
       profileRegionId: registration.profileRegionId,

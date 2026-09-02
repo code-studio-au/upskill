@@ -614,7 +614,11 @@ export async function acceptEventLateRegistrationInvitation(
   token: string,
   user: AuthenticatedUser,
 ): Promise<
-  | { status: "registered" | "already-registered"; eventOccurrenceId: string }
+  | {
+      status: "registered" | "already-registered";
+      eventOccurrenceId: string;
+      registrationRequired: boolean;
+    }
   | {
       status:
         | "expired"
@@ -635,6 +639,18 @@ export async function acceptEventLateRegistrationInvitation(
           "occurrence.id",
           "invitation.eventOccurrenceId",
         )
+        .innerJoin(
+          "event_template_version as version",
+          "version.id",
+          "occurrence.eventTemplateVersionId",
+        )
+        .leftJoin(
+          "registration_questionnaire_assignment as questionnaire",
+          (join) =>
+            join
+              .onRef("questionnaire.eventOccurrenceId", "=", "occurrence.id")
+              .on("questionnaire.userId", "=", user.id),
+        )
         .select([
           "invitation.id",
           "invitation.eventOccurrenceId",
@@ -650,6 +666,8 @@ export async function acceptEventLateRegistrationInvitation(
           "occurrence.status as eventStatus",
           "occurrence.startsAt",
           "occurrence.registrationMode",
+          "version.registrationSurveyVersionId",
+          "questionnaire.status as questionnaireStatus",
         ])
         .where("invitation.tokenDigest", "=", tokenDigest(token))
         .forUpdate(["invitation", "occurrence"])
@@ -724,6 +742,10 @@ export async function acceptEventLateRegistrationInvitation(
         return {
           status: "already-registered",
           eventOccurrenceId: invitation.eventOccurrenceId,
+          registrationRequired:
+            Boolean(invitation.registrationSurveyVersionId) &&
+            invitation.questionnaireStatus !== "completed" &&
+            invitation.questionnaireStatus !== "waived",
         } as const;
       }
 
@@ -852,6 +874,10 @@ export async function acceptEventLateRegistrationInvitation(
       return {
         status: "registered",
         eventOccurrenceId: invitation.eventOccurrenceId,
+        registrationRequired:
+          Boolean(invitation.registrationSurveyVersionId) &&
+          invitation.questionnaireStatus !== "completed" &&
+          invitation.questionnaireStatus !== "waived",
       } as const;
     });
 }

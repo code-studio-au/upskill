@@ -9,6 +9,10 @@ import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema
 import { eventSurveyPublicReferenceSchema } from "#/features/event-operations/event-operations.schema";
 import type { EventRecoveryLandingResult } from "#/features/event-recovery/event-recovery.schema";
 import {
+  registrationQuestionnaireStepSchema,
+  type LearnerRegistrationQuestionnaireStepResult,
+} from "#/features/registration/registration-questionnaire.schema";
+import {
   learnerSurveyParamsSchema,
   learnerSurveyStepSchema,
   learnerEventSurveyParamsSchema,
@@ -51,6 +55,33 @@ export const getLearnerEventWorkspace = createServerFn({ method: "GET" })
       await import("#/server/learning/learner-event-workspace.server");
     return await findLearnerEventWorkspace(data.eventOccurrenceId, user);
   });
+
+export const advanceLearnerRegistrationQuestionnaire = createServerFn({
+  method: "POST",
+})
+  .validator(registrationQuestionnaireStepSchema)
+  .handler(
+    async ({ data }): Promise<LearnerRegistrationQuestionnaireStepResult> => {
+      const { getRequestUser } = await import("#/server/auth/session.server");
+      const user = await getRequestUser();
+      if (!user) return { status: "unauthenticated" };
+      const { advanceRegistrationQuestionnaire } =
+        await import("#/server/registration/learner-registration-questionnaire.server");
+      return await advanceRegistrationQuestionnaire(
+        {
+          assignmentId: data.assignmentId,
+          itemId: data.itemId,
+          ...(typeof data.answer === "undefined"
+            ? {}
+            : { answer: data.answer }),
+          ...(typeof data.profileUpdateAccepted === "undefined"
+            ? {}
+            : { profileUpdateAccepted: data.profileUpdateAccepted }),
+        },
+        user,
+      );
+    },
+  );
 
 export const redeemLearnerAccessCode = createServerFn({ method: "POST" })
   .validator(accessCodeRedemptionSchema)

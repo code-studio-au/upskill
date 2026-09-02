@@ -33,7 +33,7 @@ import classes from "./admin.surveys.module.css";
 
 interface SurveyCreateValues {
   title: string;
-  type: "system" | "elearning" | "event" | "shared";
+  type: "system" | "registration" | "elearning" | "event" | "shared";
 }
 
 const defaultSurveyCreateValues: SurveyCreateValues = {
@@ -143,17 +143,22 @@ function AdminSurveysPage() {
     (survey) => survey.type === "elearning",
   );
   const eventSurveys = result.data.filter((survey) => survey.type === "event");
+  const registrationSurveys = result.data.filter(
+    (survey) => survey.type === "registration",
+  );
   const sharedSurveys = result.data.filter(
     (survey) => survey.type === "shared",
   );
   const visibleSurveys =
     type === "system"
       ? systemSurveys
-      : type === "elearning"
-        ? elearningSurveys
-        : type === "event"
-          ? eventSurveys
-          : sharedSurveys;
+      : type === "registration"
+        ? registrationSurveys
+        : type === "elearning"
+          ? elearningSurveys
+          : type === "event"
+            ? eventSurveys
+            : sharedSurveys;
 
   return (
     <Stack gap="xl">
@@ -182,6 +187,10 @@ function AdminSurveysPage() {
           {
             value: "system",
             label: `System (${String(systemSurveys.length)})`,
+          },
+          {
+            value: "registration",
+            label: `Registration (${String(registrationSurveys.length)})`,
           },
           {
             value: "elearning",
@@ -232,6 +241,7 @@ function AdminSurveysPage() {
                 value={createValues.type}
                 data={[
                   { value: "system", label: "System onboarding" },
+                  { value: "registration", label: "Registration" },
                   { value: "elearning", label: "eLearning" },
                   { value: "event", label: "Event" },
                   { value: "shared", label: "Shared" },
@@ -242,6 +252,7 @@ function AdminSurveysPage() {
                     ...current,
                     type:
                       nextType === "system" ||
+                      nextType === "registration" ||
                       nextType === "event" ||
                       nextType === "shared"
                         ? nextType

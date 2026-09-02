@@ -210,6 +210,7 @@ export interface EventSummary {
 }
 
 export interface EventDetail extends EventSummary {
+  eventOccurrenceId: string;
   description: string;
   venueName: string | null;
   venueAddress: string | null;
@@ -217,6 +218,7 @@ export interface EventDetail extends EventSummary {
   accreditations: CourseContent["accreditations"];
   bulkPricing: BulkPricing;
   publicAccessReference: string | null;
+  hasRegistrationQuestionnaire: boolean;
   regions: Array<{ code: string; name: string; groupName: string | null }>;
   sessions: Array<{
     title: string;

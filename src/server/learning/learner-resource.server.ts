@@ -12,6 +12,10 @@ import {
   ensureEventSectionReleased,
 } from "#/server/learning/event-section-release.server";
 import { getObjectBytes } from "#/server/storage/object-storage.server";
+import {
+  courseRegistrationQuestionnaireComplete,
+  eventRegistrationQuestionnaireComplete,
+} from "#/server/registration/registration-questionnaire-access.server";
 
 const MAX_RESOURCE_BYTES = 25 * 1024 * 1024;
 
@@ -120,6 +124,21 @@ export async function getLearnerPdfResource(
           .where("resource.id", "=", input.resourceVersionId)
           .executeTakeFirst();
   if (!resource) return { status: "not-found" };
+  const registrationComplete =
+    "courseVersionId" in resource && "enrollmentId" in input
+      ? await courseRegistrationQuestionnaireComplete(
+          database,
+          input.enrollmentId,
+          user.id,
+        )
+      : !("courseVersionId" in resource)
+        ? await eventRegistrationQuestionnaireComplete(
+            database,
+            resource.eventOccurrenceId,
+            user.id,
+          )
+        : false;
+  if (!registrationComplete) return { status: "not-found" };
   if (!("enrollmentId" in input) && !("courseVersionId" in resource)) {
     if (["cancelled", "archived"].includes(resource.occurrenceStatus))
       return { status: "not-found" };

@@ -12,7 +12,7 @@ export default defineConfig({
   build: {
     minify: "terser",
     terserOptions: {
-      compress: { passes: 3 },
+      compress: { passes: 5 },
       format: { comments: false },
       module: true,
     },

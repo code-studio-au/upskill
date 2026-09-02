@@ -23,6 +23,7 @@ export async function registerLearnerForEvent(
 ): Promise<
   | { status: "registered"; registrationStatus: "submitted" | "selected" }
   | { status: "already-registered" }
+  | { status: "questionnaire-required" }
   | { status: "unavailable" }
   | { status: "ineligible" }
 > {
@@ -31,18 +32,24 @@ export async function registerLearnerForEvent(
     .execute(async (transaction) => {
       const occurrence = await transaction
         .selectFrom("event_occurrence")
+        .innerJoin(
+          "event_template_version",
+          "event_template_version.id",
+          "event_occurrence.eventTemplateVersionId",
+        )
         .select([
-          "status",
-          "registrationMode",
-          "approvalMode",
-          "registrationOpensAt",
-          "registrationClosesAt",
-          "coordinatorLockAt",
-          "capacity",
-          "confirmedCount",
+          "event_occurrence.status",
+          "event_occurrence.registrationMode",
+          "event_occurrence.approvalMode",
+          "event_occurrence.registrationOpensAt",
+          "event_occurrence.registrationClosesAt",
+          "event_occurrence.coordinatorLockAt",
+          "event_occurrence.capacity",
+          "event_occurrence.confirmedCount",
+          "event_template_version.registrationSurveyVersionId",
         ])
-        .where("id", "=", eventOccurrenceId)
-        .forUpdate()
+        .where("event_occurrence.id", "=", eventOccurrenceId)
+        .forUpdate("event_occurrence")
         .executeTakeFirst();
       if (
         !occurrence ||
@@ -51,6 +58,20 @@ export async function registerLearnerForEvent(
         occurrence.registrationMode === "paid_entry"
       )
         return { status: "unavailable" } as const;
+
+      if (occurrence.registrationSurveyVersionId) {
+        const questionnaire = await transaction
+          .selectFrom("registration_questionnaire_assignment")
+          .select("status")
+          .where("eventOccurrenceId", "=", eventOccurrenceId)
+          .where("userId", "=", user.id)
+          .executeTakeFirst();
+        if (
+          questionnaire?.status !== "completed" &&
+          questionnaire?.status !== "waived"
+        )
+          return { status: "questionnaire-required" } as const;
+      }
 
       const existing = await transaction
         .selectFrom("event_registration")
@@ -214,7 +235,9 @@ export async function registerLearnerForEvent(
             mode: "registered",
             nameSnapshot: user.name,
             emailSnapshot: user.email,
-            detailsSubmittedAt: null,
+            detailsSubmittedAt: occurrence.registrationSurveyVersionId
+              ? now
+              : null,
             joinDisclosedAt: null,
             checkedInAt: null,
             createdAt: now,

@@ -148,6 +148,13 @@ export interface EventOperationsWorkspace {
     name: string;
     email: string;
     status: EventRegistrationStatus;
+    registrationQuestionnaireStatus:
+      | "not_required"
+      | "not_started"
+      | "assigned"
+      | "in_progress"
+      | "completed"
+      | "waived";
     regionId: string | null;
     regionName: string | null;
     profileRegionId: string | null;

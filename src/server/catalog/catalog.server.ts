@@ -216,6 +216,7 @@ type PublishedEventRow = {
   venueName: string | null;
   venueAddress: string | null;
   publicAccessReference: string | null;
+  registrationSurveyVersionId: string | null;
 };
 
 function toEventSummary(
@@ -281,6 +282,7 @@ function publishedEventQuery() {
       "version.coverImage",
       "version.hasCompletionCertificate",
       "version.accreditations",
+      "version.registrationSurveyVersionId",
       "guestAccess.publicReference as publicAccessReference",
     ])
     .where("occurrence.status", "=", "published")
@@ -372,6 +374,7 @@ export async function findEventBySlug(
   ]);
   return {
     ...toEventSummary(row, reservedPlaces),
+    eventOccurrenceId: row.id,
     description: row.description,
     venueName: row.venueName,
     venueAddress: row.venueAddress,
@@ -379,6 +382,7 @@ export async function findEventBySlug(
     accreditations: certificateAccreditationsSchema.parse(row.accreditations),
     bulkPricing: bulkPricingSchema.parse(row.bulkPricing),
     publicAccessReference: row.publicAccessReference,
+    hasRegistrationQuestionnaire: Boolean(row.registrationSurveyVersionId),
     regions,
     sessions: sessions.map((session) => ({
       ...session,

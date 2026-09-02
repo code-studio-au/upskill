@@ -1,4 +1,5 @@
 import { z } from "#/validation/zod";
+import type { LearnerRegistrationQuestionnaire } from "#/features/registration/registration-questionnaire.schema";
 
 const identifierSchema = z
   .string()
@@ -69,5 +70,9 @@ interface LearnerEventWorkspace {
 export type LearnerEventWorkspaceResult =
   | { status: "ready"; workspace: LearnerEventWorkspace }
   | { status: "cancelled"; title: string }
+  | {
+      status: "registration-required";
+      questionnaire: LearnerRegistrationQuestionnaire;
+    }
   | { status: "not-found" }
   | { status: "unauthenticated" };

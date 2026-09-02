@@ -235,6 +235,7 @@ interface CourseVersionTable {
   courseId: string;
   version: number;
   content: Json;
+  registrationSurveyVersionId: Generated<string | null>;
   publishedAt: Timestamp | null;
   createdAt: Timestamp;
 }
@@ -266,8 +267,10 @@ interface LearningActivityTable {
   id: string;
   kind: "scorm" | "survey" | "resource";
   title: string;
-  surveyUsage: Generated<"learning" | "onboarding" | null>;
-  surveyType: Generated<"system" | "elearning" | "event" | "shared" | null>;
+  surveyUsage: Generated<"learning" | "onboarding" | "registration" | null>;
+  surveyType: Generated<
+    "system" | "registration" | "elearning" | "event" | "shared" | null
+  >;
   surveyPosition: Generated<number | null>;
   createdAt: Timestamp;
 }
@@ -501,8 +504,39 @@ interface EventTemplateVersionTable {
   coverImage: NullableJsonDocument<NonNullable<OfferingImage>>;
   hasCompletionCertificate: boolean;
   accreditations: JsonDocument<Array<CertificateAccreditation>>;
+  registrationSurveyVersionId: Generated<string | null>;
   publishedAt: Timestamp | null;
   createdAt: Timestamp;
+}
+
+interface RegistrationQuestionnaireAssignmentTable {
+  id: string;
+  userId: string;
+  surveyVersionId: string;
+  eventOccurrenceId: string | null;
+  eventOccurrenceRegionId: string | null;
+  enrollmentId: string | null;
+  status: "assigned" | "in_progress" | "completed" | "waived";
+  assignedAt: Timestamp;
+  startedAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  waivedAt: Timestamp | null;
+  waivedByUserId: string | null;
+  waiverReason: string | null;
+}
+
+interface RegistrationQuestionnaireResponseTable {
+  id: string;
+  assignmentId: string;
+  surveyVersionId: string;
+  answers: Json;
+  visitedItemIds: Json;
+  currentItemId: string | null;
+  startedAt: Timestamp;
+  updatedAt: Timestamp;
+  submittedAt: Timestamp | null;
+  profileUpdateAcceptedAt: Timestamp | null;
+  redactedAt: Timestamp | null;
 }
 
 interface AccreditationLogoAssetTable {
@@ -1526,6 +1560,7 @@ export type AuditEventAction =
   | "order.refund_recorded"
   | "resource.uploaded"
   | "resource.version_removed"
+  | "registration_questionnaire.waived"
   | "scorm.attempt_launch_issued"
   | "scorm.package_ready"
   | "scorm.package_rejected"
@@ -1640,6 +1675,8 @@ export interface Database {
   platform_admin: PlatformAdminTable;
   platform_admin_invitation: PlatformAdminInvitationTable;
   phone_verification_claim: PhoneVerificationClaimTable;
+  registration_questionnaire_assignment: RegistrationQuestionnaireAssignmentTable;
+  registration_questionnaire_response: RegistrationQuestionnaireResponseTable;
   bulk_order: BulkOrderTable;
   order: OrderTable;
   order_item: OrderItemTable;

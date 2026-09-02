@@ -30,6 +30,7 @@ export async function findAdminEventOccurrenceOperations(
       "occurrence.status",
       "template.title as templateTitle",
       "version.version as templateVersion",
+      "version.registrationSurveyVersionId",
       "occurrence.deliveryMode",
       "occurrence.registrationMode",
       "occurrence.approvalMode",
@@ -62,7 +63,8 @@ export async function findAdminEventOccurrenceOperations(
   if (!occurrence) return null;
 
   const guestAccess =
-    occurrence.registrationMode === "open_entry"
+    occurrence.registrationMode === "open_entry" &&
+    occurrence.registrationSurveyVersionId === null
       ? await database
           .transaction()
           .execute(
@@ -112,6 +114,17 @@ export async function findAdminEventOccurrenceOperations(
         "profile_region.id",
         "user.currentRegionId",
       )
+      .leftJoin(
+        "registration_questionnaire_assignment as registration_assignment",
+        (join) =>
+          join
+            .onRef("registration_assignment.userId", "=", "registration.userId")
+            .on(
+              "registration_assignment.eventOccurrenceId",
+              "=",
+              eventOccurrenceId,
+            ),
+      )
       .select([
         "registration.id",
         "registration.userId",
@@ -135,6 +148,7 @@ export async function findAdminEventOccurrenceOperations(
         "registration.regionalReviewWaivedAt",
         "user.accountState",
         "user.setupRequestedAt",
+        "registration_assignment.status as registrationQuestionnaireStatus",
       ])
       .where("registration.eventOccurrenceId", "=", eventOccurrenceId)
       .orderBy("registration.submittedAt", "desc")
@@ -472,6 +486,10 @@ export async function findAdminEventOccurrenceOperations(
       const regionDecision = regionDecisionByRegistration.get(row.id);
       return {
         ...row,
+        registrationQuestionnaireStatus:
+          occurrence.registrationSurveyVersionId === null
+            ? "not_required"
+            : (row.registrationQuestionnaireStatus ?? "not_started"),
         status: row.status,
         submittedAt: row.submittedAt.toISOString(),
         coordinatorDecidedAt: row.coordinatorDecidedAt?.toISOString() ?? null,

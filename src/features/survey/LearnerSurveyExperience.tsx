@@ -9,6 +9,7 @@ import {
   Title,
 } from "#/features/shared/mantine";
 import { MantineProgress } from "#/features/shared/MantineProgress";
+import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { firstFormError } from "#/features/shared/form-errors";
 import { useForm } from "@tanstack/react-form";
 import { lazy, Suspense, useState, type ReactNode } from "react";
@@ -68,17 +69,22 @@ export function LearnerSurveyExperience({
   survey,
   returnAction,
   completionDescription,
+  completionTitle = "Survey completed",
   initialItemId,
   onAdvance,
+  profileUpdateOffer,
 }: {
   survey: SurveyExperience;
   returnAction: ReactNode;
   completionDescription: string;
+  completionTitle?: string;
   initialItemId?: string | undefined;
   onAdvance: (
     itemId: string,
     answer: SurveyAnswerValue | undefined,
+    options?: { profileUpdateAccepted: boolean },
   ) => Promise<LearnerSurveyStepResult>;
+  profileUpdateOffer?: string;
 }) {
   const initialSteps = surveyPathSteps(survey.content, survey.progress.answers);
   const firstItemId =
@@ -89,6 +95,7 @@ export function LearnerSurveyExperience({
   const [displayItemId, setDisplayItemId] = useState(firstItemId);
   const [progress, setProgress] = useState(survey.progress);
   const [error, setError] = useState<string>();
+  const [profileUpdateAccepted, setProfileUpdateAccepted] = useState(false);
   const steps = surveyPathSteps(survey.content, progress.answers);
   const displayIndex = Math.max(
     0,
@@ -122,6 +129,9 @@ export function LearnerSurveyExperience({
       const result = await onAdvance(
         current.item.id,
         current.item.kind === "instruction" ? undefined : value.answer,
+        displayIndex === steps.length - 1
+          ? { profileUpdateAccepted }
+          : undefined,
       );
       if (result.status === "invalid") {
         setError(result.message);
@@ -155,7 +165,7 @@ export function LearnerSurveyExperience({
       <Container size="sm" py="xl">
         <Stack gap="lg">
           <Paper withBorder radius="lg" p={{ base: "lg", sm: "xl" }}>
-            <Title order={1}>Survey completed</Title>
+            <Title order={1}>{completionTitle}</Title>
             <Text c="dimmed" mt="xs">
               {completionDescription}
             </Text>
@@ -279,6 +289,15 @@ export function LearnerSurveyExperience({
               </Stack>
             </Paper>
             {error ? <Alert color="red">{error}</Alert> : null}
+            {profileUpdateOffer && displayIndex === steps.length - 1 ? (
+              <Paper withBorder radius="lg" p="md">
+                <MantineCheckbox
+                  label={profileUpdateOffer}
+                  checked={profileUpdateAccepted}
+                  onChange={setProfileUpdateAccepted}
+                />
+              </Paper>
+            ) : null}
             <answerForm.Subscribe selector={(state) => state.isSubmitting}>
               {(isSubmitting) => (
                 <Group justify="space-between" wrap="wrap">

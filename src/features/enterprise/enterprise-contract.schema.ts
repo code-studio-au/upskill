@@ -24,13 +24,28 @@ export type EnterpriseEventAccessResult =
       status: "ready";
       contractName: string;
       organizationName: string;
+      eventOccurrenceId: string;
+      registrationRequired: boolean;
     }
-  | { status: "already-registered" }
+  | {
+      status: "already-registered";
+      eventOccurrenceId: string;
+      registrationRequired: boolean;
+    }
   | { status: "unavailable" }
   | { status: "unauthenticated" };
 
 export type EnterpriseEventRegistrationResult =
-  | { status: "registered"; eventRegistrationId: string }
-  | { status: "already-registered" }
+  | {
+      status: "registered";
+      eventRegistrationId: string;
+      eventOccurrenceId: string;
+      registrationRequired: boolean;
+    }
+  | {
+      status: "already-registered";
+      eventOccurrenceId: string;
+      registrationRequired: boolean;
+    }
   | { status: "unavailable" }
   | { status: "unauthenticated" };

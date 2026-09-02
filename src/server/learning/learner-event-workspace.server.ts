@@ -8,6 +8,7 @@ import {
   calculateEventSectionReleaseAt,
   ensureEventSectionReleased,
 } from "#/server/learning/event-section-release.server";
+import { findEventRegistrationQuestionnaire } from "#/server/registration/learner-registration-questionnaire.server";
 
 export async function findLearnerEventWorkspace(
   eventOccurrenceId: string,
@@ -16,6 +17,18 @@ export async function findLearnerEventWorkspace(
   Exclude<LearnerEventWorkspaceResult, { status: "unauthenticated" }>
 > {
   const database = getDatabase();
+  const questionnaire = await findEventRegistrationQuestionnaire(
+    eventOccurrenceId,
+    user,
+  );
+  if (
+    questionnaire &&
+    typeof questionnaire === "object" &&
+    !questionnaire.submittedAt
+  )
+    return { status: "registration-required", questionnaire };
+  if (questionnaire === null || questionnaire === "unavailable")
+    return { status: "not-found" };
   const participation = await database
     .selectFrom("event_participation as participation")
     .innerJoin(
@@ -73,7 +86,6 @@ export async function findLearnerEventWorkspace(
     participation.registrationStatus !== "selected"
   )
     return { status: "not-found" };
-
   const [sections, items, sessions, attendance, progress] = await Promise.all([
     database
       .selectFrom("event_template_version_section")

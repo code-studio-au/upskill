@@ -38,7 +38,22 @@ export const Route = createFileRoute("/checkout/success")({
       });
     }
     if (result.status === "not-found") throw notFound();
-    return result.checkout;
+    const checkout = result.checkout;
+    const paymentCompleted =
+      checkout.status === "paid" ||
+      checkout.status === "partially_refunded" ||
+      checkout.status === "refunded";
+    if (
+      checkout.offeringType === "event" &&
+      paymentCompleted &&
+      !checkout.reviewRequired &&
+      checkout.registrationRequired
+    )
+      throw redirect({
+        to: "/my-events/$eventOccurrenceId",
+        params: { eventOccurrenceId: checkout.eventOccurrenceId },
+      });
+    return checkout;
   },
   head: () => ({ meta: [{ title: "Checkout status — Upskill" }] }),
   component: CheckoutSuccessPage,

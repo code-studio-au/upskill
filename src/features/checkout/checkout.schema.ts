@@ -100,5 +100,7 @@ export type CheckoutStatus =
       offeringType: "event";
       offeringTitle: string;
       offeringSlug: string;
+      eventOccurrenceId: string;
+      registrationRequired: boolean;
       reviewRequired: boolean;
     };

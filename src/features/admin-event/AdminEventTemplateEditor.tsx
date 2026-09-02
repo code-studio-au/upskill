@@ -467,17 +467,48 @@ export function AdminEventTemplateEditor({
       ) : null}
 
       {editorView === "program" ? (
-        <Suspense fallback={<LoadingSpinner label="Loading programme" />}>
-          <AdminEventProgramEditor
-            detail={detail}
-            draft={draft}
-            setDraft={setDraft}
-            onEditEmail={(sectionId, itemId) => {
-              setEmailSelection({ sectionId, itemId });
-              setEditorView("email");
-            }}
-          />
-        </Suspense>
+        <Stack gap="lg">
+          <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
+            <Stack gap="sm">
+              <Title order={2}>Registration requirements</Title>
+              <Text c="dimmed">
+                Learners complete this form before access. Published versions
+                remain pinned to the selected survey version.
+              </Text>
+              <MantineNativeSelect
+                label="Registration form"
+                value={draft.registrationSurveyVersionId ?? ""}
+                disabled={!detail.version.editable}
+                data={[
+                  { value: "", label: "No registration form" },
+                  ...detail.library.registrationSurveys.map((survey) => ({
+                    value: survey.id,
+                    label: `${survey.title} · v${String(survey.version)}`,
+                  })),
+                ]}
+                onChange={(event) => {
+                  const registrationSurveyVersionId =
+                    event.currentTarget.value || null;
+                  setDraft((current) => ({
+                    ...current,
+                    registrationSurveyVersionId,
+                  }));
+                }}
+              />
+            </Stack>
+          </Paper>
+          <Suspense fallback={<LoadingSpinner label="Loading programme" />}>
+            <AdminEventProgramEditor
+              detail={detail}
+              draft={draft}
+              setDraft={setDraft}
+              onEditEmail={(sectionId, itemId) => {
+                setEmailSelection({ sectionId, itemId });
+                setEditorView("email");
+              }}
+            />
+          </Suspense>
+        </Stack>
       ) : null}
       {editorView === "staffing" ? (
         <Stack gap="md">

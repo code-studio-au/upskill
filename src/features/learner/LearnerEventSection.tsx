@@ -275,15 +275,27 @@ function LearnerEventCard({
           {event.registrationStatus === "selected" ||
           event.participationMode === "open_entry" ? (
             <Stack gap="xs">
-              <Link
-                to="/my-events/$eventOccurrenceId"
-                params={{ eventOccurrenceId: event.eventOccurrenceId }}
-                className={classes.actionLink}
-              >
-                <Button component="span" fullWidth>
-                  {event.completedAt ? "Review event" : "Open event"}
-                </Button>
-              </Link>
+              {event.registrationRequired ? (
+                <Link
+                  to="/my-events/$eventOccurrenceId"
+                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                  className={classes.actionLink}
+                >
+                  <Button component="span" fullWidth>
+                    Complete registration details
+                  </Button>
+                </Link>
+              ) : (
+                <Link
+                  to="/my-events/$eventOccurrenceId"
+                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                  className={classes.actionLink}
+                >
+                  <Button component="span" fullWidth>
+                    {event.completedAt ? "Review event" : "Open event"}
+                  </Button>
+                </Link>
+              )}
               {event.certificate ? (
                 <LearnerCertificateAction certificate={event.certificate} />
               ) : null}
@@ -291,7 +303,9 @@ function LearnerEventCard({
           ) : null}
           {!event.registrationStatus && !event.participationMode ? (
             <Stack gap="xs">
-              {event.canRegister && event.regions.length > 0 ? (
+              {event.canRegister &&
+              event.regions.length > 0 &&
+              !event.registrationRequired ? (
                 <MantineNativeSelect
                   label="Your region"
                   value={selectedRegion}
@@ -312,22 +326,34 @@ function LearnerEventCard({
                   required
                 />
               ) : null}
-              <Button
-                fullWidth
-                disabled={
-                  !event.canRegister ||
-                  (event.regions.length > 0 && !selectedRegion)
-                }
-                loading={processing}
-                onClick={() => {
-                  void onRegister(
-                    event.eventOccurrenceId,
-                    selectedRegion || null,
-                  );
-                }}
-              >
-                {unavailableLabel(event)}
-              </Button>
+              {event.canRegister && event.registrationRequired ? (
+                <Link
+                  to="/my-events/$eventOccurrenceId"
+                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                  className={classes.actionLink}
+                >
+                  <Button component="span" fullWidth>
+                    Start registration
+                  </Button>
+                </Link>
+              ) : (
+                <Button
+                  fullWidth
+                  disabled={
+                    !event.canRegister ||
+                    (event.regions.length > 0 && !selectedRegion)
+                  }
+                  loading={processing}
+                  onClick={() => {
+                    void onRegister(
+                      event.eventOccurrenceId,
+                      selectedRegion || null,
+                    );
+                  }}
+                >
+                  {unavailableLabel(event)}
+                </Button>
+              )}
             </Stack>
           ) : !event.participationMode &&
             event.registrationStatus !== "withdrawn" &&

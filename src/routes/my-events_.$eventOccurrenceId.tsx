@@ -19,6 +19,7 @@ import { LearnerProgramSections } from "#/features/learning/LearnerProgramSectio
 import { LearnerCertificateAction } from "#/features/learner/LearnerCertificateAction";
 import { learnerEventWorkspaceInputSchema } from "#/features/learner/learner-event-workspace.schema";
 import { getLearnerEventWorkspace } from "#/server/functions/learner";
+import { LearnerRegistrationQuestionnaire } from "#/features/registration/LearnerRegistrationQuestionnaire";
 import classes from "#/features/learning/LearnerWorkspaceLayout.module.css";
 
 export const Route = createFileRoute("/my-events_/$eventOccurrenceId")({
@@ -43,7 +44,9 @@ export const Route = createFileRoute("/my-events_/$eventOccurrenceId")({
         title:
           loaderData?.status === "ready"
             ? `${loaderData.workspace.title} — My events`
-            : "Event — My events",
+            : loaderData?.status === "registration-required"
+              ? `Registration — ${loaderData.questionnaire.offeringTitle}`
+              : "Event — My events",
       },
     ],
   }),
@@ -52,6 +55,10 @@ export const Route = createFileRoute("/my-events_/$eventOccurrenceId")({
 
 function LearnerEventWorkspacePage() {
   const result = Route.useLoaderData();
+  if (result.status === "registration-required")
+    return (
+      <LearnerRegistrationQuestionnaire questionnaire={result.questionnaire} />
+    );
   if (result.status === "cancelled")
     return (
       <Container size="sm" className={classes.page}>

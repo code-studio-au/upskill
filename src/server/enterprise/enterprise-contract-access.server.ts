@@ -349,11 +349,36 @@ async function resolveEventAccess(
       "event_occurrence.id",
       "event_registration.eventOccurrenceId",
     )
-    .select("event_registration.id")
+    .innerJoin(
+      "event_template_version",
+      "event_template_version.id",
+      "event_occurrence.eventTemplateVersionId",
+    )
+    .leftJoin(
+      "registration_questionnaire_assignment as questionnaire",
+      (join) =>
+        join
+          .onRef("questionnaire.eventOccurrenceId", "=", "event_occurrence.id")
+          .on("questionnaire.userId", "=", user.id),
+    )
+    .select([
+      "event_registration.id",
+      "event_occurrence.id as eventOccurrenceId",
+      "event_template_version.registrationSurveyVersionId",
+      "questionnaire.status as questionnaireStatus",
+    ])
     .where("event_registration.userId", "=", user.id)
     .where("event_occurrence.slug", "=", slug)
     .executeTakeFirst();
-  if (existing) return { status: "already-registered" } as const;
+  if (existing)
+    return {
+      status: "already-registered",
+      eventOccurrenceId: existing.eventOccurrenceId,
+      registrationRequired:
+        Boolean(existing.registrationSurveyVersionId) &&
+        existing.questionnaireStatus !== "completed" &&
+        existing.questionnaireStatus !== "waived",
+    } as const;
   let query = database
     .selectFrom("enterprise_contract_claim as claim")
     .innerJoin(
@@ -372,6 +397,18 @@ async function resolveEventAccess(
       "coverage.eventOccurrenceId",
     )
     .innerJoin("organization", "organization.id", "contract.organizationId")
+    .innerJoin(
+      "event_template_version as version",
+      "version.id",
+      "occurrence.eventTemplateVersionId",
+    )
+    .leftJoin(
+      "registration_questionnaire_assignment as questionnaire",
+      (join) =>
+        join
+          .onRef("questionnaire.eventOccurrenceId", "=", "occurrence.id")
+          .on("questionnaire.userId", "=", user.id),
+    )
     .select([
       "claim.id as claimId",
       "contract.id as contractId",
@@ -380,6 +417,8 @@ async function resolveEventAccess(
       "organization.name as organizationName",
       "coverage.id as coverageId",
       "occurrence.id as eventOccurrenceId",
+      "version.registrationSurveyVersionId",
+      "questionnaire.status as questionnaireStatus",
       "occurrence.registrationOpensAt",
       "occurrence.registrationClosesAt",
     ])
@@ -416,6 +455,11 @@ export async function findEnterpriseEventAccess(
     status: "ready",
     contractName: result.access.contractName,
     organizationName: result.access.organizationName,
+    eventOccurrenceId: result.access.eventOccurrenceId,
+    registrationRequired:
+      Boolean(result.access.registrationSurveyVersionId) &&
+      result.access.questionnaireStatus !== "completed" &&
+      result.access.questionnaireStatus !== "waived",
   };
 }
 
@@ -440,7 +484,14 @@ export async function registerWithEnterpriseContract(
         createdAt: now,
       });
       if (registration.status === "already-registered")
-        return { status: "already-registered" } as const;
+        return {
+          status: "already-registered",
+          eventOccurrenceId: resolved.access.eventOccurrenceId,
+          registrationRequired:
+            Boolean(resolved.access.registrationSurveyVersionId) &&
+            resolved.access.questionnaireStatus !== "completed" &&
+            resolved.access.questionnaireStatus !== "waived",
+        } as const;
       if (registration.status !== "created")
         return { status: "unavailable" } as const;
       const linkageId = `enterprise_contract_event_registration_${randomUUID()}`;
@@ -471,6 +522,11 @@ export async function registerWithEnterpriseContract(
       return {
         status: "registered",
         eventRegistrationId: registration.eventRegistrationId,
+        eventOccurrenceId: resolved.access.eventOccurrenceId,
+        registrationRequired:
+          Boolean(resolved.access.registrationSurveyVersionId) &&
+          resolved.access.questionnaireStatus !== "completed" &&
+          resolved.access.questionnaireStatus !== "waived",
       } as const;
     });
 }

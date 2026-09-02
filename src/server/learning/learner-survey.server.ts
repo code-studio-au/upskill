@@ -18,6 +18,7 @@ import { completeEnrollmentIfReady } from "#/server/learning/learning-completion
 import { validateAnswer } from "#/server/learning/survey-answer-validation";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { surveyPathItems } from "#/features/survey/survey-branching";
+import { courseRegistrationQuestionnaireComplete } from "#/server/registration/registration-questionnaire-access.server";
 
 export interface StoredProgress {
   answers: Record<string, SurveyAnswerValue>;
@@ -192,6 +193,14 @@ export async function findLearnerSurvey(
     .where("course_version_item.kind", "=", "survey")
     .executeTakeFirst();
   if (!row) return null;
+  if (
+    !(await courseRegistrationQuestionnaireComplete(
+      database,
+      row.enrollmentId,
+      user.id,
+    ))
+  )
+    return "unavailable";
   if (!row.publishedAt) return "unavailable";
   const content = parseSurveyVersionContent(row.content);
   const responseAnswers = storedAnswers(row.responseAnswers);
@@ -272,6 +281,14 @@ export async function advanceLearnerSurvey(
       .forUpdate("enrollment")
       .executeTakeFirst();
     if (!row) return { status: "not-found" } as const;
+    if (
+      !(await courseRegistrationQuestionnaireComplete(
+        transaction,
+        row.enrollmentId,
+        user.id,
+      ))
+    )
+      return { status: "unavailable" } as const;
     if (!row.publishedAt) return { status: "unavailable" } as const;
 
     const content = parseSurveyVersionContent(row.content);

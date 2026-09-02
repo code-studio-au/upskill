@@ -99,6 +99,7 @@ describe("audit event boundary", () => {
       "order.refund_recorded",
       "resource.uploaded",
       "resource.version_removed",
+      "registration_questionnaire.waived",
       "scorm.package_uploaded",
       "scorm.package_version_removed",
       "survey.created",

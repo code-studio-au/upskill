@@ -17,6 +17,7 @@ import {
 import { LearnerProgramSections } from "#/features/learning/LearnerProgramSections";
 import { learnerWorkspaceInputSchema } from "#/features/learning/learning.schema";
 import { getLearnerWorkspace } from "#/server/functions/learner";
+import { LearnerRegistrationQuestionnaire } from "#/features/registration/LearnerRegistrationQuestionnaire";
 import classes from "#/features/learning/LearnerWorkspaceLayout.module.css";
 
 export const Route = createFileRoute("/learn/$enrollmentId")({
@@ -41,13 +42,15 @@ export const Route = createFileRoute("/learn/$enrollmentId")({
         params: { slug: result.courseSlug },
       });
     }
-    return result.workspace;
+    return result;
   },
   head: ({ loaderData }) => ({
     meta: [
       {
         title: loaderData
-          ? `${loaderData.courseTitle} — My learning`
+          ? loaderData.status === "registration-required"
+            ? `Registration — ${loaderData.questionnaire.offeringTitle}`
+            : `${loaderData.workspace.courseTitle} — My learning`
           : "Course workspace — Upskill",
       },
     ],
@@ -56,7 +59,12 @@ export const Route = createFileRoute("/learn/$enrollmentId")({
 });
 
 function LearnerWorkspacePage() {
-  const workspace = Route.useLoaderData();
+  const result = Route.useLoaderData();
+  if (result.status === "registration-required")
+    return (
+      <LearnerRegistrationQuestionnaire questionnaire={result.questionnaire} />
+    );
+  const workspace = result.workspace;
 
   return (
     <Container size="lg" className={classes.page}>

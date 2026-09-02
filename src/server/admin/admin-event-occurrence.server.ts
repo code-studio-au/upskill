@@ -76,6 +76,10 @@ export async function createAdminEventOccurrence(
       reason: "occurrence-window-too-short";
       minimumDurationMinutes: number;
     }
+  | {
+      status: "conflict";
+      reason: "registration-questionnaire-requires-registration";
+    }
   | { status: "slug-in-use" }
 > {
   if (!isIanaTimeZone(input.timezone) || !isAdminEventScheduleConsistent(input))
@@ -105,6 +109,7 @@ export async function createAdminEventOccurrence(
         .select([
           "event_template_version.id",
           "event_template_version.publishedAt",
+          "event_template_version.registrationSurveyVersionId",
           "event_template.status",
         ])
         .where("event_template_version.id", "=", input.eventTemplateVersionId)
@@ -112,6 +117,14 @@ export async function createAdminEventOccurrence(
       if (!version) return { status: "not-found" } as const;
       if (!version.publishedAt || version.status === "archived")
         return { status: "conflict" } as const;
+      if (
+        version.registrationSurveyVersionId &&
+        input.registrationMode === "open_entry"
+      )
+        return {
+          status: "conflict",
+          reason: "registration-questionnaire-requires-registration",
+        } as const;
       const [
         configuredAdminDefaults,
         activeAdminDefaults,
@@ -403,7 +416,13 @@ export async function updateAdminEventOccurrence(
   eventOccurrenceId: string,
   input: AdminEventOccurrenceCreateInput,
   administrator: AuthenticatedUser,
-): Promise<"updated" | "not-found" | "conflict" | "slug-in-use"> {
+): Promise<
+  | "updated"
+  | "not-found"
+  | "conflict"
+  | "slug-in-use"
+  | "registration-questionnaire-requires-registration"
+> {
   if (!isIanaTimeZone(input.timezone) || !isAdminEventScheduleConsistent(input))
     return "conflict";
   const domains = normalizeEventDomains(input.domains);
@@ -424,13 +443,19 @@ export async function updateAdminEventOccurrence(
       if (slugOwner) return "slug-in-use" as const;
       const occurrence = await transaction
         .selectFrom("event_occurrence")
+        .innerJoin(
+          "event_template_version",
+          "event_template_version.id",
+          "event_occurrence.eventTemplateVersionId",
+        )
         .select([
-          "eventTemplateVersionId",
-          "startsAt",
-          "confirmedCount",
-          "status",
+          "event_occurrence.eventTemplateVersionId",
+          "event_occurrence.startsAt",
+          "event_occurrence.confirmedCount",
+          "event_occurrence.status",
+          "event_template_version.registrationSurveyVersionId",
         ])
-        .where("id", "=", eventOccurrenceId)
+        .where("event_occurrence.id", "=", eventOccurrenceId)
         .executeTakeFirst();
       if (!occurrence) return "not-found" as const;
       if (
@@ -439,6 +464,11 @@ export async function updateAdminEventOccurrence(
         input.capacity < occurrence.confirmedCount
       )
         return "conflict" as const;
+      if (
+        occurrence.registrationSurveyVersionId &&
+        input.registrationMode === "open_entry"
+      )
+        return "registration-questionnaire-requires-registration" as const;
 
       const sessions = await transaction
         .selectFrom("event_session")
@@ -587,6 +617,7 @@ export async function rescheduleAdminEventOccurrence(
   | "slug-in-use"
   | "invalid-window-policy"
   | "regions-not-confirmed"
+  | "registration-questionnaire-requires-registration"
 > {
   const next = input.occurrence;
   if (!isIanaTimeZone(next.timezone) || !isAdminEventScheduleConsistent(next))
@@ -601,10 +632,16 @@ export async function rescheduleAdminEventOccurrence(
         transaction,
       );
       const occurrence = await transaction
-        .selectFrom("event_occurrence")
-        .selectAll()
-        .where("id", "=", eventOccurrenceId)
-        .forUpdate()
+        .selectFrom("event_occurrence as occurrence")
+        .innerJoin(
+          "event_template_version as version",
+          "version.id",
+          "occurrence.eventTemplateVersionId",
+        )
+        .selectAll("occurrence")
+        .select("version.registrationSurveyVersionId")
+        .where("occurrence.id", "=", eventOccurrenceId)
+        .forUpdate("occurrence")
         .executeTakeFirst();
       if (!occurrence) return "not-found" as const;
       if (
@@ -615,6 +652,11 @@ export async function rescheduleAdminEventOccurrence(
         next.capacity < occurrence.confirmedCount
       )
         return "conflict" as const;
+      if (
+        occurrence.registrationSurveyVersionId &&
+        next.registrationMode === "open_entry"
+      )
+        return "registration-questionnaire-requires-registration" as const;
 
       await sql`select pg_advisory_xact_lock(hashtext(${next.slug}))`.execute(
         transaction,
@@ -1336,25 +1378,41 @@ export async function rescheduleAdminEventOccurrence(
 export async function publishAdminEventOccurrence(
   eventOccurrenceId: string,
   administrator: AuthenticatedUser,
-): Promise<"published" | "not-found" | "conflict"> {
+): Promise<
+  | "published"
+  | "not-found"
+  | "conflict"
+  | "registration-questionnaire-requires-registration"
+> {
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
       const occurrence = await transaction
         .selectFrom("event_occurrence")
+        .innerJoin(
+          "event_template_version",
+          "event_template_version.id",
+          "event_occurrence.eventTemplateVersionId",
+        )
         .select([
-          "id",
-          "status",
-          "registrationMode",
-          "deliveryMode",
-          "venueName",
-          "virtualJoinUrl",
+          "event_occurrence.id",
+          "event_occurrence.status",
+          "event_occurrence.registrationMode",
+          "event_occurrence.deliveryMode",
+          "event_occurrence.venueName",
+          "event_occurrence.virtualJoinUrl",
+          "event_template_version.registrationSurveyVersionId",
         ])
-        .where("id", "=", eventOccurrenceId)
-        .forUpdate()
+        .where("event_occurrence.id", "=", eventOccurrenceId)
+        .forUpdate("event_occurrence")
         .executeTakeFirst();
       if (!occurrence) return "not-found" as const;
       if (occurrence.status !== "draft") return "conflict" as const;
+      if (
+        occurrence.registrationSurveyVersionId &&
+        occurrence.registrationMode === "open_entry"
+      )
+        return "registration-questionnaire-requires-registration" as const;
       const coverage = await transaction
         .selectFrom("event_occurrence")
         .select([

@@ -141,7 +141,7 @@ export function AdminEventOccurrenceEditor({
         title: "",
         slug: "",
         deliveryMode: "virtual",
-        registrationMode: "open_entry",
+        registrationMode: "required_unrestricted",
         approvalMode: "automatic",
         timezone: defaultTimezone,
         startsAt: schedule.startsAt,

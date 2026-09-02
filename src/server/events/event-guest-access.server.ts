@@ -88,11 +88,24 @@ export async function rotateEventGuestAccessRecord(
     .execute(async (transaction) => {
       const occurrence = await transaction
         .selectFrom("event_occurrence")
-        .select(["id", "registrationMode"])
-        .where("id", "=", eventOccurrenceId)
-        .forUpdate()
+        .innerJoin(
+          "event_template_version",
+          "event_template_version.id",
+          "event_occurrence.eventTemplateVersionId",
+        )
+        .select([
+          "event_occurrence.id",
+          "event_occurrence.registrationMode",
+          "event_template_version.registrationSurveyVersionId",
+        ])
+        .where("event_occurrence.id", "=", eventOccurrenceId)
+        .forUpdate("event_occurrence")
         .executeTakeFirst();
-      if (!occurrence || occurrence.registrationMode !== "open_entry")
+      if (
+        !occurrence ||
+        occurrence.registrationMode !== "open_entry" ||
+        occurrence.registrationSurveyVersionId
+      )
         return null;
       const now = new Date();
       await transaction
@@ -142,6 +155,11 @@ async function findAccess(publicReference: string) {
       "occurrence.id",
       "access.eventOccurrenceId",
     )
+    .innerJoin(
+      "event_template_version as version",
+      "version.id",
+      "occurrence.eventTemplateVersionId",
+    )
     .select([
       "access.id as accessId",
       "occurrence.id",
@@ -153,6 +171,7 @@ async function findAccess(publicReference: string) {
       "occurrence.endsAt",
       "occurrence.timezone",
       "occurrence.publishedAt",
+      "version.registrationSurveyVersionId",
     ])
     .where("access.publicReference", "=", publicReference)
     .where("access.revokedAt", "is", null)
@@ -163,7 +182,11 @@ export async function findPublicEventGuestAccess(
   publicReference: string,
 ): Promise<EventGuestAccessResult> {
   const occurrence = await findAccess(publicReference);
-  if (!occurrence || occurrence.registrationMode !== "open_entry")
+  if (
+    !occurrence ||
+    occurrence.registrationMode !== "open_entry" ||
+    occurrence.registrationSurveyVersionId
+  )
     return { status: "not-found" };
   const state = accessState(occurrence, new Date());
   if (state !== "ready")
@@ -206,6 +229,11 @@ export async function submitPublicEventGuestAccess(
           "occurrence.id",
           "access.eventOccurrenceId",
         )
+        .innerJoin(
+          "event_template_version as version",
+          "version.id",
+          "occurrence.eventTemplateVersionId",
+        )
         .select([
           "occurrence.id",
           "occurrence.title",
@@ -219,12 +247,17 @@ export async function submitPublicEventGuestAccess(
           "occurrence.venueName",
           "occurrence.venueAddress",
           "occurrence.openEntryAttendanceMode",
+          "version.registrationSurveyVersionId",
         ])
         .where("access.publicReference", "=", input.publicReference)
         .where("access.revokedAt", "is", null)
         .forUpdate("occurrence")
         .executeTakeFirst();
-      if (!access || access.registrationMode !== "open_entry")
+      if (
+        !access ||
+        access.registrationMode !== "open_entry" ||
+        access.registrationSurveyVersionId
+      )
         return { status: "not-found" } as const;
       const now = new Date();
       const state = accessState(access, now);

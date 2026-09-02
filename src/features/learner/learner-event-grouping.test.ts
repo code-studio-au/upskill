@@ -23,6 +23,7 @@ function event(
     participationMode,
     completedAt,
     certificate: null,
+    registrationRequired: false,
     canRegister:
       registrationStatus === null && registrationUnavailableReason === null,
     registrationUnavailableReason,

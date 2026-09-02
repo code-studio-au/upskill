@@ -23,6 +23,18 @@ export async function findCheckoutStatus(
       "event_occurrence.id",
       "order_item.eventOccurrenceId",
     )
+    .leftJoin(
+      "event_template_version",
+      "event_template_version.id",
+      "event_occurrence.eventTemplateVersionId",
+    )
+    .leftJoin(
+      "registration_questionnaire_assignment as questionnaire",
+      (join) =>
+        join
+          .onRef("questionnaire.eventOccurrenceId", "=", "event_occurrence.id")
+          .on("questionnaire.userId", "=", user.id),
+    )
     .select([
       "order.status",
       "order.kind",
@@ -30,6 +42,9 @@ export async function findCheckoutStatus(
       "course_version.content",
       "event_occurrence.title as eventTitle",
       "event_occurrence.slug as eventSlug",
+      "event_occurrence.id as eventOccurrenceId",
+      "event_template_version.registrationSurveyVersionId",
+      "questionnaire.status as questionnaireStatus",
     ])
     .select((expression) =>
       expression
@@ -46,8 +61,7 @@ export async function findCheckoutStatus(
     .where("order.purchaserUserId", "=", user.id)
     .executeTakeFirst();
   if (!row) return null;
-  if (row.eventTitle && row.eventSlug) {
-    if (!row.eventTitle || !row.eventSlug) return null;
+  if (row.eventTitle && row.eventSlug && row.eventOccurrenceId) {
     return {
       status: row.status,
       kind:
@@ -55,6 +69,11 @@ export async function findCheckoutStatus(
       offeringType: "event",
       offeringTitle: row.eventTitle,
       offeringSlug: row.eventSlug,
+      eventOccurrenceId: row.eventOccurrenceId,
+      registrationRequired:
+        Boolean(row.registrationSurveyVersionId) &&
+        row.questionnaireStatus !== "completed" &&
+        row.questionnaireStatus !== "waived",
       reviewRequired: Boolean(row.reviewRequired),
     };
   }

@@ -1,4 +1,4 @@
-import { Link, useRouter } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useState, useSyncExternalStore } from "react";
 import { Alert, Button, Stack, Text } from "#/features/shared/mantine";
 import { activateEnterpriseEventAccess } from "#/server/functions/enterprise-contract";
@@ -13,22 +13,24 @@ export function EnterpriseEventAccessButton({
   access: EnterpriseEventAccessResult;
   slug: string;
 }) {
-  const router = useRouter();
   const hydrated = useSyncExternalStore(
     subscribeToHydration,
     () => true,
     () => false,
   );
   const [pending, setPending] = useState(false);
-  const [state, setState] = useState<
-    "ready" | "registered" | "already" | "unavailable"
-  >(access.status === "already-registered" ? "already" : "ready");
+  const [state, setState] = useState<"ready" | "unavailable">("ready");
   if (access.status !== "ready") {
-    if (state !== "already") return null;
+    if (access.status !== "already-registered") return null;
     return (
-      <Button component={Link} to="/my-events" size="lg" fullWidth>
-        View in My events
-      </Button>
+      <Link
+        to="/my-events/$eventOccurrenceId"
+        params={{ eventOccurrenceId: access.eventOccurrenceId }}
+      >
+        <Button component="span" size="lg" fullWidth>
+          {access.registrationRequired ? "Continue registration" : "Open event"}
+        </Button>
+      </Link>
     );
   }
   async function register(): Promise<void> {
@@ -41,28 +43,20 @@ export function EnterpriseEventAccessButton({
         );
         return;
       }
-      if (result.status === "registered") {
-        setState("registered");
-        await router.invalidate();
-      } else if (result.status === "already-registered") setState("already");
-      else setState("unavailable");
+      if (
+        result.status === "registered" ||
+        result.status === "already-registered"
+      ) {
+        window.location.assign(
+          `/my-events/${encodeURIComponent(result.eventOccurrenceId)}`,
+        );
+        return;
+      }
+      setState("unavailable");
     } finally {
       setPending(false);
     }
   }
-  if (state === "registered" || state === "already")
-    return (
-      <Stack gap="sm">
-        <Alert color="green">
-          {state === "registered"
-            ? "Organisation access applied. Your place is confirmed."
-            : "You are already registered for this event."}
-        </Alert>
-        <Button component={Link} to="/my-events" size="lg" fullWidth>
-          View in My events
-        </Button>
-      </Stack>
-    );
   return (
     <Stack gap="sm">
       <Alert color="green" title="Included in your organisation access">

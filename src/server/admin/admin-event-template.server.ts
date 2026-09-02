@@ -24,6 +24,10 @@ import {
   type OfferingImage,
 } from "#/features/shared/offering-image";
 import { normalizeEventCommunicationAudience } from "#/features/admin-email/communication-options";
+import {
+  isOperationalRegionQuestion,
+  parseSurveyVersionContent,
+} from "#/features/survey/survey.schema";
 
 export async function createAdminEventTemplate(
   input: AdminEventTemplateCreateInput,
@@ -170,6 +174,7 @@ async function loadEventTemplateDraft(
     coverImage: OfferingImage;
     hasCompletionCertificate: boolean;
     accreditations: Array<CertificateAccreditation>;
+    registrationSurveyVersionId: string | null;
   },
 ): Promise<AdminEventTemplateDraft> {
   const [
@@ -360,6 +365,7 @@ async function loadEventTemplateDraft(
     accreditations: certificateAccreditationsSchema.parse(
       version.accreditations,
     ),
+    registrationSurveyVersionId: version.registrationSurveyVersionId,
     defaultAdministratorIds: administratorRows.map((row) => row.userId),
     regions: [...regions].map(([regionId, coordinatorIds]) => ({
       regionId,
@@ -391,6 +397,7 @@ export async function findAdminEventTemplate(
       "coverImage",
       "hasCompletionCertificate",
       "accreditations",
+      "registrationSurveyVersionId",
       "publishedAt",
     ])
     .where("eventTemplateId", "=", eventTemplateId)
@@ -421,6 +428,7 @@ export async function findAdminEventTemplate(
     modules,
     surveys,
     resources,
+    registrationSurveys,
     emailAuthoring,
   ] = await Promise.all([
     database
@@ -554,6 +562,29 @@ export async function findAdminEventTemplate(
       .orderBy("learning_activity.title")
       .orderBy("learning_activity_version.version", "desc")
       .execute(),
+    database
+      .selectFrom("survey_version")
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "survey_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "survey_version.id",
+        "learning_activity.id as surveyId",
+        "learning_activity.title",
+        "learning_activity_version.version",
+      ])
+      .where("learning_activity_version.publishedAt", "is not", null)
+      .where("learning_activity.surveyUsage", "=", "registration")
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity_version.version", "desc")
+      .execute(),
     findScheduleEmailAuthoringContext("offering_event"),
   ]);
   return {
@@ -574,7 +605,7 @@ export async function findAdminEventTemplate(
     emailVariableGroups: emailAuthoring.variableGroups,
     people: { platformAdministrators, coordinators, presenters, users },
     regions,
-    library: { modules, surveys, resources },
+    library: { modules, surveys, resources, registrationSurveys },
   };
 }
 
@@ -616,6 +647,9 @@ async function validateEventDraftReferences(
     accreditation.logoAssetId ? [accreditation.logoAssetId] : [],
   );
   const coverImageIds = draft.coverImage ? [draft.coverImage.assetId] : [];
+  const registrationSurveyIds = draft.registrationSurveyVersionId
+    ? [draft.registrationSurveyVersionId]
+    : [];
   const [
     administrators,
     coordinators,
@@ -625,6 +659,7 @@ async function validateEventDraftReferences(
     emailVersions,
     accreditationLogos,
     coverImages,
+    registrationSurveys,
   ] = await Promise.all([
     transaction
       .selectFrom("platform_admin")
@@ -707,6 +742,25 @@ async function validateEventDraftReferences(
           .where("id", "in", coverImageIds)
           .execute()
       : [],
+    registrationSurveyIds.length
+      ? transaction
+          .selectFrom("survey_version")
+          .innerJoin(
+            "learning_activity_version",
+            "learning_activity_version.id",
+            "survey_version.id",
+          )
+          .innerJoin(
+            "learning_activity",
+            "learning_activity.id",
+            "learning_activity_version.activityId",
+          )
+          .select("survey_version.id")
+          .where("survey_version.id", "in", registrationSurveyIds)
+          .where("learning_activity_version.publishedAt", "is not", null)
+          .where("learning_activity.surveyUsage", "=", "registration")
+          .execute()
+      : [],
   ]);
   return (
     new Set(administrators.map((row) => row.userId)).size ===
@@ -727,7 +781,9 @@ async function validateEventDraftReferences(
     new Set(accreditationLogos.map((row) => row.id)).size ===
       new Set(accreditationLogoIds).size &&
     new Set(coverImages.map((row) => row.id)).size ===
-      new Set(coverImageIds).size
+      new Set(coverImageIds).size &&
+    new Set(registrationSurveys.map((row) => row.id)).size ===
+      new Set(registrationSurveyIds).size
   );
 }
 
@@ -966,6 +1022,7 @@ export async function saveAdminEventTemplateDraft(
             draft.coverImage === null ? null : JSON.stringify(draft.coverImage),
           hasCompletionCertificate: draft.hasCompletionCertificate,
           accreditations: JSON.stringify(draft.accreditations),
+          registrationSurveyVersionId: draft.registrationSurveyVersionId,
         })
         .where("id", "=", draft.eventTemplateVersionId)
         .executeTakeFirstOrThrow();
@@ -1016,6 +1073,7 @@ export async function createAdminEventTemplateVersion(
           "coverImage",
           "hasCompletionCertificate",
           "accreditations",
+          "registrationSurveyVersionId",
           "publishedAt",
         ])
         .where("eventTemplateId", "=", eventTemplateId)
@@ -1045,6 +1103,7 @@ export async function createAdminEventTemplateVersion(
               : JSON.stringify(source.coverImage),
           hasCompletionCertificate: source.hasCompletionCertificate,
           accreditations: JSON.stringify(source.accreditations),
+          registrationSurveyVersionId: source.registrationSurveyVersionId,
           publishedAt: null,
         })
         .execute();
@@ -1185,6 +1244,7 @@ export async function publishAdminEventTemplateVersion(
           "event_template_version.id",
           "event_template_version.version",
           "event_template_version.publishedAt",
+          "event_template_version.registrationSurveyVersionId",
           "event_template.status",
           "event_template.title",
         ])
@@ -1312,6 +1372,48 @@ export async function publishAdminEventTemplateVersion(
           regionCoverage.activeCoordinators
       )
         return "conflict" as const;
+      if (
+        regionCoverage.configured > 0 &&
+        version.registrationSurveyVersionId
+      ) {
+        const [registrationSurvey, configuredRegions] = await Promise.all([
+          transaction
+            .selectFrom("survey_version")
+            .select("content")
+            .where("id", "=", version.registrationSurveyVersionId)
+            .executeTakeFirst(),
+          transaction
+            .selectFrom("event_template_version_region")
+            .select("regionId")
+            .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+            .execute(),
+        ]);
+        if (!registrationSurvey) return "conflict" as const;
+        const operationalRegionQuestion = parseSurveyVersionContent(
+          registrationSurvey.content,
+        )
+          .sections.flatMap((section) => section.items)
+          .find(
+            (item) =>
+              item.kind !== "instruction" && isOperationalRegionQuestion(item),
+          );
+        if (
+          !operationalRegionQuestion ||
+          !("options" in operationalRegionQuestion)
+        )
+          return "conflict" as const;
+        const surveyRegionIds = new Set(
+          operationalRegionQuestion.options.flatMap((option) =>
+            option.externalValue ? [option.externalValue] : [],
+          ),
+        );
+        if (
+          configuredRegions.some(
+            (region) => !surveyRegionIds.has(region.regionId),
+          )
+        )
+          return "conflict" as const;
+      }
       const now = new Date();
       await transaction
         .updateTable("event_template_version")

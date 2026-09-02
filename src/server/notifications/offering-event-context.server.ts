@@ -4,6 +4,7 @@ import type { Transaction } from "kysely";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { getEmailTemplateContract } from "./email-template-contracts";
+import { eventRegistrationQuestionnaireComplete } from "#/server/registration/registration-questionnaire-access.server";
 
 export interface EventNotificationRecipient {
   userId: string;
@@ -126,6 +127,13 @@ export async function buildEventNotificationVariables(
     ])
     .where("occurrence.id", "=", input.eventOccurrenceId)
     .executeTakeFirstOrThrow();
+  const learnerVirtualAccessReady =
+    (!input.recipient.registrationId && !input.recipient.participationId) ||
+    (await eventRegistrationQuestionnaireComplete(
+      transaction,
+      event.id,
+      input.recipient.userId,
+    ));
   const recipientProfile = await transaction
     .selectFrom("user")
     .leftJoin(
@@ -219,6 +227,7 @@ export async function buildEventNotificationVariables(
 
   const environment = getServerEnv();
   const baseUrl = new URL(environment.APP_ORIGIN).origin;
+  const eventDashboardUrl = `${baseUrl}/my-events/${event.id}`;
   const variables = emptyEventVariables();
   variables["user.fullName"] = input.recipient.name;
   variables["user.firstName"] = firstName(input.recipient.name);
@@ -267,7 +276,9 @@ export async function buildEventNotificationVariables(
     "Virtual event";
   variables["event.venueName"] = event.venueName ?? "";
   variables["event.venueAddress"] = event.venueAddress ?? "";
-  variables["event.virtualJoinUrl"] = event.virtualJoinUrl ?? "";
+  variables["event.virtualJoinUrl"] = learnerVirtualAccessReady
+    ? (event.virtualJoinUrl ?? "")
+    : eventDashboardUrl;
   variables["event.capacity"] = String(event.capacity);
   variables["event.availablePlaces"] = String(
     Math.max(0, event.capacity - event.confirmedCount),
@@ -309,7 +320,7 @@ export async function buildEventNotificationVariables(
     : event.hasCompletionCertificate
       ? "Available after completion"
       : "Not available";
-  variables["event.dashboardUrl"] = `${baseUrl}/my-events/${event.id}`;
+  variables["event.dashboardUrl"] = eventDashboardUrl;
   variables["event.operationsUrl"] =
     `${baseUrl}/admin/events/instances/${event.id}`;
   variables["event.publicUrl"] = `${baseUrl}/events/${event.slug}`;
@@ -371,8 +382,9 @@ export async function buildEventNotificationVariables(
       [venueName, venueAddress].filter(Boolean).join(", ") || "Virtual session";
     variables["session.venueName"] = venueName ?? "";
     variables["session.venueAddress"] = venueAddress ?? "";
-    variables["session.virtualJoinUrl"] =
-      selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "";
+    variables["session.virtualJoinUrl"] = learnerVirtualAccessReady
+      ? (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
+      : eventDashboardUrl;
     variables["session.presenterNames"] = list(
       sessionPresenters.map((person) => person.name.trim() || person.email),
       "To be confirmed",

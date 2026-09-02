@@ -134,6 +134,17 @@ export function EventOperationsRegistrationReview({
             <Badge variant="light">{statusLabels[row.original.status]}</Badge>
           ),
         }),
+        registrationColumn.accessor("registrationQuestionnaireStatus", {
+          header: "Registration details",
+          cell: ({ row }) => (
+            <Badge variant="light">
+              {row.original.registrationQuestionnaireStatus.replaceAll(
+                "_",
+                " ",
+              )}
+            </Badge>
+          ),
+        }),
         registrationColumn.display({
           id: "priority",
           header: "Priority",

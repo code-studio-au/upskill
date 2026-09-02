@@ -21,6 +21,7 @@ import {
   resendAdminEventAccountSetup,
 } from "#/server/functions/admin-event-operations";
 import { registrationRegionDecisionLabel } from "./event-registration-region-decision";
+import { AdminRegistrationQuestionnaireDialog } from "#/features/registration/AdminRegistrationQuestionnaireDialog";
 
 const AdminEventRegistrationRegionDialog = lazy(async () => {
   const module = await import("./AdminEventRegistrationRegionDialog");
@@ -66,6 +67,8 @@ export function AdminEventRegistrationTable({
   ) => Promise<void>;
 }) {
   const [regionRegistration, setRegionRegistration] =
+    useState<Registration | null>(null);
+  const [questionnaireRegistration, setQuestionnaireRegistration] =
     useState<Registration | null>(null);
   const data = useMemo(
     () =>
@@ -162,6 +165,27 @@ export function AdminEventRegistrationTable({
               </Stack>
             );
           },
+        }),
+        registrationColumn.display({
+          id: "registrationQuestionnaire",
+          header: "Registration details",
+          cell: ({ row }) => (
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              disabled={
+                row.original.registrationQuestionnaireStatus === "not_required"
+              }
+              onClick={() => {
+                setQuestionnaireRegistration(row.original);
+              }}
+            >
+              {row.original.registrationQuestionnaireStatus.replaceAll(
+                "_",
+                " ",
+              )}
+            </Button>
+          ),
         }),
         registrationColumn.display({
           id: "priority",
@@ -316,6 +340,26 @@ export function AdminEventRegistrationTable({
             }}
           />
         </Suspense>
+      ) : null}
+      {questionnaireRegistration ? (
+        <AdminRegistrationQuestionnaireDialog
+          learnerName={questionnaireRegistration.name}
+          target={{
+            kind: "event",
+            eventOccurrenceId: workspace.occurrence.id,
+            registrationId: questionnaireRegistration.id,
+          }}
+          onClose={() => {
+            setQuestionnaireRegistration(null);
+          }}
+          onChanged={() => {
+            void action(
+              "refresh-registration-questionnaire",
+              () => Promise.resolve({ status: "ready" }),
+              "Registration requirement waived.",
+            );
+          }}
+        />
       ) : null}
     </>
   );

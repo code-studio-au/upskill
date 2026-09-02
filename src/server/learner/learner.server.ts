@@ -32,6 +32,11 @@ export async function findLearnerDashboard(
       "enrollment.courseVersionId",
     )
     .innerJoin("course", "course.id", "course_version.courseId")
+    .leftJoin(
+      "registration_questionnaire_assignment as registration_questionnaire",
+      "registration_questionnaire.enrollmentId",
+      "enrollment.id",
+    )
     .select([
       "enrollment.id as enrollmentId",
       "enrollment.status",
@@ -43,6 +48,8 @@ export async function findLearnerDashboard(
       "course.slug",
       "course_version.version as courseVersion",
       "course_version.content",
+      "course_version.registrationSurveyVersionId",
+      "registration_questionnaire.status as registrationQuestionnaireStatus",
     ])
     .where("enrollment.userId", "=", user.id)
     .orderBy("enrollment.enrolledAt", "desc")
@@ -84,6 +91,10 @@ export async function findLearnerDashboard(
         content.hasCompletionCertificate
           ? { enrollmentId: row.enrollmentId }
           : null,
+      registrationRequired:
+        row.registrationSurveyVersionId !== null &&
+        row.registrationQuestionnaireStatus !== "completed" &&
+        row.registrationQuestionnaireStatus !== "waived",
       progress: {
         completedItems: progress.completedItems,
         totalItems: progress.totalItems,
@@ -206,6 +217,13 @@ export async function findLearnerEventsDashboard(
       "event_template.id",
       "event_template_version.eventTemplateId",
     )
+    .leftJoin(
+      "registration_questionnaire_assignment as questionnaire",
+      (join) =>
+        join
+          .onRef("questionnaire.eventOccurrenceId", "=", "event_occurrence.id")
+          .on("questionnaire.userId", "=", user.id),
+    )
     .select([
       "event_occurrence.id as eventOccurrenceId",
       "event_occurrence.slug",
@@ -214,6 +232,8 @@ export async function findLearnerEventsDashboard(
       "event_template_version.id as eventTemplateVersionId",
       "event_template_version.version as eventTemplateVersion",
       "event_template_version.hasCompletionCertificate",
+      "event_template_version.registrationSurveyVersionId",
+      "questionnaire.status as questionnaireStatus",
       "event_occurrence.deliveryMode",
       "event_occurrence.registrationMode",
       "event_occurrence.approvalMode",
@@ -358,6 +378,10 @@ export async function findLearnerEventsDashboard(
           !notOpen &&
           !closed &&
           !full,
+        registrationRequired:
+          event.registrationSurveyVersionId !== null &&
+          event.questionnaireStatus !== "completed" &&
+          event.questionnaireStatus !== "waived",
         registrationUnavailableReason: notOpen
           ? "not_open"
           : closed

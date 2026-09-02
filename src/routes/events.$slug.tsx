@@ -119,9 +119,18 @@ function EventDetailPage() {
                     Access event
                   </Button>
                 </Link>
+              ) : event.hasRegistrationQuestionnaire ? (
+                <Link
+                  to="/my-events/$eventOccurrenceId"
+                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                >
+                  <Button component="span" size="lg" fullWidth>
+                    Start registration
+                  </Button>
+                </Link>
               ) : (
                 <Button component={Link} to="/my-events" size="lg">
-                  Register in My events
+                  Register
                 </Button>
               )}
               {event.bulkPricing.enabled ? (
