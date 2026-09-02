@@ -28,6 +28,7 @@ import {
   isOperationalRegionQuestion,
   parseSurveyVersionContent,
 } from "#/features/survey/survey.schema";
+import { allSurveyPathsIncludeOperationalRegion } from "#/features/survey/survey-branching";
 
 export async function createAdminEventTemplate(
   input: AdminEventTemplateCreateInput,
@@ -1389,16 +1390,18 @@ export async function publishAdminEventTemplateVersion(
             .execute(),
         ]);
         if (!registrationSurvey) return "conflict" as const;
-        const operationalRegionQuestion = parseSurveyVersionContent(
+        const registrationContent = parseSurveyVersionContent(
           registrationSurvey.content,
-        )
-          .sections.flatMap((section) => section.items)
+        );
+        const operationalRegionQuestion = registrationContent.sections
+          .flatMap((section) => section.items)
           .find(
             (item) =>
               item.kind !== "instruction" && isOperationalRegionQuestion(item),
           );
         if (
           !operationalRegionQuestion ||
+          !allSurveyPathsIncludeOperationalRegion(registrationContent) ||
           !("options" in operationalRegionQuestion)
         )
           return "conflict" as const;

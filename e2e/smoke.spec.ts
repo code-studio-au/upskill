@@ -1804,6 +1804,7 @@ test("platform administrators can inspect learner progress", async ({
       .getByRole("textbox", { name: "Starts" })
       .fill("21/08/2027 09:00");
     await page.getByRole("textbox", { name: "Ends" }).fill("21/08/2027 10:30");
+    await page.getByLabel("Registration access").selectOption("open_entry");
     await page
       .getByLabel("Protected virtual meeting URL")
       .fill("https://meet.example.com/e2e-workshop");

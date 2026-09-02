@@ -35,8 +35,10 @@ import {
 } from "#/server/learning/learner-survey.server";
 import { validateAnswer } from "#/server/learning/survey-answer-validation";
 import { invalidateVerifiedPhone } from "#/server/profile/contact-verification-core.server";
-import { registerLearnerForEvent } from "#/server/learner/learner-event.server";
+import { registerLearnerForEventInTransaction } from "#/server/learner/learner-event.server";
 import { logServerEvent } from "#/server/logging/server-logger";
+
+class EventRegistrationFinalizationError extends Error {}
 
 type AssignmentTarget =
   | { kind: "event"; eventOccurrenceId: string }
@@ -595,7 +597,8 @@ export async function advanceRegistrationQuestionnaire(
   user: AuthenticatedUser,
 ): Promise<LearnerRegistrationQuestionnaireStepResult> {
   const database = getDatabase();
-  const outcome = await database.transaction().execute(async (transaction) => {
+  const transactionBuilder = database.transaction();
+  const transactionOutcome = transactionBuilder.execute(async (transaction) => {
     const row = await transaction
       .selectFrom("registration_questionnaire_assignment as assignment")
       .innerJoin(
@@ -626,6 +629,24 @@ export async function advanceRegistrationQuestionnaire(
     if (!row) return { result: { status: "not-found" } as const };
     if (row.status === "waived")
       return { result: { status: "unavailable" } as const };
+    if (row.enrollmentId) {
+      const enrollment = await transaction
+        .selectFrom("enrollment")
+        .select(["status", "expiresAt", "removedAt"])
+        .where("id", "=", row.enrollmentId)
+        .where("userId", "=", user.id)
+        .forUpdate()
+        .executeTakeFirst();
+      const now = new Date();
+      if (
+        !enrollment ||
+        enrollment.removedAt ||
+        enrollment.status === "cancelled" ||
+        enrollment.status === "expired" ||
+        (enrollment.expiresAt && enrollment.expiresAt <= now)
+      )
+        return { result: { status: "unavailable" } as const };
+    }
     let content = parseSurveyVersionContent(row.content);
     let eventRegions: Array<{ id: string; regionId: string }> = [];
     if (row.eventOccurrenceId) {
@@ -644,18 +665,26 @@ export async function advanceRegistrationQuestionnaire(
     const storedAnswerValues = storedAnswers(row.answers);
     const items = surveyPathItems(content, storedAnswerValues);
     if (row.status === "completed" && row.submittedAt) {
-      const finalizeEvent =
+      if (
         row.eventOccurrenceId &&
         (await needsOrdinaryEventRegistration(
           transaction,
           row.eventOccurrenceId,
           user.id,
         ))
-          ? {
-              eventOccurrenceId: row.eventOccurrenceId,
-              eventOccurrenceRegionId: row.eventOccurrenceRegionId,
-            }
-          : null;
+      ) {
+        const registration = await registerLearnerForEventInTransaction(
+          transaction,
+          row.eventOccurrenceId,
+          row.eventOccurrenceRegionId,
+          user,
+        );
+        if (
+          registration.status !== "registered" &&
+          registration.status !== "already-registered"
+        )
+          throw new EventRegistrationFinalizationError();
+      }
       return {
         result: {
           status: "submitted",
@@ -667,7 +696,6 @@ export async function advanceRegistrationQuestionnaire(
           }),
           completedCourse: false,
         } as const,
-        finalizeEvent,
       };
     }
     const item = items.find((candidate) => candidate.id === input.itemId);
@@ -701,7 +729,10 @@ export async function advanceRegistrationQuestionnaire(
       const validation = validateAnswer(item, input.answer);
       if (!validation.valid)
         return {
-          result: { status: "invalid", message: validation.message } as const,
+          result: {
+            status: "invalid",
+            message: validation.message,
+          } as const,
         };
       if (typeof validation.answer === "undefined")
         answers = withoutRegistrationAnswer(answers, item.id);
@@ -822,7 +853,7 @@ export async function advanceRegistrationQuestionnaire(
       currentItemId,
       completedAt: completed ? now : null,
     });
-    const finalizeEvent =
+    if (
       completed &&
       row.eventOccurrenceId &&
       (await needsOrdinaryEventRegistration(
@@ -830,37 +861,39 @@ export async function advanceRegistrationQuestionnaire(
         row.eventOccurrenceId,
         user.id,
       ))
-        ? {
-            eventOccurrenceId: row.eventOccurrenceId,
-            eventOccurrenceRegionId: selectedOccurrenceRegionId,
-          }
-        : null;
+    ) {
+      const registration = await registerLearnerForEventInTransaction(
+        transaction,
+        row.eventOccurrenceId,
+        selectedOccurrenceRegionId,
+        user,
+      );
+      if (
+        registration.status !== "registered" &&
+        registration.status !== "already-registered"
+      )
+        throw new EventRegistrationFinalizationError();
+    }
     return {
       result: {
         status: completed ? "submitted" : "advanced",
         progress,
         completedCourse: false,
       } as const,
-      finalizeEvent,
     };
   });
-  if (outcome.finalizeEvent) {
-    const registration = await registerLearnerForEvent(
-      outcome.finalizeEvent.eventOccurrenceId,
-      outcome.finalizeEvent.eventOccurrenceRegionId,
-      user,
-    );
-    if (
-      registration.status !== "registered" &&
-      registration.status !== "already-registered"
-    )
+  let outcome: LearnerRegistrationQuestionnaireStepResult;
+  try {
+    outcome = (await transactionOutcome).result;
+  } catch (error) {
+    if (error instanceof EventRegistrationFinalizationError)
       return {
         status: "invalid",
-        message:
-          "Your details were saved, but registration is no longer available.",
+        message: "Registration is no longer available.",
       };
+    throw error;
   }
-  if (outcome.result.status === "submitted")
+  if (outcome.status === "submitted")
     logServerEvent({
       level: "info",
       event: "registration_questionnaire.completed",
@@ -870,5 +903,5 @@ export async function advanceRegistrationQuestionnaire(
         entityId: input.assignmentId,
       },
     });
-  return outcome.result;
+  return outcome;
 }

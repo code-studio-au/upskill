@@ -110,3 +110,53 @@ export function operationalRegionPathsIncludeRegionGroup(
   }
   return true;
 }
+
+export function allSurveyPathsIncludeOperationalRegion(
+  content: SurveyVersionContent,
+): boolean {
+  const items = content.sections.flatMap((section) => section.items);
+  if (items.length === 0) return false;
+
+  const firstItemIndexes = new Map<string, number>();
+  let itemOffset = 0;
+  for (const section of content.sections) {
+    if (section.items.length > 0) firstItemIndexes.set(section.id, itemOffset);
+    itemOffset += section.items.length;
+  }
+
+  const pending: Array<{
+    itemIndex: number;
+    operationalRegionSeen: boolean;
+  }> = [{ itemIndex: 0, operationalRegionSeen: false }];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const state = pending.pop();
+    if (!state) break;
+    if (state.itemIndex >= items.length) {
+      if (!state.operationalRegionSeen) return false;
+      continue;
+    }
+    const item = items[state.itemIndex];
+    if (!item) return false;
+    const operationalRegionSeen =
+      state.operationalRegionSeen || isOperationalRegionQuestion(item);
+    const stateKey = `${String(state.itemIndex)}:${String(operationalRegionSeen)}`;
+    if (visited.has(stateKey)) continue;
+    visited.add(stateKey);
+
+    const defaultNextIndex = state.itemIndex + 1;
+    const nextIndexes = new Set<number>();
+    if (item.kind === "single_choice" || item.kind === "dropdown") {
+      if (item.options.length === 0) nextIndexes.add(defaultNextIndex);
+      for (const option of item.options) {
+        const targetIndex = option.nextSectionId
+          ? firstItemIndexes.get(option.nextSectionId)
+          : undefined;
+        nextIndexes.add(targetIndex ?? defaultNextIndex);
+      }
+    } else nextIndexes.add(defaultNextIndex);
+    for (const nextIndex of nextIndexes)
+      pending.push({ itemIndex: nextIndex, operationalRegionSeen });
+  }
+  return true;
+}

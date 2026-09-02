@@ -692,6 +692,44 @@ try {
     ],
   );
 
+  const staleCourseQuestionnaire = await findCourseRegistrationQuestionnaire(
+    ids.waivedEnrollment,
+    otherUser,
+  );
+  if (!staleCourseQuestionnaire || typeof staleCourseQuestionnaire === "string")
+    throw new Error("Expected a Course questionnaire before cancellation");
+  await database
+    .updateTable("enrollment")
+    .set({ status: "cancelled" })
+    .where("id", "=", ids.waivedEnrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await advanceRegistrationQuestionnaire(
+      {
+        assignmentId: staleCourseQuestionnaire.assignmentId,
+        itemId: "profile_name",
+        answer: "Stale learner update",
+      },
+      otherUser,
+    ),
+    { status: "unavailable" },
+    "A cancelled enrolment must reject a stale questionnaire submission",
+  );
+  assert.equal(
+    await database
+      .selectFrom("registration_questionnaire_assignment")
+      .select("status")
+      .where("id", "=", staleCourseQuestionnaire.assignmentId)
+      .executeTakeFirstOrThrow()
+      .then((assignment) => assignment.status),
+    "assigned",
+  );
+  await database
+    .updateTable("enrollment")
+    .set({ status: "active" })
+    .where("id", "=", ids.waivedEnrollment)
+    .executeTakeFirstOrThrow();
+
   assert.equal(
     await waiveCourseRegistrationQuestionnaire(
       ids.course,
@@ -892,8 +930,86 @@ try {
     null,
   );
 
+  await database
+    .deleteFrom("event_participation")
+    .where("id", "=", ids.zeroRegionEventParticipation)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("event_registration")
+    .where("id", "=", ids.zeroRegionEventRegistration)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_occurrence")
+    .set({
+      registrationMode: "required_unrestricted",
+      registrationOpensAt: new Date(now.getTime() - 60_000),
+      registrationClosesAt: new Date(now.getTime() + 60_000),
+      capacity: 1,
+      confirmedCount: 1,
+      priceCents: null,
+    })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({
+      status: "assigned",
+      startedAt: null,
+      completedAt: null,
+      eventOccurrenceRegionId: null,
+    })
+    .where("id", "=", zeroRegionQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({}),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "event_operational_region",
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", zeroRegionQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await advanceRegistrationQuestionnaire(
+      {
+        assignmentId: zeroRegionQuestionnaire.assignmentId,
+        itemId: "event_operational_region",
+        answer: "event_region_option",
+      },
+      otherUser,
+    ),
+    { status: "invalid", message: "Registration is no longer available." },
+    "Event questionnaire completion must roll back when registration is unavailable",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("registration_questionnaire_assignment as assignment")
+      .innerJoin(
+        "registration_questionnaire_response as response",
+        "response.assignmentId",
+        "assignment.id",
+      )
+      .select(["assignment.status", "response.submittedAt"])
+      .where("assignment.id", "=", zeroRegionQuestionnaire.assignmentId)
+      .executeTakeFirstOrThrow(),
+    { status: "assigned", submittedAt: null },
+    "Unavailable Event registration must leave the questionnaire retryable",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_registration")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventOccurrenceId", "=", ids.eventOccurrence)
+      .where("userId", "=", otherUser.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    0,
+  );
+
   console.log(
-    "Verified Course and Event questionnaire pinning, optional and required region mapping, pre-existing paid registration, prefill, consent, completion gating, answer visibility and audited waiver",
+    "Verified Course and Event questionnaire pinning, enrolment revalidation, atomic Event registration, optional and required region mapping, pre-existing paid registration, prefill, consent, completion gating, answer visibility and audited waiver",
   );
 } finally {
   await cleanup();
