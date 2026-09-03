@@ -1015,20 +1015,28 @@ export async function advanceRegistrationQuestionnaire(
       ),
     ];
     const visited = new Set(visitedItemIds);
-    const completed =
+    const pathCompleted =
       nextItems.length > 0 &&
       nextItems.every((candidate) => visited.has(candidate.id));
-    if (completed && eventRegions.length > 0 && !selectedOccurrenceRegionId)
+    if (pathCompleted && eventRegions.length > 0 && !selectedOccurrenceRegionId)
       return {
         result: {
           status: "invalid",
           message: "Choose an operational region before registering.",
         } as const,
       };
+    const awaitingProfileUpdateChoice =
+      pathCompleted &&
+      registrationOffersProfileUpdate(content) &&
+      typeof input.profileUpdateAccepted === "undefined";
+    const completed = pathCompleted && !awaitingProfileUpdateChoice;
     const now = new Date();
     const currentItemId = completed
       ? null
-      : (nextItems.find((candidate) => !visited.has(candidate.id))?.id ?? null);
+      : awaitingProfileUpdateChoice
+        ? (nextItems.at(-1)?.id ?? null)
+        : (nextItems.find((candidate) => !visited.has(candidate.id))?.id ??
+          null);
     if (completed && input.profileUpdateAccepted) {
       const profileUpdateError = await validateProfileUpdates(
         transaction,

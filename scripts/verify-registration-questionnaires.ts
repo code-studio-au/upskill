@@ -1313,6 +1313,7 @@ try {
           assignmentId: eventQuestionnaire.assignmentId,
           itemId: "event_operational_region",
           answer: "event_region_option",
+          profileUpdateAccepted: false,
         },
         user,
       )
@@ -1812,6 +1813,143 @@ try {
       submittedAt: null,
     },
     "An invalidated operational-region answer must no longer count as visited",
+  );
+
+  await database
+    .updateTable("survey_version")
+    .set({
+      content: {
+        title: "Branching registration profile",
+        description: "Confirm your registration details.",
+        sections: [
+          {
+            id: "branch_profile_section",
+            title: "Profile",
+            description: "",
+            items: [
+              {
+                id: "branch_profile_name",
+                kind: "short_text",
+                prompt: "Current name",
+                required: true,
+                maximumLength: 200,
+                format: "plain",
+                profileField: "name",
+              },
+              {
+                id: "branch_route",
+                kind: "single_choice",
+                prompt: "Registration route",
+                required: true,
+                options: [
+                  { id: "long", label: "Detailed" },
+                  {
+                    id: "short",
+                    label: "Short",
+                    nextSectionId: "branch_final_section",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "branch_detail_section",
+            title: "Details",
+            description: "",
+            items: [
+              {
+                id: "branch_discipline",
+                kind: "short_text",
+                prompt: "Discipline",
+                required: false,
+                maximumLength: 200,
+                format: "plain",
+              },
+            ],
+          },
+          {
+            id: "branch_final_section",
+            title: "Review",
+            description: "",
+            items: [
+              {
+                id: "branch_review",
+                kind: "instruction",
+                title: "Ready to submit",
+                body: "Review your profile update choice before submitting.",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .where("id", "=", ids.surveyVersion)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "in_progress", startedAt: now, completedAt: null })
+    .where("id", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({
+        branch_profile_name: "Branch Profile Name",
+        branch_route: "long",
+        branch_discipline: "Nursing",
+      }),
+      visitedItemIds: JSON.stringify([
+        "branch_profile_name",
+        "branch_route",
+        "branch_discipline",
+        "branch_review",
+      ]),
+      currentItemId: "branch_route",
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  const shortenedBranch = await advanceRegistrationQuestionnaire(
+    {
+      assignmentId: questionnaire.assignmentId,
+      itemId: "branch_route",
+      answer: "short",
+    },
+    user,
+  );
+  assert.equal(
+    shortenedBranch.status,
+    "advanced",
+    "A shortened profile-aware path must pause for an explicit profile update choice",
+  );
+  assert.equal(shortenedBranch.progress.currentItemId, "branch_review");
+  assert.deepEqual(
+    await database
+      .selectFrom("registration_questionnaire_assignment as assignment")
+      .innerJoin(
+        "registration_questionnaire_response as response",
+        "response.assignmentId",
+        "assignment.id",
+      )
+      .select(["assignment.status", "response.submittedAt"])
+      .where("assignment.id", "=", questionnaire.assignmentId)
+      .executeTakeFirstOrThrow(),
+    { status: "in_progress", submittedAt: null },
+  );
+  assert.equal(
+    (
+      await advanceRegistrationQuestionnaire(
+        {
+          assignmentId: questionnaire.assignmentId,
+          itemId: "branch_review",
+          profileUpdateAccepted: false,
+        },
+        user,
+      )
+    ).status,
+    "submitted",
+    "The explicit review step must complete after the profile update choice",
   );
 
   const updatedEventLearnerName = "Updated Event Learner";

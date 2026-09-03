@@ -150,8 +150,11 @@ export function LearnerSurveyExperience({
         const currentIndex = nextSteps.findIndex(
           (step) => step.item.id === current.item.id,
         );
-        const next =
-          nextSteps[Math.min(currentIndex + 1, nextSteps.length - 1)]?.item;
+        const next = result.progress.currentItemId
+          ? nextSteps.find(
+              (step) => step.item.id === result.progress.currentItemId,
+            )?.item
+          : nextSteps[Math.min(currentIndex + 1, nextSteps.length - 1)]?.item;
         answerForm.reset({
           answer: next ? result.progress.answers[next.id] : undefined,
         });

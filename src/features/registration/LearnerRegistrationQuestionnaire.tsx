@@ -53,7 +53,9 @@ export function LearnerRegistrationQuestionnaire({
               assignmentId: questionnaire.assignmentId,
               itemId,
               ...(typeof answer === "undefined" ? {} : { answer }),
-              profileUpdateAccepted: options?.profileUpdateAccepted ?? false,
+              ...(options
+                ? { profileUpdateAccepted: options.profileUpdateAccepted }
+                : {}),
             },
           })
         }
