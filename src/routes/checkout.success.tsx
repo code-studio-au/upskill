@@ -16,7 +16,10 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { checkoutSessionSearchSchema } from "#/features/checkout/checkout.schema";
+import {
+  checkoutSessionSearchSchema,
+  shouldRedirectToEventRegistrationQuestionnaire,
+} from "#/features/checkout/checkout.schema";
 import { getCourseCheckoutStatus } from "#/server/functions/checkout";
 import classes from "./checkout.success.module.css";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
@@ -39,15 +42,9 @@ export const Route = createFileRoute("/checkout/success")({
     }
     if (result.status === "not-found") throw notFound();
     const checkout = result.checkout;
-    const paymentCompleted =
-      checkout.status === "paid" ||
-      checkout.status === "partially_refunded" ||
-      checkout.status === "refunded";
     if (
       checkout.offeringType === "event" &&
-      paymentCompleted &&
-      !checkout.reviewRequired &&
-      checkout.registrationRequired
+      shouldRedirectToEventRegistrationQuestionnaire(checkout)
     )
       throw redirect({
         to: "/my-events/$eventOccurrenceId",

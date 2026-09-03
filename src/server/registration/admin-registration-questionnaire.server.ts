@@ -329,6 +329,7 @@ export async function waiveCourseRegistrationQuestionnaire(
         ])
         .where("enrollment.id", "=", enrollmentId)
         .where("course_version.courseId", "=", courseId)
+        .forUpdate("enrollment")
         .executeTakeFirst();
       if (!configured?.registrationSurveyVersionId) return "not-found" as const;
       return await createWaivedAssignment(
@@ -379,6 +380,7 @@ export async function waiveEventRegistrationQuestionnaire(
         .select(["registration.userId", "version.registrationSurveyVersionId"])
         .where("registration.id", "=", registrationId)
         .where("registration.eventOccurrenceId", "=", eventOccurrenceId)
+        .forUpdate("occurrence")
         .executeTakeFirst();
       if (!configured?.registrationSurveyVersionId) return "not-found" as const;
       return await createWaivedAssignment(

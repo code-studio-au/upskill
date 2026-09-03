@@ -104,3 +104,19 @@ export type CheckoutStatus =
       registrationRequired: boolean;
       reviewRequired: boolean;
     };
+
+export function shouldRedirectToEventRegistrationQuestionnaire(
+  checkout: CheckoutStatus,
+): boolean {
+  const paymentCompleted =
+    checkout.status === "paid" ||
+    checkout.status === "partially_refunded" ||
+    checkout.status === "refunded";
+  return (
+    checkout.offeringType === "event" &&
+    checkout.kind === "event_registration" &&
+    paymentCompleted &&
+    !checkout.reviewRequired &&
+    checkout.registrationRequired
+  );
+}

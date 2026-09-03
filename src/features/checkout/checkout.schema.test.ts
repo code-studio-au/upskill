@@ -4,6 +4,7 @@ import {
   capacityExtensionCheckoutInputSchema,
   checkoutSessionSearchSchema,
   preparePurchaseAccountInputSchema,
+  shouldRedirectToEventRegistrationQuestionnaire,
 } from "./checkout.schema";
 
 describe("checkout session search", () => {
@@ -91,4 +92,37 @@ describe("bulk Checkout input", () => {
       }),
     ).toEqual({ accessGrantId: "access_grant_1", quantity: 1 });
   });
+});
+
+describe("Event Checkout success routing", () => {
+  const eventCheckout = {
+    status: "paid" as const,
+    offeringType: "event" as const,
+    offeringTitle: "Clinical webinar",
+    offeringSlug: "clinical-webinar",
+    eventOccurrenceId: "event_occurrence_1",
+    registrationRequired: true,
+    reviewRequired: false,
+  };
+
+  it("redirects an individual registration to its questionnaire", () => {
+    expect(
+      shouldRedirectToEventRegistrationQuestionnaire({
+        ...eventCheckout,
+        kind: "event_registration",
+      }),
+    ).toBe(true);
+  });
+
+  it.each(["bulk_purchase", "capacity_extension"] as const)(
+    "keeps a %s purchaser on the bulk-success flow",
+    (kind) => {
+      expect(
+        shouldRedirectToEventRegistrationQuestionnaire({
+          ...eventCheckout,
+          kind,
+        }),
+      ).toBe(false);
+    },
+  );
 });

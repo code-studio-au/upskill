@@ -353,6 +353,18 @@ export async function findLearnerEventsDashboard(
     const full =
       event.approvalMode === "automatic" &&
       event.confirmedCount >= event.capacity;
+    const canRegister =
+      !participationMode &&
+      !registrationStatus &&
+      eligible &&
+      !notOpen &&
+      !closed &&
+      !full;
+    const terminalRegistration =
+      registrationStatus === "withdrawn" ||
+      registrationStatus === "cancelled" ||
+      registrationStatus === "not_selected" ||
+      registrationStatus === "coordinator_declined";
     return [
       {
         eventOccurrenceId: event.eventOccurrenceId,
@@ -371,21 +383,15 @@ export async function findLearnerEventsDashboard(
           participation?.completedAt && event.hasCompletionCertificate
             ? { eventParticipationId: participation.id }
             : null,
-        canRegister:
-          !participationMode &&
-          !registrationStatus &&
-          eligible &&
-          !notOpen &&
-          !closed &&
-          !full,
+        canRegister,
         registrationRequired:
           event.registrationSurveyVersionId !== null &&
           event.questionnaireStatus !== "completed" &&
           event.questionnaireStatus !== "waived" &&
-          registrationStatus !== "withdrawn" &&
-          registrationStatus !== "cancelled" &&
-          registrationStatus !== "not_selected" &&
-          registrationStatus !== "coordinator_declined",
+          !terminalRegistration &&
+          (registrationStatus !== null ||
+            Boolean(participation) ||
+            canRegister),
         registrationUnavailableReason: notOpen
           ? "not_open"
           : closed

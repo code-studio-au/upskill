@@ -759,15 +759,57 @@ try {
     .where("id", "=", ids.waivedEnrollment)
     .executeTakeFirstOrThrow();
 
-  assert.equal(
-    await waiveCourseRegistrationQuestionnaire(
-      ids.course,
-      ids.waivedEnrollment,
-      "Accessibility accommodation",
-      administrator,
-    ),
-    "waived",
-  );
+  await database
+    .deleteFrom("registration_questionnaire_response")
+    .where("assignmentId", "=", staleCourseQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("registration_questionnaire_assignment")
+    .where("id", "=", staleCourseQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  let releaseEnrollmentLock: (() => void) | undefined;
+  let confirmEnrollmentLock: (() => void) | undefined;
+  const enrollmentLockHeld = new Promise<void>((resolve) => {
+    confirmEnrollmentLock = resolve;
+  });
+  const releaseEnrollment = new Promise<void>((resolve) => {
+    releaseEnrollmentLock = resolve;
+  });
+  const enrollmentLock = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("enrollment")
+      .select("id")
+      .where("id", "=", ids.waivedEnrollment)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    confirmEnrollmentLock?.();
+    await releaseEnrollment;
+  });
+  await enrollmentLockHeld;
+  let waiverSettled = false;
+  const pendingWaiver = waiveCourseRegistrationQuestionnaire(
+    ids.course,
+    ids.waivedEnrollment,
+    "Accessibility accommodation",
+    administrator,
+  ).finally(() => {
+    waiverSettled = true;
+  });
+  let waiverOutcome: "waived" | "not-found" | "conflict" | undefined;
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      waiverSettled,
+      false,
+      "A waiver must lock the enrolment before lazily creating its assignment",
+    );
+  } finally {
+    releaseEnrollmentLock?.();
+    await enrollmentLock;
+    waiverOutcome = await pendingWaiver;
+  }
+
+  assert.equal(waiverOutcome, "waived");
   assert.equal(
     await courseRegistrationQuestionnaireComplete(
       database,
@@ -1368,6 +1410,16 @@ try {
     })
     .where("assignmentId", "=", zeroRegionQuestionnaire.assignmentId)
     .executeTakeFirstOrThrow();
+  const unavailableEvent = (
+    await findLearnerEventsDashboard(otherUser)
+  ).events.find((event) => event.eventOccurrenceId === ids.eventOccurrence);
+  assert.ok(unavailableEvent);
+  assert.equal(unavailableEvent.canRegister, false);
+  assert.equal(
+    unavailableEvent.registrationRequired,
+    false,
+    "An unavailable new registration must not link to its questionnaire",
+  );
   assert.deepEqual(
     await advanceRegistrationQuestionnaire(
       {
