@@ -108,6 +108,10 @@ interface EventPerson {
 }
 
 export interface AdminEventOccurrenceOperations {
+  liveKit: {
+    enabled: boolean;
+    approvedMaxParticipants: number | null;
+  };
   occurrence: {
     id: string;
     eventTemplateVersionId: string;
@@ -119,6 +123,7 @@ export interface AdminEventOccurrenceOperations {
     templateVersion: number;
     registrationSurveyVersionId: string | null;
     deliveryMode: "in_person" | "virtual";
+    virtualDeliveryProvider: "external_url" | "livekit" | null;
     registrationMode:
       | "open_entry"
       | "paid_entry"

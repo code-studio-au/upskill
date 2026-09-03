@@ -7,6 +7,8 @@ import {
   adminEventStaffCandidateSearchSchema,
   adminEventStaffEligibilityGrantSchema,
   adminEventTemplateCreateSchema,
+  defaultLiveKitSessionPolicy,
+  liveKitSessionPolicySchema,
   normalizeEventDomains,
 } from "./admin-event.schema";
 
@@ -15,6 +17,7 @@ const validOccurrence = {
   title: "Statewide workshop",
   slug: "statewide-workshop",
   deliveryMode: "virtual" as const,
+  virtualDeliveryProvider: "external_url" as const,
   registrationMode: "required_restricted" as const,
   approvalMode: "manual" as const,
   timezone: "Australia/Sydney",
@@ -68,11 +71,31 @@ describe("event administration schemas", () => {
       adminEventOccurrenceCreateSchema.safeParse({
         ...validOccurrence,
         deliveryMode: "in_person",
+        virtualDeliveryProvider: null,
         venueName: "Learning Centre",
         venueAddress: "1 Example Street",
         virtualJoinUrl: "",
       }).success,
     ).toBe(true);
+  });
+
+  it("validates conditional LiveKit session policy", () => {
+    expect(
+      liveKitSessionPolicySchema.safeParse(defaultLiveKitSessionPolicy).success,
+    ).toBe(true);
+    expect(
+      liveKitSessionPolicySchema.safeParse({
+        ...defaultLiveKitSessionPolicy,
+        attendanceMode: "automatic_duration",
+      }).success,
+    ).toBe(false);
+    expect(
+      liveKitSessionPolicySchema.safeParse({
+        ...defaultLiveKitSessionPolicy,
+        recordingMode: "automatic",
+        recordingRetentionDays: 90,
+      }).success,
+    ).toBe(false);
   });
 
   it("requires coherent paid-entry pricing and automatic approval", () => {
@@ -127,8 +150,22 @@ describe("event administration schemas", () => {
       adminEventOccurrenceCreateSchema.safeParse({
         ...validOccurrence,
         deliveryMode: "virtual",
+        virtualDeliveryProvider: "external_url",
         venueName: "",
         virtualJoinUrl: "",
+      }).success,
+    ).toBe(false);
+    expect(
+      adminEventOccurrenceCreateSchema.safeParse({
+        ...validOccurrence,
+        virtualDeliveryProvider: "livekit",
+        virtualJoinUrl: "",
+      }).success,
+    ).toBe(true);
+    expect(
+      adminEventOccurrenceCreateSchema.safeParse({
+        ...validOccurrence,
+        virtualDeliveryProvider: "livekit",
       }).success,
     ).toBe(false);
   });

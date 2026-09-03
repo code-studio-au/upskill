@@ -171,6 +171,10 @@ function EventInstanceOperationsPage() {
               "Late invitations cannot be sent for this event in its current state.",
             account_already_active:
               "This learner has already completed account setup.",
+            livekit_unavailable:
+              "LiveKit must be enabled and configured before this event can be published.",
+            livekit_capacity_exceeded:
+              "The event capacity plus staff headroom exceeds this environment's approved LiveKit participant limit.",
           };
           setError(
             messages[outcome.reason ?? ""] ??
@@ -202,6 +206,7 @@ function EventInstanceOperationsPage() {
     return (
       <Suspense fallback={<LoadingSpinner label="Loading event editor" />}>
         <AdminEventOccurrenceEditor
+          liveKit={workspace.liveKit}
           publishedVersions={[
             {
               eventTemplateId: occurrence.eventTemplateId,
@@ -271,6 +276,11 @@ function EventInstanceOperationsPage() {
             })}
             {" · "}
             {occurrence.deliveryMode === "in_person" ? "In person" : "Virtual"}
+            {occurrence.virtualDeliveryProvider === "livekit"
+              ? " · LiveKit Cloud webinar"
+              : occurrence.virtualDeliveryProvider === "external_url"
+                ? " · External URL"
+                : ""}
             {" · "}
             {occurrence.templateTitle} · v{occurrence.templateVersion}
           </Text>

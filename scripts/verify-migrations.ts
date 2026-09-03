@@ -585,6 +585,28 @@ try {
     )
   )
     throw new Error("Event occurrences must own a required public URL slug");
+  if (
+    !eventOccurrenceColumns.rows.some(
+      (column) => column.column_name === "virtualDeliveryProvider",
+    )
+  )
+    throw new Error(
+      "Event occurrences must own an explicit virtual delivery provider",
+    );
+  const liveKitPolicyConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_template_session_livekit_policy_ck',
+          'event_occurrence_virtual_provider_ck',
+          'event_session_livekit_delivery_ck'
+        )`.execute(db);
+  assert.equal(
+    liveKitPolicyConstraints.rows.length,
+    3,
+    "Versioned LiveKit provider policy and exact-session snapshots must be constrained",
+  );
   const eventTemplateVersionColumns = await sql<{
     column_name: string;
     data_type: string;

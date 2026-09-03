@@ -156,6 +156,7 @@ try {
       slug: `historical-event-${suffix}`,
       status: "completed",
       deliveryMode: "in_person",
+      virtualDeliveryProvider: null,
       registrationMode: "required_unrestricted",
       approvalMode: "manual",
       timezone: "Australia/Sydney",
@@ -224,6 +225,7 @@ try {
         venueName: "Verification venue",
         venueAddress: "Sydney NSW",
         virtualJoinUrl: null,
+        virtualDeliveryProvider: null,
       },
       {
         id: ids.legacySession,

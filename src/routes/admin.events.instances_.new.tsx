@@ -24,6 +24,7 @@ function NewEventOccurrencePage() {
   return (
     <AdminEventOccurrenceEditor
       publishedVersions={result.data.publishedVersions}
+      liveKit={result.data.liveKit}
       onCancel={() => {
         void navigate({
           to: "/admin/events/scheduled",

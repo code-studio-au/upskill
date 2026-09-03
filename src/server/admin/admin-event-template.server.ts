@@ -120,6 +120,18 @@ function eventItemFromRow(row: {
   sessionDefinitionId: string | null;
   presenterRequired: boolean | null;
   presenterIds: Array<string>;
+  livekitAdmissionMode: "manual" | "automatic" | null;
+  livekitAttendanceMode:
+    "manual" | "automatic_check_in" | "automatic_duration" | null;
+  livekitAttendanceMinimumMinutes: number | null;
+  livekitPresenterPreparationMinutes: number | null;
+  livekitAttendeeRejoinGraceMinutes: number | null;
+  livekitCapacityHeadroom: number | null;
+  livekitOpenEntryGuestsAllowed: boolean | null;
+  livekitRecordingMode: "off" | "automatic" | null;
+  livekitRecordingRetentionDays: number | null;
+  livekitAttendeeRecordingNotice: string | null;
+  livekitPresenterRecordingNotice: string | null;
 }): AdminEventTemplateItem {
   if (row.kind === "session")
     return {
@@ -130,6 +142,20 @@ function eventItemFromRow(row: {
       durationMinutes: row.durationMinutes ?? 60,
       presenterRequired: row.presenterRequired ?? true,
       presenterIds: row.presenterIds,
+      liveKitPolicy: {
+        admissionMode: row.livekitAdmissionMode ?? "automatic",
+        attendanceMode: row.livekitAttendanceMode ?? "manual",
+        attendanceMinimumMinutes: row.livekitAttendanceMinimumMinutes,
+        presenterPreparationMinutes:
+          row.livekitPresenterPreparationMinutes ?? 60,
+        attendeeRejoinGraceMinutes: row.livekitAttendeeRejoinGraceMinutes ?? 10,
+        capacityHeadroom: row.livekitCapacityHeadroom ?? 5,
+        openEntryGuestsAllowed: row.livekitOpenEntryGuestsAllowed ?? false,
+        recordingMode: row.livekitRecordingMode ?? "off",
+        recordingRetentionDays: row.livekitRecordingRetentionDays,
+        attendeeRecordingNotice: row.livekitAttendeeRecordingNotice ?? "",
+        presenterRecordingNotice: row.livekitPresenterRecordingNotice ?? "",
+      },
     };
   if (!row.learningActivityVersionId)
     throw new Error("Event activity item has no learning activity version");
@@ -215,6 +241,17 @@ async function loadEventTemplateDraft(
         "items.learningActivityVersionId",
         "items.sessionDefinitionId",
         "sessions.presenterRequired",
+        "sessions.livekitAdmissionMode",
+        "sessions.livekitAttendanceMode",
+        "sessions.livekitAttendanceMinimumMinutes",
+        "sessions.livekitPresenterPreparationMinutes",
+        "sessions.livekitAttendeeRejoinGraceMinutes",
+        "sessions.livekitCapacityHeadroom",
+        "sessions.livekitOpenEntryGuestsAllowed",
+        "sessions.livekitRecordingMode",
+        "sessions.livekitRecordingRetentionDays",
+        "sessions.livekitAttendeeRecordingNotice",
+        "sessions.livekitPresenterRecordingNotice",
       ])
       .where("sections.eventTemplateVersionId", "=", version.id)
       .orderBy("sections.position")
@@ -308,6 +345,19 @@ async function loadEventTemplateDraft(
                 presenter.sessionDefinitionId === row.sessionDefinitionId,
             )
             .map((presenter) => presenter.userId),
+          livekitAdmissionMode: row.livekitAdmissionMode,
+          livekitAttendanceMode: row.livekitAttendanceMode,
+          livekitAttendanceMinimumMinutes: row.livekitAttendanceMinimumMinutes,
+          livekitPresenterPreparationMinutes:
+            row.livekitPresenterPreparationMinutes,
+          livekitAttendeeRejoinGraceMinutes:
+            row.livekitAttendeeRejoinGraceMinutes,
+          livekitCapacityHeadroom: row.livekitCapacityHeadroom,
+          livekitOpenEntryGuestsAllowed: row.livekitOpenEntryGuestsAllowed,
+          livekitRecordingMode: row.livekitRecordingMode,
+          livekitRecordingRetentionDays: row.livekitRecordingRetentionDays,
+          livekitAttendeeRecordingNotice: row.livekitAttendeeRecordingNotice,
+          livekitPresenterRecordingNotice: row.livekitPresenterRecordingNotice,
         }),
       );
       itemPositions.set(row.itemId, row.itemPosition ?? 0);
@@ -890,6 +940,24 @@ async function replaceEventDraftStructure(
           title: item.title,
           durationMinutes: item.durationMinutes,
           presenterRequired: item.presenterRequired,
+          livekitAdmissionMode: item.liveKitPolicy.admissionMode,
+          livekitAttendanceMode: item.liveKitPolicy.attendanceMode,
+          livekitAttendanceMinimumMinutes:
+            item.liveKitPolicy.attendanceMinimumMinutes,
+          livekitPresenterPreparationMinutes:
+            item.liveKitPolicy.presenterPreparationMinutes,
+          livekitAttendeeRejoinGraceMinutes:
+            item.liveKitPolicy.attendeeRejoinGraceMinutes,
+          livekitCapacityHeadroom: item.liveKitPolicy.capacityHeadroom,
+          livekitOpenEntryGuestsAllowed:
+            item.liveKitPolicy.openEntryGuestsAllowed,
+          livekitRecordingMode: item.liveKitPolicy.recordingMode,
+          livekitRecordingRetentionDays:
+            item.liveKitPolicy.recordingRetentionDays,
+          livekitAttendeeRecordingNotice:
+            item.liveKitPolicy.attendeeRecordingNotice,
+          livekitPresenterRecordingNotice:
+            item.liveKitPolicy.presenterRecordingNotice,
         })
         .execute();
       if (item.presenterIds.length)

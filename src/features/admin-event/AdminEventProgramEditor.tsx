@@ -1,4 +1,4 @@
-import { useState, type SetStateAction } from "react";
+import { lazy, Suspense, useState, type SetStateAction } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { MantineCheckbox } from "#/features/shared/MantineCheckbox";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
@@ -19,10 +19,16 @@ import type {
   AdminEventTemplateDraft,
   AdminEventTemplateItem,
 } from "./admin-event.schema";
+import { defaultLiveKitSessionPolicy } from "./admin-event.schema";
 import classes from "./AdminEventProgramEditor.module.css";
 
 type ActivityKind = "scorm" | "survey" | "resource";
 type AddableKind = ActivityKind | "session" | "automated_email";
+
+const AdminEventLiveKitPolicyEditor = lazy(async () => {
+  const module = await import("./AdminEventLiveKitPolicyEditor");
+  return { default: module.AdminEventLiveKitPolicyEditor };
+});
 
 function move<T>(values: Array<T>, index: number, direction: -1 | 1): Array<T> {
   const destination = index + direction;
@@ -129,6 +135,7 @@ export function AdminEventProgramEditor({
       durationMinutes: 60,
       presenterRequired: true,
       presenterIds: [],
+      liveKitPolicy: { ...defaultLiveKitSessionPolicy },
     };
     updateSection(sectionId, (section) => ({
       ...section,
@@ -551,6 +558,23 @@ export function AdminEventProgramEditor({
                                   );
                                 }}
                               />
+                              <Suspense fallback={null}>
+                                <AdminEventLiveKitPolicyEditor
+                                  policy={item.liveKitPolicy}
+                                  durationMinutes={item.durationMinutes}
+                                  disabled={!detail.version.editable}
+                                  onChange={(liveKitPolicy) => {
+                                    updateItem(
+                                      section.id,
+                                      item.id,
+                                      (current) =>
+                                        current.kind === "session"
+                                          ? { ...current, liveKitPolicy }
+                                          : current,
+                                    );
+                                  }}
+                                />
+                              </Suspense>
                             </>
                           ) : null}
                         </>

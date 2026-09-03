@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { defaultLiveKitSessionPolicy } from "#/features/admin-event/admin-event.schema";
 import {
   findAdminCommunicationWorkspace,
   materializeEventOccurrenceCommunications,
@@ -674,6 +675,7 @@ try {
                 durationMinutes: 60,
                 presenterRequired: false,
                 presenterIds: [],
+                liveKitPolicy: { ...defaultLiveKitSessionPolicy },
               },
             ],
           },
@@ -812,6 +814,7 @@ try {
         slug: `communication-event-${suffix}`,
         status: "draft",
         deliveryMode: "in_person",
+        virtualDeliveryProvider: null,
         registrationMode: "required_unrestricted",
         approvalMode: "automatic",
         timezone: "Australia/Sydney",
@@ -857,6 +860,7 @@ try {
         venueName: "Session room",
         venueAddress: "1 Preview Street",
         virtualJoinUrl: null,
+        virtualDeliveryProvider: null,
       })
       .execute();
     await transaction

@@ -4,11 +4,13 @@ import { sql } from "kysely";
 import type { AdminEventOccurrenceOperations } from "#/features/admin-event/admin-event-operations.schema";
 import { getDatabase } from "#/server/db/database.server";
 import { ensureEventGuestAccessRecord } from "#/server/events/event-guest-access.server";
+import { getEnabledLiveKitConfiguration } from "#/server/livekit/livekit-provider.server";
 
 export async function findAdminEventOccurrenceOperations(
   eventOccurrenceId: string,
 ): Promise<AdminEventOccurrenceOperations | null> {
   const database = getDatabase();
+  const liveKitConfiguration = getEnabledLiveKitConfiguration();
   const occurrence = await database
     .selectFrom("event_occurrence as occurrence")
     .innerJoin(
@@ -32,6 +34,7 @@ export async function findAdminEventOccurrenceOperations(
       "version.version as templateVersion",
       "version.registrationSurveyVersionId",
       "occurrence.deliveryMode",
+      "occurrence.virtualDeliveryProvider",
       "occurrence.registrationMode",
       "occurrence.approvalMode",
       "occurrence.timezone",
@@ -441,6 +444,11 @@ export async function findAdminEventOccurrenceOperations(
     ]),
   );
   return {
+    liveKit: {
+      enabled: liveKitConfiguration !== null,
+      approvedMaxParticipants:
+        liveKitConfiguration?.approvedMaxParticipants ?? null,
+    },
     occurrence: {
       ...occurrence,
       startsAt: occurrence.startsAt.toISOString(),

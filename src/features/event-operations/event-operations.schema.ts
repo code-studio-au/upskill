@@ -104,6 +104,7 @@ export interface EventOperationsWorkspace {
     title: string;
     status: "draft" | "published" | "cancelled" | "completed" | "archived";
     deliveryMode: "in_person" | "virtual";
+    virtualDeliveryProvider: "external_url" | "livekit" | null;
     timezone: string;
     startsAt: string;
     endsAt: string;

@@ -285,6 +285,7 @@ try {
       slug: "verify-admin-access-event",
       status: "published",
       deliveryMode: "virtual",
+      virtualDeliveryProvider: "external_url",
       registrationMode: "required_unrestricted",
       approvalMode: "automatic",
       timezone: "Australia/Sydney",
