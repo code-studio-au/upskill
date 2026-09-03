@@ -422,6 +422,11 @@ export const rescheduleAdminEventOccurrence = createServerFn({ method: "POST" })
       };
     if (outcome === "regions-not-confirmed")
       return { status: "conflict", reason: "regions_not_confirmed" };
+    if (outcome === "registration-questionnaire-regions-incompatible")
+      return {
+        status: "conflict",
+        reason: "registration_questionnaire_regions_incompatible",
+      };
     if (outcome === "registration-questionnaire-requires-registration")
       return {
         status: "conflict",

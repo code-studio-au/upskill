@@ -3,6 +3,7 @@ import { useState, useSyncExternalStore } from "react";
 import { Alert, Button, Stack, Text } from "#/features/shared/mantine";
 import { activateEnterpriseEventAccess } from "#/server/functions/enterprise-contract";
 import type { EnterpriseEventAccessResult } from "./enterprise-contract.schema";
+import { alreadyRegisteredEventDestination } from "./enterprise-event-navigation";
 
 const subscribeToHydration = () => () => undefined;
 
@@ -22,6 +23,14 @@ export function EnterpriseEventAccessButton({
   const [state, setState] = useState<"ready" | "unavailable">("ready");
   if (access.status !== "ready") {
     if (access.status !== "already-registered") return null;
+    if (alreadyRegisteredEventDestination(access) === "my-events")
+      return (
+        <Link to="/my-events">
+          <Button component="span" size="lg" fullWidth>
+            View registration
+          </Button>
+        </Link>
+      );
     return (
       <Link
         to="/my-events/$eventOccurrenceId"
@@ -43,12 +52,17 @@ export function EnterpriseEventAccessButton({
         );
         return;
       }
-      if (
-        result.status === "registered" ||
-        result.status === "already-registered"
-      ) {
+      if (result.status === "registered") {
         window.location.assign(
           `/my-events/${encodeURIComponent(result.eventOccurrenceId)}`,
+        );
+        return;
+      }
+      if (result.status === "already-registered") {
+        window.location.assign(
+          alreadyRegisteredEventDestination(result) === "event"
+            ? `/my-events/${encodeURIComponent(result.eventOccurrenceId)}`
+            : "/my-events",
         );
         return;
       }

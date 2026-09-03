@@ -26,6 +26,10 @@ import { issueCourseEntitlement } from "#/server/learning/course-entitlement.ser
 import { issueConfirmedEventRegistration } from "#/server/events/confirmed-event-registration.server";
 import { enrollEnterpriseContractClaims } from "./enterprise-contract-enrollment.server";
 
+const terminalEventRegistrationStatuses = new Set<
+  Database["event_registration"]["status"]
+>(["coordinator_declined", "not_selected", "withdrawn", "cancelled"]);
+
 function emailDomain(email: string): string | null {
   const separator = email.lastIndexOf("@");
   return separator <= 0 || separator === email.length - 1
@@ -361,11 +365,18 @@ async function resolveEventAccess(
           .onRef("questionnaire.eventOccurrenceId", "=", "event_occurrence.id")
           .on("questionnaire.userId", "=", user.id),
     )
+    .leftJoin(
+      "event_participation as participation",
+      "participation.registrationId",
+      "event_registration.id",
+    )
     .select([
       "event_registration.id",
+      "event_registration.status as registrationStatus",
       "event_occurrence.id as eventOccurrenceId",
       "event_template_version.registrationSurveyVersionId",
       "questionnaire.status as questionnaireStatus",
+      "participation.id as eventParticipationId",
     ])
     .where("event_registration.userId", "=", user.id)
     .where("event_occurrence.slug", "=", slug)
@@ -376,8 +387,12 @@ async function resolveEventAccess(
       eventOccurrenceId: existing.eventOccurrenceId,
       registrationRequired:
         Boolean(existing.registrationSurveyVersionId) &&
+        !terminalEventRegistrationStatuses.has(existing.registrationStatus) &&
         existing.questionnaireStatus !== "completed" &&
         existing.questionnaireStatus !== "waived",
+      canOpenEvent:
+        existing.registrationStatus === "selected" &&
+        existing.eventParticipationId !== null,
     } as const;
   let query = database
     .selectFrom("enterprise_contract_claim as claim")
@@ -489,8 +504,12 @@ export async function registerWithEnterpriseContract(
           eventOccurrenceId: resolved.access.eventOccurrenceId,
           registrationRequired:
             Boolean(resolved.access.registrationSurveyVersionId) &&
+            !terminalEventRegistrationStatuses.has(
+              registration.registrationStatus,
+            ) &&
             resolved.access.questionnaireStatus !== "completed" &&
             resolved.access.questionnaireStatus !== "waived",
+          canOpenEvent: registration.canOpenEvent,
         } as const;
       if (registration.status !== "created")
         return { status: "unavailable" } as const;

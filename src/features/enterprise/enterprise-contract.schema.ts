@@ -31,6 +31,7 @@ export type EnterpriseEventAccessResult =
       status: "already-registered";
       eventOccurrenceId: string;
       registrationRequired: boolean;
+      canOpenEvent: boolean;
     }
   | { status: "unavailable" }
   | { status: "unauthenticated" };
@@ -46,6 +47,7 @@ export type EnterpriseEventRegistrationResult =
       status: "already-registered";
       eventOccurrenceId: string;
       registrationRequired: boolean;
+      canOpenEvent: boolean;
     }
   | { status: "unavailable" }
   | { status: "unauthenticated" };

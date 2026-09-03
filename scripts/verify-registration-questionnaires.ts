@@ -35,6 +35,7 @@ const ids = {
   eventGuestReference: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef",
   regionGroup: "verify_registration_questionnaire_region_group",
   region: "verify_registration_questionnaire_region",
+  unsupportedRegion: "verify_registration_questionnaire_unsupported_region",
 };
 
 const user: AuthenticatedUser = {
@@ -160,7 +161,7 @@ async function cleanup(): Promise<void> {
     .execute();
   await database
     .deleteFrom("coordination_region")
-    .where("id", "=", ids.region)
+    .where("id", "in", [ids.region, ids.unsupportedRegion])
     .execute();
   await database
     .deleteFrom("coordination_region")
@@ -259,6 +260,14 @@ try {
         parentId: ids.regionGroup,
         code: "VERIFY-REGISTRATION-REGION",
         name: "Verification operational region",
+        kind: "operational",
+        status: "active",
+      },
+      {
+        id: ids.unsupportedRegion,
+        parentId: ids.regionGroup,
+        code: "VERIFY-REGISTRATION-UNSUPPORTED",
+        name: "Unsupported operational region",
         kind: "operational",
         status: "active",
       },
@@ -505,7 +514,7 @@ try {
     })
     .execute();
 
-  const { createAdminEventOccurrence } =
+  const { createAdminEventOccurrence, rescheduleAdminEventOccurrence } =
     await import("#/server/admin/admin-event-occurrence.server");
   const { findPublicEventGuestAccess, submitPublicEventGuestAccess } =
     await import("#/server/events/event-guest-access.server");
@@ -587,6 +596,75 @@ try {
     .set({ registrationMode: "paid_entry", priceCents: 1_000 })
     .where("id", "=", ids.eventOccurrence)
     .executeTakeFirstOrThrow();
+  const rescheduleStartsAt = new Date(eventStartsAt.getTime() + 86_400_000);
+  const rescheduleEndsAt = new Date(eventEndsAt.getTime() + 86_400_000);
+  const rescheduleOpensAt = new Date(now.getTime() - 3_600_000);
+  rescheduleOpensAt.setMilliseconds(0);
+  const rescheduleClosesAt = new Date(eventStartsAt.getTime() - 172_800_000);
+  const rescheduleLockAt = new Date(eventStartsAt.getTime() - 86_400_000);
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      ids.eventOccurrence,
+      {
+        occurrence: {
+          eventTemplateVersionId: ids.eventTemplateVersion,
+          title: "Registration questionnaire reschedule",
+          slug: "verify-registration-questionnaire-reschedule",
+          deliveryMode: "virtual",
+          registrationMode: "paid_entry",
+          approvalMode: "automatic",
+          timezone: "UTC",
+          localStartsAt: rescheduleStartsAt.toISOString().slice(0, 19),
+          localEndsAt: rescheduleEndsAt.toISOString().slice(0, 19),
+          localRegistrationOpensAt: rescheduleOpensAt
+            .toISOString()
+            .slice(0, 19),
+          localRegistrationClosesAt: rescheduleClosesAt
+            .toISOString()
+            .slice(0, 19),
+          localCoordinatorLockAt: rescheduleLockAt.toISOString().slice(0, 19),
+          startsAt: rescheduleStartsAt.toISOString(),
+          endsAt: rescheduleEndsAt.toISOString(),
+          registrationOpensAt: rescheduleOpensAt.toISOString(),
+          registrationClosesAt: rescheduleClosesAt.toISOString(),
+          coordinatorLockAt: rescheduleLockAt.toISOString(),
+          capacity: 10,
+          priceCents: 1_000,
+          salePriceCents: null,
+          currency: "AUD",
+          bulkPricing: { enabled: false, tiers: [] },
+          listInStore: true,
+          featured: false,
+          venueName: "",
+          venueAddress: "",
+          virtualJoinUrl: "https://video.example.com/registration-verification",
+          domains: "",
+        },
+        registrationWindowPolicy: "reopen",
+        regionsConfirmed: true,
+        regionalCoverage: {
+          regions: [
+            { regionId: ids.region, coordinatorIds: [] },
+            { regionId: ids.unsupportedRegion, coordinatorIds: [] },
+          ],
+          retirements: [],
+        },
+      },
+      administrator,
+    ),
+    "registration-questionnaire-regions-incompatible",
+    "Rescheduling must not offer a region absent from the immutable registration survey snapshot",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_occurrence_region")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventOccurrenceId", "=", ids.eventOccurrence)
+      .where("regionId", "=", ids.unsupportedRegion)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    0,
+  );
 
   const {
     advanceRegistrationQuestionnaire,

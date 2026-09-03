@@ -7,6 +7,10 @@ import {
   type AdminEventOccurrenceCreateInput,
 } from "#/features/admin-event/admin-event.schema";
 import {
+  isOperationalRegionQuestion,
+  parseSurveyVersionContent,
+} from "#/features/survey/survey.schema";
+import {
   ianaTimeZoneSchema,
   instantIsoSchema,
   type IsoDuration,
@@ -618,6 +622,7 @@ export async function rescheduleAdminEventOccurrence(
   | "invalid-window-policy"
   | "regions-not-confirmed"
   | "registration-questionnaire-requires-registration"
+  | "registration-questionnaire-regions-incompatible"
 > {
   const next = input.occurrence;
   if (!isIanaTimeZone(next.timezone) || !isAdminEventScheduleConsistent(next))
@@ -773,30 +778,40 @@ export async function rescheduleAdminEventOccurrence(
             userId,
           })),
         );
-      const [validRegions, validCoordinatorEligibility] = await Promise.all([
-        input.regionalCoverage.regions.length
-          ? transaction
-              .selectFrom("coordination_region")
-              .select(["id", "kind"])
-              .where(
-                "id",
-                "in",
-                input.regionalCoverage.regions.map((region) => region.regionId),
-              )
-              .where("status", "=", "active")
-              .where("kind", "=", "operational")
-              .execute()
-          : [],
-        desiredCoordinatorIds.length
-          ? transaction
-              .selectFrom("event_staff_eligibility")
-              .select(["userId", "regionId"])
-              .where("userId", "in", desiredCoordinatorIds)
-              .where("responsibility", "=", "coordinator")
-              .where("revokedAt", "is", null)
-              .execute()
-          : [],
-      ]);
+      const [validRegions, validCoordinatorEligibility, registrationSurvey] =
+        await Promise.all([
+          input.regionalCoverage.regions.length
+            ? transaction
+                .selectFrom("coordination_region")
+                .select(["id", "kind"])
+                .where(
+                  "id",
+                  "in",
+                  input.regionalCoverage.regions.map(
+                    (region) => region.regionId,
+                  ),
+                )
+                .where("status", "=", "active")
+                .where("kind", "=", "operational")
+                .execute()
+            : [],
+          desiredCoordinatorIds.length
+            ? transaction
+                .selectFrom("event_staff_eligibility")
+                .select(["userId", "regionId"])
+                .where("userId", "in", desiredCoordinatorIds)
+                .where("responsibility", "=", "coordinator")
+                .where("revokedAt", "is", null)
+                .execute()
+            : [],
+          occurrence.registrationSurveyVersionId
+            ? transaction
+                .selectFrom("survey_version")
+                .select("content")
+                .where("id", "=", occurrence.registrationSurveyVersionId)
+                .executeTakeFirst()
+            : null,
+        ]);
       if (
         validRegions.length !== input.regionalCoverage.regions.length ||
         !desiredCoordinatorSelections.every((selection) =>
@@ -808,6 +823,32 @@ export async function rescheduleAdminEventOccurrence(
         )
       )
         return "regions-not-confirmed" as const;
+      if (
+        occurrence.registrationSurveyVersionId &&
+        input.regionalCoverage.regions.length > 0
+      ) {
+        if (!registrationSurvey)
+          return "registration-questionnaire-regions-incompatible" as const;
+        const surveyRegionIds = new Set(
+          parseSurveyVersionContent(
+            registrationSurvey.content,
+          ).sections.flatMap((section) =>
+            section.items.flatMap((item) =>
+              isOperationalRegionQuestion(item)
+                ? item.options.flatMap((option) =>
+                    option.externalValue ? [option.externalValue] : [],
+                  )
+                : [],
+            ),
+          ),
+        );
+        if (
+          input.regionalCoverage.regions.some(
+            (region) => !surveyRegionIds.has(region.regionId),
+          )
+        )
+          return "registration-questionnaire-regions-incompatible" as const;
+      }
 
       const nextStartsAt = requiredDate(next.startsAt);
       const nextEndsAt = requiredDate(next.endsAt);

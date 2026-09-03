@@ -920,6 +920,7 @@ export type AdminEventMutationResult =
         | "template_version_not_deletable"
         | "registration_window_policy_invalid"
         | "regions_not_confirmed"
+        | "registration_questionnaire_regions_incompatible"
         | "region_code_in_use"
         | "region_not_retirable"
         | "event_too_short"
