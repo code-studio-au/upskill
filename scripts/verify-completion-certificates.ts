@@ -31,6 +31,10 @@ const ids = {
   surveyVersion: "verify_certificate_registration_survey_version",
   questionnaireAssignment: "verify_certificate_questionnaire_assignment",
   questionnaireResponse: "verify_certificate_questionnaire_response",
+  courseQuestionnaireAssignment:
+    "verify_certificate_course_questionnaire_assignment",
+  courseQuestionnaireResponse:
+    "verify_certificate_course_questionnaire_response",
 };
 const learner: AuthenticatedUser = {
   id: ids.learner,
@@ -53,11 +57,17 @@ const database = new Kysely<Database>({
 async function cleanup(): Promise<void> {
   await database
     .deleteFrom("registration_questionnaire_response")
-    .where("id", "=", ids.questionnaireResponse)
+    .where("id", "in", [
+      ids.questionnaireResponse,
+      ids.courseQuestionnaireResponse,
+    ])
     .execute();
   await database
     .deleteFrom("registration_questionnaire_assignment")
-    .where("id", "=", ids.questionnaireAssignment)
+    .where("id", "in", [
+      ids.questionnaireAssignment,
+      ids.courseQuestionnaireAssignment,
+    ])
     .execute();
   await database
     .deleteFrom("event_participation")
@@ -80,6 +90,15 @@ async function cleanup(): Promise<void> {
     .where("id", "=", ids.eventTemplate)
     .execute();
   await database
+    .deleteFrom("enrollment")
+    .where("id", "=", ids.enrollment)
+    .execute();
+  await database
+    .deleteFrom("course_version")
+    .where("id", "=", ids.courseVersion)
+    .execute();
+  await database.deleteFrom("course").where("id", "=", ids.course).execute();
+  await database
     .deleteFrom("survey_version")
     .where("id", "=", ids.surveyVersion)
     .execute();
@@ -91,15 +110,6 @@ async function cleanup(): Promise<void> {
     .deleteFrom("learning_activity")
     .where("id", "=", ids.survey)
     .execute();
-  await database
-    .deleteFrom("enrollment")
-    .where("id", "=", ids.enrollment)
-    .execute();
-  await database
-    .deleteFrom("course_version")
-    .where("id", "=", ids.courseVersion)
-    .execute();
-  await database.deleteFrom("course").where("id", "=", ids.course).execute();
   await database
     .deleteFrom("user")
     .where("id", "in", [ids.learner, ids.otherUser])
@@ -222,6 +232,11 @@ try {
       },
     })
     .execute();
+  await database
+    .updateTable("course_version")
+    .set({ registrationSurveyVersionId: ids.surveyVersion })
+    .where("id", "=", ids.courseVersion)
+    .executeTakeFirstOrThrow();
   await database
     .insertInto("event_template_version")
     .values({
@@ -347,9 +362,62 @@ try {
       redactedAt: null,
     })
     .execute();
+  await database
+    .insertInto("registration_questionnaire_assignment")
+    .values({
+      id: ids.courseQuestionnaireAssignment,
+      userId: ids.learner,
+      surveyVersionId: ids.surveyVersion,
+      eventOccurrenceId: null,
+      eventOccurrenceRegionId: null,
+      enrollmentId: ids.enrollment,
+      status: "assigned",
+      assignedAt: firstCompletedAt,
+      startedAt: null,
+      completedAt: null,
+      waivedAt: null,
+      waivedByUserId: null,
+      waiverReason: null,
+    })
+    .execute();
+  await database
+    .insertInto("registration_questionnaire_response")
+    .values({
+      id: ids.courseQuestionnaireResponse,
+      assignmentId: ids.courseQuestionnaireAssignment,
+      surveyVersionId: ids.surveyVersion,
+      answers: JSON.stringify({}),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "certificate_registration_answer",
+      startedAt: firstCompletedAt,
+      updatedAt: firstCompletedAt,
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+      redactedAt: null,
+    })
+    .execute();
 
   let dashboard = await findLearnerDashboard(learner);
-  assert.deepEqual(dashboard.courses[0]?.certificate, {
+  assert.equal(dashboard.courses[0]?.registrationRequired, true);
+  assert.equal(dashboard.courses[0].certificate, null);
+  assert.deepEqual(
+    await getLearnerCompletionCertificate(ids.enrollment, learner),
+    { status: "not-found" },
+    "A required registration questionnaire must gate Course certificate access",
+  );
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({
+      status: "waived",
+      waivedAt: firstCompletedAt,
+      waivedByUserId: ids.learner,
+      waiverReason: "Course certificate verification waiver",
+    })
+    .where("id", "=", ids.courseQuestionnaireAssignment)
+    .executeTakeFirstOrThrow();
+  dashboard = await findLearnerDashboard(learner);
+  assert.equal(dashboard.courses[0]?.registrationRequired, false);
+  assert.deepEqual(dashboard.courses[0].certificate, {
     enrollmentId: ids.enrollment,
   });
 

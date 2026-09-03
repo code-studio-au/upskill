@@ -74,6 +74,10 @@ export async function findLearnerDashboard(
       : row.expiresAt && row.expiresAt <= now
         ? "expired"
         : row.status;
+    const registrationQuestionnaireComplete =
+      row.registrationSurveyVersionId === null ||
+      row.registrationQuestionnaireStatus === "completed" ||
+      row.registrationQuestionnaireStatus === "waived";
     return {
       enrollmentId: row.enrollmentId,
       slug: row.slug,
@@ -88,13 +92,11 @@ export async function findLearnerDashboard(
       certificate:
         row.status === "completed" &&
         row.completedAt !== null &&
-        content.hasCompletionCertificate
+        content.hasCompletionCertificate &&
+        registrationQuestionnaireComplete
           ? { enrollmentId: row.enrollmentId }
           : null,
-      registrationRequired:
-        row.registrationSurveyVersionId !== null &&
-        row.registrationQuestionnaireStatus !== "completed" &&
-        row.registrationQuestionnaireStatus !== "waived",
+      registrationRequired: !registrationQuestionnaireComplete,
       progress: {
         completedItems: progress.completedItems,
         totalItems: progress.totalItems,
