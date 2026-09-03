@@ -366,6 +366,15 @@ export async function findLearnerEventsDashboard(
       registrationStatus === "cancelled" ||
       registrationStatus === "not_selected" ||
       registrationStatus === "coordinator_declined";
+    const registrationQuestionnaireComplete =
+      event.registrationSurveyVersionId === null ||
+      event.questionnaireStatus === "completed" ||
+      event.questionnaireStatus === "waived";
+    const registrationRequired =
+      event.occurrenceStatus === "published" &&
+      !registrationQuestionnaireComplete &&
+      !terminalRegistration &&
+      (registrationStatus !== null || Boolean(participation) || canRegister);
     return [
       {
         eventOccurrenceId: event.eventOccurrenceId,
@@ -381,19 +390,13 @@ export async function findLearnerEventsDashboard(
         participationMode,
         completedAt: participation?.completedAt?.toISOString() ?? null,
         certificate:
-          participation?.completedAt && event.hasCompletionCertificate
+          participation?.completedAt &&
+          event.hasCompletionCertificate &&
+          registrationQuestionnaireComplete
             ? { eventParticipationId: participation.id }
             : null,
         canRegister,
-        registrationRequired:
-          event.occurrenceStatus === "published" &&
-          event.registrationSurveyVersionId !== null &&
-          event.questionnaireStatus !== "completed" &&
-          event.questionnaireStatus !== "waived" &&
-          !terminalRegistration &&
-          (registrationStatus !== null ||
-            Boolean(participation) ||
-            canRegister),
+        registrationRequired,
         registrationUnavailableReason: notOpen
           ? "not_open"
           : closed

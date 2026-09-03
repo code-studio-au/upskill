@@ -25,7 +25,12 @@ const ids = {
   eventTemplate: "verify_certificate_event_template",
   eventTemplateVersion: "verify_certificate_event_template_version",
   eventOccurrence: "verify_certificate_event_occurrence",
+  eventRegistration: "verify_certificate_event_registration",
   eventParticipation: "verify_certificate_event_participation",
+  survey: "verify_certificate_registration_survey",
+  surveyVersion: "verify_certificate_registration_survey_version",
+  questionnaireAssignment: "verify_certificate_questionnaire_assignment",
+  questionnaireResponse: "verify_certificate_questionnaire_response",
 };
 const learner: AuthenticatedUser = {
   id: ids.learner,
@@ -47,8 +52,20 @@ const database = new Kysely<Database>({
 
 async function cleanup(): Promise<void> {
   await database
+    .deleteFrom("registration_questionnaire_response")
+    .where("id", "=", ids.questionnaireResponse)
+    .execute();
+  await database
+    .deleteFrom("registration_questionnaire_assignment")
+    .where("id", "=", ids.questionnaireAssignment)
+    .execute();
+  await database
     .deleteFrom("event_participation")
     .where("id", "=", ids.eventParticipation)
+    .execute();
+  await database
+    .deleteFrom("event_registration")
+    .where("id", "=", ids.eventRegistration)
     .execute();
   await database
     .deleteFrom("event_occurrence")
@@ -61,6 +78,18 @@ async function cleanup(): Promise<void> {
   await database
     .deleteFrom("event_template")
     .where("id", "=", ids.eventTemplate)
+    .execute();
+  await database
+    .deleteFrom("survey_version")
+    .where("id", "=", ids.surveyVersion)
+    .execute();
+  await database
+    .deleteFrom("learning_activity_version")
+    .where("id", "=", ids.surveyVersion)
+    .execute();
+  await database
+    .deleteFrom("learning_activity")
+    .where("id", "=", ids.survey)
     .execute();
   await database
     .deleteFrom("enrollment")
@@ -144,6 +173,56 @@ try {
     })
     .execute();
   await database
+    .insertInto("learning_activity")
+    .values({
+      id: ids.survey,
+      kind: "survey",
+      title: "Certificate registration details",
+      surveyUsage: "registration",
+      surveyType: "registration",
+      surveyPosition: 0,
+      createdAt: firstCompletedAt,
+    })
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values({
+      id: ids.surveyVersion,
+      activityId: ids.survey,
+      kind: "survey",
+      version: 1,
+      publishedAt: firstCompletedAt,
+      createdAt: firstCompletedAt,
+    })
+    .execute();
+  await database
+    .insertInto("survey_version")
+    .values({
+      id: ids.surveyVersion,
+      content: {
+        title: "Certificate registration details",
+        description: "Required before Event completion evidence is released.",
+        sections: [
+          {
+            id: "certificate_registration_section",
+            title: "Registration details",
+            description: "",
+            items: [
+              {
+                id: "certificate_registration_answer",
+                kind: "short_text",
+                prompt: "Discipline",
+                required: true,
+                maximumLength: 200,
+                format: "plain",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .execute();
+  await database
     .insertInto("event_template_version")
     .values({
       id: ids.eventTemplateVersion,
@@ -155,6 +234,7 @@ try {
       coverImage: null,
       hasCompletionCertificate: true,
       accreditations: JSON.stringify([]),
+      registrationSurveyVersionId: ids.surveyVersion,
       publishedAt: firstCompletedAt,
     })
     .execute();
@@ -165,9 +245,9 @@ try {
       eventTemplateVersionId: ids.eventTemplateVersion,
       title: "Certificate verifier event",
       slug: "verify-event-completion-certificate",
-      status: "completed",
+      status: "published",
       deliveryMode: "virtual",
-      registrationMode: "open_entry",
+      registrationMode: "required_unrestricted",
       approvalMode: "automatic",
       timezone: "Australia/Sydney",
       localStartsAt: "2026-08-10T09:00:00",
@@ -195,13 +275,35 @@ try {
     })
     .execute();
   await database
+    .insertInto("event_registration")
+    .values({
+      id: ids.eventRegistration,
+      eventOccurrenceId: ids.eventOccurrence,
+      userId: ids.learner,
+      eventOccurrenceRegionId: null,
+      reviewRoundId: null,
+      nameSnapshot: learner.name,
+      emailSnapshot: learner.email,
+      source: "paid_checkout",
+      eligibilitySource: "paid",
+      status: "selected",
+      coordinatorPriority: null,
+      submittedAt: firstCompletedAt,
+      coordinatorDecidedAt: null,
+      coordinatorDecidedByUserId: null,
+      finalDecidedAt: firstCompletedAt,
+      finalDecidedByUserId: ids.learner,
+      lockedInAt: firstCompletedAt,
+    })
+    .execute();
+  await database
     .insertInto("event_participation")
     .values({
       id: ids.eventParticipation,
       eventOccurrenceId: ids.eventOccurrence,
       userId: ids.learner,
-      registrationId: null,
-      mode: "open_entry",
+      registrationId: ids.eventRegistration,
+      mode: "registered",
       nameSnapshot: learner.name,
       emailSnapshot: learner.email,
       detailsSubmittedAt: firstCompletedAt,
@@ -209,6 +311,40 @@ try {
       checkedInAt: firstCompletedAt,
       completedAt: firstCompletedAt,
       createdAt: new Date("2026-08-09T23:00:00.000Z"),
+    })
+    .execute();
+  await database
+    .insertInto("registration_questionnaire_assignment")
+    .values({
+      id: ids.questionnaireAssignment,
+      userId: ids.learner,
+      surveyVersionId: ids.surveyVersion,
+      eventOccurrenceId: ids.eventOccurrence,
+      eventOccurrenceRegionId: null,
+      enrollmentId: null,
+      status: "assigned",
+      assignedAt: firstCompletedAt,
+      startedAt: null,
+      completedAt: null,
+      waivedAt: null,
+      waivedByUserId: null,
+      waiverReason: null,
+    })
+    .execute();
+  await database
+    .insertInto("registration_questionnaire_response")
+    .values({
+      id: ids.questionnaireResponse,
+      assignmentId: ids.questionnaireAssignment,
+      surveyVersionId: ids.surveyVersion,
+      answers: JSON.stringify({}),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "certificate_registration_answer",
+      startedAt: firstCompletedAt,
+      updatedAt: firstCompletedAt,
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+      redactedAt: null,
     })
     .execute();
 
@@ -232,7 +368,26 @@ try {
     { status: "not-found" },
   );
   let eventDashboard = await findLearnerEventsDashboard(learner);
-  assert.deepEqual(eventDashboard.events[0]?.certificate, {
+  assert.equal(eventDashboard.events[0]?.registrationRequired, true);
+  assert.equal(eventDashboard.events[0].certificate, null);
+  assert.deepEqual(
+    await getLearnerEventCompletionCertificate(ids.eventParticipation, learner),
+    { status: "not-found" },
+    "A required registration questionnaire must gate Event certificate access",
+  );
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({
+      status: "waived",
+      waivedAt: firstCompletedAt,
+      waivedByUserId: ids.learner,
+      waiverReason: "Certificate verification waiver",
+    })
+    .where("id", "=", ids.questionnaireAssignment)
+    .executeTakeFirstOrThrow();
+  eventDashboard = await findLearnerEventsDashboard(learner);
+  assert.equal(eventDashboard.events[0]?.registrationRequired, false);
+  assert.deepEqual(eventDashboard.events[0].certificate, {
     eventParticipationId: ids.eventParticipation,
   });
   const generatedEvent = await getLearnerEventCompletionCertificate(
