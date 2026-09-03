@@ -234,6 +234,7 @@ export async function findLearnerEventsDashboard(
       "event_template_version.hasCompletionCertificate",
       "event_template_version.registrationSurveyVersionId",
       "questionnaire.status as questionnaireStatus",
+      "event_occurrence.status as occurrenceStatus",
       "event_occurrence.deliveryMode",
       "event_occurrence.registrationMode",
       "event_occurrence.approvalMode",
@@ -385,6 +386,7 @@ export async function findLearnerEventsDashboard(
             : null,
         canRegister,
         registrationRequired:
+          event.occurrenceStatus === "published" &&
           event.registrationSurveyVersionId !== null &&
           event.questionnaireStatus !== "completed" &&
           event.questionnaireStatus !== "waived" &&

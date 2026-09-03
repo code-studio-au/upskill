@@ -984,6 +984,13 @@ try {
     "cancelled",
     "Cancellation must take precedence over an incomplete questionnaire",
   );
+  assert.equal(
+    (await findLearnerEventsDashboard(user)).events.find(
+      (event) => event.eventOccurrenceId === ids.eventOccurrence,
+    )?.registrationRequired,
+    false,
+    "A cancelled Event must not expose a dashboard questionnaire action",
+  );
   await database
     .updateTable("event_occurrence")
     .set({ status: "completed" })
@@ -993,6 +1000,13 @@ try {
     await findEventRegistrationQuestionnaire(ids.eventOccurrence, user),
     "unavailable",
     "A completed Event must not expose a questionnaire that cannot accept answers",
+  );
+  assert.equal(
+    (await findLearnerEventsDashboard(user)).events.find(
+      (event) => event.eventOccurrenceId === ids.eventOccurrence,
+    )?.registrationRequired,
+    false,
+    "A completed Event must not expose a dashboard questionnaire action",
   );
   await database
     .updateTable("event_occurrence")
@@ -1249,6 +1263,69 @@ try {
     .set({ retiredAt: new Date() })
     .where("id", "=", ids.eventOccurrenceRegion)
     .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({
+      status: "in_progress",
+      completedAt: null,
+      eventOccurrenceRegionId: ids.eventOccurrenceRegion,
+    })
+    .where("id", "=", eventQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({
+        event_operational_region: "event_region_option",
+      }),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "event_operational_region",
+      submittedAt: null,
+    })
+    .where("assignmentId", "=", eventQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  const retainedRegionQuestionnaire = await findEventRegistrationQuestionnaire(
+    ids.eventOccurrence,
+    user,
+  );
+  if (
+    !retainedRegionQuestionnaire ||
+    typeof retainedRegionQuestionnaire === "string"
+  )
+    throw new Error("Expected the retained-region Event questionnaire");
+  assert.deepEqual(
+    retainedRegionQuestionnaire.content.sections[0]?.items[0]?.kind ===
+      "dropdown"
+      ? retainedRegionQuestionnaire.content.sections[0].items[0].options.map(
+          (option) => option.externalValue,
+        )
+      : [],
+    [ids.region],
+    "A live registration must retain its future-only retired region option",
+  );
+  assert.equal(
+    (
+      await advanceRegistrationQuestionnaire(
+        {
+          assignmentId: eventQuestionnaire.assignmentId,
+          itemId: "event_operational_region",
+          answer: "event_region_option",
+        },
+        user,
+      )
+    ).status,
+    "submitted",
+    "A learner must be able to finish with a retained retired region",
+  );
+  assert.equal(
+    await database
+      .selectFrom("registration_questionnaire_assignment")
+      .select("eventOccurrenceRegionId")
+      .where("id", "=", eventQuestionnaire.assignmentId)
+      .executeTakeFirstOrThrow()
+      .then((assignment) => assignment.eventOccurrenceRegionId),
+    ids.eventOccurrenceRegion,
+  );
   await database
     .insertInto("event_registration")
     .values({
@@ -1634,6 +1711,104 @@ try {
       .executeTakeFirstOrThrow()
       .then((profile) => profile.phone),
     null,
+  );
+
+  await database
+    .updateTable("survey_version")
+    .set({
+      content: {
+        title: "Registration region details",
+        description: "Confirm your current region.",
+        sections: [
+          {
+            id: "registration_region_section",
+            title: "Region",
+            description: "",
+            items: [
+              {
+                id: "profile_region_group",
+                kind: "dropdown",
+                prompt: "Region group",
+                required: false,
+                optionSource: "coordination_region_groups",
+                options: [
+                  {
+                    id: "profile_region_group_option",
+                    label: "Verification region group",
+                    externalValue: ids.regionGroup,
+                  },
+                ],
+              },
+              {
+                id: "profile_operational_region",
+                kind: "dropdown",
+                prompt: "Operational region",
+                required: true,
+                optionSource: "coordination_operational_regions",
+                options: [
+                  {
+                    id: "profile_operational_region_option",
+                    label: "Verification operational region",
+                    externalValue: ids.region,
+                    parentExternalValue: ids.regionGroup,
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .where("id", "=", ids.surveyVersion)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "in_progress", startedAt: now, completedAt: null })
+    .where("id", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({
+        profile_region_group: "profile_region_group_option",
+        profile_operational_region: "profile_operational_region_option",
+      }),
+      visitedItemIds: JSON.stringify([
+        "profile_region_group",
+        "profile_operational_region",
+      ]),
+      currentItemId: "profile_region_group",
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await advanceRegistrationQuestionnaire(
+        {
+          assignmentId: questionnaire.assignmentId,
+          itemId: "profile_region_group",
+        },
+        user,
+      )
+    ).status,
+    "advanced",
+    "Changing a region group must require its dependent region again",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("registration_questionnaire_response")
+      .select(["answers", "visitedItemIds", "currentItemId", "submittedAt"])
+      .where("assignmentId", "=", questionnaire.assignmentId)
+      .executeTakeFirstOrThrow(),
+    {
+      answers: {},
+      visitedItemIds: ["profile_region_group"],
+      currentItemId: "profile_operational_region",
+      submittedAt: null,
+    },
+    "An invalidated operational-region answer must no longer count as visited",
   );
 
   console.log(

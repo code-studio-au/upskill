@@ -409,9 +409,8 @@ async function findEventAssignment(
         .executeTakeFirst(),
       transaction
         .selectFrom("event_occurrence_region")
-        .select(["id", "regionId"])
+        .select(["id", "regionId", "retiredAt"])
         .where("eventOccurrenceId", "=", occurrence.id)
-        .where("retiredAt", "is", null)
         .execute(),
     ]);
     if (occurrence.status === "cancelled")
@@ -456,14 +455,19 @@ async function findEventAssignment(
     )
       return "unavailable" as const;
     const unfilteredContent = parseSurveyVersionContent(occurrence.content);
-    const content = regions.length
+    const availableRegions = regions.filter(
+      (region) =>
+        !region.retiredAt ||
+        region.id === registration?.eventOccurrenceRegionId,
+    );
+    const content = availableRegions.length
       ? filterRegistrationEventRegionOptions(
           unfilteredContent,
-          new Set(regions.map((region) => region.regionId)),
+          new Set(availableRegions.map((region) => region.regionId)),
         )
       : unfilteredContent;
     if (
-      regions.length > 0 &&
+      availableRegions.length > 0 &&
       !registrationQuestions(content).some(isOperationalRegionQuestion)
     )
       return "unavailable" as const;
@@ -824,12 +828,16 @@ export async function advanceRegistrationQuestionnaire(
     let content = parseSurveyVersionContent(row.content);
     let eventRegions: Array<{ id: string; regionId: string }> = [];
     if (row.eventOccurrenceId) {
-      eventRegions = await transaction
+      const occurrenceRegions = await transaction
         .selectFrom("event_occurrence_region")
-        .select(["id", "regionId"])
+        .select(["id", "regionId", "retiredAt"])
         .where("eventOccurrenceId", "=", row.eventOccurrenceId)
-        .where("retiredAt", "is", null)
         .execute();
+      eventRegions = occurrenceRegions.filter(
+        (region) =>
+          !region.retiredAt ||
+          region.id === eventRegistration?.eventOccurrenceRegionId,
+      );
       if (eventRegions.length)
         content = filterRegistrationEventRegionOptions(
           content,
@@ -889,8 +897,17 @@ export async function advanceRegistrationQuestionnaire(
         } as const,
       };
     let answers = { ...storedAnswerValues };
-    let selectedOccurrenceRegionId =
-      eventRegions.length > 0 ? row.eventOccurrenceRegionId : null;
+    let selectedOccurrenceRegionId = eventRegions.some(
+      (region) => region.id === row.eventOccurrenceRegionId,
+    )
+      ? row.eventOccurrenceRegionId
+      : eventRegions.some(
+            (region) =>
+              region.id === eventRegistration?.eventOccurrenceRegionId,
+          )
+        ? (eventRegistration?.eventOccurrenceRegionId ?? null)
+        : null;
+    let invalidatedQuestionId: string | null = null;
     if (item.kind === "instruction") {
       if (typeof input.answer !== "undefined")
         return {
@@ -961,6 +978,7 @@ export async function advanceRegistrationQuestionnaire(
               answers,
               operationalQuestion.id,
             );
+          invalidatedQuestionId = operationalQuestion?.id ?? null;
           selectedOccurrenceRegionId = null;
         }
       }
@@ -974,8 +992,9 @@ export async function advanceRegistrationQuestionnaire(
     );
     const visitedItemIds = [
       ...new Set(
-        [...existingVisited, item.id].filter((visitedId) =>
-          availableIds.has(visitedId),
+        [...existingVisited, item.id].filter(
+          (visitedId) =>
+            availableIds.has(visitedId) && visitedId !== invalidatedQuestionId,
         ),
       ),
     ];
