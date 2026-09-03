@@ -15,6 +15,7 @@ import {
 import { certificateAccreditationsSchema } from "#/features/catalog/accreditation";
 import { offeringImageSchema } from "#/features/shared/offering-image";
 import { offeringTopicSchema } from "#/features/shared/offering-topic";
+import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import {
   findReservedEventPlaces,
@@ -203,8 +204,11 @@ type PublishedEventRow = {
   accreditations: unknown;
   deliveryMode: EventSummary["deliveryMode"];
   registrationMode: EventSummary["registrationMode"];
+  approvalMode: "automatic" | "manual";
   startsAt: Date;
   endsAt: Date;
+  registrationOpensAt: Date | null;
+  registrationClosesAt: Date | null;
   timezone: string;
   priceCents: number | null;
   salePriceCents: number | null;
@@ -264,8 +268,11 @@ function publishedEventQuery() {
       "occurrence.title",
       "occurrence.deliveryMode",
       "occurrence.registrationMode",
+      "occurrence.approvalMode",
       "occurrence.startsAt",
       "occurrence.endsAt",
+      "occurrence.registrationOpensAt",
+      "occurrence.registrationClosesAt",
       "occurrence.timezone",
       "occurrence.priceCents",
       "occurrence.salePriceCents",
@@ -344,12 +351,14 @@ export async function findEvents(search: CatalogSearch): Promise<{
 
 export async function findEventBySlug(
   slug: string,
+  user: AuthenticatedUser | null = null,
 ): Promise<EventDetail | null> {
   const row = (await publishedEventQuery()
     .where("occurrence.slug", "=", slug)
     .executeTakeFirst()) as PublishedEventRow | undefined;
   if (!row) return null;
   const database = getDatabase();
+  const now = new Date();
   const [sessions, regions, reservedPlaces] = await Promise.all([
     database
       .selectFrom("event_session")
@@ -370,8 +379,37 @@ export async function findEventBySlug(
       .where("occurrenceRegion.retiredAt", "is", null)
       .orderBy("occurrenceRegion.position")
       .execute(),
-    findReservedEventPlaces(database, row.id, new Date()),
+    findReservedEventPlaces(database, row.id, now),
   ]);
+  let eligible = row.registrationMode !== "required_restricted";
+  if (row.registrationMode === "required_restricted" && user?.emailVerified) {
+    const separator = user.email.lastIndexOf("@");
+    const domain =
+      separator > 0 && separator < user.email.length - 1
+        ? user.email.slice(separator + 1).toLocaleLowerCase("en-AU")
+        : null;
+    eligible = Boolean(
+      domain &&
+      (await database
+        .selectFrom("event_occurrence_domain")
+        .select("domain")
+        .where("eventOccurrenceId", "=", row.id)
+        .where("domain", "=", domain)
+        .executeTakeFirst()),
+    );
+  }
+  const registrationAvailability =
+    row.registrationOpensAt !== null && row.registrationOpensAt > now
+      ? "not_open"
+      : row.registrationClosesAt === null || row.registrationClosesAt <= now
+        ? "closed"
+        : row.approvalMode === "automatic" && row.confirmedCount >= row.capacity
+          ? "full"
+          : row.registrationMode === "required_restricted" && !user
+            ? "authentication_required"
+            : eligible
+              ? "available"
+              : "ineligible";
   return {
     ...toEventSummary(row, reservedPlaces),
     eventOccurrenceId: row.id,
@@ -383,6 +421,7 @@ export async function findEventBySlug(
     bulkPricing: bulkPricingSchema.parse(row.bulkPricing),
     publicAccessReference: row.publicAccessReference,
     hasRegistrationQuestionnaire: Boolean(row.registrationSurveyVersionId),
+    registrationAvailability,
     regions,
     sessions: sessions.map((session) => ({
       ...session,

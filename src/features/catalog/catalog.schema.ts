@@ -219,6 +219,13 @@ export interface EventDetail extends EventSummary {
   bulkPricing: BulkPricing;
   publicAccessReference: string | null;
   hasRegistrationQuestionnaire: boolean;
+  registrationAvailability:
+    | "available"
+    | "authentication_required"
+    | "not_open"
+    | "closed"
+    | "full"
+    | "ineligible";
   regions: Array<{ code: string; name: string; groupName: string | null }>;
   sessions: Array<{
     title: string;

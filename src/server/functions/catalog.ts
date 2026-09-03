@@ -37,6 +37,7 @@ export const getCourse = createServerFn({ method: "GET" })
 export const getEvent = createServerFn({ method: "GET" })
   .validator(courseSlugSchema)
   .handler(async ({ data }) => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
     const { findEventBySlug } = await import("#/server/catalog/catalog.server");
-    return await findEventBySlug(data.slug);
+    return await findEventBySlug(data.slug, await getRequestUser());
   });

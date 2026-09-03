@@ -22,6 +22,15 @@ const audCurrency = new Intl.NumberFormat("en-AU", {
   currency: "AUD",
 });
 
+function registrationAvailabilityLabel(
+  availability: "not_open" | "closed" | "full" | "ineligible",
+): string {
+  if (availability === "not_open") return "Registration not open";
+  if (availability === "closed") return "Registration closed";
+  if (availability === "full") return "Event full";
+  return "Registration unavailable";
+}
+
 export const Route = createFileRoute("/events/$slug")({
   ssr: true,
   loader: async ({ params }) => {
@@ -120,14 +129,23 @@ function EventDetailPage() {
                   </Button>
                 </Link>
               ) : event.hasRegistrationQuestionnaire ? (
-                <Link
-                  to="/my-events/$eventOccurrenceId"
-                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
-                >
-                  <Button component="span" size="lg" fullWidth>
-                    Start registration
+                event.registrationAvailability === "available" ||
+                event.registrationAvailability === "authentication_required" ? (
+                  <Link
+                    to="/my-events/$eventOccurrenceId"
+                    params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                  >
+                    <Button component="span" size="lg" fullWidth>
+                      Start registration
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button size="lg" fullWidth disabled>
+                    {registrationAvailabilityLabel(
+                      event.registrationAvailability,
+                    )}
                   </Button>
-                </Link>
+                )
               ) : (
                 <Button component={Link} to="/my-events" size="lg">
                   Register

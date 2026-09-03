@@ -1490,6 +1490,44 @@ try {
     false,
     "An unavailable new registration must not link to its questionnaire",
   );
+  assert.equal(
+    (
+      await findEventBySlug(
+        "verify-registration-questionnaire-paid-event",
+        otherUser,
+      )
+    )?.registrationAvailability,
+    "full",
+    "The Event catalogue must expose full questionnaire registrations as unavailable",
+  );
+  await database
+    .updateTable("event_occurrence")
+    .set({
+      registrationMode: "required_restricted",
+      capacity: 10,
+      confirmedCount: 0,
+    })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await findEventBySlug(
+        "verify-registration-questionnaire-paid-event",
+        otherUser,
+      )
+    )?.registrationAvailability,
+    "ineligible",
+    "The Event catalogue must disable questionnaire registration for an ineligible domain",
+  );
+  await database
+    .updateTable("event_occurrence")
+    .set({
+      registrationMode: "required_unrestricted",
+      capacity: 1,
+      confirmedCount: 1,
+    })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await advanceRegistrationQuestionnaire(
       {
