@@ -1728,6 +1728,96 @@ try {
     .updateTable("survey_version")
     .set({
       content: {
+        title: "Registration profile name",
+        description: "Confirm your profile name.",
+        sections: [
+          {
+            id: "registration_name_section",
+            title: "Profile name",
+            description: "",
+            items: [
+              {
+                id: "oversized_profile_name",
+                kind: "short_text",
+                prompt: "Current name",
+                required: true,
+                maximumLength: 200,
+                format: "plain",
+                profileField: "name",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .where("id", "=", ids.surveyVersion)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "assigned", startedAt: null, completedAt: null })
+    .where("id", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({}),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "oversized_profile_name",
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  const profileNameBeforeOversizedAnswer = await database
+    .selectFrom("user")
+    .select("name")
+    .where("id", "=", user.id)
+    .executeTakeFirstOrThrow()
+    .then((profile) => profile.name);
+  assert.deepEqual(
+    await advanceRegistrationQuestionnaire(
+      {
+        assignmentId: questionnaire.assignmentId,
+        itemId: "oversized_profile_name",
+        answer: "N".repeat(161),
+        profileUpdateAccepted: true,
+      },
+      user,
+    ),
+    {
+      status: "invalid",
+      message: "Enter a name of 160 characters or fewer.",
+    },
+    "Profile write-back must enforce the canonical learner name limit",
+  );
+  assert.equal(
+    await database
+      .selectFrom("user")
+      .select("name")
+      .where("id", "=", user.id)
+      .executeTakeFirstOrThrow()
+      .then((profile) => profile.name),
+    profileNameBeforeOversizedAnswer,
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("registration_questionnaire_assignment as assignment")
+      .innerJoin(
+        "registration_questionnaire_response as response",
+        "response.assignmentId",
+        "assignment.id",
+      )
+      .select(["assignment.status", "response.submittedAt"])
+      .where("assignment.id", "=", questionnaire.assignmentId)
+      .executeTakeFirstOrThrow(),
+    { status: "assigned", submittedAt: null },
+    "An invalid profile write-back must leave the questionnaire retryable",
+  );
+
+  await database
+    .updateTable("survey_version")
+    .set({
+      content: {
         title: "Registration contact details",
         description: "Confirm your mobile number.",
         sections: [

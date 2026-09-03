@@ -25,6 +25,7 @@ import {
 } from "#/features/survey/survey.schema";
 import { surveyPathItems } from "#/features/survey/survey-branching";
 import { normalizeInternationalPhone } from "#/features/profile/phone-number";
+import { learnerProfileNameSchema } from "#/features/profile/learner-profile.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
@@ -636,6 +637,12 @@ async function validateProfileUpdates(
   for (const question of registrationQuestions(content)) {
     const answer = answers[question.id];
     const profileField = surveyProfileField(question);
+    if (
+      profileField === "name" &&
+      typeof answer === "string" &&
+      !learnerProfileNameSchema.safeParse(answer).success
+    )
+      return "Enter a name of 160 characters or fewer.";
     if (profileField === "phone" && typeof answer === "string") {
       answeredPhone = normalizeInternationalPhone(answer);
       if (!answeredPhone)

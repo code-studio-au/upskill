@@ -1,9 +1,13 @@
 import { z } from "#/validation/zod";
 import { normalizeInternationalPhone } from "./phone-number";
 
+export const learnerProfileNameSchema = z
+  .string()
+  .check(z.trim(), z.minLength(1), z.maxLength(160));
+
 export const learnerProfileUpdateSchema = z
   .object({
-    name: z.string().check(z.trim(), z.minLength(1), z.maxLength(160)),
+    name: learnerProfileNameSchema,
     phone: z.string().check(z.trim(), z.maxLength(40)),
     currentRegionId: z.string().check(z.trim(), z.maxLength(255)),
     emailEnabled: z.boolean(),
