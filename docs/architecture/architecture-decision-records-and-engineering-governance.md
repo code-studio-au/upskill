@@ -278,6 +278,92 @@ Related ADRs/docs
 This may live in a design document, issue, or PR description depending
 on the size of the change.
 
+## Cross-Cutting Feature Delivery
+
+A feature is cross-cutting when one business rule must remain consistent across
+multiple actors, entry points, targets, lifecycle states or downstream
+consumers. Registration, entitlements, virtual-event admission, completion and
+communications are common examples. Passing the existing verification suite is
+necessary, but it does not prove combinations that have not yet been specified
+or tested.
+
+Before implementation, create an impact matrix in the feature design record,
+ADR, issue or PR plan. Use the dimensions that apply rather than generating an
+unhelpful full Cartesian product.
+
+| Dimension               | Questions to enumerate                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Actors and scope        | Learner, presenter, coordinator, administrator, tenant and resource ownership                               |
+| Entry and acquisition   | Catalogue, checkout, invitation, enterprise access, bulk assignment, direct link and administrator action   |
+| Target                  | Course, Event Template, Event occurrence, section, resource or other governed object                        |
+| Lifecycle               | Draft, published, scheduled, open, completed, cancelled, archived, transferred or expired states            |
+| Qualification           | Registration, entitlement, questionnaire, prerequisite, identity and profile requirements                   |
+| Outcome                 | Allow, deny, redirect, continue, wait, request review or issue a short-lived capability                     |
+| Downstream effects      | Workspace access, communications, certificates, resources, attendance, reporting and audit                  |
+| Failure and concurrency | Duplicate request, stale state, forged identifier, cross-scope identifier, retry, race and provider failure |
+
+For each relevant boundary, record the expected server decision and the cheapest
+authoritative test that proves it. Include adversarial cases such as foreign or
+crafted identifiers, stale tokens, terminal states, missing consent and
+concurrent requests. Browser tests should prove critical journeys; pure policy
+and database integration tests should carry the broader state matrix.
+
+### Central Policy Before Multiple Consumers
+
+Define a server-owned decision or policy boundary before wiring several routes
+and components. It should derive an explicit outcome from authoritative state;
+callers may translate that outcome into their own presentation but must not
+reconstruct the business rule independently. Search for and inventory every
+existing caller that grants the affected capability before implementation.
+
+For example, a virtual-event join policy could return outcomes such as
+`registration_required`, `verification_required`, `meeting_not_started`,
+`waiting_for_admission`, `admitted`, `event_ended` or `staff_access`. Learner
+links, invitations, the green room and provider-token issuance should consume
+that shared capability-granting policy rather than implementing parallel checks.
+
+Do not force evidence ingestion, reconciliation, audit or reporting through an
+action-authorisation policy when their lifecycle and retry semantics differ.
+Virtual-event attendance processing, for example, needs a separate authenticated
+and idempotent evidence boundary that accepts delayed, duplicate and out-of-order
+provider events after token issuance has stopped or the meeting has ended. That
+boundary validates the provider event and its exact room/session scope without
+re-evaluating whether the participant could obtain a new join token.
+
+### Reviewable Delivery Slices
+
+Prefer a sequence of independently safe and reviewable changes over one large
+activation PR. A typical sequence is:
+
+1.  domain model, migration and disabled/dormant configuration;
+2.  central policy and state-transition tests;
+3.  one complete user path;
+4.  alternate actors, targets and acquisition paths;
+5.  downstream consumers, asynchronous work and reporting; and
+6.  operational controls, browser coverage and deliberate activation.
+
+Use a feature flag or leave configuration unreachable when partial delivery
+must not be exposed. Do not impose a mechanical line limit, but split work when
+a reviewer cannot reasonably verify the policy, migrations, UI and every
+integration boundary together.
+
+### Pre-Review and Review Remediation
+
+Before requesting the first pull-request review:
+
+1.  compare the implementation against the impact matrix;
+2.  search for equivalent access grants and downstream consumers across the
+    repository;
+3.  perform a failure-, authorisation- and lifecycle-oriented self-review;
+4.  add focused regression coverage for negative and malicious inputs; and
+5.  run the relevant application, database, infrastructure and browser gates.
+
+When review identifies a defect, classify the violated invariant before editing.
+Audit all equivalent callers, roles, targets, lifecycle states and downstream
+effects, then fix and test the category as one batch. Do not limit remediation
+to the exact route or line named by the reviewer. Request a fresh exact-head
+review only after the category sweep and relevant verification pass.
+
 ## Invariant-First Development
 
 Before designing tables or components, identify the rules that must
@@ -536,6 +622,7 @@ Reviewers should ask:
 A significant architecture/domain change is complete when:
 
 - implementation is merged;
+- the cross-cutting impact matrix is satisfied where applicable;
 - migrations are safe/applied;
 - tests prove important invariants;
 - security/privacy implications are addressed;
