@@ -6,6 +6,7 @@ import {
   type SurveyQuestion,
   type SurveyVersionContent,
 } from "#/features/survey/survey.schema";
+import { formatLocalDate } from "#/features/shared/local-date";
 
 export function registrationQuestions(
   content: SurveyVersionContent,
@@ -87,6 +88,8 @@ export function registrationAnswerText(
 ): string {
   if (typeof answer === "boolean") return answer ? "Yes" : "No";
   if (typeof answer === "number") return String(answer);
+  if (question.kind === "date" && typeof answer === "string")
+    return formatLocalDate(answer);
   if (Array.isArray(answer))
     return answer
       .map(

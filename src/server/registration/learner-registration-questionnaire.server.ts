@@ -613,6 +613,18 @@ async function applyProfileUpdates(
   }
 }
 
+async function currentRegistrationUser(
+  transaction: Transaction<Database>,
+  user: AuthenticatedUser,
+): Promise<AuthenticatedUser> {
+  const profile = await transaction
+    .selectFrom("user")
+    .select(["name", "email", "emailVerified"])
+    .where("id", "=", user.id)
+    .executeTakeFirstOrThrow();
+  return { id: user.id, ...profile };
+}
+
 async function validateProfileUpdates(
   transaction: Transaction<Database>,
   userId: string,
@@ -855,11 +867,15 @@ export async function advanceRegistrationQuestionnaire(
           user.id,
         ))
       ) {
+        const registrationUser = await currentRegistrationUser(
+          transaction,
+          user,
+        );
         const registration = await registerLearnerForEventInTransaction(
           transaction,
           row.eventOccurrenceId,
           row.eventOccurrenceRegionId,
-          user,
+          registrationUser,
         );
         if (
           registration.status !== "registered" &&
@@ -1133,11 +1149,12 @@ export async function advanceRegistrationQuestionnaire(
         user.id,
       ))
     ) {
+      const registrationUser = await currentRegistrationUser(transaction, user);
       const registration = await registerLearnerForEventInTransaction(
         transaction,
         row.eventOccurrenceId,
         selectedOccurrenceRegionId,
-        user,
+        registrationUser,
       );
       if (
         registration.status !== "registered" &&

@@ -29,6 +29,7 @@ import {
   parseSurveyVersionContent,
 } from "#/features/survey/survey.schema";
 import { allSurveyPathsIncludeOperationalRegion } from "#/features/survey/survey-branching";
+import { filterRegistrationEventRegionOptions } from "#/features/registration/registration-questionnaire-domain";
 
 export async function createAdminEventTemplate(
   input: AdminEventTemplateCreateInput,
@@ -1390,8 +1391,9 @@ export async function publishAdminEventTemplateVersion(
             .execute(),
         ]);
         if (!registrationSurvey) return "conflict" as const;
-        const registrationContent = parseSurveyVersionContent(
-          registrationSurvey.content,
+        const registrationContent = filterRegistrationEventRegionOptions(
+          parseSurveyVersionContent(registrationSurvey.content),
+          new Set(configuredRegions.map((region) => region.regionId)),
         );
         const operationalRegionQuestion = registrationContent.sections
           .flatMap((section) => section.items)

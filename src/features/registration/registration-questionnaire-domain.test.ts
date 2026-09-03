@@ -4,6 +4,7 @@ import {
   REGION_GROUP_OPTION_SOURCE,
   type SurveyVersionContent,
 } from "#/features/survey/survey.schema";
+import { allSurveyPathsIncludeOperationalRegion } from "#/features/survey/survey-branching";
 import {
   filterRegistrationEventRegionOptions,
   registrationAnswerText,
@@ -116,6 +117,96 @@ describe("registration questionnaire domain", () => {
     ).toMatchObject({ options: [{ id: "region_north_one" }] });
   });
 
+  it("removes unreachable region branches before publication validation", () => {
+    const branchingContent: SurveyVersionContent = {
+      ...content,
+      sections: [
+        {
+          id: "region_group_section",
+          title: "Region group",
+          description: "",
+          items: [
+            {
+              id: "region_group",
+              kind: "dropdown",
+              prompt: "Region group",
+              required: true,
+              optionSource: REGION_GROUP_OPTION_SOURCE,
+              options: [
+                {
+                  id: "group_north",
+                  label: "North",
+                  externalValue: "north",
+                  nextSectionId: "operational_region_section",
+                },
+                {
+                  id: "group_south",
+                  label: "South",
+                  externalValue: "south",
+                  nextSectionId: "profile_section",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "operational_region_section",
+          title: "Operational region",
+          description: "",
+          items: [
+            {
+              id: "operational_region",
+              kind: "dropdown",
+              prompt: "Operational region",
+              required: true,
+              optionSource: OPERATIONAL_REGION_OPTION_SOURCE,
+              options: [
+                {
+                  id: "region_north_one",
+                  label: "North One",
+                  externalValue: "north_one",
+                  parentExternalValue: "north",
+                },
+                {
+                  id: "region_south_one",
+                  label: "South One",
+                  externalValue: "south_one",
+                  parentExternalValue: "south",
+                },
+              ],
+            },
+          ],
+        },
+        {
+          id: "profile_section",
+          title: "Profile",
+          description: "",
+          items: [
+            {
+              id: "discipline",
+              kind: "short_text",
+              prompt: "Discipline",
+              required: false,
+              maximumLength: 200,
+              format: "plain",
+            },
+          ],
+        },
+      ],
+    };
+    expect(allSurveyPathsIncludeOperationalRegion(branchingContent)).toBe(
+      false,
+    );
+    expect(
+      allSurveyPathsIncludeOperationalRegion(
+        filterRegistrationEventRegionOptions(
+          branchingContent,
+          new Set(["north_one"]),
+        ),
+      ),
+    ).toBe(true);
+  });
+
   it("removes stale branch answers without mutating the source", () => {
     const answers = { region_group: "group_north", discipline: ["nursing"] };
     expect(withoutRegistrationAnswer(answers, "region_group")).toEqual({
@@ -157,5 +248,14 @@ describe("registration questionnaire domain", () => {
     expect(registrationAnswerText(shortText, "Allied health")).toBe(
       "Allied health",
     );
+    const date = {
+      id: "available_from",
+      kind: "date" as const,
+      prompt: "Available from",
+      required: false,
+      minimum: null,
+      maximum: null,
+    };
+    expect(registrationAnswerText(date, "2026-09-03")).toBe("3 Sept 2026");
   });
 });

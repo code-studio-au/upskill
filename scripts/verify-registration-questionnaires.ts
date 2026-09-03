@@ -100,23 +100,26 @@ async function cleanup(): Promise<void> {
     .deleteFrom("event_guest_access")
     .where("id", "=", ids.eventGuestAccess)
     .execute();
+  const occurrenceRegistrations = await database
+    .selectFrom("event_registration")
+    .select("id")
+    .where("eventOccurrenceId", "=", ids.eventOccurrence)
+    .execute();
+  const occurrenceRegistrationIds = occurrenceRegistrations.map(
+    (registration) => registration.id,
+  );
   await database
     .deleteFrom("event_participation")
-    .where("id", "in", [
-      ids.eventParticipation,
-      ids.zeroRegionEventParticipation,
-    ])
+    .where("eventOccurrenceId", "=", ids.eventOccurrence)
     .execute();
-  await database
-    .deleteFrom("event_registration_transition")
-    .where("eventRegistrationId", "in", [
-      ids.eventRegistration,
-      ids.zeroRegionEventRegistration,
-    ])
-    .execute();
+  if (occurrenceRegistrationIds.length)
+    await database
+      .deleteFrom("event_registration_transition")
+      .where("eventRegistrationId", "in", occurrenceRegistrationIds)
+      .execute();
   await database
     .deleteFrom("event_registration")
-    .where("id", "in", [ids.eventRegistration, ids.zeroRegionEventRegistration])
+    .where("eventOccurrenceId", "=", ids.eventOccurrence)
     .execute();
   await database
     .deleteFrom("event_occurrence_region")
@@ -1809,6 +1812,101 @@ try {
       submittedAt: null,
     },
     "An invalidated operational-region answer must no longer count as visited",
+  );
+
+  const updatedEventLearnerName = "Updated Event Learner";
+  await database
+    .updateTable("survey_version")
+    .set({
+      content: {
+        title: "Event registration profile",
+        description: "Confirm your name.",
+        sections: [
+          {
+            id: "event_profile_section",
+            title: "Profile",
+            description: "",
+            items: [
+              {
+                id: "event_profile_name",
+                kind: "short_text",
+                prompt: "Current name",
+                required: true,
+                maximumLength: 200,
+                format: "plain",
+                profileField: "name",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .where("id", "=", ids.eventSurveyVersion)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 10, confirmedCount: 0 })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "assigned", startedAt: null, completedAt: null })
+    .where("id", "=", zeroRegionQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({}),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "event_profile_name",
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", zeroRegionQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await advanceRegistrationQuestionnaire(
+        {
+          assignmentId: zeroRegionQuestionnaire.assignmentId,
+          itemId: "event_profile_name",
+          answer: updatedEventLearnerName,
+          profileUpdateAccepted: true,
+        },
+        otherUser,
+      )
+    ).status,
+    "submitted",
+  );
+  assert.equal(
+    await database
+      .selectFrom("user")
+      .select("name")
+      .where("id", "=", otherUser.id)
+      .executeTakeFirstOrThrow()
+      .then((profile) => profile.name),
+    updatedEventLearnerName,
+  );
+  const ordinaryRegistration = await database
+    .selectFrom("event_registration")
+    .select(["id", "nameSnapshot"])
+    .where("eventOccurrenceId", "=", ids.eventOccurrence)
+    .where("userId", "=", otherUser.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    ordinaryRegistration.nameSnapshot,
+    updatedEventLearnerName,
+    "Ordinary registration must snapshot a consented profile update",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_participation")
+      .select("nameSnapshot")
+      .where("registrationId", "=", ordinaryRegistration.id)
+      .executeTakeFirstOrThrow()
+      .then((participation) => participation.nameSnapshot),
+    updatedEventLearnerName,
+    "Event participation must snapshot a consented profile update",
   );
 
   console.log(
