@@ -28,7 +28,7 @@ function webhookPayload(event = "participant_joined"): Buffer {
   return Buffer.from(
     JSON.stringify({
       event,
-      id: "5f0ee8c3-5330-4e20-9886-e97b16661e44",
+      id: "EV_GZDoCEnjEwhx",
       createdAt: "1788400800",
       room: { sid: "RM_1", name: "room_generation_1" },
       participant: {
@@ -52,7 +52,7 @@ describe("LiveKit webhook verification", () => {
     await expect(
       verifyLiveKitWebhook(payload, await sign(payload), enabledEnvironment),
     ).resolves.toEqual({
-      providerEventId: "5f0ee8c3-5330-4e20-9886-e97b16661e44",
+      providerEventId: "EV_GZDoCEnjEwhx",
       event: "participant_joined",
       createdAtSeconds: 1_788_400_800,
       roomSid: "RM_1",
@@ -60,6 +60,15 @@ describe("LiveKit webhook verification", () => {
       participantSid: "PA_1",
       participantIdentity: "attendee:opaque_1",
     });
+  });
+
+  it("rejects malformed opaque provider event identifiers", async () => {
+    const payload = Buffer.from(
+      webhookPayload().toString().replace("EV_GZDoCEnjEwhx", "EV bad"),
+    );
+    await expect(
+      verifyLiveKitWebhook(payload, await sign(payload), enabledEnvironment),
+    ).rejects.toMatchObject({ code: "LIVEKIT_WEBHOOK_INVALID" });
   });
 
   it("rejects altered bytes, missing signatures and unsupported events", async () => {

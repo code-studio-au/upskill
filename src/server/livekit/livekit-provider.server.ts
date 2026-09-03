@@ -7,6 +7,8 @@ import {
   type ParticipantInfo,
   type Room,
 } from "livekit-server-sdk";
+import { sql } from "kysely";
+import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv, type ServerEnv } from "#/server/env.server";
 import { z } from "#/validation/zod.server";
 
@@ -81,6 +83,10 @@ export interface LiveKitProvider {
   createJoinToken(input: CreateLiveKitJoinTokenInput): Promise<string>;
 }
 
+export type LiveKitRoomCreationCoordinator = <Result>(
+  operation: () => Promise<Result>,
+) => Promise<Result>;
+
 export class LiveKitProviderError extends Error {
   readonly code = "LIVEKIT_PROVIDER_OPERATION_FAILED";
 
@@ -109,6 +115,19 @@ interface LiveKitRoomClient {
 
 interface LiveKitApiClient {
   room: LiveKitRoomClient;
+}
+
+export async function coordinateLiveKitRoomCreation<Result>(
+  operation: () => Promise<Result>,
+): Promise<Result> {
+  return await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(
+          hashtextextended('upskill.livekit.room-creation.v1', 0)
+        )`.execute(transaction);
+      return await operation();
+    });
 }
 
 export interface EnabledLiveKitConfiguration {
@@ -171,6 +190,7 @@ export class LiveKitCloudProvider implements LiveKitProvider {
   constructor(
     private readonly configuration: EnabledLiveKitConfiguration,
     api?: LiveKitApiClient,
+    private readonly coordinateRoomCreation: LiveKitRoomCreationCoordinator = coordinateLiveKitRoomCreation,
   ) {
     this.api =
       api ??
@@ -199,30 +219,32 @@ export class LiveKitCloudProvider implements LiveKitProvider {
         "LiveKit room capacity exceeds the approved environment limit",
       );
     try {
-      const [existing] = await this.api.room.listRooms([parsed.roomName]);
-      if (existing) return roomSnapshot(existing);
-      const activeRooms = await this.api.room.listRooms();
-      if (activeRooms.length >= this.configuration.approvedMaxConcurrentRooms)
-        throw new RangeError(
-          "LiveKit room creation exceeds the approved concurrent-room limit",
-        );
-      try {
-        return roomSnapshot(
-          await this.api.room.createRoom({
-            name: parsed.roomName,
-            maxParticipants: parsed.maxParticipants,
-            emptyTimeout: parsed.emptyTimeoutSeconds,
-            departureTimeout: parsed.departureTimeoutSeconds,
-            ...(parsed.metadata ? { metadata: parsed.metadata } : {}),
-          }),
-        );
-      } catch {
-        const [concurrentlyCreated] = await this.api.room.listRooms([
-          parsed.roomName,
-        ]);
-        if (concurrentlyCreated) return roomSnapshot(concurrentlyCreated);
-        throw new LiveKitProviderError("ensure_room");
-      }
+      return await this.coordinateRoomCreation(async () => {
+        const [existing] = await this.api.room.listRooms([parsed.roomName]);
+        if (existing) return roomSnapshot(existing);
+        const activeRooms = await this.api.room.listRooms();
+        if (activeRooms.length >= this.configuration.approvedMaxConcurrentRooms)
+          throw new RangeError(
+            "LiveKit room creation exceeds the approved concurrent-room limit",
+          );
+        try {
+          return roomSnapshot(
+            await this.api.room.createRoom({
+              name: parsed.roomName,
+              maxParticipants: parsed.maxParticipants,
+              emptyTimeout: parsed.emptyTimeoutSeconds,
+              departureTimeout: parsed.departureTimeoutSeconds,
+              ...(parsed.metadata ? { metadata: parsed.metadata } : {}),
+            }),
+          );
+        } catch {
+          const [concurrentlyCreated] = await this.api.room.listRooms([
+            parsed.roomName,
+          ]);
+          if (concurrentlyCreated) return roomSnapshot(concurrentlyCreated);
+          throw new LiveKitProviderError("ensure_room");
+        }
+      });
     } catch (error) {
       if (error instanceof LiveKitProviderError || error instanceof RangeError)
         throw error;

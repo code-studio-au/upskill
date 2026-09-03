@@ -68,7 +68,7 @@ describe("LiveKit webhook route", () => {
 
   it("asks LiveKit to retry a valid event until durable persistence lands", async () => {
     mocks.verifyLiveKitWebhook.mockResolvedValueOnce({
-      providerEventId: "5f0ee8c3-5330-4e20-9886-e97b16661e44",
+      providerEventId: "EV_GZDoCEnjEwhx",
       event: "room_started",
       createdAtSeconds: 1_788_400_800,
     });

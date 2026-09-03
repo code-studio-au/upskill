@@ -352,6 +352,8 @@ for (const boundary of [
   'from "livekit-server-sdk"',
   "LIVEKIT_JOIN_TOKEN_TTL_SECONDS = 5 * 60",
   "canPublishData: false",
+  "pg_advisory_xact_lock",
+  "this.coordinateRoomCreation",
 ])
   if (!liveKitProvider.includes(boundary))
     failures.push(`LiveKit provider boundary is missing: ${boundary}`);

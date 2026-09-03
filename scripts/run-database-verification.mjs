@@ -27,6 +27,7 @@ const verificationScripts = [
   "scripts/verify-resource-library.ts",
   "scripts/verify-completion-certificates.ts",
   "scripts/verify-event-foundation.ts",
+  "scripts/verify-livekit-room-creation-lock.ts",
   "scripts/verify-admin-learner-event-history.ts",
   "scripts/verify-email-designer.ts",
   "scripts/verify-offering-communications.ts",

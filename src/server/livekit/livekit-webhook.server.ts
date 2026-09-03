@@ -21,8 +21,14 @@ const liveKitWebhookEventNames = [
   "ingress_ended",
 ] as const;
 
+const providerOpaqueIdSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/u);
+
 const liveKitWebhookPayloadSchema = z.looseObject({
-  id: z.uuid(),
+  id: providerOpaqueIdSchema,
   createdAt: z.union([
     z.number().int().nonnegative(),
     z.string().regex(/^\d+$/u),

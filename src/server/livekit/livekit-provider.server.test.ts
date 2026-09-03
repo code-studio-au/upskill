@@ -9,6 +9,7 @@ import {
   LiveKitProviderError,
   getEnabledLiveKitConfiguration,
   type EnabledLiveKitConfiguration,
+  type LiveKitRoomCreationCoordinator,
 } from "./livekit-provider.server";
 
 const configuration: EnabledLiveKitConfiguration = {
@@ -37,6 +38,21 @@ function fakeApi() {
   };
 }
 
+const coordinateDirectly: LiveKitRoomCreationCoordinator = (operation) =>
+  operation();
+
+function serialRoomCreationCoordinator(): LiveKitRoomCreationCoordinator {
+  let previous = Promise.resolve();
+  return <Result>(operation: () => Promise<Result>) => {
+    const result = previous.then(operation);
+    previous = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  };
+}
+
 describe("LiveKit provider foundation", () => {
   it("does not configure a provider while the feature is disabled", () => {
     const environment = parseServerEnvironment({
@@ -51,7 +67,11 @@ describe("LiveKit provider foundation", () => {
 
   it("creates a room once and validates the approved capacity", async () => {
     const api = fakeApi();
-    const provider = new LiveKitCloudProvider(configuration, api);
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
     const input = {
       roomName: "room_generation_1",
       maxParticipants: 20,
@@ -81,7 +101,11 @@ describe("LiveKit provider foundation", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([room()]);
-    const provider = new LiveKitCloudProvider(configuration, api);
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
     await expect(
       provider.ensureRoom({
         roomName: "room_generation_1",
@@ -97,7 +121,11 @@ describe("LiveKit provider foundation", () => {
     api.room.listRooms
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([room("room_1"), room("room_2")]);
-    const provider = new LiveKitCloudProvider(configuration, api);
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
     await expect(
       provider.ensureRoom({
         roomName: "room_generation_3",
@@ -109,12 +137,75 @@ describe("LiveKit provider foundation", () => {
     expect(api.room.createRoom).not.toHaveBeenCalled();
   });
 
+  it("serializes distinct room creation across provider instances", async () => {
+    const rooms = new Map<string, Room>();
+    const api = {
+      room: {
+        createRoom: vi.fn((input: { name: string }) => {
+          const created = room(input.name);
+          rooms.set(input.name, created);
+          return Promise.resolve(created);
+        }),
+        listRooms: vi.fn((names?: string[]) =>
+          Promise.resolve(
+            names?.length
+              ? names.flatMap((name) => {
+                  const existing = rooms.get(name);
+                  return existing ? [existing] : [];
+                })
+              : [...rooms.values()],
+          ),
+        ),
+        listParticipants: vi.fn(() => Promise.resolve([] as ParticipantInfo[])),
+        removeParticipant: vi.fn(() => Promise.resolve(undefined)),
+        deleteRoom: vi.fn(() => Promise.resolve(undefined)),
+      },
+    };
+    const coordinate = serialRoomCreationCoordinator();
+    const limitedConfiguration = {
+      ...configuration,
+      approvedMaxConcurrentRooms: 1,
+    };
+    const firstProvider = new LiveKitCloudProvider(
+      limitedConfiguration,
+      api,
+      coordinate,
+    );
+    const secondProvider = new LiveKitCloudProvider(
+      limitedConfiguration,
+      api,
+      coordinate,
+    );
+    const input = {
+      maxParticipants: 20,
+      emptyTimeoutSeconds: 600,
+      departureTimeoutSeconds: 60,
+    };
+
+    const outcomes = await Promise.allSettled([
+      firstProvider.ensureRoom({ ...input, roomName: "room_generation_1" }),
+      secondProvider.ensureRoom({ ...input, roomName: "room_generation_2" }),
+    ]);
+
+    expect(
+      outcomes.filter(({ status }) => status === "fulfilled"),
+    ).toHaveLength(1);
+    expect(outcomes.filter(({ status }) => status === "rejected")).toHaveLength(
+      1,
+    );
+    expect(api.room.createRoom).toHaveBeenCalledOnce();
+  });
+
   it("returns safe provider failures without the secret or provider message", async () => {
     const api = fakeApi();
     api.room.listRooms.mockRejectedValueOnce(
       new Error(`provider leaked ${configuration.apiSecret}`),
     );
-    const provider = new LiveKitCloudProvider(configuration, api);
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
     const failure = await provider
       .checkHealth()
       .catch((error: unknown) => error);
@@ -135,7 +226,11 @@ describe("LiveKit provider foundation", () => {
   ] as const)(
     "issues five-minute, exact-room %s grants",
     async (role, canPublish, canPublishSources) => {
-      const provider = new LiveKitCloudProvider(configuration, fakeApi());
+      const provider = new LiveKitCloudProvider(
+        configuration,
+        fakeApi(),
+        coordinateDirectly,
+      );
       const token = await provider.createJoinToken({
         roomName: "room_generation_1",
         participantIdentity: `${role}:opaque_1`,
