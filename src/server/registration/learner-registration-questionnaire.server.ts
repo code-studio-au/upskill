@@ -960,24 +960,26 @@ export async function advanceRegistrationQuestionnaire(
       if (
         isOperationalRegionQuestion(item) &&
         typeof validation.answer === "string" &&
+        !operationalRegionMatchesSelectedGroup(
+          content,
+          answers,
+          item,
+          validation.answer,
+        )
+      )
+        return {
+          result: {
+            status: "invalid",
+            message:
+              "Choose an operational region in the selected region group.",
+          } as const,
+        };
+      if (
+        isOperationalRegionQuestion(item) &&
+        typeof validation.answer === "string" &&
         row.eventOccurrenceId &&
         eventRegions.length > 0
       ) {
-        if (
-          !operationalRegionMatchesSelectedGroup(
-            content,
-            answers,
-            item,
-            validation.answer,
-          )
-        )
-          return {
-            result: {
-              status: "invalid",
-              message:
-                "Choose an operational region in the selected region group.",
-            } as const,
-          };
         const coordinationRegionId = item.options.find(
           (option) => option.id === validation.answer,
         )?.externalValue;

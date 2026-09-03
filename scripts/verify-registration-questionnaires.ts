@@ -2100,6 +2100,12 @@ try {
                     externalValue: ids.region,
                     parentExternalValue: ids.regionGroup,
                   },
+                  {
+                    id: "profile_operational_region_wrong_group",
+                    label: "Unsupported operational region",
+                    externalValue: ids.unsupportedRegion,
+                    parentExternalValue: "another_region_group",
+                  },
                 ],
               },
             ],
@@ -2128,6 +2134,48 @@ try {
       currentItemId: "profile_region_group",
       submittedAt: null,
       profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({
+        profile_region_group: "profile_region_group_option",
+      }),
+      visitedItemIds: JSON.stringify(["profile_region_group"]),
+      currentItemId: "profile_operational_region",
+    })
+    .where("assignmentId", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await advanceRegistrationQuestionnaire(
+      {
+        assignmentId: questionnaire.assignmentId,
+        itemId: "profile_operational_region",
+        answer: "profile_operational_region_wrong_group",
+        profileUpdateAccepted: true,
+      },
+      user,
+    ),
+    {
+      status: "invalid",
+      message: "Choose an operational region in the selected region group.",
+    },
+    "A crafted Course step must reject an operational region from another group",
+  );
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({
+        profile_region_group: "profile_region_group_option",
+        profile_operational_region: "profile_operational_region_option",
+      }),
+      visitedItemIds: JSON.stringify([
+        "profile_region_group",
+        "profile_operational_region",
+      ]),
+      currentItemId: "profile_region_group",
     })
     .where("assignmentId", "=", questionnaire.assignmentId)
     .executeTakeFirstOrThrow();
