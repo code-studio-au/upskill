@@ -132,6 +132,33 @@ The initial implementation does not include:
   stream from server to browser; bounded polling is simpler for the initial
   admission queue and can be replaced later without changing the state model.
 
+## Cross-cutting impact matrix
+
+The implementation uses the repository's cross-cutting feature delivery
+workflow. The following matrix is the durable inventory for capability-granting
+entry points and evidence consumers. Each implementation pull request updates
+the applicable rows and names the authoritative test that proves them.
+
+| Actor or entry path                                                            | Qualification and scope                                                                                         | Expected server outcome                                                                                                                                                 | Downstream effects and primary proof                                                            |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Selected learner from the Event workspace, notification, or opaque direct link | Active participation, selected registration, completed registration questionnaire and exact-session eligibility | Enter the application lobby; issue a token only after admission while the door is open                                                                                  | Workspace and notification links resolve to the same policy; pure policy and browser journey    |
+| Learner with an incomplete registration questionnaire                          | Active participation but incomplete questionnaire                                                               | Redirect directly to the required registration form; do not create room access                                                                                          | Registration remains the prerequisite authority; server integration and learner browser journey |
+| Early or pre-admitted learner                                                  | Otherwise eligible, but the door is `scheduled`                                                                 | Return `meeting_not_started`; reveal no provider URL, room name or token                                                                                                | Lobby may show admission readiness without connecting; policy and response-shape tests          |
+| Passwordless learner                                                           | Control of the verified email or verified E.164 mobile already bound to the exact participation                 | Issue a narrow lobby capability, never a general authenticated session                                                                                                  | Lobby status and attendee-token requests only; recovery boundary and adversarial tests          |
+| Eligible open-entry guest                                                      | Session policy permits guests and the provisional participation is valid                                        | Provision or resume participation, then use the same lobby and token policy                                                                                             | No guest bypass of capacity, consent or session qualification; database and browser tests       |
+| Assigned Presenter                                                             | Active exact-session assignment, including an active whole-occurrence assignment resolved to that session       | Permit the green room during the preparation window and exact-session operations                                                                                        | Presenter token and moderation remain server-authorised; policy and presenter browser tests     |
+| Occurrence or Platform Administrator                                           | Existing occurrence administration scope or audited platform backstop                                           | Permit operational oversight and exact-session controls; never impersonate an attendee                                                                                  | Audit every mutation; authorization integration tests                                           |
+| Coordinator                                                                    | Existing region-scoped Event operations authority                                                               | Preserve registration and attendance operations, but grant no LiveKit admission, moderation or presenter token unless separately assigned as Presenter or Administrator | Existing coordinator behaviour remains intact; negative authorization tests                     |
+| Withdrawn, cancelled, terminal or no-longer-eligible attendee                  | Participation or occurrence is no longer eligible                                                               | Revoke lobby access, deny token reissuance and remove an active participant when policy requires                                                                        | Preserve revocation and provider-operation evidence; lifecycle and concurrency tests            |
+| Forged, stale or cross-scope reference                                         | Participation, session, generation or public reference does not match                                           | Return an enumeration-safe denial with no cross-scope disclosure                                                                                                        | No credential or resource leak; adversarial policy and database tests                           |
+| Duplicate, delayed or out-of-order provider event                              | Valid provider signature and exact known room/generation scope                                                  | Accept idempotently even when new token issuance has stopped or the meeting has ended                                                                                   | Append-only connection and recording evidence; webhook and reconciliation tests                 |
+| Provider outage, quota failure or interrupted operation                        | The application decision remains authoritative but the media mutation cannot complete                           | Preserve lobby/operational state, return a typed retryable failure and reconcile later                                                                                  | No fallback credential exposure or duplicated mutation; provider-fake and failure-drill tests   |
+
+The matrix deliberately separates capability authorisation from provider
+evidence. Attendance, recording reconciliation, audit projection and reporting
+must not re-run the join-token policy because their retry and lifecycle rules
+continue after admission and token issuance have ended.
+
 ## Event configuration and publication
 
 ### Delivery provider
@@ -559,6 +586,26 @@ Domain services do not accept arbitrary room names, participant identities, or
 grants from the client. They derive these values from authorised database rows.
 The adapter permits deterministic fakes in domain tests and prevents provider
 types from spreading through Event code.
+
+Four server-owned boundaries prevent callers from reconstructing policy:
+
+1. `virtual-session-access-policy.server.ts` derives an explicit attendee or
+   staff outcome from authoritative registration, participation, questionnaire,
+   assignment, session, room-generation, admission, consent, capacity and door
+   state.
+2. `livekit-provider.server.ts` owns provider room, participant, token, Egress
+   and reconciliation operations behind a deterministic test fake.
+3. `livekit-webhook.server.ts` verifies and normalises the bounded raw provider
+   request before recording an idempotent receipt. It does not call the join
+   policy.
+4. `virtual-attendance.server.ts` derives versioned attendance decisions from
+   append-only connection intervals and the immutable session policy snapshot.
+
+The access policy returns typed outcomes such as `registration_required`,
+`questionnaire_required`, `verification_required`, `meeting_not_started`,
+`waiting_for_admission`, `ready_to_join`, `capacity_reached`, `locked`, `ended`,
+`revoked`, and `staff_access`. Browser routes translate these outcomes into user
+experience but do not grant the capability themselves.
 
 LiveKit API key and secret are environment-specific Secrets Manager values read
 only by the server. The public WebSocket URL is validated configuration.
@@ -1067,6 +1114,63 @@ Production enablement is a separate operational action. This ADR and its
 implementation do not authorise creation or mutation of a production LiveKit
 Cloud project, production credentials, recording storage authorization,
 commercial plan, region policy, or activation for live events.
+
+### Implementation tracker
+
+This tracker is updated when each exact implementation slice merges. A checked
+item means its pull request, focused regression coverage and required repository
+gates passed; it does not by itself authorise staging or production activation.
+
+- [ ] **Slice 1 — dormant provider foundation:** select exact dependency
+      versions that satisfy the repository release-age policy; add validated local
+      and server-only configuration, provider adapter/fake, raw webhook signature
+      contract, Secrets Manager CDK configuration and development connectivity
+      tests. Keep the feature disabled.
+- [ ] **Slice 2 — versioned provider policy:** add the next sequential
+      forward-only migration, generated types, template-session policy authoring,
+      occurrence provider selection, immutable Event Session snapshots, and the
+      `external_url` backfill with unchanged legacy behaviour.
+- [ ] **Slice 3 — room lifecycle and presenter green room:** add room-generation
+      persistence, exact staff policy, idempotent outbox operations, lazy room
+      creation, presenter grants, device preview, provider health, and
+      start/lock/reopen/end/replacement controls.
+- [ ] **Slice 4 — attendee lobby, admission and recovery:** add opaque join
+      access, the central attendee policy, authenticated lobby, narrow email/SMS
+      recovery, manual/bulk/automatic admission, polling, meeting-not-started and
+      token issuance, then route learner workspaces and communications through it.
+- [ ] **Slice 5 — webinar media client:** add the route-split LiveKit client
+      boundary, custom CSP-safe attendee and presenter media views, exact response
+      security policy, reconnect/leave/removal behaviour, accessibility, responsive
+      layout and deterministic bundle coverage.
+- [ ] **Slice 6 — managed recording:** add the recording evidence model,
+      consent, idempotent RoomComposite Egress lifecycle, dedicated private
+      recording storage and narrowly scoped upload authorisation, private playback,
+      retention, deletion evidence and failure recovery.
+- [ ] **Slice 7 — connection attendance:** add signed webhook receipts,
+      append-only connection intervals, periodic/final reconciliation, versioned
+      policy evaluation, automatic promotion, preserved manual corrections, review
+      UI and exports.
+- [ ] **Slice 8 — open-entry and operational hardening:** route eligible guests
+      through the same lobby, complete provider failure and generation-replacement
+      drills, add quota/cost alerts and cross-browser media smoke, and produce a
+      staging-readiness report while leaving production disabled.
+
+Each pull request includes the impact-matrix delta in its description and audits
+equivalent actors, acquisition paths, targets, lifecycle states and downstream
+consumers before review. A review finding is classified as an invariant failure
+and repaired across the affected category before a new exact-head review.
+
+Initial implementation assumptions are:
+
+- a whole-occurrence Presenter assignment authorises that Presenter for each
+  active session in the occurrence, while a session assignment remains exact;
+- Coordinators do not gain LiveKit control merely from their region-scoped Event
+  operations role;
+- recordings use a dedicated private bucket rather than the general learning or
+  private-resource buckets;
+- external-link virtual delivery remains a first-class, supported provider; and
+- environment activation, commercial plan selection and production deployment
+  remain separate authorised operational actions.
 
 ## Verification
 
