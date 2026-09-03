@@ -25,6 +25,8 @@ function stagingEnvironment(
     TEXTBEE_API_KEY: "configured-textbee-key",
     TEXTBEE_API_BASE_URL: "https://api.textbee.dev",
     TEXTBEE_WEBHOOK_SECRET: "configured-webhook-secret",
+    LIVEKIT_ENABLED: "false",
+    LIVEKIT_PROJECT_ENVIRONMENT: "staging",
     AWS_REGION: "ap-southeast-2",
     S3_QUARANTINE_BUCKET: "upskill-staging-quarantine",
     S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning",

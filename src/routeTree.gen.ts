@@ -58,6 +58,7 @@ import { Route as ApiAdminOfferingImagesRouteImport } from './routes/api.admin.o
 import { Route as ApiAdminResourcesRouteImport } from './routes/api.admin.resources'
 import { Route as ApiAdminScormPackagesRouteImport } from './routes/api.admin.scorm-packages'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
+import { Route as ApiLivekitWebhookRouteImport } from './routes/api.livekit.webhook'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiScormPreviewRouteImport } from './routes/api.scorm.preview'
@@ -344,6 +345,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLivekitWebhookRoute = ApiLivekitWebhookRouteImport.update({
+  id: '/api/livekit/webhook',
+  path: '/api/livekit/webhook',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiScormLaunchRoute = ApiScormLaunchRouteImport.update({
   id: '/api/scorm/launch',
   path: '/api/scorm/launch',
@@ -584,6 +590,7 @@ export interface FileRoutesByFullPath {
   '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/livekit/webhook': typeof ApiLivekitWebhookRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/scorm/preview': typeof ApiScormPreviewRoute
@@ -666,6 +673,7 @@ export interface FileRoutesByTo {
   '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/livekit/webhook': typeof ApiLivekitWebhookRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/scorm/preview': typeof ApiScormPreviewRoute
@@ -751,6 +759,7 @@ export interface FileRoutesById {
   '/api/admin/resources': typeof ApiAdminResourcesRoute
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/livekit/webhook': typeof ApiLivekitWebhookRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/scorm/preview': typeof ApiScormPreviewRoute
@@ -837,6 +846,7 @@ export interface FileRouteTypes {
     | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
+    | '/api/livekit/webhook'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/scorm/preview'
@@ -919,6 +929,7 @@ export interface FileRouteTypes {
     | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
+    | '/api/livekit/webhook'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/scorm/preview'
@@ -1003,6 +1014,7 @@ export interface FileRouteTypes {
     | '/api/admin/resources'
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
+    | '/api/livekit/webhook'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/scorm/preview'
@@ -1069,6 +1081,7 @@ export interface RootRouteChildren {
   ApiAdminResourcesRoute: typeof ApiAdminResourcesRoute
   ApiAdminScormPackagesRoute: typeof ApiAdminScormPackagesRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiLivekitWebhookRoute: typeof ApiLivekitWebhookRoute
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiScormPreviewRoute: typeof ApiScormPreviewRoute
@@ -1438,6 +1451,13 @@ declare module '@tanstack/react-router' {
       path: '/api/auth/$'
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof ApiAuthSplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/livekit/webhook': {
+      id: '/api/livekit/webhook'
+      path: '/api/livekit/webhook'
+      fullPath: '/api/livekit/webhook'
+      preLoaderRoute: typeof ApiLivekitWebhookRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/scorm/launch': {
@@ -1838,6 +1858,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAdminResourcesRoute: ApiAdminResourcesRoute,
   ApiAdminScormPackagesRoute: ApiAdminScormPackagesRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiLivekitWebhookRoute: ApiLivekitWebhookRoute,
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiScormPreviewRoute: ApiScormPreviewRoute,

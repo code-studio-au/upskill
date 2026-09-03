@@ -32,6 +32,28 @@ const environmentSchema = z.object({
   TEXTBEE_API_BASE_URL: z.url().default("https://api.textbee.dev"),
   TEXTBEE_DEVICE_ID: z.string().min(1).optional(),
   TEXTBEE_WEBHOOK_SECRET: z.string().min(20).optional(),
+  LIVEKIT_ENABLED: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .default(false),
+  LIVEKIT_PROJECT_ENVIRONMENT: z
+    .enum(["development", "test", "staging", "production"])
+    .optional(),
+  LIVEKIT_URL: z.url().optional(),
+  LIVEKIT_API_KEY: z.string().min(1).max(200).optional(),
+  LIVEKIT_API_SECRET: z.string().min(1).max(500).optional(),
+  LIVEKIT_APPROVED_MAX_PARTICIPANTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .optional(),
+  LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .optional(),
   AWS_REGION: z.string().min(1).default("ap-southeast-2"),
   S3_ENDPOINT: z.url().optional(),
   S3_ACCESS_KEY_ID: z.string().min(1).optional(),
@@ -67,6 +89,61 @@ const environmentSchema = z.object({
 
 export type ServerEnv = z.infer<typeof environmentSchema>;
 
+function requireLiveKitConfiguration(validated: ServerEnv): void {
+  if (!validated.LIVEKIT_ENABLED) return;
+  if (!validated.LIVEKIT_PROJECT_ENVIRONMENT)
+    throw new Error(
+      "LIVEKIT_PROJECT_ENVIRONMENT is required when LiveKit is enabled",
+    );
+  if (validated.LIVEKIT_PROJECT_ENVIRONMENT !== validated.APP_ENV)
+    throw new Error(
+      "LIVEKIT_PROJECT_ENVIRONMENT must match APP_ENV when LiveKit is enabled",
+    );
+  if (!validated.LIVEKIT_URL)
+    throw new Error("LIVEKIT_URL is required when LiveKit is enabled");
+  if (!validated.LIVEKIT_API_KEY)
+    throw new Error("LIVEKIT_API_KEY is required when LiveKit is enabled");
+  if (!validated.LIVEKIT_API_SECRET)
+    throw new Error("LIVEKIT_API_SECRET is required when LiveKit is enabled");
+  if (validated.LIVEKIT_API_SECRET.length < 32)
+    throw new Error(
+      "LIVEKIT_API_SECRET must contain at least 32 characters when LiveKit is enabled",
+    );
+  if (!validated.LIVEKIT_APPROVED_MAX_PARTICIPANTS)
+    throw new Error(
+      "LIVEKIT_APPROVED_MAX_PARTICIPANTS is required when LiveKit is enabled",
+    );
+  if (!validated.LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS)
+    throw new Error(
+      "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS is required when LiveKit is enabled",
+    );
+
+  const url = new URL(validated.LIVEKIT_URL);
+  const localEnvironment =
+    validated.APP_ENV === "development" || validated.APP_ENV === "test";
+  if (url.protocol !== "wss:" && !(localEnvironment && url.protocol === "ws:"))
+    throw new Error(
+      "LIVEKIT_URL must use WSS outside local environments and WS or WSS locally",
+    );
+  if (
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  )
+    throw new Error("LIVEKIT_URL must be a canonical WebSocket origin");
+  if (
+    !localEnvironment &&
+    (/replace|\.invalid$|\.example$/iu.test(url.hostname) ||
+      /replace/iu.test(validated.LIVEKIT_API_KEY) ||
+      /replace/iu.test(validated.LIVEKIT_API_SECRET))
+  )
+    throw new Error(
+      "LiveKit credentials and URL must be configured outside local environments",
+    );
+}
+
 function requireCanonicalHttpsOrigin(label: string, value: string): URL {
   const url = new URL(value);
   if (url.protocol !== "https:")
@@ -88,6 +165,7 @@ export function parseServerEnvironment(
   environment: NodeJS.ProcessEnv,
 ): ServerEnv {
   const validated = environmentSchema.parse(environment);
+  requireLiveKitConfiguration(validated);
   if (validated.EMAIL_PROVIDER === "mailgun") {
     if (!validated.MAILGUN_API_KEY)
       throw new Error("MAILGUN_API_KEY is required for Mailgun delivery");
@@ -130,9 +208,14 @@ export function parseServerEnvironment(
       "SQS_QUEUE_URL",
       "SQS_DEAD_LETTER_QUEUE_URL",
       "SUPPORT_EMAIL",
+      "LIVEKIT_PROJECT_ENVIRONMENT",
     ] as const)
       if (!environment[key])
         throw new Error(`${key} is required outside local environments`);
+    if (!environment.LIVEKIT_ENABLED)
+      throw new Error(
+        "LIVEKIT_ENABLED must be explicitly configured outside local environments",
+      );
     for (const key of [
       "S3_ENDPOINT",
       "S3_ACCESS_KEY_ID",

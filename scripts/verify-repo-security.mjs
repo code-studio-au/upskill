@@ -69,6 +69,8 @@ if (packageJson.dependencies.tsx !== "4.23.11")
   failures.push(
     "The deployed TypeScript seed loader requires pinned production tsx",
   );
+if (packageJson.dependencies["livekit-server-sdk"] !== "2.18.0")
+  failures.push("The server-only LiveKit SDK must remain exact-pinned");
 if (packageJson.devDependencies.tsx !== undefined)
   failures.push("tsx must not be scoped only to development dependencies");
 if (!packageJson.scripts.doctor.includes("--blocking error"))
@@ -319,6 +321,63 @@ for (const requiredAccessCodeBoundary of [
       `The deployed access-code encryption boundary is missing: ${requiredAccessCodeBoundary}`,
     );
 }
+for (const requiredLiveKitBoundary of [
+  '"LiveKitConfiguration"',
+  "liveKitConfigurationSecret.grantRead(role)",
+  "livekit_json",
+]) {
+  if (!applicationStack.includes(requiredLiveKitBoundary))
+    failures.push(
+      `The dormant LiveKit configuration boundary is missing: ${requiredLiveKitBoundary}`,
+    );
+}
+for (const relative of [
+  ".env.example",
+  "deploy/cdk/lib/application-stack.ts",
+  "src/server/runtime-environment.ts",
+]) {
+  if (
+    !fs
+      .readFileSync(path.join(root, relative), "utf8")
+      .includes("LIVEKIT_ENABLED")
+  )
+    failures.push(`LiveKit enablement must remain explicit: ${relative}`);
+}
+const liveKitProvider = fs.readFileSync(
+  path.join(root, "src/server/livekit/livekit-provider.server.ts"),
+  "utf8",
+);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'from "livekit-server-sdk"',
+  "LIVEKIT_JOIN_TOKEN_TTL_SECONDS = 5 * 60",
+  "canPublishData: false",
+])
+  if (!liveKitProvider.includes(boundary))
+    failures.push(`LiveKit provider boundary is missing: ${boundary}`);
+const liveKitWebhook = fs.readFileSync(
+  path.join(root, "src/server/livekit/livekit-webhook.server.ts"),
+  "utf8",
+);
+const liveKitWebhookRoute = fs.readFileSync(
+  path.join(root, "src/routes/api.livekit.webhook.ts"),
+  "utf8",
+);
+for (const boundary of [
+  "new WebhookReceiver",
+  ".receive(rawBody, authorization)",
+  "liveKitWebhookPayloadSchema.parse",
+])
+  if (!liveKitWebhook.includes(boundary))
+    failures.push(`LiveKit webhook verification is missing: ${boundary}`);
+for (const boundary of [
+  '"application/webhook+json"',
+  "request.arrayBuffer()",
+  "MAX_WEBHOOK_BYTES",
+  '"webhook_persistence_not_ready"',
+])
+  if (!liveKitWebhookRoute.includes(boundary))
+    failures.push(`LiveKit webhook route boundary is missing: ${boundary}`);
 for (const relative of [
   ".env.example",
   "deploy/cdk/lib/application-stack.ts",

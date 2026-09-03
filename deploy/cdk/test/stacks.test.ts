@@ -106,11 +106,25 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     LaunchTemplateData: { MetadataOptions: { HttpTokens: "required" } },
   });
   applicationTemplate.resourceCountIs("AWS::CloudWatch::Alarm", 6);
+  applicationTemplate.resourceCountIs("AWS::SecretsManager::Secret", 5);
+  applicationTemplate.hasResourceProperties("AWS::SecretsManager::Secret", {
+    Name: "upskill/staging/livekit",
+    Description: Match.stringLikeRegexp("Dormant LiveKit Cloud configuration"),
+    SecretString: JSON.stringify({
+      LIVEKIT_ENABLED: "false",
+      LIVEKIT_PROJECT_ENVIRONMENT: "staging",
+    }),
+  });
   const applicationJson = JSON.stringify(applicationTemplate.toJSON());
   expect(applicationJson).toContain("sslmode=verify-full");
   expect(applicationJson).toContain("upskill-web.env");
   expect(applicationJson).toContain("upskill-worker.env");
   expect(applicationJson).toContain("upskill-deploy.env");
+  expect(applicationJson).toContain("livekit_json");
+  expect(applicationJson).toContain("upskill/staging/livekit");
+  expect(applicationJson).toContain(
+    '.key == \\"LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS\\"',
+  );
   expect(applicationJson).toContain("/swapfile");
   expect(applicationJson).toContain("dnf install -y jq libatomic nginx xz");
   expect(applicationJson).toContain(

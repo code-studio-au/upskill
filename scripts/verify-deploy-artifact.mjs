@@ -105,6 +105,8 @@ try {
       SMS_PROVIDER: "textbee",
       TEXTBEE_API_KEY: "artifact-textbee-key",
       TEXTBEE_WEBHOOK_SECRET: "artifact-webhook-secret",
+      LIVEKIT_ENABLED: "false",
+      LIVEKIT_PROJECT_ENVIRONMENT: "staging",
       AWS_REGION: "ap-southeast-2",
       S3_QUARANTINE_BUCKET: "upskill-staging-quarantine",
       S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning",
