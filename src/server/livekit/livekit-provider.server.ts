@@ -198,7 +198,6 @@ export class LiveKitCloudProvider implements LiveKitProvider {
         host: configuration.url,
         apiKey: configuration.apiKey,
         secret: configuration.apiSecret,
-        requestTimeout: 10,
       });
   }
 
