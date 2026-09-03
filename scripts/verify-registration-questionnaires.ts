@@ -759,6 +759,66 @@ try {
     .where("id", "=", ids.waivedEnrollment)
     .executeTakeFirstOrThrow();
 
+  let releaseAssignmentLock: (() => void) | undefined;
+  let confirmAssignmentLock: (() => void) | undefined;
+  const assignmentLockHeld = new Promise<void>((resolve) => {
+    confirmAssignmentLock = resolve;
+  });
+  const releaseAssignment = new Promise<void>((resolve) => {
+    releaseAssignmentLock = resolve;
+  });
+  const assignmentLock = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("registration_questionnaire_assignment")
+      .select("id")
+      .where("id", "=", staleCourseQuestionnaire.assignmentId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    confirmAssignmentLock?.();
+    await releaseAssignment;
+  });
+  await assignmentLockHeld;
+  const pendingStep = advanceRegistrationQuestionnaire(
+    {
+      assignmentId: staleCourseQuestionnaire.assignmentId,
+      itemId: "profile_name",
+      answer: "Concurrent learner update",
+    },
+    otherUser,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  let existingWaiverSettled = false;
+  const pendingExistingWaiver = waiveCourseRegistrationQuestionnaire(
+    ids.course,
+    ids.waivedEnrollment,
+    "Concurrent administrative waiver",
+    administrator,
+  ).finally(() => {
+    existingWaiverSettled = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      existingWaiverSettled,
+      false,
+      "A concurrent waiver must wait behind the learner's target lock",
+    );
+  } finally {
+    releaseAssignmentLock?.();
+    await assignmentLock;
+  }
+  assert.equal((await pendingStep).status, "advanced");
+  assert.equal(await pendingExistingWaiver, "waived");
+  await database.transaction().execute(async (transaction) => {
+    await sql`select set_config('upskill.audit_maintenance', 'on', true)`.execute(
+      transaction,
+    );
+    await transaction
+      .deleteFrom("audit_event")
+      .where("subjectId", "=", staleCourseQuestionnaire.assignmentId)
+      .execute();
+  });
+
   await database
     .deleteFrom("registration_questionnaire_response")
     .where("assignmentId", "=", staleCourseQuestionnaire.assignmentId)
@@ -923,6 +983,16 @@ try {
     (await findLearnerEventWorkspace(ids.eventOccurrence, user)).status,
     "cancelled",
     "Cancellation must take precedence over an incomplete questionnaire",
+  );
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "completed" })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await findEventRegistrationQuestionnaire(ids.eventOccurrence, user),
+    "unavailable",
+    "A completed Event must not expose a questionnaire that cannot accept answers",
   );
   await database
     .updateTable("event_occurrence")

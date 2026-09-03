@@ -418,10 +418,10 @@ async function findEventAssignment(
       return registration || participation
         ? ("cancelled" as const)
         : ("unavailable" as const);
+    if (occurrence.status !== "published") return "unavailable" as const;
     if (!registration && !participation) {
       const now = new Date();
       if (
-        occurrence.status !== "published" ||
         occurrence.registrationMode === "open_entry" ||
         occurrence.registrationMode === "paid_entry" ||
         !occurrence.registrationOpensAt ||
@@ -676,41 +676,22 @@ export async function advanceRegistrationQuestionnaire(
   const database = getDatabase();
   const transactionBuilder = database.transaction();
   const transactionOutcome = transactionBuilder.execute(async (transaction) => {
-    const row = await transaction
-      .selectFrom("registration_questionnaire_assignment as assignment")
-      .innerJoin(
-        "registration_questionnaire_response as response",
-        "response.assignmentId",
-        "assignment.id",
+    const assignmentTarget = await transaction
+      .selectFrom("registration_questionnaire_assignment")
+      .select(["eventOccurrenceId", "enrollmentId"])
+      .where(
+        "registration_questionnaire_assignment.id",
+        "=",
+        input.assignmentId,
       )
-      .innerJoin(
-        "survey_version",
-        "survey_version.id",
-        "assignment.surveyVersionId",
-      )
-      .select([
-        "assignment.status",
-        "assignment.eventOccurrenceId",
-        "assignment.eventOccurrenceRegionId",
-        "assignment.enrollmentId",
-        "response.answers",
-        "response.visitedItemIds",
-        "response.currentItemId",
-        "response.submittedAt",
-        "survey_version.content",
-      ])
-      .where("assignment.id", "=", input.assignmentId)
-      .where("assignment.userId", "=", user.id)
-      .forUpdate("assignment")
+      .where("registration_questionnaire_assignment.userId", "=", user.id)
       .executeTakeFirst();
-    if (!row) return { result: { status: "not-found" } as const };
-    if (row.status === "waived")
-      return { result: { status: "unavailable" } as const };
-    if (row.enrollmentId) {
+    if (!assignmentTarget) return { result: { status: "not-found" } as const };
+    if (assignmentTarget.enrollmentId) {
       const enrollment = await transaction
         .selectFrom("enrollment")
         .select(["status", "expiresAt", "removedAt"])
-        .where("id", "=", row.enrollmentId)
+        .where("id", "=", assignmentTarget.enrollmentId)
         .where("userId", "=", user.id)
         .forUpdate()
         .executeTakeFirst();
@@ -725,7 +706,7 @@ export async function advanceRegistrationQuestionnaire(
         return { result: { status: "unavailable" } as const };
     }
     let eventRegistration: EventRegistrationState | null = null;
-    if (row.eventOccurrenceId) {
+    if (assignmentTarget.eventOccurrenceId) {
       const occurrence = await transaction
         .selectFrom("event_occurrence")
         .select([
@@ -737,7 +718,7 @@ export async function advanceRegistrationQuestionnaire(
           "capacity",
           "confirmedCount",
         ])
-        .where("id", "=", row.eventOccurrenceId)
+        .where("id", "=", assignmentTarget.eventOccurrenceId)
         .forUpdate()
         .executeTakeFirst();
       if (!occurrence || occurrence.status !== "published")
@@ -757,14 +738,14 @@ export async function advanceRegistrationQuestionnaire(
             "regionMismatchAcknowledgedAt",
             "regionalReviewWaivedAt",
           ])
-          .where("eventOccurrenceId", "=", row.eventOccurrenceId)
+          .where("eventOccurrenceId", "=", assignmentTarget.eventOccurrenceId)
           .where("userId", "=", user.id)
           .forUpdate()
           .executeTakeFirst(),
         transaction
           .selectFrom("event_participation")
           .select("id")
-          .where("eventOccurrenceId", "=", row.eventOccurrenceId)
+          .where("eventOccurrenceId", "=", assignmentTarget.eventOccurrenceId)
           .where("userId", "=", user.id)
           .executeTakeFirst(),
       ]);
@@ -798,7 +779,11 @@ export async function advanceRegistrationQuestionnaire(
             ? await transaction
                 .selectFrom("event_occurrence_domain")
                 .select("domain")
-                .where("eventOccurrenceId", "=", row.eventOccurrenceId)
+                .where(
+                  "eventOccurrenceId",
+                  "=",
+                  assignmentTarget.eventOccurrenceId,
+                )
                 .where("domain", "=", domain)
                 .executeTakeFirst()
             : null;
@@ -806,6 +791,36 @@ export async function advanceRegistrationQuestionnaire(
         }
       }
     }
+    const row = await transaction
+      .selectFrom("registration_questionnaire_assignment as assignment")
+      .innerJoin(
+        "registration_questionnaire_response as response",
+        "response.assignmentId",
+        "assignment.id",
+      )
+      .innerJoin(
+        "survey_version",
+        "survey_version.id",
+        "assignment.surveyVersionId",
+      )
+      .select([
+        "assignment.status",
+        "assignment.eventOccurrenceId",
+        "assignment.eventOccurrenceRegionId",
+        "assignment.enrollmentId",
+        "response.answers",
+        "response.visitedItemIds",
+        "response.currentItemId",
+        "response.submittedAt",
+        "survey_version.content",
+      ])
+      .where("assignment.id", "=", input.assignmentId)
+      .where("assignment.userId", "=", user.id)
+      .forUpdate("assignment")
+      .executeTakeFirst();
+    if (!row) return { result: { status: "not-found" } as const };
+    if (row.status === "waived")
+      return { result: { status: "unavailable" } as const };
     let content = parseSurveyVersionContent(row.content);
     let eventRegions: Array<{ id: string; regionId: string }> = [];
     if (row.eventOccurrenceId) {
