@@ -364,7 +364,7 @@ export function parseSurveyVersionContent(
 
 export const adminSurveyCreateSchema = z.object({
   title: boundedText(160),
-  type: z.enum(["system", "elearning", "event", "shared"]),
+  type: z.enum(["system", "registration", "elearning", "event", "shared"]),
 });
 
 export const adminSurveyParamsSchema = z.object({ surveyId: identifierSchema });
@@ -460,8 +460,8 @@ export type LearnerEventSurveyStep = z.infer<
 export interface AdminSurveySummary {
   id: string;
   title: string;
-  usage: "learning" | "onboarding";
-  type: "system" | "elearning" | "event" | "shared";
+  usage: "learning" | "onboarding" | "registration";
+  type: "system" | "registration" | "elearning" | "event" | "shared";
   position: number;
   draftVersion: number | null;
   publishedVersion: number | null;
@@ -477,8 +477,8 @@ export interface AdminSurveyDetail {
   survey: {
     id: string;
     title: string;
-    usage: "learning" | "onboarding";
-    type: "system" | "elearning" | "event" | "shared";
+    usage: "learning" | "onboarding" | "registration";
+    type: "system" | "registration" | "elearning" | "event" | "shared";
   };
   version: {
     id: string;

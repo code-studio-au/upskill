@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SurveyVersionContent } from "./survey.schema";
 import {
+  allSurveyPathsIncludeOperationalRegion,
   operationalRegionPathsIncludeRegionGroup,
   surveyPathItems,
 } from "./survey-branching";
@@ -182,5 +183,85 @@ describe("survey branching", () => {
       ],
     };
     expect(operationalRegionPathsIncludeRegionGroup(unsafeContent)).toBe(false);
+  });
+
+  it("rejects a reachable terminal branch that bypasses operational region", () => {
+    const unsafeContent: SurveyVersionContent = {
+      ...content,
+      sections: [
+        {
+          ...workSection,
+          items: [
+            {
+              id: "works_in_region",
+              kind: "single_choice",
+              prompt: "Do you work in a region?",
+              required: true,
+              options: [
+                { id: "yes", label: "Yes", nextSectionId: "operational" },
+                { id: "no", label: "No", nextSectionId: "profile" },
+              ],
+            },
+          ],
+        },
+        {
+          id: "operational",
+          title: "Operational region",
+          description: "",
+          items: [
+            {
+              id: "operational_region",
+              kind: "dropdown",
+              prompt: "Operational region",
+              required: true,
+              optionSource: "coordination_operational_regions",
+              options: [],
+            },
+          ],
+        },
+        profileSection,
+      ],
+    };
+    expect(allSurveyPathsIncludeOperationalRegion(unsafeContent)).toBe(false);
+  });
+
+  it("accepts branching when every terminal path includes operational region", () => {
+    const safeContent: SurveyVersionContent = {
+      ...content,
+      sections: [
+        {
+          ...workSection,
+          items: [
+            {
+              id: "works_in_region",
+              kind: "single_choice",
+              prompt: "Do you work in a region?",
+              required: true,
+              options: [
+                { id: "yes", label: "Yes", nextSectionId: "operational" },
+                { id: "no", label: "No", nextSectionId: "operational" },
+              ],
+            },
+          ],
+        },
+        {
+          id: "operational",
+          title: "Operational region",
+          description: "",
+          items: [
+            {
+              id: "operational_region",
+              kind: "dropdown",
+              prompt: "Operational region",
+              required: true,
+              optionSource: "coordination_operational_regions",
+              options: [],
+            },
+          ],
+        },
+        profileSection,
+      ],
+    };
+    expect(allSurveyPathsIncludeOperationalRegion(safeContent)).toBe(true);
   });
 });

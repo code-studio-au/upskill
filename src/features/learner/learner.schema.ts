@@ -38,6 +38,7 @@ export interface LearnerEvent {
     eventParticipationId: string;
   } | null;
   canRegister: boolean;
+  registrationRequired: boolean;
   registrationUnavailableReason: "not_open" | "closed" | "full" | null;
   regions: Array<{ id: string; name: string }>;
   progress: {
@@ -66,6 +67,7 @@ export interface LearnerCourse {
   certificate: {
     enrollmentId: string;
   } | null;
+  registrationRequired: boolean;
   progress: {
     completedItems: number;
     totalItems: number;

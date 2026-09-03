@@ -676,14 +676,17 @@ try {
     ).status,
     "registered",
   );
-  assert.equal(
-    (
-      await findEnterpriseEventAccess(
-        "verify-enterprise-covered-event",
-        users.secondEligible,
-      )
-    ).status,
-    "already-registered",
+  assert.deepEqual(
+    await findEnterpriseEventAccess(
+      "verify-enterprise-covered-event",
+      users.secondEligible,
+    ),
+    {
+      status: "already-registered",
+      eventOccurrenceId: ids.eventOccurrence,
+      registrationRequired: false,
+      canOpenEvent: true,
+    },
   );
   assert.equal(
     await withdrawLearnerEventRegistration(
@@ -692,15 +695,18 @@ try {
     ),
     "withdrawn",
   );
-  assert.equal(
-    (
-      await findEnterpriseEventAccess(
-        "verify-enterprise-covered-event",
-        users.secondEligible,
-      )
-    ).status,
-    "already-registered",
-    "A retained withdrawn registration must not show an unusable registration action",
+  assert.deepEqual(
+    await findEnterpriseEventAccess(
+      "verify-enterprise-covered-event",
+      users.secondEligible,
+    ),
+    {
+      status: "already-registered",
+      eventOccurrenceId: ids.eventOccurrence,
+      registrationRequired: false,
+      canOpenEvent: false,
+    },
+    "A retained withdrawn registration must route through My Events instead of an unavailable workspace",
   );
   assert.equal(
     (

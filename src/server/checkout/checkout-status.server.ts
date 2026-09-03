@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import type { CheckoutStatus } from "#/features/checkout/checkout.schema";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import { eventRegistrationQuestionnaireRequired } from "#/features/registration/registration-questionnaire-domain";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 
@@ -23,6 +24,23 @@ export async function findCheckoutStatus(
       "event_occurrence.id",
       "order_item.eventOccurrenceId",
     )
+    .leftJoin(
+      "event_template_version",
+      "event_template_version.id",
+      "event_occurrence.eventTemplateVersionId",
+    )
+    .leftJoin(
+      "registration_questionnaire_assignment as questionnaire",
+      (join) =>
+        join
+          .onRef("questionnaire.eventOccurrenceId", "=", "event_occurrence.id")
+          .on("questionnaire.userId", "=", user.id),
+    )
+    .leftJoin("event_registration as registration", (join) =>
+      join
+        .onRef("registration.eventOccurrenceId", "=", "event_occurrence.id")
+        .on("registration.userId", "=", user.id),
+    )
     .select([
       "order.status",
       "order.kind",
@@ -30,6 +48,11 @@ export async function findCheckoutStatus(
       "course_version.content",
       "event_occurrence.title as eventTitle",
       "event_occurrence.slug as eventSlug",
+      "event_occurrence.id as eventOccurrenceId",
+      "event_occurrence.status as eventOccurrenceStatus",
+      "event_template_version.registrationSurveyVersionId",
+      "questionnaire.status as questionnaireStatus",
+      "registration.status as registrationStatus",
     ])
     .select((expression) =>
       expression
@@ -46,8 +69,7 @@ export async function findCheckoutStatus(
     .where("order.purchaserUserId", "=", user.id)
     .executeTakeFirst();
   if (!row) return null;
-  if (row.eventTitle && row.eventSlug) {
-    if (!row.eventTitle || !row.eventSlug) return null;
+  if (row.eventTitle && row.eventSlug && row.eventOccurrenceId) {
     return {
       status: row.status,
       kind:
@@ -55,6 +77,14 @@ export async function findCheckoutStatus(
       offeringType: "event",
       offeringTitle: row.eventTitle,
       offeringSlug: row.eventSlug,
+      eventOccurrenceId: row.eventOccurrenceId,
+      registrationRequired:
+        row.eventOccurrenceStatus === "published" &&
+        eventRegistrationQuestionnaireRequired({
+          registrationSurveyVersionId: row.registrationSurveyVersionId,
+          questionnaireStatus: row.questionnaireStatus,
+          registrationStatus: row.registrationStatus,
+        }),
       reviewRequired: Boolean(row.reviewRequired),
     };
   }

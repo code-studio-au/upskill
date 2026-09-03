@@ -25,7 +25,12 @@ export async function issueConfirmedEventRegistration(
       eventRegistrationId: string;
       eventParticipationId: string;
     }
-  | { status: "already-registered"; eventRegistrationId: string }
+  | {
+      status: "already-registered";
+      eventRegistrationId: string;
+      registrationStatus: Database["event_registration"]["status"];
+      canOpenEvent: boolean;
+    }
   | { status: "unavailable" }
 > {
   const occurrence = await transaction
@@ -42,13 +47,28 @@ export async function issueConfirmedEventRegistration(
     return { status: "unavailable" };
 
   const existing = await transaction
-    .selectFrom("event_registration")
-    .select("id")
-    .where("eventOccurrenceId", "=", input.eventOccurrenceId)
-    .where("userId", "=", input.user.id)
+    .selectFrom("event_registration as registration")
+    .leftJoin(
+      "event_participation as participation",
+      "participation.registrationId",
+      "registration.id",
+    )
+    .select([
+      "registration.id",
+      "registration.status",
+      "participation.id as participationId",
+    ])
+    .where("registration.eventOccurrenceId", "=", input.eventOccurrenceId)
+    .where("registration.userId", "=", input.user.id)
     .executeTakeFirst();
   if (existing)
-    return { status: "already-registered", eventRegistrationId: existing.id };
+    return {
+      status: "already-registered",
+      eventRegistrationId: existing.id,
+      registrationStatus: existing.status,
+      canOpenEvent:
+        existing.status === "selected" && existing.participationId !== null,
+    };
   if (occurrence.confirmedCount >= occurrence.capacity)
     return { status: "unavailable" };
 

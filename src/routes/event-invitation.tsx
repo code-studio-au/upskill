@@ -152,7 +152,11 @@ function EventInvitationPage() {
         result.status === "registered" ||
         result.status === "already-registered"
       ) {
-        window.location.assign("/my-events");
+        window.location.assign(
+          result.registrationRequired
+            ? `/my-events/${encodeURIComponent(result.eventOccurrenceId)}`
+            : "/my-events",
+        );
         return;
       }
       setInvitation({ status: result.status });

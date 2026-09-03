@@ -479,6 +479,7 @@ try {
       learnerEmail: administrator.email,
       courseVersion: 1,
       state: "active",
+      registrationQuestionnaireStatus: "not_required",
       enrolledAt: "2026-08-05T02:00:00.000Z",
       completedAt: null,
       expiresAt: "2027-08-05T02:00:00.000Z",

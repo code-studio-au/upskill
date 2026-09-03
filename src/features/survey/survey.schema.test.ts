@@ -2,14 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   adminSurveyCreateSchema,
   adminSurveyMoveSchema,
+  applyRegionDirectoryOptions,
   learnerSurveyStepSchema,
   parseSurveyVersionContent,
+  surveyProfileField,
   surveyVersionContentSchema,
 } from "./survey.schema";
 
 describe("survey contracts", () => {
   it("accepts only the governed survey catalogue types and move directions", () => {
-    for (const type of ["system", "elearning", "event", "shared"])
+    for (const type of [
+      "system",
+      "registration",
+      "elearning",
+      "event",
+      "shared",
+    ])
       expect(
         adminSurveyCreateSchema.safeParse({ title: "Feedback", type }).success,
       ).toBe(true);
@@ -84,6 +92,31 @@ describe("survey contracts", () => {
     expect(content.sections).toHaveLength(1);
     expect(content.sections[0]?.id).toBe("section_legacy_questions");
     expect(content.sections[0]?.items[0]?.id).toBe("question_1");
+    expect(content.sections[0]?.items[0]?.kind).toBe("long_text");
+  });
+
+  it("normalizes legacy section text questions without changing section identity", () => {
+    const content = parseSurveyVersionContent({
+      title: "Legacy section survey",
+      description: "",
+      sections: [
+        {
+          id: "section_existing",
+          title: "Existing section",
+          description: "",
+          items: [
+            {
+              id: "question_existing",
+              kind: "text",
+              prompt: "Comment",
+              required: false,
+              maximumLength: 500,
+            },
+          ],
+        },
+      ],
+    });
+    expect(content.sections[0]?.id).toBe("section_existing");
     expect(content.sections[0]?.items[0]?.kind).toBe("long_text");
   });
 
@@ -416,5 +449,72 @@ describe("survey contracts", () => {
         answer: "yes",
       }).success,
     ).toBe(true);
+  });
+
+  it("hydrates dynamic registration region questions and retains ordinary questions", () => {
+    const content = parseSurveyVersionContent({
+      title: "Registration",
+      description: "",
+      sections: [
+        {
+          id: "details",
+          title: "Details",
+          description: "",
+          items: [
+            {
+              id: "group",
+              kind: "dropdown",
+              prompt: "Region group",
+              required: true,
+              optionSource: "coordination_region_groups",
+              options: [],
+            },
+            {
+              id: "region",
+              kind: "dropdown",
+              prompt: "Operational region",
+              required: true,
+              optionSource: "coordination_operational_regions",
+              options: [],
+            },
+            {
+              id: "discipline",
+              kind: "short_text",
+              prompt: "Discipline",
+              required: true,
+              maximumLength: 200,
+              format: "plain",
+            },
+            {
+              id: "privacy",
+              kind: "instruction",
+              title: "Privacy",
+              body: "Registration answers are retained for this cohort.",
+            },
+          ],
+        },
+      ],
+    });
+    const hydrated = applyRegionDirectoryOptions(content, {
+      regionGroups: [
+        { id: "group_north", label: "North", externalValue: "north" },
+      ],
+      operationalRegions: [
+        {
+          id: "region_north_one",
+          label: "North One",
+          externalValue: "north_one",
+          parentExternalValue: "north",
+        },
+      ],
+    });
+    expect(hydrated.sections[0]?.items).toMatchObject([
+      { id: "group", options: [{ id: "group_north" }] },
+      { id: "region", options: [{ id: "region_north_one" }] },
+      { id: "discipline" },
+      { id: "privacy" },
+    ]);
+    const items = hydrated.sections[0]?.items ?? [];
+    expect(items.map(surveyProfileField)).toEqual([null, null, null, null]);
   });
 });

@@ -21,6 +21,7 @@ const verificationScripts = [
   "scripts/verify-enterprise-contracts.ts",
   "scripts/verify-admin-course-authoring.ts",
   "scripts/verify-survey-workflow.ts",
+  "scripts/verify-registration-questionnaires.ts",
   "scripts/verify-onboarding-workflow.ts",
   "scripts/verify-learner-profile.ts",
   "scripts/verify-resource-library.ts",

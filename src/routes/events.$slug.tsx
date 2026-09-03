@@ -22,6 +22,15 @@ const audCurrency = new Intl.NumberFormat("en-AU", {
   currency: "AUD",
 });
 
+function registrationAvailabilityLabel(
+  availability: "not_open" | "closed" | "full" | "ineligible",
+): string {
+  if (availability === "not_open") return "Registration not open";
+  if (availability === "closed") return "Registration closed";
+  if (availability === "full") return "Event full";
+  return "Registration unavailable";
+}
+
 export const Route = createFileRoute("/events/$slug")({
   ssr: true,
   loader: async ({ params }) => {
@@ -47,6 +56,7 @@ export const Route = createFileRoute("/events/$slug")({
 function EventDetailPage() {
   const { event, enterpriseAccess } = Route.useLoaderData();
   const currentPrice = event.salePriceCents ?? event.priceCents;
+  const learnerRegistrationAction = event.learnerRegistrationAction;
   return (
     <Container size="lg" className={classes.page}>
       <div className={classes.layout}>
@@ -101,8 +111,25 @@ function EventDetailPage() {
                   </Text>
                 </div>
               )}
-              {enterpriseAccess.status === "ready" ||
-              enterpriseAccess.status === "already-registered" ? (
+              {learnerRegistrationAction === "view_registration" ? (
+                <Link to="/my-events">
+                  <Button component="span" size="lg" fullWidth>
+                    View registration
+                  </Button>
+                </Link>
+              ) : learnerRegistrationAction ? (
+                <Link
+                  to="/my-events/$eventOccurrenceId"
+                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                >
+                  <Button component="span" size="lg" fullWidth>
+                    {learnerRegistrationAction === "continue_registration"
+                      ? "Continue registration"
+                      : "Open event"}
+                  </Button>
+                </Link>
+              ) : enterpriseAccess.status === "ready" ||
+                enterpriseAccess.status === "already-registered" ? (
                 <EnterpriseEventAccessButton
                   access={enterpriseAccess}
                   slug={event.slug}
@@ -119,9 +146,27 @@ function EventDetailPage() {
                     Access event
                   </Button>
                 </Link>
+              ) : event.hasRegistrationQuestionnaire ? (
+                event.registrationAvailability === "available" ||
+                event.registrationAvailability === "authentication_required" ? (
+                  <Link
+                    to="/my-events/$eventOccurrenceId"
+                    params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                  >
+                    <Button component="span" size="lg" fullWidth>
+                      Start registration
+                    </Button>
+                  </Link>
+                ) : (
+                  <Button size="lg" fullWidth disabled>
+                    {registrationAvailabilityLabel(
+                      event.registrationAvailability,
+                    )}
+                  </Button>
+                )
               ) : (
                 <Button component={Link} to="/my-events" size="lg">
-                  Register in My events
+                  Register
                 </Button>
               )}
               {event.bulkPricing.enabled ? (

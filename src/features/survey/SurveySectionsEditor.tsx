@@ -174,7 +174,7 @@ export function SurveySectionsEditor({
   operationalRegionOptions: Array<SurveyOption>;
   regionGroupOptions: Array<SurveyOption>;
   sections: Array<SurveySection>;
-  usage: "learning" | "onboarding";
+  usage: "learning" | "onboarding" | "registration";
 }) {
   const [removeTarget, setRemoveTarget] = useState<{
     sectionId: string;
@@ -323,7 +323,7 @@ export function SurveySectionsEditor({
             ))}
             {editable ? (
               <Group>
-                {usage === "onboarding" ? (
+                {usage === "onboarding" || usage === "registration" ? (
                   <>
                     <Button
                       variant="light"
@@ -372,7 +372,7 @@ export function SurveySectionsEditor({
                   </>
                 ) : null}
                 {[
-                  ...(usage === "onboarding"
+                  ...(usage === "onboarding" || usage === "registration"
                     ? ([
                         ["name", "Profile full name"],
                         ["phone", "Profile mobile phone"],

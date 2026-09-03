@@ -272,24 +272,39 @@ function LearnerEventCard({
       progressTitle="Event progress"
       actions={
         <>
-          {event.registrationStatus === "selected" ||
+          {event.registrationRequired ||
+          event.registrationStatus === "selected" ||
           event.participationMode === "open_entry" ? (
             <Stack gap="xs">
-              <Link
-                to="/my-events/$eventOccurrenceId"
-                params={{ eventOccurrenceId: event.eventOccurrenceId }}
-                className={classes.actionLink}
-              >
-                <Button component="span" fullWidth>
-                  {event.completedAt ? "Review event" : "Open event"}
-                </Button>
-              </Link>
+              {event.registrationRequired ? (
+                <Link
+                  to="/my-events/$eventOccurrenceId"
+                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                  className={classes.actionLink}
+                >
+                  <Button component="span" fullWidth>
+                    Complete registration details
+                  </Button>
+                </Link>
+              ) : (
+                <Link
+                  to="/my-events/$eventOccurrenceId"
+                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                  className={classes.actionLink}
+                >
+                  <Button component="span" fullWidth>
+                    {event.completedAt ? "Review event" : "Open event"}
+                  </Button>
+                </Link>
+              )}
               {event.certificate ? (
                 <LearnerCertificateAction certificate={event.certificate} />
               ) : null}
             </Stack>
           ) : null}
-          {!event.registrationStatus && !event.participationMode ? (
+          {!event.registrationRequired &&
+          !event.registrationStatus &&
+          !event.participationMode ? (
             <Stack gap="xs">
               {event.canRegister && event.regions.length > 0 ? (
                 <MantineNativeSelect

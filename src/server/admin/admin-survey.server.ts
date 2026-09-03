@@ -164,7 +164,12 @@ export async function findAdminSurveys(): Promise<Array<AdminSurveySummary>> {
     return {
       id: survey.id,
       title: survey.title,
-      usage: survey.surveyUsage === "onboarding" ? "onboarding" : "learning",
+      usage:
+        survey.surveyUsage === "onboarding"
+          ? "onboarding"
+          : survey.surveyUsage === "registration"
+            ? "registration"
+            : "learning",
       type: survey.surveyType ?? "elearning",
       position: survey.surveyPosition ?? 0,
       draftVersion:
@@ -223,14 +228,21 @@ export async function findAdminSurvey(
     findRegionDirectoryOptions(),
   ]);
   const content =
-    version.publishedAt === null && survey.surveyUsage === "onboarding"
+    version.publishedAt === null &&
+    (survey.surveyUsage === "onboarding" ||
+      survey.surveyUsage === "registration")
       ? applyRegionDirectoryOptions(parsedContent, regionDirectoryOptions)
       : parsedContent;
   return {
     survey: {
       id: survey.id,
       title: survey.title,
-      usage: survey.surveyUsage === "onboarding" ? "onboarding" : "learning",
+      usage:
+        survey.surveyUsage === "onboarding"
+          ? "onboarding"
+          : survey.surveyUsage === "registration"
+            ? "registration"
+            : "learning",
       type: survey.surveyType ?? "elearning",
     },
     version: {
@@ -246,11 +258,13 @@ export async function findAdminSurvey(
       publishedAt: candidate.publishedAt?.toISOString() ?? null,
     })),
     regionGroupOptions:
-      survey.surveyUsage === "onboarding"
+      survey.surveyUsage === "onboarding" ||
+      survey.surveyUsage === "registration"
         ? regionDirectoryOptions.regionGroups
         : [],
     operationalRegionOptions:
-      survey.surveyUsage === "onboarding"
+      survey.surveyUsage === "onboarding" ||
+      survey.surveyUsage === "registration"
         ? regionDirectoryOptions.operationalRegions
         : [],
     draft: adminSurveyDraftSchema.parse({
@@ -263,7 +277,7 @@ export async function findAdminSurvey(
 
 export async function createAdminSurvey(
   title: string,
-  type: "system" | "elearning" | "event" | "shared",
+  type: "system" | "registration" | "elearning" | "event" | "shared",
   user: AuthenticatedUser,
 ): Promise<{ surveyId: string; versionId: string }> {
   const database = getDatabase();
@@ -288,7 +302,12 @@ export async function createAdminSurvey(
         id: surveyId,
         kind: "survey",
         title,
-        surveyUsage: type === "system" ? "onboarding" : "learning",
+        surveyUsage:
+          type === "system"
+            ? "onboarding"
+            : type === "registration"
+              ? "registration"
+              : "learning",
         surveyType: type,
         surveyPosition: (last.position ?? -1) + 1,
         createdAt: now,
@@ -416,7 +435,8 @@ export async function saveAdminSurveyDraft(
       ((regionQuestionCounts.groups > 0 ||
         regionQuestionCounts.operationalRegions > 0 ||
         regionQuestionCounts.profileQuestions > 0) &&
-        version.surveyUsage !== "onboarding")
+        version.surveyUsage !== "onboarding" &&
+        version.surveyUsage !== "registration")
     )
       return "invalid" as const;
     const content = surveyVersionContentSchema.parse(
@@ -565,7 +585,8 @@ export async function publishAdminSurveyVersion(
       ((regionQuestionCounts.groups > 0 ||
         regionQuestionCounts.operationalRegions > 0 ||
         regionQuestionCounts.profileQuestions > 0) &&
-        version.surveyUsage !== "onboarding") ||
+        version.surveyUsage !== "onboarding" &&
+        version.surveyUsage !== "registration") ||
       (regionQuestionCounts.groups > 0 &&
         regionDirectoryOptions.regionGroups.length === 0) ||
       (regionQuestionCounts.operationalRegions > 0 &&

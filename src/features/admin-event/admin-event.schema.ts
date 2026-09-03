@@ -273,6 +273,7 @@ export const adminEventTemplateDraftSchema = z
     coverImage: z._default(offeringImageSchema, null),
     hasCompletionCertificate: z.boolean(),
     accreditations: z._default(certificateAccreditationsSchema, []),
+    registrationSurveyVersionId: z.nullable(identifierSchema),
     defaultAdministratorIds: z
       .array(identifierSchema)
       .check(
@@ -794,6 +795,12 @@ export interface AdminEventTemplateDetail {
       version: number;
       type: "event" | "shared";
     }>;
+    registrationSurveys: Array<{
+      id: string;
+      surveyId: string;
+      title: string;
+      version: number;
+    }>;
     resources: Array<{ id: string; title: string; version: number }>;
   };
 }
@@ -913,9 +920,11 @@ export type AdminEventMutationResult =
         | "template_version_not_deletable"
         | "registration_window_policy_invalid"
         | "regions_not_confirmed"
+        | "registration_questionnaire_regions_incompatible"
         | "region_code_in_use"
         | "region_not_retirable"
         | "event_too_short"
+        | "registration_questionnaire_requires_registration"
         | "occurrence_not_publishable";
       minimumDurationMinutes?: number;
     };

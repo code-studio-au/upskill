@@ -117,6 +117,7 @@ export interface AdminEventOccurrenceOperations {
     status: "draft" | "published" | "cancelled" | "completed" | "archived";
     templateTitle: string;
     templateVersion: number;
+    registrationSurveyVersionId: string | null;
     deliveryMode: "in_person" | "virtual";
     registrationMode:
       | "open_entry"
@@ -183,6 +184,13 @@ export interface AdminEventOccurrenceOperations {
       | "verified_domain"
       | "administrator_override";
     status: EventRegistrationStatus;
+    registrationQuestionnaireStatus:
+      | "not_required"
+      | "not_started"
+      | "assigned"
+      | "in_progress"
+      | "completed"
+      | "waived";
     regionId: string | null;
     regionName: string | null;
     profileRegionId: string | null;

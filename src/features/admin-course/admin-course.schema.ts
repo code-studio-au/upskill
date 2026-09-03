@@ -149,6 +149,7 @@ export const adminCourseDraftSchema = z
     hasCompletionCertificate: z.boolean(),
     prerequisites: z.array(boundedText(240)).check(z.maxLength(20)),
     accreditations: certificateAccreditationsSchema,
+    registrationSurveyVersionId: z.nullable(identifierSchema),
     sections: z.array(adminCourseSectionSchema).check(z.maxLength(100)),
   })
   .check(
@@ -249,6 +250,13 @@ interface AdminCourseSurveyOption {
   type: "elearning" | "shared";
 }
 
+interface AdminCourseRegistrationSurveyOption {
+  id: string;
+  surveyId: string;
+  title: string;
+  version: number;
+}
+
 export interface AdminCourseDetail {
   course: {
     id: string;
@@ -276,6 +284,7 @@ export interface AdminCourseDetail {
     modules: Array<AdminCourseModuleOption>;
     resources: Array<AdminCourseResourceOption>;
     surveys: Array<AdminCourseSurveyOption>;
+    registrationSurveys: Array<AdminCourseRegistrationSurveyOption>;
   };
 }
 
@@ -287,6 +296,13 @@ export interface AdminCourseRosterDirectory {
     learnerEmail: string;
     courseVersion: number;
     state: "active" | "completed" | "expired" | "removed";
+    registrationQuestionnaireStatus:
+      | "not_required"
+      | "not_started"
+      | "assigned"
+      | "in_progress"
+      | "completed"
+      | "waived";
     enrolledAt: string;
     completedAt: string | null;
     expiresAt: string | null;

@@ -151,6 +151,7 @@ async function loadDraftStructure(
   versionId: string,
   slug: string,
   content: CourseContent,
+  registrationSurveyVersionId: string | null,
 ): Promise<AdminCourseDraft> {
   const [rows, communicationRows] = await Promise.all([
     transaction
@@ -271,6 +272,7 @@ async function loadDraftStructure(
     hasCompletionCertificate: content.hasCompletionCertificate,
     prerequisites: content.prerequisites,
     accreditations: content.accreditations,
+    registrationSurveyVersionId,
     sections: [...sections.values()],
   });
 }
@@ -353,7 +355,13 @@ export async function findAdminCourse(
   if (!course) return null;
   const versions = await database
     .selectFrom("course_version")
-    .select(["id", "version", "publishedAt", "content"])
+    .select([
+      "id",
+      "version",
+      "publishedAt",
+      "content",
+      "registrationSurveyVersionId",
+    ])
     .where("courseId", "=", courseId)
     .orderBy("version", "desc")
     .execute();
@@ -364,84 +372,119 @@ export async function findAdminCourse(
   if (courseVersionId && !version) return null;
   if (!version) throw new Error("Course has no version");
   const content = courseContentSchema.parse(version.content);
-  const [draft, counts, modules, resources, surveys, emailAuthoring] =
-    await Promise.all([
-      loadDraftStructure(database, course.id, version.id, course.slug, content),
-      referenceCounts(database, course.id),
-      database
-        .selectFrom("scorm_package_version")
-        .innerJoin(
-          "learning_activity_version",
-          "learning_activity_version.id",
-          "scorm_package_version.id",
-        )
-        .innerJoin(
-          "learning_activity",
-          "learning_activity.id",
-          "learning_activity_version.activityId",
-        )
-        .select([
-          "scorm_package_version.id",
-          "learning_activity.id as packageId",
-          "learning_activity.title",
-          "learning_activity_version.version",
-        ])
-        .where("scorm_package_version.status", "=", "ready")
-        .orderBy("learning_activity.title")
-        .orderBy("learning_activity_version.version", "desc")
-        .execute(),
-      database
-        .selectFrom("learning_resource_version")
-        .innerJoin(
-          "learning_activity_version",
-          "learning_activity_version.id",
-          "learning_resource_version.id",
-        )
-        .innerJoin(
-          "learning_activity",
-          "learning_activity.id",
-          "learning_activity_version.activityId",
-        )
-        .select([
-          "learning_resource_version.id",
-          "learning_activity.id as resourceId",
-          "learning_activity.title",
-          "learning_resource_version.displayName",
-          "learning_resource_version.description",
-          "learning_activity_version.version",
-          "learning_resource_version.sourceBytes",
-        ])
-        .orderBy("learning_activity.title")
-        .orderBy("learning_activity_version.version", "desc")
-        .execute(),
-      database
-        .selectFrom("survey_version")
-        .innerJoin(
-          "learning_activity_version",
-          "learning_activity_version.id",
-          "survey_version.id",
-        )
-        .innerJoin(
-          "learning_activity",
-          "learning_activity.id",
-          "learning_activity_version.activityId",
-        )
-        .select([
-          "survey_version.id",
-          "learning_activity.id as surveyId",
-          "learning_activity.title",
-          sql<"elearning" | "shared">`learning_activity."surveyType"`.as(
-            "type",
-          ),
-          "learning_activity_version.version",
-        ])
-        .where("learning_activity_version.publishedAt", "is not", null)
-        .where("learning_activity.surveyType", "in", ["elearning", "shared"])
-        .orderBy("learning_activity.title")
-        .orderBy("learning_activity_version.version", "desc")
-        .execute(),
-      findScheduleEmailAuthoringContext("offering_course"),
-    ]);
+  const [
+    draft,
+    counts,
+    modules,
+    resources,
+    surveys,
+    registrationSurveys,
+    emailAuthoring,
+  ] = await Promise.all([
+    loadDraftStructure(
+      database,
+      course.id,
+      version.id,
+      course.slug,
+      content,
+      version.registrationSurveyVersionId,
+    ),
+    referenceCounts(database, course.id),
+    database
+      .selectFrom("scorm_package_version")
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "scorm_package_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "scorm_package_version.id",
+        "learning_activity.id as packageId",
+        "learning_activity.title",
+        "learning_activity_version.version",
+      ])
+      .where("scorm_package_version.status", "=", "ready")
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity_version.version", "desc")
+      .execute(),
+    database
+      .selectFrom("learning_resource_version")
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "learning_resource_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "learning_resource_version.id",
+        "learning_activity.id as resourceId",
+        "learning_activity.title",
+        "learning_resource_version.displayName",
+        "learning_resource_version.description",
+        "learning_activity_version.version",
+        "learning_resource_version.sourceBytes",
+      ])
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity_version.version", "desc")
+      .execute(),
+    database
+      .selectFrom("survey_version")
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "survey_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "survey_version.id",
+        "learning_activity.id as surveyId",
+        "learning_activity.title",
+        sql<"elearning" | "shared">`learning_activity."surveyType"`.as("type"),
+        "learning_activity_version.version",
+      ])
+      .where("learning_activity_version.publishedAt", "is not", null)
+      .where("learning_activity.surveyType", "in", ["elearning", "shared"])
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity_version.version", "desc")
+      .execute(),
+    database
+      .selectFrom("survey_version")
+      .innerJoin(
+        "learning_activity_version",
+        "learning_activity_version.id",
+        "survey_version.id",
+      )
+      .innerJoin(
+        "learning_activity",
+        "learning_activity.id",
+        "learning_activity_version.activityId",
+      )
+      .select([
+        "survey_version.id",
+        "learning_activity.id as surveyId",
+        "learning_activity.title",
+        "learning_activity_version.version",
+      ])
+      .where("learning_activity_version.publishedAt", "is not", null)
+      .where("learning_activity.surveyUsage", "=", "registration")
+      .orderBy("learning_activity.title")
+      .orderBy("learning_activity_version.version", "desc")
+      .execute(),
+    findScheduleEmailAuthoringContext("offering_course"),
+  ]);
   return {
     course: {
       ...course,
@@ -465,7 +508,7 @@ export async function findAdminCourse(
     draft,
     emailTemplates: emailAuthoring.templates,
     emailVariableGroups: emailAuthoring.variableGroups,
-    library: { modules, resources, surveys },
+    library: { modules, resources, surveys, registrationSurveys },
   };
 }
 
@@ -489,6 +532,11 @@ export async function findAdminCourseRoster(
       "enrollment.courseVersionId",
     )
     .innerJoin("user", "user.id", "enrollment.userId")
+    .leftJoin(
+      "registration_questionnaire_assignment as registration_assignment",
+      "registration_assignment.enrollmentId",
+      "enrollment.id",
+    )
     .where("course_version.courseId", "=", input.courseId)
     .$if(input.q.length > 0, (builder) =>
       builder.where((expression) =>
@@ -515,6 +563,8 @@ export async function findAdminCourseRoster(
       "enrollment.expiresAt",
       "enrollment.removedAt",
       "course_version.version as courseVersion",
+      "course_version.registrationSurveyVersionId",
+      "registration_assignment.status as registrationQuestionnaireStatus",
       "user.id as learnerId",
       "user.name as learnerName",
       "user.email as learnerEmail",
@@ -542,6 +592,10 @@ export async function findAdminCourseRoster(
             : enrollment.status === "completed"
               ? "completed"
               : "active",
+      registrationQuestionnaireStatus:
+        enrollment.registrationSurveyVersionId === null
+          ? "not_required"
+          : (enrollment.registrationQuestionnaireStatus ?? "not_started"),
       enrolledAt: enrollment.enrolledAt.toISOString(),
       completedAt: enrollment.completedAt?.toISOString() ?? null,
       expiresAt: enrollment.expiresAt?.toISOString() ?? null,
@@ -585,6 +639,9 @@ async function validateDraftReferences(
     accreditation.logoAssetId ? [accreditation.logoAssetId] : [],
   );
   const coverImageIds = draft.coverImage ? [draft.coverImage.assetId] : [];
+  const registrationSurveyIds = draft.registrationSurveyVersionId
+    ? [draft.registrationSurveyVersionId]
+    : [];
   const [
     modules,
     resources,
@@ -592,6 +649,7 @@ async function validateDraftReferences(
     emailVersions,
     accreditationLogos,
     coverImages,
+    registrationSurveys,
   ] = await Promise.all([
     moduleIds.length === 0
       ? []
@@ -661,6 +719,25 @@ async function validateDraftReferences(
           .select("id")
           .where("id", "in", coverImageIds)
           .execute(),
+    registrationSurveyIds.length === 0
+      ? []
+      : transaction
+          .selectFrom("survey_version")
+          .innerJoin(
+            "learning_activity_version",
+            "learning_activity_version.id",
+            "survey_version.id",
+          )
+          .innerJoin(
+            "learning_activity",
+            "learning_activity.id",
+            "learning_activity_version.activityId",
+          )
+          .select("survey_version.id")
+          .where("survey_version.id", "in", registrationSurveyIds)
+          .where("learning_activity_version.publishedAt", "is not", null)
+          .where("learning_activity.surveyUsage", "=", "registration")
+          .execute(),
   ]);
   return (
     new Set(modules.map(({ id }) => id)).size === new Set(moduleIds).size &&
@@ -671,7 +748,9 @@ async function validateDraftReferences(
     new Set(accreditationLogos.map(({ id }) => id)).size ===
       new Set(accreditationLogoIds).size &&
     new Set(coverImages.map(({ id }) => id)).size ===
-      new Set(coverImageIds).size
+      new Set(coverImageIds).size &&
+    new Set(registrationSurveys.map(({ id }) => id)).size ===
+      new Set(registrationSurveyIds).size
   );
 }
 
@@ -895,7 +974,10 @@ export async function saveAdminCourseDraft(
           .executeTakeFirstOrThrow();
         await transaction
           .updateTable("course_version")
-          .set({ content: contentFromDraft(draft) })
+          .set({
+            content: contentFromDraft(draft),
+            registrationSurveyVersionId: draft.registrationSurveyVersionId,
+          })
           .where("id", "=", draft.versionId)
           .executeTakeFirstOrThrow();
         await replaceDraftStructure(transaction, draft, administrator.id);
@@ -939,7 +1021,13 @@ export async function createAdminCourseVersion(
       if (course.status === "archived") return { status: "conflict" } as const;
       const versions = await transaction
         .selectFrom("course_version")
-        .select(["id", "version", "publishedAt", "content"])
+        .select([
+          "id",
+          "version",
+          "publishedAt",
+          "content",
+          "registrationSurveyVersionId",
+        ])
         .where("courseId", "=", courseId)
         .orderBy("version", "desc")
         .execute();
@@ -959,6 +1047,7 @@ export async function createAdminCourseVersion(
           courseId,
           version: nextVersion,
           content: source.content,
+          registrationSurveyVersionId: source.registrationSurveyVersionId,
           publishedAt: null,
         })
         .execute();
@@ -968,6 +1057,7 @@ export async function createAdminCourseVersion(
         source.id,
         course.slug,
         courseContentSchema.parse(source.content),
+        source.registrationSurveyVersionId,
       );
       const draft: AdminCourseDraft = {
         ...sourceDraft,

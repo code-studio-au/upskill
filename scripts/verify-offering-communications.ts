@@ -163,6 +163,7 @@ try {
         listInStore: true,
         coverImage: null,
         hasCompletionCertificate: false,
+        registrationSurveyVersionId: null,
         prerequisites: [],
         accreditations: [],
         sections: [
@@ -559,6 +560,7 @@ try {
         description: "Communication event description",
         coverImage: null,
         hasCompletionCertificate: true,
+        registrationSurveyVersionId: null,
         accreditations: [],
         defaultAdministratorIds: [actor.id],
         regions: [],

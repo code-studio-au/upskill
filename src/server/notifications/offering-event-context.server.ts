@@ -4,6 +4,7 @@ import type { Transaction } from "kysely";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { getEmailTemplateContract } from "./email-template-contracts";
+import { eventRegistrationQuestionnaireComplete } from "#/server/registration/registration-questionnaire-access.server";
 
 export interface EventNotificationRecipient {
   userId: string;
@@ -86,6 +87,75 @@ function emptyEventVariables(): Record<string, string> {
   );
 }
 
+async function hasEventStaffVirtualAccess(
+  transaction: Transaction<Database>,
+  eventOccurrenceId: string,
+  userId: string,
+): Promise<boolean> {
+  const [administrator, presenter, coordinator] = await Promise.all([
+    transaction
+      .selectFrom("event_admin_assignment")
+      .select("id")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .where("userId", "=", userId)
+      .where("endedAt", "is", null)
+      .executeTakeFirst(),
+    transaction
+      .selectFrom("event_presenter_assignment")
+      .select("id")
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .where("userId", "=", userId)
+      .where("endedAt", "is", null)
+      .executeTakeFirst(),
+    transaction
+      .selectFrom("event_coordinator_assignment as assignment")
+      .innerJoin(
+        "event_occurrence_region as occurrenceRegion",
+        "occurrenceRegion.id",
+        "assignment.eventOccurrenceRegionId",
+      )
+      .select("assignment.id")
+      .where("occurrenceRegion.eventOccurrenceId", "=", eventOccurrenceId)
+      .where("occurrenceRegion.retiredAt", "is", null)
+      .where("assignment.userId", "=", userId)
+      .where("assignment.endedAt", "is", null)
+      .executeTakeFirst(),
+  ]);
+  return Boolean(administrator || presenter || coordinator);
+}
+
+async function hasLearnerVirtualAccess(
+  transaction: Transaction<Database>,
+  eventOccurrenceId: string,
+  recipient: EventNotificationRecipient,
+): Promise<boolean> {
+  if (!recipient.registrationId || !recipient.participationId) return false;
+  const participation = await transaction
+    .selectFrom("event_registration as registration")
+    .innerJoin(
+      "event_participation as participation",
+      "participation.registrationId",
+      "registration.id",
+    )
+    .select("participation.id")
+    .where("registration.id", "=", recipient.registrationId)
+    .where("registration.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("registration.userId", "=", recipient.userId)
+    .where("registration.status", "=", "selected")
+    .where("participation.id", "=", recipient.participationId)
+    .where("participation.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("participation.userId", "=", recipient.userId)
+    .executeTakeFirst();
+  return Boolean(
+    participation &&
+    (await eventRegistrationQuestionnaireComplete(
+      transaction,
+      eventOccurrenceId,
+      recipient.userId,
+    )),
+  );
+}
+
 export async function buildEventNotificationVariables(
   transaction: Transaction<Database>,
   input: {
@@ -126,6 +196,13 @@ export async function buildEventNotificationVariables(
     ])
     .where("occurrence.id", "=", input.eventOccurrenceId)
     .executeTakeFirstOrThrow();
+  const [learnerVirtualAccessReady, staffVirtualAccessReady] =
+    await Promise.all([
+      hasLearnerVirtualAccess(transaction, event.id, input.recipient),
+      hasEventStaffVirtualAccess(transaction, event.id, input.recipient.userId),
+    ]);
+  const recipientVirtualAccessReady =
+    learnerVirtualAccessReady || staffVirtualAccessReady;
   const recipientProfile = await transaction
     .selectFrom("user")
     .leftJoin(
@@ -219,6 +296,7 @@ export async function buildEventNotificationVariables(
 
   const environment = getServerEnv();
   const baseUrl = new URL(environment.APP_ORIGIN).origin;
+  const eventDashboardUrl = `${baseUrl}/my-events/${event.id}`;
   const variables = emptyEventVariables();
   variables["user.fullName"] = input.recipient.name;
   variables["user.firstName"] = firstName(input.recipient.name);
@@ -267,7 +345,9 @@ export async function buildEventNotificationVariables(
     "Virtual event";
   variables["event.venueName"] = event.venueName ?? "";
   variables["event.venueAddress"] = event.venueAddress ?? "";
-  variables["event.virtualJoinUrl"] = event.virtualJoinUrl ?? "";
+  variables["event.virtualJoinUrl"] = recipientVirtualAccessReady
+    ? (event.virtualJoinUrl ?? "")
+    : eventDashboardUrl;
   variables["event.capacity"] = String(event.capacity);
   variables["event.availablePlaces"] = String(
     Math.max(0, event.capacity - event.confirmedCount),
@@ -309,7 +389,7 @@ export async function buildEventNotificationVariables(
     : event.hasCompletionCertificate
       ? "Available after completion"
       : "Not available";
-  variables["event.dashboardUrl"] = `${baseUrl}/my-events/${event.id}`;
+  variables["event.dashboardUrl"] = eventDashboardUrl;
   variables["event.operationsUrl"] =
     `${baseUrl}/admin/events/instances/${event.id}`;
   variables["event.publicUrl"] = `${baseUrl}/events/${event.slug}`;
@@ -371,8 +451,9 @@ export async function buildEventNotificationVariables(
       [venueName, venueAddress].filter(Boolean).join(", ") || "Virtual session";
     variables["session.venueName"] = venueName ?? "";
     variables["session.venueAddress"] = venueAddress ?? "";
-    variables["session.virtualJoinUrl"] =
-      selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "";
+    variables["session.virtualJoinUrl"] = recipientVirtualAccessReady
+      ? (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
+      : eventDashboardUrl;
     variables["session.presenterNames"] = list(
       sessionPresenters.map((person) => person.name.trim() || person.email),
       "To be confirmed",

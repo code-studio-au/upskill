@@ -10,7 +10,6 @@ import {
   type EventOperationsResult,
   type EventSurveyQrPresentationResult,
 } from "#/features/event-operations/event-operations.schema";
-
 export const getAssignedEventOperations = createServerFn({
   method: "GET",
 }).handler(async (): Promise<AssignedEventOperationsResult> => {

@@ -12,6 +12,10 @@ import { getDatabase } from "#/server/db/database.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { getServerEnv } from "#/server/env.server";
 import { getObjectBytes } from "#/server/storage/object-storage.server";
+import {
+  courseRegistrationQuestionnaireComplete,
+  eventRegistrationQuestionnaireComplete,
+} from "#/server/registration/registration-questionnaire-access.server";
 
 export type LearnerCertificateResult =
   | { status: "generated"; bytes: Uint8Array; displayName: string }
@@ -89,6 +93,14 @@ export async function getLearnerCompletionCertificate(
 
   const content = courseContentSchema.parse(completion.content);
   if (!content.hasCompletionCertificate) return { status: "not-found" };
+  if (
+    !(await courseRegistrationQuestionnaireComplete(
+      getDatabase(),
+      enrollmentId,
+      user.id,
+    ))
+  )
+    return { status: "not-found" };
 
   const completionReference = createHash("sha256")
     .update(`${enrollmentId}:${completion.completedAt.toISOString()}`)
@@ -139,6 +151,7 @@ export async function getLearnerEventCompletionCertificate(
     )
     .select([
       "participation.completedAt",
+      "participation.eventOccurrenceId",
       "occurrence.title",
       "version.hasCompletionCertificate",
       "version.summary",
@@ -150,6 +163,14 @@ export async function getLearnerEventCompletionCertificate(
     .where("participation.completedAt", "is not", null)
     .executeTakeFirst();
   if (!completion?.completedAt || !completion.hasCompletionCertificate)
+    return { status: "not-found" };
+  if (
+    !(await eventRegistrationQuestionnaireComplete(
+      getDatabase(),
+      completion.eventOccurrenceId,
+      user.id,
+    ))
+  )
     return { status: "not-found" };
   const completionReference = createHash("sha256")
     .update(`${eventParticipationId}:${completion.completedAt.toISOString()}`)

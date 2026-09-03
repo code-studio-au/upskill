@@ -75,6 +75,7 @@
     "db:verify:admin-access-grants": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-admin-access-grants.ts",
     "db:verify:admin-course-authoring": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-admin-course-authoring.ts",
     "db:verify:surveys": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-survey-workflow.ts",
+    "db:verify:registration-questionnaires": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-registration-questionnaires.ts",
     "db:verify:onboarding": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-onboarding-workflow.ts",
     "db:verify:learner-profile": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-learner-profile.ts",
     "db:verify:resources": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-resource-library.ts",

@@ -21,6 +21,7 @@ import {
   resendAdminEventAccountSetup,
 } from "#/server/functions/admin-event-operations";
 import { registrationRegionDecisionLabel } from "./event-registration-region-decision";
+import { AdminRegistrationQuestionnaireDialog } from "#/features/registration/AdminRegistrationQuestionnaireDialog";
 
 const AdminEventRegistrationRegionDialog = lazy(async () => {
   const module = await import("./AdminEventRegistrationRegionDialog");
@@ -66,6 +67,8 @@ export function AdminEventRegistrationTable({
   ) => Promise<void>;
 }) {
   const [regionRegistration, setRegionRegistration] =
+    useState<Registration | null>(null);
+  const [questionnaireRegistration, setQuestionnaireRegistration] =
     useState<Registration | null>(null);
   const data = useMemo(
     () =>
@@ -164,6 +167,27 @@ export function AdminEventRegistrationTable({
           },
         }),
         registrationColumn.display({
+          id: "registrationQuestionnaire",
+          header: "Registration details",
+          cell: ({ row }) => (
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              disabled={
+                row.original.registrationQuestionnaireStatus === "not_required"
+              }
+              onClick={() => {
+                setQuestionnaireRegistration(row.original);
+              }}
+            >
+              {row.original.registrationQuestionnaireStatus.replaceAll(
+                "_",
+                " ",
+              )}
+            </Button>
+          ),
+        }),
+        registrationColumn.display({
           id: "priority",
           header: "Priority",
           cell: ({ row }) => {
@@ -195,8 +219,13 @@ export function AdminEventRegistrationTable({
           header: "Coordinator review",
           cell: ({ row }) => {
             const registration = row.original;
+            const registrationDetailsReady =
+              registration.registrationQuestionnaireStatus === "not_required" ||
+              registration.registrationQuestionnaireStatus === "completed" ||
+              registration.registrationQuestionnaireStatus === "waived";
             const disabled =
               !mutationsAvailable ||
+              !registrationDetailsReady ||
               !registration.reviewRoundId ||
               registration.reviewLocked;
             return (
@@ -240,6 +269,10 @@ export function AdminEventRegistrationTable({
           header: "Final decision",
           cell: ({ row }) => {
             const registration = row.original;
+            const registrationDetailsReady =
+              registration.registrationQuestionnaireStatus === "not_required" ||
+              registration.registrationQuestionnaireStatus === "completed" ||
+              registration.registrationQuestionnaireStatus === "waived";
             const pendingDecision =
               (registration.status === "submitted" &&
                 !registration.reviewRoundId) ||
@@ -249,7 +282,9 @@ export function AdminEventRegistrationTable({
             const canDecide =
               mutationsAvailable &&
               !registration.finalDecisionLocked &&
-              (pendingDecision || Boolean(registration.finalDecidedAt));
+              (!registrationDetailsReady ||
+                pendingDecision ||
+                Boolean(registration.finalDecidedAt));
             if (!canDecide)
               return registration.finalDecidedAt ||
                 registration.status === "coordinator_declined"
@@ -260,12 +295,16 @@ export function AdminEventRegistrationTable({
                 label={registration.finalDecidedAt ? "Change" : "Decide"}
                 ariaLabel={`Final decision for ${registration.name}`}
                 loading={Boolean(processingId?.endsWith(registration.id))}
-                items={[
-                  { value: "selected", label: "Confirm place" },
-                  { value: "waitlisted", label: "Move to waitlist" },
-                  { value: "not_selected", label: "Not selected" },
-                  { value: "cancelled", label: "Cancel" },
-                ]}
+                items={
+                  registrationDetailsReady
+                    ? [
+                        { value: "selected", label: "Confirm place" },
+                        { value: "waitlisted", label: "Move to waitlist" },
+                        { value: "not_selected", label: "Not selected" },
+                        { value: "cancelled", label: "Cancel" },
+                      ]
+                    : [{ value: "cancelled", label: "Cancel" }]
+                }
                 onSelect={(decision) => {
                   void action(`${decision}-${registration.id}`, () =>
                     decideAdminEventFinalRegistration({
@@ -316,6 +355,26 @@ export function AdminEventRegistrationTable({
             }}
           />
         </Suspense>
+      ) : null}
+      {questionnaireRegistration ? (
+        <AdminRegistrationQuestionnaireDialog
+          learnerName={questionnaireRegistration.name}
+          target={{
+            kind: "event",
+            eventOccurrenceId: workspace.occurrence.id,
+            registrationId: questionnaireRegistration.id,
+          }}
+          onClose={() => {
+            setQuestionnaireRegistration(null);
+          }}
+          onChanged={() => {
+            void action(
+              "refresh-registration-questionnaire",
+              () => Promise.resolve({ status: "ready" }),
+              "Registration requirement waived.",
+            );
+          }}
+        />
       ) : null}
     </>
   );

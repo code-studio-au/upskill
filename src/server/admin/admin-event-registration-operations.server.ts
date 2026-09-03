@@ -24,6 +24,10 @@ import {
   enqueueRegionalListLockedNotifications,
   supersedeEventOperationalCommunicationSchedules,
 } from "#/server/notifications/event-operational-communication.server";
+import {
+  eventRegistrationQuestionnaireComplete,
+  eventRegistrationQuestionnaireSubmittedAt,
+} from "#/server/registration/registration-questionnaire-access.server";
 
 function domainFromEmail(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -306,6 +310,14 @@ export async function decideAdminEventCoordinatorRegistration(
         .forUpdate()
         .executeTakeFirst();
       if (!registration) return "not-found" as const;
+      if (
+        !(await eventRegistrationQuestionnaireComplete(
+          transaction,
+          input.eventOccurrenceId,
+          registration.userId,
+        ))
+      )
+        return "invalid-transition" as const;
       if (!registration.eventOccurrenceRegionId || !registration.reviewRoundId)
         return "invalid-transition" as const;
       const review = await transaction
@@ -446,6 +458,15 @@ export async function decideAdminEventFinalRegistration(
       if (occurrence.status !== "published")
         return "invalid-transition" as const;
       if (registration.status === decision) return "unchanged" as const;
+      if (
+        decision !== "cancelled" &&
+        !(await eventRegistrationQuestionnaireComplete(
+          transaction,
+          eventOccurrenceId,
+          registration.userId,
+        ))
+      )
+        return "invalid-transition" as const;
       const attendance = await transaction
         .selectFrom("event_participation as participation")
         .innerJoin(
@@ -522,7 +543,13 @@ export async function decideAdminEventFinalRegistration(
         })
         .where("id", "=", registration.id)
         .execute();
-      if (decision === "selected")
+      if (decision === "selected") {
+        const detailsSubmittedAt =
+          await eventRegistrationQuestionnaireSubmittedAt(
+            transaction,
+            eventOccurrenceId,
+            registration.userId,
+          );
         await transaction
           .insertInto("event_participation")
           .values({
@@ -533,7 +560,7 @@ export async function decideAdminEventFinalRegistration(
             mode: "registered",
             nameSnapshot: registration.nameSnapshot,
             emailSnapshot: registration.emailSnapshot,
-            detailsSubmittedAt: null,
+            detailsSubmittedAt,
             joinDisclosedAt: null,
             checkedInAt: null,
             createdAt: now,
@@ -542,6 +569,7 @@ export async function decideAdminEventFinalRegistration(
             conflict.column("registrationId").doNothing(),
           )
           .execute();
+      }
       const transitionId = `event_registration_transition_${randomUUID()}`;
       await transaction
         .insertInto("event_registration_transition")

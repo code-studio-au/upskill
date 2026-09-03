@@ -15,6 +15,8 @@ import {
 import { certificateAccreditationsSchema } from "#/features/catalog/accreditation";
 import { offeringImageSchema } from "#/features/shared/offering-image";
 import { offeringTopicSchema } from "#/features/shared/offering-topic";
+import { eventRegistrationQuestionnaireRequired } from "#/features/registration/registration-questionnaire-domain";
+import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import {
   findReservedEventPlaces,
@@ -203,8 +205,11 @@ type PublishedEventRow = {
   accreditations: unknown;
   deliveryMode: EventSummary["deliveryMode"];
   registrationMode: EventSummary["registrationMode"];
+  approvalMode: "automatic" | "manual";
   startsAt: Date;
   endsAt: Date;
+  registrationOpensAt: Date | null;
+  registrationClosesAt: Date | null;
   timezone: string;
   priceCents: number | null;
   salePriceCents: number | null;
@@ -216,6 +221,7 @@ type PublishedEventRow = {
   venueName: string | null;
   venueAddress: string | null;
   publicAccessReference: string | null;
+  registrationSurveyVersionId: string | null;
 };
 
 function toEventSummary(
@@ -263,8 +269,11 @@ function publishedEventQuery() {
       "occurrence.title",
       "occurrence.deliveryMode",
       "occurrence.registrationMode",
+      "occurrence.approvalMode",
       "occurrence.startsAt",
       "occurrence.endsAt",
+      "occurrence.registrationOpensAt",
+      "occurrence.registrationClosesAt",
       "occurrence.timezone",
       "occurrence.priceCents",
       "occurrence.salePriceCents",
@@ -281,6 +290,7 @@ function publishedEventQuery() {
       "version.coverImage",
       "version.hasCompletionCertificate",
       "version.accreditations",
+      "version.registrationSurveyVersionId",
       "guestAccess.publicReference as publicAccessReference",
     ])
     .where("occurrence.status", "=", "published")
@@ -342,36 +352,113 @@ export async function findEvents(search: CatalogSearch): Promise<{
 
 export async function findEventBySlug(
   slug: string,
+  user: AuthenticatedUser | null = null,
 ): Promise<EventDetail | null> {
   const row = (await publishedEventQuery()
     .where("occurrence.slug", "=", slug)
     .executeTakeFirst()) as PublishedEventRow | undefined;
   if (!row) return null;
   const database = getDatabase();
-  const [sessions, regions, reservedPlaces] = await Promise.all([
-    database
-      .selectFrom("event_session")
-      .select(["title", "startsAt", "endsAt", "venueName"])
-      .where("eventOccurrenceId", "=", row.id)
-      .orderBy("position")
-      .execute(),
-    database
-      .selectFrom("event_occurrence_region as occurrenceRegion")
-      .innerJoin(
-        "coordination_region as region",
-        "region.id",
-        "occurrenceRegion.regionId",
-      )
-      .leftJoin("coordination_region as parent", "parent.id", "region.parentId")
-      .select(["region.code", "region.name", "parent.name as groupName"])
-      .where("occurrenceRegion.eventOccurrenceId", "=", row.id)
-      .where("occurrenceRegion.retiredAt", "is", null)
-      .orderBy("occurrenceRegion.position")
-      .execute(),
-    findReservedEventPlaces(database, row.id, new Date()),
-  ]);
+  const now = new Date();
+  const [sessions, regions, reservedPlaces, learnerRegistration] =
+    await Promise.all([
+      database
+        .selectFrom("event_session")
+        .select(["title", "startsAt", "endsAt", "venueName"])
+        .where("eventOccurrenceId", "=", row.id)
+        .orderBy("position")
+        .execute(),
+      database
+        .selectFrom("event_occurrence_region as occurrenceRegion")
+        .innerJoin(
+          "coordination_region as region",
+          "region.id",
+          "occurrenceRegion.regionId",
+        )
+        .leftJoin(
+          "coordination_region as parent",
+          "parent.id",
+          "region.parentId",
+        )
+        .select(["region.code", "region.name", "parent.name as groupName"])
+        .where("occurrenceRegion.eventOccurrenceId", "=", row.id)
+        .where("occurrenceRegion.retiredAt", "is", null)
+        .orderBy("occurrenceRegion.position")
+        .execute(),
+      findReservedEventPlaces(database, row.id, now),
+      user
+        ? database
+            .selectFrom("event_registration as registration")
+            .leftJoin(
+              "event_participation as participation",
+              "participation.registrationId",
+              "registration.id",
+            )
+            .leftJoin(
+              "registration_questionnaire_assignment as questionnaire",
+              (join) =>
+                join
+                  .onRef(
+                    "questionnaire.eventOccurrenceId",
+                    "=",
+                    "registration.eventOccurrenceId",
+                  )
+                  .onRef("questionnaire.userId", "=", "registration.userId"),
+            )
+            .select([
+              "registration.status",
+              "participation.id as participationId",
+              "questionnaire.status as questionnaireStatus",
+            ])
+            .where("registration.eventOccurrenceId", "=", row.id)
+            .where("registration.userId", "=", user.id)
+            .executeTakeFirst()
+        : Promise.resolve(undefined),
+    ]);
+  let eligible = row.registrationMode !== "required_restricted";
+  if (row.registrationMode === "required_restricted" && user?.emailVerified) {
+    const separator = user.email.lastIndexOf("@");
+    const domain =
+      separator > 0 && separator < user.email.length - 1
+        ? user.email.slice(separator + 1).toLocaleLowerCase("en-AU")
+        : null;
+    eligible = Boolean(
+      domain &&
+      (await database
+        .selectFrom("event_occurrence_domain")
+        .select("domain")
+        .where("eventOccurrenceId", "=", row.id)
+        .where("domain", "=", domain)
+        .executeTakeFirst()),
+    );
+  }
+  const registrationAvailability =
+    row.registrationOpensAt !== null && row.registrationOpensAt > now
+      ? "not_open"
+      : row.registrationClosesAt === null || row.registrationClosesAt <= now
+        ? "closed"
+        : row.approvalMode === "automatic" && row.confirmedCount >= row.capacity
+          ? "full"
+          : row.registrationMode === "required_restricted" && !user
+            ? "authentication_required"
+            : eligible
+              ? "available"
+              : "ineligible";
+  const learnerRegistrationAction = learnerRegistration
+    ? eventRegistrationQuestionnaireRequired({
+        registrationSurveyVersionId: row.registrationSurveyVersionId,
+        questionnaireStatus: learnerRegistration.questionnaireStatus,
+        registrationStatus: learnerRegistration.status,
+      })
+      ? ("continue_registration" as const)
+      : learnerRegistration.status === "selected" &&
+          learnerRegistration.participationId !== null
+        ? ("open_event" as const)
+        : ("view_registration" as const)
+    : null;
   return {
     ...toEventSummary(row, reservedPlaces),
+    eventOccurrenceId: row.id,
     description: row.description,
     venueName: row.venueName,
     venueAddress: row.venueAddress,
@@ -379,6 +466,9 @@ export async function findEventBySlug(
     accreditations: certificateAccreditationsSchema.parse(row.accreditations),
     bulkPricing: bulkPricingSchema.parse(row.bulkPricing),
     publicAccessReference: row.publicAccessReference,
+    hasRegistrationQuestionnaire: Boolean(row.registrationSurveyVersionId),
+    learnerRegistrationAction,
+    registrationAvailability,
     regions,
     sessions: sessions.map((session) => ({
       ...session,

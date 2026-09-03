@@ -25,6 +25,7 @@ import {
   getAdminCourseRoster,
   removeAdminCourseEnrollment,
 } from "#/server/functions/admin-course";
+import { AdminRegistrationQuestionnaireDialog } from "#/features/registration/AdminRegistrationQuestionnaireDialog";
 import {
   adminCourseEnrollmentCreateSchema,
   type AdminCourseDetail,
@@ -60,6 +61,8 @@ export function AdminCourseRoster({
   const [error, setError] = useState<string | null>(null);
   const [removal, setRemoval] = useState<RosterEnrollment | null>(null);
   const [removalPending, setRemovalPending] = useState(false);
+  const [registrationDetail, setRegistrationDetail] =
+    useState<RosterEnrollment | null>(null);
   const publishedVersions = useMemo(
     () => detail.versions.filter((version) => version.publishedAt !== null),
     [detail.versions],
@@ -198,6 +201,26 @@ export function AdminCourseRoster({
           header: "Enrolled",
           cell: ({ row }) => formatLocalDate(row.original.enrolledAt),
         }),
+        rosterColumn.accessor("registrationQuestionnaireStatus", {
+          header: "Registration details",
+          cell: ({ row }) => (
+            <Button
+              size="compact-xs"
+              variant="subtle"
+              disabled={
+                row.original.registrationQuestionnaireStatus === "not_required"
+              }
+              onClick={() => {
+                setRegistrationDetail(row.original);
+              }}
+            >
+              {row.original.registrationQuestionnaireStatus.replaceAll(
+                "_",
+                " ",
+              )}
+            </Button>
+          ),
+        }),
         rosterColumn.display({
           id: "actions",
           header: "Actions",
@@ -243,6 +266,24 @@ export function AdminCourseRoster({
 
       {message ? <Alert color="green">{message}</Alert> : null}
       {error ? <Alert color="red">{error}</Alert> : null}
+
+      {registrationDetail ? (
+        <AdminRegistrationQuestionnaireDialog
+          learnerName={registrationDetail.learnerName}
+          target={{
+            kind: "course",
+            courseId: detail.course.id,
+            enrollmentId: registrationDetail.enrollmentId,
+          }}
+          onClose={() => {
+            setRegistrationDetail(null);
+          }}
+          onChanged={() => {
+            setRevision((current) => current + 1);
+            setMessage("Registration requirement waived.");
+          }}
+        />
+      ) : null}
 
       <form
         className={classes.enrollmentForm}

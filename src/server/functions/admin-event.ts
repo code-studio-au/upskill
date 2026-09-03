@@ -318,6 +318,15 @@ export const createAdminEventOccurrence = createServerFn({ method: "POST" })
     if (outcome.status === "not-found") return { status: "not-found" };
     if (outcome.status === "slug-in-use")
       return { status: "conflict", reason: "slug_in_use" };
+    if (
+      outcome.status === "conflict" &&
+      "reason" in outcome &&
+      outcome.reason === "registration-questionnaire-requires-registration"
+    )
+      return {
+        status: "conflict",
+        reason: "registration_questionnaire_requires_registration",
+      };
     if (outcome.status === "conflict" && "reason" in outcome)
       return {
         status: "conflict",
@@ -360,6 +369,11 @@ export const updateAdminEventOccurrence = createServerFn({ method: "POST" })
     if (outcome === "not-found") return { status: "not-found" };
     if (outcome === "slug-in-use")
       return { status: "conflict", reason: "slug_in_use" };
+    if (outcome === "registration-questionnaire-requires-registration")
+      return {
+        status: "conflict",
+        reason: "registration_questionnaire_requires_registration",
+      };
     if (outcome === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {
@@ -408,6 +422,16 @@ export const rescheduleAdminEventOccurrence = createServerFn({ method: "POST" })
       };
     if (outcome === "regions-not-confirmed")
       return { status: "conflict", reason: "regions_not_confirmed" };
+    if (outcome === "registration-questionnaire-regions-incompatible")
+      return {
+        status: "conflict",
+        reason: "registration_questionnaire_regions_incompatible",
+      };
+    if (outcome === "registration-questionnaire-requires-registration")
+      return {
+        status: "conflict",
+        reason: "registration_questionnaire_requires_registration",
+      };
     if (outcome === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {
@@ -433,6 +457,11 @@ export const publishAdminEventOccurrence = createServerFn({ method: "POST" })
       request.user,
     );
     if (outcome === "not-found") return { status: "not-found" };
+    if (outcome === "registration-questionnaire-requires-registration")
+      return {
+        status: "conflict",
+        reason: "registration_questionnaire_requires_registration",
+      };
     if (outcome === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {

@@ -25,6 +25,7 @@ const validDraft = {
   listInStore: true,
   coverImage: null,
   hasCompletionCertificate: false,
+  registrationSurveyVersionId: null,
   prerequisites: [],
   accreditations: [],
   sections: [
@@ -74,6 +75,21 @@ describe("admin course authoring inputs", () => {
       adminCourseDraftSchema.parse({
         ...validDraft,
         salePriceCents: validDraft.priceCents,
+      }),
+    ).toThrow();
+  });
+
+  it("rejects bulk tiers that do not increase quantity and reduce unit price", () => {
+    expect(() =>
+      adminCourseDraftSchema.parse({
+        ...validDraft,
+        bulkPricing: {
+          enabled: true,
+          tiers: [
+            { minimumQuantity: 5, unitPriceCents: 7_000 },
+            { minimumQuantity: 5, unitPriceCents: 7_500 },
+          ],
+        },
       }),
     ).toThrow();
   });

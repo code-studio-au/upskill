@@ -16,7 +16,10 @@ import {
   useRouter,
 } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { checkoutSessionSearchSchema } from "#/features/checkout/checkout.schema";
+import {
+  checkoutSessionSearchSchema,
+  shouldRedirectToEventRegistrationQuestionnaire,
+} from "#/features/checkout/checkout.schema";
 import { getCourseCheckoutStatus } from "#/server/functions/checkout";
 import classes from "./checkout.success.module.css";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
@@ -38,7 +41,16 @@ export const Route = createFileRoute("/checkout/success")({
       });
     }
     if (result.status === "not-found") throw notFound();
-    return result.checkout;
+    const checkout = result.checkout;
+    if (
+      checkout.offeringType === "event" &&
+      shouldRedirectToEventRegistrationQuestionnaire(checkout)
+    )
+      throw redirect({
+        to: "/my-events/$eventOccurrenceId",
+        params: { eventOccurrenceId: checkout.eventOccurrenceId },
+      });
+    return checkout;
   },
   head: () => ({ meta: [{ title: "Checkout status — Upskill" }] }),
   component: CheckoutSuccessPage,

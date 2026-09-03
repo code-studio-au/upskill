@@ -189,9 +189,11 @@ function CourseSection({
                         className={classes.courseLink}
                       >
                         <Button component="span" fullWidth>
-                          {course.state === "completed"
-                            ? "Review course"
-                            : "Continue course"}
+                          {course.registrationRequired
+                            ? "Complete registration details"
+                            : course.state === "completed"
+                              ? "Review course"
+                              : "Continue course"}
                         </Button>
                       </Link>
                       {course.certificate ? (

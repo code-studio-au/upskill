@@ -9,6 +9,7 @@ import type {
   LearnerEventsDashboard,
 } from "#/features/learner/learner.schema";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import { eventRegistrationQuestionnaireRequired } from "#/features/registration/registration-questionnaire-domain";
 import { getDatabase } from "#/server/db/database.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { findEventParticipantProgressForOccurrences } from "#/server/events/event-operations.server";
@@ -32,6 +33,11 @@ export async function findLearnerDashboard(
       "enrollment.courseVersionId",
     )
     .innerJoin("course", "course.id", "course_version.courseId")
+    .leftJoin(
+      "registration_questionnaire_assignment as registration_questionnaire",
+      "registration_questionnaire.enrollmentId",
+      "enrollment.id",
+    )
     .select([
       "enrollment.id as enrollmentId",
       "enrollment.status",
@@ -43,6 +49,8 @@ export async function findLearnerDashboard(
       "course.slug",
       "course_version.version as courseVersion",
       "course_version.content",
+      "course_version.registrationSurveyVersionId",
+      "registration_questionnaire.status as registrationQuestionnaireStatus",
     ])
     .where("enrollment.userId", "=", user.id)
     .orderBy("enrollment.enrolledAt", "desc")
@@ -67,6 +75,10 @@ export async function findLearnerDashboard(
       : row.expiresAt && row.expiresAt <= now
         ? "expired"
         : row.status;
+    const registrationQuestionnaireComplete =
+      row.registrationSurveyVersionId === null ||
+      row.registrationQuestionnaireStatus === "completed" ||
+      row.registrationQuestionnaireStatus === "waived";
     return {
       enrollmentId: row.enrollmentId,
       slug: row.slug,
@@ -81,9 +93,11 @@ export async function findLearnerDashboard(
       certificate:
         row.status === "completed" &&
         row.completedAt !== null &&
-        content.hasCompletionCertificate
+        content.hasCompletionCertificate &&
+        registrationQuestionnaireComplete
           ? { enrollmentId: row.enrollmentId }
           : null,
+      registrationRequired: !registrationQuestionnaireComplete,
       progress: {
         completedItems: progress.completedItems,
         totalItems: progress.totalItems,
@@ -206,6 +220,13 @@ export async function findLearnerEventsDashboard(
       "event_template.id",
       "event_template_version.eventTemplateId",
     )
+    .leftJoin(
+      "registration_questionnaire_assignment as questionnaire",
+      (join) =>
+        join
+          .onRef("questionnaire.eventOccurrenceId", "=", "event_occurrence.id")
+          .on("questionnaire.userId", "=", user.id),
+    )
     .select([
       "event_occurrence.id as eventOccurrenceId",
       "event_occurrence.slug",
@@ -214,6 +235,9 @@ export async function findLearnerEventsDashboard(
       "event_template_version.id as eventTemplateVersionId",
       "event_template_version.version as eventTemplateVersion",
       "event_template_version.hasCompletionCertificate",
+      "event_template_version.registrationSurveyVersionId",
+      "questionnaire.status as questionnaireStatus",
+      "event_occurrence.status as occurrenceStatus",
       "event_occurrence.deliveryMode",
       "event_occurrence.registrationMode",
       "event_occurrence.approvalMode",
@@ -333,6 +357,25 @@ export async function findLearnerEventsDashboard(
     const full =
       event.approvalMode === "automatic" &&
       event.confirmedCount >= event.capacity;
+    const canRegister =
+      !participationMode &&
+      !registrationStatus &&
+      eligible &&
+      !notOpen &&
+      !closed &&
+      !full;
+    const registrationQuestionnaireComplete =
+      event.registrationSurveyVersionId === null ||
+      event.questionnaireStatus === "completed" ||
+      event.questionnaireStatus === "waived";
+    const registrationRequired =
+      event.occurrenceStatus === "published" &&
+      eventRegistrationQuestionnaireRequired({
+        registrationSurveyVersionId: event.registrationSurveyVersionId,
+        questionnaireStatus: event.questionnaireStatus,
+        registrationStatus,
+      }) &&
+      (registrationStatus !== null || Boolean(participation) || canRegister);
     return [
       {
         eventOccurrenceId: event.eventOccurrenceId,
@@ -348,16 +391,13 @@ export async function findLearnerEventsDashboard(
         participationMode,
         completedAt: participation?.completedAt?.toISOString() ?? null,
         certificate:
-          participation?.completedAt && event.hasCompletionCertificate
+          participation?.completedAt &&
+          event.hasCompletionCertificate &&
+          registrationQuestionnaireComplete
             ? { eventParticipationId: participation.id }
             : null,
-        canRegister:
-          !participationMode &&
-          !registrationStatus &&
-          eligible &&
-          !notOpen &&
-          !closed &&
-          !full,
+        canRegister,
+        registrationRequired,
         registrationUnavailableReason: notOpen
           ? "not_open"
           : closed

@@ -26,6 +26,7 @@ import {
   type StoredProgress,
 } from "#/server/learning/learner-survey.server";
 import { validateAnswer } from "#/server/learning/survey-answer-validation";
+import { eventRegistrationQuestionnaireComplete } from "#/server/registration/registration-questionnaire-access.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 
 async function findEventSurveyAccess(
@@ -150,6 +151,14 @@ export async function findLearnerEventSurvey(
     userId: user.id,
   });
   if (!row) return null;
+  if (
+    !(await eventRegistrationQuestionnaireComplete(
+      database,
+      row.eventOccurrenceId,
+      user.id,
+    ))
+  )
+    return "unavailable";
   if (!row.available || !row.publishedAt) return "unavailable";
   const [response, progress] = await Promise.all([
     database
@@ -212,6 +221,14 @@ export async function advanceLearnerEventSurvey(
         userId: user.id,
       });
       if (!row) return { status: "not-found" } as const;
+      if (
+        !(await eventRegistrationQuestionnaireComplete(
+          transaction,
+          row.eventOccurrenceId,
+          user.id,
+        ))
+      )
+        return { status: "unavailable" } as const;
       if (!row.available || !row.publishedAt)
         return { status: "unavailable" } as const;
       const content = parseSurveyVersionContent(row.content);

@@ -37,6 +37,7 @@ import {
 } from "#/server/admin/admin-survey.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { up as reconcileHistoricalOperationalNotificationCatchup } from "#/server/db/migrations/0084_suppress_historical_operational_notification_catchup";
 import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
 import { findEventOperationsWorkspace } from "#/server/events/event-operations.server";
 import {
@@ -776,6 +777,7 @@ try {
           "Verifies exact-version occurrence provenance and durable staff attribution.",
         coverImage: null,
         hasCompletionCertificate: true,
+        registrationSurveyVersionId: null,
         accreditations: [],
         defaultAdministratorIds: [administrator.id],
         regions: [
@@ -1178,6 +1180,219 @@ try {
     .where("eventOccurrenceRegionId", "=", occurrenceRegion.id)
     .where("round", "=", 1)
     .executeTakeFirstOrThrow();
+  const rollbackHistoricalScheduleVerification = new Error(
+    "ROLLBACK_HISTORICAL_SCHEDULE_VERIFICATION",
+  );
+  try {
+    await database.transaction().execute(async (transaction) => {
+      const reconciliationNow = new Date();
+      const pastReviewId = `verify_historical_past_review_${suffix}`;
+      const futureReviewId = `verify_historical_future_review_${suffix}`;
+      const pastRegistrationClosesAt = new Date(
+        reconciliationNow.getTime() - 2 * 60 * 60 * 1_000,
+      );
+      const pastCoordinatorLockAt = new Date(
+        reconciliationNow.getTime() - 60 * 60 * 1_000,
+      );
+      const futureRegistrationClosesAt = new Date(
+        reconciliationNow.getTime() + 60 * 60 * 1_000,
+      );
+      const futureCoordinatorLockAt = new Date(
+        reconciliationNow.getTime() + 2 * 60 * 60 * 1_000,
+      );
+      await transaction
+        .insertInto("event_region_review_round")
+        .values([
+          {
+            id: pastReviewId,
+            eventOccurrenceRegionId: occurrenceRegion.id,
+            round: 8_004,
+            registrationClosesAt: pastRegistrationClosesAt,
+            coordinatorLockAt: pastCoordinatorLockAt,
+            lockedAt: null,
+            lockedByUserId: null,
+            lockSource: null,
+          },
+          {
+            id: futureReviewId,
+            eventOccurrenceRegionId: occurrenceRegion.id,
+            round: 8_005,
+            registrationClosesAt: futureRegistrationClosesAt,
+            coordinatorLockAt: futureCoordinatorLockAt,
+            lockedAt: null,
+            lockedByUserId: null,
+            lockSource: null,
+          },
+        ])
+        .execute();
+      await transaction
+        .insertInto("event_operational_communication_schedule")
+        .values(
+          [
+            {
+              reviewId: pastReviewId,
+              kind: "regional_review_due" as const,
+              dueAt: pastRegistrationClosesAt,
+            },
+            {
+              reviewId: pastReviewId,
+              kind: "regional_lock_due" as const,
+              dueAt: pastCoordinatorLockAt,
+            },
+            {
+              reviewId: futureReviewId,
+              kind: "regional_review_due" as const,
+              dueAt: futureRegistrationClosesAt,
+            },
+            {
+              reviewId: futureReviewId,
+              kind: "regional_lock_due" as const,
+              dueAt: futureCoordinatorLockAt,
+            },
+          ].map((schedule) => ({
+            id: `event_operational_communication_schedule_migration_0081_${schedule.reviewId}_${schedule.kind}`,
+            logicalId: `${schedule.reviewId}:${schedule.kind}`,
+            revision: 1,
+            eventOccurrenceId: operationalEventOccurrenceId,
+            eventRegionReviewRoundId: schedule.reviewId,
+            kind: schedule.kind,
+            dueAt: schedule.dueAt,
+            status: "pending" as const,
+            attempts: 0,
+            availableAt: schedule.dueAt,
+            lastErrorCode: null,
+            recipientCount: null,
+            processedAt: null,
+            supersededAt: null,
+            createdAt: reconciliationNow,
+            updatedAt: reconciliationNow,
+          })),
+        )
+        .execute();
+
+      await reconcileHistoricalOperationalNotificationCatchup(transaction);
+
+      assert.deepEqual(
+        await transaction
+          .selectFrom("event_region_review_round")
+          .select(["id", "lockedAt", "lockSource"])
+          .where("id", "in", [pastReviewId, futureReviewId])
+          .orderBy("id")
+          .execute()
+          .then((rows) =>
+            rows.map((row) => ({
+              id: row.id,
+              locked: row.lockedAt !== null,
+              lockSource: row.lockSource,
+            })),
+          ),
+        [
+          {
+            id: futureReviewId,
+            locked: false,
+            lockSource: null,
+          },
+          {
+            id: pastReviewId,
+            locked: true,
+            lockSource: "deadline",
+          },
+        ],
+      );
+      assert.deepEqual(
+        await transaction
+          .selectFrom("event_operational_communication_schedule")
+          .select([
+            "eventRegionReviewRoundId",
+            "kind",
+            "status",
+            "recipientCount",
+          ])
+          .where("eventRegionReviewRoundId", "in", [
+            pastReviewId,
+            futureReviewId,
+          ])
+          .orderBy("eventRegionReviewRoundId")
+          .orderBy("kind")
+          .execute(),
+        [
+          {
+            eventRegionReviewRoundId: futureReviewId,
+            kind: "regional_lock_due",
+            status: "pending",
+            recipientCount: null,
+          },
+          {
+            eventRegionReviewRoundId: futureReviewId,
+            kind: "regional_review_due",
+            status: "pending",
+            recipientCount: null,
+          },
+          {
+            eventRegionReviewRoundId: pastReviewId,
+            kind: "regional_lock_due",
+            status: "completed",
+            recipientCount: 0,
+          },
+          {
+            eventRegionReviewRoundId: pastReviewId,
+            kind: "regional_review_due",
+            status: "completed",
+            recipientCount: 0,
+          },
+        ],
+      );
+      assert.deepEqual(
+        await transaction
+          .selectFrom("audit_event")
+          .select(["action", "reason", "metadata"])
+          .where("subjectId", "=", pastReviewId)
+          .executeTakeFirstOrThrow(),
+        {
+          action: "event_region_review.locked",
+          reason: "historical_schedule_reconciled",
+          metadata: {
+            source: "deadline",
+            reconciledBy: "migration_0084",
+            notificationsSuppressed: true,
+          },
+        },
+      );
+      assert.equal(
+        await transaction
+          .selectFrom("outbox_event")
+          .select(sql<number>`count(*)::integer`.as("count"))
+          .where("topic", "=", "audit.log_requested")
+          .where(
+            "payload",
+            "@>",
+            JSON.stringify({
+              entityId: pastReviewId,
+              reasonCode: "historical_schedule_reconciled",
+            }),
+          )
+          .executeTakeFirstOrThrow()
+          .then((row) => row.count),
+        1,
+      );
+      assert.equal(
+        await transaction
+          .selectFrom("notification")
+          .select(sql<number>`count(*)::integer`.as("count"))
+          .where(
+            "payload",
+            "@>",
+            JSON.stringify({ eventRegionReviewRoundId: pastReviewId }),
+          )
+          .executeTakeFirstOrThrow()
+          .then((row) => row.count),
+        0,
+      );
+      throw rollbackHistoricalScheduleVerification;
+    });
+  } catch (error) {
+    if (error !== rollbackHistoricalScheduleVerification) throw error;
+  }
   const lockedAt = new Date();
   await database
     .updateTable("event_region_review_round")
@@ -2637,11 +2852,18 @@ try {
       }),
     )
     .executeTakeFirstOrThrow();
-  const regionlessInvitationUrl = (
+  const regionlessInvitationVariables = (
     regionlessInvitationNotification.payload as {
       variables: Record<string, string>;
     }
-  ).variables["event.invitationUrl"];
+  ).variables;
+  assert.equal(
+    regionlessInvitationVariables["event.virtualJoinUrl"],
+    `${new URL(process.env.APP_ORIGIN ?? "http://localhost:3000").origin}/my-events/${eventOccurrenceId}`,
+    "An unaccepted learner invitation must not disclose the direct Event join URL",
+  );
+  const regionlessInvitationUrl =
+    regionlessInvitationVariables["event.invitationUrl"];
   assert.ok(regionlessInvitationUrl);
   const regionlessInvitationToken = new URL(
     regionlessInvitationUrl,
@@ -2842,7 +3064,7 @@ try {
   );
   assert.deepEqual(
     await acceptEventLateRegistrationInvitation(lateInvitationToken, presenter),
-    { status: "registered", eventOccurrenceId },
+    { status: "registered", eventOccurrenceId, registrationRequired: false },
   );
   assert.deepEqual(
     await findEventLateRegistrationInvitation(lateInvitationToken, presenter),
@@ -2942,7 +3164,11 @@ try {
       reconciledInvitationToken,
       coordinator,
     ),
-    { status: "already-registered", eventOccurrenceId },
+    {
+      status: "already-registered",
+      eventOccurrenceId,
+      registrationRequired: false,
+    },
   );
   assert.deepEqual(
     await database

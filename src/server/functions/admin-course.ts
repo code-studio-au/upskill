@@ -15,7 +15,6 @@ import {
   type AdminCourseResult,
   type AdminCourseSummary,
 } from "#/features/admin-course/admin-course.schema";
-
 export const getAdminCourses = createServerFn({ method: "GET" }).handler(
   async (): Promise<AdminCourseResult<Array<AdminCourseSummary>>> => {
     const { getAdministratorRequest } =

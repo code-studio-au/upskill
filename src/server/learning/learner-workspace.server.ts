@@ -5,6 +5,7 @@ import type { LearnerWorkspaceResult } from "#/features/learning/learning.schema
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { findEffectiveModuleCompletion } from "#/server/learning/progress-overrides.server";
+import { findCourseRegistrationQuestionnaire } from "#/server/registration/learner-registration-questionnaire.server";
 
 const legacySectionDetails = {
   "pre-learning": {
@@ -67,6 +68,17 @@ export async function findLearnerWorkspace(
   ) {
     return { status: "expired", courseSlug: row.courseSlug };
   }
+  const questionnaire = await findCourseRegistrationQuestionnaire(
+    row.enrollmentId,
+    user,
+  );
+  if (
+    questionnaire &&
+    typeof questionnaire === "object" &&
+    !questionnaire.submittedAt
+  )
+    return { status: "registration-required", questionnaire };
+  if (questionnaire === null) return { status: "not-found" };
 
   const content = courseContentSchema.parse(row.content);
   const moduleCompletion = await findEffectiveModuleCompletion(

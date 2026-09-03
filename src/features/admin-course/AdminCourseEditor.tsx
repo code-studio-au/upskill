@@ -793,33 +793,64 @@ export function AdminCourseEditor({
       ) : null}
 
       {editorView === "program" ? (
-        <Suspense fallback={<LoadingSpinner label="Loading programme" />}>
-          <AdminCourseProgramEditor
-            detail={detail}
-            draft={draft}
-            editable={editable}
-            setDraft={setDraft}
-            onAddItem={(sectionId) => {
-              setItemSectionId(sectionId);
-              setItemKind("scorm");
-              setItemReference(null);
-            }}
-            onUploadPdf={(sectionId) => {
-              setResourceSectionId(sectionId);
-              resourceForm.reset();
-            }}
-            onEditEmail={(sectionId, itemId) => {
-              setEmailSelection({ sectionId, itemId });
-              setEditorView("email");
-            }}
-            onRemoveSection={(sectionId) => {
-              setConfirmation({ action: "delete-section", sectionId });
-            }}
-            onRemoveItem={(sectionId, itemId) => {
-              setConfirmation({ action: "delete-item", sectionId, itemId });
-            }}
-          />
-        </Suspense>
+        <Stack gap="lg">
+          <Paper withBorder radius="lg" p={{ base: "md", sm: "lg" }}>
+            <Stack gap="sm">
+              <Title order={2}>Registration requirements</Title>
+              <Text c="dimmed">
+                Learners complete this form before access. Published versions
+                remain pinned to the selected survey version.
+              </Text>
+              <MantineNativeSelect
+                label="Registration form"
+                value={draft.registrationSurveyVersionId ?? ""}
+                disabled={!editable}
+                data={[
+                  { value: "", label: "No registration form" },
+                  ...detail.library.registrationSurveys.map((survey) => ({
+                    value: survey.id,
+                    label: `${survey.title} · v${String(survey.version)}`,
+                  })),
+                ]}
+                onChange={(event) => {
+                  const registrationSurveyVersionId =
+                    event.currentTarget.value || null;
+                  setDraft((current) => ({
+                    ...current,
+                    registrationSurveyVersionId,
+                  }));
+                }}
+              />
+            </Stack>
+          </Paper>
+          <Suspense fallback={<LoadingSpinner label="Loading programme" />}>
+            <AdminCourseProgramEditor
+              detail={detail}
+              draft={draft}
+              editable={editable}
+              setDraft={setDraft}
+              onAddItem={(sectionId) => {
+                setItemSectionId(sectionId);
+                setItemKind("scorm");
+                setItemReference(null);
+              }}
+              onUploadPdf={(sectionId) => {
+                setResourceSectionId(sectionId);
+                resourceForm.reset();
+              }}
+              onEditEmail={(sectionId, itemId) => {
+                setEmailSelection({ sectionId, itemId });
+                setEditorView("email");
+              }}
+              onRemoveSection={(sectionId) => {
+                setConfirmation({ action: "delete-section", sectionId });
+              }}
+              onRemoveItem={(sectionId, itemId) => {
+                setConfirmation({ action: "delete-item", sectionId, itemId });
+              }}
+            />
+          </Suspense>
+        </Stack>
       ) : null}
 
       {editorView === "learners" ? (

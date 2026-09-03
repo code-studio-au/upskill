@@ -12,6 +12,10 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
+import {
+  courseRegistrationQuestionnaireComplete,
+  eventRegistrationQuestionnaireComplete,
+} from "#/server/registration/registration-questionnaire-access.server";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 import {
@@ -102,6 +106,14 @@ export async function createScormLaunch(
         .executeTakeFirst();
       if (!enrollment) return { status: "not-found" } as const;
       if (!accessAvailable(enrollment))
+        return { status: "unavailable" } as const;
+      if (
+        !(await courseRegistrationQuestionnaireComplete(
+          transaction,
+          enrollment.id,
+          user.id,
+        ))
+      )
         return { status: "unavailable" } as const;
 
       const content = courseContentSchema.parse(enrollment.content);
@@ -294,6 +306,14 @@ export async function createEventScormLaunch(
         .forUpdate("participation")
         .executeTakeFirst();
       if (!item) return { status: "not-found" } as const;
+      if (
+        !(await eventRegistrationQuestionnaireComplete(
+          transaction,
+          item.eventOccurrenceId,
+          user.id,
+        ))
+      )
+        return { status: "unavailable" } as const;
       if (
         item.packageStatus !== "ready" ||
         ["cancelled", "archived"].includes(item.occurrenceStatus)

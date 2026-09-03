@@ -141,7 +141,7 @@ export function AdminEventOccurrenceEditor({
         title: "",
         slug: "",
         deliveryMode: "virtual",
-        registrationMode: "open_entry",
+        registrationMode: "required_unrestricted",
         approvalMode: "automatic",
         timezone: defaultTimezone,
         startsAt: schedule.startsAt,
@@ -216,9 +216,13 @@ export function AdminEventOccurrenceEditor({
                 : result.status === "conflict" &&
                     result.reason === "regions_not_confirmed"
                   ? "Confirm regional coverage."
-                  : result.status === "conflict"
-                    ? "The event cannot be saved with this configuration."
-                    : "The event could not be saved.",
+                  : result.status === "conflict" &&
+                      result.reason ===
+                        "registration_questionnaire_regions_incompatible"
+                    ? "The attached registration survey does not include every selected operational region. Create a new Event Template version with an updated registration survey."
+                    : result.status === "conflict"
+                      ? "The event cannot be saved with this configuration."
+                      : "The event could not be saved.",
         );
         return;
       }
