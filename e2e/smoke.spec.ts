@@ -1883,6 +1883,11 @@ test("platform administrators can inspect learner progress", async ({
     });
     const occurrenceId = storedOccurrence.rows[0]?.id;
     if (!occurrenceId) throw new Error("Expected the E2E Event Occurrence");
+    await page.goto(
+      `/admin/events/instances/${encodeURIComponent(occurrenceId)}?view=configuration`,
+    );
+    await expect(page.getByLabel("Delivery method")).toBeDisabled();
+    await expect(page.getByLabel("Virtual delivery provider")).toBeDisabled();
     const administrator = await authoringDatabase.query<{
       id: string;
       name: string;

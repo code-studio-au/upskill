@@ -70,6 +70,11 @@ function optionalText(value: string): string | null {
   return trimmed || null;
 }
 
+type LiveKitCapacityConfiguration = Pick<
+  EnabledLiveKitConfiguration,
+  "approvedMaxParticipants"
+>;
+
 function sessionDeliverySnapshot(
   input: Pick<
     AdminEventOccurrenceCreateInput,
@@ -695,6 +700,7 @@ export async function rescheduleAdminEventOccurrence(
     };
   },
   administrator: AuthenticatedUser,
+  liveKitConfiguration: LiveKitCapacityConfiguration | null = getEnabledLiveKitConfiguration(),
 ): Promise<
   | "rescheduled"
   | "not-found"
@@ -702,6 +708,8 @@ export async function rescheduleAdminEventOccurrence(
   | "slug-in-use"
   | "invalid-window-policy"
   | "regions-not-confirmed"
+  | "livekit-unavailable"
+  | "livekit-capacity-exceeded"
   | "registration-questionnaire-requires-registration"
   | "registration-questionnaire-regions-incompatible"
 > {
@@ -767,7 +775,7 @@ export async function rescheduleAdminEventOccurrence(
       ] = await Promise.all([
         transaction
           .selectFrom("event_session")
-          .select(["id", "startsAt", "endsAt"])
+          .select(["id", "startsAt", "endsAt", "livekitCapacityHeadroom"])
           .where("eventOccurrenceId", "=", eventOccurrenceId)
           .execute(),
         transaction
@@ -812,6 +820,21 @@ export async function rescheduleAdminEventOccurrence(
           )
           .execute(),
       ]);
+      if (
+        occurrence.virtualDeliveryProvider === "livekit" &&
+        next.capacity !== occurrence.capacity
+      ) {
+        if (!liveKitConfiguration) return "livekit-unavailable" as const;
+        const maximumCapacityHeadroom = Math.max(
+          0,
+          ...sessions.map((session) => session.livekitCapacityHeadroom ?? 0),
+        );
+        if (
+          next.capacity + maximumCapacityHeadroom >
+          liveKitConfiguration.approvedMaxParticipants
+        )
+          return "livekit-capacity-exceeded" as const;
+      }
       const activeRegions = occurrenceRegions.filter(
         (region) => !region.retiredAt,
       );
@@ -1492,10 +1515,7 @@ export async function rescheduleAdminEventOccurrence(
 export async function publishAdminEventOccurrence(
   eventOccurrenceId: string,
   administrator: AuthenticatedUser,
-  liveKitConfiguration: Pick<
-    EnabledLiveKitConfiguration,
-    "approvedMaxParticipants"
-  > | null = getEnabledLiveKitConfiguration(),
+  liveKitConfiguration: LiveKitCapacityConfiguration | null = getEnabledLiveKitConfiguration(),
 ): Promise<
   | "published"
   | "not-found"

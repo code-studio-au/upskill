@@ -414,6 +414,7 @@ export function AdminEventOccurrenceEditor({
                         { value: "virtual", label: "Virtual" },
                       ]}
                       value={field.state.value}
+                      disabled={isPublished}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
                         const value = event.currentTarget
@@ -489,6 +490,7 @@ export function AdminEventOccurrenceEditor({
                                 },
                               ]}
                               value={field.state.value ?? ""}
+                              disabled={isPublished}
                               onBlur={field.handleBlur}
                               onChange={(event) => {
                                 const virtualDeliveryProvider = event

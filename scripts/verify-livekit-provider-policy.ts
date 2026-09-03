@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import {
   createAdminEventOccurrence,
   publishAdminEventOccurrence,
+  rescheduleAdminEventOccurrence,
 } from "#/server/admin/admin-event-occurrence.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import {
@@ -279,6 +280,50 @@ try {
     "published",
   );
 
+  const rescheduleInput = {
+    occurrence: { ...occurrenceInput, capacity: 21 },
+    registrationWindowPolicy: "keep" as const,
+    regionsConfirmed: true as const,
+    regionalCoverage: { regions: [], retirements: [] },
+  };
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      created.eventOccurrenceId,
+      rescheduleInput,
+      administrator,
+      null,
+    ),
+    "livekit-unavailable",
+  );
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      created.eventOccurrenceId,
+      rescheduleInput,
+      administrator,
+      { approvedMaxParticipants: 25 },
+    ),
+    "livekit-capacity-exceeded",
+  );
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      created.eventOccurrenceId,
+      rescheduleInput,
+      administrator,
+      { approvedMaxParticipants: 26 },
+    ),
+    "rescheduled",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_occurrence")
+        .select("capacity")
+        .where("id", "=", created.eventOccurrenceId)
+        .executeTakeFirstOrThrow()
+    ).capacity,
+    21,
+  );
+
   await database
     .updateTable("event_template_session_definition")
     .set({ livekitAdmissionMode: "manual" })
@@ -309,7 +354,7 @@ try {
   );
 
   console.log(
-    "Verified LiveKit provider backfill, versioned defaults, exact-session snapshots, publication gating, and database constraints",
+    "Verified LiveKit provider backfill, versioned defaults, exact-session snapshots, publication and reschedule gating, and database constraints",
   );
 } finally {
   if (!migrationRestored)
@@ -321,6 +366,15 @@ try {
   if (migrationRestored) {
     await database
       .deleteFrom("event_admin_assignment")
+      .where("eventOccurrenceId", "in", (builder) =>
+        builder
+          .selectFrom("event_occurrence")
+          .select("id")
+          .where("eventTemplateVersionId", "=", ids.version),
+      )
+      .execute();
+    await database
+      .deleteFrom("event_occurrence_reschedule")
       .where("eventOccurrenceId", "in", (builder) =>
         builder
           .selectFrom("event_occurrence")
