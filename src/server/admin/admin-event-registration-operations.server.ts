@@ -24,7 +24,10 @@ import {
   enqueueRegionalListLockedNotifications,
   supersedeEventOperationalCommunicationSchedules,
 } from "#/server/notifications/event-operational-communication.server";
-import { eventRegistrationQuestionnaireSubmittedAt } from "#/server/registration/registration-questionnaire-access.server";
+import {
+  eventRegistrationQuestionnaireComplete,
+  eventRegistrationQuestionnaireSubmittedAt,
+} from "#/server/registration/registration-questionnaire-access.server";
 
 function domainFromEmail(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -307,6 +310,14 @@ export async function decideAdminEventCoordinatorRegistration(
         .forUpdate()
         .executeTakeFirst();
       if (!registration) return "not-found" as const;
+      if (
+        !(await eventRegistrationQuestionnaireComplete(
+          transaction,
+          input.eventOccurrenceId,
+          registration.userId,
+        ))
+      )
+        return "invalid-transition" as const;
       if (!registration.eventOccurrenceRegionId || !registration.reviewRoundId)
         return "invalid-transition" as const;
       const review = await transaction
@@ -447,6 +458,15 @@ export async function decideAdminEventFinalRegistration(
       if (occurrence.status !== "published")
         return "invalid-transition" as const;
       if (registration.status === decision) return "unchanged" as const;
+      if (
+        decision !== "cancelled" &&
+        !(await eventRegistrationQuestionnaireComplete(
+          transaction,
+          eventOccurrenceId,
+          registration.userId,
+        ))
+      )
+        return "invalid-transition" as const;
       const attendance = await transaction
         .selectFrom("event_participation as participation")
         .innerJoin(

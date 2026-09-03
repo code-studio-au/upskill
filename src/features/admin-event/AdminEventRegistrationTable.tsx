@@ -219,8 +219,13 @@ export function AdminEventRegistrationTable({
           header: "Coordinator review",
           cell: ({ row }) => {
             const registration = row.original;
+            const registrationDetailsReady =
+              registration.registrationQuestionnaireStatus === "not_required" ||
+              registration.registrationQuestionnaireStatus === "completed" ||
+              registration.registrationQuestionnaireStatus === "waived";
             const disabled =
               !mutationsAvailable ||
+              !registrationDetailsReady ||
               !registration.reviewRoundId ||
               registration.reviewLocked;
             return (
@@ -264,6 +269,10 @@ export function AdminEventRegistrationTable({
           header: "Final decision",
           cell: ({ row }) => {
             const registration = row.original;
+            const registrationDetailsReady =
+              registration.registrationQuestionnaireStatus === "not_required" ||
+              registration.registrationQuestionnaireStatus === "completed" ||
+              registration.registrationQuestionnaireStatus === "waived";
             const pendingDecision =
               (registration.status === "submitted" &&
                 !registration.reviewRoundId) ||
@@ -273,7 +282,9 @@ export function AdminEventRegistrationTable({
             const canDecide =
               mutationsAvailable &&
               !registration.finalDecisionLocked &&
-              (pendingDecision || Boolean(registration.finalDecidedAt));
+              (!registrationDetailsReady ||
+                pendingDecision ||
+                Boolean(registration.finalDecidedAt));
             if (!canDecide)
               return registration.finalDecidedAt ||
                 registration.status === "coordinator_declined"
@@ -284,12 +295,16 @@ export function AdminEventRegistrationTable({
                 label={registration.finalDecidedAt ? "Change" : "Decide"}
                 ariaLabel={`Final decision for ${registration.name}`}
                 loading={Boolean(processingId?.endsWith(registration.id))}
-                items={[
-                  { value: "selected", label: "Confirm place" },
-                  { value: "waitlisted", label: "Move to waitlist" },
-                  { value: "not_selected", label: "Not selected" },
-                  { value: "cancelled", label: "Cancel" },
-                ]}
+                items={
+                  registrationDetailsReady
+                    ? [
+                        { value: "selected", label: "Confirm place" },
+                        { value: "waitlisted", label: "Move to waitlist" },
+                        { value: "not_selected", label: "Not selected" },
+                        { value: "cancelled", label: "Cancel" },
+                      ]
+                    : [{ value: "cancelled", label: "Cancel" }]
+                }
                 onSelect={(decision) => {
                   void action(`${decision}-${registration.id}`, () =>
                     decideAdminEventFinalRegistration({

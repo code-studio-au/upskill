@@ -272,7 +272,8 @@ function LearnerEventCard({
       progressTitle="Event progress"
       actions={
         <>
-          {event.registrationStatus === "selected" ||
+          {event.registrationRequired ||
+          event.registrationStatus === "selected" ||
           event.participationMode === "open_entry" ? (
             <Stack gap="xs">
               {event.registrationRequired ? (
@@ -301,11 +302,11 @@ function LearnerEventCard({
               ) : null}
             </Stack>
           ) : null}
-          {!event.registrationStatus && !event.participationMode ? (
+          {!event.registrationRequired &&
+          !event.registrationStatus &&
+          !event.participationMode ? (
             <Stack gap="xs">
-              {event.canRegister &&
-              event.regions.length > 0 &&
-              !event.registrationRequired ? (
+              {event.canRegister && event.regions.length > 0 ? (
                 <MantineNativeSelect
                   label="Your region"
                   value={selectedRegion}
@@ -326,34 +327,22 @@ function LearnerEventCard({
                   required
                 />
               ) : null}
-              {event.canRegister && event.registrationRequired ? (
-                <Link
-                  to="/my-events/$eventOccurrenceId"
-                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
-                  className={classes.actionLink}
-                >
-                  <Button component="span" fullWidth>
-                    Start registration
-                  </Button>
-                </Link>
-              ) : (
-                <Button
-                  fullWidth
-                  disabled={
-                    !event.canRegister ||
-                    (event.regions.length > 0 && !selectedRegion)
-                  }
-                  loading={processing}
-                  onClick={() => {
-                    void onRegister(
-                      event.eventOccurrenceId,
-                      selectedRegion || null,
-                    );
-                  }}
-                >
-                  {unavailableLabel(event)}
-                </Button>
-              )}
+              <Button
+                fullWidth
+                disabled={
+                  !event.canRegister ||
+                  (event.regions.length > 0 && !selectedRegion)
+                }
+                loading={processing}
+                onClick={() => {
+                  void onRegister(
+                    event.eventOccurrenceId,
+                    selectedRegion || null,
+                  );
+                }}
+              >
+                {unavailableLabel(event)}
+              </Button>
             </Stack>
           ) : !event.participationMode &&
             event.registrationStatus !== "withdrawn" &&

@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
 import type { Transaction } from "kysely";
+import type { EventRegistrationStatus } from "#/features/admin-event/admin-event-operations.schema";
 import {
   type LearnerRegistrationQuestionnaire,
   type LearnerRegistrationQuestionnaireStepResult,
@@ -25,6 +26,7 @@ import {
 import { surveyPathItems } from "#/features/survey/survey-branching";
 import { normalizeInternationalPhone } from "#/features/profile/phone-number";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
+import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import {
@@ -57,6 +59,19 @@ interface AssignmentRow {
   currentItemId: string | null;
   startedAt: Date;
   submittedAt: Date | null;
+}
+
+interface EventRegistrationState {
+  id: string;
+  status: EventRegistrationStatus;
+  eventOccurrenceRegionId: string | null;
+  reviewRoundId: string | null;
+  coordinatorPriority: number | null;
+  coordinatorDecidedAt: Date | null;
+  finalDecidedAt: Date | null;
+  lockedInAt: Date | null;
+  regionMismatchAcknowledgedAt: Date | null;
+  regionalReviewWaivedAt: Date | null;
 }
 
 async function prefilledAnswers(
@@ -333,6 +348,7 @@ async function findEventAssignment(
 ): Promise<
   | LearnerRegistrationQuestionnaire
   | "complete"
+  | "cancelled"
   | "not-configured"
   | "unavailable"
   | null
@@ -398,6 +414,10 @@ async function findEventAssignment(
         .where("retiredAt", "is", null)
         .execute(),
     ]);
+    if (occurrence.status === "cancelled")
+      return registration || participation
+        ? ("cancelled" as const)
+        : ("unavailable" as const);
     if (!registration && !participation) {
       const now = new Date();
       if (
@@ -704,6 +724,7 @@ export async function advanceRegistrationQuestionnaire(
       )
         return { result: { status: "unavailable" } as const };
     }
+    let eventRegistration: EventRegistrationState | null = null;
     if (row.eventOccurrenceId) {
       const occurrence = await transaction
         .selectFrom("event_occurrence")
@@ -724,7 +745,18 @@ export async function advanceRegistrationQuestionnaire(
       const [registration, participation] = await Promise.all([
         transaction
           .selectFrom("event_registration")
-          .select("status")
+          .select([
+            "id",
+            "status",
+            "eventOccurrenceRegionId",
+            "reviewRoundId",
+            "coordinatorPriority",
+            "coordinatorDecidedAt",
+            "finalDecidedAt",
+            "lockedInAt",
+            "regionMismatchAcknowledgedAt",
+            "regionalReviewWaivedAt",
+          ])
           .where("eventOccurrenceId", "=", row.eventOccurrenceId)
           .where("userId", "=", user.id)
           .forUpdate()
@@ -736,6 +768,7 @@ export async function advanceRegistrationQuestionnaire(
           .where("userId", "=", user.id)
           .executeTakeFirst(),
       ]);
+      eventRegistration = registration ?? null;
       if (
         registration &&
         [
@@ -958,6 +991,28 @@ export async function advanceRegistrationQuestionnaire(
           result: { status: "invalid", message: profileUpdateError } as const,
         };
     }
+    const eventRegionChanged = Boolean(
+      completed &&
+      eventRegistration &&
+      eventRegistration.eventOccurrenceRegionId !== selectedOccurrenceRegionId,
+    );
+    if (
+      eventRegionChanged &&
+      eventRegistration?.eventOccurrenceRegionId &&
+      (eventRegistration.reviewRoundId ||
+        eventRegistration.coordinatorDecidedAt ||
+        eventRegistration.finalDecidedAt ||
+        eventRegistration.lockedInAt ||
+        eventRegistration.regionMismatchAcknowledgedAt ||
+        eventRegistration.regionalReviewWaivedAt)
+    )
+      return {
+        result: {
+          status: "invalid",
+          message:
+            "Your registration region can no longer be changed here. Ask an administrator to reassign it.",
+        } as const,
+      };
     await transaction
       .updateTable("registration_questionnaire_response")
       .set({
@@ -990,6 +1045,38 @@ export async function advanceRegistrationQuestionnaire(
         .where("eventOccurrenceId", "=", row.eventOccurrenceId)
         .where("userId", "=", user.id)
         .execute();
+      if (eventRegionChanged && eventRegistration) {
+        await transaction
+          .insertInto("event_registration_transition")
+          .values({
+            id: `event_registration_transition_${randomUUID()}`,
+            eventRegistrationId: eventRegistration.id,
+            fromStatus: eventRegistration.status,
+            toStatus: eventRegistration.status,
+            fromEventOccurrenceRegionId:
+              eventRegistration.eventOccurrenceRegionId,
+            toEventOccurrenceRegionId: selectedOccurrenceRegionId,
+            source: "learner",
+            actorUserId: user.id,
+            priority: eventRegistration.coordinatorPriority,
+            occurredAt: now,
+          })
+          .execute();
+        await recordDurableAuditEvent(transaction, {
+          actorUserId: user.id,
+          action: "event_registration.region_reassigned",
+          subjectType: "event_registration",
+          subjectId: eventRegistration.id,
+          aggregateId: row.eventOccurrenceId,
+          metadata: {
+            source: "registration_questionnaire",
+            fromEventOccurrenceRegionId:
+              eventRegistration.eventOccurrenceRegionId,
+            toEventOccurrenceRegionId: selectedOccurrenceRegionId,
+          },
+          createdAt: now,
+        });
+      }
       await transaction
         .updateTable("event_participation")
         .set({ detailsSubmittedAt: now })

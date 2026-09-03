@@ -108,6 +108,13 @@ async function cleanup(): Promise<void> {
     ])
     .execute();
   await database
+    .deleteFrom("event_registration_transition")
+    .where("eventRegistrationId", "in", [
+      ids.eventRegistration,
+      ids.zeroRegionEventRegistration,
+    ])
+    .execute();
+  await database
     .deleteFrom("event_registration")
     .where("id", "in", [ids.eventRegistration, ids.zeroRegionEventRegistration])
     .execute();
@@ -600,6 +607,10 @@ try {
     await import("#/server/learning/learner-workspace.server");
   const { findLearnerEventWorkspace } =
     await import("#/server/learning/learner-event-workspace.server");
+  const { findLearnerEventsDashboard } =
+    await import("#/server/learner/learner.server");
+  const { decideAdminEventFinalRegistration } =
+    await import("#/server/admin/admin-event-registration-operations.server");
   const { findEventBySlug } = await import("#/server/catalog/catalog.server");
 
   const catalogEvent = await findEventBySlug(
@@ -819,6 +830,65 @@ try {
   );
   await database
     .updateTable("event_registration")
+    .set({
+      status: "submitted",
+      finalDecidedAt: null,
+      finalDecidedByUserId: null,
+      lockedInAt: null,
+    })
+    .where("id", "=", ids.eventRegistration)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_occurrence")
+    .set({ confirmedCount: 0 })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  const pendingEvent = (await findLearnerEventsDashboard(user)).events.find(
+    (event) => event.eventOccurrenceId === ids.eventOccurrence,
+  );
+  assert.equal(pendingEvent?.registrationStatus, "submitted");
+  assert.equal(
+    pendingEvent.registrationRequired,
+    true,
+    "My Events must identify a pending questionnaire for an existing registration",
+  );
+  assert.equal(
+    await decideAdminEventFinalRegistration(
+      ids.eventOccurrence,
+      ids.eventRegistration,
+      "selected",
+      administrator,
+    ),
+    "invalid-transition",
+    "Final selection must wait for required registration details",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({
+      status: "selected",
+      finalDecidedAt: now,
+      finalDecidedByUserId: ids.administrator,
+      lockedInAt: now,
+    })
+    .where("id", "=", ids.eventRegistration)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_occurrence")
+    .set({ confirmedCount: 1, status: "cancelled" })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (await findLearnerEventWorkspace(ids.eventOccurrence, user)).status,
+    "cancelled",
+    "Cancellation must take precedence over an incomplete questionnaire",
+  );
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published" })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_registration")
     .set({ status: "cancelled", lockedInAt: null })
     .where("id", "=", ids.eventRegistration)
     .executeTakeFirstOrThrow();
@@ -899,6 +969,29 @@ try {
       },
     ],
     "Completing a paid Event questionnaire must retain and update its existing registration",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_registration_transition")
+      .select([
+        "fromStatus",
+        "toStatus",
+        "fromEventOccurrenceRegionId",
+        "toEventOccurrenceRegionId",
+        "source",
+      ])
+      .where("eventRegistrationId", "=", ids.eventRegistration)
+      .where("fromEventOccurrenceRegionId", "is", null)
+      .where("toEventOccurrenceRegionId", "=", ids.eventOccurrenceRegion)
+      .executeTakeFirstOrThrow(),
+    {
+      fromStatus: "selected",
+      toStatus: "selected",
+      fromEventOccurrenceRegionId: null,
+      toEventOccurrenceRegionId: ids.eventOccurrenceRegion,
+      source: "learner",
+    },
+    "A questionnaire-driven region change must retain transition evidence",
   );
   assert.equal(
     await database

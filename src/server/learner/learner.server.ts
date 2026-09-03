@@ -381,7 +381,11 @@ export async function findLearnerEventsDashboard(
         registrationRequired:
           event.registrationSurveyVersionId !== null &&
           event.questionnaireStatus !== "completed" &&
-          event.questionnaireStatus !== "waived",
+          event.questionnaireStatus !== "waived" &&
+          registrationStatus !== "withdrawn" &&
+          registrationStatus !== "cancelled" &&
+          registrationStatus !== "not_selected" &&
+          registrationStatus !== "coordinator_declined",
         registrationUnavailableReason: notOpen
           ? "not_open"
           : closed

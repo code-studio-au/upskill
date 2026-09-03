@@ -21,6 +21,16 @@ export async function findLearnerEventWorkspace(
     eventOccurrenceId,
     user,
   );
+  if (questionnaire === "cancelled") {
+    const occurrence = await database
+      .selectFrom("event_occurrence")
+      .select("title")
+      .where("id", "=", eventOccurrenceId)
+      .executeTakeFirst();
+    return occurrence
+      ? { status: "cancelled", title: occurrence.title }
+      : { status: "not-found" };
+  }
   if (
     questionnaire &&
     typeof questionnaire === "object" &&
