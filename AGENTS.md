@@ -43,11 +43,13 @@ These instructions apply to the entire repository. Read them before changing cod
 
 ## Verification and self-review
 
+- Before implementing a significant cross-cutting feature, follow the [cross-cutting feature delivery workflow](docs/architecture/architecture-decision-records-and-engineering-governance.md#cross-cutting-feature-delivery): inventory actors, entry points, targets, lifecycle states and downstream effects; define the server-owned decision policy; and split delivery into independently reviewable slices where practical.
 - Run the narrowest relevant test during implementation, inspect failures, fix the root cause, and rerun the exact failed command.
 - For application code, run `pnpm run verify:app` before handoff. It covers repository security, migration policy, dependency cohorts/audit, formatting, linting, React diagnostics, types, dead code, coverage, production builds, and bundle budgets.
 - For infrastructure changes, run `pnpm run verify:cdk`. For database changes, run `pnpm run verify:db:gate`. `pnpm run verify:ci` runs all three broad gates.
 - For user-flow or responsive UI changes, run the relevant browser partition: `pnpm run test:e2e:core`, `pnpm run test:e2e:scorm`, `pnpm run test:e2e:admin`, or `pnpm run test:e2e:https`. Use `pnpm run test:e2e` for the full browser suite when the risk or request warrants it.
 - Do not claim a gate passed unless it completed successfully in the current work. If a required gate cannot run, report the exact blocker and which narrower checks did pass.
+- Treat a review finding as evidence of a potentially wider invariant gap. Before making a local patch, audit equivalent callers, targets, roles, lifecycle states and downstream consumers; add focused regression coverage for the whole affected category where practical; then request another review only after that sweep and the relevant gates pass.
 - Before handoff, review the diff for authorization gaps, missing validation, mutable historical data, CSP/style violations, dependency or bundle growth, migration safety, Australian date formatting, accessibility, responsive overflow, and accidental secret or generated-file inclusion.
 
 ## Git and delivery
