@@ -591,17 +591,21 @@ async function applyProfileUpdates(
 
 async function validateProfileUpdates(
   transaction: Transaction<Database>,
+  userId: string,
   content: SurveyVersionContent,
   answers: Record<string, SurveyAnswerValue>,
 ): Promise<string | null> {
+  let answeredPhone: string | null = null;
+  let smsEnabled = false;
   for (const question of registrationQuestions(content)) {
     const answer = answers[question.id];
-    if (
-      surveyProfileField(question) === "phone" &&
-      typeof answer === "string" &&
-      !normalizeInternationalPhone(answer)
-    )
-      return "Enter a mobile number in international format, for example +61400123456.";
+    const profileField = surveyProfileField(question);
+    if (profileField === "phone" && typeof answer === "string") {
+      answeredPhone = normalizeInternationalPhone(answer);
+      if (!answeredPhone)
+        return "Enter a mobile number in international format, for example +61400123456.";
+    }
+    if (profileField === "smsEnabled" && answer === true) smsEnabled = true;
     if (isOperationalRegionQuestion(question) && typeof answer === "string") {
       const regionId = question.options.find(
         (option) => option.id === answer,
@@ -626,6 +630,16 @@ async function validateProfileUpdates(
       if (!activeRegion)
         return "Choose an active operational region before updating your profile.";
     }
+  }
+  if (smsEnabled && !answeredPhone) {
+    const profile = await transaction
+      .selectFrom("user")
+      .select("phone")
+      .where("id", "=", userId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!normalizeInternationalPhone(profile?.phone ?? ""))
+      return "Enter a valid mobile number before enabling SMS updates.";
   }
   return null;
 }
@@ -689,6 +703,75 @@ export async function advanceRegistrationQuestionnaire(
         (enrollment.expiresAt && enrollment.expiresAt <= now)
       )
         return { result: { status: "unavailable" } as const };
+    }
+    if (row.eventOccurrenceId) {
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .select([
+          "status",
+          "registrationMode",
+          "approvalMode",
+          "registrationOpensAt",
+          "registrationClosesAt",
+          "capacity",
+          "confirmedCount",
+        ])
+        .where("id", "=", row.eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!occurrence || occurrence.status !== "published")
+        return { result: { status: "unavailable" } as const };
+      const [registration, participation] = await Promise.all([
+        transaction
+          .selectFrom("event_registration")
+          .select("status")
+          .where("eventOccurrenceId", "=", row.eventOccurrenceId)
+          .where("userId", "=", user.id)
+          .forUpdate()
+          .executeTakeFirst(),
+        transaction
+          .selectFrom("event_participation")
+          .select("id")
+          .where("eventOccurrenceId", "=", row.eventOccurrenceId)
+          .where("userId", "=", user.id)
+          .executeTakeFirst(),
+      ]);
+      if (
+        registration &&
+        [
+          "withdrawn",
+          "cancelled",
+          "not_selected",
+          "coordinator_declined",
+        ].includes(registration.status)
+      )
+        return { result: { status: "unavailable" } as const };
+      if (!registration && !participation) {
+        const now = new Date();
+        if (
+          occurrence.registrationMode === "open_entry" ||
+          occurrence.registrationMode === "paid_entry" ||
+          !occurrence.registrationOpensAt ||
+          !occurrence.registrationClosesAt ||
+          occurrence.registrationOpensAt > now ||
+          occurrence.registrationClosesAt <= now ||
+          (occurrence.approvalMode === "automatic" &&
+            occurrence.confirmedCount >= occurrence.capacity)
+        )
+          return { result: { status: "unavailable" } as const };
+        if (occurrence.registrationMode === "required_restricted") {
+          const domain = user.emailVerified ? emailDomain(user.email) : null;
+          const permitted = domain
+            ? await transaction
+                .selectFrom("event_occurrence_domain")
+                .select("domain")
+                .where("eventOccurrenceId", "=", row.eventOccurrenceId)
+                .where("domain", "=", domain)
+                .executeTakeFirst()
+            : null;
+          if (!permitted) return { result: { status: "unavailable" } as const };
+        }
+      }
     }
     let content = parseSurveyVersionContent(row.content);
     let eventRegions: Array<{ id: string; regionId: string }> = [];
@@ -866,6 +949,7 @@ export async function advanceRegistrationQuestionnaire(
     if (completed && input.profileUpdateAccepted) {
       const profileUpdateError = await validateProfileUpdates(
         transaction,
+        user.id,
         content,
         answers,
       );
@@ -891,7 +975,7 @@ export async function advanceRegistrationQuestionnaire(
       .updateTable("registration_questionnaire_assignment")
       .set({
         status: completed ? "completed" : "in_progress",
-        startedAt: now,
+        startedAt: row.status === "assigned" ? now : undefined,
         completedAt: completed ? now : null,
         eventOccurrenceRegionId: selectedOccurrenceRegionId,
       })

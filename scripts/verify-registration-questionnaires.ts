@@ -646,6 +646,13 @@ try {
     user,
   );
   assert.equal(firstStep.status, "advanced");
+  const courseStartedAt = await database
+    .selectFrom("registration_questionnaire_assignment")
+    .select("startedAt")
+    .where("id", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow()
+    .then((assignment) => assignment.startedAt);
+  assert.ok(courseStartedAt);
   const completed = await advanceRegistrationQuestionnaire(
     {
       assignmentId: questionnaire.assignmentId,
@@ -656,6 +663,16 @@ try {
     user,
   );
   assert.equal(completed.status, "submitted");
+  assert.equal(
+    await database
+      .selectFrom("registration_questionnaire_assignment")
+      .select("startedAt")
+      .where("id", "=", questionnaire.assignmentId)
+      .executeTakeFirstOrThrow()
+      .then((assignment) => assignment.startedAt?.getTime()),
+    courseStartedAt.getTime(),
+    "Later steps must preserve the first accepted step time",
+  );
   assert.equal(
     await courseRegistrationQuestionnaireComplete(
       database,
@@ -800,6 +817,28 @@ try {
     ),
     false,
   );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", ids.eventRegistration)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await advanceRegistrationQuestionnaire(
+      {
+        assignmentId: eventQuestionnaire.assignmentId,
+        itemId: "event_operational_region",
+        answer: "event_region_option",
+      },
+      user,
+    ),
+    { status: "unavailable" },
+    "A stale Event form must reject answers after registration cancellation",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: now })
+    .where("id", "=", ids.eventRegistration)
+    .executeTakeFirstOrThrow();
   const eventCompleted = await advanceRegistrationQuestionnaire(
     {
       assignmentId: eventQuestionnaire.assignmentId,
@@ -1075,6 +1114,74 @@ try {
   );
 
   await database
+    .updateTable("survey_version")
+    .set({
+      content: {
+        title: "Registration communication preferences",
+        description: "Confirm your communication preferences.",
+        sections: [
+          {
+            id: "registration_preferences_section",
+            title: "Communication preferences",
+            description: "",
+            items: [
+              {
+                id: "profile_sms_enabled",
+                kind: "checkbox",
+                prompt: "Receive SMS updates",
+                required: false,
+                profileField: "smsEnabled",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .where("id", "=", ids.surveyVersion)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "assigned", startedAt: null, completedAt: null })
+    .where("id", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({}),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "profile_sms_enabled",
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await advanceRegistrationQuestionnaire(
+      {
+        assignmentId: questionnaire.assignmentId,
+        itemId: "profile_sms_enabled",
+        answer: true,
+        profileUpdateAccepted: true,
+      },
+      user,
+    ),
+    {
+      status: "invalid",
+      message: "Enter a valid mobile number before enabling SMS updates.",
+    },
+    "Profile consent must reject SMS opt-in without an effective valid phone",
+  );
+  assert.equal(
+    await database
+      .selectFrom("user")
+      .select("smsEnabled")
+      .where("id", "=", user.id)
+      .executeTakeFirstOrThrow()
+      .then((profile) => profile.smsEnabled),
+    false,
+  );
+
+  await database
     .updateTable("coordination_region")
     .set({ status: "retired" })
     .where("id", "=", ids.region)
@@ -1177,8 +1284,8 @@ try {
       },
       otherUser,
     ),
-    { status: "invalid", message: "Registration is no longer available." },
-    "Event questionnaire completion must roll back when registration is unavailable",
+    { status: "unavailable" },
+    "Event questionnaire completion must stop before mutation when registration is unavailable",
   );
   assert.deepEqual(
     await database
