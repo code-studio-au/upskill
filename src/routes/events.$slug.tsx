@@ -56,6 +56,7 @@ export const Route = createFileRoute("/events/$slug")({
 function EventDetailPage() {
   const { event, enterpriseAccess } = Route.useLoaderData();
   const currentPrice = event.salePriceCents ?? event.priceCents;
+  const learnerRegistrationAction = event.learnerRegistrationAction;
   return (
     <Container size="lg" className={classes.page}>
       <div className={classes.layout}>
@@ -110,8 +111,25 @@ function EventDetailPage() {
                   </Text>
                 </div>
               )}
-              {enterpriseAccess.status === "ready" ||
-              enterpriseAccess.status === "already-registered" ? (
+              {learnerRegistrationAction === "view_registration" ? (
+                <Link to="/my-events">
+                  <Button component="span" size="lg" fullWidth>
+                    View registration
+                  </Button>
+                </Link>
+              ) : learnerRegistrationAction ? (
+                <Link
+                  to="/my-events/$eventOccurrenceId"
+                  params={{ eventOccurrenceId: event.eventOccurrenceId }}
+                >
+                  <Button component="span" size="lg" fullWidth>
+                    {learnerRegistrationAction === "continue_registration"
+                      ? "Continue registration"
+                      : "Open event"}
+                  </Button>
+                </Link>
+              ) : enterpriseAccess.status === "ready" ||
+                enterpriseAccess.status === "already-registered" ? (
                 <EnterpriseEventAccessButton
                   access={enterpriseAccess}
                   slug={event.slug}

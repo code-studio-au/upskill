@@ -219,6 +219,8 @@ export interface EventDetail extends EventSummary {
   bulkPricing: BulkPricing;
   publicAccessReference: string | null;
   hasRegistrationQuestionnaire: boolean;
+  learnerRegistrationAction:
+    "continue_registration" | "open_event" | "view_registration" | null;
   registrationAvailability:
     | "available"
     | "authentication_required"

@@ -2390,6 +2390,16 @@ try {
     updatedEventLearnerName,
     "Event participation must snapshot a consented profile update",
   );
+  assert.equal(
+    (
+      await findEventBySlug(
+        "verify-registration-questionnaire-paid-event",
+        otherUser,
+      )
+    )?.learnerRegistrationAction,
+    "open_event",
+    "A selected participant must be able to open a registered Event from the catalogue",
+  );
   const { findCheckoutStatus } =
     await import("#/server/checkout/checkout-status.server");
   await database
@@ -2405,6 +2415,22 @@ try {
     })
     .where("assignmentId", "=", zeroRegionQuestionnaire.assignmentId)
     .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 1, confirmedCount: 1 })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  const activeCatalogEvent = await findEventBySlug(
+    "verify-registration-questionnaire-paid-event",
+    otherUser,
+  );
+  assert.ok(activeCatalogEvent);
+  assert.equal(activeCatalogEvent.registrationAvailability, "full");
+  assert.equal(
+    activeCatalogEvent.learnerRegistrationAction,
+    "continue_registration",
+    "A full Event must still let its selected participant continue registration details",
+  );
   const activeEventCheckout = await findCheckoutStatus(
     "cs_verify_registration_questionnaire_event",
     otherUser,
@@ -2431,6 +2457,16 @@ try {
     terminalEventCheckout.registrationRequired,
     false,
     "Checkout success must not redirect a terminal registration to an unavailable questionnaire",
+  );
+  assert.equal(
+    (
+      await findEventBySlug(
+        "verify-registration-questionnaire-paid-event",
+        otherUser,
+      )
+    )?.learnerRegistrationAction,
+    "view_registration",
+    "A terminal registration must route from the catalogue to My Events",
   );
 
   console.log(

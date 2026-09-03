@@ -2852,11 +2852,18 @@ try {
       }),
     )
     .executeTakeFirstOrThrow();
-  const regionlessInvitationUrl = (
+  const regionlessInvitationVariables = (
     regionlessInvitationNotification.payload as {
       variables: Record<string, string>;
     }
-  ).variables["event.invitationUrl"];
+  ).variables;
+  assert.equal(
+    regionlessInvitationVariables["event.virtualJoinUrl"],
+    `${new URL(process.env.APP_ORIGIN ?? "http://localhost:3000").origin}/my-events/${eventOccurrenceId}`,
+    "An unaccepted learner invitation must not disclose the direct Event join URL",
+  );
+  const regionlessInvitationUrl =
+    regionlessInvitationVariables["event.invitationUrl"];
   assert.ok(regionlessInvitationUrl);
   const regionlessInvitationToken = new URL(
     regionlessInvitationUrl,
