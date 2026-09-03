@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isOperationalRegionQuestion,
   OPERATIONAL_REGION_OPTION_SOURCE,
   REGION_GROUP_OPTION_SOURCE,
   type SurveyVersionContent,
@@ -8,6 +9,7 @@ import { allSurveyPathsIncludeOperationalRegion } from "#/features/survey/survey
 import {
   eventRegistrationQuestionnaireRequired,
   filterRegistrationEventRegionOptions,
+  operationalRegionMatchesSelectedGroup,
   registrationAnswerText,
   registrationOffersProfileUpdate,
   registrationQuestions,
@@ -78,6 +80,46 @@ const content: SurveyVersionContent = {
 };
 
 describe("registration questionnaire domain", () => {
+  it("requires an operational region to belong to the selected region group", () => {
+    const questions = registrationQuestions(content);
+    const operationalRegion = questions.find(isOperationalRegionQuestion);
+    if (!operationalRegion)
+      throw new Error("Expected operational region fixture");
+    expect(
+      operationalRegionMatchesSelectedGroup(
+        content,
+        { region_group: "group_north" },
+        operationalRegion,
+        "region_north_one",
+      ),
+    ).toBe(true);
+    expect(
+      operationalRegionMatchesSelectedGroup(
+        content,
+        { region_group: "group_north" },
+        operationalRegion,
+        "region_south_one",
+      ),
+    ).toBe(false);
+    expect(
+      operationalRegionMatchesSelectedGroup(
+        {
+          ...content,
+          sections: content.sections.map((section) => ({
+            ...section,
+            items: section.items.filter((item) => item.id !== "region_group"),
+          })),
+        },
+        {},
+        {
+          ...operationalRegion,
+          id: "standalone_operational_region",
+        },
+        "region_north_one",
+      ),
+    ).toBe(true);
+  });
+
   it("excludes instructions and detects profile-aware questions", () => {
     const questions = registrationQuestions(content);
     expect(questions.map((question) => question.id)).toEqual([

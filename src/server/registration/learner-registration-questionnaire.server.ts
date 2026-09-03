@@ -15,6 +15,7 @@ import {
 } from "#/features/survey/survey.schema";
 import {
   filterRegistrationEventRegionOptions,
+  operationalRegionMatchesSelectedGroup,
   registrationOffersProfileUpdate,
   registrationQuestions,
   withoutRegistrationAnswer,
@@ -962,6 +963,21 @@ export async function advanceRegistrationQuestionnaire(
         row.eventOccurrenceId &&
         eventRegions.length > 0
       ) {
+        if (
+          !operationalRegionMatchesSelectedGroup(
+            content,
+            answers,
+            item,
+            validation.answer,
+          )
+        )
+          return {
+            result: {
+              status: "invalid",
+              message:
+                "Choose an operational region in the selected region group.",
+            } as const,
+          };
         const coordinationRegionId = item.options.find(
           (option) => option.id === validation.answer,
         )?.externalValue;

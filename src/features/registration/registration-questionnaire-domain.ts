@@ -131,6 +131,32 @@ export function registrationSurveySupportsEventRegions(
   );
 }
 
+export function operationalRegionMatchesSelectedGroup(
+  content: SurveyVersionContent,
+  answers: Record<string, SurveyAnswerValue>,
+  operationalRegionQuestion: Extract<SurveyQuestion, { kind: "dropdown" }>,
+  operationalRegionAnswer: string,
+): boolean {
+  const regionGroupQuestion = registrationQuestions(content).find(
+    isRegionGroupQuestion,
+  );
+  if (!regionGroupQuestion) return true;
+  const regionGroupAnswer = answers[regionGroupQuestion.id];
+  const selectedRegionGroup =
+    typeof regionGroupAnswer === "string"
+      ? regionGroupQuestion.options.find(
+          (option) => option.id === regionGroupAnswer,
+        )?.externalValue
+      : undefined;
+  const selectedOperationalRegion = operationalRegionQuestion.options.find(
+    (option) => option.id === operationalRegionAnswer,
+  );
+  return Boolean(
+    selectedRegionGroup &&
+    selectedOperationalRegion?.parentExternalValue === selectedRegionGroup,
+  );
+}
+
 export function withoutRegistrationAnswer(
   answers: Record<string, SurveyAnswerValue>,
   questionId: string,
