@@ -1627,6 +1627,10 @@ export async function publishAdminEventOccurrence(
           liveKitConfiguration.approvedMaxParticipants
         )
           return "livekit-capacity-exceeded" as const;
+        // ADR 0039 Slice 2 persists immutable provider policy only. Keep
+        // publication dormant until the attendee token and media delivery
+        // slices make every published LiveKit occurrence joinable.
+        return "livekit-unavailable" as const;
       }
       const now = new Date();
       await transaction

@@ -1130,7 +1130,10 @@ gates passed; it does not by itself authorise staging or production activation.
 - [ ] **Slice 2 — versioned provider policy:** add the next sequential
       forward-only migration, generated types, template-session policy authoring,
       occurrence provider selection, immutable Event Session snapshots, and the
-      `external_url` backfill with unchanged legacy behaviour.
+      `external_url` backfill with unchanged legacy behaviour. LiveKit
+      occurrences remain draft-only until the attendee token and webinar media
+      delivery paths are implemented; environment configuration alone does not
+      make them publishable.
 - [ ] **Slice 3 — room lifecycle and presenter green room:** add room-generation
       persistence, exact staff policy, idempotent outbox operations, lazy room
       creation, presenter grants, device preview, provider health, and
