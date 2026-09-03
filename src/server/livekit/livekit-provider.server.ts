@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import {
   AccessToken,
   LiveKitAPI,
+  ServerError,
   TrackSource,
   type ParticipantInfo,
   type Room,
@@ -29,6 +30,7 @@ const ensureRoomInputSchema = z.object({
   departureTimeoutSeconds: z.number().int().min(0).max(3_600),
   metadata: roomMetadataSchema.optional(),
 });
+type ParsedEnsureLiveKitRoomInput = z.infer<typeof ensureRoomInputSchema>;
 
 const joinTokenInputSchema = z.object({
   roomName: opaqueNameSchema,
@@ -148,14 +150,24 @@ function roomSnapshot(room: Room): LiveKitRoomSnapshot {
 
 function reconciledRoomSnapshot(
   room: Room,
-  expected: Pick<EnsureLiveKitRoomInput, "roomName" | "maxParticipants">,
+  expected: ParsedEnsureLiveKitRoomInput,
 ): LiveKitRoomSnapshot {
   if (
     room.name !== expected.roomName ||
-    room.maxParticipants !== expected.maxParticipants
+    room.maxParticipants !== expected.maxParticipants ||
+    room.emptyTimeout !== expected.emptyTimeoutSeconds ||
+    room.departureTimeout !== expected.departureTimeoutSeconds ||
+    room.metadata !== (expected.metadata ?? "")
   )
     throw new LiveKitProviderError("reconcile_room");
   return roomSnapshot(room);
+}
+
+function isLiveKitNotFound(error: unknown): boolean {
+  return (
+    error instanceof ServerError &&
+    (error.status === 404 || error.code === "not_found")
+  );
 }
 
 function participantSnapshot(
@@ -293,6 +305,20 @@ export class LiveKitCloudProvider implements LiveKitProvider {
         parsed.participantIdentity,
       );
     } catch {
+      try {
+        const participants = await this.api.room.listParticipants(
+          parsed.roomName,
+        );
+        if (
+          !participants.some(
+            (participant) =>
+              participant.identity === parsed.participantIdentity,
+          )
+        )
+          return;
+      } catch (reconciliationError) {
+        if (isLiveKitNotFound(reconciliationError)) return;
+      }
       throw new LiveKitProviderError("remove_participant");
     }
   }
@@ -302,6 +328,12 @@ export class LiveKitCloudProvider implements LiveKitProvider {
     try {
       await this.api.room.deleteRoom(parsedRoomName);
     } catch {
+      try {
+        const rooms = await this.api.room.listRooms([parsedRoomName]);
+        if (!rooms.some((room) => room.name === parsedRoomName)) return;
+      } catch {
+        // Preserve the safe provider failure below when reconciliation fails.
+      }
       throw new LiveKitProviderError("close_room");
     }
   }

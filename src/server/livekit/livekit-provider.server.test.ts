@@ -1,5 +1,9 @@
-import { Room, TokenVerifier } from "livekit-server-sdk";
-import type { ParticipantInfo } from "livekit-server-sdk";
+import {
+  ParticipantInfo,
+  Room,
+  ServerError,
+  TokenVerifier,
+} from "livekit-server-sdk";
 import { describe, expect, it, vi } from "vitest";
 import { parseServerEnvironment } from "#/server/runtime-environment";
 import { FakeLiveKitProvider } from "./livekit-provider.fake";
@@ -20,8 +24,20 @@ const configuration: EnabledLiveKitConfiguration = {
   approvedMaxConcurrentRooms: 2,
 };
 
-function room(name = "room_generation_1", maxParticipants = 20): Room {
-  return new Room({ sid: "RM_1", name, maxParticipants });
+function room(
+  name = "room_generation_1",
+  maxParticipants = 20,
+  overrides: Partial<Room> = {},
+): Room {
+  return new Room({
+    sid: "RM_1",
+    name,
+    maxParticipants,
+    emptyTimeout: 600,
+    departureTimeout: 60,
+    metadata: "",
+    ...overrides,
+  });
 }
 
 function fakeApi() {
@@ -181,6 +197,99 @@ describe("LiveKit provider foundation", () => {
         departureTimeoutSeconds: 60,
       }),
     ).rejects.toThrow("reconcile_room");
+  });
+
+  it.each([
+    ["empty timeout", { emptyTimeout: 599 }],
+    ["departure timeout", { departureTimeout: 59 }],
+    ["metadata", { metadata: "stale-contract" }],
+  ])("rejects an existing room with mismatched %s", async (_name, override) => {
+    const api = fakeApi();
+    api.room.listRooms.mockResolvedValueOnce([
+      room("room_generation_1", 20, override),
+    ]);
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
+
+    await expect(
+      provider.ensureRoom({
+        roomName: "room_generation_1",
+        maxParticipants: 20,
+        emptyTimeoutSeconds: 600,
+        departureTimeoutSeconds: 60,
+      }),
+    ).rejects.toThrow("reconcile_room");
+  });
+
+  it("reconciles ambiguous participant removal and room closure", async () => {
+    const api = fakeApi();
+    api.room.removeParticipant.mockRejectedValueOnce(
+      new Error("response lost"),
+    );
+    api.room.deleteRoom.mockRejectedValueOnce(new Error("response lost"));
+    api.room.listParticipants.mockResolvedValueOnce([]);
+    api.room.listRooms.mockResolvedValueOnce([]);
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
+
+    await expect(
+      provider.removeParticipant("room_generation_1", "attendee:opaque_1"),
+    ).resolves.toBeUndefined();
+    await expect(
+      provider.closeRoom("room_generation_1"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("treats a missing room as successful participant removal", async () => {
+    const api = fakeApi();
+    api.room.removeParticipant.mockRejectedValueOnce(
+      new ServerError("Not Found", "room not found", 404, "not_found"),
+    );
+    api.room.listParticipants.mockRejectedValueOnce(
+      new ServerError("Not Found", "room not found", 404, "not_found"),
+    );
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
+
+    await expect(
+      provider.removeParticipant("room_generation_1", "attendee:opaque_1"),
+    ).resolves.toBeUndefined();
+  });
+
+  it("fails ambiguous destructive operations when provider state remains", async () => {
+    const api = fakeApi();
+    api.room.removeParticipant.mockRejectedValueOnce(
+      new Error("response lost"),
+    );
+    api.room.deleteRoom.mockRejectedValueOnce(new Error("response lost"));
+    api.room.listParticipants.mockResolvedValueOnce([
+      new ParticipantInfo({
+        sid: "PA_1",
+        identity: "attendee:opaque_1",
+      }),
+    ]);
+    api.room.listRooms.mockResolvedValueOnce([room()]);
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
+
+    await expect(
+      provider.removeParticipant("room_generation_1", "attendee:opaque_1"),
+    ).rejects.toThrow("remove_participant");
+    await expect(provider.closeRoom("room_generation_1")).rejects.toThrow(
+      "close_room",
+    );
   });
 
   it("prevents room creation at the approved concurrent-room limit", async () => {

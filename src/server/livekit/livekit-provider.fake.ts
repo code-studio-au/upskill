@@ -25,6 +25,10 @@ export class FakeLiveKitProvider implements LiveKitProvider {
   readonly operations: FakeLiveKitOperation[] = [];
   readonly rooms = new Map<string, LiveKitRoomSnapshot>();
   readonly participants = new Map<string, LiveKitParticipantSnapshot[]>();
+  private readonly roomConfigurations = new Map<
+    string,
+    EnsureLiveKitRoomInput
+  >();
 
   checkHealth(): Promise<void> {
     this.operations.push({ operation: "health" });
@@ -35,7 +39,16 @@ export class FakeLiveKitProvider implements LiveKitProvider {
     this.operations.push({ operation: "ensure_room", input });
     const existing = this.rooms.get(input.roomName);
     if (existing) {
-      if (existing.maxParticipants !== input.maxParticipants)
+      const existingConfiguration = this.roomConfigurations.get(input.roomName);
+      if (
+        !existingConfiguration ||
+        existingConfiguration.maxParticipants !== input.maxParticipants ||
+        existingConfiguration.emptyTimeoutSeconds !==
+          input.emptyTimeoutSeconds ||
+        existingConfiguration.departureTimeoutSeconds !==
+          input.departureTimeoutSeconds ||
+        (existingConfiguration.metadata ?? "") !== (input.metadata ?? "")
+      )
         return Promise.reject(new LiveKitProviderError("reconcile_room"));
       return Promise.resolve(existing);
     }
@@ -45,6 +58,7 @@ export class FakeLiveKitProvider implements LiveKitProvider {
       maxParticipants: input.maxParticipants,
     };
     this.rooms.set(input.roomName, created);
+    this.roomConfigurations.set(input.roomName, { ...input });
     return Promise.resolve(created);
   }
 
@@ -72,6 +86,7 @@ export class FakeLiveKitProvider implements LiveKitProvider {
   closeRoom(roomName: string): Promise<void> {
     this.operations.push({ operation: "close_room", roomName });
     this.rooms.delete(roomName);
+    this.roomConfigurations.delete(roomName);
     this.participants.delete(roomName);
     return Promise.resolve();
   }
