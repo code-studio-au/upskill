@@ -151,6 +151,8 @@ try {
       env: {
         ...process.env,
         APP_ENV: "test",
+        LIVEKIT_ENABLED: "false",
+        LIVEKIT_PROJECT_ENVIRONMENT: "test",
         APP_ORIGIN: "http://127.0.0.1:3000",
         LEARNING_ORIGIN: "http://127.0.0.1:3001",
         DATABASE_URL: "postgresql://test:test@127.0.0.1:5432/test",

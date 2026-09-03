@@ -123,6 +123,14 @@ const browserTestRunner = fs.readFileSync(
   path.join(root, "scripts/run-browser-tests.mjs"),
   "utf8",
 );
+const databaseTestRunner = fs.readFileSync(
+  path.join(root, "scripts/run-database-verification.mjs"),
+  "utf8",
+);
+const deployArtifactVerifier = fs.readFileSync(
+  path.join(root, "scripts/verify-deploy-artifact.mjs"),
+  "utf8",
+);
 for (const invariant of [
   'all: [["test"]]',
   '"--project=chromium-mobile-scorm"',
@@ -131,6 +139,19 @@ for (const invariant of [
 ])
   if (!browserTestRunner.includes(invariant))
     failures.push(`Browser-test orchestration is missing: ${invariant}`);
+for (const [name, runner] of [
+  ["Browser", browserTestRunner],
+  ["Database", databaseTestRunner],
+  ["Release artifact", deployArtifactVerifier],
+])
+  for (const invariant of [
+    'LIVEKIT_ENABLED: "false"',
+    'LIVEKIT_PROJECT_ENVIRONMENT: "test"',
+  ])
+    if (!runner.includes(invariant))
+      failures.push(
+        `${name} verification must isolate local LiveKit configuration: ${invariant}`,
+      );
 for (const boundary of [
   "Disposable test databases require a PostgreSQL server on localhost",
   "create database",
