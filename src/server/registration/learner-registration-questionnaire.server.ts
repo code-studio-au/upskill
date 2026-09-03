@@ -555,7 +555,8 @@ async function applyProfileUpdates(
     if (field === "name" && typeof answer === "string") update.name = answer;
     if (field === "phone" && typeof answer === "string") {
       const phone = normalizeInternationalPhone(answer);
-      if (phone) update.phone = phone;
+      if (!phone) throw new Error("Profile phone answer was not validated");
+      update.phone = phone;
     }
     if (field === "emailEnabled" && typeof answer === "boolean")
       update.emailEnabled = answer;
@@ -565,7 +566,8 @@ async function applyProfileUpdates(
       const regionId = question.options.find(
         (option) => option.id === answer,
       )?.externalValue;
-      if (regionId) update.currentRegionId = regionId;
+      if (!regionId) throw new Error("Profile region answer was not validated");
+      update.currentRegionId = regionId;
     }
   }
   if (update.phone) {
@@ -585,6 +587,47 @@ async function applyProfileUpdates(
       .where("id", "=", userId)
       .execute();
   }
+}
+
+async function validateProfileUpdates(
+  transaction: Transaction<Database>,
+  content: SurveyVersionContent,
+  answers: Record<string, SurveyAnswerValue>,
+): Promise<string | null> {
+  for (const question of registrationQuestions(content)) {
+    const answer = answers[question.id];
+    if (
+      surveyProfileField(question) === "phone" &&
+      typeof answer === "string" &&
+      !normalizeInternationalPhone(answer)
+    )
+      return "Enter a mobile number in international format, for example +61400123456.";
+    if (isOperationalRegionQuestion(question) && typeof answer === "string") {
+      const regionId = question.options.find(
+        (option) => option.id === answer,
+      )?.externalValue;
+      const activeRegion = regionId
+        ? await transaction
+            .selectFrom("coordination_region as region")
+            .innerJoin(
+              "coordination_region as parent",
+              "parent.id",
+              "region.parentId",
+            )
+            .select("region.id")
+            .where("region.id", "=", regionId)
+            .where("region.kind", "=", "operational")
+            .where("region.status", "=", "active")
+            .where("parent.kind", "=", "group")
+            .where("parent.status", "=", "active")
+            .forShare()
+            .executeTakeFirst()
+        : null;
+      if (!activeRegion)
+        return "Choose an active operational region before updating your profile.";
+    }
+  }
+  return null;
 }
 
 export async function advanceRegistrationQuestionnaire(
@@ -739,6 +782,11 @@ export async function advanceRegistrationQuestionnaire(
       else answers[item.id] = validation.answer;
       if (
         isOperationalRegionQuestion(item) &&
+        typeof validation.answer === "undefined"
+      )
+        selectedOccurrenceRegionId = null;
+      if (
+        isOperationalRegionQuestion(item) &&
         typeof validation.answer === "string" &&
         row.eventOccurrenceId &&
         eventRegions.length > 0
@@ -815,6 +863,17 @@ export async function advanceRegistrationQuestionnaire(
     const currentItemId = completed
       ? null
       : (nextItems.find((candidate) => !visited.has(candidate.id))?.id ?? null);
+    if (completed && input.profileUpdateAccepted) {
+      const profileUpdateError = await validateProfileUpdates(
+        transaction,
+        content,
+        answers,
+      );
+      if (profileUpdateError)
+        return {
+          result: { status: "invalid", message: profileUpdateError } as const,
+        };
+    }
     await transaction
       .updateTable("registration_questionnaire_response")
       .set({
@@ -840,13 +899,20 @@ export async function advanceRegistrationQuestionnaire(
       .execute();
     if (completed && input.profileUpdateAccepted)
       await applyProfileUpdates(transaction, user.id, content, answers, now);
-    if (completed && row.eventOccurrenceId)
+    if (completed && row.eventOccurrenceId) {
+      await transaction
+        .updateTable("event_registration")
+        .set({ eventOccurrenceRegionId: selectedOccurrenceRegionId })
+        .where("eventOccurrenceId", "=", row.eventOccurrenceId)
+        .where("userId", "=", user.id)
+        .execute();
       await transaction
         .updateTable("event_participation")
         .set({ detailsSubmittedAt: now })
         .where("eventOccurrenceId", "=", row.eventOccurrenceId)
         .where("userId", "=", user.id)
         .execute();
+    }
     const progress = deriveProgress(content, {
       answers,
       visitedItemIds,

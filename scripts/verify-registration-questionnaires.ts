@@ -462,7 +462,7 @@ try {
       id: ids.eventRegistration,
       eventOccurrenceId: ids.eventOccurrence,
       userId: ids.user,
-      eventOccurrenceRegionId: ids.eventOccurrenceRegion,
+      eventOccurrenceRegionId: null,
       reviewRoundId: null,
       nameSnapshot: user.name,
       emailSnapshot: user.email,
@@ -587,6 +587,7 @@ try {
   const {
     courseRegistrationQuestionnaireComplete,
     eventRegistrationQuestionnaireComplete,
+    eventRegistrationQuestionnaireSubmittedAt,
   } =
     await import("#/server/registration/registration-questionnaire-access.server");
   const {
@@ -824,7 +825,7 @@ try {
   );
   const eventAssignment = await database
     .selectFrom("registration_questionnaire_assignment")
-    .select("eventOccurrenceRegionId")
+    .select(["eventOccurrenceRegionId", "completedAt"])
     .where("eventOccurrenceId", "=", ids.eventOccurrence)
     .where("userId", "=", user.id)
     .executeTakeFirstOrThrow();
@@ -832,15 +833,42 @@ try {
     eventAssignment.eventOccurrenceRegionId,
     ids.eventOccurrenceRegion,
   );
+  assert.ok(eventAssignment.completedAt);
+  assert.equal(
+    (
+      await eventRegistrationQuestionnaireSubmittedAt(
+        database,
+        ids.eventOccurrence,
+        user.id,
+      )
+    )?.getTime(),
+    eventAssignment.completedAt.getTime(),
+    "Manual approval must be able to retain the questionnaire completion time",
+  );
   assert.deepEqual(
     await database
       .selectFrom("event_registration")
-      .select(["id", "source"])
+      .select(["id", "source", "eventOccurrenceRegionId"])
       .where("eventOccurrenceId", "=", ids.eventOccurrence)
       .where("userId", "=", user.id)
       .execute(),
-    [{ id: ids.eventRegistration, source: "paid_checkout" }],
-    "Completing a paid Event questionnaire must retain its existing registration",
+    [
+      {
+        id: ids.eventRegistration,
+        source: "paid_checkout",
+        eventOccurrenceRegionId: ids.eventOccurrenceRegion,
+      },
+    ],
+    "Completing a paid Event questionnaire must retain and update its existing registration",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_participation")
+      .select("detailsSubmittedAt")
+      .where("id", "=", ids.eventParticipation)
+      .executeTakeFirstOrThrow()
+      .then((participation) => participation.detailsSubmittedAt?.getTime()),
+    eventAssignment.completedAt.getTime(),
   );
   const eventDetail = await findEventRegistrationQuestionnaireAdminDetail(
     ids.eventOccurrence,
@@ -855,6 +883,122 @@ try {
       answer: "Verification operational region",
     },
   ]);
+
+  const originalEventSurveyContent = await database
+    .selectFrom("survey_version")
+    .select("content")
+    .where("id", "=", ids.eventSurveyVersion)
+    .executeTakeFirstOrThrow()
+    .then((version) => version.content);
+  await database
+    .updateTable("survey_version")
+    .set({
+      content: {
+        title: "Event registration region",
+        description: "Choose the region for this event registration.",
+        sections: [
+          {
+            id: "event_registration_section",
+            title: "Event details",
+            description: "",
+            items: [
+              {
+                id: "event_operational_region",
+                kind: "dropdown",
+                prompt: "Operational region",
+                required: false,
+                optionSource: "coordination_operational_regions",
+                options: [
+                  {
+                    id: "event_region_option",
+                    label: "Verification operational region",
+                    externalValue: ids.region,
+                    parentExternalValue: ids.regionGroup,
+                  },
+                ],
+              },
+              {
+                id: "event_region_confirmation",
+                kind: "instruction",
+                title: "Confirm details",
+                body: "Continue to confirm your registration details.",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .where("id", "=", ids.eventSurveyVersion)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({
+      status: "in_progress",
+      completedAt: null,
+      eventOccurrenceRegionId: ids.eventOccurrenceRegion,
+    })
+    .where("id", "=", eventQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({
+        event_operational_region: "event_region_option",
+      }),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "event_operational_region",
+      submittedAt: null,
+    })
+    .where("assignmentId", "=", eventQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await advanceRegistrationQuestionnaire(
+        {
+          assignmentId: eventQuestionnaire.assignmentId,
+          itemId: "event_operational_region",
+        },
+        user,
+      )
+    ).status,
+    "advanced",
+  );
+  assert.equal(
+    await database
+      .selectFrom("registration_questionnaire_assignment")
+      .select("eventOccurrenceRegionId")
+      .where("id", "=", eventQuestionnaire.assignmentId)
+      .executeTakeFirstOrThrow()
+      .then((assignment) => assignment.eventOccurrenceRegionId),
+    null,
+    "Clearing an optional region answer must clear the retained occurrence region",
+  );
+  await database
+    .updateTable("survey_version")
+    .set({ content: originalEventSurveyContent })
+    .where("id", "=", ids.eventSurveyVersion)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({
+      status: "completed",
+      completedAt: eventAssignment.completedAt,
+      eventOccurrenceRegionId: ids.eventOccurrenceRegion,
+    })
+    .where("id", "=", eventQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({
+        event_operational_region: "event_region_option",
+      }),
+      visitedItemIds: JSON.stringify(["event_operational_region"]),
+      currentItemId: null,
+      submittedAt: eventAssignment.completedAt,
+    })
+    .where("assignmentId", "=", eventQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
 
   await database
     .updateTable("event_occurrence_region")
@@ -929,6 +1073,59 @@ try {
       .then((assignment) => assignment.eventOccurrenceRegionId),
     null,
   );
+
+  await database
+    .updateTable("coordination_region")
+    .set({ status: "retired" })
+    .where("id", "=", ids.region)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "assigned", startedAt: null, completedAt: null })
+    .where("id", "=", zeroRegionQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({}),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "event_operational_region",
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", zeroRegionQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await advanceRegistrationQuestionnaire(
+      {
+        assignmentId: zeroRegionQuestionnaire.assignmentId,
+        itemId: "event_operational_region",
+        answer: "event_region_option",
+        profileUpdateAccepted: true,
+      },
+      otherUser,
+    ),
+    {
+      status: "invalid",
+      message:
+        "Choose an active operational region before updating your profile.",
+    },
+    "Profile consent must reject a retired operational region",
+  );
+  assert.equal(
+    await database
+      .selectFrom("user")
+      .select("currentRegionId")
+      .where("id", "=", otherUser.id)
+      .executeTakeFirstOrThrow()
+      .then((profile) => profile.currentRegionId),
+    null,
+  );
+  await database
+    .updateTable("coordination_region")
+    .set({ status: "active" })
+    .where("id", "=", ids.region)
+    .executeTakeFirstOrThrow();
 
   await database
     .deleteFrom("event_participation")
@@ -1006,6 +1203,77 @@ try {
       .executeTakeFirstOrThrow()
       .then((row) => row.count),
     0,
+  );
+
+  await database
+    .updateTable("survey_version")
+    .set({
+      content: {
+        title: "Registration contact details",
+        description: "Confirm your mobile number.",
+        sections: [
+          {
+            id: "registration_contact_section",
+            title: "Contact details",
+            description: "",
+            items: [
+              {
+                id: "profile_phone",
+                kind: "short_text",
+                prompt: "Mobile number",
+                required: true,
+                maximumLength: 40,
+                format: "phone",
+                profileField: "phone",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .where("id", "=", ids.surveyVersion)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "assigned", startedAt: null, completedAt: null })
+    .where("id", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      answers: JSON.stringify({}),
+      visitedItemIds: JSON.stringify([]),
+      currentItemId: "profile_phone",
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", questionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await advanceRegistrationQuestionnaire(
+      {
+        assignmentId: questionnaire.assignmentId,
+        itemId: "profile_phone",
+        answer: "0412 345 678",
+        profileUpdateAccepted: true,
+      },
+      user,
+    ),
+    {
+      status: "invalid",
+      message:
+        "Enter a mobile number in international format, for example +61400123456.",
+    },
+    "Profile consent must reject a local-format phone instead of silently skipping it",
+  );
+  assert.equal(
+    await database
+      .selectFrom("user")
+      .select("phone")
+      .where("id", "=", user.id)
+      .executeTakeFirstOrThrow()
+      .then((profile) => profile.phone),
+    null,
   );
 
   console.log(

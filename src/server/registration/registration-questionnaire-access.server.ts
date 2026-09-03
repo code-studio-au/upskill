@@ -67,3 +67,19 @@ export async function eventRegistrationQuestionnaireComplete(
       row.assignmentStatus === "waived"),
   );
 }
+
+export async function eventRegistrationQuestionnaireSubmittedAt(
+  database: DatabaseExecutor,
+  eventOccurrenceId: string,
+  userId: string,
+): Promise<Date | null> {
+  const assignment = await database
+    .selectFrom("registration_questionnaire_assignment")
+    .select(["status", "completedAt", "waivedAt"])
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("userId", "=", userId)
+    .executeTakeFirst();
+  if (assignment?.status === "completed") return assignment.completedAt;
+  if (assignment?.status === "waived") return assignment.waivedAt;
+  return null;
+}
