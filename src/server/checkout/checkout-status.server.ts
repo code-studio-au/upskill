@@ -49,6 +49,7 @@ export async function findCheckoutStatus(
       "event_occurrence.title as eventTitle",
       "event_occurrence.slug as eventSlug",
       "event_occurrence.id as eventOccurrenceId",
+      "event_occurrence.status as eventOccurrenceStatus",
       "event_template_version.registrationSurveyVersionId",
       "questionnaire.status as questionnaireStatus",
       "registration.status as registrationStatus",
@@ -77,11 +78,13 @@ export async function findCheckoutStatus(
       offeringTitle: row.eventTitle,
       offeringSlug: row.eventSlug,
       eventOccurrenceId: row.eventOccurrenceId,
-      registrationRequired: eventRegistrationQuestionnaireRequired({
-        registrationSurveyVersionId: row.registrationSurveyVersionId,
-        questionnaireStatus: row.questionnaireStatus,
-        registrationStatus: row.registrationStatus,
-      }),
+      registrationRequired:
+        row.eventOccurrenceStatus === "published" &&
+        eventRegistrationQuestionnaireRequired({
+          registrationSurveyVersionId: row.registrationSurveyVersionId,
+          questionnaireStatus: row.questionnaireStatus,
+          registrationStatus: row.registrationStatus,
+        }),
       reviewRequired: Boolean(row.reviewRequired),
     };
   }

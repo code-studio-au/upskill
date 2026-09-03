@@ -2443,6 +2443,30 @@ try {
     "Checkout success must redirect an active incomplete Event registration",
   );
   await database
+    .updateTable("event_occurrence")
+    .set({ status: "completed" })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  const completedEventCheckout = await findCheckoutStatus(
+    "cs_verify_registration_questionnaire_event",
+    otherUser,
+  );
+  if (
+    !completedEventCheckout ||
+    completedEventCheckout.offeringType !== "event"
+  )
+    throw new Error("Expected the completed Event checkout fixture");
+  assert.equal(
+    completedEventCheckout.registrationRequired,
+    false,
+    "Checkout success must not redirect a completed Event to an unavailable questionnaire",
+  );
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published" })
+    .where("id", "=", ids.eventOccurrence)
+    .executeTakeFirstOrThrow();
+  await database
     .updateTable("event_registration")
     .set({ status: "withdrawn", lockedInAt: null })
     .where("id", "=", ordinaryRegistration.id)
