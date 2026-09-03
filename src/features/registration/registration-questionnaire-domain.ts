@@ -6,7 +6,40 @@ import {
   type SurveyQuestion,
   type SurveyVersionContent,
 } from "#/features/survey/survey.schema";
+import { allSurveyPathsIncludeOperationalRegion } from "#/features/survey/survey-branching";
 import { formatLocalDate } from "#/features/shared/local-date";
+
+type EventRegistrationStatus =
+  | "submitted"
+  | "coordinator_approved"
+  | "coordinator_declined"
+  | "selected"
+  | "waitlisted"
+  | "not_selected"
+  | "withdrawn"
+  | "cancelled";
+
+const terminalEventRegistrationStatuses = new Set<EventRegistrationStatus>([
+  "coordinator_declined",
+  "not_selected",
+  "withdrawn",
+  "cancelled",
+]);
+
+export function eventRegistrationQuestionnaireRequired(input: {
+  registrationSurveyVersionId: string | null;
+  questionnaireStatus:
+    "assigned" | "in_progress" | "completed" | "waived" | null;
+  registrationStatus: EventRegistrationStatus | null;
+}): boolean {
+  return (
+    input.registrationSurveyVersionId !== null &&
+    (input.registrationStatus === null ||
+      !terminalEventRegistrationStatuses.has(input.registrationStatus)) &&
+    input.questionnaireStatus !== "completed" &&
+    input.questionnaireStatus !== "waived"
+  );
+}
 
 export function registrationQuestions(
   content: SurveyVersionContent,
@@ -69,6 +102,33 @@ export function filterRegistrationEventRegionOptions(
       ),
     })),
   };
+}
+
+export function registrationSurveySupportsEventRegions(
+  content: SurveyVersionContent,
+  operationalRegionIds: ReadonlySet<string>,
+): boolean {
+  if (operationalRegionIds.size === 0) return true;
+  const filtered = filterRegistrationEventRegionOptions(
+    content,
+    operationalRegionIds,
+  );
+  const operationalRegionQuestion = registrationQuestions(filtered).find(
+    isOperationalRegionQuestion,
+  );
+  if (
+    !operationalRegionQuestion ||
+    !allSurveyPathsIncludeOperationalRegion(filtered)
+  )
+    return false;
+  const surveyRegionIds = new Set(
+    operationalRegionQuestion.options.flatMap((option) =>
+      option.externalValue ? [option.externalValue] : [],
+    ),
+  );
+  return [...operationalRegionIds].every((regionId) =>
+    surveyRegionIds.has(regionId),
+  );
 }
 
 export function withoutRegistrationAnswer(

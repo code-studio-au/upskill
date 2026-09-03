@@ -24,12 +24,8 @@ import {
   type OfferingImage,
 } from "#/features/shared/offering-image";
 import { normalizeEventCommunicationAudience } from "#/features/admin-email/communication-options";
-import {
-  isOperationalRegionQuestion,
-  parseSurveyVersionContent,
-} from "#/features/survey/survey.schema";
-import { allSurveyPathsIncludeOperationalRegion } from "#/features/survey/survey-branching";
-import { filterRegistrationEventRegionOptions } from "#/features/registration/registration-questionnaire-domain";
+import { parseSurveyVersionContent } from "#/features/survey/survey.schema";
+import { registrationSurveySupportsEventRegions } from "#/features/registration/registration-questionnaire-domain";
 
 export async function createAdminEventTemplate(
   input: AdminEventTemplateCreateInput,
@@ -1391,30 +1387,10 @@ export async function publishAdminEventTemplateVersion(
             .execute(),
         ]);
         if (!registrationSurvey) return "conflict" as const;
-        const registrationContent = filterRegistrationEventRegionOptions(
-          parseSurveyVersionContent(registrationSurvey.content),
-          new Set(configuredRegions.map((region) => region.regionId)),
-        );
-        const operationalRegionQuestion = registrationContent.sections
-          .flatMap((section) => section.items)
-          .find(
-            (item) =>
-              item.kind !== "instruction" && isOperationalRegionQuestion(item),
-          );
         if (
-          !operationalRegionQuestion ||
-          !allSurveyPathsIncludeOperationalRegion(registrationContent) ||
-          !("options" in operationalRegionQuestion)
-        )
-          return "conflict" as const;
-        const surveyRegionIds = new Set(
-          operationalRegionQuestion.options.flatMap((option) =>
-            option.externalValue ? [option.externalValue] : [],
-          ),
-        );
-        if (
-          configuredRegions.some(
-            (region) => !surveyRegionIds.has(region.regionId),
+          !registrationSurveySupportsEventRegions(
+            parseSurveyVersionContent(registrationSurvey.content),
+            new Set(configuredRegions.map((region) => region.regionId)),
           )
         )
           return "conflict" as const;

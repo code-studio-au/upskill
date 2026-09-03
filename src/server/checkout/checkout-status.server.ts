@@ -2,6 +2,7 @@ import "@tanstack/react-start/server-only";
 
 import type { CheckoutStatus } from "#/features/checkout/checkout.schema";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import { eventRegistrationQuestionnaireRequired } from "#/features/registration/registration-questionnaire-domain";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 
@@ -35,6 +36,11 @@ export async function findCheckoutStatus(
           .onRef("questionnaire.eventOccurrenceId", "=", "event_occurrence.id")
           .on("questionnaire.userId", "=", user.id),
     )
+    .leftJoin("event_registration as registration", (join) =>
+      join
+        .onRef("registration.eventOccurrenceId", "=", "event_occurrence.id")
+        .on("registration.userId", "=", user.id),
+    )
     .select([
       "order.status",
       "order.kind",
@@ -45,6 +51,7 @@ export async function findCheckoutStatus(
       "event_occurrence.id as eventOccurrenceId",
       "event_template_version.registrationSurveyVersionId",
       "questionnaire.status as questionnaireStatus",
+      "registration.status as registrationStatus",
     ])
     .select((expression) =>
       expression
@@ -70,10 +77,11 @@ export async function findCheckoutStatus(
       offeringTitle: row.eventTitle,
       offeringSlug: row.eventSlug,
       eventOccurrenceId: row.eventOccurrenceId,
-      registrationRequired:
-        Boolean(row.registrationSurveyVersionId) &&
-        row.questionnaireStatus !== "completed" &&
-        row.questionnaireStatus !== "waived",
+      registrationRequired: eventRegistrationQuestionnaireRequired({
+        registrationSurveyVersionId: row.registrationSurveyVersionId,
+        questionnaireStatus: row.questionnaireStatus,
+        registrationStatus: row.registrationStatus,
+      }),
       reviewRequired: Boolean(row.reviewRequired),
     };
   }

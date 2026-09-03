@@ -9,6 +9,7 @@ import type {
   LearnerEventsDashboard,
 } from "#/features/learner/learner.schema";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import { eventRegistrationQuestionnaireRequired } from "#/features/registration/registration-questionnaire-domain";
 import { getDatabase } from "#/server/db/database.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { findEventParticipantProgressForOccurrences } from "#/server/events/event-operations.server";
@@ -363,19 +364,17 @@ export async function findLearnerEventsDashboard(
       !notOpen &&
       !closed &&
       !full;
-    const terminalRegistration =
-      registrationStatus === "withdrawn" ||
-      registrationStatus === "cancelled" ||
-      registrationStatus === "not_selected" ||
-      registrationStatus === "coordinator_declined";
     const registrationQuestionnaireComplete =
       event.registrationSurveyVersionId === null ||
       event.questionnaireStatus === "completed" ||
       event.questionnaireStatus === "waived";
     const registrationRequired =
       event.occurrenceStatus === "published" &&
-      !registrationQuestionnaireComplete &&
-      !terminalRegistration &&
+      eventRegistrationQuestionnaireRequired({
+        registrationSurveyVersionId: event.registrationSurveyVersionId,
+        questionnaireStatus: event.questionnaireStatus,
+        registrationStatus,
+      }) &&
       (registrationStatus !== null || Boolean(participation) || canRegister);
     return [
       {

@@ -27,6 +27,8 @@ const ids = {
     "verify_registration_questionnaire_event_occurrence_region",
   eventRegistration: "verify_registration_questionnaire_event_registration",
   eventParticipation: "verify_registration_questionnaire_event_participation",
+  eventOrder: "verify_registration_questionnaire_event_order",
+  eventOrderItem: "verify_registration_questionnaire_event_order_item",
   zeroRegionEventRegistration:
     "verify_registration_questionnaire_zero_region_event_registration",
   zeroRegionEventParticipation:
@@ -64,6 +66,11 @@ const database = new Kysely<Database>({
 });
 
 async function cleanup(): Promise<void> {
+  await database
+    .deleteFrom("order_item")
+    .where("id", "=", ids.eventOrderItem)
+    .execute();
+  await database.deleteFrom("order").where("id", "=", ids.eventOrder).execute();
   const assignments = await database
     .selectFrom("registration_questionnaire_assignment")
     .select("id")
@@ -476,6 +483,33 @@ try {
     })
     .execute();
   await database
+    .insertInto("order")
+    .values({
+      id: ids.eventOrder,
+      purchaserUserId: ids.otherUser,
+      stripeCheckoutSessionId: "cs_verify_registration_questionnaire_event",
+      stripePaymentIntentId: null,
+      stripeInvoiceId: null,
+      kind: "event_registration",
+      status: "paid",
+      currency: "AUD",
+      totalCents: 1_000,
+      refundedCents: 0,
+    })
+    .execute();
+  await database
+    .insertInto("order_item")
+    .values({
+      id: ids.eventOrderItem,
+      orderId: ids.eventOrder,
+      courseVersionId: null,
+      eventOccurrenceId: ids.eventOccurrence,
+      quantity: 1,
+      unitPriceCents: 1_000,
+      enrollmentDurationDays: null,
+    })
+    .execute();
+  await database
     .insertInto("event_registration")
     .values({
       id: ids.eventRegistration,
@@ -665,6 +699,148 @@ try {
       .then((row) => row.count),
     0,
   );
+  const originalEventRegistrationContent = await database
+    .selectFrom("survey_version")
+    .select("content")
+    .where("id", "=", ids.eventSurveyVersion)
+    .executeTakeFirstOrThrow()
+    .then((survey) => survey.content);
+  await database
+    .updateTable("survey_version")
+    .set({
+      content: {
+        title: "Branching event registration region",
+        description: "Every learner must reach the region question.",
+        sections: [
+          {
+            id: "event_registration_route",
+            title: "Registration route",
+            description: "",
+            items: [
+              {
+                id: "event_registration_route_question",
+                kind: "single_choice",
+                prompt: "Choose a registration route",
+                required: true,
+                options: [
+                  {
+                    id: "event_registration_region_route",
+                    label: "Choose a region",
+                    nextSectionId: "event_registration_region_section",
+                  },
+                  {
+                    id: "event_registration_skip_route",
+                    label: "Skip the region",
+                    nextSectionId: "event_registration_finish_section",
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "event_registration_region_section",
+            title: "Operational region",
+            description: "",
+            items: [
+              {
+                id: "event_operational_region",
+                kind: "dropdown",
+                prompt: "Operational region",
+                required: true,
+                optionSource: "coordination_operational_regions",
+                options: [
+                  {
+                    id: "event_region_option",
+                    label: "Verification operational region",
+                    externalValue: ids.region,
+                    parentExternalValue: ids.regionGroup,
+                  },
+                  {
+                    id: "event_unsupported_region_option",
+                    label: "Unsupported operational region",
+                    externalValue: ids.unsupportedRegion,
+                    parentExternalValue: ids.regionGroup,
+                  },
+                ],
+              },
+            ],
+          },
+          {
+            id: "event_registration_finish_section",
+            title: "Finish",
+            description: "",
+            items: [
+              {
+                id: "event_registration_finish",
+                kind: "instruction",
+                title: "Finish registration",
+                body: "Review your answers before submitting.",
+              },
+            ],
+          },
+        ],
+      },
+    })
+    .where("id", "=", ids.eventSurveyVersion)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      ids.eventOccurrence,
+      {
+        occurrence: {
+          eventTemplateVersionId: ids.eventTemplateVersion,
+          title: "Unsafe branching registration reschedule",
+          slug: "verify-registration-questionnaire-unsafe-branch",
+          deliveryMode: "virtual",
+          registrationMode: "paid_entry",
+          approvalMode: "automatic",
+          timezone: "UTC",
+          localStartsAt: rescheduleStartsAt.toISOString().slice(0, 19),
+          localEndsAt: rescheduleEndsAt.toISOString().slice(0, 19),
+          localRegistrationOpensAt: rescheduleOpensAt
+            .toISOString()
+            .slice(0, 19),
+          localRegistrationClosesAt: rescheduleClosesAt
+            .toISOString()
+            .slice(0, 19),
+          localCoordinatorLockAt: rescheduleLockAt.toISOString().slice(0, 19),
+          startsAt: rescheduleStartsAt.toISOString(),
+          endsAt: rescheduleEndsAt.toISOString(),
+          registrationOpensAt: rescheduleOpensAt.toISOString(),
+          registrationClosesAt: rescheduleClosesAt.toISOString(),
+          coordinatorLockAt: rescheduleLockAt.toISOString(),
+          capacity: 10,
+          priceCents: 1_000,
+          salePriceCents: null,
+          currency: "AUD",
+          bulkPricing: { enabled: false, tiers: [] },
+          listInStore: true,
+          featured: false,
+          venueName: "",
+          venueAddress: "",
+          virtualJoinUrl: "https://video.example.com/registration-verification",
+          domains: "",
+        },
+        registrationWindowPolicy: "reopen",
+        regionsConfirmed: true,
+        regionalCoverage: {
+          regions: [
+            { regionId: ids.region, coordinatorIds: [] },
+            { regionId: ids.unsupportedRegion, coordinatorIds: [] },
+          ],
+          retirements: [],
+        },
+      },
+      administrator,
+    ),
+    "registration-questionnaire-regions-incompatible",
+    "Rescheduling must reject a survey branch that can skip the operational region question",
+  );
+  await database
+    .updateTable("survey_version")
+    .set({ content: originalEventRegistrationContent })
+    .where("id", "=", ids.eventSurveyVersion)
+    .executeTakeFirstOrThrow();
 
   const {
     advanceRegistrationQuestionnaire,
@@ -2213,6 +2389,48 @@ try {
       .then((participation) => participation.nameSnapshot),
     updatedEventLearnerName,
     "Event participation must snapshot a consented profile update",
+  );
+  const { findCheckoutStatus } =
+    await import("#/server/checkout/checkout-status.server");
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "assigned", startedAt: null, completedAt: null })
+    .where("id", "=", zeroRegionQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("registration_questionnaire_response")
+    .set({
+      submittedAt: null,
+      profileUpdateAcceptedAt: null,
+    })
+    .where("assignmentId", "=", zeroRegionQuestionnaire.assignmentId)
+    .executeTakeFirstOrThrow();
+  const activeEventCheckout = await findCheckoutStatus(
+    "cs_verify_registration_questionnaire_event",
+    otherUser,
+  );
+  if (!activeEventCheckout || activeEventCheckout.offeringType !== "event")
+    throw new Error("Expected the Event checkout verification fixture");
+  assert.equal(
+    activeEventCheckout.registrationRequired,
+    true,
+    "Checkout success must redirect an active incomplete Event registration",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "withdrawn", lockedInAt: null })
+    .where("id", "=", ordinaryRegistration.id)
+    .executeTakeFirstOrThrow();
+  const terminalEventCheckout = await findCheckoutStatus(
+    "cs_verify_registration_questionnaire_event",
+    otherUser,
+  );
+  if (!terminalEventCheckout || terminalEventCheckout.offeringType !== "event")
+    throw new Error("Expected the terminal Event checkout fixture");
+  assert.equal(
+    terminalEventCheckout.registrationRequired,
+    false,
+    "Checkout success must not redirect a terminal registration to an unavailable questionnaire",
   );
 
   console.log(

@@ -6,10 +6,12 @@ import {
 } from "#/features/survey/survey.schema";
 import { allSurveyPathsIncludeOperationalRegion } from "#/features/survey/survey-branching";
 import {
+  eventRegistrationQuestionnaireRequired,
   filterRegistrationEventRegionOptions,
   registrationAnswerText,
   registrationOffersProfileUpdate,
   registrationQuestions,
+  registrationSurveySupportsEventRegions,
   withoutRegistrationAnswer,
 } from "./registration-questionnaire-domain";
 
@@ -205,6 +207,43 @@ describe("registration questionnaire domain", () => {
         ),
       ),
     ).toBe(true);
+    expect(
+      registrationSurveySupportsEventRegions(
+        branchingContent,
+        new Set(["north_one"]),
+      ),
+    ).toBe(true);
+    expect(
+      registrationSurveySupportsEventRegions(
+        branchingContent,
+        new Set(["south_one"]),
+      ),
+    ).toBe(false);
+  });
+
+  it("requires an incomplete questionnaire only for actionable registrations", () => {
+    const base = {
+      registrationSurveyVersionId: "registration_survey",
+      questionnaireStatus: "assigned" as const,
+    };
+    expect(
+      eventRegistrationQuestionnaireRequired({
+        ...base,
+        registrationStatus: "submitted",
+      }),
+    ).toBe(true);
+    for (const registrationStatus of [
+      "coordinator_declined",
+      "not_selected",
+      "withdrawn",
+      "cancelled",
+    ] as const)
+      expect(
+        eventRegistrationQuestionnaireRequired({
+          ...base,
+          registrationStatus,
+        }),
+      ).toBe(false);
   });
 
   it("removes stale branch answers without mutating the source", () => {

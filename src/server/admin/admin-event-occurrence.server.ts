@@ -6,10 +6,8 @@ import {
   normalizeEventDomains,
   type AdminEventOccurrenceCreateInput,
 } from "#/features/admin-event/admin-event.schema";
-import {
-  isOperationalRegionQuestion,
-  parseSurveyVersionContent,
-} from "#/features/survey/survey.schema";
+import { parseSurveyVersionContent } from "#/features/survey/survey.schema";
+import { registrationSurveySupportsEventRegions } from "#/features/registration/registration-questionnaire-domain";
 import {
   ianaTimeZoneSchema,
   instantIsoSchema,
@@ -829,22 +827,12 @@ export async function rescheduleAdminEventOccurrence(
       ) {
         if (!registrationSurvey)
           return "registration-questionnaire-regions-incompatible" as const;
-        const surveyRegionIds = new Set(
-          parseSurveyVersionContent(
-            registrationSurvey.content,
-          ).sections.flatMap((section) =>
-            section.items.flatMap((item) =>
-              isOperationalRegionQuestion(item)
-                ? item.options.flatMap((option) =>
-                    option.externalValue ? [option.externalValue] : [],
-                  )
-                : [],
-            ),
-          ),
-        );
         if (
-          input.regionalCoverage.regions.some(
-            (region) => !surveyRegionIds.has(region.regionId),
+          !registrationSurveySupportsEventRegions(
+            parseSurveyVersionContent(registrationSurvey.content),
+            new Set(
+              input.regionalCoverage.regions.map((region) => region.regionId),
+            ),
           )
         )
           return "registration-questionnaire-regions-incompatible" as const;

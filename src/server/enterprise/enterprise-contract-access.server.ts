@@ -13,6 +13,7 @@ import type {
   EnterpriseEventAccessResult,
   EnterpriseEventRegistrationResult,
 } from "#/features/enterprise/enterprise-contract.schema";
+import { eventRegistrationQuestionnaireRequired } from "#/features/registration/registration-questionnaire-domain";
 import { encryptedAccessCodeMatches } from "#/server/access/access-code-encryption.server";
 import {
   extractAccessCodeLookupId,
@@ -25,10 +26,6 @@ import type { Database } from "#/server/db/types";
 import { issueCourseEntitlement } from "#/server/learning/course-entitlement.server";
 import { issueConfirmedEventRegistration } from "#/server/events/confirmed-event-registration.server";
 import { enrollEnterpriseContractClaims } from "./enterprise-contract-enrollment.server";
-
-const terminalEventRegistrationStatuses = new Set<
-  Database["event_registration"]["status"]
->(["coordinator_declined", "not_selected", "withdrawn", "cancelled"]);
 
 function emailDomain(email: string): string | null {
   const separator = email.lastIndexOf("@");
@@ -385,11 +382,11 @@ async function resolveEventAccess(
     return {
       status: "already-registered",
       eventOccurrenceId: existing.eventOccurrenceId,
-      registrationRequired:
-        Boolean(existing.registrationSurveyVersionId) &&
-        !terminalEventRegistrationStatuses.has(existing.registrationStatus) &&
-        existing.questionnaireStatus !== "completed" &&
-        existing.questionnaireStatus !== "waived",
+      registrationRequired: eventRegistrationQuestionnaireRequired({
+        registrationSurveyVersionId: existing.registrationSurveyVersionId,
+        questionnaireStatus: existing.questionnaireStatus,
+        registrationStatus: existing.registrationStatus,
+      }),
       canOpenEvent:
         existing.registrationStatus === "selected" &&
         existing.eventParticipationId !== null,
@@ -471,10 +468,11 @@ export async function findEnterpriseEventAccess(
     contractName: result.access.contractName,
     organizationName: result.access.organizationName,
     eventOccurrenceId: result.access.eventOccurrenceId,
-    registrationRequired:
-      Boolean(result.access.registrationSurveyVersionId) &&
-      result.access.questionnaireStatus !== "completed" &&
-      result.access.questionnaireStatus !== "waived",
+    registrationRequired: eventRegistrationQuestionnaireRequired({
+      registrationSurveyVersionId: result.access.registrationSurveyVersionId,
+      questionnaireStatus: result.access.questionnaireStatus,
+      registrationStatus: null,
+    }),
   };
 }
 
@@ -502,13 +500,12 @@ export async function registerWithEnterpriseContract(
         return {
           status: "already-registered",
           eventOccurrenceId: resolved.access.eventOccurrenceId,
-          registrationRequired:
-            Boolean(resolved.access.registrationSurveyVersionId) &&
-            !terminalEventRegistrationStatuses.has(
-              registration.registrationStatus,
-            ) &&
-            resolved.access.questionnaireStatus !== "completed" &&
-            resolved.access.questionnaireStatus !== "waived",
+          registrationRequired: eventRegistrationQuestionnaireRequired({
+            registrationSurveyVersionId:
+              resolved.access.registrationSurveyVersionId,
+            questionnaireStatus: resolved.access.questionnaireStatus,
+            registrationStatus: registration.registrationStatus,
+          }),
           canOpenEvent: registration.canOpenEvent,
         } as const;
       if (registration.status !== "created")
@@ -542,10 +539,12 @@ export async function registerWithEnterpriseContract(
         status: "registered",
         eventRegistrationId: registration.eventRegistrationId,
         eventOccurrenceId: resolved.access.eventOccurrenceId,
-        registrationRequired:
-          Boolean(resolved.access.registrationSurveyVersionId) &&
-          resolved.access.questionnaireStatus !== "completed" &&
-          resolved.access.questionnaireStatus !== "waived",
+        registrationRequired: eventRegistrationQuestionnaireRequired({
+          registrationSurveyVersionId:
+            resolved.access.registrationSurveyVersionId,
+          questionnaireStatus: resolved.access.questionnaireStatus,
+          registrationStatus: "selected",
+        }),
       } as const;
     });
 }

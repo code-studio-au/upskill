@@ -15,6 +15,7 @@ import {
 import { enqueueRegistrationSubmittedEventCommunications } from "#/server/notifications/event-communication-execution.server";
 import { enqueueSystemEventNotification } from "#/server/notifications/notification.server";
 import { buildEventNotificationVariables } from "#/server/notifications/offering-event-context.server";
+import { eventRegistrationQuestionnaireRequired } from "#/features/registration/registration-questionnaire-domain";
 
 function invitationToken(): string {
   return randomBytes(32).toString("base64url");
@@ -715,7 +716,7 @@ export async function acceptEventLateRegistrationInvitation(
 
       const existing = await transaction
         .selectFrom("event_registration")
-        .select("id")
+        .select(["id", "status"])
         .where("eventOccurrenceId", "=", invitation.eventOccurrenceId)
         .where("userId", "=", user.id)
         .executeTakeFirst();
@@ -742,10 +743,11 @@ export async function acceptEventLateRegistrationInvitation(
         return {
           status: "already-registered",
           eventOccurrenceId: invitation.eventOccurrenceId,
-          registrationRequired:
-            Boolean(invitation.registrationSurveyVersionId) &&
-            invitation.questionnaireStatus !== "completed" &&
-            invitation.questionnaireStatus !== "waived",
+          registrationRequired: eventRegistrationQuestionnaireRequired({
+            registrationSurveyVersionId: invitation.registrationSurveyVersionId,
+            questionnaireStatus: invitation.questionnaireStatus,
+            registrationStatus: existing.status,
+          }),
         } as const;
       }
 
@@ -874,10 +876,11 @@ export async function acceptEventLateRegistrationInvitation(
       return {
         status: "registered",
         eventOccurrenceId: invitation.eventOccurrenceId,
-        registrationRequired:
-          Boolean(invitation.registrationSurveyVersionId) &&
-          invitation.questionnaireStatus !== "completed" &&
-          invitation.questionnaireStatus !== "waived",
+        registrationRequired: eventRegistrationQuestionnaireRequired({
+          registrationSurveyVersionId: invitation.registrationSurveyVersionId,
+          questionnaireStatus: invitation.questionnaireStatus,
+          registrationStatus: "submitted",
+        }),
       } as const;
     });
 }
