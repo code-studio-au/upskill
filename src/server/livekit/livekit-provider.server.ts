@@ -146,6 +146,18 @@ function roomSnapshot(room: Room): LiveKitRoomSnapshot {
   };
 }
 
+function reconciledRoomSnapshot(
+  room: Room,
+  expected: Pick<EnsureLiveKitRoomInput, "roomName" | "maxParticipants">,
+): LiveKitRoomSnapshot {
+  if (
+    room.name !== expected.roomName ||
+    room.maxParticipants !== expected.maxParticipants
+  )
+    throw new LiveKitProviderError("reconcile_room");
+  return roomSnapshot(room);
+}
+
 function participantSnapshot(
   participant: ParticipantInfo,
 ): LiveKitParticipantSnapshot {
@@ -220,14 +232,14 @@ export class LiveKitCloudProvider implements LiveKitProvider {
     try {
       return await this.coordinateRoomCreation(async () => {
         const [existing] = await this.api.room.listRooms([parsed.roomName]);
-        if (existing) return roomSnapshot(existing);
+        if (existing) return reconciledRoomSnapshot(existing, parsed);
         const activeRooms = await this.api.room.listRooms();
         if (activeRooms.length >= this.configuration.approvedMaxConcurrentRooms)
           throw new RangeError(
             "LiveKit room creation exceeds the approved concurrent-room limit",
           );
         try {
-          return roomSnapshot(
+          return reconciledRoomSnapshot(
             await this.api.room.createRoom({
               name: parsed.roomName,
               maxParticipants: parsed.maxParticipants,
@@ -235,12 +247,15 @@ export class LiveKitCloudProvider implements LiveKitProvider {
               departureTimeout: parsed.departureTimeoutSeconds,
               ...(parsed.metadata ? { metadata: parsed.metadata } : {}),
             }),
+            parsed,
           );
-        } catch {
+        } catch (error) {
+          if (error instanceof LiveKitProviderError) throw error;
           const [concurrentlyCreated] = await this.api.room.listRooms([
             parsed.roomName,
           ]);
-          if (concurrentlyCreated) return roomSnapshot(concurrentlyCreated);
+          if (concurrentlyCreated)
+            return reconciledRoomSnapshot(concurrentlyCreated, parsed);
           throw new LiveKitProviderError("ensure_room");
         }
       });

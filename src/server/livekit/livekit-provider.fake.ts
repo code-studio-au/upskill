@@ -7,6 +7,7 @@ import type {
   LiveKitProvider,
   LiveKitRoomSnapshot,
 } from "./livekit-provider.server";
+import { LiveKitProviderError } from "./livekit-provider.server";
 
 export type FakeLiveKitOperation =
   | { operation: "health" }
@@ -33,7 +34,11 @@ export class FakeLiveKitProvider implements LiveKitProvider {
   ensureRoom(input: EnsureLiveKitRoomInput): Promise<LiveKitRoomSnapshot> {
     this.operations.push({ operation: "ensure_room", input });
     const existing = this.rooms.get(input.roomName);
-    if (existing) return Promise.resolve(existing);
+    if (existing) {
+      if (existing.maxParticipants !== input.maxParticipants)
+        return Promise.reject(new LiveKitProviderError("reconcile_room"));
+      return Promise.resolve(existing);
+    }
     const created = {
       sid: `RM_FAKE_${String(this.rooms.size + 1)}`,
       name: input.roomName,

@@ -20,8 +20,8 @@ const configuration: EnabledLiveKitConfiguration = {
   approvedMaxConcurrentRooms: 2,
 };
 
-function room(name = "room_generation_1"): Room {
-  return new Room({ sid: "RM_1", name, maxParticipants: 20 });
+function room(name = "room_generation_1", maxParticipants = 20): Room {
+  return new Room({ sid: "RM_1", name, maxParticipants });
 }
 
 function fakeApi() {
@@ -114,6 +114,73 @@ describe("LiveKit provider foundation", () => {
         departureTimeoutSeconds: 60,
       }),
     ).resolves.toMatchObject({ sid: "RM_1" });
+  });
+
+  it.each([10, 26])(
+    "rejects an existing same-name room with mismatched capacity %i",
+    async (maxParticipants) => {
+      const api = fakeApi();
+      api.room.listRooms.mockResolvedValueOnce([
+        room("room_generation_1", maxParticipants),
+      ]);
+      const provider = new LiveKitCloudProvider(
+        configuration,
+        api,
+        coordinateDirectly,
+      );
+
+      await expect(
+        provider.ensureRoom({
+          roomName: "room_generation_1",
+          maxParticipants: 20,
+          emptyTimeoutSeconds: 600,
+          departureTimeoutSeconds: 60,
+        }),
+      ).rejects.toThrow("reconcile_room");
+      expect(api.room.createRoom).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects a mismatched provider create response", async () => {
+    const api = fakeApi();
+    api.room.createRoom.mockResolvedValueOnce(room("room_generation_1", 25));
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
+
+    await expect(
+      provider.ensureRoom({
+        roomName: "room_generation_1",
+        maxParticipants: 20,
+        emptyTimeoutSeconds: 600,
+        departureTimeoutSeconds: 60,
+      }),
+    ).rejects.toThrow("reconcile_room");
+  });
+
+  it("rejects a mismatched room-creation race recovery", async () => {
+    const api = fakeApi();
+    api.room.createRoom.mockRejectedValueOnce(new Error("already exists"));
+    api.room.listRooms
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([room("room_generation_1", 25)]);
+    const provider = new LiveKitCloudProvider(
+      configuration,
+      api,
+      coordinateDirectly,
+    );
+
+    await expect(
+      provider.ensureRoom({
+        roomName: "room_generation_1",
+        maxParticipants: 20,
+        emptyTimeoutSeconds: 600,
+        departureTimeoutSeconds: 60,
+      }),
+    ).rejects.toThrow("reconcile_room");
   });
 
   it("prevents room creation at the approved concurrent-room limit", async () => {
@@ -268,6 +335,9 @@ describe("LiveKit provider foundation", () => {
     const first = await provider.ensureRoom(input);
     const second = await provider.ensureRoom(input);
     expect(first).toEqual(second);
+    await expect(
+      provider.ensureRoom({ ...input, maxParticipants: 25 }),
+    ).rejects.toThrow("reconcile_room");
     await expect(
       provider.createJoinToken({
         roomName: input.roomName,
