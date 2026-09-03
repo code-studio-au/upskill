@@ -1,4 +1,12 @@
-import { CfnOutput, Duration, Stack, Tags, type StackProps } from "aws-cdk-lib";
+import {
+  CfnOutput,
+  Duration,
+  RemovalPolicy,
+  SecretValue,
+  Stack,
+  Tags,
+  type StackProps,
+} from "aws-cdk-lib";
 import {
   Alarm,
   ComparisonOperator,
@@ -95,6 +103,25 @@ export class ApplicationStack extends Stack {
         excludePunctuation: true,
       },
     });
+    const liveKitConfigurationSecret = new Secret(
+      this,
+      "LiveKitConfiguration",
+      {
+        secretName: `upskill/${props.config.name}/livekit`,
+        description:
+          "Dormant LiveKit Cloud configuration; add provider credentials before deliberate enablement",
+        secretObjectValue: {
+          LIVEKIT_ENABLED: SecretValue.unsafePlainText("false"),
+          LIVEKIT_PROJECT_ENVIRONMENT: SecretValue.unsafePlainText(
+            props.config.name,
+          ),
+        },
+        removalPolicy:
+          props.config.name === "production"
+            ? RemovalPolicy.RETAIN
+            : RemovalPolicy.DESTROY,
+      },
+    );
     const accessCodeEncryptionSecret = new Secret(
       this,
       "AccessCodeEncryptionKey",
@@ -137,6 +164,7 @@ export class ApplicationStack extends Stack {
     props.workQueue.grantSendMessages(role);
     props.deadLetterQueue.grantConsumeMessages(role);
     configurationSecret.grantRead(role);
+    liveKitConfigurationSecret.grantRead(role);
     accessCodeEncryptionSecret.grantRead(role);
     webDatabaseCredentials.grantRead(role);
     workerDatabaseCredentials.grantRead(role);
@@ -188,6 +216,7 @@ export class ApplicationStack extends Stack {
 #!/usr/bin/env bash
 set -euo pipefail
 application_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${configurationSecret.secretArn}' --query SecretString --output text)
+livekit_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${liveKitConfigurationSecret.secretArn}' --query SecretString --output text)
 database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${props.databaseSecretArn}' --query SecretString --output text)
 web_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${webDatabaseCredentials.secretArn}' --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${workerDatabaseCredentials.secretArn}' --query SecretString --output text)
@@ -198,6 +227,7 @@ worker_environment_tmp=$(mktemp)
 deploy_environment_tmp=$(mktemp)
 trap 'rm -f -- "$base_environment_tmp" "$web_environment_tmp" "$worker_environment_tmp" "$deploy_environment_tmp"' EXIT
 jq -r 'to_entries[] | "\\(.key)=\\(.value|tostring|@json)"' <<< "$application_json" > "$base_environment_tmp"
+jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS") | "\\(.key)=\\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")
 database_name=$(jq -r '.dbname' <<< "$database_json")
@@ -348,6 +378,11 @@ UPSKILL_ENV`,
       value: accessCodeEncryptionSecret.secretArn,
       description:
         "Versioned application key for encrypted recoverable access codes",
+    });
+    new CfnOutput(this, "LiveKitConfigurationSecretArn", {
+      value: liveKitConfigurationSecret.secretArn,
+      description:
+        "Populate environment-specific LiveKit credentials and approved quotas before enablement",
     });
   }
 }

@@ -40,9 +40,12 @@ availability trade-off: readiness and host alarms detect failure, but there is
 no automatic failover until the topology is deliberately scaled out.
 Because releases and Let's Encrypt state are local to the single application
 host, user-data changes do not replace it automatically. They govern the next
-host launch. An existing host receives a reviewed, idempotent repair through
-SSM, or is replaced in an explicit maintenance operation that restores the
-release and TLS before the environment is declared healthy.
+host launch. Every verified release therefore carries the versioned environment
+refresh helper, and the release installer installs that helper before it
+refreshes or validates configuration. This is the normal reviewed, idempotent
+repair path for an existing host. Broader host changes use an explicit SSM
+repair or a maintenance replacement that restores the release and TLS before
+the environment is declared healthy.
 Migration baseline v1 in
 [ADR 0021](0021-pre-production-schema-rebaselining.md) closes the temporary
 pre-production rebaselining exception before the first staging environment.

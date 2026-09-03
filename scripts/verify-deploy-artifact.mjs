@@ -105,6 +105,8 @@ try {
       SMS_PROVIDER: "textbee",
       TEXTBEE_API_KEY: "artifact-textbee-key",
       TEXTBEE_WEBHOOK_SECRET: "artifact-webhook-secret",
+      LIVEKIT_ENABLED: "false",
+      LIVEKIT_PROJECT_ENVIRONMENT: "staging",
       AWS_REGION: "ap-southeast-2",
       S3_QUARANTINE_BUCKET: "upskill-staging-quarantine",
       S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning",
@@ -149,6 +151,8 @@ try {
       env: {
         ...process.env,
         APP_ENV: "test",
+        LIVEKIT_ENABLED: "false",
+        LIVEKIT_PROJECT_ENVIRONMENT: "test",
         APP_ORIGIN: "http://127.0.0.1:3000",
         LEARNING_ORIGIN: "http://127.0.0.1:3001",
         DATABASE_URL: "postgresql://test:test@127.0.0.1:5432/test",
@@ -182,6 +186,10 @@ try {
     stdio: "inherit",
   });
   execFileSync("bash", ["-n", "deploy/scripts/invite-platform-admin.sh"], {
+    cwd: extractedDirectory,
+    stdio: "inherit",
+  });
+  execFileSync("bash", ["-n", "deploy/scripts/upskill-refresh-env.sh"], {
     cwd: extractedDirectory,
     stdio: "inherit",
   });

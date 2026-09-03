@@ -69,6 +69,8 @@ if (packageJson.dependencies.tsx !== "4.23.11")
   failures.push(
     "The deployed TypeScript seed loader requires pinned production tsx",
   );
+if (packageJson.dependencies["livekit-server-sdk"] !== "2.18.0")
+  failures.push("The server-only LiveKit SDK must remain exact-pinned");
 if (packageJson.devDependencies.tsx !== undefined)
   failures.push("tsx must not be scoped only to development dependencies");
 if (!packageJson.scripts.doctor.includes("--blocking error"))
@@ -121,6 +123,14 @@ const browserTestRunner = fs.readFileSync(
   path.join(root, "scripts/run-browser-tests.mjs"),
   "utf8",
 );
+const databaseTestRunner = fs.readFileSync(
+  path.join(root, "scripts/run-database-verification.mjs"),
+  "utf8",
+);
+const deployArtifactVerifier = fs.readFileSync(
+  path.join(root, "scripts/verify-deploy-artifact.mjs"),
+  "utf8",
+);
 for (const invariant of [
   'all: [["test"]]',
   '"--project=chromium-mobile-scorm"',
@@ -129,6 +139,19 @@ for (const invariant of [
 ])
   if (!browserTestRunner.includes(invariant))
     failures.push(`Browser-test orchestration is missing: ${invariant}`);
+for (const [name, runner] of [
+  ["Browser", browserTestRunner],
+  ["Database", databaseTestRunner],
+  ["Release artifact", deployArtifactVerifier],
+])
+  for (const invariant of [
+    'LIVEKIT_ENABLED: "false"',
+    'LIVEKIT_PROJECT_ENVIRONMENT: "test"',
+  ])
+    if (!runner.includes(invariant))
+      failures.push(
+        `${name} verification must isolate local LiveKit configuration: ${invariant}`,
+      );
 for (const boundary of [
   "Disposable test databases require a PostgreSQL server on localhost",
   "create database",
@@ -319,6 +342,65 @@ for (const requiredAccessCodeBoundary of [
       `The deployed access-code encryption boundary is missing: ${requiredAccessCodeBoundary}`,
     );
 }
+for (const requiredLiveKitBoundary of [
+  '"LiveKitConfiguration"',
+  "liveKitConfigurationSecret.grantRead(role)",
+  "livekit_json",
+]) {
+  if (!applicationStack.includes(requiredLiveKitBoundary))
+    failures.push(
+      `The dormant LiveKit configuration boundary is missing: ${requiredLiveKitBoundary}`,
+    );
+}
+for (const relative of [
+  ".env.example",
+  "deploy/cdk/lib/application-stack.ts",
+  "src/server/runtime-environment.ts",
+]) {
+  if (
+    !fs
+      .readFileSync(path.join(root, relative), "utf8")
+      .includes("LIVEKIT_ENABLED")
+  )
+    failures.push(`LiveKit enablement must remain explicit: ${relative}`);
+}
+const liveKitProvider = fs.readFileSync(
+  path.join(root, "src/server/livekit/livekit-provider.server.ts"),
+  "utf8",
+);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'from "livekit-server-sdk"',
+  "LIVEKIT_JOIN_TOKEN_TTL_SECONDS = 5 * 60",
+  "canPublishData: false",
+  "pg_advisory_xact_lock",
+  "this.coordinateRoomCreation",
+])
+  if (!liveKitProvider.includes(boundary))
+    failures.push(`LiveKit provider boundary is missing: ${boundary}`);
+const liveKitWebhook = fs.readFileSync(
+  path.join(root, "src/server/livekit/livekit-webhook.server.ts"),
+  "utf8",
+);
+const liveKitWebhookRoute = fs.readFileSync(
+  path.join(root, "src/routes/api.livekit.webhook.ts"),
+  "utf8",
+);
+for (const boundary of [
+  "new WebhookReceiver",
+  ".receive(rawBody, authorization)",
+  "liveKitWebhookPayloadSchema.parse",
+])
+  if (!liveKitWebhook.includes(boundary))
+    failures.push(`LiveKit webhook verification is missing: ${boundary}`);
+for (const boundary of [
+  '"application/webhook+json"',
+  "request.arrayBuffer()",
+  "MAX_WEBHOOK_BYTES",
+  '"webhook_persistence_not_ready"',
+])
+  if (!liveKitWebhookRoute.includes(boundary))
+    failures.push(`LiveKit webhook route boundary is missing: ${boundary}`);
 for (const relative of [
   ".env.example",
   "deploy/cdk/lib/application-stack.ts",
@@ -398,6 +480,10 @@ if (
   failures.push("Runtime services must not receive migration credentials");
 const installRelease = fs.readFileSync(
   path.join(root, "deploy/scripts/install-release.sh"),
+  "utf8",
+);
+const environmentRefresh = fs.readFileSync(
+  path.join(root, "deploy/scripts/upskill-refresh-env.sh"),
   "utf8",
 );
 const stagingReset = fs.readFileSync(
@@ -575,6 +661,29 @@ if (
   failures.push(
     "Deployment must verify the downloaded artifact before extracting its installer",
   );
+const environmentRefreshInstallIndex = installRelease.indexOf(
+  '"$staging_path/deploy/scripts/upskill-refresh-env.sh"',
+);
+const environmentRefreshInvocationIndex = installRelease.indexOf(
+  "if ! /usr/local/bin/upskill-refresh-env",
+);
+if (
+  environmentRefreshInstallIndex < 0 ||
+  environmentRefreshInvocationIndex < 0 ||
+  environmentRefreshInstallIndex > environmentRefreshInvocationIndex
+)
+  failures.push(
+    "Release installation must install the versioned environment refresh helper before using it",
+  );
+for (const invariant of [
+  'secret-id "${secret_prefix}/livekit"',
+  'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
+  "upskill-web.env",
+  "upskill-worker.env",
+  "upskill-deploy.env",
+])
+  if (!environmentRefresh.includes(invariant))
+    failures.push(`Environment refresh safety is missing: ${invariant}`);
 const deploymentIdentity = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
   "utf8",

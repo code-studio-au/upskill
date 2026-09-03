@@ -27,6 +27,7 @@ const verificationScripts = [
   "scripts/verify-resource-library.ts",
   "scripts/verify-completion-certificates.ts",
   "scripts/verify-event-foundation.ts",
+  "scripts/verify-livekit-room-creation-lock.ts",
   "scripts/verify-admin-learner-event-history.ts",
   "scripts/verify-email-designer.ts",
   "scripts/verify-offering-communications.ts",
@@ -103,6 +104,8 @@ try {
   const environment = {
     ...process.env,
     APP_ENV: "test",
+    LIVEKIT_ENABLED: "false",
+    LIVEKIT_PROJECT_ENVIRONMENT: "test",
     ACCESS_CODE_ENCRYPTION_KEY: "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE",
     DATABASE_URL: disposableDatabase.databaseUrl,
     MIGRATION_DATABASE_URL: disposableDatabase.databaseUrl,

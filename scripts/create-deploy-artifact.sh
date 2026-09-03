@@ -18,7 +18,7 @@ if [[ ! "$release_sha" =~ ^[a-f0-9]{40}$ ]]; then
   echo "Release SHA must be a full lowercase Git commit" >&2
   exit 1
 fi
-for required_path in dist/server/server.js dist/client dist/worker/scorm-worker.js config/dispatchable-outbox-topics.json src/server/db/migrate.ts src/server/db/provision-runtime-roles.ts src/server/db/migrations src/server/runtime-environment.ts src/validation/zod.server.ts src/server/access/access-code.server.ts src/server/access/access-code-encryption.server.ts src/server/env.server.ts src/server/storage/object-storage.server.ts package.json pnpm-lock.yaml pnpm-workspace.yaml scripts/start-server.mjs scripts/validate-runtime-environment.ts scripts/bootstrap-platform-admin.mjs scripts/invite-platform-admin.mjs scripts/reset-staging-database.ts scripts/seed-current-snapshot.ts scripts/fixtures/current-development-snapshot.json deploy/scripts/install-release.sh deploy/scripts/bootstrap-platform-admin.sh deploy/scripts/invite-platform-admin.sh deploy/scripts/reset-and-seed-staging.sh deploy/scripts/seed-staging.sh; do
+for required_path in dist/server/server.js dist/client dist/worker/scorm-worker.js config/dispatchable-outbox-topics.json src/server/db/migrate.ts src/server/db/provision-runtime-roles.ts src/server/db/migrations src/server/runtime-environment.ts src/validation/zod.server.ts src/server/access/access-code.server.ts src/server/access/access-code-encryption.server.ts src/server/env.server.ts src/server/storage/object-storage.server.ts package.json pnpm-lock.yaml pnpm-workspace.yaml scripts/start-server.mjs scripts/validate-runtime-environment.ts scripts/bootstrap-platform-admin.mjs scripts/invite-platform-admin.mjs scripts/reset-staging-database.ts scripts/seed-current-snapshot.ts scripts/fixtures/current-development-snapshot.json deploy/scripts/install-release.sh deploy/scripts/upskill-refresh-env.sh deploy/scripts/bootstrap-platform-admin.sh deploy/scripts/invite-platform-admin.sh deploy/scripts/reset-and-seed-staging.sh deploy/scripts/seed-staging.sh; do
   if [[ ! -e "$required_path" ]]; then
     echo "Missing release input: $required_path" >&2
     exit 1
@@ -54,6 +54,7 @@ tar -czf "$artifact_path" \
   pnpm-lock.yaml \
   pnpm-workspace.yaml \
   deploy/scripts/install-release.sh \
+  deploy/scripts/upskill-refresh-env.sh \
   deploy/scripts/bootstrap-platform-admin.sh \
   deploy/scripts/invite-platform-admin.sh \
   deploy/scripts/reset-and-seed-staging.sh \
