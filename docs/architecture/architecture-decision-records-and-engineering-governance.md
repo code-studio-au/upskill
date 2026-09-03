@@ -319,9 +319,16 @@ existing caller that grants the affected capability before implementation.
 For example, a virtual-event join policy could return outcomes such as
 `registration_required`, `verification_required`, `meeting_not_started`,
 `waiting_for_admission`, `admitted`, `event_ended` or `staff_access`. Learner
-links, invitations, the green room, provider-token issuance and attendance
-processing should consume that shared policy rather than implementing parallel
-checks.
+links, invitations, the green room and provider-token issuance should consume
+that shared capability-granting policy rather than implementing parallel checks.
+
+Do not force evidence ingestion, reconciliation, audit or reporting through an
+action-authorisation policy when their lifecycle and retry semantics differ.
+Virtual-event attendance processing, for example, needs a separate authenticated
+and idempotent evidence boundary that accepts delayed, duplicate and out-of-order
+provider events after token issuance has stopped or the meeting has ended. That
+boundary validates the provider event and its exact room/session scope without
+re-evaluating whether the participant could obtain a new join token.
 
 ### Reviewable Delivery Slices
 
