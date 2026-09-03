@@ -189,6 +189,10 @@ try {
     cwd: extractedDirectory,
     stdio: "inherit",
   });
+  execFileSync("bash", ["-n", "deploy/scripts/upskill-refresh-env.sh"], {
+    cwd: extractedDirectory,
+    stdio: "inherit",
+  });
   execFileSync("bash", ["-n", "deploy/scripts/reset-and-seed-staging.sh"], {
     cwd: extractedDirectory,
     stdio: "inherit",

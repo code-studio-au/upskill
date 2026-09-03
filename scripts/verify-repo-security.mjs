@@ -482,6 +482,10 @@ const installRelease = fs.readFileSync(
   path.join(root, "deploy/scripts/install-release.sh"),
   "utf8",
 );
+const environmentRefresh = fs.readFileSync(
+  path.join(root, "deploy/scripts/upskill-refresh-env.sh"),
+  "utf8",
+);
 const stagingReset = fs.readFileSync(
   path.join(root, "deploy/scripts/reset-and-seed-staging.sh"),
   "utf8",
@@ -657,6 +661,29 @@ if (
   failures.push(
     "Deployment must verify the downloaded artifact before extracting its installer",
   );
+const environmentRefreshInstallIndex = installRelease.indexOf(
+  '"$staging_path/deploy/scripts/upskill-refresh-env.sh"',
+);
+const environmentRefreshInvocationIndex = installRelease.indexOf(
+  "if ! /usr/local/bin/upskill-refresh-env",
+);
+if (
+  environmentRefreshInstallIndex < 0 ||
+  environmentRefreshInvocationIndex < 0 ||
+  environmentRefreshInstallIndex > environmentRefreshInvocationIndex
+)
+  failures.push(
+    "Release installation must install the versioned environment refresh helper before using it",
+  );
+for (const invariant of [
+  'secret-id "${secret_prefix}/livekit"',
+  'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
+  "upskill-web.env",
+  "upskill-worker.env",
+  "upskill-deploy.env",
+])
+  if (!environmentRefresh.includes(invariant))
+    failures.push(`Environment refresh safety is missing: ${invariant}`);
 const deploymentIdentity = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
   "utf8",

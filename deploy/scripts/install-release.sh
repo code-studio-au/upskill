@@ -124,6 +124,9 @@ if [[ "$manifest_sha" != "$release_sha" ]]; then
 fi
 chown -R ec2-user:ec2-user "$staging_path"
 sudo -u ec2-user env CI=true /usr/local/bin/pnpm --dir "$staging_path" --filter upskill install --prod --frozen-lockfile --ignore-scripts
+install -o root -g root -m 0755 \
+  "$staging_path/deploy/scripts/upskill-refresh-env.sh" \
+  /usr/local/bin/upskill-refresh-env
 
 if [[ -e "$release_path" || -L "$release_path" ]]; then
   if [[ -L "$release_path" || ! -d "$release_path" ]]; then
