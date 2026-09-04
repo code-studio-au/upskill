@@ -79,6 +79,36 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     add column "livekitRecordingRetentionDays" integer,
     add column "livekitAttendeeRecordingNotice" text,
     add column "livekitPresenterRecordingNotice" text`.execute(db);
+
+  await sql`create function normalize_legacy_event_virtual_delivery_provider()
+    returns trigger
+    language plpgsql
+    as $$
+    begin
+      if new."virtualDeliveryProvider" is null
+        and new."virtualJoinUrl" is not null
+        and new."venueName" is null
+        and new."venueAddress" is null then
+        new."virtualDeliveryProvider" := 'external_url';
+      elsif new."virtualDeliveryProvider" = 'external_url'
+        and new."virtualJoinUrl" is null
+        and new."venueName" is not null then
+        new."virtualDeliveryProvider" := null;
+      end if;
+      return new;
+    end
+    $$`.execute(db);
+  await sql`create trigger event_occurrence_legacy_virtual_provider_trg
+    before insert or update on event_occurrence
+    for each row execute function normalize_legacy_event_virtual_delivery_provider()`.execute(
+    db,
+  );
+  await sql`create trigger event_session_legacy_virtual_provider_trg
+    before insert or update on event_session
+    for each row execute function normalize_legacy_event_virtual_delivery_provider()`.execute(
+    db,
+  );
+
   await sql`update event_session session
     set "virtualDeliveryProvider" = 'external_url'
     from event_occurrence occurrence
@@ -158,6 +188,14 @@ export async function down<Database>(db: Kysely<Database>): Promise<void> {
       end if;
     end
   $$`.execute(db);
+
+  await sql`drop trigger event_session_legacy_virtual_provider_trg
+    on event_session`.execute(db);
+  await sql`drop trigger event_occurrence_legacy_virtual_provider_trg
+    on event_occurrence`.execute(db);
+  await sql`drop function normalize_legacy_event_virtual_delivery_provider()`.execute(
+    db,
+  );
 
   await sql`alter table event_session
     drop constraint event_session_livekit_delivery_ck,

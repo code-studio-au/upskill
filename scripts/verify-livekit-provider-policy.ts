@@ -19,6 +19,8 @@ const ids = {
   definition: "verify_livekit_policy_definition",
   legacyOccurrence: "verify_livekit_policy_legacy_occurrence",
   legacySession: "verify_livekit_policy_legacy_session",
+  compatibilityOccurrence: "verify_livekit_policy_compatibility_occurrence",
+  compatibilitySession: "verify_livekit_policy_compatibility_session",
 };
 
 const database = getDatabase();
@@ -165,6 +167,81 @@ try {
     virtualDeliveryProvider: "external_url",
     livekitAdmissionMode: null,
   });
+
+  await sql`insert into event_occurrence (
+      id, "eventTemplateVersionId", title, slug, status, "deliveryMode",
+      "registrationMode", "approvalMode", timezone, "localStartsAt", "localEndsAt",
+      "localRegistrationOpensAt", "localRegistrationClosesAt", "localCoordinatorLockAt",
+      "startsAt", "endsAt", "registrationOpensAt", "registrationClosesAt",
+      "coordinatorLockAt", capacity, "confirmedCount", "venueName", "venueAddress",
+      "virtualJoinUrl", "priceCents", "salePriceCents", currency, "bulkPricing",
+      "listInStore", featured, "openEntryAttendanceMode", "publishedAt",
+      "createdByUserId", "createdAt", "updatedAt"
+    )
+    select ${ids.compatibilityOccurrence}, "eventTemplateVersionId", title,
+      'verify-livekit-policy-compatibility', 'draft', "deliveryMode",
+      "registrationMode", "approvalMode", timezone, "localStartsAt", "localEndsAt",
+      "localRegistrationOpensAt", "localRegistrationClosesAt", "localCoordinatorLockAt",
+      "startsAt", "endsAt", "registrationOpensAt", "registrationClosesAt",
+      "coordinatorLockAt", capacity, 0, "venueName", "venueAddress", "virtualJoinUrl",
+      "priceCents", "salePriceCents", currency, "bulkPricing", false, false,
+      "openEntryAttendanceMode", null, "createdByUserId", now(), now()
+    from event_occurrence
+    where id = ${ids.legacyOccurrence}`.execute(database);
+  await sql`insert into event_session (
+      id, "eventOccurrenceId", "sessionDefinitionId", position, title,
+      "localStartsAt", "localEndsAt", "startsAt", "endsAt", "presenterRequired",
+      "venueName", "venueAddress", "virtualJoinUrl"
+    )
+    select ${ids.compatibilitySession}, ${ids.compatibilityOccurrence},
+      "sessionDefinitionId", position, title, "localStartsAt", "localEndsAt",
+      "startsAt", "endsAt", "presenterRequired", "venueName", "venueAddress",
+      "virtualJoinUrl"
+    from event_session
+    where id = ${ids.legacySession}`.execute(database);
+  assert.deepEqual(
+    await database
+      .selectFrom("event_occurrence")
+      .select("virtualDeliveryProvider")
+      .where("id", "=", ids.compatibilityOccurrence)
+      .executeTakeFirstOrThrow(),
+    { virtualDeliveryProvider: "external_url" },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_session")
+      .select("virtualDeliveryProvider")
+      .where("id", "=", ids.compatibilitySession)
+      .executeTakeFirstOrThrow(),
+    { virtualDeliveryProvider: "external_url" },
+  );
+  await sql`update event_occurrence
+    set "deliveryMode" = 'in_person', "venueName" = 'Compatibility venue',
+      "virtualJoinUrl" = null
+    where id = ${ids.compatibilityOccurrence}`.execute(database);
+  await sql`update event_session
+    set "venueName" = 'Compatibility venue', "virtualJoinUrl" = null
+    where id = ${ids.compatibilitySession}`.execute(database);
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_occurrence")
+        .select("virtualDeliveryProvider")
+        .where("id", "=", ids.compatibilityOccurrence)
+        .executeTakeFirstOrThrow()
+    ).virtualDeliveryProvider,
+    null,
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_session")
+        .select("virtualDeliveryProvider")
+        .where("id", "=", ids.compatibilitySession)
+        .executeTakeFirstOrThrow()
+    ).virtualDeliveryProvider,
+    null,
+  );
   const defaultPolicy = await database
     .selectFrom("event_template_session_definition")
     .select([
@@ -363,7 +440,7 @@ try {
   );
 
   console.log(
-    "Verified LiveKit provider backfill, versioned defaults, exact-session snapshots, dormant publication and reschedule gating, and database constraints",
+    "Verified LiveKit provider backfill, legacy-writer compatibility, versioned defaults, exact-session snapshots, dormant publication and reschedule gating, and database constraints",
   );
 } finally {
   if (!migrationRestored)
