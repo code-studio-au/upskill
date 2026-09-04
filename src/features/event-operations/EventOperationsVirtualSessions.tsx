@@ -42,6 +42,7 @@ export function EventOperationsVirtualSessions({
   action: EventOperationsAction;
 }) {
   const occurrenceId = workspace.occurrence.id;
+  const administrator = workspace.access.roles.includes("administrator");
 
   const operate = (
     sessionId: string,
@@ -171,13 +172,20 @@ export function EventOperationsVirtualSessions({
                     <Group gap="sm">
                       {room.doorState === "scheduled" ? (
                         <Button
-                          disabled={room.providerStatus !== "ready"}
+                          disabled={
+                            room.providerStatus !== "ready" ||
+                            !virtualSession.canEnterGreenRoom
+                          }
                           loading={
                             processingId ===
                             `start-${virtualSession.eventSessionId}`
                           }
                           onClick={() => {
-                            operate(virtualSession.eventSessionId, "start");
+                            operate(
+                              virtualSession.eventSessionId,
+                              "start",
+                              "Start this webinar and open the attendee door?",
+                            );
                           }}
                         >
                           Start webinar
@@ -230,8 +238,9 @@ export function EventOperationsVirtualSessions({
                           End webinar
                         </Button>
                       ) : null}
-                      {room.providerStatus === "error" &&
-                      room.doorState !== "ended" ? (
+                      {(room.providerStatus === "error" &&
+                        room.doorState !== "ended") ||
+                      (administrator && room.doorState === "ended") ? (
                         <Button
                           color="red"
                           variant="outline"
@@ -243,11 +252,15 @@ export function EventOperationsVirtualSessions({
                             operate(
                               virtualSession.eventSessionId,
                               "replace",
-                              "Replace this room generation? Existing room credentials will no longer be used.",
+                              room.doorState === "ended"
+                                ? "Recover this ended webinar with a new room generation?"
+                                : "Replace this room generation? Existing room credentials will no longer be used.",
                             );
                           }}
                         >
-                          Replace generation
+                          {room.doorState === "ended"
+                            ? "Recover with new generation"
+                            : "Replace generation"}
                         </Button>
                       ) : null}
                     </Group>

@@ -2352,6 +2352,41 @@ test("platform administrators can inspect learner progress", async ({
       }),
     ).toBeVisible();
     await expect(page.getByText("Not prepared")).toBeVisible();
+    await authoringDatabase.query(
+      `insert into event_virtual_room (
+        id, "eventSessionId", provider, generation, "providerRoomName",
+        "providerRoomSid", "doorState", "admissionMode", "attendanceMode",
+        "attendanceMinimumMinutes", "recordingMode", "recordingRetentionDays",
+        "maxParticipants", "providerStatus", "providerErrorCode",
+        "createdByUserId", "createdAt"
+      ) values (
+        'e2e_livekit_start_confirmation', $1, 'livekit', 1,
+        'upskill_room_e2e_start_confirmation', 'RM_E2E_START_CONFIRMATION',
+        'scheduled', 'manual', 'manual', null, 'off', null,
+        25, 'ready', null,
+        (select id from "user" where email = 'admin@codestudio.au'), now()
+      )`,
+      [occurrenceSessionId],
+    );
+    await page.reload();
+    const startWebinar = page.getByRole("button", { name: "Start webinar" });
+    await expect(startWebinar).toBeEnabled();
+    const confirmation = page.waitForEvent("dialog");
+    const startClick = startWebinar.click();
+    const startDialog = await confirmation;
+    expect(startDialog.message()).toBe(
+      "Start this webinar and open the attendee door?",
+    );
+    await startDialog.dismiss();
+    await startClick;
+    await expect
+      .poll(async () => {
+        const room = await authoringDatabase.query<{ doorState: string }>(
+          `select "doorState" from event_virtual_room where id = 'e2e_livekit_start_confirmation'`,
+        );
+        return room.rows[0]?.doorState;
+      })
+      .toBe("scheduled");
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);

@@ -566,7 +566,7 @@ try {
     ids.occurrence,
     ids.session,
     presenter,
-    { runtime, now: providerRetryTime },
+    { runtime, clock: () => providerRetryTime },
   );
   assert.equal(presenterCredential.status, "ready");
   assert.equal(
@@ -629,7 +629,7 @@ try {
         ids.occurrence,
         ids.session,
         presenter,
-        { runtime: invalidatingRuntime, now: providerRetryTime },
+        { runtime: invalidatingRuntime, clock: () => providerRetryTime },
       ),
       { status: "conflict", reason: "room_not_ready" },
       `A credential must not escape after the room is ${invalidation}`,
@@ -666,7 +666,10 @@ try {
       ids.occurrence,
       ids.session,
       presenter,
-      { runtime: occurrenceInvalidatingRuntime, now: providerRetryTime },
+      {
+        runtime: occurrenceInvalidatingRuntime,
+        clock: () => providerRetryTime,
+      },
     ),
     { status: "conflict", reason: "occurrence_unavailable" },
     "A credential must not escape after the occurrence becomes terminal",
@@ -696,7 +699,10 @@ try {
       ids.occurrence,
       ids.session,
       presenter,
-      { runtime: sessionCutoffInvalidatingRuntime, now: providerRetryTime },
+      {
+        runtime: sessionCutoffInvalidatingRuntime,
+        clock: () => providerRetryTime,
+      },
     ),
     { status: "conflict", reason: "session_ended" },
     "A credential must not escape after the session cutoff changes",
@@ -707,12 +713,34 @@ try {
     .set({ startsAt, endsAt })
     .where("id", "=", ids.session)
     .executeTakeFirstOrThrow();
+  let credentialPolicyTime = new Date("2030-09-04T00:59:59.000Z");
+  const crossingCutoffRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    provider: new InvalidatingJoinProvider(() => {
+      credentialPolicyTime = endsAt;
+      return Promise.resolve();
+    }),
+  };
+  assert.deepEqual(
+    await issueEventVirtualPresenterCredential(
+      ids.occurrence,
+      ids.session,
+      presenter,
+      {
+        runtime: crossingCutoffRuntime,
+        clock: () => credentialPolicyTime,
+      },
+    ),
+    { status: "conflict", reason: "session_ended" },
+    "A token request that crosses the session cutoff must use fresh policy time",
+  );
+  assert.equal(await tokenAuditCount(), auditCountBeforeInvalidation);
   assert.deepEqual(
     await issueEventVirtualPresenterCredential(
       ids.occurrence,
       ids.session,
       coordinator,
-      { runtime, now: providerRetryTime },
+      { runtime, clock: () => providerRetryTime },
     ),
     { status: "forbidden" },
   );
@@ -866,6 +894,44 @@ try {
     { status: "conflict", reason: "invalid_transition" },
   );
 
+  const laterStartsAt = new Date("2030-09-05T00:00:00.000Z");
+  const laterEndsAt = new Date("2030-09-05T01:00:00.000Z");
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("event_occurrence")
+      .set({ startsAt: laterStartsAt, endsAt: laterEndsAt })
+      .where("id", "=", ids.occurrence)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("event_session")
+      .set({ startsAt: laterStartsAt, endsAt: laterEndsAt })
+      .where("id", "in", [ids.session, ids.raceSession])
+      .execute();
+  });
+  assert.deepEqual(
+    await transitionEventVirtualRoom(
+      ids.occurrence,
+      ids.session,
+      "start",
+      administrator,
+      replacementTime,
+    ),
+    { status: "conflict", reason: "preparation_not_open" },
+    "A retained prepared room must not start before a rescheduled preparation window",
+  );
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("event_occurrence")
+      .set({ startsAt, endsAt })
+      .where("id", "=", ids.occurrence)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("event_session")
+      .set({ startsAt, endsAt })
+      .where("id", "in", [ids.session, ids.raceSession])
+      .execute();
+  });
+
   await database
     .updateTable("event_virtual_room")
     .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
@@ -939,6 +1005,76 @@ try {
     ),
     { status: "ready" },
   );
+  const recoveryEndTime = new Date("2030-09-04T00:30:00.000Z");
+  assert.deepEqual(
+    await transitionEventVirtualRoom(
+      ids.occurrence,
+      ids.session,
+      "end",
+      administrator,
+      recoveryEndTime,
+    ),
+    { status: "ready" },
+  );
+
+  const closeBatch = await processAvailableEventVirtualRoomOperations(10, {
+    runtime,
+    now: recoveryEndTime,
+  });
+  assert.equal(closeBatch.outcomes.length, 1);
+  assert.equal(closeBatch.outcomes[0]?.kind, "close_room");
+  assert.equal(fakeProvider.rooms.size, 0);
+
+  const recoveryTime = new Date("2030-09-04T00:31:00.000Z");
+  assert.deepEqual(
+    await replaceEventVirtualRoom(
+      ids.occurrence,
+      ids.session,
+      presenter,
+      recoveryTime,
+    ),
+    { status: "forbidden" },
+    "Presenters must not recover an intentionally ended room generation",
+  );
+  assert.deepEqual(
+    await replaceEventVirtualRoom(
+      ids.occurrence,
+      ids.session,
+      administrator,
+      recoveryTime,
+    ),
+    { status: "ready" },
+    "An administrator must be able to append recovery after an ended generation",
+  );
+  const recoveryBatch = await processAvailableEventVirtualRoomOperations(10, {
+    runtime,
+    now: recoveryTime,
+  });
+  assert.deepEqual(
+    recoveryBatch.outcomes.map((outcome) => outcome.kind),
+    ["ensure_room"],
+  );
+  const recoveredRoom = await database
+    .selectFrom("event_virtual_room")
+    .select(["generation", "doorState", "providerStatus"])
+    .where("eventSessionId", "=", ids.session)
+    .where("replacedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(recoveredRoom, {
+    generation: 3,
+    doorState: "scheduled",
+    providerStatus: "ready",
+  });
+  assert.deepEqual(
+    await transitionEventVirtualRoom(
+      ids.occurrence,
+      ids.session,
+      "start",
+      administrator,
+      recoveryTime,
+    ),
+    { status: "ready" },
+  );
   assert.deepEqual(
     await transitionEventVirtualRoom(
       ids.occurrence,
@@ -949,13 +1085,14 @@ try {
     ),
     { status: "ready" },
   );
-
-  const closeBatch = await processAvailableEventVirtualRoomOperations(10, {
-    runtime,
-    now: endsAt,
-  });
-  assert.equal(closeBatch.outcomes.length, 1);
-  assert.equal(closeBatch.outcomes[0]?.kind, "close_room");
+  const recoveredCloseBatch = await processAvailableEventVirtualRoomOperations(
+    10,
+    { runtime, now: endsAt },
+  );
+  assert.deepEqual(
+    recoveredCloseBatch.outcomes.map((outcome) => outcome.kind),
+    ["close_room"],
+  );
   assert.equal(fakeProvider.rooms.size, 0);
 
   assert.deepEqual(
@@ -965,7 +1102,7 @@ try {
       administrator,
       new Date("2030-09-04T01:01:00.000Z"),
     ),
-    { status: "conflict", reason: "invalid_transition" },
+    { status: "conflict", reason: "session_ended" },
   );
 
   const deferredProvider = new DeferredEnsureProvider();

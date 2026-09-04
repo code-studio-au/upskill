@@ -277,6 +277,19 @@ async function hasVirtualRoomStaffAccess(
   return Boolean(presenter || platformAdministrator);
 }
 
+async function hasVirtualRoomAdministratorAccess(
+  connection: DatabaseConnection,
+  userId: string,
+): Promise<boolean> {
+  return Boolean(
+    await connection
+      .selectFrom("platform_admin")
+      .select("userId")
+      .where("userId", "=", userId)
+      .executeTakeFirst(),
+  );
+}
+
 async function insertRoomOperation(
   transaction: Transaction<Database>,
   roomId: string,
@@ -818,9 +831,10 @@ export async function issueEventVirtualPresenterCredential(
   eventOccurrenceId: string,
   eventSessionId: string,
   user: AuthenticatedUser,
-  options: { runtime?: VirtualRoomRuntime; now?: Date } = {},
+  options: { runtime?: VirtualRoomRuntime; clock?: () => Date } = {},
 ): Promise<EventVirtualPresenterCredentialOutcome> {
-  const now = options.now ?? new Date();
+  const clock = options.clock ?? (() => new Date());
+  const now = clock();
   let runtime: VirtualRoomRuntime | null;
   try {
     runtime = options.runtime ?? resolveConfiguredRuntime();
@@ -880,8 +894,6 @@ export async function issueEventVirtualPresenterCredential(
         );
         if (!currentContext || currentContext === "not-livekit")
           return "occurrence_unavailable" as const;
-        const currentConflict = preparationConflict(currentContext, now);
-        if (currentConflict) return currentConflict;
         const currentRoom = await transaction
           .selectFrom("event_virtual_room")
           .select("id")
@@ -902,6 +914,9 @@ export async function issueEventVirtualPresenterCredential(
           ))
         )
           return "forbidden" as const;
+        const currentNow = clock();
+        const currentConflict = preparationConflict(currentContext, currentNow);
+        if (currentConflict) return currentConflict;
         await recordDurableAuditEvent(transaction, {
           actorUserId: user.id,
           action: "event_virtual_room.presenter_token_issued",
@@ -909,7 +924,7 @@ export async function issueEventVirtualPresenterCredential(
           subjectId: room.id,
           aggregateId: eventOccurrenceId,
           metadata: { eventSessionId, generation: room.generation },
-          createdAt: now,
+          createdAt: currentNow,
         });
         return "ready" as const;
       });
@@ -1029,28 +1044,45 @@ export async function transitionEventVirtualRoom(
   now = new Date(),
 ): Promise<EventVirtualRoomMutationOutcome> {
   const database = getDatabase();
-  const context = await findVirtualSessionContext(
-    database,
-    eventOccurrenceId,
-    eventSessionId,
-  );
-  if (!context) return { status: "not-found" };
-  if (context === "not-livekit")
-    return { status: "conflict", reason: "not_livekit" };
-  if (
-    !(await hasVirtualRoomStaffAccess(
-      database,
+  return database.transaction().execute(async (transaction) => {
+    const occurrence = await transaction
+      .selectFrom("event_occurrence")
+      .select("id")
+      .where("id", "=", eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!occurrence) return { status: "not-found" } as const;
+    const session = await transaction
+      .selectFrom("event_session")
+      .select("id")
+      .where("id", "=", eventSessionId)
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!session) return { status: "not-found" } as const;
+    const context = await findVirtualSessionContext(
+      transaction,
       eventOccurrenceId,
       eventSessionId,
-      user.id,
-    ))
-  )
-    return { status: "forbidden" };
-  if (context.occurrenceStatus !== "published")
-    return { status: "conflict", reason: "occurrence_unavailable" };
-  if (action === "start" && now >= context.endsAt)
-    return { status: "conflict", reason: "session_ended" };
-  return database.transaction().execute(async (transaction) => {
+    );
+    if (!context) return { status: "not-found" } as const;
+    if (context === "not-livekit")
+      return { status: "conflict", reason: "not_livekit" } as const;
+    if (
+      !(await hasVirtualRoomStaffAccess(
+        transaction,
+        eventOccurrenceId,
+        eventSessionId,
+        user.id,
+      ))
+    )
+      return { status: "forbidden" } as const;
+    if (context.occurrenceStatus !== "published")
+      return { status: "conflict", reason: "occurrence_unavailable" } as const;
+    if (action === "start") {
+      const conflict = preparationConflict(context, now);
+      if (conflict) return { status: "conflict", reason: conflict } as const;
+    }
     const room = await transaction
       .selectFrom("event_virtual_room")
       .selectAll()
@@ -1249,6 +1281,8 @@ export async function replaceEventVirtualRoom(
       return { status: "conflict", reason: "occurrence_unavailable" } as const;
     if (currentContext.occurrenceStatus !== "published")
       return { status: "conflict", reason: "occurrence_unavailable" } as const;
+    const conflict = preparationConflict(currentContext, now);
+    if (conflict) return { status: "conflict", reason: conflict } as const;
     const room = await transaction
       .selectFrom("event_virtual_room")
       .selectAll()
@@ -1266,8 +1300,12 @@ export async function replaceEventVirtualRoom(
       ))
     )
       return { status: "forbidden" } as const;
-    if (room.providerStatus !== "error" || room.doorState === "ended")
+    if (room.doorState === "ended") {
+      if (!(await hasVirtualRoomAdministratorAccess(transaction, user.id)))
+        return { status: "forbidden" } as const;
+    } else if (room.providerStatus !== "error") {
       return { status: "conflict", reason: "invalid_transition" } as const;
+    }
 
     await transaction
       .updateTable("event_virtual_room")
