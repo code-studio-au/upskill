@@ -4,9 +4,7 @@ import {
   eventOperationsCoordinatorDecisionSchema,
   eventOperationsParamsSchema,
   eventOperationsRegionLockSchema,
-  eventVirtualRoomAdmissionSchema,
-  eventVirtualRoomSessionSchema,
-  eventVirtualRoomTransitionSchema,
+  eventVirtualRoomMutationSchema,
   eventSurveyQrPresentationParamsSchema,
   type AssignedEventOperationsResult,
   type EventOperationsMutationResult,
@@ -176,76 +174,42 @@ export const recordEventOperationsAttendance = createServerFn({
       : { status: "ready" };
   });
 
-export const prepareEventVirtualRoom = createServerFn({ method: "POST" })
-  .validator(eventVirtualRoomSessionSchema)
+export const mutateEventVirtualRoom = createServerFn({ method: "POST" })
+  .validator(eventVirtualRoomMutationSchema)
   .handler(async ({ data }): Promise<EventOperationsMutationResult> => {
     const { getEventOperationsRequest } =
       await import("#/server/events/event-operations-access.server");
     const request = await getEventOperationsRequest(data.eventOccurrenceId);
     if (request.status !== "ready") return request;
-    const { ensureEventVirtualRoomForStaff } =
-      await import("#/server/events/event-virtual-room.server");
-    return ensureEventVirtualRoomForStaff(
-      data.eventOccurrenceId,
-      data.eventSessionId,
+    const {
+      checkEventVirtualSessionProviderHealth,
+      ensureEventVirtualRoomForStaff,
+      replaceEventVirtualRoom,
+      setEventVirtualRoomAdmissionMode,
+      transitionEventVirtualRoom,
+    } = await import("#/server/events/event-virtual-room.server");
+    const args = [data.eventOccurrenceId, data.eventSessionId] as const;
+    if (data.action === "prepare")
+      return ensureEventVirtualRoomForStaff(...args, request.access.user);
+    if (data.action === "health")
+      return checkEventVirtualSessionProviderHealth(
+        ...args,
+        request.access.user.id,
+      );
+    if (data.action === "replace")
+      return replaceEventVirtualRoom(...args, request.access.user);
+    if (
+      data.action === "admission_manual" ||
+      data.action === "admission_automatic"
+    )
+      return setEventVirtualRoomAdmissionMode(
+        ...args,
+        data.action === "admission_manual" ? "manual" : "automatic",
+        request.access.user,
+      );
+    return transitionEventVirtualRoom(
+      ...args,
+      data.action,
       request.access.user,
-    );
-  });
-
-export const mutateEventVirtualRoomLifecycle = createServerFn({
-  method: "POST",
-})
-  .validator(eventVirtualRoomTransitionSchema)
-  .handler(async ({ data }): Promise<EventOperationsMutationResult> => {
-    const { getEventOperationsRequest } =
-      await import("#/server/events/event-operations-access.server");
-    const request = await getEventOperationsRequest(data.eventOccurrenceId);
-    if (request.status !== "ready") return request;
-    const { replaceEventVirtualRoom, transitionEventVirtualRoom } =
-      await import("#/server/events/event-virtual-room.server");
-    return data.action === "replace"
-      ? replaceEventVirtualRoom(
-          data.eventOccurrenceId,
-          data.eventSessionId,
-          request.access.user,
-        )
-      : transitionEventVirtualRoom(
-          data.eventOccurrenceId,
-          data.eventSessionId,
-          data.action,
-          request.access.user,
-        );
-  });
-
-export const setEventVirtualRoomAdmission = createServerFn({ method: "POST" })
-  .validator(eventVirtualRoomAdmissionSchema)
-  .handler(async ({ data }): Promise<EventOperationsMutationResult> => {
-    const { getEventOperationsRequest } =
-      await import("#/server/events/event-operations-access.server");
-    const request = await getEventOperationsRequest(data.eventOccurrenceId);
-    if (request.status !== "ready") return request;
-    const { setEventVirtualRoomAdmissionMode } =
-      await import("#/server/events/event-virtual-room.server");
-    return setEventVirtualRoomAdmissionMode(
-      data.eventOccurrenceId,
-      data.eventSessionId,
-      data.admissionMode,
-      request.access.user,
-    );
-  });
-
-export const checkEventVirtualRoomProvider = createServerFn({ method: "POST" })
-  .validator(eventVirtualRoomSessionSchema)
-  .handler(async ({ data }): Promise<EventOperationsMutationResult> => {
-    const { getEventOperationsRequest } =
-      await import("#/server/events/event-operations-access.server");
-    const request = await getEventOperationsRequest(data.eventOccurrenceId);
-    if (request.status !== "ready") return request;
-    const { checkEventVirtualSessionProviderHealth } =
-      await import("#/server/events/event-virtual-room.server");
-    return checkEventVirtualSessionProviderHealth(
-      data.eventOccurrenceId,
-      data.eventSessionId,
-      request.access.user.id,
     );
   });

@@ -16,6 +16,7 @@ import {
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import {
+  type CreateLiveKitJoinTokenInput,
   LiveKitProviderError,
   type EnsureLiveKitRoomInput,
   type LiveKitRoomSnapshot,
@@ -67,6 +68,20 @@ class FailFirstEnsureProvider extends FakeLiveKitProvider {
       return Promise.reject(new LiveKitProviderError("ensure_room"));
     }
     return super.ensureRoom(input);
+  }
+}
+
+class InvalidatingJoinProvider extends FakeLiveKitProvider {
+  constructor(private readonly invalidate: () => Promise<void>) {
+    super();
+  }
+
+  override async createJoinToken(
+    input: CreateLiveKitJoinTokenInput,
+  ): Promise<string> {
+    const token = await super.createJoinToken(input);
+    await this.invalidate();
+    return token;
   }
 }
 
@@ -418,6 +433,65 @@ try {
     presenterTokenOperation.input.participantIdentity.includes(presenter.id),
     false,
   );
+  const tokenAuditCount = async () =>
+    (
+      await database
+        .selectFrom("audit_event")
+        .select(({ fn }) => fn.countAll<number>().as("count"))
+        .where("action", "=", "event_virtual_room.presenter_token_issued")
+        .where("subjectId", "=", room.id)
+        .executeTakeFirstOrThrow()
+    ).count;
+  const auditCountBeforeInvalidation = await tokenAuditCount();
+  for (const invalidation of ["ended", "replaced"] as const) {
+    const invalidatingRuntime: VirtualRoomRuntime = {
+      ...runtime,
+      provider: new InvalidatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set(
+            invalidation === "ended"
+              ? {
+                  doorState: "ended",
+                  endedAt: providerRetryTime,
+                  endedByUserId: presenter.id,
+                }
+              : {
+                  replacedAt: providerRetryTime,
+                  replacedByUserId: presenter.id,
+                },
+          )
+          .where("id", "=", room.id)
+          .executeTakeFirstOrThrow();
+      }),
+    };
+    assert.deepEqual(
+      await issueEventVirtualPresenterCredential(
+        ids.occurrence,
+        ids.session,
+        presenter,
+        { runtime: invalidatingRuntime, now: providerRetryTime },
+      ),
+      { status: "conflict", reason: "room_not_ready" },
+      `A credential must not escape after the room is ${invalidation}`,
+    );
+    assert.equal(
+      await tokenAuditCount(),
+      auditCountBeforeInvalidation,
+      "Discarded credentials must not produce issuance evidence",
+    );
+    await database
+      .updateTable("event_virtual_room")
+      .set({
+        doorState: "scheduled",
+        endedAt: null,
+        endedByUserId: null,
+        replacedAt: null,
+        replacedByUserId: null,
+      })
+      .where("id", "=", room.id)
+      .executeTakeFirstOrThrow();
+  }
   assert.deepEqual(
     await issueEventVirtualPresenterCredential(
       ids.occurrence,

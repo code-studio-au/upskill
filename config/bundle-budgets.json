@@ -1,5 +1,5 @@
 {
-  "clientJavaScriptBytes": 1014000,
+  "clientJavaScriptBytes": 1006000,
   "clientCssBytes": 255000,
   "clientJavaScriptBrotliBytes": 300000,
   "clientCssBrotliBytes": 36000,
@@ -24,6 +24,7 @@
     "AdminEventRegionalCoverageEditor": 1536,
     "EligibleStaffPicker": 1024,
     "EventOperationsProgress": 2560,
+    "EventOperationsDevicePreview": 1280,
     "EventOperationsSurveyQrCatalogue": 1536,
     "EventOperationsVirtualSessions": 2048,
     "EventTimezoneAutocomplete": 1024,

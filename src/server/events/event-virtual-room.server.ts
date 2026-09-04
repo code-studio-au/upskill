@@ -742,9 +742,20 @@ export async function issueEventVirtualPresenterCredential(
       displayName: user.name.trim().slice(0, 200) || "Presenter",
       role: "presenter",
     });
-    const authorisedAtAudit = await database
+    const credentialStillAuthorised = await database
       .transaction()
       .execute(async (transaction) => {
+        const currentRoom = await transaction
+          .selectFrom("event_virtual_room")
+          .select("id")
+          .where("id", "=", room.id)
+          .where("eventSessionId", "=", eventSessionId)
+          .where("replacedAt", "is", null)
+          .where("doorState", "!=", "ended")
+          .where("providerStatus", "=", "ready")
+          .forUpdate()
+          .executeTakeFirst();
+        if (!currentRoom) return "room-not-ready" as const;
         if (
           !(await hasVirtualRoomStaffAccess(
             transaction,
@@ -753,7 +764,7 @@ export async function issueEventVirtualPresenterCredential(
             user.id,
           ))
         )
-          return false;
+          return "forbidden" as const;
         await recordDurableAuditEvent(transaction, {
           actorUserId: user.id,
           action: "event_virtual_room.presenter_token_issued",
@@ -763,9 +774,12 @@ export async function issueEventVirtualPresenterCredential(
           metadata: { eventSessionId, generation: room.generation },
           createdAt: now,
         });
-        return true;
+        return "ready" as const;
       });
-    if (!authorisedAtAudit) return { status: "forbidden" };
+    if (credentialStillAuthorised === "room-not-ready")
+      return { status: "conflict", reason: "room_not_ready" };
+    if (credentialStillAuthorised === "forbidden")
+      return { status: "forbidden" };
     return {
       status: "ready",
       credential: {

@@ -37,21 +37,20 @@ export const eventOperationsAttendanceSchema = z.object({
   state: z.enum(["not_recorded", "checked_in", "attended", "absent"]),
 });
 
-export const eventVirtualRoomSessionSchema = z.object({
+export const eventVirtualRoomMutationSchema = z.object({
   eventOccurrenceId: identifier,
   eventSessionId: identifier,
-});
-
-export const eventVirtualRoomTransitionSchema = z.object({
-  eventOccurrenceId: identifier,
-  eventSessionId: identifier,
-  action: z.enum(["start", "lock", "reopen", "end", "replace"]),
-});
-
-export const eventVirtualRoomAdmissionSchema = z.object({
-  eventOccurrenceId: identifier,
-  eventSessionId: identifier,
-  admissionMode: z.enum(["manual", "automatic"]),
+  action: z.enum([
+    "prepare",
+    "health",
+    "start",
+    "lock",
+    "reopen",
+    "end",
+    "replace",
+    "admission_manual",
+    "admission_automatic",
+  ]),
 });
 
 export const eventProgressFilterSchema = z.object({

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import {
@@ -10,77 +10,15 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
-import {
-  checkEventVirtualRoomProvider,
-  mutateEventVirtualRoomLifecycle,
-  prepareEventVirtualRoom,
-  setEventVirtualRoomAdmission,
-} from "#/server/functions/event-operations";
+import { mutateEventVirtualRoom } from "#/server/functions/event-operations";
 import type { EventOperationsAction } from "./EventOperationsOverview";
 import type { EventOperationsWorkspace } from "./event-operations.schema";
 import classes from "./EventOperations.module.css";
 
-function DevicePreview() {
-  const video = useRef<HTMLVideoElement>(null);
-  const [stream, setStream] = useState<MediaStream | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (video.current) video.current.srcObject = stream;
-    return () => {
-      for (const track of stream?.getTracks() ?? []) track.stop();
-    };
-  }, [stream]);
-
-  const stop = () => {
-    for (const track of stream?.getTracks() ?? []) track.stop();
-    setStream(null);
-  };
-
-  const start = async () => {
-    setError(null);
-    try {
-      setStream(
-        await navigator.mediaDevices.getUserMedia({ audio: true, video: true }),
-      );
-    } catch {
-      setError(
-        "Camera or microphone access was unavailable. Check this browser's site permissions and try again.",
-      );
-    }
-  };
-
-  return (
-    <Stack gap="sm">
-      <div>
-        <Text fw={700}>Device preview</Text>
-        <Text c="dimmed" size="sm">
-          This preview stays on this device and does not connect to the webinar.
-        </Text>
-      </div>
-      {stream ? (
-        <video
-          ref={video}
-          className={classes.devicePreview}
-          autoPlay
-          muted
-          playsInline
-          aria-label="Camera preview"
-        />
-      ) : null}
-      {error ? <Alert color="red">{error}</Alert> : null}
-      <Button
-        variant="light"
-        onClick={() => {
-          if (stream) stop();
-          else void start();
-        }}
-      >
-        {stream ? "Stop preview" : "Test camera and microphone"}
-      </Button>
-    </Stack>
-  );
-}
+const EventOperationsDevicePreview = lazy(async () => {
+  const module = await import("./EventOperationsDevicePreview");
+  return { default: module.EventOperationsDevicePreview };
+});
 
 function statusColour(
   status: "pending" | "ready" | "error" | "closed",
@@ -105,12 +43,23 @@ export function EventOperationsVirtualSessions({
 }) {
   const occurrenceId = workspace.occurrence.id;
 
-  const lifecycle = (
+  const operate = (
     sessionId: string,
-    operation: "start" | "lock" | "reopen" | "end" | "replace",
-  ) =>
-    action(`${operation}-${sessionId}`, () =>
-      mutateEventVirtualRoomLifecycle({
+    operation:
+      | "prepare"
+      | "health"
+      | "start"
+      | "lock"
+      | "reopen"
+      | "end"
+      | "replace"
+      | "admission_manual"
+      | "admission_automatic",
+    confirmation?: string,
+  ) => {
+    if (confirmation && !window.confirm(confirmation)) return;
+    void action(`${operation}-${sessionId}`, () =>
+      mutateEventVirtualRoom({
         data: {
           eventOccurrenceId: occurrenceId,
           eventSessionId: sessionId,
@@ -118,14 +67,15 @@ export function EventOperationsVirtualSessions({
         },
       }),
     );
+  };
 
   return (
     <Stack gap="lg">
       <div>
         <Title order={2}>Webinar operations</Title>
         <Text c="dimmed">
-          Prepare each LiveKit room, check local devices, and control the
-          attendee door for the exact assigned session.
+          Prepare each LiveKit room and control the attendee door for the exact
+          assigned session.
         </Text>
       </div>
       {workspace.occurrence.status !== "published" ? (
@@ -202,18 +152,9 @@ export function EventOperationsVirtualSessions({
                         processingId ===
                         `prepare-${virtualSession.eventSessionId}`
                       }
-                      onClick={() =>
-                        void action(
-                          `prepare-${virtualSession.eventSessionId}`,
-                          () =>
-                            prepareEventVirtualRoom({
-                              data: {
-                                eventOccurrenceId: occurrenceId,
-                                eventSessionId: virtualSession.eventSessionId,
-                              },
-                            }),
-                        )
-                      }
+                      onClick={() => {
+                        operate(virtualSession.eventSessionId, "prepare");
+                      }}
                     >
                       Prepare green room
                     </Button>
@@ -235,12 +176,9 @@ export function EventOperationsVirtualSessions({
                             processingId ===
                             `start-${virtualSession.eventSessionId}`
                           }
-                          onClick={() =>
-                            void lifecycle(
-                              virtualSession.eventSessionId,
-                              "start",
-                            )
-                          }
+                          onClick={() => {
+                            operate(virtualSession.eventSessionId, "start");
+                          }}
                         >
                           Start webinar
                         </Button>
@@ -252,12 +190,9 @@ export function EventOperationsVirtualSessions({
                             processingId ===
                             `lock-${virtualSession.eventSessionId}`
                           }
-                          onClick={() =>
-                            void lifecycle(
-                              virtualSession.eventSessionId,
-                              "lock",
-                            )
-                          }
+                          onClick={() => {
+                            operate(virtualSession.eventSessionId, "lock");
+                          }}
                         >
                           Lock doors
                         </Button>
@@ -269,12 +204,9 @@ export function EventOperationsVirtualSessions({
                             processingId ===
                             `reopen-${virtualSession.eventSessionId}`
                           }
-                          onClick={() =>
-                            void lifecycle(
-                              virtualSession.eventSessionId,
-                              "reopen",
-                            )
-                          }
+                          onClick={() => {
+                            operate(virtualSession.eventSessionId, "reopen");
+                          }}
                         >
                           Reopen doors
                         </Button>
@@ -288,13 +220,11 @@ export function EventOperationsVirtualSessions({
                             `end-${virtualSession.eventSessionId}`
                           }
                           onClick={() => {
-                            if (
-                              window.confirm("End this webinar for everyone?")
-                            )
-                              void lifecycle(
-                                virtualSession.eventSessionId,
-                                "end",
-                              );
+                            operate(
+                              virtualSession.eventSessionId,
+                              "end",
+                              "End this webinar for everyone?",
+                            );
                           }}
                         >
                           End webinar
@@ -310,15 +240,11 @@ export function EventOperationsVirtualSessions({
                             `replace-${virtualSession.eventSessionId}`
                           }
                           onClick={() => {
-                            if (
-                              window.confirm(
-                                "Replace this room generation? Existing room credentials will no longer be used.",
-                              )
-                            )
-                              void lifecycle(
-                                virtualSession.eventSessionId,
-                                "replace",
-                              );
+                            operate(
+                              virtualSession.eventSessionId,
+                              "replace",
+                              "Replace this room generation? Existing room credentials will no longer be used.",
+                            );
                           }}
                         >
                           Replace generation
@@ -339,22 +265,14 @@ export function EventOperationsVirtualSessions({
                           }
                           loading={
                             processingId ===
-                            `admission-manual-${virtualSession.eventSessionId}`
+                            `admission_manual-${virtualSession.eventSessionId}`
                           }
-                          onClick={() =>
-                            void action(
-                              `admission-manual-${virtualSession.eventSessionId}`,
-                              () =>
-                                setEventVirtualRoomAdmission({
-                                  data: {
-                                    eventOccurrenceId: occurrenceId,
-                                    eventSessionId:
-                                      virtualSession.eventSessionId,
-                                    admissionMode: "manual",
-                                  },
-                                }),
-                            )
-                          }
+                          onClick={() => {
+                            operate(
+                              virtualSession.eventSessionId,
+                              "admission_manual",
+                            );
+                          }}
                         >
                           Manual admit
                         </Button>
@@ -367,22 +285,14 @@ export function EventOperationsVirtualSessions({
                           }
                           loading={
                             processingId ===
-                            `admission-automatic-${virtualSession.eventSessionId}`
+                            `admission_automatic-${virtualSession.eventSessionId}`
                           }
-                          onClick={() =>
-                            void action(
-                              `admission-automatic-${virtualSession.eventSessionId}`,
-                              () =>
-                                setEventVirtualRoomAdmission({
-                                  data: {
-                                    eventOccurrenceId: occurrenceId,
-                                    eventSessionId:
-                                      virtualSession.eventSessionId,
-                                    admissionMode: "automatic",
-                                  },
-                                }),
-                            )
-                          }
+                          onClick={() => {
+                            operate(
+                              virtualSession.eventSessionId,
+                              "admission_automatic",
+                            );
+                          }}
                         >
                           Auto-admit
                         </Button>
@@ -397,23 +307,14 @@ export function EventOperationsVirtualSessions({
                     loading={
                       processingId === `health-${virtualSession.eventSessionId}`
                     }
-                    onClick={() =>
-                      void action(
-                        `health-${virtualSession.eventSessionId}`,
-                        () =>
-                          checkEventVirtualRoomProvider({
-                            data: {
-                              eventOccurrenceId: occurrenceId,
-                              eventSessionId: virtualSession.eventSessionId,
-                            },
-                          }),
-                      )
-                    }
+                    onClick={() => {
+                      operate(virtualSession.eventSessionId, "health");
+                    }}
                   >
                     Check provider
                   </Button>
                 </Group>
-                <DevicePreview />
+                <EventOperationsDevicePreview />
               </Stack>
             </Paper>
           );

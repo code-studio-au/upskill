@@ -1,6 +1,17 @@
+import { readFileSync } from "node:fs";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+
+const bundleBudgets = JSON.parse(
+  readFileSync(
+    new URL("./config/bundle-budgets.json", import.meta.url),
+    "utf8",
+  ),
+) as { conditionalJavaScriptGzipBytes?: Record<string, number> };
+const namedConditionalChunks = new Set(
+  Object.keys(bundleBudgets.conditionalJavaScriptGzipBytes ?? {}),
+);
 
 export default defineConfig({
   plugins: [tanstackStart(), react()],
@@ -18,6 +29,11 @@ export default defineConfig({
     },
     rolldownOptions: {
       output: {
+        chunkFileNames: (chunk) =>
+          namedConditionalChunks.has(chunk.name) ||
+          chunk.name.startsWith("_tanstack-start-manifest_v")
+            ? "assets/[name]-[hash].js"
+            : "assets/[hash].js",
         codeSplitting: {
           groups: [
             // Keep React separate from the framework chunk so shared vendor
