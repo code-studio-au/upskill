@@ -2288,6 +2288,58 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("button", { name: "Test camera and microphone" }),
     ).toBeVisible();
+    await page.evaluate(() => {
+      const testWindow = window as Window & {
+        resolveDelayedPreview?: () => void;
+        stoppedDelayedPreviewTracks?: number;
+      };
+      testWindow.stoppedDelayedPreviewTracks = 0;
+      navigator.mediaDevices.getUserMedia = () =>
+        new Promise<MediaStream>((resolve) => {
+          testWindow.resolveDelayedPreview = () => {
+            resolve({
+              getTracks: () => [
+                {
+                  stop: () => {
+                    testWindow.stoppedDelayedPreviewTracks =
+                      (testWindow.stoppedDelayedPreviewTracks ?? 0) + 1;
+                  },
+                } as MediaStreamTrack,
+              ],
+            } as MediaStream);
+          };
+        });
+    });
+    await page
+      .getByRole("button", { name: "Test camera and microphone" })
+      .click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            typeof (window as Window & { resolveDelayedPreview?: () => void })
+              .resolveDelayedPreview,
+        ),
+      )
+      .toBe("function");
+    await page.getByRole("button", { name: "Overview" }).click();
+    await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
+    await page.evaluate(() => {
+      const testWindow = window as Window & {
+        resolveDelayedPreview?: () => void;
+      };
+      testWindow.resolveDelayedPreview?.();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { stoppedDelayedPreviewTracks?: number })
+              .stoppedDelayedPreviewTracks ?? 0,
+        ),
+      )
+      .toBe(1);
+    await page.getByRole("button", { name: "Webinar operations" }).click();
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const webinarOperationsAccessibility = await new AxeBuilder({
       page,

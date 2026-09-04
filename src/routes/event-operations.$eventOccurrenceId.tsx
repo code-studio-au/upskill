@@ -169,6 +169,8 @@ function EventOperationsPage() {
             "LiveKit is unavailable or not configured. No room credentials were disclosed.",
           recording_unavailable:
             "Automatic recording is not available in this delivery slice, so the webinar was not started.",
+          room_configuration_changed:
+            "This webinar's capacity changed after its green room was prepared. Restore the prior capacity or replace the room generation.",
           room_not_ready:
             "Prepare the green room and wait for LiveKit readiness before continuing.",
           session_ended: "This webinar session has ended.",

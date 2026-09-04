@@ -288,6 +288,7 @@ export type EventOperationsMutationResult =
         | "provider_unavailable"
         | "recording_unavailable"
         | "region_locked"
+        | "room_configuration_changed"
         | "room_not_ready"
         | "session_ended";
     };

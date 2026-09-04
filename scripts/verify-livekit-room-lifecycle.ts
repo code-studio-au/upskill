@@ -384,6 +384,72 @@ try {
     })
     .execute();
 
+  let confirmOccurrenceLock: (() => void) | undefined;
+  let releaseOccurrenceLock: (() => void) | undefined;
+  const occurrenceLockHeld = new Promise<void>((resolve) => {
+    confirmOccurrenceLock = resolve;
+  });
+  const releaseOccurrence = new Promise<void>((resolve) => {
+    releaseOccurrenceLock = resolve;
+  });
+  const terminalTransaction = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", ids.occurrence)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      confirmOccurrenceLock?.();
+      await releaseOccurrence;
+      await transaction
+        .updateTable("event_occurrence")
+        .set({ status: "completed" })
+        .where("id", "=", ids.occurrence)
+        .executeTakeFirstOrThrow();
+    });
+  await occurrenceLockHeld;
+  let stalePreparationSettled = false;
+  const stalePreparation = ensureEventVirtualRoomForStaff(
+    ids.occurrence,
+    ids.session,
+    presenter,
+    { runtime, now: preparationTime },
+  ).finally(() => {
+    stalePreparationSettled = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      stalePreparationSettled,
+      false,
+      "Room creation must wait behind the occurrence lifecycle lock",
+    );
+  } finally {
+    releaseOccurrenceLock?.();
+    await terminalTransaction;
+  }
+  assert.deepEqual(await stalePreparation, {
+    status: "conflict",
+    reason: "occurrence_unavailable",
+  });
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    0,
+    "A terminal occurrence must not gain a room generation from a stale request",
+  );
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+
   assert.deepEqual(
     await ensureEventVirtualRoomForStaff(
       ids.occurrence,
@@ -699,6 +765,70 @@ try {
     .where("id", "=", room.id)
     .executeTakeFirstOrThrow();
   const replacementTime = new Date("2030-09-03T23:40:00.000Z");
+  let releaseReplacementLock: (() => void) | undefined;
+  const replacementLockHeld = new Promise<void>((resolve) => {
+    confirmOccurrenceLock = resolve;
+  });
+  const releaseReplacement = new Promise<void>((resolve) => {
+    releaseReplacementLock = resolve;
+  });
+  const replacementTerminalTransaction = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", ids.occurrence)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      confirmOccurrenceLock?.();
+      await releaseReplacement;
+      await transaction
+        .updateTable("event_occurrence")
+        .set({ status: "completed" })
+        .where("id", "=", ids.occurrence)
+        .executeTakeFirstOrThrow();
+    });
+  await replacementLockHeld;
+  let staleReplacementSettled = false;
+  const staleReplacement = replaceEventVirtualRoom(
+    ids.occurrence,
+    ids.session,
+    administrator,
+    replacementTime,
+  ).finally(() => {
+    staleReplacementSettled = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      staleReplacementSettled,
+      false,
+      "Room replacement must wait behind the occurrence lifecycle lock",
+    );
+  } finally {
+    releaseReplacementLock?.();
+    await replacementTerminalTransaction;
+  }
+  assert.deepEqual(await staleReplacement, {
+    status: "conflict",
+    reason: "occurrence_unavailable",
+  });
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    1,
+    "A stale replacement request must not create a terminal room generation",
+  );
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await replaceEventVirtualRoom(
       ids.occurrence,

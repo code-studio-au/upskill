@@ -26,6 +26,7 @@ const ids = {
   legacySession: "verify_livekit_policy_legacy_session",
   compatibilityOccurrence: "verify_livekit_policy_compatibility_occurrence",
   compatibilitySession: "verify_livekit_policy_compatibility_session",
+  preparedRoom: "verify_livekit_policy_prepared_room",
 };
 
 const database = getDatabase();
@@ -563,6 +564,68 @@ try {
     ).capacity,
     21,
   );
+  const preparedSession = await database
+    .selectFrom("event_session")
+    .select("id")
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  const preparedAt = new Date("2030-09-03T23:30:00.000Z");
+  await database
+    .insertInto("event_virtual_room")
+    .values({
+      id: ids.preparedRoom,
+      eventSessionId: preparedSession.id,
+      provider: "livekit",
+      generation: 1,
+      providerRoomName: "upskill_room_verify_livekit_policy_prepared",
+      providerRoomSid: null,
+      doorState: "scheduled",
+      admissionMode: "automatic",
+      attendanceMode: "manual",
+      attendanceMinimumMinutes: null,
+      recordingMode: "off",
+      recordingRetentionDays: null,
+      maxParticipants: 26,
+      providerStatus: "pending",
+      providerErrorCode: null,
+      createdByUserId: administrator.id,
+      createdAt: preparedAt,
+      startedByUserId: null,
+      startedAt: null,
+      lockedByUserId: null,
+      lockedAt: null,
+      reopenedByUserId: null,
+      reopenedAt: null,
+      endedByUserId: null,
+      endedAt: null,
+      replacesRoomId: null,
+      replacedByUserId: null,
+      replacedAt: null,
+    })
+    .execute();
+  assert.equal(
+    await rescheduleAdminEventOccurrence(
+      created.eventOccurrenceId,
+      {
+        ...rescheduleInput,
+        occurrence: { ...rescheduleInput.occurrence, capacity: 22 },
+      },
+      administrator,
+      { approvedMaxParticipants: 27 },
+    ),
+    "conflict",
+    "A prepared room must prevent a capacity reschedule from silently retaining its old limit",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_occurrence")
+        .select("capacity")
+        .where("id", "=", created.eventOccurrenceId)
+        .executeTakeFirstOrThrow()
+    ).capacity,
+    21,
+  );
 
   await database
     .updateTable("event_template_session_definition")
@@ -605,6 +668,10 @@ try {
       // Preserve the original verification failure when restoration cannot run.
     }
   if (migrationRestored) {
+    await database
+      .deleteFrom("event_virtual_room")
+      .where("id", "=", ids.preparedRoom)
+      .execute();
     await database
       .deleteFrom("event_admin_assignment")
       .where("eventOccurrenceId", "in", (builder) =>

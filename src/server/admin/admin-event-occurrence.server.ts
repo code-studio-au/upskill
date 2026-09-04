@@ -826,6 +826,18 @@ export async function rescheduleAdminEventOccurrence(
         next.capacity !== occurrence.capacity
       ) {
         if (!liveKitConfiguration) return "livekit-unavailable" as const;
+        const preparedRoom = await transaction
+          .selectFrom("event_virtual_room as room")
+          .innerJoin(
+            "event_session as session",
+            "session.id",
+            "room.eventSessionId",
+          )
+          .select("room.id")
+          .where("session.eventOccurrenceId", "=", eventOccurrenceId)
+          .where("room.replacedAt", "is", null)
+          .executeTakeFirst();
+        if (preparedRoom) return "conflict" as const;
         const maximumCapacityHeadroom = Math.max(
           0,
           ...sessions.map((session) => session.livekitCapacityHeadroom ?? 0),

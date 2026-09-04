@@ -4,6 +4,7 @@ import classes from "./EventOperations.module.css";
 
 export function EventOperationsDevicePreview() {
   const video = useRef<HTMLVideoElement>(null);
+  const requestGeneration = useRef(0);
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,7 +16,15 @@ export function EventOperationsDevicePreview() {
       });
   }, [stream]);
 
+  useEffect(
+    () => () => {
+      requestGeneration.current += 1;
+    },
+    [],
+  );
+
   const stop = () => {
+    requestGeneration.current += 1;
     stream?.getTracks().forEach((track) => {
       track.stop();
     });
@@ -23,12 +32,23 @@ export function EventOperationsDevicePreview() {
   };
 
   const start = async () => {
+    const generation = requestGeneration.current + 1;
+    requestGeneration.current = generation;
     setError(null);
     try {
-      setStream(
-        await navigator.mediaDevices.getUserMedia({ audio: true, video: true }),
-      );
+      const nextStream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: true,
+      });
+      if (requestGeneration.current !== generation) {
+        nextStream.getTracks().forEach((track) => {
+          track.stop();
+        });
+        return;
+      }
+      setStream(nextStream);
     } catch {
+      if (requestGeneration.current !== generation) return;
       setError(
         "Camera or microphone access was unavailable. Check this browser's site permissions and try again.",
       );
