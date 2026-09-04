@@ -914,7 +914,7 @@ try {
       ids.session,
       "start",
       administrator,
-      replacementTime,
+      { clock: () => replacementTime },
     ),
     { status: "conflict", reason: "preparation_not_open" },
     "A retained prepared room must not start before a rescheduled preparation window",
@@ -932,6 +932,67 @@ try {
       .execute();
   });
 
+  let confirmStartLock: (() => void) | undefined;
+  let releaseStartLock: (() => void) | undefined;
+  const startLockHeld = new Promise<void>((resolve) => {
+    confirmStartLock = resolve;
+  });
+  const releaseStart = new Promise<void>((resolve) => {
+    releaseStartLock = resolve;
+  });
+  const blockingStartTransaction = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", ids.occurrence)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      confirmStartLock?.();
+      await releaseStart;
+    });
+  await startLockHeld;
+  let startPolicyTime = new Date("2030-09-04T00:59:59.000Z");
+  let delayedStartSettled = false;
+  const delayedStart = transitionEventVirtualRoom(
+    ids.occurrence,
+    ids.session,
+    "start",
+    administrator,
+    { clock: () => startPolicyTime },
+  ).finally(() => {
+    delayedStartSettled = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      delayedStartSettled,
+      false,
+      "Start must wait behind the occurrence lifecycle lock",
+    );
+    startPolicyTime = endsAt;
+  } finally {
+    releaseStartLock?.();
+    await blockingStartTransaction;
+  }
+  assert.deepEqual(
+    await delayedStart,
+    { status: "conflict", reason: "session_ended" },
+    "Start must sample policy time after waiting for lifecycle locks",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("doorState")
+      .where("eventSessionId", "=", ids.session)
+      .where("replacedAt", "is", null)
+      .executeTakeFirstOrThrow()
+      .then((currentRoom) => currentRoom.doorState),
+    "scheduled",
+    "A Start request that crosses the session cutoff must leave the door scheduled",
+  );
+
   await database
     .updateTable("event_virtual_room")
     .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
@@ -944,7 +1005,7 @@ try {
       ids.session,
       "start",
       administrator,
-      startsAt,
+      { clock: () => startsAt },
     ),
     { status: "conflict", reason: "recording_unavailable" },
   );
@@ -961,7 +1022,7 @@ try {
       ids.session,
       "start",
       administrator,
-      startsAt,
+      { clock: () => startsAt },
     ),
     { status: "ready" },
   );
@@ -971,7 +1032,7 @@ try {
       ids.session,
       "start",
       administrator,
-      startsAt,
+      { clock: () => startsAt },
     ),
     { status: "ready" },
   );
@@ -991,7 +1052,7 @@ try {
       ids.session,
       "lock",
       presenter,
-      startsAt,
+      { clock: () => startsAt },
     ),
     { status: "ready" },
   );
@@ -1001,7 +1062,7 @@ try {
       ids.session,
       "reopen",
       presenter,
-      startsAt,
+      { clock: () => startsAt },
     ),
     { status: "ready" },
   );
@@ -1012,7 +1073,7 @@ try {
       ids.session,
       "end",
       administrator,
-      recoveryEndTime,
+      { clock: () => recoveryEndTime },
     ),
     { status: "ready" },
   );
@@ -1071,7 +1132,7 @@ try {
       ids.session,
       "start",
       administrator,
-      recoveryTime,
+      { clock: () => recoveryTime },
     ),
     { status: "ready" },
   );
@@ -1081,7 +1142,7 @@ try {
       ids.session,
       "end",
       administrator,
-      endsAt,
+      { clock: () => endsAt },
     ),
     { status: "ready" },
   );
@@ -1130,7 +1191,7 @@ try {
       ids.raceSession,
       "end",
       wholePresenter,
-      deferredEndTime,
+      { clock: () => deferredEndTime },
     ),
     { status: "ready" },
   );
@@ -1186,7 +1247,7 @@ try {
       ids.raceSession,
       "start",
       wholePresenter,
-      startsAt,
+      { clock: () => startsAt },
     ),
     { status: "ready" },
   );

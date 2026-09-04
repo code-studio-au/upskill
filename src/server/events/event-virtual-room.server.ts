@@ -1041,8 +1041,9 @@ export async function transitionEventVirtualRoom(
   eventSessionId: string,
   action: Exclude<VirtualRoomAction, "replace">,
   user: AuthenticatedUser,
-  now = new Date(),
+  options: { clock?: () => Date } = {},
 ): Promise<EventVirtualRoomMutationOutcome> {
+  const clock = options.clock ?? (() => new Date());
   const database = getDatabase();
   return database.transaction().execute(async (transaction) => {
     const occurrence = await transaction
@@ -1079,10 +1080,6 @@ export async function transitionEventVirtualRoom(
       return { status: "forbidden" } as const;
     if (context.occurrenceStatus !== "published")
       return { status: "conflict", reason: "occurrence_unavailable" } as const;
-    if (action === "start") {
-      const conflict = preparationConflict(context, now);
-      if (conflict) return { status: "conflict", reason: conflict } as const;
-    }
     const room = await transaction
       .selectFrom("event_virtual_room")
       .selectAll()
@@ -1100,6 +1097,11 @@ export async function transitionEventVirtualRoom(
       ))
     )
       return { status: "forbidden" } as const;
+    const currentNow = clock();
+    if (action === "start") {
+      const conflict = preparationConflict(context, currentNow);
+      if (conflict) return { status: "conflict", reason: conflict } as const;
+    }
     const allowed =
       (action === "start" && room.doorState === "scheduled") ||
       (action === "lock" && room.doorState === "open") ||
@@ -1125,7 +1127,7 @@ export async function transitionEventVirtualRoom(
     }
     await transaction
       .updateTable("event_virtual_room")
-      .set(transitionValues(action, user.id, now))
+      .set(transitionValues(action, user.id, currentNow))
       .where("id", "=", room.id)
       .executeTakeFirstOrThrow();
     if (action === "end")
@@ -1134,7 +1136,7 @@ export async function transitionEventVirtualRoom(
         room.id,
         "close_room",
         user.id,
-        now,
+        currentNow,
       );
     await recordDurableAuditEvent(transaction, {
       actorUserId: user.id,
@@ -1148,7 +1150,7 @@ export async function transitionEventVirtualRoom(
         transition: action,
         previousState: room.doorState,
       },
-      createdAt: now,
+      createdAt: currentNow,
     });
     return { status: "ready" } as const;
   });
