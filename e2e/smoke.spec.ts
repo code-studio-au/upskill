@@ -1809,7 +1809,9 @@ test("platform administrators can inspect learner progress", async ({
     );
     await page.getByLabel("Virtual delivery provider").selectOption("livekit");
     await expect(
-      page.getByRole("alert").filter({ hasText: "LiveKit is unavailable" }),
+      page
+        .getByRole("alert")
+        .filter({ hasText: "LiveKit delivery is not yet available" }),
     ).toBeVisible();
     await expect(
       page.getByLabel("Protected virtual meeting URL"),
