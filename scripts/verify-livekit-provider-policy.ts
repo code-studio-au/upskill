@@ -328,6 +328,94 @@ try {
     livekitOpenEntryGuestsAllowed: false,
     livekitRecordingMode: "off",
   });
+
+  const legacyExternalEdit = await createAdminEventOccurrence(
+    {
+      ...occurrenceInput,
+      title: "LiveKit rollback external edit",
+      slug: "verify-livekit-policy-rollback-external",
+    },
+    administrator,
+  );
+  assert.equal(legacyExternalEdit.status, "created");
+  await sql`update event_occurrence
+    set "virtualJoinUrl" = 'https://meet.example.com/rollback-external'
+    where id = ${legacyExternalEdit.eventOccurrenceId}`.execute(database);
+  await sql`update event_session
+    set "virtualJoinUrl" = 'https://meet.example.com/rollback-external'
+    where "eventOccurrenceId" = ${legacyExternalEdit.eventOccurrenceId}`.execute(
+    database,
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_occurrence")
+        .select("virtualDeliveryProvider")
+        .where("id", "=", legacyExternalEdit.eventOccurrenceId)
+        .executeTakeFirstOrThrow()
+    ).virtualDeliveryProvider,
+    "external_url",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_session")
+      .select([
+        "virtualDeliveryProvider",
+        "livekitAdmissionMode",
+        "livekitRecordingMode",
+      ])
+      .where("eventOccurrenceId", "=", legacyExternalEdit.eventOccurrenceId)
+      .executeTakeFirstOrThrow(),
+    {
+      virtualDeliveryProvider: "external_url",
+      livekitAdmissionMode: null,
+      livekitRecordingMode: null,
+    },
+  );
+
+  const legacyInPersonEdit = await createAdminEventOccurrence(
+    {
+      ...occurrenceInput,
+      title: "LiveKit rollback in-person edit",
+      slug: "verify-livekit-policy-rollback-in-person",
+    },
+    administrator,
+  );
+  assert.equal(legacyInPersonEdit.status, "created");
+  await sql`update event_occurrence
+    set "deliveryMode" = 'in_person', "venueName" = 'Rollback venue'
+    where id = ${legacyInPersonEdit.eventOccurrenceId}`.execute(database);
+  await sql`update event_session
+    set "venueName" = 'Rollback venue'
+    where "eventOccurrenceId" = ${legacyInPersonEdit.eventOccurrenceId}`.execute(
+    database,
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_occurrence")
+        .select("virtualDeliveryProvider")
+        .where("id", "=", legacyInPersonEdit.eventOccurrenceId)
+        .executeTakeFirstOrThrow()
+    ).virtualDeliveryProvider,
+    null,
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_session")
+      .select([
+        "virtualDeliveryProvider",
+        "livekitAdmissionMode",
+        "livekitRecordingMode",
+      ])
+      .where("eventOccurrenceId", "=", legacyInPersonEdit.eventOccurrenceId)
+      .executeTakeFirstOrThrow(),
+    {
+      virtualDeliveryProvider: null,
+      livekitAdmissionMode: null,
+      livekitRecordingMode: null,
+    },
+  );
   assert.equal(
     await publishAdminEventOccurrence(
       created.eventOccurrenceId,
@@ -440,7 +528,7 @@ try {
   );
 
   console.log(
-    "Verified LiveKit provider backfill, legacy-writer compatibility, versioned defaults, exact-session snapshots, dormant publication and reschedule gating, and database constraints",
+    "Verified LiveKit provider backfill, legacy-writer and rollback-edit compatibility, versioned defaults, exact-session snapshots, dormant publication and reschedule gating, and database constraints",
   );
 } finally {
   if (!migrationRestored)

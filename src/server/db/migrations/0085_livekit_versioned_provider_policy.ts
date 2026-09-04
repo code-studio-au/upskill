@@ -80,32 +80,81 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     add column "livekitAttendeeRecordingNotice" text,
     add column "livekitPresenterRecordingNotice" text`.execute(db);
 
-  await sql`create function normalize_legacy_event_virtual_delivery_provider()
+  await sql`create function normalize_legacy_event_occurrence_virtual_provider()
     returns trigger
     language plpgsql
     as $$
     begin
-      if new."virtualDeliveryProvider" is null
-        and new."virtualJoinUrl" is not null
-        and new."venueName" is null
-        and new."venueAddress" is null then
-        new."virtualDeliveryProvider" := 'external_url';
-      elsif new."virtualDeliveryProvider" = 'external_url'
-        and new."virtualJoinUrl" is null
-        and new."venueName" is not null then
-        new."virtualDeliveryProvider" := null;
+      if tg_op = 'INSERT' then
+        if new."virtualDeliveryProvider" is null
+          and new."virtualJoinUrl" is not null
+          and new."venueName" is null
+          and new."venueAddress" is null then
+          new."virtualDeliveryProvider" := 'external_url';
+        end if;
+      elsif new."virtualDeliveryProvider" is not distinct from old."virtualDeliveryProvider" then
+        if new."virtualJoinUrl" is not null
+          and new."venueName" is null
+          and new."venueAddress" is null then
+          new."virtualDeliveryProvider" := 'external_url';
+        elsif new."virtualJoinUrl" is null
+          and new."venueName" is not null then
+          new."virtualDeliveryProvider" := null;
+        end if;
+      end if;
+      return new;
+    end
+    $$`.execute(db);
+  await sql`create function normalize_legacy_event_session_virtual_provider()
+    returns trigger
+    language plpgsql
+    as $$
+    declare
+      clear_livekit_policy boolean := false;
+    begin
+      if tg_op = 'INSERT' then
+        if new."virtualDeliveryProvider" is null
+          and new."virtualJoinUrl" is not null
+          and new."venueName" is null
+          and new."venueAddress" is null then
+          new."virtualDeliveryProvider" := 'external_url';
+        end if;
+      elsif new."virtualDeliveryProvider" is not distinct from old."virtualDeliveryProvider" then
+        if new."virtualJoinUrl" is not null
+          and new."venueName" is null
+          and new."venueAddress" is null then
+          clear_livekit_policy := new."virtualDeliveryProvider" = 'livekit';
+          new."virtualDeliveryProvider" := 'external_url';
+        elsif new."virtualJoinUrl" is null
+          and new."venueName" is not null then
+          clear_livekit_policy := new."virtualDeliveryProvider" = 'livekit';
+          new."virtualDeliveryProvider" := null;
+        end if;
+      end if;
+      if clear_livekit_policy then
+        new."livekitAdmissionMode" := null;
+        new."livekitAttendanceMode" := null;
+        new."livekitAttendanceMinimumMinutes" := null;
+        new."livekitPresenterPreparationMinutes" := null;
+        new."livekitAttendeeRejoinGraceMinutes" := null;
+        new."livekitCapacityHeadroom" := null;
+        new."livekitOpenEntryGuestsAllowed" := null;
+        new."livekitRecordingMode" := null;
+        new."livekitRecordingRetentionDays" := null;
+        new."livekitAttendeeRecordingNotice" := null;
+        new."livekitPresenterRecordingNotice" := null;
       end if;
       return new;
     end
     $$`.execute(db);
   await sql`create trigger event_occurrence_legacy_virtual_provider_trg
     before insert or update on event_occurrence
-    for each row execute function normalize_legacy_event_virtual_delivery_provider()`.execute(
+    for each row execute function normalize_legacy_event_occurrence_virtual_provider()`.execute(
     db,
   );
   await sql`create trigger event_session_legacy_virtual_provider_trg
     before insert or update on event_session
-    for each row execute function normalize_legacy_event_virtual_delivery_provider()`.execute(
+    for each row execute function normalize_legacy_event_session_virtual_provider()`.execute(
     db,
   );
 
@@ -193,7 +242,10 @@ export async function down<Database>(db: Kysely<Database>): Promise<void> {
     on event_session`.execute(db);
   await sql`drop trigger event_occurrence_legacy_virtual_provider_trg
     on event_occurrence`.execute(db);
-  await sql`drop function normalize_legacy_event_virtual_delivery_provider()`.execute(
+  await sql`drop function normalize_legacy_event_session_virtual_provider()`.execute(
+    db,
+  );
+  await sql`drop function normalize_legacy_event_occurrence_virtual_provider()`.execute(
     db,
   );
 
