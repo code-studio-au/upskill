@@ -8,6 +8,7 @@ import {
   adminEventStaffCandidateSearchSchema,
   adminEventStaffEligibilityGrantSchema,
   adminEventTemplateCreateSchema,
+  adminEventTemplateDraftSchema,
   defaultLiveKitSessionPolicy,
   liveKitSessionPolicySchema,
   normalizeEventDomains,
@@ -97,6 +98,50 @@ describe("event administration schemas", () => {
         recordingRetentionDays: 90,
       }).success,
     ).toBe(false);
+  });
+
+  it("defaults provider policy for template sessions from the previous release", () => {
+    const parsed = adminEventTemplateDraftSchema.safeParse({
+      eventTemplateId: "event_template_1",
+      eventTemplateVersionId: "event_template_version_1",
+      title: "Statewide workshop",
+      topic: "Clinical education",
+      summary: "A practical workshop.",
+      description: "A practical workshop for clinicians.",
+      hasCompletionCertificate: false,
+      registrationSurveyVersionId: null,
+      defaultAdministratorIds: ["admin_1"],
+      regions: [],
+      sections: [
+        {
+          id: "section_1",
+          title: "Workshop",
+          description: "",
+          phase: "session",
+          releaseAnchor: "occurrence_start",
+          releaseOffsetAmount: 0,
+          releaseOffsetUnit: "minute",
+          items: [
+            {
+              id: "session_1",
+              title: "Case discussion",
+              required: true,
+              kind: "session",
+              durationMinutes: 60,
+              presenterRequired: false,
+              presenterIds: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success)
+      expect(parsed.data.sections[0]?.items[0]).toMatchObject({
+        kind: "session",
+        liveKitPolicy: defaultLiveKitSessionPolicy,
+      });
   });
 
   it("requires coherent paid-entry pricing and automatic approval", () => {

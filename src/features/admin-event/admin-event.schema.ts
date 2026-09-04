@@ -289,7 +289,10 @@ const adminEventTemplateItemSchema = z.discriminatedUnion("kind", [
       .check(z.int(), z.minimum(15), z.maximum(10_080)),
     presenterRequired: z.boolean(),
     presenterIds: z.array(identifierSchema).check(z.maxLength(20)),
-    liveKitPolicy: liveKitSessionPolicySchema,
+    liveKitPolicy: z._default(
+      liveKitSessionPolicySchema,
+      defaultLiveKitSessionPolicy,
+    ),
   }),
   z.object({
     ...eventTemplateItemBase,
