@@ -758,9 +758,23 @@ export type AdminEventOccurrenceFormInput = Omit<
   coordinatorLockAt: string;
 };
 
+function normalizeLegacyEventOccurrenceForm(
+  input: AdminEventOccurrenceFormInput,
+): AdminEventOccurrenceFormInput {
+  if (Object.hasOwn(input, "virtualDeliveryProvider")) return input;
+  return {
+    ...input,
+    virtualDeliveryProvider:
+      input.deliveryMode === "virtual" ? "external_url" : null,
+  };
+}
+
 export const adminEventOccurrenceFormSchema = z
-  .custom<AdminEventOccurrenceFormInput>(
-    (value: unknown) => typeof value === "object" && value !== null,
+  .pipe(
+    z.custom<AdminEventOccurrenceFormInput>(
+      (value: unknown) => typeof value === "object" && value !== null,
+    ),
+    z.transform(normalizeLegacyEventOccurrenceForm),
   )
   .check(
     z.superRefine((value, context) => {

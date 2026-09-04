@@ -4,6 +4,7 @@ import {
   adminEventOccurrenceCreateSchema,
   adminEventOccurrenceFormSchema,
   adminEventOccurrenceRescheduleFormSchema,
+  adminEventOccurrenceUpdateFormSchema,
   adminEventStaffCandidateSearchSchema,
   adminEventStaffEligibilityGrantSchema,
   adminEventTemplateCreateSchema,
@@ -174,6 +175,54 @@ describe("event administration schemas", () => {
     expect(
       adminEventOccurrenceFormSchema.safeParse(validOccurrenceForm).success,
     ).toBe(true);
+  });
+
+  it("normalizes provider-less form payloads from the previous release", () => {
+    const legacyVirtualForm = Object.fromEntries(
+      Object.entries(validOccurrenceForm).filter(
+        ([key]) => key !== "virtualDeliveryProvider",
+      ),
+    );
+    const create = adminEventOccurrenceFormSchema.safeParse(legacyVirtualForm);
+    expect(create.success).toBe(true);
+    if (create.success)
+      expect(create.data.virtualDeliveryProvider).toBe("external_url");
+
+    const update = adminEventOccurrenceUpdateFormSchema.safeParse({
+      eventOccurrenceId: "event_occurrence_1",
+      occurrence: legacyVirtualForm,
+    });
+    expect(update.success).toBe(true);
+    if (update.success)
+      expect(update.data.occurrence.virtualDeliveryProvider).toBe(
+        "external_url",
+      );
+
+    const reschedule = adminEventOccurrenceRescheduleFormSchema.safeParse({
+      eventOccurrenceId: "event_occurrence_1",
+      occurrence: legacyVirtualForm,
+      registrationWindowPolicy: "keep",
+      regionsConfirmed: true,
+      regionalCoverage: { regions: [], retirements: [] },
+    });
+    expect(reschedule.success).toBe(true);
+    if (reschedule.success)
+      expect(reschedule.data.occurrence.virtualDeliveryProvider).toBe(
+        "external_url",
+      );
+
+    const legacyInPersonForm = {
+      ...legacyVirtualForm,
+      deliveryMode: "in_person",
+      venueName: "Learning Centre",
+      venueAddress: "1 Example Street",
+      virtualJoinUrl: "",
+    };
+    const inPerson =
+      adminEventOccurrenceFormSchema.safeParse(legacyInPersonForm);
+    expect(inPerson.success).toBe(true);
+    if (inPerson.success)
+      expect(inPerson.data.virtualDeliveryProvider).toBeNull();
   });
 
   it("rejects malformed local times", () => {
