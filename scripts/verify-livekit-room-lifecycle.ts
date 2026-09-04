@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
+import { transitionAdminEventOccurrence } from "#/server/admin/admin-event-operations.server";
 import {
   checkEventVirtualSessionProviderHealth,
   ensureEventVirtualRoomForStaff,
@@ -26,8 +27,10 @@ const ids = {
   template: "verify_livekit_room_template",
   version: "verify_livekit_room_version",
   definition: "verify_livekit_room_definition",
+  raceDefinition: "verify_livekit_room_race_definition",
   occurrence: "verify_livekit_room_occurrence",
   session: "verify_livekit_room_session",
+  raceSession: "verify_livekit_room_race_session",
   region: "verify_livekit_room_region",
   occurrenceRegion: "verify_livekit_room_occurrence_region",
   administrator: "verify_livekit_room_administrator",
@@ -82,6 +85,33 @@ class InvalidatingJoinProvider extends FakeLiveKitProvider {
     const token = await super.createJoinToken(input);
     await this.invalidate();
     return token;
+  }
+}
+
+class DeferredEnsureProvider extends FakeLiveKitProvider {
+  private releaseEnsure!: () => void;
+  private signalEnsureStarted!: () => void;
+  private readonly ensureRelease = new Promise<void>((resolve) => {
+    this.releaseEnsure = resolve;
+  });
+  private readonly ensureStarted = new Promise<void>((resolve) => {
+    this.signalEnsureStarted = resolve;
+  });
+
+  override async ensureRoom(
+    input: EnsureLiveKitRoomInput,
+  ): Promise<LiveKitRoomSnapshot> {
+    this.signalEnsureStarted();
+    await this.ensureRelease;
+    return super.ensureRoom(input);
+  }
+
+  waitUntilEnsureStarts(): Promise<void> {
+    return this.ensureStarted;
+  }
+
+  release(): void {
+    this.releaseEnsure();
   }
 }
 
@@ -163,25 +193,32 @@ try {
     .execute();
   await database
     .insertInto("event_template_session_definition")
-    .values({
-      id: ids.definition,
-      eventTemplateVersionId: ids.version,
-      position: 0,
-      title: "LiveKit session",
-      durationMinutes: 60,
-      presenterRequired: true,
-      livekitAdmissionMode: "manual",
-      livekitAttendanceMode: "manual",
-      livekitAttendanceMinimumMinutes: null,
-      livekitPresenterPreparationMinutes: 60,
-      livekitAttendeeRejoinGraceMinutes: 10,
-      livekitCapacityHeadroom: 5,
-      livekitOpenEntryGuestsAllowed: false,
-      livekitRecordingMode: "off",
-      livekitRecordingRetentionDays: null,
-      livekitAttendeeRecordingNotice: "",
-      livekitPresenterRecordingNotice: "",
-    })
+    .values(
+      [
+        { id: ids.definition, position: 0, title: "LiveKit session" },
+        {
+          id: ids.raceDefinition,
+          position: 1,
+          title: "LiveKit lease-race session",
+        },
+      ].map((definition) => ({
+        ...definition,
+        eventTemplateVersionId: ids.version,
+        durationMinutes: 60,
+        presenterRequired: true,
+        livekitAdmissionMode: "manual" as const,
+        livekitAttendanceMode: "manual" as const,
+        livekitAttendanceMinimumMinutes: null,
+        livekitPresenterPreparationMinutes: 60,
+        livekitAttendeeRejoinGraceMinutes: 10,
+        livekitCapacityHeadroom: 5,
+        livekitOpenEntryGuestsAllowed: false,
+        livekitRecordingMode: "off" as const,
+        livekitRecordingRetentionDays: null,
+        livekitAttendeeRecordingNotice: "",
+        livekitPresenterRecordingNotice: "",
+      })),
+    )
     .execute();
   await database
     .insertInto("event_occurrence")
@@ -225,33 +262,45 @@ try {
     .execute();
   await database
     .insertInto("event_session")
-    .values({
-      id: ids.session,
-      eventOccurrenceId: ids.occurrence,
-      sessionDefinitionId: ids.definition,
-      position: 0,
-      title: "LiveKit session",
-      localStartsAt: "2030-09-04T10:00:00",
-      localEndsAt: "2030-09-04T11:00:00",
-      startsAt,
-      endsAt,
-      presenterRequired: true,
-      venueName: null,
-      venueAddress: null,
-      virtualJoinUrl: null,
-      virtualDeliveryProvider: "livekit",
-      livekitAdmissionMode: "manual",
-      livekitAttendanceMode: "manual",
-      livekitAttendanceMinimumMinutes: null,
-      livekitPresenterPreparationMinutes: 60,
-      livekitAttendeeRejoinGraceMinutes: 10,
-      livekitCapacityHeadroom: 5,
-      livekitOpenEntryGuestsAllowed: false,
-      livekitRecordingMode: "off",
-      livekitRecordingRetentionDays: null,
-      livekitAttendeeRecordingNotice: "",
-      livekitPresenterRecordingNotice: "",
-    })
+    .values(
+      [
+        {
+          id: ids.session,
+          sessionDefinitionId: ids.definition,
+          position: 0,
+          title: "LiveKit session",
+        },
+        {
+          id: ids.raceSession,
+          sessionDefinitionId: ids.raceDefinition,
+          position: 1,
+          title: "LiveKit lease-race session",
+        },
+      ].map((session) => ({
+        ...session,
+        eventOccurrenceId: ids.occurrence,
+        localStartsAt: "2030-09-04T10:00:00",
+        localEndsAt: "2030-09-04T11:00:00",
+        startsAt,
+        endsAt,
+        presenterRequired: true,
+        venueName: null,
+        venueAddress: null,
+        virtualJoinUrl: null,
+        virtualDeliveryProvider: "livekit" as const,
+        livekitAdmissionMode: "manual" as const,
+        livekitAttendanceMode: "manual" as const,
+        livekitAttendanceMinimumMinutes: null,
+        livekitPresenterPreparationMinutes: 60,
+        livekitAttendeeRejoinGraceMinutes: 10,
+        livekitCapacityHeadroom: 5,
+        livekitOpenEntryGuestsAllowed: false,
+        livekitRecordingMode: "off" as const,
+        livekitRecordingRetentionDays: null,
+        livekitAttendeeRecordingNotice: "",
+        livekitPresenterRecordingNotice: "",
+      })),
+    )
     .execute();
   await database
     .insertInto("event_occurrence_region")
@@ -492,6 +541,62 @@ try {
       .where("id", "=", room.id)
       .executeTakeFirstOrThrow();
   }
+  const occurrenceInvalidatingRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    provider: new InvalidatingJoinProvider(async () => {
+      await database
+        .updateTable("event_occurrence")
+        .set({ status: "completed" })
+        .where("id", "=", ids.occurrence)
+        .executeTakeFirstOrThrow();
+    }),
+  };
+  assert.deepEqual(
+    await issueEventVirtualPresenterCredential(
+      ids.occurrence,
+      ids.session,
+      presenter,
+      { runtime: occurrenceInvalidatingRuntime, now: providerRetryTime },
+    ),
+    { status: "conflict", reason: "occurrence_unavailable" },
+    "A credential must not escape after the occurrence becomes terminal",
+  );
+  assert.equal(await tokenAuditCount(), auditCountBeforeInvalidation);
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+
+  const sessionCutoffInvalidatingRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    provider: new InvalidatingJoinProvider(async () => {
+      await database
+        .updateTable("event_session")
+        .set({
+          startsAt: new Date("2030-09-03T23:00:00.000Z"),
+          endsAt: providerRetryTime,
+        })
+        .where("id", "=", ids.session)
+        .executeTakeFirstOrThrow();
+    }),
+  };
+  assert.deepEqual(
+    await issueEventVirtualPresenterCredential(
+      ids.occurrence,
+      ids.session,
+      presenter,
+      { runtime: sessionCutoffInvalidatingRuntime, now: providerRetryTime },
+    ),
+    { status: "conflict", reason: "session_ended" },
+    "A credential must not escape after the session cutoff changes",
+  );
+  assert.equal(await tokenAuditCount(), auditCountBeforeInvalidation);
+  await database
+    .updateTable("event_session")
+    .set({ startsAt, endsAt })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await issueEventVirtualPresenterCredential(
       ids.occurrence,
@@ -516,7 +621,7 @@ try {
         preparationTime,
       )
     ).length,
-    1,
+    2,
   );
   const coordinatorAccess = await getEventOperationsAccess(
     coordinator,
@@ -689,6 +794,133 @@ try {
     { status: "conflict", reason: "invalid_transition" },
   );
 
+  const deferredProvider = new DeferredEnsureProvider();
+  const deferredRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    provider: deferredProvider,
+  };
+  const deferredEnsureTime = new Date("2030-09-03T23:45:00.000Z");
+  const deferredPreparation = ensureEventVirtualRoomForStaff(
+    ids.occurrence,
+    ids.raceSession,
+    wholePresenter,
+    { runtime: deferredRuntime, now: deferredEnsureTime },
+  );
+  await deferredProvider.waitUntilEnsureStarts();
+  const deferredRoom = await database
+    .selectFrom("event_virtual_room")
+    .selectAll()
+    .where("eventSessionId", "=", ids.raceSession)
+    .executeTakeFirstOrThrow();
+  const deferredEndTime = new Date("2030-09-03T23:46:00.000Z");
+  assert.deepEqual(
+    await transitionEventVirtualRoom(
+      ids.occurrence,
+      ids.raceSession,
+      "end",
+      wholePresenter,
+      deferredEndTime,
+    ),
+    { status: "ready" },
+  );
+  const reclaimedTime = new Date("2030-09-03T23:47:01.000Z");
+  const reclaimedBatch = await processAvailableEventVirtualRoomOperations(10, {
+    runtime: deferredRuntime,
+    now: reclaimedTime,
+  });
+  assert.deepEqual(
+    reclaimedBatch.outcomes.map((outcome) => outcome.kind),
+    ["ensure_room", "close_room"],
+    "A reclaimed terminal ensure must finish before the queued close",
+  );
+  deferredProvider.release();
+  assert.deepEqual(await deferredPreparation, {
+    status: "conflict",
+    reason: "provider_pending",
+  });
+  assert.equal(
+    deferredProvider.rooms.size,
+    0,
+    "A stale provider ensure must compensate after its attempt fence is lost",
+  );
+  assert.equal(
+    deferredProvider.operations.filter(
+      (operation) => operation.operation === "close_room",
+    ).length,
+    2,
+    "The stale ensure must close the room again after the earlier close completed",
+  );
+
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      replacedAt: reclaimedTime,
+      replacedByUserId: administrator.id,
+    })
+    .where("id", "=", deferredRoom.id)
+    .executeTakeFirstOrThrow();
+  const terminalRoomPreparationTime = new Date("2030-09-03T23:50:00.000Z");
+  assert.deepEqual(
+    await ensureEventVirtualRoomForStaff(
+      ids.occurrence,
+      ids.raceSession,
+      wholePresenter,
+      { runtime, now: terminalRoomPreparationTime },
+    ),
+    { status: "ready" },
+  );
+  assert.deepEqual(
+    await transitionEventVirtualRoom(
+      ids.occurrence,
+      ids.raceSession,
+      "start",
+      wholePresenter,
+      startsAt,
+    ),
+    { status: "ready" },
+  );
+  const terminalTransitionTime = new Date("2030-09-04T00:10:00.000Z");
+  assert.equal(
+    await transitionAdminEventOccurrence(
+      ids.occurrence,
+      "completed",
+      administrator,
+      terminalTransitionTime,
+    ),
+    "updated",
+  );
+  const terminalRoom = await database
+    .selectFrom("event_virtual_room")
+    .select(["id", "doorState", "endedByUserId", "endedAt"])
+    .where("eventSessionId", "=", ids.raceSession)
+    .where("replacedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    {
+      doorState: terminalRoom.doorState,
+      endedByUserId: terminalRoom.endedByUserId,
+      endedAt: terminalRoom.endedAt,
+    },
+    {
+      doorState: "ended",
+      endedByUserId: administrator.id,
+      endedAt: terminalTransitionTime,
+    },
+    "Completing an occurrence must terminate its current provider rooms",
+  );
+  const terminalCloseBatch = await processAvailableEventVirtualRoomOperations(
+    10,
+    { runtime, now: terminalTransitionTime },
+  );
+  assert.deepEqual(
+    terminalCloseBatch.outcomes.map((outcome) => ({
+      roomId: outcome.roomId,
+      kind: outcome.kind,
+    })),
+    [{ roomId: terminalRoom.id, kind: "close_room" }],
+  );
+  assert.equal(fakeProvider.rooms.size, 0);
+
   const auditActions = await database
     .selectFrom("audit_event")
     .select("action")
@@ -722,12 +954,12 @@ try {
       builder
         .selectFrom("event_virtual_room")
         .select("id")
-        .where("eventSessionId", "=", ids.session),
+        .where("eventSessionId", "in", [ids.session, ids.raceSession]),
     )
     .execute();
   await database
     .deleteFrom("event_virtual_room")
-    .where("eventSessionId", "=", ids.session)
+    .where("eventSessionId", "in", [ids.session, ids.raceSession])
     .execute();
   await database
     .deleteFrom("outbox_event")
@@ -765,7 +997,7 @@ try {
     .execute();
   await database
     .deleteFrom("event_session")
-    .where("id", "=", ids.session)
+    .where("id", "in", [ids.session, ids.raceSession])
     .execute();
   await database
     .deleteFrom("event_occurrence")
@@ -773,7 +1005,7 @@ try {
     .execute();
   await database
     .deleteFrom("event_template_session_definition")
-    .where("id", "=", ids.definition)
+    .where("id", "in", [ids.definition, ids.raceDefinition])
     .execute();
   await database
     .deleteFrom("event_template_version")

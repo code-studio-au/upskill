@@ -490,6 +490,51 @@ async function retryRoomOperation(
     });
 }
 
+async function queueCompensatingRoomClose(
+  roomId: string,
+  now: Date,
+): Promise<void> {
+  await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const existing = await transaction
+        .selectFrom("event_virtual_room_operation")
+        .select("id")
+        .where("roomId", "=", roomId)
+        .where("kind", "=", "close_room")
+        .forUpdate()
+        .executeTakeFirst();
+      if (!existing) {
+        await insertRoomOperation(transaction, roomId, "close_room", null, now);
+        return;
+      }
+      await transaction
+        .updateTable("event_virtual_room_operation")
+        .set({
+          status: "pending",
+          availableAt: now,
+          leasedUntil: null,
+          completedAt: null,
+          lastErrorCode: "stale_ensure_requires_close",
+        })
+        .where("id", "=", existing.id)
+        .executeTakeFirstOrThrow();
+    });
+}
+
+async function compensateEnsuredRoom(
+  roomId: string,
+  providerRoomName: string,
+  runtime: VirtualRoomRuntime,
+  now: Date,
+): Promise<void> {
+  try {
+    await runtime.provider.closeRoom(providerRoomName);
+  } catch {
+    await queueCompensatingRoomClose(roomId, now);
+  }
+}
+
 async function executeEnsureRoom(
   roomId: string,
   runtime: VirtualRoomRuntime,
@@ -517,7 +562,7 @@ async function executeEnsureRoom(
         generation: room.generation,
       }),
     });
-    const currentClaim = await getDatabase()
+    const completion = await getDatabase()
       .transaction()
       .execute(async (transaction) => {
         const locked = await transaction
@@ -538,11 +583,10 @@ async function executeEnsureRoom(
           .where("status", "=", "processing")
           .where("attempts", "=", claimed.attempts)
           .executeTakeFirst();
-        if (
-          operation.numUpdatedRows === 1n &&
-          !locked.replacedAt &&
-          locked.doorState !== "ended"
-        )
+        const currentClaim = operation.numUpdatedRows === 1n;
+        const roomOperational =
+          !locked.replacedAt && locked.doorState !== "ended";
+        if (currentClaim && roomOperational)
           await transaction
             .updateTable("event_virtual_room")
             .set({
@@ -552,9 +596,13 @@ async function executeEnsureRoom(
             })
             .where("id", "=", room.id)
             .execute();
-        return operation.numUpdatedRows === 1n;
+        return { currentClaim, roomOperational };
       });
-    return currentClaim ? "ready" : "pending";
+    if (!completion.currentClaim || !completion.roomOperational) {
+      await compensateEnsuredRoom(room.id, room.providerRoomName, runtime, now);
+      return completion.currentClaim ? "ended" : "pending";
+    }
+    return "ready";
   } catch (error) {
     await retryRoomOperation(claimed, providerFailureCode(error), now);
     return "failed";
@@ -745,6 +793,22 @@ export async function issueEventVirtualPresenterCredential(
     const credentialStillAuthorised = await database
       .transaction()
       .execute(async (transaction) => {
+        const occurrence = await transaction
+          .selectFrom("event_occurrence")
+          .select("id")
+          .where("id", "=", eventOccurrenceId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!occurrence) return "occurrence_unavailable" as const;
+        const currentContext = await findVirtualSessionContext(
+          transaction,
+          eventOccurrenceId,
+          eventSessionId,
+        );
+        if (!currentContext || currentContext === "not-livekit")
+          return "occurrence_unavailable" as const;
+        const currentConflict = preparationConflict(currentContext, now);
+        if (currentConflict) return currentConflict;
         const currentRoom = await transaction
           .selectFrom("event_virtual_room")
           .select("id")
@@ -780,6 +844,8 @@ export async function issueEventVirtualPresenterCredential(
       return { status: "conflict", reason: "room_not_ready" };
     if (credentialStillAuthorised === "forbidden")
       return { status: "forbidden" };
+    if (credentialStillAuthorised !== "ready")
+      return { status: "conflict", reason: credentialStillAuthorised };
     return {
       status: "ready",
       credential: {
@@ -793,6 +859,61 @@ export async function issueEventVirtualPresenterCredential(
     };
   } catch {
     return { status: "conflict", reason: "provider_unavailable" };
+  }
+}
+
+export async function endEventVirtualRoomsForOccurrence(
+  transaction: Transaction<Database>,
+  eventOccurrenceId: string,
+  actorUserId: string,
+  now: Date,
+): Promise<void> {
+  const rooms = await transaction
+    .selectFrom("event_virtual_room as room")
+    .innerJoin("event_session as session", "session.id", "room.eventSessionId")
+    .select([
+      "room.id",
+      "room.eventSessionId",
+      "room.generation",
+      "room.doorState",
+    ])
+    .where("session.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("room.replacedAt", "is", null)
+    .forUpdate("room")
+    .execute();
+  for (const room of rooms) {
+    if (room.doorState !== "ended") {
+      await transaction
+        .updateTable("event_virtual_room")
+        .set({
+          doorState: "ended",
+          endedByUserId: actorUserId,
+          endedAt: now,
+        })
+        .where("id", "=", room.id)
+        .executeTakeFirstOrThrow();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId,
+        action: "event_virtual_room.lifecycle_changed",
+        subjectType: "event_virtual_room",
+        subjectId: room.id,
+        aggregateId: eventOccurrenceId,
+        metadata: {
+          eventSessionId: room.eventSessionId,
+          generation: room.generation,
+          transition: "occurrence_terminal",
+          previousState: room.doorState,
+        },
+        createdAt: now,
+      });
+    }
+    await insertRoomOperation(
+      transaction,
+      room.id,
+      "close_room",
+      actorUserId,
+      now,
+    );
   }
 }
 
