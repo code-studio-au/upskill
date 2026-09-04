@@ -527,6 +527,7 @@ export async function updateAdminEventOccurrence(
           "event_template_version.registrationSurveyVersionId",
         ])
         .where("event_occurrence.id", "=", eventOccurrenceId)
+        .forUpdate("event_occurrence")
         .executeTakeFirst();
       if (!occurrence) return "not-found" as const;
       if (

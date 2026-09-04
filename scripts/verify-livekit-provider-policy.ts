@@ -4,6 +4,7 @@ import {
   createAdminEventOccurrence,
   publishAdminEventOccurrence,
   rescheduleAdminEventOccurrence,
+  updateAdminEventOccurrence,
 } from "#/server/admin/admin-event-occurrence.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import {
@@ -373,6 +374,65 @@ try {
     },
   );
 
+  let confirmOccurrenceLock: (() => void) | undefined;
+  let releaseOccurrenceLock: (() => void) | undefined;
+  const occurrenceLockHeld = new Promise<void>((resolve) => {
+    confirmOccurrenceLock = resolve;
+  });
+  const releaseOccurrence = new Promise<void>((resolve) => {
+    releaseOccurrenceLock = resolve;
+  });
+  const publicationTransaction = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", legacyExternalEdit.eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      confirmOccurrenceLock?.();
+      await releaseOccurrence;
+      await transaction
+        .updateTable("event_occurrence")
+        .set({ status: "published", publishedAt: new Date() })
+        .where("id", "=", legacyExternalEdit.eventOccurrenceId)
+        .executeTakeFirstOrThrow();
+    });
+  await occurrenceLockHeld;
+  let concurrentDraftSaveSettled = false;
+  const concurrentDraftSave = updateAdminEventOccurrence(
+    legacyExternalEdit.eventOccurrenceId,
+    {
+      ...occurrenceInput,
+      title: "Blocked concurrent LiveKit draft save",
+      slug: "verify-livekit-policy-rollback-external",
+    },
+    administrator,
+  ).finally(() => {
+    concurrentDraftSaveSettled = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      concurrentDraftSaveSettled,
+      false,
+      "A draft save must wait behind a concurrent publication lock",
+    );
+  } finally {
+    releaseOccurrenceLock?.();
+    await publicationTransaction;
+  }
+  assert.equal(await concurrentDraftSave, "conflict");
+  assert.deepEqual(
+    await database
+      .selectFrom("event_occurrence")
+      .select(["status", "virtualDeliveryProvider"])
+      .where("id", "=", legacyExternalEdit.eventOccurrenceId)
+      .executeTakeFirstOrThrow(),
+    { status: "published", virtualDeliveryProvider: "external_url" },
+  );
+
   const legacyInPersonEdit = await createAdminEventOccurrence(
     {
       ...occurrenceInput,
@@ -528,7 +588,7 @@ try {
   );
 
   console.log(
-    "Verified LiveKit provider backfill, legacy-writer and rollback-edit compatibility, versioned defaults, exact-session snapshots, dormant publication and reschedule gating, and database constraints",
+    "Verified LiveKit provider backfill, legacy-writer and rollback-edit compatibility, serialized draft publication, versioned defaults, exact-session snapshots, dormant publication and reschedule gating, and database constraints",
   );
 } finally {
   if (!migrationRestored)
