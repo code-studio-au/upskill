@@ -485,7 +485,7 @@ export function AdminEventOccurrenceEditor({
                                 {
                                   value: "livekit",
                                   label: liveKit.enabled
-                                    ? "LiveKit Cloud webinar"
+                                    ? "LiveKit Cloud webinar · draft only"
                                     : "LiveKit Cloud webinar · unavailable",
                                 },
                               ]}

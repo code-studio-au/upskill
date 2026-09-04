@@ -89,6 +89,15 @@ function ScheduledEventsPage() {
           );
           return;
         }
+        if (
+          outcome.status === "conflict" &&
+          outcome.reason === "livekit_capacity_exceeded"
+        ) {
+          setError(
+            "The event capacity plus staff headroom exceeds this environment's approved LiveKit participant limit.",
+          );
+          return;
+        }
         setError(
           "The event cannot be published until schedule, location, domains and staff coverage are complete.",
         );

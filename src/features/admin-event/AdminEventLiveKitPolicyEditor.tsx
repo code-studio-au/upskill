@@ -224,12 +224,12 @@ export function AdminEventLiveKitConfigurationNotice({
   return (
     <Alert
       role="alert"
-      color={enabled ? "blue" : "orange"}
-      title={enabled ? "LiveKit webinar" : "LiveKit is unavailable"}
+      color="orange"
+      title="LiveKit delivery is not yet available"
     >
       {enabled
-        ? `Upskill controls admission and issues short-lived access. The participant limit is ${String(approvedMaxParticipants ?? "unknown")}, including staff.`
-        : "This draft cannot be published until LiveKit is enabled and configured."}
+        ? `Configuration is present with a participant limit of ${String(approvedMaxParticipants ?? "unknown")}, including staff. Keep this occurrence as a draft until the lobby and webinar workflow is ready.`
+        : "Keep this occurrence as a draft. LiveKit configuration and the lobby and webinar workflow must be ready before publication."}
     </Alert>
   );
 }
