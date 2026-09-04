@@ -41,6 +41,10 @@ const EventTimezoneAutocomplete = lazy(async () => {
   const module = await import("./EventTimezoneAutocomplete");
   return { default: module.EventTimezoneAutocomplete };
 });
+const AdminEventLiveKitConfigurationNotice = lazy(async () => {
+  const module = await import("./AdminEventLiveKitPolicyEditor");
+  return { default: module.AdminEventLiveKitConfigurationNotice };
+});
 
 const defaultTimezone =
   Intl.DateTimeFormat().resolvedOptions().timeZone || "Australia/Sydney";
@@ -82,12 +86,14 @@ function EditorSection({
 
 export function AdminEventOccurrenceEditor({
   publishedVersions,
+  liveKit,
   occurrence,
   regionalCoverage,
   onCancel,
   onSaved,
 }: {
   publishedVersions: AdminEventWorkspace["publishedVersions"];
+  liveKit: AdminEventWorkspace["liveKit"];
   occurrence?: AdminEventWorkspace["occurrences"][number];
   regionalCoverage?: AdminEventOccurrenceRegionalCoverageOptions;
   onCancel: () => void;
@@ -115,6 +121,7 @@ export function AdminEventOccurrenceEditor({
         title: occurrence.title,
         slug: occurrence.slug,
         deliveryMode: occurrence.deliveryMode,
+        virtualDeliveryProvider: occurrence.virtualDeliveryProvider,
         registrationMode: occurrence.registrationMode,
         approvalMode: occurrence.approvalMode,
         timezone: occurrence.timezone,
@@ -141,6 +148,7 @@ export function AdminEventOccurrenceEditor({
         title: "",
         slug: "",
         deliveryMode: "virtual",
+        virtualDeliveryProvider: "external_url",
         registrationMode: "required_unrestricted",
         approvalMode: "automatic",
         timezone: defaultTimezone,
@@ -406,14 +414,21 @@ export function AdminEventOccurrenceEditor({
                         { value: "virtual", label: "Virtual" },
                       ]}
                       value={field.state.value}
+                      disabled={isPublished}
                       onBlur={field.handleBlur}
                       onChange={(event) => {
                         const value = event.currentTarget
                           .value as typeof field.state.value;
                         field.handleChange(value);
                         if (value === "in_person")
+                          form.setFieldValue("virtualDeliveryProvider", null);
+                        if (value === "in_person")
                           form.setFieldValue("virtualJoinUrl", "");
                         else {
+                          form.setFieldValue(
+                            "virtualDeliveryProvider",
+                            "external_url",
+                          );
                           form.setFieldValue("venueName", "");
                           form.setFieldValue("venueAddress", "");
                         }
@@ -458,20 +473,75 @@ export function AdminEventOccurrenceEditor({
                       </div>
                     ) : (
                       <div className={classes.deliveryDetails}>
-                        <form.Field name="virtualJoinUrl">
+                        <form.Field name="virtualDeliveryProvider">
                           {(field) => (
-                            <MantineTextInput
-                              label="Protected virtual meeting URL"
-                              value={field.state.value}
+                            <MantineNativeSelect
+                              label="Virtual delivery provider"
+                              data={[
+                                {
+                                  value: "external_url",
+                                  label: "Protected external URL",
+                                },
+                                {
+                                  value: "livekit",
+                                  label: liveKit.enabled
+                                    ? "LiveKit Cloud webinar · draft only"
+                                    : "LiveKit Cloud webinar · unavailable",
+                                },
+                              ]}
+                              value={field.state.value ?? ""}
+                              disabled={isPublished}
                               onBlur={field.handleBlur}
                               onChange={(event) => {
-                                field.handleChange(event.currentTarget.value);
+                                const virtualDeliveryProvider = event
+                                  .currentTarget.value as
+                                  "external_url" | "livekit";
+                                field.handleChange(virtualDeliveryProvider);
+                                if (virtualDeliveryProvider === "livekit")
+                                  form.setFieldValue("virtualJoinUrl", "");
                               }}
                               error={firstFormError(field.state.meta.errors)}
                               required
                             />
                           )}
                         </form.Field>
+                        <form.Subscribe
+                          selector={(state) =>
+                            state.values.virtualDeliveryProvider
+                          }
+                        >
+                          {(virtualDeliveryProvider) =>
+                            virtualDeliveryProvider === "external_url" ? (
+                              <form.Field name="virtualJoinUrl">
+                                {(field) => (
+                                  <MantineTextInput
+                                    label="Protected virtual meeting URL"
+                                    value={field.state.value}
+                                    onBlur={field.handleBlur}
+                                    onChange={(event) => {
+                                      field.handleChange(
+                                        event.currentTarget.value,
+                                      );
+                                    }}
+                                    error={firstFormError(
+                                      field.state.meta.errors,
+                                    )}
+                                    required
+                                  />
+                                )}
+                              </form.Field>
+                            ) : (
+                              <Suspense fallback={null}>
+                                <AdminEventLiveKitConfigurationNotice
+                                  enabled={liveKit.enabled}
+                                  approvedMaxParticipants={
+                                    liveKit.approvedMaxParticipants
+                                  }
+                                />
+                              </Suspense>
+                            )
+                          }
+                        </form.Subscribe>
                       </div>
                     )
                   }

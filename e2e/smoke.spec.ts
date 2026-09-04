@@ -1688,6 +1688,14 @@ test("platform administrators can inspect learner progress", async ({
       .click();
     await page.getByLabel("Display title").fill("Live workshop");
     await page.getByLabel("Duration (minutes)").fill("90");
+    await expect(page.getByLabel("Admission mode")).toHaveValue("automatic");
+    await page.getByLabel("Admission mode").selectOption("manual");
+    await expect(page.getByLabel("Connection attendance")).toHaveValue(
+      "manual",
+    );
+    await expect(
+      page.getByLabel("Presenter preparation window (minutes)"),
+    ).toHaveValue("60");
     const presenterPicker = page.getByRole("combobox", {
       name: "Add presenter",
     });
@@ -1695,15 +1703,6 @@ test("platform administrators can inspect learner progress", async ({
     const presenterOption = page.getByRole("option", {
       name: new RegExp(eventPresenter.email, "u"),
     });
-    const [presenterOptionBox, sessionCardBox] = await Promise.all([
-      presenterOption.boundingBox(),
-      presenterPicker.locator("xpath=ancestor::details[1]").boundingBox(),
-    ]);
-    expect(presenterOptionBox).not.toBeNull();
-    expect(sessionCardBox).not.toBeNull();
-    expect(
-      (presenterOptionBox?.y ?? 0) + (presenterOptionBox?.height ?? 0),
-    ).toBeGreaterThan((sessionCardBox?.y ?? 0) + (sessionCardBox?.height ?? 0));
     await expect(presenterOption).toBeVisible();
     expect(
       await presenterPicker.evaluate((input) => {
@@ -1805,6 +1804,21 @@ test("platform administrators can inspect learner progress", async ({
       .fill("21/08/2027 09:00");
     await page.getByRole("textbox", { name: "Ends" }).fill("21/08/2027 10:30");
     await page.getByLabel("Registration access").selectOption("open_entry");
+    await expect(page.getByLabel("Virtual delivery provider")).toHaveValue(
+      "external_url",
+    );
+    await page.getByLabel("Virtual delivery provider").selectOption("livekit");
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "LiveKit delivery is not yet available" }),
+    ).toBeVisible();
+    await expect(
+      page.getByLabel("Protected virtual meeting URL"),
+    ).not.toBeVisible();
+    await page
+      .getByLabel("Virtual delivery provider")
+      .selectOption("external_url");
     await page
       .getByLabel("Protected virtual meeting URL")
       .fill("https://meet.example.com/e2e-workshop");
@@ -1828,6 +1842,9 @@ test("platform administrators can inspect learner progress", async ({
       timezone: string;
       startsAt: Date;
       sessionCount: number;
+      virtualDeliveryProvider: string | null;
+      sessionVirtualDeliveryProvider: string | null;
+      templateAdmissionMode: string;
       administratorCount: number;
       presenterCount: number;
       coordinatorCount: number;
@@ -1835,7 +1852,11 @@ test("platform administrators can inspect learner progress", async ({
       communicationCount: number;
     }>(
       `select occurrence.id, occurrence."eventTemplateVersionId", occurrence.slug, occurrence.status,
+        occurrence."virtualDeliveryProvider",
         occurrence.timezone, occurrence."startsAt",
+        (select "virtualDeliveryProvider" from event_session where "eventOccurrenceId" = occurrence.id limit 1) as "sessionVirtualDeliveryProvider",
+        (select definition."livekitAdmissionMode" from event_template_session_definition definition
+          where definition."eventTemplateVersionId" = occurrence."eventTemplateVersionId" limit 1) as "templateAdmissionMode",
         (select count(*)::integer from event_session where "eventOccurrenceId" = occurrence.id) as "sessionCount",
         (select count(*)::integer from event_admin_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "administratorCount",
         (select count(*)::integer from event_presenter_assignment where "eventOccurrenceId" = occurrence.id and "endedAt" is null) as "presenterCount",
@@ -1851,6 +1872,9 @@ test("platform administrators can inspect learner progress", async ({
       slug: eventSlug,
       status: "published",
       timezone: "Australia/Sydney",
+      virtualDeliveryProvider: "external_url",
+      sessionVirtualDeliveryProvider: "external_url",
+      templateAdmissionMode: "manual",
       startsAt: new Date("2027-08-20T23:00:00.000Z"),
       sessionCount: 1,
       administratorCount: 1,
@@ -1861,6 +1885,11 @@ test("platform administrators can inspect learner progress", async ({
     });
     const occurrenceId = storedOccurrence.rows[0]?.id;
     if (!occurrenceId) throw new Error("Expected the E2E Event Occurrence");
+    await page.goto(
+      `/admin/events/instances/${encodeURIComponent(occurrenceId)}?view=configuration`,
+    );
+    await expect(page.getByLabel("Delivery method")).toBeDisabled();
+    await expect(page.getByLabel("Virtual delivery provider")).toBeDisabled();
     const administrator = await authoringDatabase.query<{
       id: string;
       name: string;

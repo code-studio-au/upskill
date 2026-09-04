@@ -344,6 +344,7 @@ try {
       slug: "verify-enterprise-covered-event",
       status: "published",
       deliveryMode: "virtual",
+      virtualDeliveryProvider: "external_url",
       registrationMode: "paid_entry",
       approvalMode: "automatic",
       timezone: "Australia/Sydney",

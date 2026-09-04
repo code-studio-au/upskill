@@ -30,6 +30,10 @@ import {
 } from "#/server/notifications/event-communication-execution.server";
 import { refreshEventOperationalCommunicationSchedules } from "#/server/notifications/event-operational-communication.server";
 import {
+  getEnabledLiveKitConfiguration,
+  type EnabledLiveKitConfiguration,
+} from "#/server/livekit/livekit-provider.server";
+import {
   addElapsedDuration,
   addElapsedMilliseconds,
   dateToInstant,
@@ -64,6 +68,72 @@ function localDateTimeFor(value: Date, timezone: string): string {
 function optionalText(value: string): string | null {
   const trimmed = value.trim();
   return trimmed || null;
+}
+
+type LiveKitCapacityConfiguration = Pick<
+  EnabledLiveKitConfiguration,
+  "approvedMaxParticipants"
+>;
+
+function sessionDeliverySnapshot(
+  input: Pick<
+    AdminEventOccurrenceCreateInput,
+    | "deliveryMode"
+    | "virtualDeliveryProvider"
+    | "venueName"
+    | "venueAddress"
+    | "virtualJoinUrl"
+  >,
+  policy: {
+    livekitAdmissionMode: "manual" | "automatic";
+    livekitAttendanceMode:
+      "manual" | "automatic_check_in" | "automatic_duration";
+    livekitAttendanceMinimumMinutes: number | null;
+    livekitPresenterPreparationMinutes: number;
+    livekitAttendeeRejoinGraceMinutes: number;
+    livekitCapacityHeadroom: number;
+    livekitOpenEntryGuestsAllowed: boolean;
+    livekitRecordingMode: "off" | "automatic";
+    livekitRecordingRetentionDays: number | null;
+    livekitAttendeeRecordingNotice: string;
+    livekitPresenterRecordingNotice: string;
+  },
+) {
+  const liveKit =
+    input.deliveryMode === "virtual" &&
+    input.virtualDeliveryProvider === "livekit";
+  return {
+    venueName: optionalText(input.venueName),
+    venueAddress: optionalText(input.venueAddress),
+    virtualJoinUrl: optionalText(input.virtualJoinUrl),
+    virtualDeliveryProvider:
+      input.deliveryMode === "virtual" ? input.virtualDeliveryProvider : null,
+    livekitAdmissionMode: liveKit ? policy.livekitAdmissionMode : null,
+    livekitAttendanceMode: liveKit ? policy.livekitAttendanceMode : null,
+    livekitAttendanceMinimumMinutes: liveKit
+      ? policy.livekitAttendanceMinimumMinutes
+      : null,
+    livekitPresenterPreparationMinutes: liveKit
+      ? policy.livekitPresenterPreparationMinutes
+      : null,
+    livekitAttendeeRejoinGraceMinutes: liveKit
+      ? policy.livekitAttendeeRejoinGraceMinutes
+      : null,
+    livekitCapacityHeadroom: liveKit ? policy.livekitCapacityHeadroom : null,
+    livekitOpenEntryGuestsAllowed: liveKit
+      ? policy.livekitOpenEntryGuestsAllowed
+      : null,
+    livekitRecordingMode: liveKit ? policy.livekitRecordingMode : null,
+    livekitRecordingRetentionDays: liveKit
+      ? policy.livekitRecordingRetentionDays
+      : null,
+    livekitAttendeeRecordingNotice: liveKit
+      ? policy.livekitAttendeeRecordingNotice
+      : null,
+    livekitPresenterRecordingNotice: liveKit
+      ? policy.livekitPresenterRecordingNotice
+      : null,
+  };
 }
 
 export async function createAdminEventOccurrence(
@@ -254,6 +324,7 @@ export async function createAdminEventOccurrence(
           slug: input.slug,
           status: "draft",
           deliveryMode: input.deliveryMode,
+          virtualDeliveryProvider: input.virtualDeliveryProvider,
           registrationMode: input.registrationMode,
           approvalMode: input.approvalMode,
           timezone: input.timezone,
@@ -348,9 +419,7 @@ export async function createAdminEventOccurrence(
             localStartsAt: localDateTimeFor(sessionStartsAt, input.timezone),
             localEndsAt: localDateTimeFor(sessionEndsAt, input.timezone),
             presenterRequired: sessionDefinition.presenterRequired,
-            venueName: optionalText(input.venueName),
-            venueAddress: optionalText(input.venueAddress),
-            virtualJoinUrl: optionalText(input.virtualJoinUrl),
+            ...sessionDeliverySnapshot(input, sessionDefinition),
           })
           .execute();
         for (const presenter of presenterDefaults.filter(
@@ -458,6 +527,7 @@ export async function updateAdminEventOccurrence(
           "event_template_version.registrationSurveyVersionId",
         ])
         .where("event_occurrence.id", "=", eventOccurrenceId)
+        .forUpdate("event_occurrence")
         .executeTakeFirst();
       if (!occurrence) return "not-found" as const;
       if (
@@ -473,9 +543,29 @@ export async function updateAdminEventOccurrence(
         return "registration-questionnaire-requires-registration" as const;
 
       const sessions = await transaction
-        .selectFrom("event_session")
-        .select(["id", "startsAt", "endsAt"])
-        .where("eventOccurrenceId", "=", eventOccurrenceId)
+        .selectFrom("event_session as session")
+        .innerJoin(
+          "event_template_session_definition as definition",
+          "definition.id",
+          "session.sessionDefinitionId",
+        )
+        .select([
+          "session.id",
+          "session.startsAt",
+          "session.endsAt",
+          "definition.livekitAdmissionMode",
+          "definition.livekitAttendanceMode",
+          "definition.livekitAttendanceMinimumMinutes",
+          "definition.livekitPresenterPreparationMinutes",
+          "definition.livekitAttendeeRejoinGraceMinutes",
+          "definition.livekitCapacityHeadroom",
+          "definition.livekitOpenEntryGuestsAllowed",
+          "definition.livekitRecordingMode",
+          "definition.livekitRecordingRetentionDays",
+          "definition.livekitAttendeeRecordingNotice",
+          "definition.livekitPresenterRecordingNotice",
+        ])
+        .where("session.eventOccurrenceId", "=", eventOccurrenceId)
         .execute();
       const startsAt = requiredDate(input.startsAt);
       const endsAt = requiredDate(input.endsAt);
@@ -495,6 +585,7 @@ export async function updateAdminEventOccurrence(
           title: input.title,
           slug: input.slug,
           deliveryMode: input.deliveryMode,
+          virtualDeliveryProvider: input.virtualDeliveryProvider,
           registrationMode: input.registrationMode,
           approvalMode: input.approvalMode,
           timezone: input.timezone,
@@ -550,9 +641,7 @@ export async function updateAdminEventOccurrence(
               input.timezone,
             ),
             localEndsAt: localDateTimeFor(nextSessionEndsAt, input.timezone),
-            venueName: optionalText(input.venueName),
-            venueAddress: optionalText(input.venueAddress),
-            virtualJoinUrl: optionalText(input.virtualJoinUrl),
+            ...sessionDeliverySnapshot(input, session),
           })
           .where("id", "=", session.id)
           .execute();
@@ -612,6 +701,7 @@ export async function rescheduleAdminEventOccurrence(
     };
   },
   administrator: AuthenticatedUser,
+  liveKitConfiguration: LiveKitCapacityConfiguration | null = getEnabledLiveKitConfiguration(),
 ): Promise<
   | "rescheduled"
   | "not-found"
@@ -619,6 +709,8 @@ export async function rescheduleAdminEventOccurrence(
   | "slug-in-use"
   | "invalid-window-policy"
   | "regions-not-confirmed"
+  | "livekit-unavailable"
+  | "livekit-capacity-exceeded"
   | "registration-questionnaire-requires-registration"
   | "registration-questionnaire-regions-incompatible"
 > {
@@ -650,6 +742,8 @@ export async function rescheduleAdminEventOccurrence(
       if (
         occurrence.status !== "published" ||
         occurrence.eventTemplateVersionId !== next.eventTemplateVersionId ||
+        occurrence.deliveryMode !== next.deliveryMode ||
+        occurrence.virtualDeliveryProvider !== next.virtualDeliveryProvider ||
         occurrence.registrationMode !== next.registrationMode ||
         occurrence.approvalMode !== next.approvalMode ||
         next.capacity < occurrence.confirmedCount
@@ -682,7 +776,7 @@ export async function rescheduleAdminEventOccurrence(
       ] = await Promise.all([
         transaction
           .selectFrom("event_session")
-          .select(["id", "startsAt", "endsAt"])
+          .select(["id", "startsAt", "endsAt", "livekitCapacityHeadroom"])
           .where("eventOccurrenceId", "=", eventOccurrenceId)
           .execute(),
         transaction
@@ -727,6 +821,21 @@ export async function rescheduleAdminEventOccurrence(
           )
           .execute(),
       ]);
+      if (
+        occurrence.virtualDeliveryProvider === "livekit" &&
+        next.capacity !== occurrence.capacity
+      ) {
+        if (!liveKitConfiguration) return "livekit-unavailable" as const;
+        const maximumCapacityHeadroom = Math.max(
+          0,
+          ...sessions.map((session) => session.livekitCapacityHeadroom ?? 0),
+        );
+        if (
+          next.capacity + maximumCapacityHeadroom >
+          liveKitConfiguration.approvedMaxParticipants
+        )
+          return "livekit-capacity-exceeded" as const;
+      }
       const activeRegions = occurrenceRegions.filter(
         (region) => !region.retiredAt,
       );
@@ -1407,10 +1516,13 @@ export async function rescheduleAdminEventOccurrence(
 export async function publishAdminEventOccurrence(
   eventOccurrenceId: string,
   administrator: AuthenticatedUser,
+  liveKitConfiguration: LiveKitCapacityConfiguration | null = getEnabledLiveKitConfiguration(),
 ): Promise<
   | "published"
   | "not-found"
   | "conflict"
+  | "livekit-unavailable"
+  | "livekit-capacity-exceeded"
   | "registration-questionnaire-requires-registration"
 > {
   return await getDatabase()
@@ -1428,6 +1540,8 @@ export async function publishAdminEventOccurrence(
           "event_occurrence.status",
           "event_occurrence.registrationMode",
           "event_occurrence.deliveryMode",
+          "event_occurrence.virtualDeliveryProvider",
+          "event_occurrence.capacity",
           "event_occurrence.venueName",
           "event_occurrence.virtualJoinUrl",
           "event_template_version.registrationSurveyVersionId",
@@ -1462,6 +1576,24 @@ export async function publishAdminEventOccurrence(
                   and presenters."eventSessionId" = sessions.id
                   and presenters."endedAt" is null
               ))`.as("uncoveredPresenterSessions"),
+          sql<number>`coalesce((select max(sessions."livekitCapacityHeadroom")::integer
+            from event_session sessions
+            where sessions."eventOccurrenceId" = ${eventOccurrenceId}), 0)`.as(
+            "maximumLiveKitCapacityHeadroom",
+          ),
+          sql<number>`(select count(*)::integer from event_session sessions
+            where sessions."eventOccurrenceId" = ${eventOccurrenceId}
+              and (
+                sessions."virtualDeliveryProvider" is distinct from ${occurrence.virtualDeliveryProvider}
+                or (${occurrence.virtualDeliveryProvider} = 'external_url'
+                  and sessions."virtualJoinUrl" is distinct from ${occurrence.virtualJoinUrl})
+              ))`.as("deliveryMismatchSessions"),
+          sql<number>`(select count(*)::integer from event_session sessions
+            where sessions."eventOccurrenceId" = ${eventOccurrenceId}
+              and sessions."virtualDeliveryProvider" = 'livekit'
+              and not sessions."livekitOpenEntryGuestsAllowed")`.as(
+            "liveKitGuestRestrictedSessions",
+          ),
           sql<number>`(select count(*)::integer from event_occurrence_domain
             where "eventOccurrenceId" = ${eventOccurrenceId})`.as("domains"),
         ])
@@ -1469,16 +1601,38 @@ export async function publishAdminEventOccurrence(
         .executeTakeFirstOrThrow();
       const locationInvalid =
         (occurrence.deliveryMode === "in_person" && !occurrence.venueName) ||
-        (occurrence.deliveryMode === "virtual" && !occurrence.virtualJoinUrl);
+        (occurrence.deliveryMode === "virtual" &&
+          occurrence.virtualDeliveryProvider === "external_url" &&
+          !occurrence.virtualJoinUrl) ||
+        (occurrence.deliveryMode === "virtual" &&
+          occurrence.virtualDeliveryProvider === "livekit" &&
+          Boolean(occurrence.virtualJoinUrl)) ||
+        (occurrence.deliveryMode === "virtual" &&
+          occurrence.virtualDeliveryProvider === null);
       if (
         coverage.admins === 0 ||
         coverage.sessions === 0 ||
         coverage.uncoveredPresenterSessions > 0 ||
+        coverage.deliveryMismatchSessions > 0 ||
+        (occurrence.registrationMode === "open_entry" &&
+          coverage.liveKitGuestRestrictedSessions > 0) ||
         (occurrence.registrationMode === "required_restricted" &&
           coverage.domains === 0) ||
         locationInvalid
       )
         return "conflict" as const;
+      if (occurrence.virtualDeliveryProvider === "livekit") {
+        if (!liveKitConfiguration) return "livekit-unavailable" as const;
+        if (
+          occurrence.capacity + coverage.maximumLiveKitCapacityHeadroom >
+          liveKitConfiguration.approvedMaxParticipants
+        )
+          return "livekit-capacity-exceeded" as const;
+        // ADR 0039 Slice 2 persists immutable provider policy only. Keep
+        // publication dormant until the attendee token and media delivery
+        // slices make every published LiveKit occurrence joinable.
+        return "livekit-unavailable" as const;
+      }
       const now = new Date();
       await transaction
         .updateTable("event_occurrence")

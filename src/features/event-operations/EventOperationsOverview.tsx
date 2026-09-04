@@ -68,7 +68,9 @@ export function EventOperationsOverview({
           <Title order={2}>Delivery</Title>
           <Text mt="xs">
             {workspace.occurrence.deliveryMode === "virtual"
-              ? "Virtual event"
+              ? workspace.occurrence.virtualDeliveryProvider === "livekit"
+                ? "LiveKit Cloud webinar"
+                : "Virtual event · protected external URL"
               : workspace.occurrence.venueName || "In-person event"}
           </Text>
           {workspace.occurrence.venueAddress ? (

@@ -262,6 +262,7 @@ try {
       slug: "verify-event-completion-certificate",
       status: "published",
       deliveryMode: "virtual",
+      virtualDeliveryProvider: "external_url",
       registrationMode: "required_unrestricted",
       approvalMode: "automatic",
       timezone: "Australia/Sydney",

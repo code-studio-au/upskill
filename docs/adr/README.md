@@ -45,5 +45,5 @@ is complete.
 | 0036 | [Initial authenticated SCORM content delivery](0036-initial-scorm-content-delivery.md)                                                      | Accepted and implemented                                   |
 | 0037 | [Portable pre-production snapshot fixture](0037-portable-pre-production-snapshot.md)                                                        | Accepted and implemented                                   |
 | 0038 | [Enterprise blanket contracts as lazy entitlement producers](0038-enterprise-blanket-contracts.md)                                          | Accepted and initially implemented                         |
-| 0039 | [LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance](0039-livekit-virtual-webinars-and-admission.md) | Accepted; implementation pending                           |
+| 0039 | [LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance](0039-livekit-virtual-webinars-and-admission.md) | Accepted; Slice 1 implemented                              |
 | 0040 | [Versioned registration questionnaires for Events and Courses](0040-versioned-registration-questionnaires.md)                               | Accepted and implemented                                   |

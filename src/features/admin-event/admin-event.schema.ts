@@ -188,6 +188,98 @@ const eventTemplateItemBase = {
   required: z.boolean(),
 };
 
+export const defaultLiveKitSessionPolicy = {
+  admissionMode: "automatic",
+  attendanceMode: "manual",
+  attendanceMinimumMinutes: null,
+  presenterPreparationMinutes: 60,
+  attendeeRejoinGraceMinutes: 10,
+  capacityHeadroom: 5,
+  openEntryGuestsAllowed: false,
+  recordingMode: "off",
+  recordingRetentionDays: null,
+  attendeeRecordingNotice: "",
+  presenterRecordingNotice: "",
+} as const;
+
+export const liveKitSessionPolicySchema = z
+  .object({
+    admissionMode: z.enum(["manual", "automatic"]),
+    attendanceMode: z.enum([
+      "manual",
+      "automatic_check_in",
+      "automatic_duration",
+    ]),
+    attendanceMinimumMinutes: z.nullable(
+      z.number().check(z.int(), z.minimum(1), z.maximum(10_080)),
+    ),
+    presenterPreparationMinutes: z
+      .number()
+      .check(z.int(), z.minimum(0), z.maximum(1_440)),
+    attendeeRejoinGraceMinutes: z
+      .number()
+      .check(z.int(), z.minimum(0), z.maximum(120)),
+    capacityHeadroom: z.number().check(z.int(), z.minimum(1), z.maximum(100)),
+    openEntryGuestsAllowed: z.boolean(),
+    recordingMode: z.enum(["off", "automatic"]),
+    recordingRetentionDays: z.nullable(
+      z.number().check(z.int(), z.minimum(1), z.maximum(3_650)),
+    ),
+    attendeeRecordingNotice: optionalText(2_000),
+    presenterRecordingNotice: optionalText(2_000),
+  })
+  .check(
+    z.superRefine((policy, context) => {
+      if (
+        policy.attendanceMode === "automatic_duration" &&
+        policy.attendanceMinimumMinutes === null
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["attendanceMinimumMinutes"],
+          message: "Enter the minimum connected minutes.",
+        });
+      if (
+        policy.attendanceMode !== "automatic_duration" &&
+        policy.attendanceMinimumMinutes !== null
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["attendanceMinimumMinutes"],
+          message: "A duration threshold applies only to duration attendance.",
+        });
+      if (policy.recordingMode === "automatic") {
+        if (policy.recordingRetentionDays === null)
+          context.addIssue({
+            code: "custom",
+            path: ["recordingRetentionDays"],
+            message: "Enter the recording retention period.",
+          });
+        if (policy.attendeeRecordingNotice.trim().length < 2)
+          context.addIssue({
+            code: "custom",
+            path: ["attendeeRecordingNotice"],
+            message: "Enter the attendee recording notice.",
+          });
+        if (policy.presenterRecordingNotice.trim().length < 2)
+          context.addIssue({
+            code: "custom",
+            path: ["presenterRecordingNotice"],
+            message: "Enter the presenter recording notice.",
+          });
+      } else if (
+        policy.recordingRetentionDays !== null ||
+        policy.attendeeRecordingNotice.trim() ||
+        policy.presenterRecordingNotice.trim()
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["recordingMode"],
+          message: "Recording settings apply only when recording is automatic.",
+        });
+    }),
+  );
+
 const adminEventTemplateItemSchema = z.discriminatedUnion("kind", [
   z.object({
     ...eventTemplateItemBase,
@@ -197,6 +289,10 @@ const adminEventTemplateItemSchema = z.discriminatedUnion("kind", [
       .check(z.int(), z.minimum(15), z.maximum(10_080)),
     presenterRequired: z.boolean(),
     presenterIds: z.array(identifierSchema).check(z.maxLength(20)),
+    liveKitPolicy: z._default(
+      liveKitSessionPolicySchema,
+      defaultLiveKitSessionPolicy,
+    ),
   }),
   z.object({
     ...eventTemplateItemBase,
@@ -401,6 +497,24 @@ export const adminEventTemplateDraftSchema = z
               ],
               message: "Presenters must be unique within a session.",
             });
+          if (
+            item.kind === "session" &&
+            item.liveKitPolicy.attendanceMinimumMinutes !== null &&
+            item.liveKitPolicy.attendanceMinimumMinutes > item.durationMinutes
+          )
+            context.addIssue({
+              code: "custom",
+              path: [
+                "sections",
+                sectionIndex,
+                "items",
+                itemIndex,
+                "liveKitPolicy",
+                "attendanceMinimumMinutes",
+              ],
+              message:
+                "The attendance threshold cannot exceed the session duration.",
+            });
         }
       }
     }),
@@ -423,6 +537,7 @@ export const adminEventOccurrenceCreateSchema = z
         z.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use a valid URL slug."),
       ),
     deliveryMode: z.enum(["in_person", "virtual"]),
+    virtualDeliveryProvider: z.nullable(z.enum(["external_url", "livekit"])),
     registrationMode: z.enum([
       "open_entry",
       "paid_entry",
@@ -498,17 +613,44 @@ export const adminEventOccurrenceCreateSchema = z
           path: ["venueName"],
           message: "Enter a venue for in-person delivery.",
         });
-      if (value.deliveryMode === "virtual" && !value.virtualJoinUrl)
+      if (
+        value.deliveryMode === "virtual" &&
+        value.virtualDeliveryProvider === null
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["virtualDeliveryProvider"],
+          message: "Select a virtual delivery provider.",
+        });
+      if (
+        value.deliveryMode === "virtual" &&
+        value.virtualDeliveryProvider === "external_url" &&
+        !value.virtualJoinUrl
+      )
         context.addIssue({
           code: "custom",
           path: ["virtualJoinUrl"],
           message: "Enter the protected virtual meeting URL.",
         });
-      if (value.deliveryMode === "in_person" && value.virtualJoinUrl)
+      if (
+        value.deliveryMode === "in_person" &&
+        (value.virtualDeliveryProvider !== null || value.virtualJoinUrl)
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["virtualDeliveryProvider"],
+          message: "Virtual meeting details do not apply to in-person events.",
+        });
+      if (
+        value.deliveryMode === "virtual" &&
+        value.virtualDeliveryProvider === "livekit" &&
+        value.virtualJoinUrl
+      )
         context.addIssue({
           code: "custom",
           path: ["virtualJoinUrl"],
-          message: "Virtual meeting details do not apply to in-person events.",
+          message:
+            "LiveKit join access is issued by Upskill, not a reusable URL.",
         });
       if (
         value.deliveryMode === "virtual" &&
@@ -619,9 +761,23 @@ export type AdminEventOccurrenceFormInput = Omit<
   coordinatorLockAt: string;
 };
 
+function normalizeLegacyEventOccurrenceForm(
+  input: AdminEventOccurrenceFormInput,
+): AdminEventOccurrenceFormInput {
+  if (Object.hasOwn(input, "virtualDeliveryProvider")) return input;
+  return {
+    ...input,
+    virtualDeliveryProvider:
+      input.deliveryMode === "virtual" ? "external_url" : null,
+  };
+}
+
 export const adminEventOccurrenceFormSchema = z
-  .custom<AdminEventOccurrenceFormInput>(
-    (value: unknown) => typeof value === "object" && value !== null,
+  .pipe(
+    z.custom<AdminEventOccurrenceFormInput>(
+      (value: unknown) => typeof value === "object" && value !== null,
+    ),
+    z.transform(normalizeLegacyEventOccurrenceForm),
   )
   .check(
     z.superRefine((value, context) => {
@@ -806,6 +962,10 @@ export interface AdminEventTemplateDetail {
 }
 
 export interface AdminEventWorkspace {
+  liveKit: {
+    enabled: boolean;
+    approvedMaxParticipants: number | null;
+  };
   templates: Array<{
     id: string;
     title: string;
@@ -844,6 +1004,7 @@ export interface AdminEventWorkspace {
     slug: string;
     status: "draft" | "published" | "cancelled" | "completed" | "archived";
     deliveryMode: "in_person" | "virtual";
+    virtualDeliveryProvider: "external_url" | "livekit" | null;
     registrationMode:
       | "open_entry"
       | "paid_entry"
@@ -924,6 +1085,8 @@ export type AdminEventMutationResult =
         | "region_code_in_use"
         | "region_not_retirable"
         | "event_too_short"
+        | "livekit_unavailable"
+        | "livekit_capacity_exceeded"
         | "registration_questionnaire_requires_registration"
         | "occurrence_not_publishable";
       minimumDurationMinutes?: number;

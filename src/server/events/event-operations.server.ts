@@ -607,6 +607,7 @@ export async function findEventOperationsWorkspace(
       title: workspace.occurrence.title,
       status: workspace.occurrence.status,
       deliveryMode: workspace.occurrence.deliveryMode,
+      virtualDeliveryProvider: workspace.occurrence.virtualDeliveryProvider,
       timezone: workspace.occurrence.timezone,
       startsAt: workspace.occurrence.startsAt,
       endsAt: workspace.occurrence.endsAt,

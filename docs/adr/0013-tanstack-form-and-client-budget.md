@@ -200,6 +200,16 @@ Brotli caps therefore each ratchet by 1 KB, and the named occurrence-editor cap
 from 5 KB to 5.25 KB gzip. Root preload, route-incremental, largest-asset, CSS
 and all other named conditional limits remain unchanged.
 
+LiveKit provider selection and versioned session-policy authoring reuse the
+existing occurrence and programme editors. The detailed policy controls and
+provider notice are split into one shared conditional module; the occurrence
+editor remains below its existing limit. The complete all-route build measures
+1,005,008 raw JavaScript bytes and 292,210 Brotli JavaScript bytes. The raw
+aggregate cap therefore ratchets by 2 KB, the programme-editor shell from 3.25
+KB to 3.5 KB gzip for its loader and state handoff, and the new LiveKit policy
+chunk receives a 1.5 KB gzip cap. Root preload, route-incremental, Brotli, CSS,
+largest-asset and all other named conditional limits remain unchanged.
+
 ## Consequences
 
 Validation, dirty/touched state and loading behavior now have one consistent

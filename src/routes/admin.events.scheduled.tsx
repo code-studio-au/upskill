@@ -80,6 +80,24 @@ function ScheduledEventsPage() {
         data: { eventOccurrenceId },
       });
       if (outcome.status !== "ready") {
+        if (
+          outcome.status === "conflict" &&
+          outcome.reason === "livekit_unavailable"
+        ) {
+          setError(
+            "LiveKit delivery is not yet available. Keep this occurrence as a draft until the lobby and webinar workflow is ready.",
+          );
+          return;
+        }
+        if (
+          outcome.status === "conflict" &&
+          outcome.reason === "livekit_capacity_exceeded"
+        ) {
+          setError(
+            "The event capacity plus staff headroom exceeds this environment's approved LiveKit participant limit.",
+          );
+          return;
+        }
         setError(
           "The event cannot be published until schedule, location, domains and staff coverage are complete.",
         );

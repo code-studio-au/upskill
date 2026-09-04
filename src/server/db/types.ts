@@ -597,6 +597,19 @@ interface EventTemplateSessionDefinitionTable {
   title: string;
   durationMinutes: number;
   presenterRequired: boolean;
+  livekitAdmissionMode: Generated<"manual" | "automatic">;
+  livekitAttendanceMode: Generated<
+    "manual" | "automatic_check_in" | "automatic_duration"
+  >;
+  livekitAttendanceMinimumMinutes: number | null;
+  livekitPresenterPreparationMinutes: Generated<number>;
+  livekitAttendeeRejoinGraceMinutes: Generated<number>;
+  livekitCapacityHeadroom: Generated<number>;
+  livekitOpenEntryGuestsAllowed: Generated<boolean>;
+  livekitRecordingMode: Generated<"off" | "automatic">;
+  livekitRecordingRetentionDays: number | null;
+  livekitAttendeeRecordingNotice: Generated<string>;
+  livekitPresenterRecordingNotice: Generated<string>;
   createdAt: Timestamp;
 }
 
@@ -646,6 +659,7 @@ interface EventOccurrenceTable {
   slug: string;
   status: "draft" | "published" | "cancelled" | "completed" | "archived";
   deliveryMode: "in_person" | "virtual";
+  virtualDeliveryProvider: Generated<"external_url" | "livekit" | null>;
   registrationMode:
     | "open_entry"
     | "paid_entry"
@@ -712,6 +726,20 @@ interface EventSessionTable {
   venueName: string | null;
   venueAddress: string | null;
   virtualJoinUrl: string | null;
+  virtualDeliveryProvider: Generated<"external_url" | "livekit" | null>;
+  livekitAdmissionMode: Generated<"manual" | "automatic" | null>;
+  livekitAttendanceMode: Generated<
+    "manual" | "automatic_check_in" | "automatic_duration" | null
+  >;
+  livekitAttendanceMinimumMinutes: Generated<number | null>;
+  livekitPresenterPreparationMinutes: Generated<number | null>;
+  livekitAttendeeRejoinGraceMinutes: Generated<number | null>;
+  livekitCapacityHeadroom: Generated<number | null>;
+  livekitOpenEntryGuestsAllowed: Generated<boolean | null>;
+  livekitRecordingMode: Generated<"off" | "automatic" | null>;
+  livekitRecordingRetentionDays: Generated<number | null>;
+  livekitAttendeeRecordingNotice: Generated<string | null>;
+  livekitPresenterRecordingNotice: Generated<string | null>;
 }
 
 type EventAssignmentSource =

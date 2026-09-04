@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
+import { defaultLiveKitSessionPolicy } from "#/features/admin-event/admin-event.schema";
 import type { AdminSurveyDraft } from "#/features/survey/survey.schema";
 import { ianaTimeZoneSchema } from "#/features/shared/time.schema";
 import {
@@ -804,6 +805,7 @@ try {
                 durationMinutes: 120,
                 presenterRequired: true,
                 presenterIds: [presenter.id],
+                liveKitPolicy: { ...defaultLiveKitSessionPolicy },
               },
               {
                 id: `event_survey_item_${suffix}`,
@@ -890,6 +892,7 @@ try {
     title: "Verification workshop · Sydney",
     slug: `verification-workshop-sydney-${suffix}`,
     deliveryMode: "in_person" as const,
+    virtualDeliveryProvider: null,
     registrationMode: "required_restricted" as const,
     approvalMode: "manual" as const,
     timezone: "Australia/Sydney",
@@ -988,6 +991,7 @@ try {
         title: "Verification workshop · Rescheduled",
         slug: `verification-workshop-rescheduled-${suffix}`,
         deliveryMode: "in_person",
+        virtualDeliveryProvider: null,
         registrationMode: "required_restricted",
         approvalMode: "manual",
         timezone: "Australia/Sydney",

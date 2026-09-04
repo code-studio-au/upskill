@@ -1,5 +1,5 @@
 {
-  "clientJavaScriptBytes": 1004000,
+  "clientJavaScriptBytes": 1006000,
   "clientCssBytes": 255000,
   "clientJavaScriptBrotliBytes": 300000,
   "clientCssBrotliBytes": 36000,
@@ -14,7 +14,8 @@
     "AdminAccessGrantRedemptionTable": 1280,
     "AdminCourseProgramEditor": 2304,
     "AdminCourseRoster": 3072,
-    "AdminEventProgramEditor": 3328,
+    "AdminEventProgramEditor": 3584,
+    "AdminEventLiveKitPolicyEditor": 1536,
     "AdminPaidEventPricingEditor": 3072,
     "CertificateAccreditationEditor": 2048,
     "OfferingImageEditor": 2048,

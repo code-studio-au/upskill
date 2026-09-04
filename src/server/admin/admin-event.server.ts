@@ -11,9 +11,11 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { provisionUser } from "#/server/identity/provisional-user.server";
+import { getEnabledLiveKitConfiguration } from "#/server/livekit/livekit-provider.server";
 
 export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
   const database = getDatabase();
+  const liveKitConfiguration = getEnabledLiveKitConfiguration();
   const [
     templates,
     versions,
@@ -56,6 +58,7 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
         "event_occurrence.slug",
         "event_occurrence.status",
         "event_occurrence.deliveryMode",
+        "event_occurrence.virtualDeliveryProvider",
         "event_occurrence.registrationMode",
         "event_occurrence.approvalMode",
         "event_occurrence.timezone",
@@ -185,6 +188,11 @@ export async function findAdminEventWorkspace(): Promise<AdminEventWorkspace> {
     );
 
   return {
+    liveKit: {
+      enabled: liveKitConfiguration !== null,
+      approvedMaxParticipants:
+        liveKitConfiguration?.approvedMaxParticipants ?? null,
+    },
     templates: templates.map((template) => {
       const templateVersions = versionsByTemplate.get(template.id) ?? [];
       const draft = templateVersions.find((version) => !version.publishedAt);

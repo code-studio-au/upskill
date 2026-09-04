@@ -738,6 +738,28 @@ function prepareRuntimeRows(
   fixture: SnapshotFixture,
   passwordHash: string,
 ): void {
+  const virtualOccurrenceIds = new Set(
+    (fixture.tables.event_occurrence ?? [])
+      .filter((row) => row.deliveryMode === "virtual")
+      .map((row) => String(row.id)),
+  );
+  fixture.tables.event_occurrence = (fixture.tables.event_occurrence ?? []).map(
+    (row) => ({
+      ...row,
+      virtualDeliveryProvider:
+        row.deliveryMode === "virtual" ? "external_url" : null,
+    }),
+  );
+  fixture.tables.event_session = (fixture.tables.event_session ?? []).map(
+    (row) => ({
+      ...row,
+      virtualDeliveryProvider: virtualOccurrenceIds.has(
+        String(row.eventOccurrenceId),
+      )
+        ? "external_url"
+        : null,
+    }),
+  );
   const activityByVersion = new Map(
     fixture.tables.learning_activity_version.map((row) => [
       String(row.id),

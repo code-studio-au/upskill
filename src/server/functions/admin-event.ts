@@ -432,6 +432,10 @@ export const rescheduleAdminEventOccurrence = createServerFn({ method: "POST" })
         status: "conflict",
         reason: "registration_questionnaire_requires_registration",
       };
+    if (outcome === "livekit-unavailable")
+      return { status: "conflict", reason: "livekit_unavailable" };
+    if (outcome === "livekit-capacity-exceeded")
+      return { status: "conflict", reason: "livekit_capacity_exceeded" };
     if (outcome === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {
@@ -462,6 +466,10 @@ export const publishAdminEventOccurrence = createServerFn({ method: "POST" })
         status: "conflict",
         reason: "registration_questionnaire_requires_registration",
       };
+    if (outcome === "livekit-unavailable")
+      return { status: "conflict", reason: "livekit_unavailable" };
+    if (outcome === "livekit-capacity-exceeded")
+      return { status: "conflict", reason: "livekit_capacity_exceeded" };
     if (outcome === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {

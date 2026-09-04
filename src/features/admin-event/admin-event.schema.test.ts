@@ -4,9 +4,13 @@ import {
   adminEventOccurrenceCreateSchema,
   adminEventOccurrenceFormSchema,
   adminEventOccurrenceRescheduleFormSchema,
+  adminEventOccurrenceUpdateFormSchema,
   adminEventStaffCandidateSearchSchema,
   adminEventStaffEligibilityGrantSchema,
   adminEventTemplateCreateSchema,
+  adminEventTemplateDraftSchema,
+  defaultLiveKitSessionPolicy,
+  liveKitSessionPolicySchema,
   normalizeEventDomains,
 } from "./admin-event.schema";
 
@@ -15,6 +19,7 @@ const validOccurrence = {
   title: "Statewide workshop",
   slug: "statewide-workshop",
   deliveryMode: "virtual" as const,
+  virtualDeliveryProvider: "external_url" as const,
   registrationMode: "required_restricted" as const,
   approvalMode: "manual" as const,
   timezone: "Australia/Sydney",
@@ -68,11 +73,75 @@ describe("event administration schemas", () => {
       adminEventOccurrenceCreateSchema.safeParse({
         ...validOccurrence,
         deliveryMode: "in_person",
+        virtualDeliveryProvider: null,
         venueName: "Learning Centre",
         venueAddress: "1 Example Street",
         virtualJoinUrl: "",
       }).success,
     ).toBe(true);
+  });
+
+  it("validates conditional LiveKit session policy", () => {
+    expect(
+      liveKitSessionPolicySchema.safeParse(defaultLiveKitSessionPolicy).success,
+    ).toBe(true);
+    expect(
+      liveKitSessionPolicySchema.safeParse({
+        ...defaultLiveKitSessionPolicy,
+        attendanceMode: "automatic_duration",
+      }).success,
+    ).toBe(false);
+    expect(
+      liveKitSessionPolicySchema.safeParse({
+        ...defaultLiveKitSessionPolicy,
+        recordingMode: "automatic",
+        recordingRetentionDays: 90,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("defaults provider policy for template sessions from the previous release", () => {
+    const parsed = adminEventTemplateDraftSchema.safeParse({
+      eventTemplateId: "event_template_1",
+      eventTemplateVersionId: "event_template_version_1",
+      title: "Statewide workshop",
+      topic: "Clinical education",
+      summary: "A practical workshop.",
+      description: "A practical workshop for clinicians.",
+      hasCompletionCertificate: false,
+      registrationSurveyVersionId: null,
+      defaultAdministratorIds: ["admin_1"],
+      regions: [],
+      sections: [
+        {
+          id: "section_1",
+          title: "Workshop",
+          description: "",
+          phase: "session",
+          releaseAnchor: "occurrence_start",
+          releaseOffsetAmount: 0,
+          releaseOffsetUnit: "minute",
+          items: [
+            {
+              id: "session_1",
+              title: "Case discussion",
+              required: true,
+              kind: "session",
+              durationMinutes: 60,
+              presenterRequired: false,
+              presenterIds: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(parsed.success).toBe(true);
+    if (parsed.success)
+      expect(parsed.data.sections[0]?.items[0]).toMatchObject({
+        kind: "session",
+        liveKitPolicy: defaultLiveKitSessionPolicy,
+      });
   });
 
   it("requires coherent paid-entry pricing and automatic approval", () => {
@@ -127,8 +196,22 @@ describe("event administration schemas", () => {
       adminEventOccurrenceCreateSchema.safeParse({
         ...validOccurrence,
         deliveryMode: "virtual",
+        virtualDeliveryProvider: "external_url",
         venueName: "",
         virtualJoinUrl: "",
+      }).success,
+    ).toBe(false);
+    expect(
+      adminEventOccurrenceCreateSchema.safeParse({
+        ...validOccurrence,
+        virtualDeliveryProvider: "livekit",
+        virtualJoinUrl: "",
+      }).success,
+    ).toBe(true);
+    expect(
+      adminEventOccurrenceCreateSchema.safeParse({
+        ...validOccurrence,
+        virtualDeliveryProvider: "livekit",
       }).success,
     ).toBe(false);
   });
@@ -137,6 +220,54 @@ describe("event administration schemas", () => {
     expect(
       adminEventOccurrenceFormSchema.safeParse(validOccurrenceForm).success,
     ).toBe(true);
+  });
+
+  it("normalizes provider-less form payloads from the previous release", () => {
+    const legacyVirtualForm = Object.fromEntries(
+      Object.entries(validOccurrenceForm).filter(
+        ([key]) => key !== "virtualDeliveryProvider",
+      ),
+    );
+    const create = adminEventOccurrenceFormSchema.safeParse(legacyVirtualForm);
+    expect(create.success).toBe(true);
+    if (create.success)
+      expect(create.data.virtualDeliveryProvider).toBe("external_url");
+
+    const update = adminEventOccurrenceUpdateFormSchema.safeParse({
+      eventOccurrenceId: "event_occurrence_1",
+      occurrence: legacyVirtualForm,
+    });
+    expect(update.success).toBe(true);
+    if (update.success)
+      expect(update.data.occurrence.virtualDeliveryProvider).toBe(
+        "external_url",
+      );
+
+    const reschedule = adminEventOccurrenceRescheduleFormSchema.safeParse({
+      eventOccurrenceId: "event_occurrence_1",
+      occurrence: legacyVirtualForm,
+      registrationWindowPolicy: "keep",
+      regionsConfirmed: true,
+      regionalCoverage: { regions: [], retirements: [] },
+    });
+    expect(reschedule.success).toBe(true);
+    if (reschedule.success)
+      expect(reschedule.data.occurrence.virtualDeliveryProvider).toBe(
+        "external_url",
+      );
+
+    const legacyInPersonForm = {
+      ...legacyVirtualForm,
+      deliveryMode: "in_person",
+      venueName: "Learning Centre",
+      venueAddress: "1 Example Street",
+      virtualJoinUrl: "",
+    };
+    const inPerson =
+      adminEventOccurrenceFormSchema.safeParse(legacyInPersonForm);
+    expect(inPerson.success).toBe(true);
+    if (inPerson.success)
+      expect(inPerson.data.virtualDeliveryProvider).toBeNull();
   });
 
   it("rejects malformed local times", () => {
