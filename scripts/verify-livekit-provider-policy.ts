@@ -8,9 +8,13 @@ import {
 } from "#/server/admin/admin-event-occurrence.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import {
-  down,
-  up,
+  down as downProviderPolicy,
+  up as upProviderPolicy,
 } from "#/server/db/migrations/0085_livekit_versioned_provider_policy";
+import {
+  down as downRoomLifecycle,
+  up as upRoomLifecycle,
+} from "#/server/db/migrations/0086_livekit_room_lifecycle";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -36,7 +40,8 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
-  await down(database);
+  await downRoomLifecycle(database);
+  await downProviderPolicy(database);
   await database
     .insertInto("user")
     .values({
@@ -147,7 +152,8 @@ try {
     })
     .execute();
 
-  await up(database);
+  await upProviderPolicy(database);
+  await upRoomLifecycle(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -593,7 +599,8 @@ try {
 } finally {
   if (!migrationRestored)
     try {
-      await up(database);
+      await upProviderPolicy(database);
+      await upRoomLifecycle(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

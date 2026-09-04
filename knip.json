@@ -11,6 +11,7 @@
         "scripts/verify-admin-course-authoring.ts",
         "scripts/verify-event-foundation.ts",
         "scripts/verify-livekit-room-creation-lock.ts",
+        "scripts/verify-livekit-room-lifecycle.ts",
         "scripts/verify-offering-communications.ts",
         "scripts/verify-scorm-attempts.ts",
         "e2e/**/*.ts",

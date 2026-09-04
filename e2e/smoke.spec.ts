@@ -186,6 +186,27 @@ async function cleanupEventAuthoringFixture(
       [[eventTemplateId, ...versionIds, ...occurrenceIds]],
     );
     if (occurrenceIds.length > 0) {
+      const virtualRooms = await transaction.query<{ id: string }>(
+        `select room.id from event_virtual_room room
+          join event_session session on session.id = room."eventSessionId"
+          where session."eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      const virtualRoomIds = virtualRooms.rows.map((room) => room.id);
+      if (virtualRoomIds.length > 0) {
+        await transaction.query(
+          `delete from event_virtual_room_operation where "roomId" = any($1::text[])`,
+          [virtualRoomIds],
+        );
+        await transaction.query(
+          `delete from audit_event where "subjectId" = any($1::text[])`,
+          [virtualRoomIds],
+        );
+        await transaction.query(
+          `delete from event_virtual_room where id = any($1::text[])`,
+          [virtualRoomIds],
+        );
+      }
       const participations = await transaction.query<{ id: string }>(
         `select id from event_participation where "eventOccurrenceId" = any($1::text[])`,
         [occurrenceIds],
@@ -2226,6 +2247,59 @@ test("platform administrators can inspect learner progress", async ({
         name: "Registration and attendance history",
       }),
     ).toBeVisible();
+
+    const webinarStartsAt = new Date(Date.now() + 30 * 60 * 1_000);
+    const webinarEndsAt = new Date(Date.now() + 90 * 60 * 1_000);
+    await authoringDatabase.query(
+      `update event_occurrence
+       set "virtualDeliveryProvider" = 'livekit', "virtualJoinUrl" = null,
+         "startsAt" = $2, "endsAt" = $3
+       where id = $1`,
+      [occurrenceId, webinarStartsAt, webinarEndsAt],
+    );
+    await authoringDatabase.query(
+      `update event_session
+       set "virtualDeliveryProvider" = 'livekit', "virtualJoinUrl" = null,
+         "startsAt" = $2, "endsAt" = $3,
+         "livekitAdmissionMode" = 'manual',
+         "livekitAttendanceMode" = 'manual',
+         "livekitAttendanceMinimumMinutes" = null,
+         "livekitPresenterPreparationMinutes" = 60,
+         "livekitAttendeeRejoinGraceMinutes" = 10,
+         "livekitCapacityHeadroom" = 5,
+         "livekitOpenEntryGuestsAllowed" = false,
+         "livekitRecordingMode" = 'off',
+         "livekitRecordingRetentionDays" = null,
+         "livekitAttendeeRecordingNotice" = '',
+         "livekitPresenterRecordingNotice" = ''
+       where id = $1`,
+      [occurrenceSessionId, webinarStartsAt, webinarEndsAt],
+    );
+    await page.goto(
+      `/event-operations/${encodeURIComponent(occurrenceId)}?view=virtual_sessions&q=&state=all`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Webinar operations" }),
+    ).toBeVisible();
+    await expect(page.getByText("Not prepared")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Prepare green room" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Test camera and microphone" }),
+    ).toBeVisible();
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const webinarOperationsAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(webinarOperationsAccessibility.violations).toEqual([]);
+    await page.getByRole("button", { name: "Prepare green room" }).click();
+    await expect(
+      page.getByRole("alert").filter({
+        hasText: "LiveKit is unavailable or not configured",
+      }),
+    ).toBeVisible();
+    await expect(page.getByText("Not prepared")).toBeVisible();
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);

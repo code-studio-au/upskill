@@ -40,9 +40,19 @@ const EventOperationsSurveyQrCatalogue = lazy(async () => {
     await import("#/features/event-operations/EventOperationsSurveyQrCatalogue");
   return { default: module.EventOperationsSurveyQrCatalogue };
 });
+const EventOperationsVirtualSessions = lazy(async () => {
+  const module =
+    await import("#/features/event-operations/EventOperationsVirtualSessions");
+  return { default: module.EventOperationsVirtualSessions };
+});
 
 type EventOperationsView =
-  "overview" | "registrations" | "progress" | "attendance" | "survey_qr";
+  | "overview"
+  | "registrations"
+  | "virtual_sessions"
+  | "progress"
+  | "attendance"
+  | "survey_qr";
 
 const searchSchema = z.object({
   q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
@@ -54,6 +64,7 @@ const searchSchema = z.object({
     z.enum([
       "overview",
       "registrations",
+      "virtual_sessions",
       "progress",
       "attendance",
       "survey_qr",
@@ -109,6 +120,9 @@ function EventOperationsPage() {
     ...(workspace.sessions.length
       ? [{ value: "attendance" as const, label: "Sessions & attendance" }]
       : []),
+    ...(workspace.virtualSessions.length
+      ? [{ value: "virtual_sessions" as const, label: "Webinar operations" }]
+      : []),
     ...(workspace.access.canViewProgress
       ? [
           {
@@ -142,6 +156,22 @@ function EventOperationsPage() {
             "That action is not available from the current state.",
           attendance_unavailable:
             "Attendance could not be recorded for that participant.",
+          capacity_exceeded:
+            "This webinar exceeds the LiveKit capacity approved for this environment.",
+          not_livekit: "This session is not configured for LiveKit.",
+          occurrence_unavailable:
+            "Webinar operations are available only for a published event.",
+          preparation_not_open:
+            "The presenter preparation window has not opened yet.",
+          provider_pending:
+            "Another provider operation is still in progress. Try again shortly.",
+          provider_unavailable:
+            "LiveKit is unavailable or not configured. No room credentials were disclosed.",
+          recording_unavailable:
+            "Automatic recording is not available in this delivery slice, so the webinar was not started.",
+          room_not_ready:
+            "Prepare the green room and wait for LiveKit readiness before continuing.",
+          session_ended: "This webinar session has ended.",
           locked_destination_reassignment_confirmation_required:
             "Confirm the move into the locked regional list.",
           finalized_reassignment_confirmation_required:
@@ -180,7 +210,11 @@ function EventOperationsPage() {
         </Group>
       </div>
 
-      {error ? <Alert color="red">{error}</Alert> : null}
+      {error ? (
+        <Alert color="red" role="alert">
+          {error}
+        </Alert>
+      ) : null}
 
       <PageTabs
         label="Assigned event workspace"
@@ -212,6 +246,13 @@ function EventOperationsPage() {
         ) : null}
         {activeView === "attendance" ? (
           <EventOperationsAttendance
+            workspace={workspace}
+            processingId={processingId}
+            action={action}
+          />
+        ) : null}
+        {activeView === "virtual_sessions" ? (
+          <EventOperationsVirtualSessions
             workspace={workspace}
             processingId={processingId}
             action={action}

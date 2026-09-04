@@ -13,6 +13,7 @@ import {
 } from "./event-operations-access.server";
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { findEventSurveyQrCatalogue } from "./event-survey-access.server";
+import { findEventVirtualSessionOperations } from "./event-virtual-room.server";
 
 interface EventParticipantProgressVisibility {
   administrator: boolean;
@@ -582,24 +583,26 @@ export async function findEventOperationsWorkspace(
   if (administrator) roles.push("administrator");
   if (coordinator) roles.push("coordinator");
   if (presenter) roles.push("presenter");
-  const [participantProgress, surveyQrCatalogue] = await Promise.all([
-    canViewProgress
-      ? findEventParticipantProgress(
-          eventOccurrenceId,
-          workspace.occurrence.eventTemplateVersionId,
-          workspace.occurrence.startsAt,
-          workspace.occurrence.endsAt,
-          workspace.occurrence.timezone,
-          {
-            administrator,
-            coordinatorRegionIds: access.coordinatorRegionIds,
-          },
-        )
-      : [],
-    canViewSurveyQrCatalogue
-      ? findEventSurveyQrCatalogue(eventOccurrenceId, access)
-      : [],
-  ]);
+  const [participantProgress, surveyQrCatalogue, virtualSessions] =
+    await Promise.all([
+      canViewProgress
+        ? findEventParticipantProgress(
+            eventOccurrenceId,
+            workspace.occurrence.eventTemplateVersionId,
+            workspace.occurrence.startsAt,
+            workspace.occurrence.endsAt,
+            workspace.occurrence.timezone,
+            {
+              administrator,
+              coordinatorRegionIds: access.coordinatorRegionIds,
+            },
+          )
+        : [],
+      canViewSurveyQrCatalogue
+        ? findEventSurveyQrCatalogue(eventOccurrenceId, access)
+        : [],
+      findEventVirtualSessionOperations(eventOccurrenceId, access),
+    ]);
 
   return {
     occurrence: {
@@ -681,6 +684,7 @@ export async function findEventOperationsWorkspace(
       finalDecidedAt: registration.finalDecidedAt,
     })),
     sessions,
+    virtualSessions,
     participantProgress,
     surveyQrCatalogue,
   };

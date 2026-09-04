@@ -37,6 +37,23 @@ export const eventOperationsAttendanceSchema = z.object({
   state: z.enum(["not_recorded", "checked_in", "attended", "absent"]),
 });
 
+export const eventVirtualRoomSessionSchema = z.object({
+  eventOccurrenceId: identifier,
+  eventSessionId: identifier,
+});
+
+export const eventVirtualRoomTransitionSchema = z.object({
+  eventOccurrenceId: identifier,
+  eventSessionId: identifier,
+  action: z.enum(["start", "lock", "reopen", "end", "replace"]),
+});
+
+export const eventVirtualRoomAdmissionSchema = z.object({
+  eventOccurrenceId: identifier,
+  eventSessionId: identifier,
+  admissionMode: z.enum(["manual", "automatic"]),
+});
+
 export const eventProgressFilterSchema = z.object({
   q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
   state: z.catch(
@@ -197,6 +214,26 @@ export interface EventOperationsWorkspace {
       state: EventAttendanceState;
     }>;
   }>;
+  virtualSessions: Array<{
+    eventSessionId: string;
+    preparationOpensAt: string;
+    canEnterGreenRoom: boolean;
+    room: {
+      id: string;
+      eventSessionId: string;
+      generation: number;
+      maxParticipants: number;
+      doorState: "scheduled" | "open" | "locked" | "ended";
+      admissionMode: "manual" | "automatic";
+      providerStatus: "pending" | "ready" | "error" | "closed";
+      providerErrorCode: string | null;
+      createdAt: string;
+      startedAt: string | null;
+      lockedAt: string | null;
+      reopenedAt: string | null;
+      endedAt: string | null;
+    } | null;
+  }>;
   participantProgress: Array<EventParticipantProgress>;
   surveyQrCatalogue: Array<EventSurveyQrCatalogueItem>;
 }
@@ -241,7 +278,19 @@ export type EventOperationsMutationResult =
   | { status: "not-found" }
   | {
       status: "conflict";
-      reason: "invalid_transition" | "region_locked" | "attendance_unavailable";
+      reason:
+        | "attendance_unavailable"
+        | "capacity_exceeded"
+        | "invalid_transition"
+        | "not_livekit"
+        | "occurrence_unavailable"
+        | "preparation_not_open"
+        | "provider_pending"
+        | "provider_unavailable"
+        | "recording_unavailable"
+        | "region_locked"
+        | "room_not_ready"
+        | "session_ended";
     };
 
 export type EventSurveyQrPresentationResult =
