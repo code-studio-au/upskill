@@ -407,7 +407,7 @@ describe("LiveKit provider foundation", () => {
         fakeApi(),
         coordinateDirectly,
       );
-      const token = await provider.createJoinToken({
+      const credential = await provider.createJoinToken({
         roomName: "room_generation_1",
         participantIdentity: `${role}:opaque_1`,
         displayName: role === "attendee" ? "Learner One" : "Presenter One",
@@ -416,7 +416,7 @@ describe("LiveKit provider foundation", () => {
       const claims = await new TokenVerifier(
         configuration.apiKey,
         configuration.apiSecret,
-      ).verify(token);
+      ).verify(credential.token);
       expect(claims.video).toMatchObject({
         room: "room_generation_1",
         roomJoin: true,
@@ -430,11 +430,16 @@ describe("LiveKit provider foundation", () => {
       expect(Number(claims.exp) - Number(claims.nbf)).toBe(
         LIVEKIT_JOIN_TOKEN_TTL_SECONDS,
       );
+      expect(credential.expiresAt.toISOString()).toBe(
+        new Date(Number(claims.exp) * 1_000).toISOString(),
+      );
     },
   );
 
   it("provides a deterministic fake without network access", async () => {
-    const provider = new FakeLiveKitProvider();
+    const provider = new FakeLiveKitProvider(
+      () => new Date("2030-09-03T23:32:00.000Z"),
+    );
     const input = {
       roomName: "room_generation_1",
       maxParticipants: 20,
@@ -454,8 +459,9 @@ describe("LiveKit provider foundation", () => {
         displayName: "Learner One",
         role: "attendee",
       }),
-    ).resolves.toBe(
-      "fake-livekit-token:attendee:room_generation_1:attendee:opaque_1",
-    );
+    ).resolves.toEqual({
+      token: "fake-livekit-token:attendee:room_generation_1:attendee:opaque_1",
+      expiresAt: new Date("2030-09-03T23:37:00.000Z"),
+    });
   });
 });

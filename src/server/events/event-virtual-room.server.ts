@@ -9,7 +9,6 @@ import type { Database } from "#/server/db/types";
 import {
   createConfiguredLiveKitProvider,
   getEnabledLiveKitConfiguration,
-  LIVEKIT_JOIN_TOKEN_TTL_SECONDS,
   LiveKitProviderError,
   type LiveKitProvider,
 } from "#/server/livekit/livekit-provider.server";
@@ -332,6 +331,15 @@ async function createRoomGeneration(
         .executeTakeFirstOrThrow();
       const existing = await currentRoom(transaction, context.eventSessionId);
       if (existing) return existing;
+      if (
+        !(await hasVirtualRoomStaffAccess(
+          transaction,
+          context.eventOccurrenceId,
+          context.eventSessionId,
+          userId,
+        ))
+      )
+        return null;
       const maximum = await transaction
         .selectFrom("event_virtual_room")
         .select((expression) =>
@@ -730,6 +738,7 @@ export async function ensureEventVirtualRoomForStaff(
   const room =
     (await currentRoom(database, eventSessionId)) ??
     (await createRoomGeneration(context, user.id, maxParticipants, now));
+  if (!room) return { status: "forbidden" };
   if (room.doorState === "ended")
     return { status: "conflict", reason: "session_ended" };
   const readiness = await executeEnsureRoom(room.id, runtime, now);
@@ -737,6 +746,15 @@ export async function ensureEventVirtualRoomForStaff(
     return { status: "conflict", reason: "provider_pending" };
   if (readiness !== "ready")
     return { status: "conflict", reason: "provider_unavailable" };
+  if (
+    !(await hasVirtualRoomStaffAccess(
+      database,
+      eventOccurrenceId,
+      eventSessionId,
+      user.id,
+    ))
+  )
+    return { status: "forbidden" };
 
   return { status: "ready" };
 }
@@ -784,7 +802,7 @@ export async function issueEventVirtualPresenterCredential(
     return { status: "forbidden" };
 
   try {
-    const token = await runtime.provider.createJoinToken({
+    const providerCredential = await runtime.provider.createJoinToken({
       roomName: room.providerRoomName,
       participantIdentity: presenterIdentity(room.id, user.id),
       displayName: user.name.trim().slice(0, 200) || "Presenter",
@@ -849,12 +867,10 @@ export async function issueEventVirtualPresenterCredential(
     return {
       status: "ready",
       credential: {
-        token,
+        token: providerCredential.token,
         websocketUrl: runtime.websocketUrl,
         generation: room.generation,
-        expiresAt: new Date(
-          now.getTime() + LIVEKIT_JOIN_TOKEN_TTL_SECONDS * 1_000,
-        ).toISOString(),
+        expiresAt: providerCredential.expiresAt.toISOString(),
       },
     };
   } catch {

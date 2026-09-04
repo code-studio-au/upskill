@@ -19,6 +19,7 @@ import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import {
   type CreateLiveKitJoinTokenInput,
   LiveKitProviderError,
+  type LiveKitJoinCredential,
   type EnsureLiveKitRoomInput,
   type LiveKitRoomSnapshot,
 } from "#/server/livekit/livekit-provider.server";
@@ -81,10 +82,24 @@ class InvalidatingJoinProvider extends FakeLiveKitProvider {
 
   override async createJoinToken(
     input: CreateLiveKitJoinTokenInput,
-  ): Promise<string> {
-    const token = await super.createJoinToken(input);
+  ): Promise<LiveKitJoinCredential> {
+    const credential = await super.createJoinToken(input);
     await this.invalidate();
-    return token;
+    return credential;
+  }
+}
+
+class InvalidatingEnsureProvider extends FakeLiveKitProvider {
+  constructor(private readonly invalidate: () => Promise<void>) {
+    super();
+  }
+
+  override async ensureRoom(
+    input: EnsureLiveKitRoomInput,
+  ): Promise<LiveKitRoomSnapshot> {
+    const room = await super.ensureRoom(input);
+    await this.invalidate();
+    return room;
   }
 }
 
@@ -115,7 +130,8 @@ class DeferredEnsureProvider extends FakeLiveKitProvider {
   }
 }
 
-const fakeProvider = new FailFirstEnsureProvider();
+const credentialIssuedAt = new Date("2030-09-03T23:32:00.000Z");
+const fakeProvider = new FailFirstEnsureProvider(() => credentialIssuedAt);
 const runtime: VirtualRoomRuntime = {
   provider: fakeProvider,
   websocketUrl: "wss://verify-livekit.example.com",
@@ -452,6 +468,34 @@ try {
     2,
     "Repeated preparation must reuse the same provider room generation",
   );
+  const authorityInvalidatingRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    provider: new InvalidatingEnsureProvider(async () => {
+      await database
+        .updateTable("event_presenter_assignment")
+        .set({
+          endedAt: providerRetryTime,
+          endReason: "assignment_ended",
+        })
+        .where("id", "=", "verify_livekit_room_exact_presenter")
+        .executeTakeFirstOrThrow();
+    }),
+  };
+  assert.deepEqual(
+    await ensureEventVirtualRoomForStaff(
+      ids.occurrence,
+      ids.session,
+      presenter,
+      { runtime: authorityInvalidatingRuntime, now: providerRetryTime },
+    ),
+    { status: "forbidden" },
+    "Room preparation must not acknowledge a provider side effect after authority is revoked",
+  );
+  await database
+    .updateTable("event_presenter_assignment")
+    .set({ endedAt: null, endReason: null })
+    .where("id", "=", "verify_livekit_room_exact_presenter")
+    .executeTakeFirstOrThrow();
   const presenterCredential = await issueEventVirtualPresenterCredential(
     ids.occurrence,
     ids.session,
@@ -466,7 +510,7 @@ try {
   assert.equal(presenterCredential.credential.generation, 1);
   assert.equal(
     presenterCredential.credential.expiresAt,
-    "2030-09-03T23:36:00.000Z",
+    "2030-09-03T23:37:00.000Z",
   );
   const presenterTokenOperation = fakeProvider.operations.find(
     (operation) => operation.operation === "create_join_token",

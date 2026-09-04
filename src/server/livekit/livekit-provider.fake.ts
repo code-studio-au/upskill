@@ -5,9 +5,13 @@ import type {
   EnsureLiveKitRoomInput,
   LiveKitParticipantSnapshot,
   LiveKitProvider,
+  LiveKitJoinCredential,
   LiveKitRoomSnapshot,
 } from "./livekit-provider.server";
-import { LiveKitProviderError } from "./livekit-provider.server";
+import {
+  LIVEKIT_JOIN_TOKEN_TTL_SECONDS,
+  LiveKitProviderError,
+} from "./livekit-provider.server";
 
 export type FakeLiveKitOperation =
   | { operation: "health" }
@@ -29,6 +33,8 @@ export class FakeLiveKitProvider implements LiveKitProvider {
     string,
     EnsureLiveKitRoomInput
   >();
+
+  constructor(private readonly clock: () => Date = () => new Date()) {}
 
   checkHealth(): Promise<void> {
     this.operations.push({ operation: "health" });
@@ -91,10 +97,15 @@ export class FakeLiveKitProvider implements LiveKitProvider {
     return Promise.resolve();
   }
 
-  createJoinToken(input: CreateLiveKitJoinTokenInput): Promise<string> {
+  createJoinToken(
+    input: CreateLiveKitJoinTokenInput,
+  ): Promise<LiveKitJoinCredential> {
     this.operations.push({ operation: "create_join_token", input });
-    return Promise.resolve(
-      `fake-livekit-token:${input.role}:${input.roomName}:${input.participantIdentity}`,
-    );
+    return Promise.resolve({
+      token: `fake-livekit-token:${input.role}:${input.roomName}:${input.participantIdentity}`,
+      expiresAt: new Date(
+        this.clock().getTime() + LIVEKIT_JOIN_TOKEN_TTL_SECONDS * 1_000,
+      ),
+    });
   }
 }
