@@ -16,6 +16,7 @@ import {
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import type { CreateLiveKitJoinTokenInput } from "#/server/livekit/livekit-provider.server";
+import { buildEventNotificationVariables } from "#/server/notifications/offering-event-context.server";
 
 class MutatingJoinProvider extends FakeLiveKitProvider {
   constructor(private readonly mutation: () => Promise<void>) {
@@ -203,6 +204,19 @@ try {
       createdByUserId: administrator.id,
       createdAt,
       updatedAt: createdAt,
+    })
+    .execute();
+  await database
+    .insertInto("event_admin_assignment")
+    .values({
+      id: "verify_livekit_lobby_active_admin_assignment",
+      eventOccurrenceId: ids.occurrence,
+      userId: administrator.id,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
     })
     .execute();
   await database
@@ -415,6 +429,52 @@ try {
       waiverReason: null,
     })
     .execute();
+  const notificationVariables = await database
+    .transaction()
+    .execute(async (transaction) => ({
+      learner: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_learner_communication",
+          sectionId: null,
+          sessionDefinitionId: ids.definition,
+        },
+        recipient: {
+          userId: learner.id,
+          name: learner.name,
+          email: learner.email,
+          registrationId: ids.registration,
+          participationId: ids.participation,
+        },
+      }),
+      staff: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_staff_communication",
+          sectionId: null,
+          sessionDefinitionId: ids.definition,
+        },
+        recipient: {
+          userId: administrator.id,
+          name: administrator.name,
+          email: administrator.email,
+          registrationId: null,
+          participationId: null,
+        },
+      }),
+    }));
+  assert.equal(
+    notificationVariables.learner["session.virtualJoinUrl"],
+    `http://localhost:3000/webinars/${access.publicReference}`,
+  );
+  assert.equal(
+    notificationVariables.staff["session.virtualJoinUrl"],
+    `http://localhost:3000/event-operations/${ids.occurrence}`,
+  );
+  assert.equal(
+    notificationVariables.staff["event.operationsUrl"],
+    `http://localhost:3000/event-operations/${ids.occurrence}`,
+  );
   const early = await resolveEventVirtualLobby(access.publicReference, learner);
   assert.equal(
     early.status === "ready" ? early.data.outcome : null,
@@ -478,6 +538,39 @@ try {
   assert.equal(
     admitted.status === "ready" ? admitted.data.outcome : null,
     "ready_to_join",
+  );
+  const fullProvider = new FakeLiveKitProvider(() => createdAt);
+  fullProvider.participants.set(
+    "event:verify_lobby:g1",
+    Array.from({ length: 25 }, (_, index) => ({
+      sid: `full-room-participant-${String(index)}`,
+      identity: `presenter:full-room-participant-${String(index)}`,
+      displayName: `Full room participant ${String(index)}`,
+    })),
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      provider: fullProvider,
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "capacity_reached" },
+  );
+  assert.equal(
+    fullProvider.operations.some(
+      (operation) => operation.operation === "create_join_token",
+    ),
+    false,
+    "A full room must not issue an unusable attendee token",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("eventParticipationId", "=", ids.participation)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.state),
+    "admitted",
+    "A full room must preserve admission for a retry",
   );
   const provider = new FakeLiveKitProvider(() => createdAt);
   const credential = await issueEventVirtualAttendeeCredential(
@@ -553,13 +646,30 @@ try {
     .select("lobbyRevision")
     .where("id", "=", access.id)
     .executeTakeFirstOrThrow();
+  const issuedIdentity = provider.operations.find(
+    (operation) => operation.operation === "create_join_token",
+  )?.input.participantIdentity;
+  assert.ok(issuedIdentity);
+  const fullRefreshProvider = new FakeLiveKitProvider(() => createdAt);
+  fullRefreshProvider.participants.set("event:verify_lobby:g1", [
+    {
+      sid: "connected-attendee",
+      identity: issuedIdentity,
+      displayName: learner.name,
+    },
+    ...Array.from({ length: 24 }, (_, index) => ({
+      sid: `full-refresh-participant-${String(index)}`,
+      identity: `presenter:full-refresh-participant-${String(index)}`,
+      displayName: `Full refresh participant ${String(index)}`,
+    })),
+  ]);
   assert.equal(
     (
       await issueEventVirtualAttendeeCredential(
         access.publicReference,
         learner,
         {
-          provider: new FakeLiveKitProvider(),
+          provider: fullRefreshProvider,
           websocketUrl: "wss://verify.example.com",
         },
       )

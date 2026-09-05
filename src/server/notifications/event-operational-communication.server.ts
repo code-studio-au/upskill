@@ -227,6 +227,11 @@ async function regionalRecipients(
     input.audience === "administrators"
       ? await transaction
           .selectFrom("event_admin_assignment as assignment")
+          .innerJoin(
+            "platform_admin",
+            "platform_admin.userId",
+            "assignment.userId",
+          )
           .innerJoin("user", "user.id", "assignment.userId")
           .select(["user.id as userId", "user.name", "user.email"])
           .where("assignment.eventOccurrenceId", "=", input.eventOccurrenceId)

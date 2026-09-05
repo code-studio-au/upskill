@@ -94,11 +94,12 @@ async function hasEventStaffVirtualAccess(
 ): Promise<boolean> {
   const [administrator, presenter, coordinator] = await Promise.all([
     transaction
-      .selectFrom("event_admin_assignment")
-      .select("id")
-      .where("eventOccurrenceId", "=", eventOccurrenceId)
-      .where("userId", "=", userId)
-      .where("endedAt", "is", null)
+      .selectFrom("event_admin_assignment as assignment")
+      .innerJoin("platform_admin", "platform_admin.userId", "assignment.userId")
+      .select("assignment.id")
+      .where("assignment.eventOccurrenceId", "=", eventOccurrenceId)
+      .where("assignment.userId", "=", userId)
+      .where("assignment.endedAt", "is", null)
       .executeTakeFirst(),
     transaction
       .selectFrom("event_presenter_assignment")
@@ -304,6 +305,7 @@ export async function buildEventNotificationVariables(
   const environment = getServerEnv();
   const baseUrl = new URL(environment.APP_ORIGIN).origin;
   const eventDashboardUrl = `${baseUrl}/my-events/${event.id}`;
+  const eventOperationsUrl = `${baseUrl}/event-operations/${event.id}`;
   const variables = emptyEventVariables();
   variables["user.fullName"] = input.recipient.name;
   variables["user.firstName"] = firstName(input.recipient.name);
@@ -397,8 +399,7 @@ export async function buildEventNotificationVariables(
       ? "Available after completion"
       : "Not available";
   variables["event.dashboardUrl"] = eventDashboardUrl;
-  variables["event.operationsUrl"] =
-    `${baseUrl}/admin/events/instances/${event.id}`;
+  variables["event.operationsUrl"] = eventOperationsUrl;
   variables["event.publicUrl"] = `${baseUrl}/events/${event.slug}`;
   variables["event.certificateUrl"] =
     certificateEligible && input.recipient.participationId
@@ -458,12 +459,14 @@ export async function buildEventNotificationVariables(
       [venueName, venueAddress].filter(Boolean).join(", ") || "Virtual session";
     variables["session.venueName"] = venueName ?? "";
     variables["session.venueAddress"] = venueAddress ?? "";
-    variables["session.virtualJoinUrl"] = recipientVirtualAccessReady
-      ? selectedSession.virtualDeliveryProvider === "livekit" &&
-        selectedSession.virtualJoinReference
-        ? `${baseUrl}/webinars/${selectedSession.virtualJoinReference}`
-        : (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
-      : eventDashboardUrl;
+    variables["session.virtualJoinUrl"] = staffVirtualAccessReady
+      ? eventOperationsUrl
+      : learnerVirtualAccessReady
+        ? selectedSession.virtualDeliveryProvider === "livekit" &&
+          selectedSession.virtualJoinReference
+          ? `${baseUrl}/webinars/${selectedSession.virtualJoinReference}`
+          : (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
+        : eventDashboardUrl;
     variables["session.presenterNames"] = list(
       sessionPresenters.map((person) => person.name.trim() || person.email),
       "To be confirmed",

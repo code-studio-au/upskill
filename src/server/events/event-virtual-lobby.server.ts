@@ -229,6 +229,7 @@ async function findPublicDestination(
       "room.admissionMode",
       "room.recordingMode",
       "room.providerStatus",
+      "room.maxParticipants",
     ])
     .where("access.publicReference", "=", publicReference)
     .where("access.revokedAt", "is", null)
@@ -1413,17 +1414,30 @@ export async function issueEventVirtualAttendeeCredential(
     !provider ||
     !websocketUrl ||
     !resolved.destination.roomId ||
-    !resolved.destination.providerRoomName
+    !resolved.destination.providerRoomName ||
+    !resolved.destination.maxParticipants
   )
     return { status: "conflict", reason: "provider_unavailable" };
+  const participantIdentity = attendeeIdentity(
+    resolved.destination.roomId,
+    resolved.participation.id,
+  );
   let credential;
   try {
+    const participants = await provider.listParticipants(
+      resolved.destination.providerRoomName,
+    );
+    const attendeeAlreadyConnected = participants.some(
+      (participant) => participant.identity === participantIdentity,
+    );
+    if (
+      !attendeeAlreadyConnected &&
+      participants.length >= resolved.destination.maxParticipants
+    )
+      return { status: "conflict", reason: "capacity_reached" };
     credential = await provider.createJoinToken({
       roomName: resolved.destination.providerRoomName,
-      participantIdentity: attendeeIdentity(
-        resolved.destination.roomId,
-        resolved.participation.id,
-      ),
+      participantIdentity,
       displayName:
         resolved.participation.nameSnapshot.trim().slice(0, 200) || "Attendee",
       role: "attendee",

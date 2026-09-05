@@ -93,6 +93,7 @@ export type EventVirtualAttendeeCredentialResult =
         | "locked"
         | "ended"
         | "revoked"
+        | "capacity_reached"
         | "provider_unavailable";
     };
 
