@@ -1340,12 +1340,44 @@ try {
       displayName: `Concurrent existing participant ${String(index)}`,
     })),
   );
+  const presenterReservationTime = new Date();
+  await database
+    .insertInto("event_virtual_presenter_credential_reservation")
+    .values({
+      roomId: ids.room,
+      userId: administrator.id,
+      firstTokenIssuedAt: presenterReservationTime,
+      lastTokenIssuedAt: presenterReservationTime,
+      credentialExpiresAt: new Date(
+        presenterReservationTime.getTime() + 6 * 60_000,
+      ),
+    })
+    .execute();
   const concurrentLearners = bulkLearners.slice(0, 2).map((item) => ({
     id: item.id,
     name: item.name,
     email: item.email,
     emailVerified: true,
   }));
+  const reservationBlockedLearner = concurrentLearners[0];
+  assert.ok(reservationBlockedLearner);
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(
+      access.publicReference,
+      reservationBlockedLearner,
+      {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+      },
+    ),
+    { status: "conflict", reason: "capacity_reached" },
+    "An outstanding presenter credential must consume attendee capacity",
+  );
+  await database
+    .deleteFrom("event_virtual_presenter_credential_reservation")
+    .where("roomId", "=", ids.room)
+    .where("userId", "=", administrator.id)
+    .executeTakeFirstOrThrow();
   const concurrentCredentials = await Promise.all(
     concurrentLearners.map((concurrentLearner) =>
       issueEventVirtualAttendeeCredential(
@@ -1592,14 +1624,18 @@ try {
     false,
     "The durable removal must disconnect a manually waiting participant with a live credential",
   );
-  assert.equal(
+  assert.deepEqual(
     await database
       .selectFrom("event_virtual_room_operation")
-      .select("status")
+      .select(["status", "attempts"])
       .where("id", "=", participantRemoval.id)
       .executeTakeFirstOrThrow()
-      .then((operation) => operation.status),
-    "pending",
+      .then((operation) => ({
+        status: operation.status,
+        attempts: operation.attempts,
+      })),
+    { status: "pending", attempts: 0 },
+    "A successful enforcement pass must reset retry attempts before its five-second recheck",
   );
   assert.deepEqual(
     await mutateEventVirtualLobbyAdmission(
@@ -2014,11 +2050,108 @@ try {
       }),
     },
   );
-  assert.deepEqual(recoveryRace, { status: "conflict", reason: "revoked" });
+  assert.deepEqual(recoveryRace, { status: "unauthenticated" });
   await database
     .updateTable("event_virtual_join_session")
     .set({ revokedAt: null })
     .where("id", "=", recoveredJoinSession.id)
+    .executeTakeFirstOrThrow();
+  const lockedAt = new Date();
+  const lockedRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set({
+            doorState: "locked",
+            lockedAt,
+            lockedByUserId: administrator.id,
+          })
+          .where("id", "=", ids.room)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(lockedRace, { status: "conflict", reason: "locked" });
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", lockedAt: null, lockedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const providerRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set({
+            providerStatus: "error",
+            providerErrorCode: "verification_failure",
+          })
+          .where("id", "=", ids.room)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(providerRace, {
+    status: "conflict",
+    reason: "provider_unavailable",
+  });
+  await database
+    .updateTable("event_virtual_room")
+    .set({ providerStatus: "ready", providerErrorCode: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const recordingRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
+          .where("id", "=", ids.room)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(recordingRace, {
+    status: "conflict",
+    reason: "recording_acknowledgement_required",
+  });
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "off", recordingRetentionDays: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const eligibilityRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_registration")
+          .set({ status: "cancelled", lockedInAt: null })
+          .where("id", "=", ids.registration)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(eligibilityRace, {
+    status: "conflict",
+    reason: "revoked",
+  });
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.registration)
     .executeTakeFirstOrThrow();
   const occurrenceRace = await issueEventVirtualAttendeeCredential(
     access.publicReference,
@@ -2034,7 +2167,7 @@ try {
       }),
     },
   );
-  assert.deepEqual(occurrenceRace, { status: "conflict", reason: "revoked" });
+  assert.deepEqual(occurrenceRace, { status: "conflict", reason: "ended" });
   await database
     .updateTable("event_occurrence")
     .set({ status: "published" })
@@ -2721,8 +2854,12 @@ try {
   );
   for (const reason of [
     "capacity_reached",
+    "ended",
+    "locked",
     "provider_unavailable",
+    "recording_acknowledgement_required",
     "revoked",
+    "unauthenticated",
     "waiting_for_admission",
   ])
     assert.ok(

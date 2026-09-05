@@ -792,6 +792,14 @@ interface EventVirtualRoomOperationTable {
   createdAt: Timestamp;
 }
 
+interface EventVirtualPresenterCredentialReservationTable {
+  roomId: string;
+  userId: string;
+  credentialExpiresAt: Timestamp;
+  firstTokenIssuedAt: Timestamp;
+  lastTokenIssuedAt: Timestamp;
+}
+
 interface EventVirtualJoinAccessTable {
   id: string;
   eventOccurrenceId: string;
@@ -1856,6 +1864,7 @@ export interface Database {
   event_template_version_section: EventTemplateVersionSectionTable;
   event_virtual_room: EventVirtualRoomTable;
   event_virtual_room_operation: EventVirtualRoomOperationTable;
+  event_virtual_presenter_credential_reservation: EventVirtualPresenterCredentialReservationTable;
   event_virtual_join_access: EventVirtualJoinAccessTable;
   event_virtual_lobby_entry: EventVirtualLobbyEntryTable;
   event_virtual_recovery_challenge: EventVirtualRecoveryChallengeTable;

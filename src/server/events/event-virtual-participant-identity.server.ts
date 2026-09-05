@@ -10,3 +10,12 @@ export function eventVirtualAttendeeIdentity(
     .update(`${roomId}:${participationId}`)
     .digest("base64url")}`;
 }
+
+export function eventVirtualPresenterIdentity(
+  roomId: string,
+  userId: string,
+): string {
+  return `staff_${createHash("sha256")
+    .update(`${roomId}:${userId}`)
+    .digest("hex")}`;
+}

@@ -39,6 +39,7 @@ import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.ser
 import { revokeEventVirtualLobbyEntryForEligibility } from "./event-virtual-lobby-reconciliation.server";
 import { eventVirtualAttendeeIdentity } from "./event-virtual-participant-identity.server";
 import { enqueueEventVirtualParticipantRemoval } from "./event-virtual-provider-operation.server";
+import { countUnconnectedVirtualCredentialReservations } from "./event-virtual-room-capacity.server";
 import {
   enqueueEventVirtualRecoveryDelivery,
   lockEligibleRecoveryTarget,
@@ -680,8 +681,18 @@ async function revokeIneligibleLobbyAccess(
 }
 
 function recordingNotice(destination: PublicDestination): string | null {
-  return destination.recordingMode === "automatic"
-    ? destination.livekitAttendeeRecordingNotice?.trim() ||
+  return recordingNoticeForMode(
+    destination.recordingMode,
+    destination.livekitAttendeeRecordingNotice,
+  );
+}
+
+function recordingNoticeForMode(
+  mode: PublicDestination["recordingMode"],
+  configuredNotice: string | null,
+): string | null {
+  return mode === "automatic"
+    ? configuredNotice?.trim() ||
         "This webinar will be recorded. By joining, you acknowledge the recording notice."
     : null;
 }
@@ -860,6 +871,8 @@ type AttendeeCredentialDenialReason = Extract<
   EventVirtualAttendeeCredentialResult,
   { status: "conflict" }
 >["reason"];
+type AttendeeCredentialAuditDenialReason =
+  AttendeeCredentialDenialReason | "unauthenticated";
 
 function privateRecoveryAuditTarget(
   subjectType:
@@ -946,7 +959,7 @@ async function recordAttendeeCredentialDenial(
   input: {
     target: RecoveryAuditTarget;
     actorUserId: string | null;
-    reasonCode: AttendeeCredentialDenialReason;
+    reasonCode: AttendeeCredentialAuditDenialReason;
     phase:
       | "actor_revalidation"
       | "lobby_decision"
@@ -983,7 +996,8 @@ async function recordAttendeeCredentialDenial(
     aggregateId: input.target.aggregateId,
     reasonCode: input.reasonCode,
     metadata: {
-      responseStatus: "conflict",
+      responseStatus:
+        input.reasonCode === "unauthenticated" ? "unauthenticated" : "conflict",
       phase: input.phase,
       eventSessionId: input.target.eventSessionId,
       roomGeneration: input.target.roomGeneration,
@@ -1894,7 +1908,13 @@ export async function issueEventVirtualAttendeeCredential(
         .executeTakeFirst();
       const room = await transaction
         .selectFrom("event_virtual_room")
-        .select(["id", "doorState", "providerStatus", "maxParticipants"])
+        .select([
+          "id",
+          "doorState",
+          "providerStatus",
+          "recordingMode",
+          "maxParticipants",
+        ])
         .where("id", "=", resolved.destination.roomId)
         .where("eventSessionId", "=", resolved.destination.eventSessionId)
         .where("generation", "=", resolved.destination.roomGeneration)
@@ -1949,66 +1969,85 @@ export async function issueEventVirtualAttendeeCredential(
         resolved.destination,
         resolved.actor.user.id,
       );
-      const notice = recordingNotice(resolved.destination);
+      const notice = recordingNoticeForMode(
+        room?.recordingMode ?? resolved.destination.recordingMode,
+        resolved.destination.livekitAttendeeRecordingNotice,
+      );
+      let denialReason: AttendeeCredentialAuditDenialReason | null = null;
       if (
-        !access ||
-        occurrence?.status !== "published" ||
-        (resolved.actor.accessMethod !== "authenticated" &&
-          !recoveredJoinSession) ||
-        !room ||
+        occurrence &&
+        (["cancelled", "completed"].includes(occurrence.status) ||
+          room?.doorState === "ended" ||
+          ((!room || room.doorState === "scheduled") &&
+            resolved.destination.endsAt <= revalidationNow))
+      )
+        denialReason = "ended";
+      else if (!access || !occurrence || occurrence.status !== "published")
+        denialReason = "revoked";
+      else if (
+        resolved.actor.accessMethod !== "authenticated" &&
+        !recoveredJoinSession
+      )
+        denialReason = "unauthenticated";
+      else if (!participation) denialReason = "revoked";
+      else if (!participation.questionnaireComplete)
+        denialReason = "questionnaire_required";
+      else if (!entry || ["declined", "revoked"].includes(entry.state))
+        denialReason = "revoked";
+      else if (!room || room.doorState === "scheduled")
+        denialReason = "meeting_not_started";
+      else if (
+        room.doorState === "locked" &&
         !canJoinThroughDoor(
           room.doorState,
           resolved.destination.livekitAttendeeRejoinGraceMinutes,
-          entry ?? {
-            state: "revoked",
-            firstConnectedAt: null,
-            leftAt: null,
-          },
+          entry,
           revalidationNow,
-        ) ||
-        room.providerStatus !== "ready" ||
-        !entry ||
-        !["admitted", "token_issued", "connected", "left"].includes(
-          entry.state,
-        ) ||
-        !participation?.questionnaireComplete ||
-        (notice && entry.recordingNoticeDigest !== recordingDigest(notice))
-      ) {
+        )
+      )
+        denialReason = "locked";
+      else if (entry.state === "waiting")
+        denialReason = "waiting_for_admission";
+      else if (
+        !["admitted", "token_issued", "connected", "left"].includes(entry.state)
+      )
+        denialReason = "revoked";
+      else if (
+        notice &&
+        entry.recordingNoticeDigest !== recordingDigest(notice)
+      )
+        denialReason = "recording_acknowledgement_required";
+      else if (room.providerStatus !== "ready")
+        denialReason = "provider_unavailable";
+      if (denialReason) {
         await recordAttendeeCredentialDenial(transaction, {
           target: credentialAuditTarget,
           actorUserId: resolved.actor.user.id,
-          reasonCode: "revoked",
+          reasonCode: denialReason,
           phase: "transaction_revalidation",
           createdAt: revalidationNow,
         });
-        return { status: "conflict", reason: "revoked" } as const;
+        return denialReason === "unauthenticated"
+          ? ({ status: "unauthenticated" } as const)
+          : ({ status: "conflict", reason: denialReason } as const);
       }
+      if (!room || !entry)
+        throw new Error("Accepted attendee credential state is incomplete");
       try {
         const participants = await provider.listParticipants(providerRoomName);
         const connectedIdentities = new Set(
           participants.map((participant) => participant.identity),
         );
         if (!connectedIdentities.has(participantIdentity)) {
-          const reservations = await transaction
-            .selectFrom("event_virtual_lobby_entry")
-            .select(["id", "eventParticipationId"])
-            .where(
-              "eventVirtualJoinAccessId",
-              "=",
-              resolved.destination.eventVirtualJoinAccessId,
-            )
-            .where("credentialExpiresAt", ">", revalidationNow)
-            .where("id", "!=", entry.id)
-            .execute();
-          const unconnectedReservations = reservations.filter(
-            (reservation) =>
-              !connectedIdentities.has(
-                eventVirtualAttendeeIdentity(
-                  room.id,
-                  reservation.eventParticipationId,
-                ),
-              ),
-          ).length;
+          const unconnectedReservations =
+            await countUnconnectedVirtualCredentialReservations(transaction, {
+              roomId: room.id,
+              eventSessionId: resolved.destination.eventSessionId,
+              roomGeneration: resolved.destination.roomGeneration,
+              connectedIdentities,
+              now: revalidationNow,
+              excludingLobbyEntryId: entry.id,
+            });
           if (
             participants.length + unconnectedReservations >=
             room.maxParticipants
@@ -2074,7 +2113,7 @@ export async function issueEventVirtualAttendeeCredential(
       });
       return { status: "ready", credential } as const;
     });
-  if (issuance.status === "conflict") return issuance;
+  if (issuance.status !== "ready") return issuance;
   return {
     status: "ready",
     credential: {

@@ -80,6 +80,7 @@ try {
     "event_template_session_definition",
     "event_virtual_room",
     "event_virtual_room_operation",
+    "event_virtual_presenter_credential_reservation",
     "event_virtual_join_access",
     "event_virtual_lobby_entry",
     "event_virtual_recovery_challenge",
@@ -231,6 +232,7 @@ try {
     "event_virtual_join_access_current_uq",
     "event_virtual_lobby_entry_queue_idx",
     "event_virtual_lobby_entry_active_credential_idx",
+    "event_virtual_presenter_reservation_active_idx",
     "event_virtual_recovery_rate_idx",
     "event_virtual_recovery_delivery_pending_idx",
     "event_virtual_join_session_active_idx",
@@ -696,6 +698,9 @@ try {
           'event_virtual_lobby_entry_recording_ck',
           'event_virtual_lobby_entry_timeline_ck',
           'event_virtual_lobby_entry_credential_expiry_ck',
+          'event_virtual_presenter_reservation_room_fk',
+          'event_virtual_presenter_reservation_user_fk',
+          'event_virtual_presenter_reservation_timeline_ck',
           'event_virtual_recovery_access_fk',
           'event_virtual_recovery_participation_fk',
           'event_virtual_recovery_reference_ck',
@@ -714,8 +719,8 @@ try {
         )`.execute(db);
   assert.equal(
     liveKitLobbyConstraints.rows.length,
-    33,
-    "LiveKit attendee access, lobby, recovery and capability scope must be constrained",
+    36,
+    "LiveKit attendee and presenter access, lobby, recovery and capability scope must be constrained",
   );
   const eventTemplateVersionColumns = await sql<{
     column_name: string;

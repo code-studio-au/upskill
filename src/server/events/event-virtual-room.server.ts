@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { sql, type Kysely, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
@@ -19,6 +19,8 @@ import {
 import type { EventOperationsAccess } from "./event-operations-access.server";
 import { ensureEventVirtualJoinAccess } from "./event-virtual-join-access.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
+import { eventVirtualPresenterIdentity } from "./event-virtual-participant-identity.server";
+import { countUnconnectedVirtualCredentialReservations } from "./event-virtual-room-capacity.server";
 import { hasVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
 const PROVIDER_OPERATION_LEASE_MILLISECONDS = 2 * 60 * 1_000;
@@ -329,12 +331,6 @@ function retryAt(attempts: number, now: Date): Date {
 
 function providerRoomName(): string {
   return `upskill_room_${randomUUID().replaceAll("-", "")}`;
-}
-
-function presenterIdentity(roomId: string, userId: string): string {
-  return `staff_${createHash("sha256")
-    .update(`${roomId}:${userId}`)
-    .digest("hex")}`;
 }
 
 function preparationOpensAt(context: VirtualSessionContext): Date {
@@ -1246,7 +1242,7 @@ export async function issueEventVirtualPresenterCredential(
   try {
     const providerCredential = await runtime.provider.createJoinToken({
       roomName: room.providerRoomName,
-      participantIdentity: presenterIdentity(room.id, user.id),
+      participantIdentity: eventVirtualPresenterIdentity(room.id, user.id),
       displayName: user.name.trim().slice(0, 200) || "Presenter",
       role: "presenter",
     });
@@ -1288,7 +1284,7 @@ export async function issueEventVirtualPresenterCredential(
         }
         const currentRoom = await transaction
           .selectFrom("event_virtual_room")
-          .select("id")
+          .select(["id", "maxParticipants"])
           .where("id", "=", room.id)
           .where("eventSessionId", "=", eventSessionId)
           .where("replacedAt", "is", null)
@@ -1317,6 +1313,62 @@ export async function issueEventVirtualPresenterCredential(
           await deny(currentConflict, currentNow);
           return currentConflict;
         }
+        try {
+          const participantIdentity = eventVirtualPresenterIdentity(
+            room.id,
+            user.id,
+          );
+          const participants = await runtime.provider.listParticipants(
+            room.providerRoomName,
+          );
+          const connectedIdentities = new Set(
+            participants.map((participant) => participant.identity),
+          );
+          if (!connectedIdentities.has(participantIdentity)) {
+            const unconnectedReservations =
+              await countUnconnectedVirtualCredentialReservations(transaction, {
+                roomId: room.id,
+                eventSessionId,
+                roomGeneration: room.generation,
+                connectedIdentities,
+                now: currentNow,
+                excludingPresenterUserId: user.id,
+              });
+            if (
+              participants.length + unconnectedReservations >=
+              currentRoom.maxParticipants
+            ) {
+              await deny("capacity_exceeded", currentNow);
+              return "capacity_exceeded" as const;
+            }
+          }
+        } catch (error) {
+          if (!(error instanceof LiveKitProviderError)) throw error;
+          await deny("provider_unavailable", currentNow);
+          return "provider_unavailable" as const;
+        }
+        await transaction
+          .insertInto("event_virtual_presenter_credential_reservation")
+          .values({
+            roomId: room.id,
+            userId: user.id,
+            credentialExpiresAt: providerCredential.expiresAt,
+            firstTokenIssuedAt: currentNow,
+            lastTokenIssuedAt: currentNow,
+          })
+          .onConflict((conflict) =>
+            conflict.columns(["roomId", "userId"]).doUpdateSet({
+              credentialExpiresAt: sql<Date>`greatest(
+                event_virtual_presenter_credential_reservation."credentialExpiresAt",
+                excluded."credentialExpiresAt"
+              )`,
+              lastTokenIssuedAt: sql<Date>`greatest(
+                event_virtual_presenter_credential_reservation."lastTokenIssuedAt",
+                excluded."lastTokenIssuedAt"
+              )`,
+            }),
+          )
+          .execute();
         await recordDurableAuditEvent(transaction, {
           actorUserId: user.id,
           action: "event_virtual_room.presenter_token_issued",
@@ -2118,6 +2170,7 @@ async function executeParticipantRemoval(
           leasedUntil: null,
           completedAt: null,
           lastErrorCode: null,
+          attempts: 0,
         })
         .where("id", "=", claimed.id)
         .where("status", "=", "processing")

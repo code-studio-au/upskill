@@ -739,6 +739,20 @@ try {
     presenterCredential.credential.expiresAt,
     "2030-09-03T23:37:00.000Z",
   );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_presenter_credential_reservation")
+      .select(["roomId", "userId", "credentialExpiresAt"])
+      .where("roomId", "=", room.id)
+      .where("userId", "=", presenter.id)
+      .executeTakeFirstOrThrow(),
+    {
+      roomId: room.id,
+      userId: presenter.id,
+      credentialExpiresAt: new Date("2030-09-03T23:37:00.000Z"),
+    },
+    "Presenter issuance must reserve provider capacity through token expiry",
+  );
   const presenterTokenOperation = fakeProvider.operations.find(
     (operation) => operation.operation === "create_join_token",
   );
@@ -753,6 +767,66 @@ try {
     presenterTokenOperation.input.participantIdentity.includes(presenter.id),
     false,
   );
+  const laterOutstandingExpiry = new Date("2030-09-03T23:40:00.000Z");
+  await database
+    .updateTable("event_virtual_presenter_credential_reservation")
+    .set({ credentialExpiresAt: laterOutstandingExpiry })
+    .where("roomId", "=", room.id)
+    .where("userId", "=", presenter.id)
+    .executeTakeFirstOrThrow();
+  fakeProvider.participants.set(
+    room.providerRoomName,
+    Array.from({ length: 24 }, (_, index) => ({
+      sid: `existing-participant-${String(index)}`,
+      identity: `existing-participant-${String(index)}`,
+      displayName: `Existing participant ${String(index)}`,
+    })),
+  );
+  assert.equal(
+    (
+      await issueEventVirtualPresenterCredential(
+        ids.occurrence,
+        ids.session,
+        presenter,
+        { runtime, clock: () => providerRetryTime },
+      )
+    ).status,
+    "ready",
+    "A presenter must be able to refresh their own reserved credential",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_virtual_presenter_credential_reservation")
+        .select("credentialExpiresAt")
+        .where("roomId", "=", room.id)
+        .where("userId", "=", presenter.id)
+        .executeTakeFirstOrThrow()
+    ).credentialExpiresAt.toISOString(),
+    laterOutstandingExpiry.toISOString(),
+    "A delayed token response must not shorten a newer outstanding reservation",
+  );
+  assert.deepEqual(
+    await issueEventVirtualPresenterCredential(
+      ids.occurrence,
+      ids.session,
+      wholePresenter,
+      { runtime, clock: () => providerRetryTime },
+    ),
+    { status: "conflict", reason: "capacity_exceeded" },
+    "Outstanding presenter credentials must consume the serialized room capacity",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_presenter_credential_reservation")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("roomId", "=", room.id)
+      .executeTakeFirstOrThrow()
+      .then((result) => result.count),
+    1,
+    "A rejected presenter token must not reserve capacity",
+  );
+  fakeProvider.participants.set(room.providerRoomName, []);
   const tokenAuditCount = async () =>
     (
       await database
@@ -916,6 +990,7 @@ try {
   );
   for (const reason of [
     "forbidden",
+    "capacity_exceeded",
     "occurrence_unavailable",
     "room_not_ready",
     "session_ended",
@@ -1882,6 +1957,19 @@ try {
     "Verified LiveKit exact staff authorization, preparation timing, capacity, idempotent room creation, health, lifecycle, closure, replacement, worker processing and durable audit evidence",
   );
 } finally {
+  await database
+    .deleteFrom("event_virtual_presenter_credential_reservation")
+    .where("roomId", "in", (builder) =>
+      builder
+        .selectFrom("event_virtual_room")
+        .select("id")
+        .where("eventSessionId", "in", [
+          ids.session,
+          ids.raceSession,
+          ids.failureSession,
+        ]),
+    )
+    .execute();
   await database
     .deleteFrom("event_virtual_room_operation")
     .where("roomId", "in", (builder) =>
