@@ -776,7 +776,10 @@ interface EventVirtualRoomTable {
 interface EventVirtualRoomOperationTable {
   id: string;
   roomId: string;
-  kind: "ensure_room" | "close_room";
+  kind: "ensure_room" | "close_room" | "remove_participant";
+  targetKey: Generated<string>;
+  lobbyEntryId: Generated<string | null>;
+  participantIdentity: Generated<string | null>;
   deduplicationKey: string;
   status: "pending" | "processing" | "succeeded";
   attempts: Generated<number>;
@@ -825,6 +828,7 @@ interface EventVirtualLobbyEntryTable {
   revokedAt: Timestamp | null;
   revokedByUserId: string | null;
   firstTokenIssuedAt: Timestamp | null;
+  credentialExpiresAt: OptionalTimestamp;
   recordingAcknowledgedAt: Timestamp | null;
   recordingNoticeDigest: string | null;
   firstConnectedAt: Timestamp | null;

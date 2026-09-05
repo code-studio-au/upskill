@@ -12,6 +12,7 @@ import {
 } from "#/server/events/event-virtual-lobby.server";
 import {
   findEventVirtualLobbyQueue,
+  processAvailableEventVirtualRoomOperations,
   setEventVirtualRoomAdmissionMode,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
@@ -1181,6 +1182,204 @@ try {
     0,
     "Enabling auto-admit must process eligible attendees beyond the first 500",
   );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ credentialExpiresAt: new Date() })
+    .where("eventVirtualJoinAccessId", "=", access.id)
+    .where("state", "=", "token_issued")
+    .execute();
+  const concurrentProvider = new FakeLiveKitProvider();
+  concurrentProvider.participants.set(
+    "event:verify_lobby:g1",
+    Array.from({ length: 604 }, (_, index) => ({
+      sid: `concurrent-existing-${String(index)}`,
+      identity: `presenter:concurrent-existing-${String(index)}`,
+      displayName: `Concurrent existing participant ${String(index)}`,
+    })),
+  );
+  const concurrentLearners = bulkLearners.slice(0, 2).map((item) => ({
+    id: item.id,
+    name: item.name,
+    email: item.email,
+    emailVerified: true,
+  }));
+  const concurrentCredentials = await Promise.all(
+    concurrentLearners.map((concurrentLearner) =>
+      issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        concurrentLearner,
+        {
+          provider: concurrentProvider,
+          websocketUrl: "wss://verify.example.com",
+        },
+      ),
+    ),
+  );
+  assert.deepEqual(
+    concurrentCredentials.map((result) => result.status).sort(),
+    ["conflict", "ready"],
+    "Concurrent requests for the final place must produce one durable reservation",
+  );
+  assert.equal(
+    concurrentCredentials.find((result) => result.status === "conflict")
+      ?.reason,
+    "capacity_reached",
+  );
+  const concurrentReadyCredential = concurrentCredentials.find(
+    (result) => result.status === "ready",
+  );
+  assert.ok(concurrentReadyCredential);
+  const concurrentTokenOperation = concurrentProvider.operations.find(
+    (operation) => operation.operation === "create_join_token",
+  );
+  assert.ok(concurrentTokenOperation);
+  const credentialHolder = concurrentLearners.find(
+    (candidate) =>
+      concurrentTokenOperation.input.displayName === candidate.name,
+  );
+  assert.ok(credentialHolder);
+  const credentialHolderEntryId = `verify_livekit_lobby_bulk_entry_${credentialHolder.id}`;
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "connected",
+      firstConnectedAt: new Date(),
+      lastSeenAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where("id", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "concurrent-credential-holder",
+      identity: concurrentTokenOperation.input.participantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: credentialHolderEntryId,
+        action: "revoke",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  const participantRemoval = await database
+    .selectFrom("event_virtual_room_operation")
+    .select(["id", "status", "participantIdentity"])
+    .where("kind", "=", "remove_participant")
+    .where("lobbyEntryId", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    {
+      status: participantRemoval.status,
+      participantIdentity: participantRemoval.participantIdentity,
+    },
+    {
+      status: "pending",
+      participantIdentity: concurrentTokenOperation.input.participantIdentity,
+    },
+    "Revocation must durably queue the exact participant removal",
+  );
+  const participantRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(),
+    });
+  assert.deepEqual(
+    {
+      kind: participantRemovalBatch.outcomes[0]?.kind,
+      status: participantRemovalBatch.outcomes[0]?.status,
+    },
+    { kind: "remove_participant", status: "pending" },
+    "Removal enforcement must remain pending while an issued token is valid",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) =>
+          participant.identity ===
+          concurrentTokenOperation.input.participantIdentity,
+      ),
+    false,
+    "The durable removal must disconnect the revoked participant",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select("status")
+      .where("id", "=", participantRemoval.id)
+      .executeTakeFirstOrThrow()
+      .then((operation) => operation.status),
+    "pending",
+  );
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "reconnected-credential-holder",
+      identity: concurrentTokenOperation.input.participantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  const expiredRemovalBatch = await processAvailableEventVirtualRoomOperations(
+    10,
+    {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(concurrentReadyCredential.credential.expiresAt),
+    },
+  );
+  assert.deepEqual(
+    {
+      kind: expiredRemovalBatch.outcomes[0]?.kind,
+      status: expiredRemovalBatch.outcomes[0]?.status,
+    },
+    { kind: "remove_participant", status: "processed" },
+    "Removal enforcement must make a final pass when the revoked token expires",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) =>
+          participant.identity ===
+          concurrentTokenOperation.input.participantIdentity,
+      ),
+    false,
+    "A revoked token replay must be disconnected through its expiry",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select("status")
+      .where("id", "=", participantRemoval.id)
+      .executeTakeFirstOrThrow()
+      .then((operation) => operation.status),
+    "succeeded",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "admitted",
+      revokedAt: null,
+      revokedByUserId: null,
+      credentialExpiresAt: null,
+    })
+    .where("id", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
   await setEventVirtualRoomAdmissionMode(
     ids.occurrence,
     ids.session,

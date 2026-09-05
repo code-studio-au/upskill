@@ -23,6 +23,10 @@ import {
   down as downLobbyRevision,
   up as upLobbyRevision,
 } from "#/server/db/migrations/0088_livekit_lobby_revision";
+import {
+  down as downParticipantOperations,
+  up as upParticipantOperations,
+} from "#/server/db/migrations/0089_livekit_participant_operations";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -49,6 +53,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downParticipantOperations(database);
   await downLobbyRevision(database);
   await downAttendeeLobby(database);
   await downRoomLifecycle(database);
@@ -167,6 +172,7 @@ try {
   await upRoomLifecycle(database);
   await upAttendeeLobby(database);
   await upLobbyRevision(database);
+  await upParticipantOperations(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -678,6 +684,7 @@ try {
       await upRoomLifecycle(database);
       await upAttendeeLobby(database);
       await upLobbyRevision(database);
+      await upParticipantOperations(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

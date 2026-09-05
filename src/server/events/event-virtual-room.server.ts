@@ -19,6 +19,7 @@ import { hasVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
 const PROVIDER_OPERATION_LEASE_MILLISECONDS = 2 * 60 * 1_000;
 const PROVIDER_RETRY_MAX_SECONDS = 15 * 60;
+const PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS = 5 * 1_000;
 const ROOM_EMPTY_TIMEOUT_SECONDS = 10 * 60;
 const ROOM_DEPARTURE_TIMEOUT_SECONDS = 20;
 
@@ -194,7 +195,10 @@ export interface VirtualRoomRuntime {
 interface ClaimedOperation {
   id: string;
   roomId: string;
-  kind: "ensure_room" | "close_room";
+  kind: "ensure_room" | "close_room" | "remove_participant";
+  targetKey: string;
+  lobbyEntryId: string | null;
+  participantIdentity: string | null;
   attempts: number;
 }
 
@@ -363,6 +367,9 @@ async function insertRoomOperation(
       id: `event_virtual_room_operation_${randomUUID()}`,
       roomId,
       kind,
+      targetKey: "room",
+      lobbyEntryId: null,
+      participantIdentity: null,
       deduplicationKey: `event_virtual_room:${roomId}:${kind}`,
       status: "pending",
       availableAt: now,
@@ -373,7 +380,9 @@ async function insertRoomOperation(
       requestedByUserId,
       createdAt: now,
     })
-    .onConflict((conflict) => conflict.columns(["roomId", "kind"]).doNothing())
+    .onConflict((conflict) =>
+      conflict.columns(["roomId", "kind", "targetKey"]).doNothing(),
+    )
     .execute();
 }
 
@@ -523,8 +532,9 @@ async function createRoomGeneration(
 
 async function claimRoomOperation(
   roomId: string,
-  kind: "ensure_room" | "close_room",
+  kind: "ensure_room" | "close_room" | "remove_participant",
   now: Date,
+  targetKey = "room",
 ): Promise<ClaimedOperation | null> {
   return getDatabase()
     .transaction()
@@ -534,6 +544,7 @@ async function claimRoomOperation(
         .selectAll()
         .where("roomId", "=", roomId)
         .where("kind", "=", kind)
+        .where("targetKey", "=", targetKey)
         .forUpdate()
         .executeTakeFirst();
       if (!operation) return null;
@@ -559,7 +570,15 @@ async function claimRoomOperation(
         })
         .where("id", "=", operation.id)
         .executeTakeFirstOrThrow();
-      return { id: operation.id, roomId, kind, attempts };
+      return {
+        id: operation.id,
+        roomId,
+        kind,
+        targetKey: operation.targetKey,
+        lobbyEntryId: operation.lobbyEntryId,
+        participantIdentity: operation.participantIdentity,
+        attempts,
+      };
     });
 }
 
@@ -1521,11 +1540,13 @@ export async function setEventVirtualRoomAdmissionMode(
       ))
     )
       return { status: "forbidden" } as const;
+    const currentNow = clock();
+    if (room.doorState === "scheduled" && currentNow >= currentContext.endsAt)
+      return { status: "conflict", reason: "session_ended" } as const;
     if (room.doorState === "ended")
       return { status: "conflict", reason: "invalid_transition" } as const;
     if (room.admissionMode === admissionMode)
       return { status: "ready" } as const;
-    const currentNow = clock();
     await transaction
       .updateTable("event_virtual_room")
       .set({ admissionMode })
@@ -1743,10 +1764,10 @@ export async function replaceEventVirtualRoom(
 type VirtualRoomOperationOutcome =
   | { status: "no-work" }
   | {
-      status: "processed" | "retry";
+      status: "pending" | "processed" | "retry";
       operationId: string;
       roomId: string;
-      kind: "ensure_room" | "close_room";
+      kind: "ensure_room" | "close_room" | "remove_participant";
     };
 
 export interface VirtualRoomOperationBatch {
@@ -1843,13 +1864,109 @@ async function executeCloseRoom(
   }
 }
 
+async function executeParticipantRemoval(
+  roomId: string,
+  targetKey: string,
+  runtime: VirtualRoomRuntime,
+  now: Date,
+): Promise<VirtualRoomOperationOutcome> {
+  const claimed = await claimRoomOperation(
+    roomId,
+    "remove_participant",
+    now,
+    targetKey,
+  );
+  if (!claimed) return { status: "no-work" };
+  if (!claimed.lobbyEntryId || !claimed.participantIdentity) {
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  }
+  const target = await getDatabase()
+    .selectFrom("event_virtual_room as room")
+    .innerJoin(
+      "event_virtual_lobby_entry as lobby",
+      "lobby.eventSessionId",
+      "room.eventSessionId",
+    )
+    .select([
+      "room.providerRoomName",
+      "lobby.state",
+      "lobby.credentialExpiresAt",
+    ])
+    .where("room.id", "=", roomId)
+    .where("lobby.id", "=", claimed.lobbyEntryId)
+    .whereRef("lobby.roomGeneration", "=", "room.generation")
+    .executeTakeFirst();
+  if (!target || target.state !== "revoked") {
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  }
+  try {
+    await runtime.provider.removeParticipant(
+      target.providerRoomName,
+      claimed.participantIdentity,
+    );
+    if (target.credentialExpiresAt && target.credentialExpiresAt > now) {
+      await getDatabase()
+        .updateTable("event_virtual_room_operation")
+        .set({
+          status: "pending",
+          availableAt: new Date(
+            Math.min(
+              target.credentialExpiresAt.getTime(),
+              now.getTime() + PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS,
+            ),
+          ),
+          leasedUntil: null,
+          completedAt: null,
+          lastErrorCode: null,
+        })
+        .where("id", "=", claimed.id)
+        .where("status", "=", "processing")
+        .where("attempts", "=", claimed.attempts)
+        .execute();
+      return {
+        status: "pending",
+        operationId: claimed.id,
+        roomId,
+        kind: "remove_participant",
+      };
+    }
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  } catch (error) {
+    await retryRoomOperation(claimed, providerFailureCode(error), now, false);
+    return {
+      status: "retry",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  }
+}
+
 async function processNextEventVirtualRoomOperation(
   options: { runtime?: VirtualRoomRuntime; now?: Date } = {},
 ): Promise<VirtualRoomOperationOutcome> {
   const now = options.now ?? new Date();
   const candidate = await getDatabase()
     .selectFrom("event_virtual_room_operation")
-    .select(["id", "roomId", "kind"])
+    .select(["id", "roomId", "kind", "targetKey"])
     .where((expression) =>
       expression.or([
         expression.and([
@@ -1877,9 +1994,15 @@ async function processNextEventVirtualRoomOperation(
       candidate.roomId,
       candidate.kind,
       now,
+      candidate.targetKey,
     );
     if (!claimed) return { status: "no-work" };
-    await retryRoomOperation(claimed, "livekit_unavailable", now);
+    await retryRoomOperation(
+      claimed,
+      "livekit_unavailable",
+      now,
+      candidate.kind !== "remove_participant",
+    );
     return {
       status: "retry",
       operationId: claimed.id,
@@ -1887,6 +2010,13 @@ async function processNextEventVirtualRoomOperation(
       kind: claimed.kind,
     };
   }
+  if (candidate.kind === "remove_participant")
+    return executeParticipantRemoval(
+      candidate.roomId,
+      candidate.targetKey,
+      runtime,
+      now,
+    );
   if (candidate.kind === "close_room")
     return executeCloseRoom(candidate.roomId, runtime, now);
   const result = await executeEnsureRoom(candidate.roomId, runtime, now);

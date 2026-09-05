@@ -632,12 +632,13 @@ try {
           'event_virtual_room_replaces_session_fk',
           'event_virtual_room_door_ck',
           'event_virtual_room_actor_time_ck',
-          'event_virtual_room_operation_kind_uq',
+          'event_virtual_room_operation_target_uq',
+          'event_virtual_room_operation_target_ck',
           'event_virtual_room_operation_state_ck'
         )`.execute(db);
   assert.equal(
     liveKitRoomConstraints.rows.length,
-    6,
+    7,
     "LiveKit room generations, lifecycle state and durable provider operations must be constrained",
   );
   const liveKitLobbyConstraints = await sql<{
@@ -662,6 +663,7 @@ try {
           'event_virtual_lobby_entry_actor_time_ck',
           'event_virtual_lobby_entry_recording_ck',
           'event_virtual_lobby_entry_timeline_ck',
+          'event_virtual_lobby_entry_credential_expiry_ck',
           'event_virtual_recovery_access_fk',
           'event_virtual_recovery_participation_fk',
           'event_virtual_recovery_reference_ck',
@@ -678,7 +680,7 @@ try {
         )`.execute(db);
   assert.equal(
     liveKitLobbyConstraints.rows.length,
-    30,
+    31,
     "LiveKit attendee access, lobby, recovery and capability scope must be constrained",
   );
   const eventTemplateVersionColumns = await sql<{

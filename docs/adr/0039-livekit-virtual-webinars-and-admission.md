@@ -275,7 +275,8 @@ When an authorised presenter enables `automatic` mode:
 
 Automatic admission never admits withdrawn, cancelled, waitlisted, ineligible,
 or otherwise unauthorised participants. Toggling the mode is audited and does
-not itself issue LiveKit tokens while the door is closed.
+not itself issue LiveKit tokens while the door is closed. A scheduled room
+cannot switch to automatic admission after the exact Session end time.
 
 ## Learner and attendee experience
 
@@ -687,7 +688,14 @@ may remove an already-connected participant through the provider API.
 LiveKit tokens are not treated as one-use credentials: a token copied before
 expiry may be presented again, so short expiry, exact-room grants, stable
 participant identity, generation binding, and server-side removal all remain
-necessary.
+necessary. Revocation durably schedules immediate removal and continues
+idempotent removal checks until the most recently issued credential expires.
+
+Attendee issuance serializes against the exact room and durably reserves a
+place through credential expiry. The final gate counts current provider
+participants plus unconnected, unexpired attendee reservations so concurrent
+requests cannot both claim the final place. Connected attendees may refresh
+their own credential without consuming a second reservation.
 
 Attendee grants are limited to:
 
@@ -816,7 +824,9 @@ Start requires provider readiness but does not depend on a presenter's browser
 remaining connected. End commits the terminal application state first, prevents
 new tokens, enqueues provider closure, and records whether provider confirmation
 is pending. Retries use stable deduplication keys based on room generation and
-operation.
+operation. Participant-removal operations additionally use the lobby entry as
+their stable target and remain observable while token-expiry enforcement is
+pending.
 
 Provider state never silently reopens an application door. If a provider room
 is unexpectedly recreated or remains active after an application end, the

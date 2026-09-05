@@ -1234,6 +1234,28 @@ try {
     "scheduled",
     "A Start request that crosses the session cutoff must leave the door scheduled",
   );
+  assert.deepEqual(
+    await setEventVirtualRoomAdmissionMode(
+      ids.occurrence,
+      ids.session,
+      "automatic",
+      administrator,
+      { clock: () => endsAt },
+    ),
+    { status: "conflict", reason: "session_ended" },
+    "Auto-admit must not activate after a scheduled session expires",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("admissionMode")
+      .where("eventSessionId", "=", ids.session)
+      .where("replacedAt", "is", null)
+      .executeTakeFirstOrThrow()
+      .then((currentRoom) => currentRoom.admissionMode),
+    "manual",
+    "An expired auto-admit request must not mutate room policy",
+  );
 
   await database
     .updateTable("event_virtual_room")
@@ -1477,7 +1499,7 @@ try {
           createdAt: endsAt,
         })
         .onConflict((conflict) =>
-          conflict.columns(["roomId", "kind"]).doNothing(),
+          conflict.columns(["roomId", "kind", "targetKey"]).doNothing(),
         )
         .execute();
     });

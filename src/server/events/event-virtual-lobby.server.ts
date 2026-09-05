@@ -45,6 +45,7 @@ import {
 } from "#/server/notifications/sms-provider.server";
 import { advanceEventVirtualLobbyRevision } from "./event-virtual-join-access.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
+import { enqueueEventVirtualParticipantRemoval } from "./event-virtual-provider-operation.server";
 import { lockVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
@@ -606,6 +607,20 @@ async function revokeIneligibleLobbyAccess(
           .set({ state: "revoked", revokedAt: now, updatedAt: now })
           .where("id", "=", entry.id)
           .execute();
+        if (
+          destination.roomId &&
+          ["token_issued", "connected", "left"].includes(entry.state)
+        )
+          await enqueueEventVirtualParticipantRemoval(transaction, {
+            roomId: destination.roomId,
+            lobbyEntryId: entry.id,
+            participantIdentity: attendeeIdentity(
+              destination.roomId,
+              participation.id,
+            ),
+            requestedByUserId: null,
+            now,
+          });
         await advanceEventVirtualLobbyRevision(
           transaction,
           destination.eventVirtualJoinAccessId,
@@ -1418,25 +1433,23 @@ export async function issueEventVirtualAttendeeCredential(
     !resolved.destination.maxParticipants
   )
     return { status: "conflict", reason: "provider_unavailable" };
+  const providerRoomName = resolved.destination.providerRoomName;
   const participantIdentity = attendeeIdentity(
     resolved.destination.roomId,
     resolved.participation.id,
   );
   let credential;
   try {
-    const participants = await provider.listParticipants(
-      resolved.destination.providerRoomName,
-    );
-    const attendeeAlreadyConnected = participants.some(
-      (participant) => participant.identity === participantIdentity,
-    );
+    const participants = await provider.listParticipants(providerRoomName);
     if (
-      !attendeeAlreadyConnected &&
+      !participants.some(
+        (participant) => participant.identity === participantIdentity,
+      ) &&
       participants.length >= resolved.destination.maxParticipants
     )
       return { status: "conflict", reason: "capacity_reached" };
     credential = await provider.createJoinToken({
-      roomName: resolved.destination.providerRoomName,
+      roomName: providerRoomName,
       participantIdentity,
       displayName:
         resolved.participation.nameSnapshot.trim().slice(0, 200) || "Attendee",
@@ -1448,7 +1461,7 @@ export async function issueEventVirtualAttendeeCredential(
     throw error;
   }
   const lobbyEntryId = resolved.entry.id;
-  const current = await getDatabase()
+  const issuance = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
       const occurrence = await transaction
@@ -1459,7 +1472,7 @@ export async function issueEventVirtualAttendeeCredential(
         .executeTakeFirst();
       const room = await transaction
         .selectFrom("event_virtual_room")
-        .select(["id", "doorState", "providerStatus"])
+        .select(["id", "doorState", "providerStatus", "maxParticipants"])
         .where("id", "=", resolved.destination.roomId)
         .where("eventSessionId", "=", resolved.destination.eventSessionId)
         .where("generation", "=", resolved.destination.roomGeneration)
@@ -1539,8 +1552,49 @@ export async function issueEventVirtualAttendeeCredential(
         !participation?.questionnaireComplete ||
         (notice && entry.recordingNoticeDigest !== recordingDigest(notice))
       )
-        return false;
-      const now = new Date();
+        return { status: "conflict", reason: "revoked" } as const;
+      try {
+        const participants = await provider.listParticipants(providerRoomName);
+        const connectedIdentities = new Set(
+          participants.map((participant) => participant.identity),
+        );
+        if (!connectedIdentities.has(participantIdentity)) {
+          const reservations = await transaction
+            .selectFrom("event_virtual_lobby_entry")
+            .select(["id", "eventParticipationId"])
+            .where(
+              "eventVirtualJoinAccessId",
+              "=",
+              resolved.destination.eventVirtualJoinAccessId,
+            )
+            .where("state", "=", "token_issued")
+            .where("credentialExpiresAt", ">", revalidationNow)
+            .where("id", "!=", entry.id)
+            .execute();
+          const unconnectedReservations = reservations.filter(
+            (reservation) =>
+              !connectedIdentities.has(
+                attendeeIdentity(room.id, reservation.eventParticipationId),
+              ),
+          ).length;
+          if (
+            participants.length + unconnectedReservations >=
+            room.maxParticipants
+          )
+            return {
+              status: "conflict",
+              reason: "capacity_reached",
+            } as const;
+        }
+      } catch (error) {
+        if (error instanceof LiveKitProviderError)
+          return {
+            status: "conflict",
+            reason: "provider_unavailable",
+          } as const;
+        throw error;
+      }
+      const now = revalidationNow;
       const nextState =
         entry.state === "connected" ? "connected" : "token_issued";
       await transaction
@@ -1548,6 +1602,7 @@ export async function issueEventVirtualAttendeeCredential(
         .set({
           state: nextState,
           firstTokenIssuedAt: entry.firstTokenIssuedAt ?? now,
+          credentialExpiresAt: credential.expiresAt,
           updatedAt: now,
         })
         .where("id", "=", entry.id)
@@ -1569,15 +1624,15 @@ export async function issueEventVirtualAttendeeCredential(
         },
         createdAt: now,
       });
-      return true;
+      return { status: "ready", credential } as const;
     });
-  if (!current) return { status: "conflict", reason: "revoked" };
+  if (issuance.status === "conflict") return issuance;
   return {
     status: "ready",
     credential: {
-      token: credential.token,
+      token: issuance.credential.token,
       websocketUrl,
-      expiresAt: credential.expiresAt.toISOString(),
+      expiresAt: issuance.credential.expiresAt.toISOString(),
       generation: resolved.destination.roomGeneration,
     },
   };
@@ -1665,6 +1720,21 @@ async function changeAdmission(
     .set({ ...updates, updatedAt: now })
     .where("id", "=", entry.id)
     .execute();
+  if (
+    action === "revoke" &&
+    destination.roomId &&
+    ["token_issued", "connected", "left"].includes(entry.state)
+  )
+    await enqueueEventVirtualParticipantRemoval(transaction, {
+      roomId: destination.roomId,
+      lobbyEntryId: entry.id,
+      participantIdentity: attendeeIdentity(
+        destination.roomId,
+        entry.eventParticipationId,
+      ),
+      requestedByUserId: actorUserId,
+      now,
+    });
   await advanceEventVirtualLobbyRevision(
     transaction,
     destination.eventVirtualJoinAccessId,
