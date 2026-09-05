@@ -531,6 +531,53 @@ try {
       .then((row) => Number(row.count)),
     tokenIssuedAuditCount,
   );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "connected",
+      firstConnectedAt: createdAt,
+      lastSeenAt: createdAt,
+      updatedAt: createdAt,
+    })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  const connectedQueueRevision = await database
+    .selectFrom("event_virtual_join_access")
+    .select("lobbyRevision")
+    .where("id", "=", access.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        learner,
+        {
+          provider: new FakeLiveKitProvider(),
+          websocketUrl: "wss://verify.example.com",
+        },
+      )
+    ).status,
+    "ready",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "firstConnectedAt"])
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow(),
+    { state: "connected", firstConnectedAt: createdAt },
+    "Refreshing a credential must preserve connected lifecycle evidence",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_join_access")
+      .select("lobbyRevision")
+      .where("id", "=", access.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.lobbyRevision),
+    connectedQueueRevision.lobbyRevision,
+    "A credential refresh without a queue-visible transition must not advance the queue revision",
+  );
   const rejoinNow = new Date();
   const recentLeave = new Date(rejoinNow.getTime() - 60_000);
   await database

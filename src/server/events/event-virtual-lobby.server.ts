@@ -1518,16 +1518,18 @@ export async function issueEventVirtualAttendeeCredential(
       )
         return false;
       const now = new Date();
+      const nextState =
+        entry.state === "connected" ? "connected" : "token_issued";
       await transaction
         .updateTable("event_virtual_lobby_entry")
         .set({
-          state: "token_issued",
+          state: nextState,
           firstTokenIssuedAt: entry.firstTokenIssuedAt ?? now,
           updatedAt: now,
         })
         .where("id", "=", entry.id)
         .execute();
-      if (entry.state !== "token_issued")
+      if (entry.state !== nextState)
         await advanceEventVirtualLobbyRevision(
           transaction,
           resolved.destination.eventVirtualJoinAccessId,

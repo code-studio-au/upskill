@@ -190,7 +190,11 @@ function EventVirtualLobbyPage() {
           <p>{data.eventTitle}</p>
           <p>Starts {data.startsAtLabel}</p>
         </header>
-        <section className={classes.alert} data-tone={data.presentation.tone}>
+        <section
+          className={classes.alert}
+          data-tone={data.presentation.tone}
+          role="status"
+        >
           <h2>{data.presentation.title}</h2>
           <p>{data.presentation.message}</p>
         </section>

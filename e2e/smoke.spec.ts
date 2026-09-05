@@ -2435,6 +2435,7 @@ test("platform administrators can inspect learner progress", async ({
     try {
       const attendeePage = await attendeeContext.newPage();
       await attendeePage.goto(`/webinars/${"l".repeat(43)}?recovery=sent`);
+      await expect(attendeePage.getByRole("status")).toBeVisible();
       await expect(attendeePage.getByLabel("6-digit code")).toBeVisible();
       await attendeePage.getByRole("link", { name: "Start over" }).click();
       await expect(attendeePage).toHaveURL(
