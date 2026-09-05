@@ -552,6 +552,36 @@ async function retryRoomOperation(
     });
 }
 
+async function requeueRoomCloseOperation(
+  transaction: Transaction<Database>,
+  roomId: string,
+  now: Date,
+  reason: string,
+): Promise<void> {
+  const existing = await transaction
+    .selectFrom("event_virtual_room_operation")
+    .select("id")
+    .where("roomId", "=", roomId)
+    .where("kind", "=", "close_room")
+    .forUpdate()
+    .executeTakeFirst();
+  if (!existing) {
+    await insertRoomOperation(transaction, roomId, "close_room", null, now);
+    return;
+  }
+  await transaction
+    .updateTable("event_virtual_room_operation")
+    .set({
+      status: "pending",
+      availableAt: now,
+      leasedUntil: null,
+      completedAt: null,
+      lastErrorCode: reason,
+    })
+    .where("id", "=", existing.id)
+    .executeTakeFirstOrThrow();
+}
+
 async function queueCompensatingRoomClose(
   roomId: string,
   now: Date,
@@ -559,28 +589,78 @@ async function queueCompensatingRoomClose(
   await getDatabase()
     .transaction()
     .execute(async (transaction) => {
-      const existing = await transaction
-        .selectFrom("event_virtual_room_operation")
+      const room = await transaction
+        .selectFrom("event_virtual_room")
         .select("id")
-        .where("roomId", "=", roomId)
-        .where("kind", "=", "close_room")
+        .where("id", "=", roomId)
         .forUpdate()
         .executeTakeFirst();
-      if (!existing) {
-        await insertRoomOperation(transaction, roomId, "close_room", null, now);
-        return;
-      }
-      await transaction
+      if (room)
+        await requeueRoomCloseOperation(
+          transaction,
+          roomId,
+          now,
+          "stale_ensure_requires_close",
+        );
+    });
+}
+
+async function settleFailedEnsureRoom(
+  claimed: ClaimedOperation,
+  code: string,
+  now: Date,
+): Promise<"ended" | "failed" | "pending"> {
+  return getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const room = await transaction
+        .selectFrom("event_virtual_room")
+        .select(["doorState", "replacedAt"])
+        .where("id", "=", claimed.roomId)
+        .forUpdate()
+        .executeTakeFirst();
+      const roomOperational =
+        room && !room.replacedAt && room.doorState !== "ended";
+      const operation = await transaction
         .updateTable("event_virtual_room_operation")
-        .set({
-          status: "pending",
-          availableAt: now,
-          leasedUntil: null,
-          completedAt: null,
-          lastErrorCode: "stale_ensure_requires_close",
-        })
-        .where("id", "=", existing.id)
-        .executeTakeFirstOrThrow();
+        .set(
+          roomOperational
+            ? {
+                status: "pending",
+                leasedUntil: null,
+                completedAt: null,
+                lastErrorCode: code,
+                availableAt: retryAt(claimed.attempts, now),
+              }
+            : {
+                status: "succeeded",
+                leasedUntil: null,
+                completedAt: now,
+                lastErrorCode: null,
+              },
+        )
+        .where("id", "=", claimed.id)
+        .where("status", "=", "processing")
+        .where("attempts", "=", claimed.attempts)
+        .executeTakeFirst();
+      const currentClaim = operation.numUpdatedRows === 1n;
+      if (roomOperational) {
+        if (currentClaim)
+          await transaction
+            .updateTable("event_virtual_room")
+            .set({ providerStatus: "error", providerErrorCode: code })
+            .where("id", "=", claimed.roomId)
+            .execute();
+        return currentClaim ? "failed" : "pending";
+      }
+      if (room)
+        await requeueRoomCloseOperation(
+          transaction,
+          claimed.roomId,
+          now,
+          "failed_ensure_requires_close",
+        );
+      return currentClaim ? "ended" : "pending";
     });
 }
 
@@ -666,8 +746,7 @@ async function executeEnsureRoom(
     }
     return completion.currentClaim ? "ready" : "pending";
   } catch (error) {
-    await retryRoomOperation(claimed, providerFailureCode(error), now);
-    return "failed";
+    return settleFailedEnsureRoom(claimed, providerFailureCode(error), now);
   }
 }
 

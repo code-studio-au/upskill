@@ -29,9 +29,11 @@ const ids = {
   version: "verify_livekit_room_version",
   definition: "verify_livekit_room_definition",
   raceDefinition: "verify_livekit_room_race_definition",
+  failureDefinition: "verify_livekit_room_failure_definition",
   occurrence: "verify_livekit_room_occurrence",
   session: "verify_livekit_room_session",
   raceSession: "verify_livekit_room_race_session",
+  failureSession: "verify_livekit_room_failure_session",
   region: "verify_livekit_room_region",
   occurrenceRegion: "verify_livekit_room_occurrence_region",
   administrator: "verify_livekit_room_administrator",
@@ -173,6 +175,15 @@ class DeferredEnsureProvider extends FakeLiveKitProvider {
   }
 }
 
+class DeferredFailingEnsureProvider extends DeferredEnsureProvider {
+  override async ensureRoom(
+    input: EnsureLiveKitRoomInput,
+  ): Promise<LiveKitRoomSnapshot> {
+    await super.ensureRoom(input);
+    throw new LiveKitProviderError("ensure_room");
+  }
+}
+
 class LeaseCrossingEnsureProvider extends FakeLiveKitProvider {
   private ensureCalls = 0;
   private releaseFirstEnsure!: () => void;
@@ -291,6 +302,11 @@ try {
           position: 1,
           title: "LiveKit lease-race session",
         },
+        {
+          id: ids.failureDefinition,
+          position: 2,
+          title: "LiveKit failed-ensure session",
+        },
       ].map((definition) => ({
         ...definition,
         eventTemplateVersionId: ids.version,
@@ -365,6 +381,12 @@ try {
           sessionDefinitionId: ids.raceDefinition,
           position: 1,
           title: "LiveKit lease-race session",
+        },
+        {
+          id: ids.failureSession,
+          sessionDefinitionId: ids.failureDefinition,
+          position: 2,
+          title: "LiveKit failed-ensure session",
         },
       ].map((session) => ({
         ...session,
@@ -890,15 +912,15 @@ try {
   );
   assert.ok(administratorAccess?.isAssignedAdministrator);
   assert.equal(administratorAccess.isPlatformAdministrator, true);
-  assert.equal(
+  assert.deepEqual(
     (
       await findEventVirtualSessionOperations(
         ids.occurrence,
         administratorAccess,
         preparationTime,
       )
-    ).length,
-    2,
+    ).map((session) => session.eventSessionId),
+    [ids.session, ids.raceSession, ids.failureSession],
   );
   const coordinatorAccess = await getEventOperationsAccess(
     coordinator,
@@ -1549,6 +1571,81 @@ try {
     "The stale ensure must close the room again after the earlier close completed",
   );
 
+  const failingProvider = new DeferredFailingEnsureProvider();
+  const failingRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    provider: failingProvider,
+  };
+  const failingEnsureTime = new Date("2030-09-03T23:44:00.000Z");
+  const failingPreparation = ensureEventVirtualRoomForStaff(
+    ids.occurrence,
+    ids.failureSession,
+    wholePresenter,
+    { runtime: failingRuntime, clock: () => failingEnsureTime },
+  );
+  await failingProvider.waitUntilEnsureStarts();
+  const failingRoom = await database
+    .selectFrom("event_virtual_room")
+    .select(["id", "providerRoomName"])
+    .where("eventSessionId", "=", ids.failureSession)
+    .executeTakeFirstOrThrow();
+  const failingEndTime = new Date("2030-09-03T23:45:00.000Z");
+  assert.deepEqual(
+    await transitionEventVirtualRoom(
+      ids.occurrence,
+      ids.failureSession,
+      "end",
+      wholePresenter,
+      { clock: () => failingEndTime },
+    ),
+    { status: "ready" },
+  );
+  const failingReclaimTime = new Date("2030-09-03T23:46:01.000Z");
+  const firstFailedCloseBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: failingRuntime,
+      now: failingReclaimTime,
+    });
+  assert.deepEqual(
+    firstFailedCloseBatch.outcomes.map((outcome) => outcome.kind),
+    ["ensure_room", "close_room"],
+    "The expired terminal ensure must settle before the first queued close",
+  );
+  failingProvider.release();
+  assert.deepEqual(await failingPreparation, {
+    status: "conflict",
+    reason: "provider_pending",
+  });
+  assert.equal(
+    failingProvider.rooms.has(failingRoom.providerRoomName),
+    true,
+    "A failed provider request can leave an uncertain room side effect after an earlier close",
+  );
+  const requeuedClose = await database
+    .selectFrom("event_virtual_room_operation")
+    .select(["status", "lastErrorCode"])
+    .where("roomId", "=", failingRoom.id)
+    .where("kind", "=", "close_room")
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(requeuedClose, {
+    status: "pending",
+    lastErrorCode: "failed_ensure_requires_close",
+  });
+  const secondFailedCloseBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: failingRuntime,
+      now: new Date(failingReclaimTime.getTime() + 1),
+    });
+  assert.deepEqual(
+    secondFailedCloseBatch.outcomes.map((outcome) => outcome.kind),
+    ["close_room"],
+  );
+  assert.equal(
+    failingProvider.rooms.has(failingRoom.providerRoomName),
+    false,
+    "A failed expired ensure on a terminal generation must force a fresh durable close",
+  );
+
   await database
     .updateTable("event_virtual_room")
     .set({
@@ -1652,12 +1749,20 @@ try {
       builder
         .selectFrom("event_virtual_room")
         .select("id")
-        .where("eventSessionId", "in", [ids.session, ids.raceSession]),
+        .where("eventSessionId", "in", [
+          ids.session,
+          ids.raceSession,
+          ids.failureSession,
+        ]),
     )
     .execute();
   await database
     .deleteFrom("event_virtual_room")
-    .where("eventSessionId", "in", [ids.session, ids.raceSession])
+    .where("eventSessionId", "in", [
+      ids.session,
+      ids.raceSession,
+      ids.failureSession,
+    ])
     .execute();
   await database
     .deleteFrom("outbox_event")
@@ -1695,7 +1800,7 @@ try {
     .execute();
   await database
     .deleteFrom("event_session")
-    .where("id", "in", [ids.session, ids.raceSession])
+    .where("id", "in", [ids.session, ids.raceSession, ids.failureSession])
     .execute();
   await database
     .deleteFrom("event_occurrence")
@@ -1703,7 +1808,11 @@ try {
     .execute();
   await database
     .deleteFrom("event_template_session_definition")
-    .where("id", "in", [ids.definition, ids.raceDefinition])
+    .where("id", "in", [
+      ids.definition,
+      ids.raceDefinition,
+      ids.failureDefinition,
+    ])
     .execute();
   await database
     .deleteFrom("event_template_version")
