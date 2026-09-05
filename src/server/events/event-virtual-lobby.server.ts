@@ -952,7 +952,8 @@ export async function requestEventVirtualRecoveryCode(
       .execute();
     return true;
   });
-  if (!reserved) return { status: "rate-limited" };
+  if (!reserved)
+    return { status: "accepted", challengeReference: fallbackReference };
   try {
     if (channel === "sms")
       await (deliveryOverrides.sendSms ?? sendEventVirtualRecoverySms)(
@@ -1316,7 +1317,12 @@ export async function acknowledgeEventVirtualRecording(
       return { status: "conflict", reason: "invalid_transition" } as const;
     const entry = await transaction
       .selectFrom("event_virtual_lobby_entry")
-      .select(["id", "state"])
+      .select([
+        "id",
+        "state",
+        "recordingAcknowledgedAt",
+        "recordingNoticeDigest",
+      ])
       .where(
         "eventVirtualJoinAccessId",
         "=",
@@ -1333,11 +1339,16 @@ export async function acknowledgeEventVirtualRecording(
         status: "conflict",
         reason: "invalid_transition",
       } as const;
+    const noticeDigest = recordingDigest(notice);
+    if (entry.recordingAcknowledgedAt)
+      return entry.recordingNoticeDigest === noticeDigest
+        ? ({ status: "ready" } as const)
+        : ({ status: "conflict", reason: "invalid_transition" } as const);
     const updated = await transaction
       .updateTable("event_virtual_lobby_entry")
       .set({
         recordingAcknowledgedAt: now,
-        recordingNoticeDigest: recordingDigest(notice),
+        recordingNoticeDigest: noticeDigest,
         updatedAt: now,
       })
       .where("id", "=", entry.id)
@@ -1373,15 +1384,13 @@ export async function issueEventVirtualAttendeeCredential(
       : {},
   );
   if (status.status === "not-found") return { status: "not-found" };
+  if (status.data.outcome === "authentication_required")
+    return { status: "unauthenticated" };
   if (status.data.outcome !== "ready_to_join")
     return {
       status: "conflict",
       reason:
-        status.data.outcome === "authentication_required"
-          ? "revoked"
-          : status.data.outcome === "declined"
-            ? "revoked"
-            : status.data.outcome,
+        status.data.outcome === "declined" ? "revoked" : status.data.outcome,
     };
   const resolved = await actorAndEntry(
     publicReference,

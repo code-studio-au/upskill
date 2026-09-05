@@ -351,6 +351,13 @@ try {
     anonymous.status === "ready" ? anonymous.data.outcome : null,
     "authentication_required",
   );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, null, {
+      joinSessionToken: "x".repeat(43),
+    }),
+    { status: "unauthenticated" },
+    "An expired attendee actor must remain distinguishable from revoked admission",
+  );
   await database
     .updateTable("event_template_version")
     .set({ registrationSurveyVersionId: ids.surveyVersion })
@@ -736,13 +743,34 @@ try {
     await acknowledgeEventVirtualRecording(access.publicReference, learner),
     { status: "ready" },
   );
-  assert.ok(
+  const acknowledgement = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["recordingAcknowledgedAt", "recordingNoticeDigest"])
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  assert.ok(acknowledgement.recordingAcknowledgedAt);
+  assert.ok(acknowledgement.recordingNoticeDigest);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ recordingAcknowledgedAt: createdAt, updatedAt: createdAt })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await acknowledgeEventVirtualRecording(access.publicReference, learner),
+    { status: "ready" },
+  );
+  assert.deepEqual(
     await database
       .selectFrom("event_virtual_lobby_entry")
-      .select("recordingAcknowledgedAt")
+      .select(["recordingAcknowledgedAt", "recordingNoticeDigest", "updatedAt"])
       .where("id", "=", tokenIssuedEntry.id)
-      .executeTakeFirstOrThrow()
-      .then((row) => row.recordingAcknowledgedAt),
+      .executeTakeFirstOrThrow(),
+    {
+      recordingAcknowledgedAt: createdAt,
+      recordingNoticeDigest: acknowledgement.recordingNoticeDigest,
+      updatedAt: createdAt,
+    },
+    "Replayed acknowledgement must preserve the original consent evidence",
   );
   await database
     .updateTable("event_virtual_room")
@@ -1557,8 +1585,17 @@ try {
   );
   assert.deepEqual(
     distributedRequests.map((result) => result.status).toSorted(),
-    ["accepted", "accepted", "rate-limited", "rate-limited"],
-    "The database lock must enforce three durable requests across instances",
+    ["accepted", "accepted", "accepted", "accepted"],
+    "Durable throttling must remain externally indistinguishable from an unknown identifier",
+  );
+  assert.equal(
+    new Set(
+      distributedRequests.flatMap((result) =>
+        "challengeReference" in result ? [result.challengeReference] : [],
+      ),
+    ).size,
+    4,
+    "Every enumeration-safe response must carry an opaque reference",
   );
   assert.equal(
     await database
