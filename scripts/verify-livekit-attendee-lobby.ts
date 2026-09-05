@@ -9,8 +9,24 @@ import {
   resolveEventVirtualLobby,
   verifyEventVirtualRecoveryCode,
 } from "#/server/events/event-virtual-lobby.server";
-import { setEventVirtualRoomAdmissionMode } from "#/server/events/event-virtual-room.server";
+import {
+  findEventVirtualLobbyQueue,
+  setEventVirtualRoomAdmissionMode,
+} from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
+import type { CreateLiveKitJoinTokenInput } from "#/server/livekit/livekit-provider.server";
+
+class MutatingJoinProvider extends FakeLiveKitProvider {
+  constructor(private readonly mutation: () => Promise<void>) {
+    super();
+  }
+
+  override async createJoinToken(input: CreateLiveKitJoinTokenInput) {
+    const credential = await super.createJoinToken(input);
+    await this.mutation();
+    return credential;
+  }
+}
 
 const ids = {
   administrator: "verify_livekit_lobby_administrator",
@@ -400,6 +416,21 @@ try {
     early.status === "ready" ? early.data.admissionState : null,
     "waiting",
   );
+  const expiredUnstarted = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+    { clock: () => endsAt },
+  );
+  assert.equal(
+    expiredUnstarted.status === "ready" ? expiredUnstarted.data.outcome : null,
+    "ended",
+  );
+  assert.equal(
+    expiredUnstarted.status === "ready"
+      ? expiredUnstarted.data.pollAfterMilliseconds
+      : 1,
+    null,
+  );
 
   await database
     .updateTable("event_virtual_room")
@@ -486,6 +517,210 @@ try {
     { status: "ready" },
   );
 
+  const bulkLearners = Array.from({ length: 501 }, (_, index) => ({
+    id: `verify_livekit_lobby_bulk_learner_${String(index).padStart(3, "0")}`,
+    name: `Bulk learner ${String(index + 1)}`,
+    email: `verify_livekit_lobby_bulk_${String(index)}@example.com`,
+  }));
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 600 })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ maxParticipants: 605 })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("user")
+    .values(
+      bulkLearners.map((item) => ({
+        ...item,
+        emailVerified: true,
+        emailEnabled: true,
+        image: null,
+        stripeCustomerId: null,
+      })),
+    )
+    .execute();
+  const bulkRequestedAt = new Date(Date.now() - 10_000);
+  await database
+    .insertInto("event_registration")
+    .values(
+      bulkLearners.map((item) => ({
+        id: `verify_livekit_lobby_bulk_registration_${item.id}`,
+        eventOccurrenceId: ids.occurrence,
+        userId: item.id,
+        eventOccurrenceRegionId: null,
+        reviewRoundId: null,
+        nameSnapshot: item.name,
+        emailSnapshot: item.email,
+        source: "ordinary" as const,
+        eligibilitySource: "unrestricted" as const,
+        status: "selected" as const,
+        coordinatorPriority: null,
+        submittedAt: createdAt,
+        coordinatorDecidedAt: null,
+        coordinatorDecidedByUserId: null,
+        finalDecidedAt: createdAt,
+        finalDecidedByUserId: administrator.id,
+        lockedInAt: createdAt,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("event_participation")
+    .values(
+      bulkLearners.map((item) => ({
+        id: `verify_livekit_lobby_bulk_participation_${item.id}`,
+        eventOccurrenceId: ids.occurrence,
+        userId: item.id,
+        registrationId: `verify_livekit_lobby_bulk_registration_${item.id}`,
+        mode: "registered" as const,
+        nameSnapshot: item.name,
+        emailSnapshot: item.email,
+        detailsSubmittedAt: createdAt,
+        joinDisclosedAt: null,
+        checkedInAt: null,
+        createdAt,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("registration_questionnaire_assignment")
+    .values(
+      bulkLearners.map((item) => ({
+        id: `verify_livekit_lobby_bulk_questionnaire_${item.id}`,
+        userId: item.id,
+        surveyVersionId: ids.surveyVersion,
+        eventOccurrenceId: ids.occurrence,
+        eventOccurrenceRegionId: null,
+        enrollmentId: null,
+        status: "completed" as const,
+        assignedAt: createdAt,
+        startedAt: createdAt,
+        completedAt: createdAt,
+        waivedAt: null,
+        waivedByUserId: null,
+        waiverReason: null,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("event_virtual_lobby_entry")
+    .values(
+      bulkLearners.map((item, index) => ({
+        id: `verify_livekit_lobby_bulk_entry_${item.id}`,
+        eventVirtualJoinAccessId: access.id,
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        roomGeneration: 1,
+        eventParticipationId: `verify_livekit_lobby_bulk_participation_${item.id}`,
+        state: "waiting" as const,
+        accessMethod: "authenticated" as const,
+        requestedAt: new Date(bulkRequestedAt.getTime() + index),
+        admittedAt: null,
+        admittedByUserId: null,
+        declinedAt: null,
+        declinedByUserId: null,
+        revokedAt: null,
+        revokedByUserId: null,
+        firstTokenIssuedAt: null,
+        recordingAcknowledgedAt: null,
+        recordingNoticeDigest: null,
+        firstConnectedAt: null,
+        lastSeenAt: null,
+        leftAt: null,
+        updatedAt: new Date(bulkRequestedAt.getTime() + index),
+      })),
+    )
+    .execute();
+  const firstQueuePage = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    0,
+  );
+  assert.equal(firstQueuePage.status, "ready");
+  assert.equal(firstQueuePage.data.entries.length, 50);
+  assert.equal(firstQueuePage.data.hasNextPage, true);
+  const lastQueuePage = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    10,
+  );
+  assert.equal(lastQueuePage.status, "ready");
+  assert.equal(lastQueuePage.data.entries.length, 3);
+  assert.equal(lastQueuePage.data.hasNextPage, false);
+  assert.deepEqual(
+    await findEventVirtualLobbyQueue(
+      ids.occurrence,
+      ids.session,
+      learner.id,
+      0,
+    ),
+    { status: "forbidden" },
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        action: "admit_all",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("eventVirtualJoinAccessId", "=", access.id)
+      .where("state", "=", "waiting")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    0,
+    "Admit all must process eligible attendees beyond the first 500",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ state: "waiting", admittedAt: null, admittedByUserId: null })
+    .where(
+      "id",
+      "in",
+      bulkLearners.map((item) => `verify_livekit_lobby_bulk_entry_${item.id}`),
+    )
+    .execute();
+  assert.deepEqual(
+    await setEventVirtualRoomAdmissionMode(
+      ids.occurrence,
+      ids.session,
+      "automatic",
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("eventVirtualJoinAccessId", "=", access.id)
+      .where("state", "=", "waiting")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    0,
+    "Enabling auto-admit must process eligible attendees beyond the first 500",
+  );
+  await setEventVirtualRoomAdmissionMode(
+    ids.occurrence,
+    ids.session,
+    "manual",
+    administrator,
+  );
+
   const challenge = await requestEventVirtualRecoveryCode(
     { publicReference: access.publicReference, identifier: learner.email },
     "v".repeat(43),
@@ -516,6 +751,53 @@ try {
     recovered.status === "ready" ? recovered.data.outcome : null,
     "ready_to_join",
   );
+  const recoveredJoinSession = await database
+    .selectFrom("event_virtual_join_session")
+    .select("id")
+    .where("userId", "=", learner.id)
+    .where("revokedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  const recoveryRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    null,
+    {
+      joinSessionToken: verified.joinSessionToken,
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_join_session")
+          .set({ revokedAt: new Date() })
+          .where("id", "=", recoveredJoinSession.id)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(recoveryRace, { status: "conflict", reason: "revoked" });
+  await database
+    .updateTable("event_virtual_join_session")
+    .set({ revokedAt: null })
+    .where("id", "=", recoveredJoinSession.id)
+    .executeTakeFirstOrThrow();
+  const occurrenceRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_occurrence")
+          .set({ status: "cancelled" })
+          .where("id", "=", ids.occurrence)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(occurrenceRace, { status: "conflict", reason: "revoked" });
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
   assert.equal(
     (
       await verifyEventVirtualRecoveryCode({

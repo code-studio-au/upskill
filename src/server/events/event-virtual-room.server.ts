@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { createHash, randomUUID } from "node:crypto";
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
@@ -80,23 +80,82 @@ export interface EventVirtualSessionOperations {
   preparationOpensAt: string;
   canEnterGreenRoom: boolean;
   lobbyPath: string | null;
-  lobbyEntries: Array<{
-    id: string;
-    eventParticipationId: string;
-    name: string;
-    state:
-      | "waiting"
-      | "admitted"
-      | "token_issued"
-      | "connected"
-      | "left"
-      | "declined"
-      | "revoked";
-    accessMethod: "authenticated" | "email" | "sms";
-    requestedAt: string;
-    admittedAt: string | null;
-  }>;
   room: EventVirtualRoomState | null;
+}
+
+const LOBBY_QUEUE_PAGE_SIZE = 50;
+
+export async function findEventVirtualLobbyQueue(
+  eventOccurrenceId: string,
+  eventSessionId: string,
+  userId: string,
+  page: number,
+) {
+  const database = getDatabase();
+  if (
+    !(await hasVirtualRoomStaffAccess(
+      database,
+      eventOccurrenceId,
+      eventSessionId,
+      userId,
+    ))
+  )
+    return { status: "forbidden" } as const;
+  const access = await database
+    .selectFrom("event_virtual_join_access")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("eventSessionId", "=", eventSessionId)
+    .where("revokedAt", "is", null)
+    .executeTakeFirst();
+  if (!access) return { status: "not-found" } as const;
+  const rows = await database
+    .selectFrom("event_virtual_lobby_entry as lobby")
+    .innerJoin(
+      "event_participation as participation",
+      "participation.id",
+      "lobby.eventParticipationId",
+    )
+    .select([
+      "lobby.id",
+      "lobby.eventParticipationId",
+      "lobby.state",
+      "lobby.accessMethod",
+      "lobby.requestedAt",
+      "lobby.admittedAt",
+      "participation.nameSnapshot as name",
+    ])
+    .where("lobby.eventVirtualJoinAccessId", "=", access.id)
+    .where("lobby.state", "in", [
+      "waiting",
+      "admitted",
+      "token_issued",
+      "connected",
+    ])
+    .orderBy(
+      sql<number>`case "lobby"."state" when 'waiting' then 0 when 'connected' then 1 else 2 end`,
+    )
+    .orderBy("lobby.requestedAt")
+    .orderBy("lobby.id")
+    .limit(LOBBY_QUEUE_PAGE_SIZE + 1)
+    .offset(page * LOBBY_QUEUE_PAGE_SIZE)
+    .execute();
+  return {
+    status: "ready",
+    data: {
+      entries: rows.slice(0, LOBBY_QUEUE_PAGE_SIZE).map((entry) => ({
+        id: entry.id,
+        eventParticipationId: entry.eventParticipationId,
+        name: entry.name,
+        state: entry.state as
+          "waiting" | "admitted" | "token_issued" | "connected",
+        accessMethod: entry.accessMethod,
+        requestedAt: entry.requestedAt.toISOString(),
+        admittedAt: entry.admittedAt?.toISOString() ?? null,
+      })),
+      hasNextPage: rows.length > LOBBY_QUEUE_PAGE_SIZE,
+    },
+  } as const;
 }
 
 interface VirtualSessionContext {
@@ -821,32 +880,6 @@ export async function findEventVirtualSessionOperations(
   const accessBySession = new Map(
     joinAccess.map((item) => [item.eventSessionId, item]),
   );
-  const lobbyRows = joinAccess.length
-    ? await database
-        .selectFrom("event_virtual_lobby_entry as lobby")
-        .innerJoin(
-          "event_participation as participation",
-          "participation.id",
-          "lobby.eventParticipationId",
-        )
-        .select([
-          "lobby.id",
-          "lobby.eventVirtualJoinAccessId",
-          "lobby.eventParticipationId",
-          "lobby.state",
-          "lobby.accessMethod",
-          "lobby.requestedAt",
-          "lobby.admittedAt",
-          "participation.nameSnapshot as name",
-        ])
-        .where(
-          "lobby.eventVirtualJoinAccessId",
-          "in",
-          joinAccess.map((item) => item.id),
-        )
-        .orderBy("lobby.requestedAt")
-        .execute()
-    : [];
   return authorised.map((session) => {
     const opensAt = new Date(
       session.startsAt.getTime() -
@@ -865,21 +898,6 @@ export async function findEventVirtualSessionOperations(
       lobbyPath: accessRecord
         ? `/webinars/${accessRecord.publicReference}`
         : null,
-      lobbyEntries: accessRecord
-        ? lobbyRows
-            .filter(
-              (entry) => entry.eventVirtualJoinAccessId === accessRecord.id,
-            )
-            .map((entry) => ({
-              id: entry.id,
-              eventParticipationId: entry.eventParticipationId,
-              name: entry.name,
-              state: entry.state,
-              accessMethod: entry.accessMethod,
-              requestedAt: entry.requestedAt.toISOString(),
-              admittedAt: entry.admittedAt?.toISOString() ?? null,
-            }))
-        : [],
       room: room ? roomState(room) : null,
     };
   });
@@ -1510,6 +1528,7 @@ export async function setEventVirtualRoomAdmissionMode(
         roomGeneration: room.generation,
         actorUserId: user.id,
         now: currentNow,
+        source: "automatic_mode_enabled",
       });
     await recordDurableAuditEvent(transaction, {
       actorUserId: user.id,

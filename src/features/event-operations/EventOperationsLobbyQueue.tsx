@@ -1,20 +1,24 @@
+import { useCallback, useEffect, useState } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import { Button, Group, Stack, Text, Title } from "#/features/shared/mantine";
-import type { EventOperationsWorkspace } from "./event-operations.schema";
+import { getEventVirtualLobbyQueue } from "#/server/functions/event-operations";
+import type {
+  EventOperationsWorkspace,
+  EventVirtualLobbyQueueData,
+} from "./event-operations.schema";
 import classes from "./EventOperations.module.css";
 
 type VirtualSession = EventOperationsWorkspace["virtualSessions"][number];
-type LobbyEntry = VirtualSession["lobbyEntries"][number];
+type LobbyEntry = EventVirtualLobbyQueueData["entries"][number];
 type AdmissionAction = "admit" | "decline" | "revoke" | "admit_all";
 
 function statusColour(status: LobbyEntry["state"]): string {
-  if (["admitted", "token_issued", "connected"].includes(status)) return "teal";
-  if (["declined", "revoked"].includes(status)) return "red";
-  return status === "waiting" ? "yellow" : "gray";
+  return status === "waiting" ? "yellow" : "teal";
 }
 
 export function EventOperationsLobbyQueue({
+  eventOccurrenceId,
   session,
   lobbyPath,
   showQueue,
@@ -22,6 +26,7 @@ export function EventOperationsLobbyQueue({
   processingId,
   changeAdmission,
 }: {
+  eventOccurrenceId: string;
   session: VirtualSession;
   lobbyPath: string;
   showQueue: boolean;
@@ -31,11 +36,35 @@ export function EventOperationsLobbyQueue({
     sessionId: string,
     entryId: string | undefined,
     operation: AdmissionAction,
-  ) => void;
+  ) => Promise<void>;
 }) {
-  const waiting = session.lobbyEntries.some(
-    (entry) => entry.state === "waiting",
-  );
+  const [page, setPage] = useState(0);
+  const [queue, setQueue] = useState<EventVirtualLobbyQueueData | null>(null);
+  const loadQueue = useCallback(async () => {
+    const result = await getEventVirtualLobbyQueue({
+      data: {
+        eventOccurrenceId,
+        eventSessionId: session.eventSessionId,
+        page,
+      },
+    });
+    setQueue(result.status === "ready" ? result.data : null);
+  }, [eventOccurrenceId, page, session.eventSessionId]);
+
+  useEffect(() => {
+    if (!showQueue) return;
+    const initial = window.setTimeout(() => void loadQueue(), 0);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadQueue();
+    }, 4_000);
+    return () => {
+      window.clearTimeout(initial);
+      window.clearInterval(timer);
+    };
+  }, [loadQueue, showQueue]);
+
+  const entries = queue?.entries ?? [];
+  const waiting = entries.some((entry) => entry.state === "waiting");
   return (
     <Stack gap="sm">
       <Stack gap="xs">
@@ -75,20 +104,20 @@ export function EventOperationsLobbyQueue({
                 variant="light"
                 loading={processingId === `admit_all-${session.eventSessionId}`}
                 onClick={() => {
-                  changeAdmission(
+                  void changeAdmission(
                     session.eventSessionId,
                     undefined,
                     "admit_all",
-                  );
+                  ).then(loadQueue);
                 }}
               >
                 Admit all
               </Button>
             ) : null}
           </Group>
-          {session.lobbyEntries.length ? (
+          {entries.length ? (
             <ul className={classes.lobbyQueue}>
-              {session.lobbyEntries.map((entry) => {
+              {entries.map((entry) => {
                 const actions =
                   entry.state === "waiting"
                     ? (["admit", "decline"] as const)
@@ -122,11 +151,11 @@ export function EventOperationsLobbyQueue({
                               })}
                           loading={processingId === `${operation}-${entry.id}`}
                           onClick={() => {
-                            changeAdmission(
+                            void changeAdmission(
                               session.eventSessionId,
                               entry.id,
                               operation,
-                            );
+                            ).then(loadQueue);
                           }}
                         >
                           {operation === "admit"
@@ -143,9 +172,33 @@ export function EventOperationsLobbyQueue({
             </ul>
           ) : (
             <Text c="dimmed" size="sm">
-              No attendees are waiting yet.
+              No active attendees.
             </Text>
           )}
+          {queue && (page > 0 || queue.hasNextPage) ? (
+            <Group justify="space-between">
+              <Button
+                size="xs"
+                variant="subtle"
+                disabled={page === 0}
+                onClick={() => {
+                  setPage((current) => Math.max(0, current - 1));
+                }}
+              >
+                Previous
+              </Button>
+              <Button
+                size="xs"
+                variant="subtle"
+                disabled={!queue.hasNextPage}
+                onClick={() => {
+                  setPage((current) => current + 1);
+                }}
+              >
+                Next
+              </Button>
+            </Group>
+          ) : null}
         </>
       ) : null}
     </Stack>

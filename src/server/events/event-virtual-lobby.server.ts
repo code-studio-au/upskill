@@ -43,6 +43,7 @@ import {
   isAmbiguousSmsDeliveryError,
   sendEventVirtualRecoverySms,
 } from "#/server/notifications/sms-provider.server";
+import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
 import { hasVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
@@ -63,6 +64,7 @@ interface VirtualLobbyActor {
   user: AuthenticatedUser;
   accessMethod: "authenticated" | "email" | "sms";
   eventParticipationId?: string;
+  joinSessionId?: string;
 }
 
 function secretDigest(value: string): string {
@@ -332,6 +334,7 @@ async function recoveredActor(
     },
     accessMethod: row.accessMethod,
     eventParticipationId: row.eventParticipationId,
+    joinSessionId: row.id,
   };
 }
 
@@ -368,8 +371,19 @@ async function ensureLobbyEntry(
       .executeTakeFirst();
     if (existing) return existing;
     const now = new Date();
+    const currentRoom = destination.roomId
+      ? await transaction
+          .selectFrom("event_virtual_room")
+          .select("admissionMode")
+          .where("id", "=", destination.roomId)
+          .where("eventSessionId", "=", destination.eventSessionId)
+          .where("generation", "=", destination.roomGeneration)
+          .where("replacedAt", "is", null)
+          .forUpdate()
+          .executeTakeFirst()
+      : null;
     const automatic =
-      (destination.admissionMode ?? destination.livekitAdmissionMode) ===
+      (currentRoom?.admissionMode ?? destination.livekitAdmissionMode) ===
       "automatic";
     const entry = await transaction
       .insertInto("event_virtual_lobby_entry")
@@ -500,7 +514,7 @@ function recordingDigest(notice: string): string {
 export async function resolveEventVirtualLobby(
   publicReference: string,
   authenticatedUser: AuthenticatedUser | null,
-  options: { joinSessionToken?: string | null } = {},
+  options: { joinSessionToken?: string | null; clock?: () => Date } = {},
 ): Promise<EventVirtualLobbyResult> {
   const destination = await findPublicDestination(
     getDatabase(),
@@ -593,6 +607,14 @@ export async function resolveEventVirtualLobby(
     return {
       status: "ready",
       data: { ...data, outcome: "revoked", pollAfterMilliseconds: null },
+    };
+  if (
+    (!destination.roomId || destination.doorState === "scheduled") &&
+    destination.endsAt <= (options.clock?.() ?? new Date())
+  )
+    return {
+      status: "ready",
+      data: { ...data, outcome: "ended", pollAfterMilliseconds: null },
     };
   if (!destination.roomId || destination.doorState === "scheduled")
     return {
@@ -1105,6 +1127,12 @@ export async function issueEventVirtualAttendeeCredential(
   const current = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      const occurrence = await transaction
+        .selectFrom("event_occurrence")
+        .select("status")
+        .where("id", "=", resolved.destination.eventOccurrenceId)
+        .forUpdate()
+        .executeTakeFirst();
       const room = await transaction
         .selectFrom("event_virtual_room")
         .select(["id", "doorState", "providerStatus"])
@@ -1114,12 +1142,6 @@ export async function issueEventVirtualAttendeeCredential(
         .where("replacedAt", "is", null)
         .forUpdate()
         .executeTakeFirst();
-      const entry = await transaction
-        .selectFrom("event_virtual_lobby_entry")
-        .selectAll()
-        .where("id", "=", lobbyEntryId)
-        .forUpdate()
-        .executeTakeFirst();
       const access = await transaction
         .selectFrom("event_virtual_join_access")
         .select("id")
@@ -1127,6 +1149,42 @@ export async function issueEventVirtualAttendeeCredential(
         .where("revokedAt", "is", null)
         .forUpdate()
         .executeTakeFirst();
+      const entry = await transaction
+        .selectFrom("event_virtual_lobby_entry")
+        .selectAll()
+        .where("id", "=", lobbyEntryId)
+        .forUpdate()
+        .executeTakeFirst();
+      const revalidationNow = new Date();
+      const recoveredJoinSession = resolved.actor.joinSessionId
+        ? await transaction
+            .selectFrom("event_virtual_join_session")
+            .select("id")
+            .where("id", "=", resolved.actor.joinSessionId)
+            .where(
+              "eventVirtualJoinAccessId",
+              "=",
+              resolved.destination.eventVirtualJoinAccessId,
+            )
+            .where(
+              "eventOccurrenceId",
+              "=",
+              resolved.destination.eventOccurrenceId,
+            )
+            .where("eventSessionId", "=", resolved.destination.eventSessionId)
+            .where("roomGeneration", "=", resolved.destination.roomGeneration)
+            .where("eventParticipationId", "=", resolved.participation.id)
+            .where("userId", "=", resolved.actor.user.id)
+            .where("expiresAt", ">", revalidationNow)
+            .where(
+              "lastUsedAt",
+              ">",
+              new Date(revalidationNow.getTime() - JOIN_SESSION_IDLE_MS),
+            )
+            .where("revokedAt", "is", null)
+            .forUpdate()
+            .executeTakeFirst()
+        : null;
       const participation = await eligibleParticipation(
         transaction,
         resolved.destination,
@@ -1135,6 +1193,9 @@ export async function issueEventVirtualAttendeeCredential(
       const notice = recordingNotice(resolved.destination);
       if (
         !access ||
+        occurrence?.status !== "published" ||
+        (resolved.actor.accessMethod !== "authenticated" &&
+          !recoveredJoinSession) ||
         !room ||
         room.doorState !== "open" ||
         room.providerStatus !== "ready" ||
@@ -1317,28 +1378,14 @@ export async function mutateEventVirtualLobbyAdmission(
     if (!destination) return { status: "not-found" } as const;
     const now = new Date();
     if (input.action === "admit_all") {
-      const waiting = await transaction
-        .selectFrom("event_virtual_lobby_entry")
-        .select(["id", "eventParticipationId"])
-        .where(
-          "eventVirtualJoinAccessId",
-          "=",
-          destination.eventVirtualJoinAccessId,
-        )
-        .where("state", "=", "waiting")
-        .orderBy("requestedAt")
-        .limit(500)
-        .forUpdate()
-        .execute();
-      for (const entry of waiting)
-        await changeAdmission(
-          transaction,
-          destination,
-          entry.id,
-          "admit",
-          user.id,
-          now,
-        );
+      await admitEligibleWaitingEntries(transaction, {
+        eventOccurrenceId: input.eventOccurrenceId,
+        eventSessionId: input.eventSessionId,
+        roomGeneration: room.generation,
+        actorUserId: user.id,
+        now,
+        source: "staff_admit_all",
+      });
       return { status: "ready" } as const;
     }
     if (!input.lobbyEntryId) return { status: "not-found" } as const;

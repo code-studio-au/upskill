@@ -84,7 +84,7 @@ export function EventOperationsVirtualSessions({
     lobbyEntryId: string | undefined,
     operation: AdmissionAction,
   ) => {
-    void action(`${operation}-${lobbyEntryId ?? sessionId}`, () =>
+    return action(`${operation}-${lobbyEntryId ?? sessionId}`, () =>
       mutateEventVirtualLobbyAdmission({
         data: {
           eventOccurrenceId: occurrenceId,
@@ -354,6 +354,7 @@ export function EventOperationsVirtualSessions({
                 </Group>
                 {virtualSession.lobbyPath ? (
                   <EventOperationsLobbyQueue
+                    eventOccurrenceId={occurrenceId}
                     session={virtualSession}
                     lobbyPath={virtualSession.lobbyPath}
                     showQueue={Boolean(room)}

@@ -4,11 +4,13 @@ import {
   eventOperationsCoordinatorDecisionSchema,
   eventOperationsParamsSchema,
   eventOperationsRegionLockSchema,
+  eventVirtualLobbyQueueSchema,
   eventVirtualRoomMutationSchema,
   eventSurveyQrPresentationParamsSchema,
   type AssignedEventOperationsResult,
   type EventOperationsMutationResult,
   type EventOperationsResult,
+  type EventVirtualLobbyQueueResult,
   type EventSurveyQrPresentationResult,
 } from "#/features/event-operations/event-operations.schema";
 import {
@@ -215,6 +217,22 @@ export const mutateEventVirtualRoom = createServerFn({ method: "POST" })
       ...args,
       data.action,
       request.access.user,
+    );
+  });
+
+export const getEventVirtualLobbyQueue = createServerFn({ method: "GET" })
+  .validator(eventVirtualLobbyQueueSchema)
+  .handler(async ({ data }): Promise<EventVirtualLobbyQueueResult> => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" };
+    const { findEventVirtualLobbyQueue } =
+      await import("#/server/events/event-virtual-room.server");
+    return await findEventVirtualLobbyQueue(
+      data.eventOccurrenceId,
+      data.eventSessionId,
+      user.id,
+      data.page,
     );
   });
 
