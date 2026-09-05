@@ -40,6 +40,7 @@ export const eventOperationsAttendanceSchema = z.object({
 export const eventVirtualRoomMutationSchema = z.object({
   eventOccurrenceId: identifier,
   eventSessionId: identifier,
+  lobbyEntryId: z.optional(identifier),
   action: z.enum([
     "prepare",
     "health",
@@ -50,7 +51,17 @@ export const eventVirtualRoomMutationSchema = z.object({
     "replace",
     "admission_manual",
     "admission_automatic",
+    "admit",
+    "decline",
+    "revoke",
+    "admit_all",
   ]),
+});
+
+export const eventVirtualLobbyQueueSchema = z.object({
+  eventOccurrenceId: identifier,
+  eventSessionId: identifier,
+  page: z.number().check(z.int(), z.minimum(0), z.maximum(199)),
 });
 
 export const eventProgressFilterSchema = z.object({
@@ -217,6 +228,7 @@ export interface EventOperationsWorkspace {
     eventSessionId: string;
     preparationOpensAt: string;
     canEnterGreenRoom: boolean;
+    lobbyPath: string | null;
     room: {
       id: string;
       eventSessionId: string;
@@ -236,6 +248,24 @@ export interface EventOperationsWorkspace {
   participantProgress: Array<EventParticipantProgress>;
   surveyQrCatalogue: Array<EventSurveyQrCatalogueItem>;
 }
+
+export interface EventVirtualLobbyQueueData {
+  etag: string;
+  entries: Array<{
+    id: string;
+    eventParticipationId: string;
+    name: string;
+    state: "waiting" | "admitted" | "token_issued" | "connected";
+    accessMethod: "authenticated" | "email" | "sms";
+    requestedAt: string;
+    admittedAt: string | null;
+  }>;
+  hasNextPage: boolean;
+}
+
+export type EventVirtualLobbyQueueResult =
+  | { status: "ready"; data: EventVirtualLobbyQueueData }
+  | { status: "unauthenticated" | "forbidden" | "not-found" };
 
 export interface EventSurveyQrCatalogueItem {
   id: string;
@@ -280,6 +310,7 @@ export type EventOperationsMutationResult =
       reason:
         | "attendance_unavailable"
         | "capacity_exceeded"
+        | "ineligible"
         | "invalid_transition"
         | "not_livekit"
         | "occurrence_unavailable"

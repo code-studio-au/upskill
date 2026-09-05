@@ -403,7 +403,7 @@ const eventVariables = [
     "Event",
     "event.operationsUrl",
     "Event operations link",
-    "https://upskill.example/admin/events/instances/example",
+    "https://upskill.example/event-operations/example",
     "url",
   ),
   emailVariable(

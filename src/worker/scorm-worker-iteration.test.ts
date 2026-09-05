@@ -16,6 +16,12 @@ describe("runScormWorkerIteration", () => {
         outcomes: [],
         limitReached: false,
       }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
       dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
         outcomes: [
           { status: "logged", eventId: "audit_1" },
@@ -43,6 +49,12 @@ describe("runScormWorkerIteration", () => {
         outcomes: [],
         limitReached: false,
       }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
       dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
@@ -73,6 +85,12 @@ describe("runScormWorkerIteration", () => {
         outcomes: [],
         limitReached: false,
       }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
       dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
@@ -104,6 +122,78 @@ describe("runScormWorkerIteration", () => {
         ],
         limitReached: false,
       }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      consumeNextWorkMessage,
+    });
+
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
+  });
+
+  it("uses a non-blocking queue receive after revoking withdrawn lobby eligibility", async () => {
+    const consumeNextWorkMessage = vi
+      .fn()
+      .mockResolvedValue({ status: "no-work" });
+
+    await runScormWorkerIteration({
+      processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableEventVirtualRoomOperations: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({
+          outcomes: [{ status: "revoked", lobbyEntryId: "lobby_entry_1" }],
+          limitReached: false,
+        }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      consumeNextWorkMessage,
+    });
+
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
+  });
+
+  it("uses a non-blocking queue receive after processing recovery delivery", async () => {
+    const consumeNextWorkMessage = vi
+      .fn()
+      .mockResolvedValue({ status: "no-work" });
+
+    await runScormWorkerIteration({
+      processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableEventVirtualRoomOperations: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({
+          outcomes: [{ status: "sent", challengeId: "recovery_challenge_1" }],
+          limitReached: false,
+        }),
       dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,

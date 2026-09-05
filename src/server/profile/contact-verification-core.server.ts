@@ -91,6 +91,24 @@ async function revokeSmsRecoveryAccess(
     .where("deliveryChannel", "=", "sms")
     .where("consumedAt", "is", null)
     .execute();
+  const virtualRecoveryChallenges = transaction
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("userId", "in", userIds)
+    .where("channel", "=", "sms");
+  await transaction
+    .updateTable("event_virtual_join_session")
+    .set({ revokedAt })
+    .where("challengeId", "in", virtualRecoveryChallenges)
+    .where("revokedAt", "is", null)
+    .execute();
+  await transaction
+    .updateTable("event_virtual_recovery_challenge")
+    .set({ consumedAt: revokedAt })
+    .where("userId", "in", userIds)
+    .where("channel", "=", "sms")
+    .where("consumedAt", "is", null)
+    .execute();
 }
 
 export async function invalidateVerifiedPhone(

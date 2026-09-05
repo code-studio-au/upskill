@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import type { Transaction } from "kysely";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
+import { hasVirtualRoomStaffAccess } from "#/server/events/event-virtual-staff-access.server";
 import { getEmailTemplateContract } from "./email-template-contracts";
 import { eventRegistrationQuestionnaireComplete } from "#/server/registration/registration-questionnaire-access.server";
 
@@ -94,11 +95,12 @@ async function hasEventStaffVirtualAccess(
 ): Promise<boolean> {
   const [administrator, presenter, coordinator] = await Promise.all([
     transaction
-      .selectFrom("event_admin_assignment")
-      .select("id")
-      .where("eventOccurrenceId", "=", eventOccurrenceId)
-      .where("userId", "=", userId)
-      .where("endedAt", "is", null)
+      .selectFrom("event_admin_assignment as assignment")
+      .innerJoin("platform_admin", "platform_admin.userId", "assignment.userId")
+      .select("assignment.id")
+      .where("assignment.eventOccurrenceId", "=", eventOccurrenceId)
+      .where("assignment.userId", "=", userId)
+      .where("assignment.endedAt", "is", null)
       .executeTakeFirst(),
     transaction
       .selectFrom("event_presenter_assignment")
@@ -229,19 +231,26 @@ export async function buildEventNotificationVariables(
     reschedule,
   ] = await Promise.all([
     transaction
-      .selectFrom("event_session")
+      .selectFrom("event_session as session")
+      .leftJoin("event_virtual_join_access as joinAccess", (join) =>
+        join
+          .onRef("joinAccess.eventSessionId", "=", "session.id")
+          .on("joinAccess.revokedAt", "is", null),
+      )
       .select([
-        "id",
-        "sessionDefinitionId",
-        "title",
-        "startsAt",
-        "endsAt",
-        "venueName",
-        "venueAddress",
-        "virtualJoinUrl",
+        "session.id",
+        "session.sessionDefinitionId",
+        "session.title",
+        "session.startsAt",
+        "session.endsAt",
+        "session.venueName",
+        "session.venueAddress",
+        "session.virtualJoinUrl",
+        "session.virtualDeliveryProvider",
+        "joinAccess.publicReference as virtualJoinReference",
       ])
-      .where("eventOccurrenceId", "=", event.id)
-      .orderBy("position")
+      .where("session.eventOccurrenceId", "=", event.id)
+      .orderBy("session.position")
       .execute(),
     transaction
       .selectFrom("event_admin_assignment as assignment")
@@ -297,6 +306,7 @@ export async function buildEventNotificationVariables(
   const environment = getServerEnv();
   const baseUrl = new URL(environment.APP_ORIGIN).origin;
   const eventDashboardUrl = `${baseUrl}/my-events/${event.id}`;
+  const eventOperationsUrl = `${baseUrl}/event-operations/${event.id}`;
   const variables = emptyEventVariables();
   variables["user.fullName"] = input.recipient.name;
   variables["user.firstName"] = firstName(input.recipient.name);
@@ -390,8 +400,7 @@ export async function buildEventNotificationVariables(
       ? "Available after completion"
       : "Not available";
   variables["event.dashboardUrl"] = eventDashboardUrl;
-  variables["event.operationsUrl"] =
-    `${baseUrl}/admin/events/instances/${event.id}`;
+  variables["event.operationsUrl"] = eventOperationsUrl;
   variables["event.publicUrl"] = `${baseUrl}/events/${event.slug}`;
   variables["event.certificateUrl"] =
     certificateEligible && input.recipient.participationId
@@ -416,14 +425,23 @@ export async function buildEventNotificationVariables(
       )
     : undefined;
   if (selectedSession) {
-    const sessionPresenters = await transaction
-      .selectFrom("event_presenter_assignment as assignment")
-      .innerJoin("user", "user.id", "assignment.userId")
-      .select(["user.name", "user.email"])
-      .where("assignment.eventOccurrenceId", "=", event.id)
-      .where("assignment.eventSessionId", "=", selectedSession.id)
-      .where("assignment.endedAt", "is", null)
-      .execute();
+    const [sessionPresenters, selectedSessionStaffAccessReady] =
+      await Promise.all([
+        transaction
+          .selectFrom("event_presenter_assignment as assignment")
+          .innerJoin("user", "user.id", "assignment.userId")
+          .select(["user.name", "user.email"])
+          .where("assignment.eventOccurrenceId", "=", event.id)
+          .where("assignment.eventSessionId", "=", selectedSession.id)
+          .where("assignment.endedAt", "is", null)
+          .execute(),
+        hasVirtualRoomStaffAccess(
+          transaction,
+          event.id,
+          selectedSession.id,
+          input.recipient.userId,
+        ),
+      ]);
     const venueName = selectedSession.venueName ?? event.venueName;
     const venueAddress = selectedSession.venueAddress ?? event.venueAddress;
     variables["session.title"] = selectedSession.title;
@@ -451,9 +469,14 @@ export async function buildEventNotificationVariables(
       [venueName, venueAddress].filter(Boolean).join(", ") || "Virtual session";
     variables["session.venueName"] = venueName ?? "";
     variables["session.venueAddress"] = venueAddress ?? "";
-    variables["session.virtualJoinUrl"] = recipientVirtualAccessReady
-      ? (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
-      : eventDashboardUrl;
+    variables["session.virtualJoinUrl"] = selectedSessionStaffAccessReady
+      ? eventOperationsUrl
+      : learnerVirtualAccessReady
+        ? selectedSession.virtualDeliveryProvider === "livekit" &&
+          selectedSession.virtualJoinReference
+          ? `${baseUrl}/webinars/${selectedSession.virtualJoinReference}`
+          : (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
+        : eventDashboardUrl;
     variables["session.presenterNames"] = list(
       sessionPresenters.map((person) => person.name.trim() || person.email),
       "To be confirmed",

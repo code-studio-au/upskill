@@ -207,6 +207,22 @@ async function cleanupEventAuthoringFixture(
           [virtualRoomIds],
         );
       }
+      await transaction.query(
+        `delete from event_virtual_join_session where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_virtual_recovery_challenge where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_virtual_lobby_entry where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      await transaction.query(
+        `delete from event_virtual_join_access where "eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
       const participations = await transaction.query<{ id: string }>(
         `select id from event_participation where "eventOccurrenceId" = any($1::text[])`,
         [occurrenceIds],
@@ -2368,7 +2384,17 @@ test("platform administrators can inspect learner progress", async ({
       )`,
       [occurrenceSessionId],
     );
+    await authoringDatabase.query(
+      `insert into event_virtual_join_access (
+        id, "eventOccurrenceId", "eventSessionId", "roomGeneration",
+        "publicReference", "createdAt"
+      ) values (
+        'e2e_livekit_join_access', $1, $2, 1, $3, now()
+      )`,
+      [occurrenceId, occurrenceSessionId, "l".repeat(43)],
+    );
     await page.reload();
+    await expect(page.getByText("No attendees.")).toBeVisible();
     const startWebinar = page.getByRole("button", { name: "Start webinar" });
     await expect(startWebinar).toBeEnabled();
     const confirmation = page.waitForEvent("dialog");
@@ -2387,6 +2413,40 @@ test("platform administrators can inspect learner progress", async ({
         return room.rows[0]?.doorState;
       })
       .toBe("scheduled");
+    await authoringDatabase.query(
+      `insert into event_virtual_lobby_entry (
+        id, "eventVirtualJoinAccessId", "eventOccurrenceId", "eventSessionId",
+        "roomGeneration", "eventParticipationId", state, "accessMethod",
+        "requestedAt", "updatedAt"
+      ) values (
+        'e2e_livekit_lobby_entry', 'e2e_livekit_join_access', $1, $2, 1, $3,
+        'waiting', 'authenticated', now(), now()
+      )`,
+      [occurrenceId, occurrenceSessionId, participationId],
+    );
+    await expect(
+      page.locator("li").filter({ hasText: administratorUser.name }),
+    ).toBeVisible({ timeout: 10_000 });
+    const browser = page.context().browser();
+    if (!browser) throw new Error("Playwright browser is unavailable");
+    const attendeeContext = await browser.newContext({
+      baseURL: new URL(page.url()).origin,
+    });
+    try {
+      const attendeePage = await attendeeContext.newPage();
+      await attendeePage.goto(`/webinars/${"l".repeat(43)}?recovery=sent`);
+      await expect(attendeePage.getByRole("status")).toBeVisible();
+      await expect(attendeePage.getByLabel("6-digit code")).toBeVisible();
+      await attendeePage.getByRole("link", { name: "Start over" }).click();
+      await expect(attendeePage).toHaveURL(
+        new RegExp(`/webinars/${"l".repeat(43)}\\?$`, "u"),
+      );
+      await expect(
+        attendeePage.getByLabel("Verified email or mobile"),
+      ).toBeVisible();
+    } finally {
+      await attendeeContext.close();
+    }
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);

@@ -80,6 +80,13 @@ try {
     "event_template_session_definition",
     "event_virtual_room",
     "event_virtual_room_operation",
+    "event_virtual_join_access",
+    "event_virtual_lobby_entry",
+    "event_virtual_recovery_challenge",
+    "event_virtual_recovery_delivery",
+    "event_virtual_join_session",
+    "event_virtual_recovery_email_capture",
+    "event_virtual_recovery_sms_capture",
     "event_template_version",
     "event_template_version_communication",
     "event_template_version_admin_default",
@@ -221,6 +228,12 @@ try {
     "enterprise_contract_code_active_uq",
     "enterprise_contract_claim_user_uq",
     "enterprise_contract_claim_user_idx",
+    "event_virtual_join_access_current_uq",
+    "event_virtual_lobby_entry_queue_idx",
+    "event_virtual_lobby_entry_active_credential_idx",
+    "event_virtual_recovery_rate_idx",
+    "event_virtual_recovery_delivery_pending_idx",
+    "event_virtual_join_session_active_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -234,6 +247,19 @@ try {
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
+  const activeCredentialIndex = indexResult.rows.find(
+    (index) =>
+      index.indexname === "event_virtual_lobby_entry_active_credential_idx",
+  );
+  if (
+    !activeCredentialIndex?.indexdef.includes(
+      '"credentialExpiresAt" IS NOT NULL',
+    ) ||
+    activeCredentialIndex.indexdef.includes("state")
+  )
+    throw new Error(
+      "LiveKit credential reservations must index every unexpired credential state",
+    );
   const emailDesignerConstraints = await sql<{
     constraint_name: string;
   }>`select constraint_name from information_schema.table_constraints
@@ -371,6 +397,10 @@ try {
   assert.match(
     auditActionDefinition.definition,
     /enterprise_contract\.entitlement_issued/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
+    /event_virtual_lobby\.attendee_token_issued/u,
   );
   const enterpriseContractConstraints = await sql<{
     constraint_name: string;
@@ -618,13 +648,58 @@ try {
           'event_virtual_room_replaces_session_fk',
           'event_virtual_room_door_ck',
           'event_virtual_room_actor_time_ck',
-          'event_virtual_room_operation_kind_uq',
+          'event_virtual_room_operation_target_uq',
+          'event_virtual_room_operation_target_ck',
           'event_virtual_room_operation_state_ck'
         )`.execute(db);
   assert.equal(
     liveKitRoomConstraints.rows.length,
-    6,
+    7,
     "LiveKit room generations, lifecycle state and durable provider operations must be constrained",
+  );
+  const liveKitLobbyConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_session_id_occurrence_uq',
+          'event_participation_id_occurrence_uq',
+          'event_virtual_join_access_scope_uq',
+          'event_virtual_join_access_generation_uq',
+          'event_virtual_join_access_session_fk',
+          'event_virtual_join_access_reference_ck',
+          'event_virtual_join_access_generation_ck',
+          'event_virtual_join_access_revocation_ck',
+          'event_virtual_join_access_lobby_revision_ck',
+          'event_virtual_lobby_entry_access_fk',
+          'event_virtual_lobby_entry_participation_fk',
+          'event_virtual_lobby_entry_identity_uq',
+          'event_virtual_lobby_entry_state_ck',
+          'event_virtual_lobby_entry_access_method_ck',
+          'event_virtual_lobby_entry_actor_time_ck',
+          'event_virtual_lobby_entry_recording_ck',
+          'event_virtual_lobby_entry_timeline_ck',
+          'event_virtual_lobby_entry_credential_expiry_ck',
+          'event_virtual_recovery_access_fk',
+          'event_virtual_recovery_participation_fk',
+          'event_virtual_recovery_reference_ck',
+          'event_virtual_recovery_digest_ck',
+          'event_virtual_recovery_channel_ck',
+          'event_virtual_recovery_attempts_ck',
+          'event_virtual_recovery_delivery_ck',
+          'event_virtual_recovery_timeline_ck',
+          'event_virtual_recovery_delivery_recipient_ck',
+          'event_virtual_recovery_delivery_envelope_ck',
+          'event_virtual_join_session_access_fk',
+          'event_virtual_join_session_participation_fk',
+          'event_virtual_join_session_token_ck',
+          'event_virtual_join_session_method_ck',
+          'event_virtual_join_session_timeline_ck'
+        )`.execute(db);
+  assert.equal(
+    liveKitLobbyConstraints.rows.length,
+    33,
+    "LiveKit attendee access, lobby, recovery and capability scope must be constrained",
   );
   const eventTemplateVersionColumns = await sql<{
     column_name: string;

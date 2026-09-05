@@ -4,11 +4,13 @@ import {
   eventOperationsCoordinatorDecisionSchema,
   eventOperationsParamsSchema,
   eventOperationsRegionLockSchema,
+  eventVirtualLobbyQueueSchema,
   eventVirtualRoomMutationSchema,
   eventSurveyQrPresentationParamsSchema,
   type AssignedEventOperationsResult,
   type EventOperationsMutationResult,
   type EventOperationsResult,
+  type EventVirtualLobbyQueueResult,
   type EventSurveyQrPresentationResult,
 } from "#/features/event-operations/event-operations.schema";
 export const getAssignedEventOperations = createServerFn({
@@ -181,6 +183,24 @@ export const mutateEventVirtualRoom = createServerFn({ method: "POST" })
       await import("#/server/events/event-operations-access.server");
     const request = await getEventOperationsRequest(data.eventOccurrenceId);
     if (request.status !== "ready") return request;
+    if (
+      data.action === "admit" ||
+      data.action === "decline" ||
+      data.action === "revoke" ||
+      data.action === "admit_all"
+    ) {
+      const { mutateEventVirtualLobbyAdmission: mutate } =
+        await import("#/server/events/event-virtual-lobby.server");
+      return await mutate(
+        {
+          eventOccurrenceId: data.eventOccurrenceId,
+          eventSessionId: data.eventSessionId,
+          action: data.action,
+          ...(data.lobbyEntryId ? { lobbyEntryId: data.lobbyEntryId } : {}),
+        },
+        request.access.user,
+      );
+    }
     const {
       checkEventVirtualSessionProviderHealth,
       ensureEventVirtualRoomForStaff,
@@ -211,5 +231,21 @@ export const mutateEventVirtualRoom = createServerFn({ method: "POST" })
       ...args,
       data.action,
       request.access.user,
+    );
+  });
+
+export const getEventVirtualLobbyQueue = createServerFn({ method: "GET" })
+  .validator(eventVirtualLobbyQueueSchema)
+  .handler(async ({ data }): Promise<EventVirtualLobbyQueueResult> => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" };
+    const { findEventVirtualLobbyQueue } =
+      await import("#/server/events/event-virtual-room.server");
+    return await findEventVirtualLobbyQueue(
+      data.eventOccurrenceId,
+      data.eventSessionId,
+      user.id,
+      data.page,
     );
   });

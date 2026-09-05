@@ -1077,11 +1077,39 @@ try {
     1,
     "A replacement request that crosses the cutoff must not append a generation",
   );
+  const originalJoinAccess = await database
+    .selectFrom("event_virtual_join_access")
+    .select(["id", "publicReference", "roomGeneration"])
+    .where("eventSessionId", "=", ids.session)
+    .where("revokedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  assert.equal(originalJoinAccess.roomGeneration, 1);
   assert.deepEqual(
     await replaceEventVirtualRoom(ids.occurrence, ids.session, administrator, {
       clock: () => replacementTime,
     }),
     { status: "ready" },
+  );
+  const replacementJoinAccess = await database
+    .selectFrom("event_virtual_join_access")
+    .select(["id", "publicReference", "roomGeneration"])
+    .where("eventSessionId", "=", ids.session)
+    .where("revokedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  assert.equal(replacementJoinAccess.roomGeneration, 2);
+  assert.notEqual(replacementJoinAccess.id, originalJoinAccess.id);
+  assert.notEqual(
+    replacementJoinAccess.publicReference,
+    originalJoinAccess.publicReference,
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_virtual_join_access")
+      .select("revokedAt")
+      .where("id", "=", originalJoinAccess.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.revokedAt),
+    "Replacing a room must revoke access to its previous generation",
   );
   const replacementBatch = await processAvailableEventVirtualRoomOperations(
     10,
@@ -1205,6 +1233,28 @@ try {
       .then((currentRoom) => currentRoom.doorState),
     "scheduled",
     "A Start request that crosses the session cutoff must leave the door scheduled",
+  );
+  assert.deepEqual(
+    await setEventVirtualRoomAdmissionMode(
+      ids.occurrence,
+      ids.session,
+      "automatic",
+      administrator,
+      { clock: () => endsAt },
+    ),
+    { status: "conflict", reason: "session_ended" },
+    "Auto-admit must not activate after a scheduled session expires",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("admissionMode")
+      .where("eventSessionId", "=", ids.session)
+      .where("replacedAt", "is", null)
+      .executeTakeFirstOrThrow()
+      .then((currentRoom) => currentRoom.admissionMode),
+    "manual",
+    "An expired auto-admit request must not mutate room policy",
   );
 
   await database
@@ -1449,7 +1499,7 @@ try {
           createdAt: endsAt,
         })
         .onConflict((conflict) =>
-          conflict.columns(["roomId", "kind"]).doNothing(),
+          conflict.columns(["roomId", "kind", "targetKey"]).doNothing(),
         )
         .execute();
     });
@@ -1867,6 +1917,14 @@ try {
   await database
     .deleteFrom("event_occurrence_region")
     .where("id", "=", ids.occurrenceRegion)
+    .execute();
+  await database
+    .deleteFrom("event_virtual_join_access")
+    .where("eventSessionId", "in", [
+      ids.session,
+      ids.raceSession,
+      ids.failureSession,
+    ])
     .execute();
   await database
     .deleteFrom("event_session")

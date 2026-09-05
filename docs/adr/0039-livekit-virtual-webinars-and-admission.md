@@ -1,6 +1,6 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–2 implemented, later slices pending
+- **Status:** Accepted; Slices 1–3 implemented, later slices pending
 - **Date:** 2026-08-31
 
 ## Context
@@ -275,7 +275,8 @@ When an authorised presenter enables `automatic` mode:
 
 Automatic admission never admits withdrawn, cancelled, waitlisted, ineligible,
 or otherwise unauthorised participants. Toggling the mode is audited and does
-not itself issue LiveKit tokens while the door is closed.
+not itself issue LiveKit tokens while the door is closed. A scheduled room
+cannot switch to automatic admission after the exact Session end time.
 
 ## Learner and attendee experience
 
@@ -332,21 +333,28 @@ or confer staff capabilities.
    participation or stable user identity. SMS delivery is allowed only to an
    existing verified E.164 mobile number. A typed phone number is not treated as
    verified merely because the requester can receive a code on it.
-4. A rate-limited, six-digit, one-use OTP is delivered. Only digests of the OTP,
-   request identifier, and target identifier are stored. Attempts, resends,
-   expiry, delivery outcome, and consumption are bounded and audited without
-   logging the code or destination.
-5. Successful verification issues an opaque join capability in an `HttpOnly`,
+4. A rate-limited, six-digit, one-use OTP is queued for delivery. Challenge
+   reservation locks and revalidates the current access generation, room,
+   occurrence, registration, questionnaire and verified contact before it
+   commits. The request then returns immediately for both known and unknown
+   identifiers, without waiting on provider latency.
+5. Only digests of the OTP, request identifier, and target identifier are kept
+   as challenge evidence. The worker receives the OTP through a short-lived,
+   authenticated-encryption envelope bound to the challenge identifier, deletes
+   that envelope when claiming it, revalidates the same lifecycle policy, and
+   records a non-sensitive sent, failed, or uncertain result. The plaintext OTP
+   and destination are never logged.
+6. Successful verification issues an opaque join capability in an `HttpOnly`,
    `Secure`, `SameSite=Lax` cookie restricted to the lobby route. The initial
    lifetime is 30 minutes with a 10-minute idle limit, matching the existing
    Event task-access pattern.
-6. The capability is bound to the exact Event Session, Event participation,
+7. The capability is bound to the exact Event Session, Event participation,
    user when one exists, public lobby reference, and room generation. It permits
    lobby status and attendee-token requests only.
-7. The capability establishes control for this join task. It does not silently
+8. The capability establishes control for this join task. It does not silently
    verify or change the user's durable account email/mobile status and cannot be
    exchanged for a normal login session.
-8. A consumed, expired, idle, revoked, or generation-mismatched capability must
+9. A consumed, expired, idle, revoked, or generation-mismatched capability must
    be verified again.
 
 The LiveKit JWT is returned only after admission and start. It remains in
@@ -474,8 +482,10 @@ lacks an eligible Presenter/administrator coverage path.
 
 ### Operational workspace
 
-An authorised occurrence administrator receives the same live operational
-panel as a presenter plus:
+An authorised Platform Administrator receives the same live operational panel
+as a presenter. An occurrence assignment prioritises operational ownership but,
+consistently with the standard-role boundary, does not preserve authority if the
+Platform Administrator role is revoked. The panel also provides:
 
 - provider-room creation and health state;
 - current generation and lifecycle timestamps;
@@ -685,7 +695,17 @@ may remove an already-connected participant through the provider API.
 LiveKit tokens are not treated as one-use credentials: a token copied before
 expiry may be presented again, so short expiry, exact-room grants, stable
 participant identity, generation binding, and server-side removal all remain
-necessary.
+necessary. Revocation durably schedules immediate removal and continues
+idempotent removal checks until the most recently issued credential expires.
+
+Attendee issuance serializes against the exact room and durably reserves a
+place through credential expiry. Every unexpired credential remains a capacity
+reservation even if eligibility withdrawal moves its lobby entry to revoked or
+waiting while removal is enforced. The final gate counts current provider
+participants plus unconnected, unexpired attendee reservations so concurrent
+requests cannot claim the same place and readmission cannot restore an unsafe
+credential after another attendee fills it. Connected attendees may refresh
+their own credential without consuming a second reservation.
 
 Attendee grants are limited to:
 
@@ -771,6 +791,12 @@ replaced.
 binding, channel, identifier/code/request digests, attempt and resend counters,
 expiry, consumption, and non-sensitive delivery outcome.
 
+`event_virtual_recovery_delivery` is a transient durable queue containing the
+verified destination and an authenticated-encryption envelope for the OTP. A
+worker claims and deletes the row before provider I/O, leaving only challenge
+status and provider capture/attempt evidence. This gives the public request path
+provider-independent response timing without persisting plaintext OTPs.
+
 `event_virtual_join_session` records only a digest of the opaque capability,
 its exact binding, issue/last-use/expiry times, access method, and revocation.
 Successful recovery does not mutate durable account-verification fields.
@@ -814,7 +840,9 @@ Start requires provider readiness but does not depend on a presenter's browser
 remaining connected. End commits the terminal application state first, prevents
 new tokens, enqueues provider closure, and records whether provider confirmation
 is pending. Retries use stable deduplication keys based on room generation and
-operation.
+operation. Participant-removal operations additionally use the lobby entry as
+their stable target and remain observable while token-expiry enforcement is
+pending.
 
 Provider state never silently reopens an application door. If a provider room
 is unexpectedly recreated or remains active after an application end, the
@@ -877,10 +905,13 @@ body before parsing or persistence. The provider event identifier is unique, so
 redelivery returns success after the existing result is found. Processing is
 transactional and safe for out-of-order join/leave events.
 
-Slow normalization, attendance promotion, and reconciliation run through
-idempotent worker jobs with stable deduplication keys. A poison event remains
-visible with a bounded error classification and retry history; it is not dropped
-or allowed to block unrelated rooms.
+Recovery delivery, slow normalization, attendance promotion, and reconciliation
+run through idempotent worker jobs with stable deduplication keys. Recovery
+delivery is claimed as uncertain before provider I/O so a worker crash cannot
+silently replay a security message; deterministic failure consumes the
+challenge and ambiguous delivery remains visible as unknown. A poison event
+remains visible with a bounded error classification and retry history; it is not
+dropped or allowed to block unrelated rooms.
 
 The final attendance calculation may be rerun deterministically from retained
 normalised evidence and the snapshotted policy. Calculation-version changes do
@@ -1046,7 +1077,10 @@ in the telemetry system.
 - **Attendee token expires before connection:** reissue only after all current
   predicates pass.
 - **Eligibility changes after admission:** revoke future issuance and remove an
-  active participant through the idempotent server moderation path.
+  active participant through the idempotent server moderation path. If
+  eligibility later returns under manual admission, removal remains enforced
+  through the last credential expiry until a presenter genuinely readmits the
+  waiting attendee.
 - **Webhook delayed or missing:** retain provisional evidence, reconcile through
   Room Service, and surface `needs_review` rather than inventing a precise leave
   time.
@@ -1135,10 +1169,11 @@ gates passed; it does not by itself authorise staging or production activation.
       delivery paths are implemented; environment configuration alone does not
       make them publishable.
       Implemented by [PR #65](https://github.com/code-studio-au/upskill/pull/65).
-- [ ] **Slice 3 — room lifecycle and presenter green room:** add room-generation
+- [x] **Slice 3 — room lifecycle and presenter green room:** add room-generation
       persistence, exact staff policy, idempotent outbox operations, lazy room
       creation, presenter grants, device preview, provider health, and
       start/lock/reopen/end/replacement controls.
+      Implemented by [PR #66](https://github.com/code-studio-au/upskill/pull/66).
 - [ ] **Slice 4 — attendee lobby, admission and recovery:** add opaque join
       access, the central attendee policy, authenticated lobby, narrow email/SMS
       recovery, manual/bulk/automatic admission, polling, meeting-not-started and

@@ -776,7 +776,10 @@ interface EventVirtualRoomTable {
 interface EventVirtualRoomOperationTable {
   id: string;
   roomId: string;
-  kind: "ensure_room" | "close_room";
+  kind: "ensure_room" | "close_room" | "remove_participant";
+  targetKey: Generated<string>;
+  lobbyEntryId: Generated<string | null>;
+  participantIdentity: Generated<string | null>;
   deduplicationKey: string;
   status: "pending" | "processing" | "succeeded";
   attempts: Generated<number>;
@@ -786,6 +789,112 @@ interface EventVirtualRoomOperationTable {
   completedAt: Timestamp | null;
   lastErrorCode: string | null;
   requestedByUserId: string | null;
+  createdAt: Timestamp;
+}
+
+interface EventVirtualJoinAccessTable {
+  id: string;
+  eventOccurrenceId: string;
+  eventSessionId: string;
+  roomGeneration: number;
+  publicReference: string;
+  lobbyRevision: Generated<number>;
+  createdAt: Timestamp;
+  revokedAt: Timestamp | null;
+  revokedByUserId: string | null;
+}
+
+interface EventVirtualLobbyEntryTable {
+  id: string;
+  eventVirtualJoinAccessId: string;
+  eventOccurrenceId: string;
+  eventSessionId: string;
+  roomGeneration: number;
+  eventParticipationId: string;
+  state:
+    | "waiting"
+    | "admitted"
+    | "token_issued"
+    | "connected"
+    | "left"
+    | "declined"
+    | "revoked";
+  accessMethod: "authenticated" | "email" | "sms";
+  requestedAt: Timestamp;
+  admittedAt: Timestamp | null;
+  admittedByUserId: string | null;
+  declinedAt: Timestamp | null;
+  declinedByUserId: string | null;
+  revokedAt: Timestamp | null;
+  revokedByUserId: string | null;
+  firstTokenIssuedAt: Timestamp | null;
+  credentialExpiresAt: OptionalTimestamp;
+  recordingAcknowledgedAt: Timestamp | null;
+  recordingNoticeDigest: string | null;
+  firstConnectedAt: Timestamp | null;
+  lastSeenAt: Timestamp | null;
+  leftAt: Timestamp | null;
+  updatedAt: Timestamp;
+}
+
+interface EventVirtualRecoveryChallengeTable {
+  id: string;
+  reference: string;
+  eventVirtualJoinAccessId: string;
+  eventOccurrenceId: string;
+  eventSessionId: string;
+  roomGeneration: number;
+  eventParticipationId: string;
+  userId: string;
+  channel: "email" | "sms";
+  identifierDigest: string;
+  requestFingerprint: string;
+  codeDigest: string;
+  attempts: Generated<number>;
+  resendCount: Generated<number>;
+  deliveryStatus: "pending" | "sent" | "failed" | "unknown";
+  expiresAt: Timestamp;
+  consumedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface EventVirtualRecoveryDeliveryTable {
+  challengeId: string;
+  recipientAddress: string;
+  encryptedCode: string;
+  createdAt: Timestamp;
+}
+
+interface EventVirtualJoinSessionTable {
+  id: string;
+  challengeId: string;
+  tokenDigest: string;
+  eventVirtualJoinAccessId: string;
+  eventOccurrenceId: string;
+  eventSessionId: string;
+  roomGeneration: number;
+  eventParticipationId: string;
+  userId: string;
+  accessMethod: "email" | "sms";
+  expiresAt: Timestamp;
+  lastUsedAt: Timestamp;
+  revokedAt: Timestamp | null;
+  createdAt: Timestamp;
+}
+
+interface EventVirtualRecoveryEmailCaptureTable {
+  challengeId: string;
+  recipientEmail: string;
+  subject: string;
+  textBody: string;
+  htmlBody: string;
+  createdAt: Timestamp;
+}
+
+interface EventVirtualRecoverySmsCaptureTable {
+  challengeId: string;
+  recipientPhone: string;
+  message: string;
   createdAt: Timestamp;
 }
 
@@ -1136,6 +1245,7 @@ interface SmsDeliveryTable {
   id: string;
   purpose:
     | "event_prerequisite_recovery"
+    | "event_virtual_recovery"
     | "onboarding_contact_verification"
     | "profile_contact_verification";
   recipientPhone: string;
@@ -1623,6 +1733,12 @@ export type AuditEventAction =
   | "event_virtual_room.created"
   | "event_virtual_room.lifecycle_changed"
   | "event_virtual_room.presenter_token_issued"
+  | "event_virtual_join_access.created"
+  | "event_virtual_join_access.revoked"
+  | "event_virtual_lobby.requested"
+  | "event_virtual_lobby.admission_changed"
+  | "event_virtual_lobby.recovery_verified"
+  | "event_virtual_lobby.attendee_token_issued"
   | "enrollment.access_code_redeemed"
   | "enrollment.administrator_added"
   | "enrollment.administrator_removed"
@@ -1736,6 +1852,13 @@ export interface Database {
   event_template_version_section: EventTemplateVersionSectionTable;
   event_virtual_room: EventVirtualRoomTable;
   event_virtual_room_operation: EventVirtualRoomOperationTable;
+  event_virtual_join_access: EventVirtualJoinAccessTable;
+  event_virtual_lobby_entry: EventVirtualLobbyEntryTable;
+  event_virtual_recovery_challenge: EventVirtualRecoveryChallengeTable;
+  event_virtual_recovery_delivery: EventVirtualRecoveryDeliveryTable;
+  event_virtual_join_session: EventVirtualJoinSessionTable;
+  event_virtual_recovery_email_capture: EventVirtualRecoveryEmailCaptureTable;
+  event_virtual_recovery_sms_capture: EventVirtualRecoverySmsCaptureTable;
   learning_item_progress: LearningItemProgressTable;
   learning_activity: LearningActivityTable;
   learning_activity_version: LearningActivityVersionTable;

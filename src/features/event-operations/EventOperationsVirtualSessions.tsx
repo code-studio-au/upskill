@@ -19,6 +19,10 @@ const EventOperationsDevicePreview = lazy(async () => {
   const module = await import("./EventOperationsDevicePreview");
   return { default: module.EventOperationsDevicePreview };
 });
+const EventOperationsLobbyQueue = lazy(async () => {
+  const module = await import("./EventOperationsLobbyQueue");
+  return { default: module.EventOperationsLobbyQueue };
+});
 
 function statusColour(
   status: "pending" | "ready" | "error" | "closed",
@@ -31,6 +35,8 @@ function statusColour(
         ? "gray"
         : "yellow";
 }
+
+type AdmissionAction = "admit" | "decline" | "revoke" | "admit_all";
 
 export function EventOperationsVirtualSessions({
   workspace,
@@ -70,6 +76,23 @@ export function EventOperationsVirtualSessions({
     );
   };
 
+  const changeAdmission = (
+    sessionId: string,
+    lobbyEntryId: string | undefined,
+    operation: AdmissionAction,
+  ) => {
+    return action(`${operation}-${lobbyEntryId ?? sessionId}`, () =>
+      mutateEventVirtualRoom({
+        data: {
+          eventOccurrenceId: occurrenceId,
+          eventSessionId: sessionId,
+          lobbyEntryId,
+          action: operation,
+        },
+      }),
+    );
+  };
+
   return (
     <Stack gap="lg">
       <div>
@@ -82,8 +105,7 @@ export function EventOperationsVirtualSessions({
       {workspace.occurrence.status !== "published" ? (
         <Alert color="blue">
           LiveKit rooms remain dormant until the event is published. Publication
-          stays disabled until the attendee lobby and webinar media slices are
-          complete.
+          stays disabled until the webinar media slice is complete.
         </Alert>
       ) : null}
       <div className={classes.sessionList}>
@@ -327,6 +349,16 @@ export function EventOperationsVirtualSessions({
                     Check provider
                   </Button>
                 </Group>
+                {virtualSession.lobbyPath ? (
+                  <EventOperationsLobbyQueue
+                    eventOccurrenceId={occurrenceId}
+                    session={virtualSession}
+                    lobbyPath={virtualSession.lobbyPath}
+                    showQueue={Boolean(room)}
+                    processingId={processingId}
+                    changeAdmission={changeAdmission}
+                  />
+                ) : null}
                 <EventOperationsDevicePreview />
               </Stack>
             </Paper>
