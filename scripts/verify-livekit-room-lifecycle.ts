@@ -905,6 +905,25 @@ try {
     ),
     { status: "forbidden" },
   );
+  const presenterTokenDenialReasons = new Set(
+    (
+      await database
+        .selectFrom("audit_event")
+        .select("reason")
+        .where("action", "=", "event_virtual_room.presenter_token_denied")
+        .execute()
+    ).map((audit) => audit.reason),
+  );
+  for (const reason of [
+    "forbidden",
+    "occurrence_unavailable",
+    "room_not_ready",
+    "session_ended",
+  ])
+    assert.ok(
+      presenterTokenDenialReasons.has(reason),
+      `Presenter credential denial ${reason} must be durably audited`,
+    );
 
   const administratorAccess = await getEventOperationsAccess(
     administrator,

@@ -404,6 +404,14 @@ try {
   );
   assert.match(
     auditActionDefinition.definition,
+    /event_virtual_lobby\.attendee_token_denied/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
+    /event_virtual_room\.presenter_token_denied/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
     /event_virtual_lobby\.recovery_request_outcome/u,
   );
   assert.match(

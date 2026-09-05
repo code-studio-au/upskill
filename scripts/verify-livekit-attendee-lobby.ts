@@ -7,6 +7,7 @@ import {
   acknowledgeEventVirtualRecording,
   issueEventVirtualAttendeeCredential,
   mutateEventVirtualLobbyAdmission,
+  recordEventVirtualRecoveryVerificationInputRejected,
   requestEventVirtualRecoveryCode,
   resolveEventVirtualLobby,
   verifyEventVirtualRecoveryCode,
@@ -19,7 +20,10 @@ import {
   setEventVirtualRoomAdmissionMode,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
-import type { CreateLiveKitJoinTokenInput } from "#/server/livekit/livekit-provider.server";
+import {
+  type CreateLiveKitJoinTokenInput,
+  LiveKitProviderError,
+} from "#/server/livekit/livekit-provider.server";
 import { buildEventNotificationVariables } from "#/server/notifications/offering-event-context.server";
 
 class MutatingJoinProvider extends FakeLiveKitProvider {
@@ -31,6 +35,12 @@ class MutatingJoinProvider extends FakeLiveKitProvider {
     const credential = await super.createJoinToken(input);
     await this.mutation();
     return credential;
+  }
+}
+
+class UnavailableParticipantsProvider extends FakeLiveKitProvider {
+  override listParticipants(): Promise<never> {
+    return Promise.reject(new LiveKitProviderError("list_participants"));
   }
 }
 
@@ -646,6 +656,39 @@ try {
     "admitted",
     "A full room must preserve admission for a retry",
   );
+  const capacityDenialAuditCount = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.attendee_token_denied")
+    .where("reason", "=", "capacity_reached")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  assert.equal(capacityDenialAuditCount, 1);
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      provider: fullProvider,
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "capacity_reached" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.attendee_token_denied")
+      .where("reason", "=", "capacity_reached")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    capacityDenialAuditCount,
+    "Repeated credential denials in one audit window must be coalesced",
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      provider: new UnavailableParticipantsProvider(),
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "provider_unavailable" },
+  );
   const provider = new FakeLiveKitProvider(() => createdAt);
   const credential = await issueEventVirtualAttendeeCredential(
     access.publicReference,
@@ -1192,6 +1235,7 @@ try {
     ),
     { status: "forbidden" },
   );
+  const committedAdmissionBatchSizes: number[] = [];
   assert.deepEqual(
     await mutateEventVirtualLobbyAdmission(
       {
@@ -1200,9 +1244,35 @@ try {
         action: "admit_all",
       },
       administrator,
+      {
+        admissionBatchSize: 100,
+        afterAdmissionBatch: async () => {
+          committedAdmissionBatchSizes.push(
+            await database
+              .selectFrom("event_virtual_lobby_entry")
+              .select((expression) =>
+                expression.fn.countAll<string>().as("count"),
+              )
+              .where("eventVirtualJoinAccessId", "=", access.id)
+              .where("state", "=", "admitted")
+              .executeTakeFirstOrThrow()
+              .then((row) => Number(row.count)),
+          );
+        },
+      },
     ),
     { status: "ready" },
   );
+  assert.ok(
+    committedAdmissionBatchSizes.length > 1,
+    "Admit all must commit large queues across multiple transactions",
+  );
+  for (let index = 1; index < committedAdmissionBatchSizes.length; index += 1)
+    assert.ok(
+      (committedAdmissionBatchSizes[index] ?? 0) >
+        (committedAdmissionBatchSizes[index - 1] ?? 0),
+      "Each admission batch must be visible after its transaction commits",
+    );
   const changedQueuePage = await findEventVirtualLobbyQueue(
     ids.occurrence,
     ids.session,
@@ -2312,13 +2382,71 @@ try {
     locallyLimitedRequests.map((result) => result.status),
     ["unavailable", "unavailable", "unavailable", "rate-limited"],
   );
-  assert.deepEqual(
-    await verifyEventVirtualRecoveryCode({
-      publicReference: access.publicReference,
-      challengeReference: "invalid-recovery-reference".padEnd(32, "x"),
-      code: "000000",
-    }),
-    { status: "invalid" },
+  const invalidSubmissionAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+    .where("reason", "=", "invalid_submission")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const invalidSubmissionAuditStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  for (let index = 0; index < 12; index += 1)
+    await recordEventVirtualRecoveryVerificationInputRejected(
+      access.publicReference,
+      "invalid-submission-audit".padEnd(43, "x"),
+      { auditLimitStore: invalidSubmissionAuditStore },
+    );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+      .where("reason", "=", "invalid_submission")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - invalidSubmissionAuditCountBefore),
+    10,
+    "Schema-rejected verification audits must be bounded per connection window",
+  );
+  const invalidReferenceAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+    .where("reason", "=", "invalid_reference")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const invalidReferenceAuditStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  const invalidReferenceResults = [];
+  for (let index = 0; index < 12; index += 1)
+    invalidReferenceResults.push(
+      await verifyEventVirtualRecoveryCode(
+        {
+          publicReference: access.publicReference,
+          challengeReference: "invalid-recovery-reference".padEnd(32, "x"),
+          code: "000000",
+        },
+        "invalid-reference-audit".padEnd(43, "x"),
+        { auditLimitStore: invalidReferenceAuditStore },
+      ),
+    );
+  assert.ok(
+    invalidReferenceResults.every((result) => result.status === "invalid"),
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+      .where("reason", "=", "invalid_reference")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - invalidReferenceAuditCountBefore),
+    10,
+    "Unknown verification references must not create unbounded audit or outbox rows",
   );
   const verificationLimitLearner = bulkLearners[10];
   assert.ok(verificationLimitLearner);
@@ -2352,14 +2480,22 @@ try {
   const incorrectVerificationCode =
     verificationLimitCode === "000000" ? "000001" : "000000";
   const verificationLimitStatuses = [];
+  const verificationLimitAuditStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
   for (let index = 0; index < 6; index += 1)
     verificationLimitStatuses.push(
       (
-        await verifyEventVirtualRecoveryCode({
-          publicReference: access.publicReference,
-          challengeReference: verificationLimitChallenge.challengeReference,
-          code: incorrectVerificationCode,
-        })
+        await verifyEventVirtualRecoveryCode(
+          {
+            publicReference: access.publicReference,
+            challengeReference: verificationLimitChallenge.challengeReference,
+            code: incorrectVerificationCode,
+          },
+          "verification-limit-result".padEnd(43, "x"),
+          { auditLimitStore: verificationLimitAuditStore },
+        )
       ).status,
     );
   assert.deepEqual(verificationLimitStatuses, [
@@ -2370,6 +2506,23 @@ try {
     "rate-limited",
     "rate-limited",
   ]);
+  const verificationLimitChallengeId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", verificationLimitChallenge.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("subjectId", "=", verificationLimitChallengeId.id)
+      .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+      .where("reason", "=", "attempt_limit_reached")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    1,
+    "The attempt-limit transition must be audited once without logging repeated denials",
+  );
 
   const recoveryOutcomeAudits = await database
     .selectFrom("audit_event")
@@ -2414,6 +2567,7 @@ try {
     "expired_or_revoked",
     "incorrect_code",
     "invalid_reference",
+    "invalid_submission",
     "terminal_session",
   ])
     assert.ok(
@@ -2426,6 +2580,24 @@ try {
     ),
     "Successful recovery verification must remain durably audited",
   );
+  const attendeeCredentialDenials = await database
+    .selectFrom("audit_event")
+    .select(["reason", "metadata"])
+    .where("action", "=", "event_virtual_lobby.attendee_token_denied")
+    .execute();
+  const attendeeCredentialDenialReasons = new Set(
+    attendeeCredentialDenials.map((audit) => audit.reason),
+  );
+  for (const reason of [
+    "capacity_reached",
+    "provider_unavailable",
+    "revoked",
+    "waiting_for_admission",
+  ])
+    assert.ok(
+      attendeeCredentialDenialReasons.has(reason),
+      `Attendee credential denial ${reason} must be durably audited`,
+    );
 
   const auditRows = await database
     .selectFrom("audit_event")

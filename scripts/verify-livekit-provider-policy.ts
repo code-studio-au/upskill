@@ -39,6 +39,14 @@ import {
   down as downRecoveryOutcomeAudit,
   up as upRecoveryOutcomeAudit,
 } from "#/server/db/migrations/0092_livekit_recovery_outcome_audit";
+import {
+  down as downAttendeeTokenDenialAudit,
+  up as upAttendeeTokenDenialAudit,
+} from "#/server/db/migrations/0093_livekit_attendee_token_denial_audit";
+import {
+  down as downPresenterTokenDenialAudit,
+  up as upPresenterTokenDenialAudit,
+} from "#/server/db/migrations/0094_livekit_presenter_token_denial_audit";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -65,6 +73,8 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downPresenterTokenDenialAudit(database);
+  await downAttendeeTokenDenialAudit(database);
   await downRecoveryOutcomeAudit(database);
   await downCredentialReservationIndex(database);
   await downRecoveryDeliveryQueue(database);
@@ -191,6 +201,8 @@ try {
   await upRecoveryDeliveryQueue(database);
   await upCredentialReservationIndex(database);
   await upRecoveryOutcomeAudit(database);
+  await upAttendeeTokenDenialAudit(database);
+  await upPresenterTokenDenialAudit(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -706,6 +718,8 @@ try {
       await upRecoveryDeliveryQueue(database);
       await upCredentialReservationIndex(database);
       await upRecoveryOutcomeAudit(database);
+      await upAttendeeTokenDenialAudit(database);
+      await upPresenterTokenDenialAudit(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

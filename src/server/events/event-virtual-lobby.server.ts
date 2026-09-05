@@ -50,8 +50,14 @@ const JOIN_SESSION_LIFETIME_MS = 30 * 60_000;
 const JOIN_SESSION_IDLE_MS = 10 * 60_000;
 const RATE_LIMIT_WINDOW_MS = 15 * 60_000;
 const RATE_LIMIT_MAXIMUM_ENTRIES = 20_000;
+const VERIFICATION_AUDIT_MAXIMUM_WRITES = 10;
 const POLL_AFTER_MS = 4_000;
 const requestLimits = new Map<string, FixedWindowRateLimitEntry>();
+const verificationAuditLimits = new Map<string, FixedWindowRateLimitEntry>();
+const credentialDenialAuditLimits = new Map<
+  string,
+  FixedWindowRateLimitEntry
+>();
 const DEVELOPMENT_COOKIE = "upskill_virtual_join";
 const SECURE_COOKIE = "__Secure-upskill_virtual_join";
 const DEVELOPMENT_CHALLENGE_COOKIE = "upskill_virtual_challenge";
@@ -60,6 +66,10 @@ const SECURE_CHALLENGE_COOKIE = "__Secure-upskill_virtual_challenge";
 interface RecoveryRequestOverrides {
   requestLimitStore?: Map<string, FixedWindowRateLimitEntry>;
   beforeReserve?: () => Promise<void>;
+}
+
+interface RecoveryVerificationAuditOverrides {
+  auditLimitStore?: Map<string, FixedWindowRateLimitEntry>;
 }
 
 type DatabaseConnection = Kysely<Database> | Transaction<Database>;
@@ -144,10 +154,15 @@ export function readEventVirtualChallengeCookie(
   return reference && /^[A-Za-z0-9_-]{32}$/u.test(reference) ? reference : null;
 }
 
+export function eventVirtualRecoveryFingerprint(
+  publicReference: string,
+  headers: Pick<Headers, "get">,
+): string {
+  return secretDigest(`${publicReference}:${forwardedClientAddress(headers)}`);
+}
+
 function requestFingerprint(publicReference: string): string {
-  return secretDigest(
-    `${publicReference}:${forwardedClientAddress(getRequestHeaders())}`,
-  );
+  return eventVirtualRecoveryFingerprint(publicReference, getRequestHeaders());
 }
 
 function consumeRequestLimit(
@@ -173,6 +188,23 @@ function consumeRequestLimit(
       maximumRequests: 10,
       windowMs: RATE_LIMIT_WINDOW_MS,
     })
+  );
+}
+
+function consumeVerificationAuditLimit(
+  publicReference: string,
+  fingerprint: string,
+  store = verificationAuditLimits,
+): boolean {
+  return consumeFixedWindowRateLimit(
+    store,
+    `verification-audit:${publicReference}:${fingerprint}`,
+    Date.now(),
+    {
+      maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
+      maximumRequests: VERIFICATION_AUDIT_MAXIMUM_WRITES,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+    },
   );
 }
 
@@ -805,6 +837,11 @@ interface RecoveryAuditTarget {
   roomGeneration?: number;
 }
 
+type AttendeeCredentialDenialReason = Extract<
+  EventVirtualAttendeeCredentialResult,
+  { status: "conflict" }
+>["reason"];
+
 function privateRecoveryAuditTarget(
   subjectType:
     "event_virtual_recovery_request" | "event_virtual_recovery_verification",
@@ -863,6 +900,85 @@ async function recordStandaloneRecoveryRequestOutcome(
     .execute((transaction) => recordRecoveryRequestOutcome(transaction, input));
 }
 
+async function recordAttendeeCredentialDenial(
+  transaction: Transaction<Database>,
+  input: {
+    target: RecoveryAuditTarget;
+    actorUserId: string | null;
+    reasonCode: AttendeeCredentialDenialReason;
+    phase:
+      | "actor_revalidation"
+      | "lobby_decision"
+      | "provider_configuration"
+      | "provider_preflight"
+      | "transaction_revalidation";
+    createdAt?: Date;
+  },
+): Promise<void> {
+  if (
+    !consumeFixedWindowRateLimit(
+      credentialDenialAuditLimits,
+      [
+        "credential-denial",
+        input.target.subjectType,
+        input.target.subjectId,
+        input.reasonCode,
+        input.phase,
+      ].join(":"),
+      Date.now(),
+      {
+        maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
+        maximumRequests: 1,
+        windowMs: RATE_LIMIT_WINDOW_MS,
+      },
+    )
+  )
+    return;
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: input.actorUserId,
+    action: "event_virtual_lobby.attendee_token_denied",
+    subjectType: input.target.subjectType,
+    subjectId: input.target.subjectId,
+    aggregateId: input.target.aggregateId,
+    reasonCode: input.reasonCode,
+    metadata: {
+      responseStatus: "conflict",
+      phase: input.phase,
+      eventSessionId: input.target.eventSessionId,
+      roomGeneration: input.target.roomGeneration,
+    },
+    ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+  });
+}
+
+async function recordStandaloneAttendeeCredentialDenial(
+  input: Parameters<typeof recordAttendeeCredentialDenial>[1],
+): Promise<void> {
+  await getDatabase()
+    .transaction()
+    .execute((transaction) =>
+      recordAttendeeCredentialDenial(transaction, input),
+    );
+}
+
+async function recordLobbyDecisionCredentialDenial(
+  publicReference: string,
+  actorUserId: string | null,
+  reasonCode: AttendeeCredentialDenialReason,
+): Promise<void> {
+  const destination = await findPublicDestination(
+    getDatabase(),
+    publicReference,
+  );
+  if (!destination) return;
+  await recordStandaloneAttendeeCredentialDenial({
+    target: recoveryAuditTargetForDestination(destination),
+    actorUserId,
+    reasonCode,
+    phase: "lobby_decision",
+  });
+}
+
 async function recordRecoveryVerificationFailure(
   transaction: Transaction<Database>,
   input: {
@@ -886,6 +1002,55 @@ async function recordRecoveryVerificationFailure(
     },
     ...(input.createdAt ? { createdAt: input.createdAt } : {}),
   });
+}
+
+async function recordLimitedRecoveryVerificationFailure(
+  transaction: Transaction<Database>,
+  input: Parameters<typeof recordRecoveryVerificationFailure>[1],
+  audit: {
+    publicReference: string;
+    fingerprint: string;
+    store?: Map<string, FixedWindowRateLimitEntry>;
+  },
+): Promise<void> {
+  if (
+    !consumeVerificationAuditLimit(
+      audit.publicReference,
+      audit.fingerprint,
+      audit.store,
+    )
+  )
+    return;
+  await recordRecoveryVerificationFailure(transaction, input);
+}
+
+export async function recordEventVirtualRecoveryVerificationInputRejected(
+  publicReference: string,
+  fingerprint = secretDigest(`verification-internal:${publicReference}`),
+  overrides: RecoveryVerificationAuditOverrides = {},
+): Promise<void> {
+  if (
+    !consumeVerificationAuditLimit(
+      publicReference,
+      fingerprint,
+      overrides.auditLimitStore,
+    )
+  )
+    return;
+  const target = privateRecoveryAuditTarget(
+    "event_virtual_recovery_verification",
+    publicReference,
+    "invalid-submission",
+  );
+  await getDatabase()
+    .transaction()
+    .execute((transaction) =>
+      recordRecoveryVerificationFailure(transaction, {
+        target,
+        responseStatus: "invalid",
+        reasonCode: "invalid_submission",
+      }),
+    );
 }
 
 export async function requestEventVirtualRecoveryCode(
@@ -1120,13 +1285,24 @@ function codeMatches(stored: string, candidate: string): boolean {
   );
 }
 
-export async function verifyEventVirtualRecoveryCode(input: {
-  publicReference: string;
-  challengeReference: string;
-  code: string;
-}): Promise<EventVirtualRecoveryVerificationResult> {
+export async function verifyEventVirtualRecoveryCode(
+  input: {
+    publicReference: string;
+    challengeReference: string;
+    code: string;
+  },
+  fingerprint = secretDigest(`verification-internal:${input.publicReference}`),
+  overrides: RecoveryVerificationAuditOverrides = {},
+): Promise<EventVirtualRecoveryVerificationResult> {
   const database = getDatabase();
   return await database.transaction().execute(async (transaction) => {
+    const audit = {
+      publicReference: input.publicReference,
+      fingerprint,
+      ...(overrides.auditLimitStore
+        ? { store: overrides.auditLimitStore }
+        : {}),
+    };
     const privateAuditTarget = privateRecoveryAuditTarget(
       "event_virtual_recovery_verification",
       input.publicReference,
@@ -1150,11 +1326,15 @@ export async function verifyEventVirtualRecoveryCode(input: {
       .where("access.publicReference", "=", input.publicReference)
       .executeTakeFirst();
     if (!locator) {
-      await recordRecoveryVerificationFailure(transaction, {
-        target: privateAuditTarget,
-        responseStatus: "invalid",
-        reasonCode: "invalid_reference",
-      });
+      await recordLimitedRecoveryVerificationFailure(
+        transaction,
+        {
+          target: privateAuditTarget,
+          responseStatus: "invalid",
+          reasonCode: "invalid_reference",
+        },
+        audit,
+      );
       return { status: "invalid" };
     }
     const verificationAuditTarget: RecoveryAuditTarget = {
@@ -1224,12 +1404,16 @@ export async function verifyEventVirtualRecoveryCode(input: {
       access.revokedAt ||
       occurrence.status !== "published"
     ) {
-      await recordRecoveryVerificationFailure(transaction, {
-        target: verificationAuditTarget,
-        responseStatus: "expired",
-        reasonCode: "expired_or_revoked",
-        createdAt: now,
-      });
+      await recordLimitedRecoveryVerificationFailure(
+        transaction,
+        {
+          target: verificationAuditTarget,
+          responseStatus: "expired",
+          reasonCode: "expired_or_revoked",
+          createdAt: now,
+        },
+        audit,
+      );
       return { status: "expired" };
     }
     const destination = await findPublicDestination(
@@ -1242,12 +1426,16 @@ export async function verifyEventVirtualRecoveryCode(input: {
         .set({ consumedAt: now })
         .where("id", "=", challenge.id)
         .execute();
-      await recordRecoveryVerificationFailure(transaction, {
-        target: verificationAuditTarget,
-        responseStatus: "expired",
-        reasonCode: "terminal_session",
-        createdAt: now,
-      });
+      await recordLimitedRecoveryVerificationFailure(
+        transaction,
+        {
+          target: verificationAuditTarget,
+          responseStatus: "expired",
+          reasonCode: "terminal_session",
+          createdAt: now,
+        },
+        audit,
+      );
       return { status: "expired" };
     }
     const participation = await eligibleParticipation(
@@ -1264,23 +1452,19 @@ export async function verifyEventVirtualRecoveryCode(input: {
         .set({ consumedAt: now })
         .where("id", "=", challenge.id)
         .execute();
-      await recordRecoveryVerificationFailure(transaction, {
-        target: verificationAuditTarget,
-        responseStatus: "expired",
-        reasonCode: "eligibility_changed",
-        createdAt: now,
-      });
+      await recordLimitedRecoveryVerificationFailure(
+        transaction,
+        {
+          target: verificationAuditTarget,
+          responseStatus: "expired",
+          reasonCode: "eligibility_changed",
+          createdAt: now,
+        },
+        audit,
+      );
       return { status: "expired" };
     }
-    if (challenge.attempts >= 5) {
-      await recordRecoveryVerificationFailure(transaction, {
-        target: verificationAuditTarget,
-        responseStatus: "rate-limited",
-        reasonCode: "attempt_limit_reached",
-        createdAt: now,
-      });
-      return { status: "rate-limited" };
-    }
+    if (challenge.attempts >= 5) return { status: "rate-limited" };
     const attempts = challenge.attempts + 1;
     if (
       !codeMatches(
@@ -1294,15 +1478,19 @@ export async function verifyEventVirtualRecoveryCode(input: {
         .where("id", "=", challenge.id)
         .execute();
       const responseStatus = attempts >= 5 ? "rate-limited" : "invalid";
-      await recordRecoveryVerificationFailure(transaction, {
-        target: verificationAuditTarget,
-        responseStatus,
-        reasonCode:
-          responseStatus === "rate-limited"
-            ? "attempt_limit_reached"
-            : "incorrect_code",
-        createdAt: now,
-      });
+      await recordLimitedRecoveryVerificationFailure(
+        transaction,
+        {
+          target: verificationAuditTarget,
+          responseStatus,
+          reasonCode:
+            responseStatus === "rate-limited"
+              ? "attempt_limit_reached"
+              : "incorrect_code",
+          createdAt: now,
+        },
+        audit,
+      );
       return { status: responseStatus };
     }
     const token = opaqueReference(32);
@@ -1535,12 +1723,19 @@ export async function issueEventVirtualAttendeeCredential(
   if (status.status === "not-found") return { status: "not-found" };
   if (status.data.outcome === "authentication_required")
     return { status: "unauthenticated" };
-  if (status.data.outcome !== "ready_to_join")
+  if (status.data.outcome !== "ready_to_join") {
+    const reason =
+      status.data.outcome === "declined" ? "revoked" : status.data.outcome;
+    await recordLobbyDecisionCredentialDenial(
+      publicReference,
+      authenticatedUser?.id ?? null,
+      reason,
+    );
     return {
       status: "conflict",
-      reason:
-        status.data.outcome === "declined" ? "revoked" : status.data.outcome,
+      reason,
     };
+  }
   const resolved = await actorAndEntry(
     publicReference,
     authenticatedUser,
@@ -1548,7 +1743,22 @@ export async function issueEventVirtualAttendeeCredential(
   );
   if (!resolved) return { status: "not-found" };
   if (!resolved.actor) return { status: "unauthenticated" };
-  if (!resolved.entry) return { status: "conflict", reason: "revoked" };
+  if (!resolved.entry) {
+    await recordStandaloneAttendeeCredentialDenial({
+      target: recoveryAuditTargetForDestination(resolved.destination),
+      actorUserId: resolved.actor.user.id,
+      reasonCode: "revoked",
+      phase: "actor_revalidation",
+    });
+    return { status: "conflict", reason: "revoked" };
+  }
+  const credentialAuditTarget: RecoveryAuditTarget = {
+    subjectType: "event_virtual_lobby_entry",
+    subjectId: resolved.entry.id,
+    aggregateId: resolved.destination.eventOccurrenceId,
+    eventSessionId: resolved.destination.eventSessionId,
+    roomGeneration: resolved.destination.roomGeneration,
+  };
   let provider: LiveKitProvider | null;
   let websocketUrl: string | undefined;
   try {
@@ -1564,8 +1774,15 @@ export async function issueEventVirtualAttendeeCredential(
     !resolved.destination.roomId ||
     !resolved.destination.providerRoomName ||
     !resolved.destination.maxParticipants
-  )
+  ) {
+    await recordStandaloneAttendeeCredentialDenial({
+      target: credentialAuditTarget,
+      actorUserId: resolved.actor.user.id,
+      reasonCode: "provider_unavailable",
+      phase: "provider_configuration",
+    });
     return { status: "conflict", reason: "provider_unavailable" };
+  }
   const providerRoomName = resolved.destination.providerRoomName;
   const participantIdentity = eventVirtualAttendeeIdentity(
     resolved.destination.roomId,
@@ -1579,8 +1796,15 @@ export async function issueEventVirtualAttendeeCredential(
         (participant) => participant.identity === participantIdentity,
       ) &&
       participants.length >= resolved.destination.maxParticipants
-    )
+    ) {
+      await recordStandaloneAttendeeCredentialDenial({
+        target: credentialAuditTarget,
+        actorUserId: resolved.actor.user.id,
+        reasonCode: "capacity_reached",
+        phase: "provider_preflight",
+      });
       return { status: "conflict", reason: "capacity_reached" };
+    }
     credential = await provider.createJoinToken({
       roomName: providerRoomName,
       participantIdentity,
@@ -1589,8 +1813,15 @@ export async function issueEventVirtualAttendeeCredential(
       role: "attendee",
     });
   } catch (error) {
-    if (error instanceof LiveKitProviderError)
+    if (error instanceof LiveKitProviderError) {
+      await recordStandaloneAttendeeCredentialDenial({
+        target: credentialAuditTarget,
+        actorUserId: resolved.actor.user.id,
+        reasonCode: "provider_unavailable",
+        phase: "provider_preflight",
+      });
       return { status: "conflict", reason: "provider_unavailable" };
+    }
     throw error;
   }
   const lobbyEntryId = resolved.entry.id;
@@ -1684,8 +1915,16 @@ export async function issueEventVirtualAttendeeCredential(
         ) ||
         !participation?.questionnaireComplete ||
         (notice && entry.recordingNoticeDigest !== recordingDigest(notice))
-      )
+      ) {
+        await recordAttendeeCredentialDenial(transaction, {
+          target: credentialAuditTarget,
+          actorUserId: resolved.actor.user.id,
+          reasonCode: "revoked",
+          phase: "transaction_revalidation",
+          createdAt: revalidationNow,
+        });
         return { status: "conflict", reason: "revoked" } as const;
+      }
       try {
         const participants = await provider.listParticipants(providerRoomName);
         const connectedIdentities = new Set(
@@ -1715,18 +1954,34 @@ export async function issueEventVirtualAttendeeCredential(
           if (
             participants.length + unconnectedReservations >=
             room.maxParticipants
-          )
+          ) {
+            await recordAttendeeCredentialDenial(transaction, {
+              target: credentialAuditTarget,
+              actorUserId: resolved.actor.user.id,
+              reasonCode: "capacity_reached",
+              phase: "transaction_revalidation",
+              createdAt: revalidationNow,
+            });
             return {
               status: "conflict",
               reason: "capacity_reached",
             } as const;
+          }
         }
       } catch (error) {
-        if (error instanceof LiveKitProviderError)
+        if (error instanceof LiveKitProviderError) {
+          await recordAttendeeCredentialDenial(transaction, {
+            target: credentialAuditTarget,
+            actorUserId: resolved.actor.user.id,
+            reasonCode: "provider_unavailable",
+            phase: "transaction_revalidation",
+            createdAt: revalidationNow,
+          });
           return {
             status: "conflict",
             reason: "provider_unavailable",
           } as const;
+        }
         throw error;
       }
       const now = revalidationNow;
@@ -1895,9 +2150,16 @@ export async function mutateEventVirtualLobbyAdmission(
     action: "admit" | "decline" | "revoke" | "admit_all";
   },
   user: AuthenticatedUser,
+  options: {
+    admissionBatchSize?: number;
+    afterAdmissionBatch?: (outcome: {
+      admittedCount: number;
+      hasMore: boolean;
+    }) => Promise<void>;
+  } = {},
 ): Promise<EventVirtualLobbyMutationResult> {
   const database = getDatabase();
-  return await database.transaction().execute(async (transaction) => {
+  const outcome = await database.transaction().execute(async (transaction) => {
     const occurrence = await transaction
       .selectFrom("event_occurrence")
       .select("status")
@@ -1942,17 +2204,12 @@ export async function mutateEventVirtualLobbyAdmission(
     const now = new Date();
     if (isTerminalDestination(destination, now))
       return { status: "conflict", reason: "session_ended" } as const;
-    if (input.action === "admit_all") {
-      await admitEligibleWaitingEntries(transaction, {
-        eventOccurrenceId: input.eventOccurrenceId,
-        eventSessionId: input.eventSessionId,
+    if (input.action === "admit_all")
+      return {
+        status: "admit-all",
         roomGeneration: room.generation,
-        actorUserId: user.id,
         now,
-        source: "staff_admit_all",
-      });
-      return { status: "ready" } as const;
-    }
+      } as const;
     if (!input.lobbyEntryId) return { status: "not-found" } as const;
     const outcome = await changeAdmission(
       transaction,
@@ -1969,4 +2226,25 @@ export async function mutateEventVirtualLobbyAdmission(
       return { status: "conflict", reason: "invalid_transition" } as const;
     return { status: "ready" } as const;
   });
+  if (outcome.status !== "admit-all") return outcome;
+  await admitEligibleWaitingEntries(
+    database,
+    {
+      eventOccurrenceId: input.eventOccurrenceId,
+      eventSessionId: input.eventSessionId,
+      roomGeneration: outcome.roomGeneration,
+      actorUserId: user.id,
+      now: outcome.now,
+      source: "staff_admit_all",
+    },
+    {
+      ...(options.admissionBatchSize
+        ? { batchSize: options.admissionBatchSize }
+        : {}),
+      ...(options.afterAdmissionBatch
+        ? { afterBatch: options.afterAdmissionBatch }
+        : {}),
+    },
+  );
+  return { status: "ready" };
 }

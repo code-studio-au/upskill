@@ -137,10 +137,21 @@ export const Route = createFileRoute("/webinars/$publicReference")({
           challengeReference,
           code: form.get("code"),
         });
-        if (!input.success)
+        const verificationFingerprint =
+          recovery.eventVirtualRecoveryFingerprint(
+            publicReference,
+            request.headers,
+          );
+        if (!input.success) {
+          await recovery.recordEventVirtualRecoveryVerificationInputRejected(
+            publicReference,
+            verificationFingerprint,
+          );
           return redirectResponse(routeLocation(publicReference, "invalid"));
+        }
         const result = await recovery.verifyEventVirtualRecoveryCode(
           input.data,
+          verificationFingerprint,
         );
         if (result.status !== "ready" || !result.joinSessionToken)
           return redirectResponse(

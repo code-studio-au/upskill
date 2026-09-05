@@ -270,7 +270,9 @@ actor and outcome.
 When an authorised presenter enables `automatic` mode:
 
 1. all currently waiting and still-eligible entries are admitted in bounded,
-   transactional batches; and
+   transactional batches, with each batch committed before the next begins and
+   staff authority, occurrence, room generation, access and automatic mode
+   revalidated for every batch; and
 2. future eligible lobby entries are admitted when created.
 
 Automatic admission never admits withdrawn, cancelled, waitlisted, ineligible,
@@ -1064,7 +1066,13 @@ Recovery audit events record the externally returned status, a bounded safe
 reason code, channel, and known session scope. Unknown or mismatched references
 use a server-keyed digest only; the submitted email address, phone number, OTP,
 challenge reference, and lobby bearer reference are never written to audit
-metadata.
+metadata. Public verification-failure audit writes are capped per connection
+and lobby window, including failures rejected by route validation. Repeated
+requests after a real challenge reaches its attempt limit reuse the recorded
+limit transition instead of producing further audit or outbox rows.
+Attendee and presenter credential denials are reason-coded without retaining a
+token and coalesced per target, reason, phase and audit window so client retries
+cannot turn operational evidence into an unbounded write path.
 
 Operational metrics and alerts include provider-room creation failures, token
 denial rates by safe reason code, lobby polling errors, webhook signature

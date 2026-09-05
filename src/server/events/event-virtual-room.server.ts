@@ -7,6 +7,10 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import {
+  consumeFixedWindowRateLimit,
+  type FixedWindowRateLimitEntry,
+} from "#/features/event-guest/event-guest-rate-limit";
+import {
   createConfiguredLiveKitProvider,
   getEnabledLiveKitConfiguration,
   LiveKitProviderError,
@@ -22,6 +26,12 @@ const PROVIDER_RETRY_MAX_SECONDS = 15 * 60;
 const PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS = 5 * 1_000;
 const ROOM_EMPTY_TIMEOUT_SECONDS = 10 * 60;
 const ROOM_DEPARTURE_TIMEOUT_SECONDS = 20;
+const TOKEN_DENIAL_AUDIT_WINDOW_MILLISECONDS = 15 * 60_000;
+const TOKEN_DENIAL_AUDIT_MAXIMUM_ENTRIES = 20_000;
+const presenterCredentialDenialAuditLimits = new Map<
+  string,
+  FixedWindowRateLimitEntry
+>();
 
 type DatabaseConnection = Kysely<Database> | Transaction<Database>;
 type VirtualRoomDoorState = "scheduled" | "open" | "locked" | "ended";
@@ -59,6 +69,69 @@ export type EventVirtualPresenterCredentialOutcome =
       };
     }
   | Exclude<EventVirtualRoomMutationOutcome, { status: "ready" }>;
+
+type PresenterCredentialDenialReason =
+  EventVirtualRoomConflictReason | "forbidden";
+
+async function recordPresenterCredentialDenial(
+  transaction: Transaction<Database>,
+  input: {
+    eventOccurrenceId: string;
+    eventSessionId: string;
+    roomId?: string;
+    roomGeneration?: number;
+    actorUserId: string;
+    reasonCode: PresenterCredentialDenialReason;
+    phase: "preparation" | "provider" | "transaction_revalidation";
+    createdAt?: Date;
+  },
+): Promise<void> {
+  if (
+    !consumeFixedWindowRateLimit(
+      presenterCredentialDenialAuditLimits,
+      [
+        "presenter-token-denial",
+        input.roomId ?? input.eventSessionId,
+        input.actorUserId,
+        input.reasonCode,
+        input.phase,
+      ].join(":"),
+      Date.now(),
+      {
+        maximumEntries: TOKEN_DENIAL_AUDIT_MAXIMUM_ENTRIES,
+        maximumRequests: 1,
+        windowMs: TOKEN_DENIAL_AUDIT_WINDOW_MILLISECONDS,
+      },
+    )
+  )
+    return;
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: input.actorUserId,
+    action: "event_virtual_room.presenter_token_denied",
+    subjectType: input.roomId ? "event_virtual_room" : "event_session",
+    subjectId: input.roomId ?? input.eventSessionId,
+    aggregateId: input.eventOccurrenceId,
+    reasonCode: input.reasonCode,
+    metadata: {
+      responseStatus:
+        input.reasonCode === "forbidden" ? "forbidden" : "conflict",
+      phase: input.phase,
+      eventSessionId: input.eventSessionId,
+      roomGeneration: input.roomGeneration,
+    },
+    ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+  });
+}
+
+async function recordStandalonePresenterCredentialDenial(
+  input: Parameters<typeof recordPresenterCredentialDenial>[1],
+): Promise<void> {
+  await getDatabase()
+    .transaction()
+    .execute((transaction) =>
+      recordPresenterCredentialDenial(transaction, input),
+    );
+}
 
 interface EventVirtualRoomState {
   id: string;
@@ -1077,22 +1150,59 @@ export async function issueEventVirtualPresenterCredential(
   options: { runtime?: VirtualRoomRuntime; clock?: () => Date } = {},
 ): Promise<EventVirtualPresenterCredentialOutcome> {
   const clock = options.clock ?? (() => new Date());
+  const database = getDatabase();
   let runtime: VirtualRoomRuntime | null;
   try {
     runtime = options.runtime ?? resolveConfiguredRuntime();
   } catch {
     runtime = null;
   }
-  if (!runtime) return { status: "conflict", reason: "provider_unavailable" };
+  if (!runtime) {
+    const context = await findVirtualSessionContext(
+      database,
+      eventOccurrenceId,
+      eventSessionId,
+    );
+    if (
+      context &&
+      context !== "not-livekit" &&
+      (await hasVirtualRoomStaffAccess(
+        database,
+        eventOccurrenceId,
+        eventSessionId,
+        user.id,
+      ))
+    )
+      await recordStandalonePresenterCredentialDenial({
+        eventOccurrenceId,
+        eventSessionId,
+        actorUserId: user.id,
+        reasonCode: "provider_unavailable",
+        phase: "provider",
+        createdAt: clock(),
+      });
+    return { status: "conflict", reason: "provider_unavailable" };
+  }
   const preparation = await ensureEventVirtualRoomForStaff(
     eventOccurrenceId,
     eventSessionId,
     user,
     { runtime, clock },
   );
-  if (preparation.status !== "ready") return preparation;
+  if (preparation.status !== "ready") {
+    if (preparation.status === "conflict" || preparation.status === "forbidden")
+      await recordStandalonePresenterCredentialDenial({
+        eventOccurrenceId,
+        eventSessionId,
+        actorUserId: user.id,
+        reasonCode:
+          preparation.status === "forbidden" ? "forbidden" : preparation.reason,
+        phase: "preparation",
+        createdAt: clock(),
+      });
+    return preparation;
+  }
 
-  const database = getDatabase();
   const room = await database
     .selectFrom("event_virtual_room")
     .select(["id", "generation", "providerRoomName", "providerStatus"])
@@ -1100,8 +1210,18 @@ export async function issueEventVirtualPresenterCredential(
     .where("replacedAt", "is", null)
     .where("doorState", "!=", "ended")
     .executeTakeFirst();
-  if (!room || room.providerStatus !== "ready")
+  if (!room || room.providerStatus !== "ready") {
+    await recordStandalonePresenterCredentialDenial({
+      eventOccurrenceId,
+      eventSessionId,
+      ...(room ? { roomId: room.id, roomGeneration: room.generation } : {}),
+      actorUserId: user.id,
+      reasonCode: "room_not_ready",
+      phase: "preparation",
+      createdAt: clock(),
+    });
     return { status: "conflict", reason: "room_not_ready" };
+  }
   if (
     !(await hasVirtualRoomStaffAccess(
       database,
@@ -1109,8 +1229,19 @@ export async function issueEventVirtualPresenterCredential(
       eventSessionId,
       user.id,
     ))
-  )
+  ) {
+    await recordStandalonePresenterCredentialDenial({
+      eventOccurrenceId,
+      eventSessionId,
+      roomId: room.id,
+      roomGeneration: room.generation,
+      actorUserId: user.id,
+      reasonCode: "forbidden",
+      phase: "transaction_revalidation",
+      createdAt: clock(),
+    });
     return { status: "forbidden" };
+  }
 
   try {
     const providerCredential = await runtime.provider.createJoinToken({
@@ -1122,20 +1253,39 @@ export async function issueEventVirtualPresenterCredential(
     const credentialStillAuthorised = await database
       .transaction()
       .execute(async (transaction) => {
+        const deny = async (
+          reasonCode: PresenterCredentialDenialReason,
+          createdAt = clock(),
+        ) =>
+          recordPresenterCredentialDenial(transaction, {
+            eventOccurrenceId,
+            eventSessionId,
+            roomId: room.id,
+            roomGeneration: room.generation,
+            actorUserId: user.id,
+            reasonCode,
+            phase: "transaction_revalidation",
+            createdAt,
+          });
         const occurrence = await transaction
           .selectFrom("event_occurrence")
           .select("id")
           .where("id", "=", eventOccurrenceId)
           .forUpdate()
           .executeTakeFirst();
-        if (!occurrence) return "occurrence_unavailable" as const;
+        if (!occurrence) {
+          await deny("occurrence_unavailable");
+          return "occurrence_unavailable" as const;
+        }
         const currentContext = await findVirtualSessionContext(
           transaction,
           eventOccurrenceId,
           eventSessionId,
         );
-        if (!currentContext || currentContext === "not-livekit")
+        if (!currentContext || currentContext === "not-livekit") {
+          await deny("occurrence_unavailable");
           return "occurrence_unavailable" as const;
+        }
         const currentRoom = await transaction
           .selectFrom("event_virtual_room")
           .select("id")
@@ -1146,7 +1296,10 @@ export async function issueEventVirtualPresenterCredential(
           .where("providerStatus", "=", "ready")
           .forUpdate()
           .executeTakeFirst();
-        if (!currentRoom) return "room-not-ready" as const;
+        if (!currentRoom) {
+          await deny("room_not_ready");
+          return "room-not-ready" as const;
+        }
         if (
           !(await hasVirtualRoomStaffAccess(
             transaction,
@@ -1154,11 +1307,16 @@ export async function issueEventVirtualPresenterCredential(
             eventSessionId,
             user.id,
           ))
-        )
+        ) {
+          await deny("forbidden");
           return "forbidden" as const;
+        }
         const currentNow = clock();
         const currentConflict = preparationConflict(currentContext, currentNow);
-        if (currentConflict) return currentConflict;
+        if (currentConflict) {
+          await deny(currentConflict, currentNow);
+          return currentConflict;
+        }
         await recordDurableAuditEvent(transaction, {
           actorUserId: user.id,
           action: "event_virtual_room.presenter_token_issued",
@@ -1186,6 +1344,16 @@ export async function issueEventVirtualPresenterCredential(
       },
     };
   } catch {
+    await recordStandalonePresenterCredentialDenial({
+      eventOccurrenceId,
+      eventSessionId,
+      roomId: room.id,
+      roomGeneration: room.generation,
+      actorUserId: user.id,
+      reasonCode: "provider_unavailable",
+      phase: "provider",
+      createdAt: clock(),
+    });
     return { status: "conflict", reason: "provider_unavailable" };
   }
 }
@@ -1494,7 +1662,7 @@ export async function setEventVirtualRoomAdmissionMode(
     return { status: "forbidden" };
   if (context.occurrenceStatus !== "published")
     return { status: "conflict", reason: "occurrence_unavailable" };
-  return database.transaction().execute(async (transaction) => {
+  const outcome = await database.transaction().execute(async (transaction) => {
     const occurrence = await transaction
       .selectFrom("event_occurrence")
       .select("id")
@@ -1546,21 +1714,18 @@ export async function setEventVirtualRoomAdmissionMode(
     if (room.doorState === "ended")
       return { status: "conflict", reason: "invalid_transition" } as const;
     if (room.admissionMode === admissionMode)
-      return { status: "ready" } as const;
+      return admissionMode === "automatic"
+        ? ({
+            status: "ready-auto-admission",
+            roomGeneration: room.generation,
+            now: currentNow,
+          } as const)
+        : ({ status: "ready" } as const);
     await transaction
       .updateTable("event_virtual_room")
       .set({ admissionMode })
       .where("id", "=", room.id)
       .execute();
-    if (admissionMode === "automatic")
-      await admitEligibleWaitingEntries(transaction, {
-        eventOccurrenceId,
-        eventSessionId,
-        roomGeneration: room.generation,
-        actorUserId: user.id,
-        now: currentNow,
-        source: "automatic_mode_enabled",
-      });
     await recordDurableAuditEvent(transaction, {
       actorUserId: user.id,
       action: "event_virtual_room.lifecycle_changed",
@@ -1576,8 +1741,28 @@ export async function setEventVirtualRoomAdmissionMode(
       },
       createdAt: currentNow,
     });
-    return { status: "ready" } as const;
+    return admissionMode === "automatic"
+      ? ({
+          status: "ready-auto-admission",
+          roomGeneration: room.generation,
+          now: currentNow,
+        } as const)
+      : ({ status: "ready" } as const);
   });
+  if (outcome.status !== "ready-auto-admission") return outcome;
+  await admitEligibleWaitingEntries(
+    database,
+    {
+      eventOccurrenceId,
+      eventSessionId,
+      roomGeneration: outcome.roomGeneration,
+      actorUserId: user.id,
+      now: outcome.now,
+      source: "automatic_mode_enabled",
+    },
+    { clock },
+  );
+  return { status: "ready" };
 }
 
 export async function replaceEventVirtualRoom(
