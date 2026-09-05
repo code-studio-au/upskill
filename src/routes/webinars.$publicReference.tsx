@@ -138,10 +138,7 @@ export const Route = createFileRoute("/webinars/$publicReference")({
           code: form.get("code"),
         });
         const verificationFingerprint =
-          recovery.eventVirtualRecoveryFingerprint(
-            publicReference,
-            request.headers,
-          );
+          recovery.eventVirtualRecoveryFingerprint(request.headers);
         if (!input.success) {
           await recovery.recordEventVirtualRecoveryVerificationInputRejected(
             publicReference,

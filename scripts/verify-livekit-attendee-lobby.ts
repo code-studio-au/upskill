@@ -2367,11 +2367,16 @@ try {
   );
   const localLimitStore = new Map<string, FixedWindowRateLimitEntry>();
   const localAuditLimitStore = new Map<string, FixedWindowRateLimitEntry>();
-  const localLimitAuditCountBefore = await database
+  const localRequestAuditCountBefore = await database
     .selectFrom("audit_event")
     .select((expression) => expression.fn.countAll<string>().as("count"))
     .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
-    .where("reason", "=", "local_rate_limited")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const localRequestOutboxCountBefore = await database
+    .selectFrom("outbox_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("topic", "=", "audit.log_requested")
     .executeTakeFirstOrThrow()
     .then((row) => Number(row.count));
   const locallyLimitedRequests = [];
@@ -2403,22 +2408,36 @@ try {
       .selectFrom("audit_event")
       .select((expression) => expression.fn.countAll<string>().as("count"))
       .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
-      .where("reason", "=", "local_rate_limited")
       .executeTakeFirstOrThrow()
-      .then((row) => Number(row.count) - localLimitAuditCountBefore),
+      .then((row) => Number(row.count) - localRequestAuditCountBefore),
     10,
-    "Post-throttle recovery request audits must not create unbounded audit or outbox rows",
+    "Pre- and post-throttle recovery request outcomes must share one bounded audit budget",
+  );
+  assert.equal(
+    await database
+      .selectFrom("outbox_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("topic", "=", "audit.log_requested")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - localRequestOutboxCountBefore),
+    10,
+    "The bounded request audit budget must also bound audit outbox projections",
   );
   const connectionLimitStore = new Map<string, FixedWindowRateLimitEntry>();
   const connectionAuditLimitStore = new Map<
     string,
     FixedWindowRateLimitEntry
   >();
-  const connectionLimitAuditCountBefore = await database
+  const rotatingReferenceAuditCountBefore = await database
     .selectFrom("audit_event")
     .select((expression) => expression.fn.countAll<string>().as("count"))
     .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
-    .where("reason", "=", "local_rate_limited")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const rotatingReferenceOutboxCountBefore = await database
+    .selectFrom("outbox_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("topic", "=", "audit.log_requested")
     .executeTakeFirstOrThrow()
     .then((row) => Number(row.count));
   const connectionLimitedRequests = [];
@@ -2426,8 +2445,11 @@ try {
     connectionLimitedRequests.push(
       await requestEventVirtualRecoveryCode(
         {
-          publicReference: "unknown-livekit-reference",
-          identifier: `connection-rate-limit-${String(index)}@example.com`,
+          publicReference: `rotating-reference-${String(index)}`.padEnd(
+            43,
+            "x",
+          ),
+          identifier: "rotating-reference-audit@example.com",
         },
         "connection-rate-limit-audit".padEnd(43, "x"),
         {
@@ -2448,11 +2470,20 @@ try {
       .selectFrom("audit_event")
       .select((expression) => expression.fn.countAll<string>().as("count"))
       .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
-      .where("reason", "=", "local_rate_limited")
       .executeTakeFirstOrThrow()
-      .then((row) => Number(row.count) - connectionLimitAuditCountBefore),
+      .then((row) => Number(row.count) - rotatingReferenceAuditCountBefore),
     10,
-    "Connection-throttled recovery request audits must share the bounded audit budget",
+    "Rotating attacker-controlled lobby references must not reset the connection audit budget",
+  );
+  assert.equal(
+    await database
+      .selectFrom("outbox_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("topic", "=", "audit.log_requested")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - rotatingReferenceOutboxCountBefore),
+    10,
+    "Rotating lobby references must not create unbounded audit outbox projections",
   );
   const invalidSubmissionAuditCountBefore = await database
     .selectFrom("audit_event")
@@ -2481,6 +2512,34 @@ try {
       .then((row) => Number(row.count) - invalidSubmissionAuditCountBefore),
     10,
     "Schema-rejected verification audits must be bounded per connection window",
+  );
+  const rotatingVerificationAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+    .where("reason", "=", "invalid_submission")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const rotatingVerificationAuditStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  for (let index = 0; index < 12; index += 1)
+    await recordEventVirtualRecoveryVerificationInputRejected(
+      `rotating-verification-${String(index)}`.padEnd(43, "x"),
+      "rotating-verification-audit".padEnd(43, "x"),
+      { auditLimitStore: rotatingVerificationAuditStore },
+    );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+      .where("reason", "=", "invalid_submission")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - rotatingVerificationAuditCountBefore),
+    10,
+    "Rotating lobby references must not reset the verification audit budget",
   );
   const invalidReferenceAuditCountBefore = await database
     .selectFrom("audit_event")

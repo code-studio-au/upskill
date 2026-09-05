@@ -158,14 +158,15 @@ export function readEventVirtualChallengeCookie(
 }
 
 export function eventVirtualRecoveryFingerprint(
-  publicReference: string,
   headers: Pick<Headers, "get">,
 ): string {
-  return secretDigest(`${publicReference}:${forwardedClientAddress(headers)}`);
+  return secretDigest(
+    `event-virtual-recovery:${forwardedClientAddress(headers)}`,
+  );
 }
 
-function requestFingerprint(publicReference: string): string {
-  return eventVirtualRecoveryFingerprint(publicReference, getRequestHeaders());
+function requestFingerprint(): string {
+  return eventVirtualRecoveryFingerprint(getRequestHeaders());
 }
 
 function consumeRequestLimit(
@@ -195,13 +196,12 @@ function consumeRequestLimit(
 }
 
 function consumeVerificationAuditLimit(
-  publicReference: string,
   fingerprint: string,
   store = verificationAuditLimits,
 ): boolean {
   return consumeFixedWindowRateLimit(
     store,
-    `verification-audit:${publicReference}:${fingerprint}`,
+    `verification-audit:${fingerprint}`,
     Date.now(),
     {
       maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
@@ -212,13 +212,12 @@ function consumeVerificationAuditLimit(
 }
 
 function consumeRequestAuditLimit(
-  publicReference: string,
   fingerprint: string,
   store = requestAuditLimits,
 ): boolean {
   return consumeFixedWindowRateLimit(
     store,
-    `request-audit:${publicReference}:${fingerprint}`,
+    `request-audit:${fingerprint}`,
     Date.now(),
     {
       maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
@@ -920,22 +919,25 @@ async function recordStandaloneRecoveryRequestOutcome(
     .execute((transaction) => recordRecoveryRequestOutcome(transaction, input));
 }
 
+interface RecoveryRequestAuditContext {
+  fingerprint: string;
+  store?: Map<string, FixedWindowRateLimitEntry>;
+}
+
+async function recordLimitedRecoveryRequestOutcome(
+  transaction: Transaction<Database>,
+  input: Parameters<typeof recordRecoveryRequestOutcome>[1],
+  audit: RecoveryRequestAuditContext,
+): Promise<void> {
+  if (!consumeRequestAuditLimit(audit.fingerprint, audit.store)) return;
+  await recordRecoveryRequestOutcome(transaction, input);
+}
+
 async function recordLimitedStandaloneRecoveryRequestOutcome(
   input: Parameters<typeof recordRecoveryRequestOutcome>[1],
-  audit: {
-    publicReference: string;
-    fingerprint: string;
-    store?: Map<string, FixedWindowRateLimitEntry>;
-  },
+  audit: RecoveryRequestAuditContext,
 ): Promise<void> {
-  if (
-    !consumeRequestAuditLimit(
-      audit.publicReference,
-      audit.fingerprint,
-      audit.store,
-    )
-  )
-    return;
+  if (!consumeRequestAuditLimit(audit.fingerprint, audit.store)) return;
   await recordStandaloneRecoveryRequestOutcome(input);
 }
 
@@ -1047,19 +1049,11 @@ async function recordLimitedRecoveryVerificationFailure(
   transaction: Transaction<Database>,
   input: Parameters<typeof recordRecoveryVerificationFailure>[1],
   audit: {
-    publicReference: string;
     fingerprint: string;
     store?: Map<string, FixedWindowRateLimitEntry>;
   },
 ): Promise<void> {
-  if (
-    !consumeVerificationAuditLimit(
-      audit.publicReference,
-      audit.fingerprint,
-      audit.store,
-    )
-  )
-    return;
+  if (!consumeVerificationAuditLimit(audit.fingerprint, audit.store)) return;
   await recordRecoveryVerificationFailure(transaction, input);
 }
 
@@ -1068,13 +1062,7 @@ export async function recordEventVirtualRecoveryVerificationInputRejected(
   fingerprint = secretDigest(`verification-internal:${publicReference}`),
   overrides: RecoveryVerificationAuditOverrides = {},
 ): Promise<void> {
-  if (
-    !consumeVerificationAuditLimit(
-      publicReference,
-      fingerprint,
-      overrides.auditLimitStore,
-    )
-  )
+  if (!consumeVerificationAuditLimit(fingerprint, overrides.auditLimitStore))
     return;
   const target = privateRecoveryAuditTarget(
     "event_virtual_recovery_verification",
@@ -1102,8 +1090,13 @@ export async function requestEventVirtualRecoveryCode(
   const channel = phone ? ("sms" as const) : ("email" as const);
   const normalizedIdentifier = phone ?? normalizeEmail(input.identifier);
   const identifierDigest = secretDigest(`${channel}:${normalizedIdentifier}`);
-  const fingerprint =
-    fingerprintOverride ?? requestFingerprint(input.publicReference);
+  const fingerprint = fingerprintOverride ?? requestFingerprint();
+  const requestAudit: RecoveryRequestAuditContext = {
+    fingerprint,
+    ...(requestOverrides.auditLimitStore
+      ? { store: requestOverrides.auditLimitStore }
+      : {}),
+  };
   if (
     !consumeRequestLimit(
       input.publicReference,
@@ -1122,13 +1115,7 @@ export async function requestEventVirtualRecoveryCode(
         responseStatus: "rate-limited",
         reasonCode: "local_rate_limited",
       },
-      {
-        publicReference: input.publicReference,
-        fingerprint,
-        ...(requestOverrides.auditLimitStore
-          ? { store: requestOverrides.auditLimitStore }
-          : {}),
-      },
+      requestAudit,
     );
     return { status: "rate-limited" };
   }
@@ -1146,21 +1133,27 @@ export async function requestEventVirtualRecoveryCode(
     !destination?.publishedAt ||
     destination.occurrenceStatus !== "published"
   ) {
-    await recordStandaloneRecoveryRequestOutcome({
-      target: requestAuditTarget,
-      channel,
-      responseStatus: "unavailable",
-      reasonCode: "destination_unavailable",
-    });
+    await recordLimitedStandaloneRecoveryRequestOutcome(
+      {
+        target: requestAuditTarget,
+        channel,
+        responseStatus: "unavailable",
+        reasonCode: "destination_unavailable",
+      },
+      requestAudit,
+    );
     return { status: "unavailable" };
   }
   if (isTerminalDestination(destination, new Date())) {
-    await recordStandaloneRecoveryRequestOutcome({
-      target: requestAuditTarget,
-      channel,
-      responseStatus: "unavailable",
-      reasonCode: "terminal_session",
-    });
+    await recordLimitedStandaloneRecoveryRequestOutcome(
+      {
+        target: requestAuditTarget,
+        channel,
+        responseStatus: "unavailable",
+        reasonCode: "terminal_session",
+      },
+      requestAudit,
+    );
     return { status: "unavailable" };
   }
   const fallbackReference = opaqueReference();
@@ -1192,12 +1185,15 @@ export async function requestEventVirtualRecoveryCode(
     )
     .executeTakeFirst();
   if (!participant) {
-    await recordStandaloneRecoveryRequestOutcome({
-      target: requestAuditTarget,
-      channel,
-      responseStatus: "accepted",
-      reasonCode: "enumeration_safe_fallback",
-    });
+    await recordLimitedStandaloneRecoveryRequestOutcome(
+      {
+        target: requestAuditTarget,
+        channel,
+        responseStatus: "accepted",
+        reasonCode: "enumeration_safe_fallback",
+      },
+      requestAudit,
+    );
     return { status: "accepted", challengeReference: fallbackReference };
   }
   const eligibility = await eligibleParticipation(
@@ -1206,12 +1202,15 @@ export async function requestEventVirtualRecoveryCode(
     participant.userId,
   );
   if (!eligibility?.questionnaireComplete) {
-    await recordStandaloneRecoveryRequestOutcome({
-      target: requestAuditTarget,
-      channel,
-      responseStatus: "accepted",
-      reasonCode: "enumeration_safe_fallback",
-    });
+    await recordLimitedStandaloneRecoveryRequestOutcome(
+      {
+        target: requestAuditTarget,
+        channel,
+        responseStatus: "accepted",
+        reasonCode: "enumeration_safe_fallback",
+      },
+      requestAudit,
+    );
     return { status: "accepted", challengeReference: fallbackReference };
   }
   const challengeId = `event_virtual_recovery_${randomUUID()}`;
@@ -1236,13 +1235,17 @@ export async function requestEventVirtualRecoveryCode(
       now: reservedAt,
     });
     if (!currentTarget) {
-      await recordRecoveryRequestOutcome(transaction, {
-        target: requestAuditTarget,
-        channel,
-        responseStatus: "accepted",
-        reasonCode: "eligibility_changed",
-        createdAt: reservedAt,
-      });
+      await recordLimitedRecoveryRequestOutcome(
+        transaction,
+        {
+          target: requestAuditTarget,
+          channel,
+          responseStatus: "accepted",
+          reasonCode: "eligibility_changed",
+          createdAt: reservedAt,
+        },
+        requestAudit,
+      );
       return false;
     }
     const recent = await transaction
@@ -1261,13 +1264,17 @@ export async function requestEventVirtualRecoveryCode(
       )
       .executeTakeFirstOrThrow();
     if (Number(recent.count) >= 3) {
-      await recordRecoveryRequestOutcome(transaction, {
-        target: requestAuditTarget,
-        channel,
-        responseStatus: "accepted",
-        reasonCode: "durable_rate_limited",
-        createdAt: reservedAt,
-      });
+      await recordLimitedRecoveryRequestOutcome(
+        transaction,
+        {
+          target: requestAuditTarget,
+          channel,
+          responseStatus: "accepted",
+          reasonCode: "durable_rate_limited",
+          createdAt: reservedAt,
+        },
+        requestAudit,
+      );
       return false;
     }
     await transaction
@@ -1310,13 +1317,17 @@ export async function requestEventVirtualRecoveryCode(
       code,
       createdAt: reservedAt,
     });
-    await recordRecoveryRequestOutcome(transaction, {
-      target: requestAuditTarget,
-      channel,
-      responseStatus: "accepted",
-      reasonCode: "challenge_queued",
-      createdAt: reservedAt,
-    });
+    await recordLimitedRecoveryRequestOutcome(
+      transaction,
+      {
+        target: requestAuditTarget,
+        channel,
+        responseStatus: "accepted",
+        reasonCode: "challenge_queued",
+        createdAt: reservedAt,
+      },
+      requestAudit,
+    );
     return true;
   });
   if (!reserved)
@@ -1345,7 +1356,6 @@ export async function verifyEventVirtualRecoveryCode(
   const database = getDatabase();
   return await database.transaction().execute(async (transaction) => {
     const audit = {
-      publicReference: input.publicReference,
       fingerprint,
       ...(overrides.auditLimitStore
         ? { store: overrides.auditLimitStore }

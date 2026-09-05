@@ -1067,12 +1067,14 @@ reason code, channel, and known session scope. Unknown or mismatched references
 use a server-keyed digest only; the submitted email address, phone number, OTP,
 challenge reference, and lobby bearer reference are never written to audit
 metadata. Public verification-failure audit writes are capped per connection
-and lobby window, including failures rejected by route validation. Repeated
+window independently of the attacker-controlled lobby reference, including
+failures rejected by route validation. Repeated
 requests after a real challenge reaches its attempt limit reuse the recorded
 limit transition instead of producing further audit or outbox rows.
-Recovery-request denials after the request throttle is exhausted have their own
-bounded connection-and-lobby audit budget, so continued rejected submissions
-cannot create unbounded audit or outbox rows.
+Every recovery-request outcome before and after request throttling shares a
+bounded connection-level audit budget that is independent of the supplied lobby
+reference, so cycling references or continuing rejected submissions cannot
+create unbounded audit or outbox rows.
 Attendee and presenter credential denials are reason-coded without retaining a
 token and coalesced per target, reason, phase and audit window so client retries
 cannot turn operational evidence into an unbounded write path.
