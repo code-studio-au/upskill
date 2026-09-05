@@ -158,12 +158,23 @@ function EventVirtualLobbyPage() {
   const { recovery } = Route.useSearch();
   const router = useRouter();
   useEffect(() => {
-    if (!data.pollAfterMilliseconds) return;
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void router.invalidate();
-    }, data.pollAfterMilliseconds);
+    const pollAfterMilliseconds = data.pollAfterMilliseconds;
+    if (!pollAfterMilliseconds) return;
+    let stopped = false;
+    let timer: number;
+    const schedule = () => {
+      timer = window.setTimeout(
+        () => {
+          if (document.visibilityState === "visible") void router.invalidate();
+          if (!stopped) schedule();
+        },
+        pollAfterMilliseconds * (0.75 + Math.random() * 0.5),
+      );
+    };
+    schedule();
     return () => {
-      window.clearInterval(timer);
+      stopped = true;
+      window.clearTimeout(timer);
     };
   }, [data.pollAfterMilliseconds, router]);
 

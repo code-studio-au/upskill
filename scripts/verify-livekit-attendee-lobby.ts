@@ -3,6 +3,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { ensureEventVirtualJoinAccess } from "#/server/events/event-virtual-join-access.server";
 import {
+  acknowledgeEventVirtualRecording,
   issueEventVirtualAttendeeCredential,
   mutateEventVirtualLobbyAdmission,
   requestEventVirtualRecoveryCode,
@@ -484,6 +485,150 @@ try {
     )?.input.role,
     "attendee",
   );
+  const tokenIssuedEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["id", "state", "admittedByUserId"])
+    .where("eventParticipationId", "=", ids.participation)
+    .executeTakeFirstOrThrow();
+  const tokenIssuedAuditCount = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("subjectId", "=", tokenIssuedEntry.id)
+    .where("action", "=", "event_virtual_lobby.admission_changed")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: tokenIssuedEntry.id,
+        action: "admit",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "admittedByUserId"])
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow(),
+    {
+      state: tokenIssuedEntry.state,
+      admittedByUserId: tokenIssuedEntry.admittedByUserId,
+    },
+    "A repeated admit must preserve token-issued lifecycle evidence",
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("subjectId", "=", tokenIssuedEntry.id)
+      .where("action", "=", "event_virtual_lobby.admission_changed")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    tokenIssuedAuditCount,
+  );
+  await database
+    .insertInto("event_presenter_assignment")
+    .values({
+      id: "verify_livekit_lobby_presenter_assignment",
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      userId: secondLearner.id,
+      scopeKey: ids.session,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
+    })
+    .execute();
+  await database
+    .updateTable("event_presenter_assignment")
+    .set({ endedAt: new Date(), endReason: "assignment_ended" })
+    .where("id", "=", "verify_livekit_lobby_presenter_assignment")
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: tokenIssuedEntry.id,
+        action: "revoke",
+      },
+      secondLearner,
+    ),
+    { status: "forbidden" },
+  );
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "automatic",
+      livekitRecordingRetentionDays: 30,
+      livekitAttendeeRecordingNotice: "This webinar is recorded.",
+      livekitPresenterRecordingNotice: "This webinar is recorded.",
+    })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      recordingMode: "automatic",
+      recordingRetentionDays: 30,
+      doorState: "ended",
+      endedAt: new Date(),
+      endedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await acknowledgeEventVirtualRecording(access.publicReference, learner),
+    { status: "conflict", reason: "session_ended" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("recordingAcknowledgedAt")
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.recordingAcknowledgedAt),
+    null,
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", endedAt: null, endedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await acknowledgeEventVirtualRecording(access.publicReference, learner),
+    { status: "ready" },
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("recordingAcknowledgedAt")
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.recordingAcknowledgedAt),
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "off", recordingRetentionDays: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
 
   await setEventVirtualRoomAdmissionMode(
     ids.occurrence,
@@ -1040,6 +1185,59 @@ try {
     presenterRevoked.status === "ready" ? presenterRevoked.data.outcome : null,
     "revoked",
     "An explicit presenter revocation must not be auto-reactivated",
+  );
+  const failedDelivery = await requestEventVirtualRecoveryCode(
+    {
+      publicReference: access.publicReference,
+      identifier: secondLearner.email,
+    },
+    "failed-delivery".padEnd(43, "x"),
+    {
+      sendEmail: () =>
+        Promise.reject(new Error("EMAIL_PROVIDER_NOT_CONFIGURED")),
+      requestLimitStore: new Map(),
+    },
+  );
+  assert.equal(failedDelivery.status, "accepted");
+  assert.ok("challengeReference" in failedDelivery);
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recovery_challenge")
+      .select(["deliveryStatus", "consumedAt"])
+      .where("reference", "=", failedDelivery.challengeReference)
+      .executeTakeFirstOrThrow()
+      .then((row) => ({
+        deliveryStatus: row.deliveryStatus,
+        consumed: Boolean(row.consumedAt),
+      })),
+    { deliveryStatus: "failed", consumed: true },
+  );
+  const distributedRequests = await Promise.all(
+    Array.from({ length: 4 }, (_, index) => {
+      return requestEventVirtualRecoveryCode(
+        {
+          publicReference: access.publicReference,
+          identifier: secondLearner.email,
+        },
+        `distributed-${String(index)}`.padEnd(43, "x"),
+        { requestLimitStore: new Map() },
+      );
+    }),
+  );
+  assert.deepEqual(
+    distributedRequests.map((result) => result.status).toSorted(),
+    ["accepted", "accepted", "rate-limited", "rate-limited"],
+    "The database lock must enforce three durable requests across instances",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recovery_challenge")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("userId", "=", secondLearner.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    3,
+    "Failed delivery history must remain part of the durable rate limit",
   );
 
   const auditRows = await database

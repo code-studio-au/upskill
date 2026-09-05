@@ -44,7 +44,7 @@ import {
   sendEventVirtualRecoverySms,
 } from "#/server/notifications/sms-provider.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
-import { hasVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
+import { lockVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
 const JOIN_SESSION_LIFETIME_MS = 30 * 60_000;
@@ -57,6 +57,12 @@ const DEVELOPMENT_COOKIE = "upskill_virtual_join";
 const SECURE_COOKIE = "__Secure-upskill_virtual_join";
 const DEVELOPMENT_CHALLENGE_COOKIE = "upskill_virtual_challenge";
 const SECURE_CHALLENGE_COOKIE = "__Secure-upskill_virtual_challenge";
+
+interface RecoveryDeliveryOverrides {
+  sendEmail?: typeof sendEventVirtualRecoveryEmail;
+  sendSms?: typeof sendEventVirtualRecoverySms;
+  requestLimitStore?: Map<string, FixedWindowRateLimitEntry>;
+}
 
 type DatabaseConnection = Kysely<Database> | Transaction<Database>;
 
@@ -150,11 +156,12 @@ function consumeRequestLimit(
   publicReference: string,
   identifierDigest: string,
   fingerprint: string,
+  store = requestLimits,
 ): boolean {
   const now = Date.now();
   return (
     consumeFixedWindowRateLimit(
-      requestLimits,
+      store,
       `identifier:${publicReference}:${identifierDigest}`,
       now,
       {
@@ -163,16 +170,11 @@ function consumeRequestLimit(
         windowMs: RATE_LIMIT_WINDOW_MS,
       },
     ) &&
-    consumeFixedWindowRateLimit(
-      requestLimits,
-      `connection:${fingerprint}`,
-      now,
-      {
-        maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
-        maximumRequests: 10,
-        windowMs: RATE_LIMIT_WINDOW_MS,
-      },
-    )
+    consumeFixedWindowRateLimit(store, `connection:${fingerprint}`, now, {
+      maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
+      maximumRequests: 10,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+    })
   );
 }
 
@@ -727,6 +729,7 @@ function recoveryEmail(input: {
 export async function requestEventVirtualRecoveryCode(
   input: { publicReference: string; identifier: string },
   fingerprintOverride?: string,
+  deliveryOverrides: RecoveryDeliveryOverrides = {},
 ): Promise<EventVirtualRecoveryRequestResult> {
   const database = getDatabase();
   const phone = normalizeInternationalPhone(input.identifier);
@@ -736,7 +739,12 @@ export async function requestEventVirtualRecoveryCode(
   const fingerprint =
     fingerprintOverride ?? requestFingerprint(input.publicReference);
   if (
-    !consumeRequestLimit(input.publicReference, identifierDigest, fingerprint)
+    !consumeRequestLimit(
+      input.publicReference,
+      identifierDigest,
+      fingerprint,
+      deliveryOverrides.requestLimitStore,
+    )
   )
     return { status: "rate-limited" };
   const destination = await findPublicDestination(
@@ -784,27 +792,33 @@ export async function requestEventVirtualRecoveryCode(
   );
   if (!eligibility?.questionnaireComplete)
     return { status: "accepted", challengeReference: fallbackReference };
-  const recent = await database
-    .selectFrom("event_virtual_recovery_challenge")
-    .select((expression) => expression.fn.countAll<string>().as("count"))
-    .where(
-      "eventVirtualJoinAccessId",
-      "=",
-      destination.eventVirtualJoinAccessId,
-    )
-    .where("identifierDigest", "=", identifierDigest)
-    .where("createdAt", ">", new Date(Date.now() - RATE_LIMIT_WINDOW_MS))
-    .executeTakeFirstOrThrow();
-  if (Number(recent.count) >= 3) return { status: "rate-limited" };
-
-  const now = new Date();
   const challengeId = `event_virtual_recovery_${randomUUID()}`;
   const challengeReference = opaqueReference();
   const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
-  await database.transaction().execute(async (transaction) => {
+  const reserved = await database.transaction().execute(async (transaction) => {
+    await sql`select pg_advisory_xact_lock(hashtextextended(
+      ${`event-virtual-recovery:${destination.eventVirtualJoinAccessId}:${identifierDigest}`}, 0
+    ))`.execute(transaction);
+    const reservedAt = new Date();
+    const recent = await transaction
+      .selectFrom("event_virtual_recovery_challenge")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where(
+        "eventVirtualJoinAccessId",
+        "=",
+        destination.eventVirtualJoinAccessId,
+      )
+      .where("identifierDigest", "=", identifierDigest)
+      .where(
+        "createdAt",
+        ">",
+        new Date(reservedAt.getTime() - RATE_LIMIT_WINDOW_MS),
+      )
+      .executeTakeFirstOrThrow();
+    if (Number(recent.count) >= 3) return false;
     await transaction
       .updateTable("event_virtual_recovery_challenge")
-      .set({ consumedAt: now })
+      .set({ consumedAt: reservedAt })
       .where(
         "eventVirtualJoinAccessId",
         "=",
@@ -831,31 +845,39 @@ export async function requestEventVirtualRecoveryCode(
         attempts: 0,
         resendCount: 0,
         deliveryStatus: "pending",
-        expiresAt: new Date(now.getTime() + CHALLENGE_LIFETIME_MS),
+        expiresAt: new Date(reservedAt.getTime() + CHALLENGE_LIFETIME_MS),
         consumedAt: null,
-        createdAt: now,
+        createdAt: reservedAt,
       })
       .execute();
+    return true;
   });
+  if (!reserved) return { status: "rate-limited" };
   try {
     if (channel === "sms")
-      await sendEventVirtualRecoverySms(database, {
-        deliveryId: challengeId,
-        recipientUserId: participant.userId,
-        recipientName: participant.name,
-        recipientPhone: normalizedIdentifier,
-        message: `Your Upskill webinar access code is ${code}. It expires in 10 minutes. If you did not request it, ignore this message.`,
-      });
+      await (deliveryOverrides.sendSms ?? sendEventVirtualRecoverySms)(
+        database,
+        {
+          deliveryId: challengeId,
+          recipientUserId: participant.userId,
+          recipientName: participant.name,
+          recipientPhone: normalizedIdentifier,
+          message: `Your Upskill webinar access code is ${code}. It expires in 10 minutes. If you did not request it, ignore this message.`,
+        },
+      );
     else
-      await sendEventVirtualRecoveryEmail(database, {
-        challengeId,
-        recipientEmail: normalizeEmail(participant.email),
-        ...recoveryEmail({
-          code,
-          eventTitle: destination.eventTitle,
-          sessionTitle: destination.sessionTitle,
-        }),
-      });
+      await (deliveryOverrides.sendEmail ?? sendEventVirtualRecoveryEmail)(
+        database,
+        {
+          challengeId,
+          recipientEmail: normalizeEmail(participant.email),
+          ...recoveryEmail({
+            code,
+            eventTitle: destination.eventTitle,
+            sessionTitle: destination.sessionTitle,
+          }),
+        },
+      );
     await database
       .updateTable("event_virtual_recovery_challenge")
       .set({ deliveryStatus: "sent" })
@@ -873,7 +895,8 @@ export async function requestEventVirtualRecoveryCode(
         .execute();
     else
       await database
-        .deleteFrom("event_virtual_recovery_challenge")
+        .updateTable("event_virtual_recovery_challenge")
+        .set({ deliveryStatus: "failed", consumedAt: new Date() })
         .where("id", "=", challengeId)
         .execute();
     logServerEvent({
@@ -1063,24 +1086,121 @@ export async function acknowledgeEventVirtualRecording(
   publicReference: string,
   authenticatedUser: AuthenticatedUser | null,
 ): Promise<EventVirtualLobbyMutationResult> {
-  const resolved = await actorAndEntry(publicReference, authenticatedUser);
-  if (!resolved) return { status: "not-found" };
-  if (!resolved.actor) return { status: "unauthenticated" };
-  if (!resolved.entry) return { status: "conflict", reason: "ineligible" };
-  const notice = recordingNotice(resolved.destination);
-  if (!notice) return { status: "conflict", reason: "invalid_transition" };
-  const now = new Date();
-  await getDatabase()
-    .updateTable("event_virtual_lobby_entry")
-    .set({
-      recordingAcknowledgedAt: now,
-      recordingNoticeDigest: recordingDigest(notice),
-      updatedAt: now,
-    })
-    .where("id", "=", resolved.entry.id)
-    .where("state", "in", ["admitted", "token_issued", "connected", "left"])
-    .execute();
-  return { status: "ready" };
+  const database = getDatabase();
+  const initialDestination = await findPublicDestination(
+    database,
+    publicReference,
+  );
+  if (!initialDestination) return { status: "not-found" };
+  const actor = await resolveActor(initialDestination, authenticatedUser);
+  if (!actor) return { status: "unauthenticated" };
+  return await database.transaction().execute(async (transaction) => {
+    const occurrence = await transaction
+      .selectFrom("event_occurrence")
+      .select("status")
+      .where("id", "=", initialDestination.eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    const room = initialDestination.roomId
+      ? await transaction
+          .selectFrom("event_virtual_room")
+          .select("id")
+          .where("id", "=", initialDestination.roomId)
+          .where("replacedAt", "is", null)
+          .forUpdate()
+          .executeTakeFirst()
+      : null;
+    const access = await transaction
+      .selectFrom("event_virtual_join_access")
+      .select("id")
+      .where("id", "=", initialDestination.eventVirtualJoinAccessId)
+      .where("revokedAt", "is", null)
+      .forUpdate()
+      .executeTakeFirst();
+    const destination = access
+      ? await findPublicDestination(transaction, publicReference)
+      : null;
+    if (!occurrence || !access || !destination)
+      return { status: "not-found" } as const;
+    const now = new Date();
+    if (
+      occurrence.status !== "published" ||
+      (initialDestination.roomId && !room) ||
+      isTerminalDestination(destination, now)
+    )
+      return { status: "conflict", reason: "session_ended" } as const;
+    const recoveredJoinSession = actor.joinSessionId
+      ? await transaction
+          .selectFrom("event_virtual_join_session")
+          .select("id")
+          .where("id", "=", actor.joinSessionId)
+          .where(
+            "eventVirtualJoinAccessId",
+            "=",
+            destination.eventVirtualJoinAccessId,
+          )
+          .where("eventParticipationId", "=", actor.eventParticipationId ?? "")
+          .where("userId", "=", actor.user.id)
+          .where("expiresAt", ">", now)
+          .where(
+            "lastUsedAt",
+            ">",
+            new Date(now.getTime() - JOIN_SESSION_IDLE_MS),
+          )
+          .where("revokedAt", "is", null)
+          .forUpdate()
+          .executeTakeFirst()
+      : null;
+    if (actor.accessMethod !== "authenticated" && !recoveredJoinSession)
+      return { status: "unauthenticated" } as const;
+    const participation = await eligibleParticipation(
+      transaction,
+      destination,
+      actor.user.id,
+    );
+    if (
+      !participation?.questionnaireComplete ||
+      (actor.eventParticipationId &&
+        actor.eventParticipationId !== participation.id)
+    )
+      return { status: "conflict", reason: "ineligible" } as const;
+    const notice = recordingNotice(destination);
+    if (!notice)
+      return { status: "conflict", reason: "invalid_transition" } as const;
+    const entry = await transaction
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["id", "state"])
+      .where(
+        "eventVirtualJoinAccessId",
+        "=",
+        destination.eventVirtualJoinAccessId,
+      )
+      .where("eventParticipationId", "=", participation.id)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!entry) return { status: "conflict", reason: "ineligible" } as const;
+    if (
+      !["admitted", "token_issued", "connected", "left"].includes(entry.state)
+    )
+      return {
+        status: "conflict",
+        reason: "invalid_transition",
+      } as const;
+    const updated = await transaction
+      .updateTable("event_virtual_lobby_entry")
+      .set({
+        recordingAcknowledgedAt: now,
+        recordingNoticeDigest: recordingDigest(notice),
+        updatedAt: now,
+      })
+      .where("id", "=", entry.id)
+      .where("state", "=", entry.state)
+      .returning("id")
+      .executeTakeFirst();
+    return updated
+      ? ({ status: "ready" } as const)
+      : ({ status: "conflict", reason: "invalid_transition" } as const);
+  });
 }
 
 function attendeeIdentity(roomId: string, participationId: string): string {
@@ -1320,8 +1440,10 @@ async function changeAdmission(
   if (!entry) return "not-found";
   if (
     action === "admit" &&
-    !["waiting", "admitted", "token_issued"].includes(entry.state)
+    ["admitted", "token_issued", "connected"].includes(entry.state)
   )
+    return "ready";
+  if (action === "admit" && entry.state !== "waiting")
     return "invalid-transition";
   if (action === "decline" && entry.state !== "waiting")
     return "invalid-transition";
@@ -1377,15 +1499,6 @@ export async function mutateEventVirtualLobbyAdmission(
   user: AuthenticatedUser,
 ): Promise<EventVirtualLobbyMutationResult> {
   const database = getDatabase();
-  if (
-    !(await hasVirtualRoomStaffAccess(
-      database,
-      input.eventOccurrenceId,
-      input.eventSessionId,
-      user.id,
-    ))
-  )
-    return { status: "forbidden" };
   return await database.transaction().execute(async (transaction) => {
     const occurrence = await transaction
       .selectFrom("event_occurrence")
@@ -1414,6 +1527,15 @@ export async function mutateEventVirtualLobbyAdmission(
       .forUpdate()
       .executeTakeFirst();
     if (!access) return { status: "not-found" } as const;
+    if (
+      !(await lockVirtualRoomStaffAccess(
+        transaction,
+        input.eventOccurrenceId,
+        input.eventSessionId,
+        user.id,
+      ))
+    )
+      return { status: "forbidden" } as const;
     const destination = await findPublicDestination(
       transaction,
       access.publicReference,
