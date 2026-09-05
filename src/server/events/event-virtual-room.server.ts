@@ -334,7 +334,7 @@ async function createRoomGeneration(
   eventSessionId: string,
   userId: string,
   approvedMaxParticipants: number,
-  now: Date,
+  clock: () => Date,
   replacesRoomId: string | null = null,
 ) {
   return getDatabase()
@@ -362,7 +362,8 @@ async function createRoomGeneration(
       );
       if (!context) return "occurrence-unavailable" as const;
       if (context === "not-livekit") return "not-livekit" as const;
-      const conflict = preparationConflict(context, now);
+      const currentNow = clock();
+      const conflict = preparationConflict(context, currentNow);
       if (conflict) return conflict;
       const maxParticipants =
         context.occurrenceCapacity + context.capacityHeadroom;
@@ -414,7 +415,7 @@ async function createRoomGeneration(
           providerStatus: "pending",
           providerErrorCode: null,
           createdByUserId: userId,
-          createdAt: now,
+          createdAt: currentNow,
           startedByUserId: null,
           startedAt: null,
           lockedByUserId: null,
@@ -434,7 +435,7 @@ async function createRoomGeneration(
         room.id,
         "ensure_room",
         userId,
-        now,
+        currentNow,
       );
       await recordDurableAuditEvent(transaction, {
         actorUserId: userId,
@@ -447,7 +448,7 @@ async function createRoomGeneration(
           generation,
           replacesRoomId,
         },
-        createdAt: now,
+        createdAt: currentNow,
       });
       return room;
     });
@@ -652,11 +653,11 @@ async function executeEnsureRoom(
             .execute();
         return { currentClaim, roomOperational };
       });
-    if (!completion.currentClaim || !completion.roomOperational) {
+    if (!completion.roomOperational) {
       await compensateEnsuredRoom(room.id, room.providerRoomName, runtime, now);
       return completion.currentClaim ? "ended" : "pending";
     }
-    return "ready";
+    return completion.currentClaim ? "ready" : "pending";
   } catch (error) {
     await retryRoomOperation(claimed, providerFailureCode(error), now);
     return "failed";
@@ -746,9 +747,10 @@ export async function ensureEventVirtualRoomForStaff(
   eventOccurrenceId: string,
   eventSessionId: string,
   user: AuthenticatedUser,
-  options: { runtime?: VirtualRoomRuntime; now?: Date } = {},
+  options: { runtime?: VirtualRoomRuntime; clock?: () => Date } = {},
 ): Promise<EventVirtualRoomMutationOutcome> {
-  const now = options.now ?? new Date();
+  const clock = options.clock ?? (() => new Date());
+  const now = clock();
   const database = getDatabase();
   const context = await findVirtualSessionContext(
     database,
@@ -788,7 +790,7 @@ export async function ensureEventVirtualRoomForStaff(
       eventSessionId,
       user.id,
       runtime.approvedMaxParticipants,
-      now,
+      clock,
     );
     if (created === "forbidden") return { status: "forbidden" };
     if (created === "occurrence-unavailable")
@@ -809,22 +811,74 @@ export async function ensureEventVirtualRoomForStaff(
     return { status: "conflict", reason: "room_configuration_changed" };
   if (room.doorState === "ended")
     return { status: "conflict", reason: "session_ended" };
-  const readiness = await executeEnsureRoom(room.id, runtime, now);
+  const readiness = await executeEnsureRoom(room.id, runtime, clock());
   if (readiness === "pending")
     return { status: "conflict", reason: "provider_pending" };
   if (readiness !== "ready")
     return { status: "conflict", reason: "provider_unavailable" };
-  if (
-    !(await hasVirtualRoomStaffAccess(
-      database,
+  return database.transaction().execute(async (transaction) => {
+    const occurrence = await transaction
+      .selectFrom("event_occurrence")
+      .select("id")
+      .where("id", "=", eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!occurrence) return { status: "not-found" } as const;
+    const session = await transaction
+      .selectFrom("event_session")
+      .select("id")
+      .where("id", "=", eventSessionId)
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!session) return { status: "not-found" } as const;
+    const currentContext = await findVirtualSessionContext(
+      transaction,
       eventOccurrenceId,
       eventSessionId,
-      user.id,
-    ))
-  )
-    return { status: "forbidden" };
-
-  return { status: "ready" };
+    );
+    if (!currentContext) return { status: "not-found" } as const;
+    if (currentContext === "not-livekit")
+      return { status: "conflict", reason: "not_livekit" } as const;
+    const currentRoom = await transaction
+      .selectFrom("event_virtual_room")
+      .select(["id", "maxParticipants"])
+      .where("id", "=", room.id)
+      .where("eventSessionId", "=", eventSessionId)
+      .where("replacedAt", "is", null)
+      .where("doorState", "!=", "ended")
+      .where("providerStatus", "=", "ready")
+      .forUpdate()
+      .executeTakeFirst();
+    if (!currentRoom)
+      return { status: "conflict", reason: "room_not_ready" } as const;
+    const currentMaxParticipants =
+      currentContext.occurrenceCapacity + currentContext.capacityHeadroom;
+    if (
+      currentMaxParticipants < 2 ||
+      currentMaxParticipants > runtime.approvedMaxParticipants ||
+      currentMaxParticipants > 10_000
+    )
+      return { status: "conflict", reason: "capacity_exceeded" } as const;
+    if (currentRoom.maxParticipants !== currentMaxParticipants)
+      return {
+        status: "conflict",
+        reason: "room_configuration_changed",
+      } as const;
+    if (
+      !(await hasVirtualRoomStaffAccess(
+        transaction,
+        eventOccurrenceId,
+        eventSessionId,
+        user.id,
+      ))
+    )
+      return { status: "forbidden" } as const;
+    const currentConflict = preparationConflict(currentContext, clock());
+    return currentConflict
+      ? ({ status: "conflict", reason: currentConflict } as const)
+      : ({ status: "ready" } as const);
+  });
 }
 
 export async function issueEventVirtualPresenterCredential(
@@ -834,7 +888,6 @@ export async function issueEventVirtualPresenterCredential(
   options: { runtime?: VirtualRoomRuntime; clock?: () => Date } = {},
 ): Promise<EventVirtualPresenterCredentialOutcome> {
   const clock = options.clock ?? (() => new Date());
-  const now = clock();
   let runtime: VirtualRoomRuntime | null;
   try {
     runtime = options.runtime ?? resolveConfiguredRuntime();
@@ -846,7 +899,7 @@ export async function issueEventVirtualPresenterCredential(
     eventOccurrenceId,
     eventSessionId,
     user,
-    { runtime, now },
+    { runtime, clock },
   );
   if (preparation.status !== "ready") return preparation;
 
@@ -1041,9 +1094,25 @@ export async function transitionEventVirtualRoom(
   eventSessionId: string,
   action: Exclude<VirtualRoomAction, "replace">,
   user: AuthenticatedUser,
-  options: { clock?: () => Date } = {},
+  options: { runtime?: VirtualRoomRuntime; clock?: () => Date } = {},
 ): Promise<EventVirtualRoomMutationOutcome> {
   const clock = options.clock ?? (() => new Date());
+  if (action === "start") {
+    let runtime: VirtualRoomRuntime | null;
+    try {
+      runtime = options.runtime ?? resolveConfiguredRuntime();
+    } catch {
+      runtime = null;
+    }
+    if (!runtime) return { status: "conflict", reason: "provider_unavailable" };
+    const preparation = await ensureEventVirtualRoomForStaff(
+      eventOccurrenceId,
+      eventSessionId,
+      user,
+      { runtime, clock },
+    );
+    if (preparation.status !== "ready") return preparation;
+  }
   const database = getDatabase();
   return database.transaction().execute(async (transaction) => {
     const occurrence = await transaction
@@ -1233,8 +1302,9 @@ export async function replaceEventVirtualRoom(
   eventOccurrenceId: string,
   eventSessionId: string,
   user: AuthenticatedUser,
-  now = new Date(),
+  options: { clock?: () => Date } = {},
 ): Promise<EventVirtualRoomMutationOutcome> {
+  const clock = options.clock ?? (() => new Date());
   const database = getDatabase();
   const context = await findVirtualSessionContext(
     database,
@@ -1283,8 +1353,6 @@ export async function replaceEventVirtualRoom(
       return { status: "conflict", reason: "occurrence_unavailable" } as const;
     if (currentContext.occurrenceStatus !== "published")
       return { status: "conflict", reason: "occurrence_unavailable" } as const;
-    const conflict = preparationConflict(currentContext, now);
-    if (conflict) return { status: "conflict", reason: conflict } as const;
     const room = await transaction
       .selectFrom("event_virtual_room")
       .selectAll()
@@ -1302,6 +1370,9 @@ export async function replaceEventVirtualRoom(
       ))
     )
       return { status: "forbidden" } as const;
+    const currentNow = clock();
+    const conflict = preparationConflict(currentContext, currentNow);
+    if (conflict) return { status: "conflict", reason: conflict } as const;
     if (room.doorState === "ended") {
       if (!(await hasVirtualRoomAdministratorAccess(transaction, user.id)))
         return { status: "forbidden" } as const;
@@ -1314,13 +1385,19 @@ export async function replaceEventVirtualRoom(
       .set({
         doorState: "ended",
         endedByUserId: room.endedByUserId ?? user.id,
-        endedAt: room.endedAt ?? now,
+        endedAt: room.endedAt ?? currentNow,
         replacedByUserId: user.id,
-        replacedAt: now,
+        replacedAt: currentNow,
       })
       .where("id", "=", room.id)
       .executeTakeFirstOrThrow();
-    await insertRoomOperation(transaction, room.id, "close_room", user.id, now);
+    await insertRoomOperation(
+      transaction,
+      room.id,
+      "close_room",
+      user.id,
+      currentNow,
+    );
 
     const replacementId = `event_virtual_room_${randomUUID()}`;
     const replacement = await transaction
@@ -1342,7 +1419,7 @@ export async function replaceEventVirtualRoom(
         providerStatus: "pending",
         providerErrorCode: null,
         createdByUserId: user.id,
-        createdAt: now,
+        createdAt: currentNow,
         startedByUserId: null,
         startedAt: null,
         lockedByUserId: null,
@@ -1362,7 +1439,7 @@ export async function replaceEventVirtualRoom(
       replacement.id,
       "ensure_room",
       user.id,
-      now,
+      currentNow,
     );
     await recordDurableAuditEvent(transaction, {
       actorUserId: user.id,
@@ -1376,7 +1453,7 @@ export async function replaceEventVirtualRoom(
         transition: "replaced",
         replacementRoomId: replacement.id,
       },
-      createdAt: now,
+      createdAt: currentNow,
     });
     await recordDurableAuditEvent(transaction, {
       actorUserId: user.id,
@@ -1389,7 +1466,7 @@ export async function replaceEventVirtualRoom(
         generation: replacement.generation,
         replacesRoomId: room.id,
       },
-      createdAt: now,
+      createdAt: currentNow,
     });
     return { status: "ready" } as const;
   });

@@ -130,6 +130,37 @@ class DeferredEnsureProvider extends FakeLiveKitProvider {
   }
 }
 
+class LeaseCrossingEnsureProvider extends FakeLiveKitProvider {
+  private ensureCalls = 0;
+  private releaseFirstEnsure!: () => void;
+  private signalFirstEnsureStarted!: () => void;
+  private readonly firstEnsureRelease = new Promise<void>((resolve) => {
+    this.releaseFirstEnsure = resolve;
+  });
+  private readonly firstEnsureStarted = new Promise<void>((resolve) => {
+    this.signalFirstEnsureStarted = resolve;
+  });
+
+  override async ensureRoom(
+    input: EnsureLiveKitRoomInput,
+  ): Promise<LiveKitRoomSnapshot> {
+    this.ensureCalls += 1;
+    if (this.ensureCalls === 1) {
+      this.signalFirstEnsureStarted();
+      await this.firstEnsureRelease;
+    }
+    return super.ensureRoom(input);
+  }
+
+  waitUntilFirstEnsureStarts(): Promise<void> {
+    return this.firstEnsureStarted;
+  }
+
+  release(): void {
+    this.releaseFirstEnsure();
+  }
+}
+
 const credentialIssuedAt = new Date("2030-09-03T23:32:00.000Z");
 const fakeProvider = new FailFirstEnsureProvider(() => credentialIssuedAt);
 const runtime: VirtualRoomRuntime = {
@@ -415,7 +446,7 @@ try {
     ids.occurrence,
     ids.session,
     presenter,
-    { runtime, now: preparationTime },
+    { runtime, clock: () => preparationTime },
   ).finally(() => {
     stalePreparationSettled = true;
   });
@@ -450,12 +481,74 @@ try {
     .where("id", "=", ids.occurrence)
     .executeTakeFirstOrThrow();
 
+  let confirmPreparationLock: (() => void) | undefined;
+  let releasePreparationLock: (() => void) | undefined;
+  const preparationLockHeld = new Promise<void>((resolve) => {
+    confirmPreparationLock = resolve;
+  });
+  const releasePreparation = new Promise<void>((resolve) => {
+    releasePreparationLock = resolve;
+  });
+  const blockingPreparationTransaction = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", ids.occurrence)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      confirmPreparationLock?.();
+      await releasePreparation;
+    });
+  await preparationLockHeld;
+  let delayedPreparationTime = new Date("2030-09-04T00:59:59.000Z");
+  let delayedPreparationSettled = false;
+  const delayedPreparation = ensureEventVirtualRoomForStaff(
+    ids.occurrence,
+    ids.session,
+    presenter,
+    { runtime, clock: () => delayedPreparationTime },
+  ).finally(() => {
+    delayedPreparationSettled = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      delayedPreparationSettled,
+      false,
+      "Room preparation must wait behind the occurrence lifecycle lock",
+    );
+    delayedPreparationTime = endsAt;
+  } finally {
+    releasePreparationLock?.();
+    await blockingPreparationTransaction;
+  }
+  assert.deepEqual(
+    await delayedPreparation,
+    { status: "conflict", reason: "session_ended" },
+    "Room creation must sample policy time after waiting for lifecycle locks",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    0,
+    "A preparation request that crosses the cutoff must not create a room generation",
+  );
+
   assert.deepEqual(
     await ensureEventVirtualRoomForStaff(
       ids.occurrence,
       ids.session,
       presenter,
-      { runtime, now: new Date("2030-09-03T22:59:59.000Z") },
+      {
+        runtime,
+        clock: () => new Date("2030-09-03T22:59:59.000Z"),
+      },
     ),
     { status: "conflict", reason: "preparation_not_open" },
   );
@@ -464,7 +557,7 @@ try {
       ids.occurrence,
       ids.session,
       coordinator,
-      { runtime, now: preparationTime },
+      { runtime, clock: () => preparationTime },
     ),
     { status: "forbidden" },
   );
@@ -475,7 +568,7 @@ try {
       presenter,
       {
         runtime: { ...runtime, approvedMaxParticipants: 24 },
-        now: preparationTime,
+        clock: () => preparationTime,
       },
     ),
     { status: "conflict", reason: "capacity_exceeded" },
@@ -485,7 +578,7 @@ try {
       ids.occurrence,
       ids.session,
       presenter,
-      { runtime, now: preparationTime },
+      { runtime, clock: () => preparationTime },
     ),
     { status: "conflict", reason: "provider_unavailable" },
   );
@@ -494,7 +587,7 @@ try {
       ids.occurrence,
       ids.session,
       presenter,
-      { runtime, now: preparationTime },
+      { runtime, clock: () => preparationTime },
     ),
     { status: "conflict", reason: "provider_pending" },
   );
@@ -504,7 +597,7 @@ try {
       ids.occurrence,
       ids.session,
       presenter,
-      { runtime, now: providerRetryTime },
+      { runtime, clock: () => providerRetryTime },
     ),
     { status: "ready" },
   );
@@ -513,7 +606,7 @@ try {
       ids.occurrence,
       ids.session,
       wholePresenter,
-      { runtime, now: providerRetryTime },
+      { runtime, clock: () => providerRetryTime },
     ),
     { status: "ready" },
   );
@@ -552,7 +645,10 @@ try {
       ids.occurrence,
       ids.session,
       presenter,
-      { runtime: authorityInvalidatingRuntime, now: providerRetryTime },
+      {
+        runtime: authorityInvalidatingRuntime,
+        clock: () => providerRetryTime,
+      },
     ),
     { status: "forbidden" },
     "Room preparation must not acknowledge a provider side effect after authority is revoked",
@@ -823,7 +919,7 @@ try {
     ids.occurrence,
     ids.session,
     administrator,
-    replacementTime,
+    { clock: () => replacementTime },
   ).finally(() => {
     staleReplacementSettled = true;
   });
@@ -857,13 +953,69 @@ try {
     .set({ status: "published" })
     .where("id", "=", ids.occurrence)
     .executeTakeFirstOrThrow();
+
+  let confirmReplacementCutoffLock: (() => void) | undefined;
+  let releaseReplacementCutoffLock: (() => void) | undefined;
+  const replacementCutoffLockHeld = new Promise<void>((resolve) => {
+    confirmReplacementCutoffLock = resolve;
+  });
+  const releaseReplacementCutoff = new Promise<void>((resolve) => {
+    releaseReplacementCutoffLock = resolve;
+  });
+  const blockingReplacementCutoffTransaction = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", ids.occurrence)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      confirmReplacementCutoffLock?.();
+      await releaseReplacementCutoff;
+    });
+  await replacementCutoffLockHeld;
+  let delayedReplacementTime = new Date("2030-09-04T00:59:59.000Z");
+  let delayedReplacementSettled = false;
+  const delayedReplacement = replaceEventVirtualRoom(
+    ids.occurrence,
+    ids.session,
+    administrator,
+    { clock: () => delayedReplacementTime },
+  ).finally(() => {
+    delayedReplacementSettled = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      delayedReplacementSettled,
+      false,
+      "Room replacement must wait behind the occurrence lifecycle lock",
+    );
+    delayedReplacementTime = endsAt;
+  } finally {
+    releaseReplacementCutoffLock?.();
+    await blockingReplacementCutoffTransaction;
+  }
   assert.deepEqual(
-    await replaceEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      administrator,
-      replacementTime,
-    ),
+    await delayedReplacement,
+    { status: "conflict", reason: "session_ended" },
+    "Room replacement must sample policy time after waiting for lifecycle locks",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    1,
+    "A replacement request that crosses the cutoff must not append a generation",
+  );
+  assert.deepEqual(
+    await replaceEventVirtualRoom(ids.occurrence, ids.session, administrator, {
+      clock: () => replacementTime,
+    }),
     { status: "ready" },
   );
   const replacementBatch = await processAvailableEventVirtualRoomOperations(
@@ -885,12 +1037,9 @@ try {
   assert.ok(generations[0]?.replacedAt);
   assert.equal(generations[1]?.providerStatus, "ready");
   assert.deepEqual(
-    await replaceEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      administrator,
-      new Date("2030-09-03T23:41:00.000Z"),
-    ),
+    await replaceEventVirtualRoom(ids.occurrence, ids.session, administrator, {
+      clock: () => new Date("2030-09-03T23:41:00.000Z"),
+    }),
     { status: "conflict", reason: "invalid_transition" },
   );
 
@@ -914,7 +1063,7 @@ try {
       ids.session,
       "start",
       administrator,
-      { clock: () => replacementTime },
+      { runtime, clock: () => replacementTime },
     ),
     { status: "conflict", reason: "preparation_not_open" },
     "A retained prepared room must not start before a rescheduled preparation window",
@@ -960,7 +1109,7 @@ try {
     ids.session,
     "start",
     administrator,
-    { clock: () => startPolicyTime },
+    { runtime, clock: () => startPolicyTime },
   ).finally(() => {
     delayedStartSettled = true;
   });
@@ -1005,7 +1154,7 @@ try {
       ids.session,
       "start",
       administrator,
-      { clock: () => startsAt },
+      { runtime, clock: () => startsAt },
     ),
     { status: "conflict", reason: "recording_unavailable" },
   );
@@ -1016,15 +1165,38 @@ try {
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
 
+  const startRoom = await database
+    .selectFrom("event_virtual_room")
+    .select("providerRoomName")
+    .where("eventSessionId", "=", ids.session)
+    .where("replacedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  fakeProvider.rooms.delete(startRoom.providerRoomName);
+  const ensureCountBeforeStart = fakeProvider.operations.filter(
+    (operation) => operation.operation === "ensure_room",
+  ).length;
+
   assert.deepEqual(
     await transitionEventVirtualRoom(
       ids.occurrence,
       ids.session,
       "start",
       administrator,
-      { clock: () => startsAt },
+      { runtime, clock: () => startsAt },
     ),
     { status: "ready" },
+  );
+  assert.equal(
+    fakeProvider.rooms.has(startRoom.providerRoomName),
+    true,
+    "Start must restore a provider room removed by its empty-room timeout",
+  );
+  assert.equal(
+    fakeProvider.operations.filter(
+      (operation) => operation.operation === "ensure_room",
+    ).length,
+    ensureCountBeforeStart + 1,
+    "Start must reconcile provider state instead of trusting cached readiness",
   );
   assert.deepEqual(
     await transitionEventVirtualRoom(
@@ -1032,7 +1204,7 @@ try {
       ids.session,
       "start",
       administrator,
-      { clock: () => startsAt },
+      { runtime, clock: () => startsAt },
     ),
     { status: "ready" },
   );
@@ -1088,22 +1260,16 @@ try {
 
   const recoveryTime = new Date("2030-09-04T00:31:00.000Z");
   assert.deepEqual(
-    await replaceEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      presenter,
-      recoveryTime,
-    ),
+    await replaceEventVirtualRoom(ids.occurrence, ids.session, presenter, {
+      clock: () => recoveryTime,
+    }),
     { status: "forbidden" },
     "Presenters must not recover an intentionally ended room generation",
   );
   assert.deepEqual(
-    await replaceEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      administrator,
-      recoveryTime,
-    ),
+    await replaceEventVirtualRoom(ids.occurrence, ids.session, administrator, {
+      clock: () => recoveryTime,
+    }),
     { status: "ready" },
     "An administrator must be able to append recovery after an ended generation",
   );
@@ -1132,7 +1298,7 @@ try {
       ids.session,
       "start",
       administrator,
-      { clock: () => recoveryTime },
+      { runtime, clock: () => recoveryTime },
     ),
     { status: "ready" },
   );
@@ -1157,13 +1323,69 @@ try {
   assert.equal(fakeProvider.rooms.size, 0);
 
   assert.deepEqual(
-    await replaceEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      administrator,
-      new Date("2030-09-04T01:01:00.000Z"),
-    ),
+    await replaceEventVirtualRoom(ids.occurrence, ids.session, administrator, {
+      clock: () => new Date("2030-09-04T01:01:00.000Z"),
+    }),
     { status: "conflict", reason: "session_ended" },
+  );
+
+  const leaseCrossingProvider = new LeaseCrossingEnsureProvider();
+  const leaseCrossingRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    provider: leaseCrossingProvider,
+  };
+  const leaseEnsureTime = new Date("2030-09-03T23:40:00.000Z");
+  const leaseCrossingPreparation = ensureEventVirtualRoomForStaff(
+    ids.occurrence,
+    ids.raceSession,
+    wholePresenter,
+    { runtime: leaseCrossingRuntime, clock: () => leaseEnsureTime },
+  );
+  await leaseCrossingProvider.waitUntilFirstEnsureStarts();
+  const leaseCrossingRoom = await database
+    .selectFrom("event_virtual_room")
+    .select(["id", "providerRoomName"])
+    .where("eventSessionId", "=", ids.raceSession)
+    .where("replacedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  const leaseRetryTime = new Date("2030-09-03T23:42:01.000Z");
+  const leaseRetryBatch = await processAvailableEventVirtualRoomOperations(10, {
+    runtime: leaseCrossingRuntime,
+    now: leaseRetryTime,
+  });
+  assert.deepEqual(
+    leaseRetryBatch.outcomes.map((outcome) => outcome.kind),
+    ["ensure_room"],
+  );
+  assert.equal(
+    leaseCrossingProvider.rooms.has(leaseCrossingRoom.providerRoomName),
+    true,
+    "A reclaimed ensure attempt must establish the provider room",
+  );
+  leaseCrossingProvider.release();
+  assert.deepEqual(await leaseCrossingPreparation, {
+    status: "conflict",
+    reason: "provider_pending",
+  });
+  assert.equal(
+    leaseCrossingProvider.rooms.has(leaseCrossingRoom.providerRoomName),
+    true,
+    "An expired ensure attempt must not close the room confirmed by its successful retry",
+  );
+  assert.equal(
+    leaseCrossingProvider.operations.some(
+      (operation) => operation.operation === "close_room",
+    ),
+    false,
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("providerStatus")
+      .where("id", "=", leaseCrossingRoom.id)
+      .executeTakeFirstOrThrow()
+      .then((currentRoom) => currentRoom.providerStatus),
+    "ready",
   );
 
   const deferredProvider = new DeferredEnsureProvider();
@@ -1176,7 +1398,7 @@ try {
     ids.occurrence,
     ids.raceSession,
     wholePresenter,
-    { runtime: deferredRuntime, now: deferredEnsureTime },
+    { runtime: deferredRuntime, clock: () => deferredEnsureTime },
   );
   await deferredProvider.waitUntilEnsureStarts();
   const deferredRoom = await database
@@ -1237,7 +1459,7 @@ try {
       ids.occurrence,
       ids.raceSession,
       wholePresenter,
-      { runtime, now: terminalRoomPreparationTime },
+      { runtime, clock: () => terminalRoomPreparationTime },
     ),
     { status: "ready" },
   );
@@ -1247,7 +1469,7 @@ try {
       ids.raceSession,
       "start",
       wholePresenter,
-      { clock: () => startsAt },
+      { runtime, clock: () => startsAt },
     ),
     { status: "ready" },
   );
