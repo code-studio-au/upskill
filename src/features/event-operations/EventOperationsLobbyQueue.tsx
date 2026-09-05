@@ -79,6 +79,7 @@ export function EventOperationsLobbyQueue({
                   processingId === `admit_all-${session.eventSessionId}`
                 }
                 onClick={() => {
+                  setPage(0);
                   void changeAdmission(
                     session.eventSessionId,
                     undefined,
@@ -115,6 +116,7 @@ export function EventOperationsLobbyQueue({
                           type="button"
                           disabled={processingId === `${operation}-${entry.id}`}
                           onClick={() => {
+                            setPage(0);
                             void changeAdmission(
                               session.eventSessionId,
                               entry.id,

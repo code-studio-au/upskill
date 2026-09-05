@@ -381,7 +381,8 @@ async function ensureLobbyEntry(
       .where("eventParticipationId", "=", participation.id)
       .forUpdate()
       .executeTakeFirst();
-    if (existing) return existing;
+    if (existing && (existing.state !== "revoked" || existing.revokedByUserId))
+      return existing;
     const now = new Date();
     const currentRoom = destination.roomId
       ? await transaction
@@ -397,6 +398,38 @@ async function ensureLobbyEntry(
     const automatic =
       (currentRoom?.admissionMode ?? destination.livekitAdmissionMode) ===
       "automatic";
+    if (existing) {
+      const restored = await transaction
+        .updateTable("event_virtual_lobby_entry")
+        .set({
+          state: automatic ? "admitted" : "waiting",
+          accessMethod: actor.accessMethod,
+          admittedAt: automatic
+            ? (existing.admittedAt ?? now)
+            : existing.admittedAt,
+          revokedAt: null,
+          revokedByUserId: null,
+          updatedAt: now,
+        })
+        .where("id", "=", existing.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: actor.user.id,
+        action: "event_virtual_lobby.admission_changed",
+        subjectType: "event_virtual_lobby_entry",
+        subjectId: existing.id,
+        aggregateId: destination.eventOccurrenceId,
+        metadata: {
+          action: "reactivate",
+          admissionMode: automatic ? "automatic" : "manual",
+          eventSessionId: destination.eventSessionId,
+          source: "eligibility_restored",
+        },
+        createdAt: now,
+      });
+      return restored;
+    }
     const entry = await transaction
       .insertInto("event_virtual_lobby_entry")
       .values({

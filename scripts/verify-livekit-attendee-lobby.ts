@@ -927,6 +927,120 @@ try {
       .then((row) => Boolean(row.revokedAt)),
     true,
   );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  const restoredAuthenticated = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    restoredAuthenticated.status === "ready"
+      ? restoredAuthenticated.data.outcome
+      : null,
+    "waiting_for_admission",
+  );
+  const restoredEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["id", "state", "revokedAt", "revokedByUserId"])
+    .where("eventParticipationId", "=", ids.participation)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    {
+      state: restoredEntry.state,
+      revokedAt: restoredEntry.revokedAt,
+      revokedByUserId: restoredEntry.revokedByUserId,
+    },
+    { state: "waiting", revokedAt: null, revokedByUserId: null },
+  );
+  const restoredAudit = await database
+    .selectFrom("audit_event")
+    .select("metadata")
+    .where("action", "=", "event_virtual_lobby.admission_changed")
+    .where("subjectId", "=", restoredEntry.id)
+    .orderBy("createdAt", "desc")
+    .executeTakeFirstOrThrow();
+  assert.match(
+    JSON.stringify(restoredAudit.metadata),
+    /"action":"reactivate"/u,
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  const revokedAuthenticated = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    revokedAuthenticated.status === "ready"
+      ? revokedAuthenticated.data.outcome
+      : null,
+    "revoked",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  const restoredChallenge = await requestEventVirtualRecoveryCode(
+    { publicReference: access.publicReference, identifier: learner.email },
+    "restored-eligibility".padEnd(43, "x"),
+  );
+  assert.equal(restoredChallenge.status, "accepted");
+  assert.ok("challengeReference" in restoredChallenge);
+  const restoredChallengeId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", restoredChallenge.challengeReference)
+    .executeTakeFirstOrThrow();
+  const restoredCode = await database
+    .selectFrom("event_virtual_recovery_email_capture")
+    .select("textBody")
+    .where("challengeId", "=", restoredChallengeId.id)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.textBody.match(/\b\d{6}\b/u)?.[0]);
+  assert.ok(restoredCode);
+  const restoredVerification = await verifyEventVirtualRecoveryCode({
+    publicReference: access.publicReference,
+    challengeReference: restoredChallenge.challengeReference,
+    code: restoredCode,
+  });
+  assert.equal(restoredVerification.status, "ready");
+  assert.ok(restoredVerification.joinSessionToken);
+  const restoredRecovery = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    { joinSessionToken: restoredVerification.joinSessionToken },
+  );
+  assert.equal(
+    restoredRecovery.status === "ready" ? restoredRecovery.data.outcome : null,
+    "waiting_for_admission",
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: restoredEntry.id,
+        action: "revoke",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  const presenterRevoked = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    presenterRevoked.status === "ready" ? presenterRevoked.data.outcome : null,
+    "revoked",
+    "An explicit presenter revocation must not be auto-reactivated",
+  );
 
   const auditRows = await database
     .selectFrom("audit_event")
