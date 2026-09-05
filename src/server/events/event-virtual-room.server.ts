@@ -523,6 +523,13 @@ async function retryRoomOperation(
   await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      if (markProviderError)
+        await transaction
+          .selectFrom("event_virtual_room")
+          .select("id")
+          .where("id", "=", claimed.roomId)
+          .forUpdate()
+          .executeTakeFirst();
       const operation = await transaction
         .updateTable("event_virtual_room_operation")
         .set({
@@ -1533,6 +1540,12 @@ async function executeCloseRoom(
     await getDatabase()
       .transaction()
       .execute(async (transaction) => {
+        const lockedRoom = await transaction
+          .selectFrom("event_virtual_room")
+          .select("id")
+          .where("id", "=", roomId)
+          .forUpdate()
+          .executeTakeFirst();
         const operation = await transaction
           .updateTable("event_virtual_room_operation")
           .set({
@@ -1545,7 +1558,7 @@ async function executeCloseRoom(
           .where("status", "=", "processing")
           .where("attempts", "=", claimed.attempts)
           .executeTakeFirst();
-        if (operation.numUpdatedRows === 1n)
+        if (lockedRoom && operation.numUpdatedRows === 1n)
           await transaction
             .updateTable("event_virtual_room")
             .set({ providerStatus: "closed", providerErrorCode: null })

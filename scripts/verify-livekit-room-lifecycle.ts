@@ -63,6 +63,14 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 const preparationTime = new Date("2030-09-03T23:30:00.000Z");
 class FailFirstEnsureProvider extends FakeLiveKitProvider {
   private failed = false;
+  private deferredClose:
+    | {
+        started: Promise<void>;
+        waitForRelease: Promise<void>;
+        signalStarted: () => void;
+        release: () => void;
+      }
+    | undefined;
 
   override ensureRoom(
     input: EnsureLiveKitRoomInput,
@@ -72,6 +80,41 @@ class FailFirstEnsureProvider extends FakeLiveKitProvider {
       return Promise.reject(new LiveKitProviderError("ensure_room"));
     }
     return super.ensureRoom(input);
+  }
+
+  deferNextClose(): {
+    waitUntilStarted: () => Promise<void>;
+    release: () => void;
+  } {
+    assert.equal(this.deferredClose, undefined);
+    let signalStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const waitForRelease = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.deferredClose = {
+      started,
+      waitForRelease,
+      signalStarted,
+      release,
+    };
+    return {
+      waitUntilStarted: () => started,
+      release,
+    };
+  }
+
+  override async closeRoom(roomName: string): Promise<void> {
+    const deferredClose = this.deferredClose;
+    if (deferredClose) {
+      this.deferredClose = undefined;
+      deferredClose.signalStarted();
+      await deferredClose.waitForRelease;
+    }
+    await super.closeRoom(roomName);
   }
 }
 
@@ -1283,15 +1326,22 @@ try {
   );
   const recoveredRoom = await database
     .selectFrom("event_virtual_room")
-    .select(["generation", "doorState", "providerStatus"])
+    .select(["id", "generation", "doorState", "providerStatus"])
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
-  assert.deepEqual(recoveredRoom, {
-    generation: 3,
-    doorState: "scheduled",
-    providerStatus: "ready",
-  });
+  assert.deepEqual(
+    {
+      generation: recoveredRoom.generation,
+      doorState: recoveredRoom.doorState,
+      providerStatus: recoveredRoom.providerStatus,
+    },
+    {
+      generation: 3,
+      doorState: "scheduled",
+      providerStatus: "ready",
+    },
+  );
   assert.deepEqual(
     await transitionEventVirtualRoom(
       ids.occurrence,
@@ -1312,13 +1362,67 @@ try {
     ),
     { status: "ready" },
   );
-  const recoveredCloseBatch = await processAvailableEventVirtualRoomOperations(
+  const deferredClose = fakeProvider.deferNextClose();
+  const recoveredCloseProcessing = processAvailableEventVirtualRoomOperations(
     10,
-    { runtime, now: endsAt },
+    {
+      runtime,
+      now: endsAt,
+    },
   );
+  await deferredClose.waitUntilStarted();
+  let confirmLifecycleRoomLock: (() => void) | undefined;
+  let allowLifecycleRequeue: (() => void) | undefined;
+  const lifecycleRoomLocked = new Promise<void>((resolve) => {
+    confirmLifecycleRoomLock = resolve;
+  });
+  const lifecycleRequeueAllowed = new Promise<void>((resolve) => {
+    allowLifecycleRequeue = resolve;
+  });
+  const lifecycleRequeue = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_virtual_room")
+        .select("id")
+        .where("id", "=", recoveredRoom.id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      confirmLifecycleRoomLock?.();
+      await lifecycleRequeueAllowed;
+      await transaction
+        .insertInto("event_virtual_room_operation")
+        .values({
+          id: "verify_livekit_room_concurrent_close_operation",
+          roomId: recoveredRoom.id,
+          kind: "close_room",
+          deduplicationKey: `event_virtual_room:${recoveredRoom.id}:close_room`,
+          status: "pending",
+          availableAt: endsAt,
+          leasedUntil: null,
+          lastAttemptAt: null,
+          completedAt: null,
+          lastErrorCode: null,
+          requestedByUserId: administrator.id,
+          createdAt: endsAt,
+        })
+        .onConflict((conflict) =>
+          conflict.columns(["roomId", "kind"]).doNothing(),
+        )
+        .execute();
+    });
+  await lifecycleRoomLocked;
+  deferredClose.release();
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  allowLifecycleRequeue?.();
+  const [recoveredCloseBatch] = await Promise.all([
+    recoveredCloseProcessing,
+    lifecycleRequeue,
+  ]);
   assert.deepEqual(
     recoveredCloseBatch.outcomes.map((outcome) => outcome.kind),
     ["close_room"],
+    "Close completion must retain room-first lock order when lifecycle work requeues the same close operation",
   );
   assert.equal(fakeProvider.rooms.size, 0);
 
