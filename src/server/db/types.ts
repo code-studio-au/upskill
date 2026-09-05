@@ -858,6 +858,13 @@ interface EventVirtualRecoveryChallengeTable {
   createdAt: Timestamp;
 }
 
+interface EventVirtualRecoveryDeliveryTable {
+  challengeId: string;
+  recipientAddress: string;
+  encryptedCode: string;
+  createdAt: Timestamp;
+}
+
 interface EventVirtualJoinSessionTable {
   id: string;
   challengeId: string;
@@ -1848,6 +1855,7 @@ export interface Database {
   event_virtual_join_access: EventVirtualJoinAccessTable;
   event_virtual_lobby_entry: EventVirtualLobbyEntryTable;
   event_virtual_recovery_challenge: EventVirtualRecoveryChallengeTable;
+  event_virtual_recovery_delivery: EventVirtualRecoveryDeliveryTable;
   event_virtual_join_session: EventVirtualJoinSessionTable;
   event_virtual_recovery_email_capture: EventVirtualRecoveryEmailCaptureTable;
   event_virtual_recovery_sms_capture: EventVirtualRecoverySmsCaptureTable;

@@ -83,6 +83,7 @@ try {
     "event_virtual_join_access",
     "event_virtual_lobby_entry",
     "event_virtual_recovery_challenge",
+    "event_virtual_recovery_delivery",
     "event_virtual_join_session",
     "event_virtual_recovery_email_capture",
     "event_virtual_recovery_sms_capture",
@@ -230,6 +231,7 @@ try {
     "event_virtual_join_access_current_uq",
     "event_virtual_lobby_entry_queue_idx",
     "event_virtual_recovery_rate_idx",
+    "event_virtual_recovery_delivery_pending_idx",
     "event_virtual_join_session_active_idx",
   ];
   const indexResult = await sql<{
@@ -672,6 +674,8 @@ try {
           'event_virtual_recovery_attempts_ck',
           'event_virtual_recovery_delivery_ck',
           'event_virtual_recovery_timeline_ck',
+          'event_virtual_recovery_delivery_recipient_ck',
+          'event_virtual_recovery_delivery_envelope_ck',
           'event_virtual_join_session_access_fk',
           'event_virtual_join_session_participation_fk',
           'event_virtual_join_session_token_ck',
@@ -680,7 +684,7 @@ try {
         )`.execute(db);
   assert.equal(
     liveKitLobbyConstraints.rows.length,
-    31,
+    33,
     "LiveKit attendee access, lobby, recovery and capability scope must be constrained",
   );
   const eventTemplateVersionColumns = await sql<{

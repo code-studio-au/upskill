@@ -5,6 +5,7 @@ import { logServerEvent } from "#/server/logging/server-logger";
 import { processAvailableEventCommunicationSchedules } from "#/server/notifications/event-communication-execution.server";
 import { consumeNextWorkMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
 import { processAvailableEventVirtualRoomOperations } from "#/server/events/event-virtual-room.server";
+import { processAvailableEventVirtualRecoveryDeliveries } from "#/server/events/event-virtual-recovery-delivery.server";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
@@ -20,13 +21,19 @@ function pause(milliseconds: number): Promise<void> {
 
 try {
   while (!shutdown.signal.aborted) {
-    const { schedules, virtualRooms, dispatch, consumption } =
-      await runScormWorkerIteration({
-        processAvailableEventCommunicationSchedules,
-        processAvailableEventVirtualRoomOperations,
-        dispatchAvailableOutboxEvents,
-        consumeNextWorkMessage,
-      });
+    const {
+      schedules,
+      virtualRooms,
+      virtualRecoveryDeliveries,
+      dispatch,
+      consumption,
+    } = await runScormWorkerIteration({
+      processAvailableEventCommunicationSchedules,
+      processAvailableEventVirtualRoomOperations,
+      processAvailableEventVirtualRecoveryDeliveries,
+      dispatchAvailableOutboxEvents,
+      consumeNextWorkMessage,
+    });
     for (const outcome of schedules.outcomes)
       logServerEvent({
         level:
@@ -65,6 +72,18 @@ try {
           kind: outcome.kind,
         },
       });
+    for (const outcome of virtualRecoveryDeliveries.outcomes)
+      logServerEvent({
+        level:
+          outcome.status === "failed" || outcome.status === "unknown"
+            ? "warn"
+            : "info",
+        event: "worker.event_virtual_recovery_delivery_processed",
+        fields: {
+          status: outcome.status,
+          challengeId: outcome.challengeId,
+        },
+      });
     if (consumption.status !== "no-work")
       logServerEvent({
         level: consumption.status === "retry" ? "warn" : "info",
@@ -85,6 +104,7 @@ try {
     if (
       schedules.outcomes.length === 0 &&
       virtualRooms.outcomes.length === 0 &&
+      virtualRecoveryDeliveries.outcomes.length === 0 &&
       dispatch.outcomes.length === 0 &&
       consumption.status === "no-work"
     )

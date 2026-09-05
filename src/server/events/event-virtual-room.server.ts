@@ -1902,7 +1902,10 @@ async function executeParticipantRemoval(
     .where("lobby.id", "=", claimed.lobbyEntryId)
     .whereRef("lobby.roomGeneration", "=", "room.generation")
     .executeTakeFirst();
-  if (!target || target.state !== "revoked") {
+  if (
+    !target ||
+    ["admitted", "token_issued", "connected", "left"].includes(target.state)
+  ) {
     await completeRoomOperation(claimed, now);
     return {
       status: "processed",

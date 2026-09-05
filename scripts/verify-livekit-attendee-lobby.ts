@@ -10,6 +10,7 @@ import {
   resolveEventVirtualLobby,
   verifyEventVirtualRecoveryCode,
 } from "#/server/events/event-virtual-lobby.server";
+import { processAvailableEventVirtualRecoveryDeliveries } from "#/server/events/event-virtual-recovery-delivery.server";
 import {
   findEventVirtualLobbyQueue,
   processAvailableEventVirtualRoomOperations,
@@ -1257,17 +1258,43 @@ try {
       displayName: credentialHolder.name,
     },
   ]);
-  assert.deepEqual(
-    await mutateEventVirtualLobbyAdmission(
-      {
-        eventOccurrenceId: ids.occurrence,
-        eventSessionId: ids.session,
-        lobbyEntryId: credentialHolderEntryId,
-        action: "revoke",
-      },
-      administrator,
-    ),
-    { status: "ready" },
+  await setEventVirtualRoomAdmissionMode(
+    ids.occurrence,
+    ids.session,
+    "manual",
+    administrator,
+  );
+  const credentialHolderRegistrationId = `verify_livekit_lobby_bulk_registration_${credentialHolder.id}`;
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", credentialHolderRegistrationId)
+    .executeTakeFirstOrThrow();
+  const systemRevokedCredentialHolder = await resolveEventVirtualLobby(
+    access.publicReference,
+    credentialHolder,
+  );
+  assert.equal(
+    systemRevokedCredentialHolder.status === "ready"
+      ? systemRevokedCredentialHolder.data.outcome
+      : null,
+    "revoked",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", credentialHolderRegistrationId)
+    .executeTakeFirstOrThrow();
+  const manuallyRestoredCredentialHolder = await resolveEventVirtualLobby(
+    access.publicReference,
+    credentialHolder,
+  );
+  assert.equal(
+    manuallyRestoredCredentialHolder.status === "ready"
+      ? manuallyRestoredCredentialHolder.data.outcome
+      : null,
+    "waiting_for_admission",
+    "Manual eligibility restoration must not cancel removal for a still-live credential",
   );
   const participantRemoval = await database
     .selectFrom("event_virtual_room_operation")
@@ -1284,7 +1311,7 @@ try {
       status: "pending",
       participantIdentity: concurrentTokenOperation.input.participantIdentity,
     },
-    "Revocation must durably queue the exact participant removal",
+    "System revocation must durably queue the exact participant removal",
   );
   const participantRemovalBatch =
     await processAvailableEventVirtualRoomOperations(10, {
@@ -1312,7 +1339,7 @@ try {
           concurrentTokenOperation.input.participantIdentity,
       ),
     false,
-    "The durable removal must disconnect the revoked participant",
+    "The durable removal must disconnect a manually waiting participant with a live credential",
   );
   assert.equal(
     await database
@@ -1323,6 +1350,75 @@ try {
       .then((operation) => operation.status),
     "pending",
   );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: credentialHolderEntryId,
+        action: "admit",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "readmitted-credential-holder",
+      identity: concurrentTokenOperation.input.participantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  const readmittedRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(Date.now() + 6_000),
+    });
+  assert.deepEqual(
+    {
+      kind: readmittedRemovalBatch.outcomes[0]?.kind,
+      status: readmittedRemovalBatch.outcomes[0]?.status,
+    },
+    { kind: "remove_participant", status: "processed" },
+    "A genuine presenter readmission may cancel pending removal",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) =>
+          participant.identity ===
+          concurrentTokenOperation.input.participantIdentity,
+      ),
+    true,
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: credentialHolderEntryId,
+        action: "revoke",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  const rerevokedRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(Date.now() + 7_000),
+    });
+  assert.equal(rerevokedRemovalBatch.outcomes[0]?.status, "pending");
   concurrentProvider.participants.set("event:verify_lobby:g1", [
     ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
     {
@@ -1380,13 +1476,6 @@ try {
     })
     .where("id", "=", credentialHolderEntryId)
     .executeTakeFirstOrThrow();
-  await setEventVirtualRoomAdmissionMode(
-    ids.occurrence,
-    ids.session,
-    "manual",
-    administrator,
-  );
-
   await database
     .updateTable("event_virtual_lobby_entry")
     .set({ state: "waiting", admittedAt: null, admittedByUserId: null })
@@ -1484,6 +1573,71 @@ try {
     .where("id", "=", ids.room)
     .executeTakeFirstOrThrow();
 
+  const recoveryChallengesBeforeRace = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const terminalReservationRace = await requestEventVirtualRecoveryCode(
+    {
+      publicReference: access.publicReference,
+      identifier: secondLearner.email,
+    },
+    "terminal-reservation-race".padEnd(43, "x"),
+    {
+      requestLimitStore: new Map(),
+      beforeReserve: async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set({
+            doorState: "ended",
+            endedAt: new Date(),
+            endedByUserId: administrator.id,
+          })
+          .where("id", "=", ids.room)
+          .executeTakeFirstOrThrow();
+      },
+    },
+  );
+  assert.equal(terminalReservationRace.status, "accepted");
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", endedAt: null, endedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const ineligibleReservationRace = await requestEventVirtualRecoveryCode(
+    {
+      publicReference: access.publicReference,
+      identifier: secondLearner.email,
+    },
+    "ineligible-reservation-race".padEnd(43, "x"),
+    {
+      requestLimitStore: new Map(),
+      beforeReserve: async () => {
+        await database
+          .updateTable("event_registration")
+          .set({ status: "cancelled", lockedInAt: null })
+          .where("id", "=", ids.secondRegistration)
+          .executeTakeFirstOrThrow();
+      },
+    },
+  );
+  assert.equal(ineligibleReservationRace.status, "accepted");
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.secondRegistration)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recovery_challenge")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    recoveryChallengesBeforeRace,
+    "Terminal and ineligible reservation races must not queue or deliver a challenge",
+  );
+
   const terminalChallenge = await requestEventVirtualRecoveryCode(
     { publicReference: access.publicReference, identifier: learner.email },
     "terminal-verification".padEnd(43, "x"),
@@ -1496,6 +1650,10 @@ try {
     .select("id")
     .where("reference", "=", terminalChallenge.challengeReference)
     .executeTakeFirstOrThrow();
+  assert.deepEqual(await processAvailableEventVirtualRecoveryDeliveries(1), {
+    outcomes: [{ status: "sent", challengeId: terminalChallengeId.id }],
+    limitReached: true,
+  });
   const terminalCode = await database
     .selectFrom("event_virtual_recovery_email_capture")
     .select("textBody")
@@ -1555,6 +1713,10 @@ try {
     .select("id")
     .where("reference", "=", challenge.challengeReference)
     .executeTakeFirstOrThrow();
+  assert.deepEqual(await processAvailableEventVirtualRecoveryDeliveries(1), {
+    outcomes: [{ status: "sent", challengeId: challengeId.id }],
+    limitReached: true,
+  });
   const capture = await database
     .selectFrom("event_virtual_recovery_email_capture")
     .select("textBody")
@@ -1810,6 +1972,10 @@ try {
     .select("id")
     .where("reference", "=", restoredChallenge.challengeReference)
     .executeTakeFirstOrThrow();
+  assert.deepEqual(await processAvailableEventVirtualRecoveryDeliveries(1), {
+    outcomes: [{ status: "sent", challengeId: restoredChallengeId.id }],
+    limitReached: true,
+  });
   const restoredCode = await database
     .selectFrom("event_virtual_recovery_email_capture")
     .select("textBody")
@@ -1860,14 +2026,32 @@ try {
       identifier: secondLearner.email,
     },
     "failed-delivery".padEnd(43, "x"),
-    {
-      sendEmail: () =>
-        Promise.reject(new Error("EMAIL_PROVIDER_NOT_CONFIGURED")),
-      requestLimitStore: new Map(),
-    },
+    { requestLimitStore: new Map() },
   );
   assert.equal(failedDelivery.status, "accepted");
   assert.ok("challengeReference" in failedDelivery);
+  const failedDeliveryId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select(["id", "deliveryStatus"])
+    .where("reference", "=", failedDelivery.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    failedDeliveryId.deliveryStatus,
+    "pending",
+    "The request must return after durable reservation without waiting for a provider",
+  );
+  assert.deepEqual(
+    await processAvailableEventVirtualRecoveryDeliveries(1, {
+      delivery: {
+        sendEmail: () =>
+          Promise.reject(new Error("EMAIL_PROVIDER_NOT_CONFIGURED")),
+      },
+    }),
+    {
+      outcomes: [{ status: "failed", challengeId: failedDeliveryId.id }],
+      limitReached: true,
+    },
+  );
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_recovery_challenge")

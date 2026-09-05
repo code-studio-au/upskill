@@ -333,21 +333,28 @@ or confer staff capabilities.
    participation or stable user identity. SMS delivery is allowed only to an
    existing verified E.164 mobile number. A typed phone number is not treated as
    verified merely because the requester can receive a code on it.
-4. A rate-limited, six-digit, one-use OTP is delivered. Only digests of the OTP,
-   request identifier, and target identifier are stored. Attempts, resends,
-   expiry, delivery outcome, and consumption are bounded and audited without
-   logging the code or destination.
-5. Successful verification issues an opaque join capability in an `HttpOnly`,
+4. A rate-limited, six-digit, one-use OTP is queued for delivery. Challenge
+   reservation locks and revalidates the current access generation, room,
+   occurrence, registration, questionnaire and verified contact before it
+   commits. The request then returns immediately for both known and unknown
+   identifiers, without waiting on provider latency.
+5. Only digests of the OTP, request identifier, and target identifier are kept
+   as challenge evidence. The worker receives the OTP through a short-lived,
+   authenticated-encryption envelope bound to the challenge identifier, deletes
+   that envelope when claiming it, revalidates the same lifecycle policy, and
+   records a non-sensitive sent, failed, or uncertain result. The plaintext OTP
+   and destination are never logged.
+6. Successful verification issues an opaque join capability in an `HttpOnly`,
    `Secure`, `SameSite=Lax` cookie restricted to the lobby route. The initial
    lifetime is 30 minutes with a 10-minute idle limit, matching the existing
    Event task-access pattern.
-6. The capability is bound to the exact Event Session, Event participation,
+7. The capability is bound to the exact Event Session, Event participation,
    user when one exists, public lobby reference, and room generation. It permits
    lobby status and attendee-token requests only.
-7. The capability establishes control for this join task. It does not silently
+8. The capability establishes control for this join task. It does not silently
    verify or change the user's durable account email/mobile status and cannot be
    exchanged for a normal login session.
-8. A consumed, expired, idle, revoked, or generation-mismatched capability must
+9. A consumed, expired, idle, revoked, or generation-mismatched capability must
    be verified again.
 
 The LiveKit JWT is returned only after admission and start. It remains in
@@ -781,6 +788,12 @@ replaced.
 binding, channel, identifier/code/request digests, attempt and resend counters,
 expiry, consumption, and non-sensitive delivery outcome.
 
+`event_virtual_recovery_delivery` is a transient durable queue containing the
+verified destination and an authenticated-encryption envelope for the OTP. A
+worker claims and deletes the row before provider I/O, leaving only challenge
+status and provider capture/attempt evidence. This gives the public request path
+provider-independent response timing without persisting plaintext OTPs.
+
 `event_virtual_join_session` records only a digest of the opaque capability,
 its exact binding, issue/last-use/expiry times, access method, and revocation.
 Successful recovery does not mutate durable account-verification fields.
@@ -889,10 +902,13 @@ body before parsing or persistence. The provider event identifier is unique, so
 redelivery returns success after the existing result is found. Processing is
 transactional and safe for out-of-order join/leave events.
 
-Slow normalization, attendance promotion, and reconciliation run through
-idempotent worker jobs with stable deduplication keys. A poison event remains
-visible with a bounded error classification and retry history; it is not dropped
-or allowed to block unrelated rooms.
+Recovery delivery, slow normalization, attendance promotion, and reconciliation
+run through idempotent worker jobs with stable deduplication keys. Recovery
+delivery is claimed as uncertain before provider I/O so a worker crash cannot
+silently replay a security message; deterministic failure consumes the
+challenge and ambiguous delivery remains visible as unknown. A poison event
+remains visible with a bounded error classification and retry history; it is not
+dropped or allowed to block unrelated rooms.
 
 The final attendance calculation may be rerun deterministically from retained
 normalised evidence and the snapshotted policy. Calculation-version changes do
@@ -1058,7 +1074,10 @@ in the telemetry system.
 - **Attendee token expires before connection:** reissue only after all current
   predicates pass.
 - **Eligibility changes after admission:** revoke future issuance and remove an
-  active participant through the idempotent server moderation path.
+  active participant through the idempotent server moderation path. If
+  eligibility later returns under manual admission, removal remains enforced
+  through the last credential expiry until a presenter genuinely readmits the
+  waiting attendee.
 - **Webhook delayed or missing:** retain provisional evidence, reconcile through
   Room Service, and surface `needs_review` rather than inventing a precise leave
   time.

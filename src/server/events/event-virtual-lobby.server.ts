@@ -34,18 +34,13 @@ import {
   LiveKitProviderError,
   type LiveKitProvider,
 } from "#/server/livekit/livekit-provider.server";
-import { logServerEvent } from "#/server/logging/server-logger";
-import {
-  isAmbiguousEmailDeliveryError,
-  sendEventVirtualRecoveryEmail,
-} from "#/server/notifications/email-provider.server";
-import {
-  isAmbiguousSmsDeliveryError,
-  sendEventVirtualRecoverySms,
-} from "#/server/notifications/sms-provider.server";
 import { advanceEventVirtualLobbyRevision } from "./event-virtual-join-access.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
 import { enqueueEventVirtualParticipantRemoval } from "./event-virtual-provider-operation.server";
+import {
+  enqueueEventVirtualRecoveryDelivery,
+  lockEligibleRecoveryTarget,
+} from "./event-virtual-recovery-delivery.server";
 import { lockVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
 const CHALLENGE_LIFETIME_MS = 10 * 60_000;
@@ -60,10 +55,9 @@ const SECURE_COOKIE = "__Secure-upskill_virtual_join";
 const DEVELOPMENT_CHALLENGE_COOKIE = "upskill_virtual_challenge";
 const SECURE_CHALLENGE_COOKIE = "__Secure-upskill_virtual_challenge";
 
-interface RecoveryDeliveryOverrides {
-  sendEmail?: typeof sendEventVirtualRecoveryEmail;
-  sendSms?: typeof sendEventVirtualRecoverySms;
+interface RecoveryRequestOverrides {
   requestLimitStore?: Map<string, FixedWindowRateLimitEntry>;
+  beforeReserve?: () => Promise<void>;
 }
 
 type DatabaseConnection = Kysely<Database> | Transaction<Database>;
@@ -591,7 +585,7 @@ async function revokeIneligibleLobbyAccess(
       if (!participation) return;
       const entry = await transaction
         .selectFrom("event_virtual_lobby_entry")
-        .select(["id", "state"])
+        .select(["id", "state", "credentialExpiresAt"])
         .where(
           "eventVirtualJoinAccessId",
           "=",
@@ -609,7 +603,8 @@ async function revokeIneligibleLobbyAccess(
           .execute();
         if (
           destination.roomId &&
-          ["token_issued", "connected", "left"].includes(entry.state)
+          (["token_issued", "connected", "left"].includes(entry.state) ||
+            (entry.credentialExpiresAt?.getTime() ?? 0) > now.getTime())
         )
           await enqueueEventVirtualParticipantRemoval(transaction, {
             roomId: destination.roomId,
@@ -822,30 +817,10 @@ export async function resolveEventVirtualLobby(
   };
 }
 
-function recoveryEmail(input: {
-  code: string;
-  eventTitle: string;
-  sessionTitle: string;
-}) {
-  const title = input.eventTitle.replace(/[\r\n]+/gu, " ").trim();
-  return {
-    subject: `Your Upskill webinar access code for ${title}`.slice(0, 180),
-    textBody: [
-      `Your Upskill webinar access code is ${input.code}.`,
-      "",
-      `Use it to enter the waiting room for ${input.sessionTitle}.`,
-      "This code expires in 10 minutes and can be used once.",
-      "",
-      "If you did not request this code, you can ignore this email.",
-    ].join("\n"),
-    htmlBody: `<p>Your Upskill webinar access code is <strong>${input.code}</strong>.</p><p>Use it to enter the webinar waiting room. It expires in 10 minutes and can be used once.</p><p>If you did not request it, you can ignore this email.</p>`,
-  };
-}
-
 export async function requestEventVirtualRecoveryCode(
   input: { publicReference: string; identifier: string },
   fingerprintOverride?: string,
-  deliveryOverrides: RecoveryDeliveryOverrides = {},
+  requestOverrides: RecoveryRequestOverrides = {},
 ): Promise<EventVirtualRecoveryRequestResult> {
   const database = getDatabase();
   const phone = normalizeInternationalPhone(input.identifier);
@@ -859,7 +834,7 @@ export async function requestEventVirtualRecoveryCode(
       input.publicReference,
       identifierDigest,
       fingerprint,
-      deliveryOverrides.requestLimitStore,
+      requestOverrides.requestLimitStore,
     )
   )
     return { status: "rate-limited" };
@@ -911,11 +886,25 @@ export async function requestEventVirtualRecoveryCode(
   const challengeId = `event_virtual_recovery_${randomUUID()}`;
   const challengeReference = opaqueReference();
   const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
+  await requestOverrides.beforeReserve?.();
   const reserved = await database.transaction().execute(async (transaction) => {
     await sql`select pg_advisory_xact_lock(hashtextextended(
       ${`event-virtual-recovery:${destination.eventVirtualJoinAccessId}:${identifierDigest}`}, 0
     ))`.execute(transaction);
     const reservedAt = new Date();
+    const currentTarget = await lockEligibleRecoveryTarget(transaction, {
+      eventVirtualJoinAccessId: destination.eventVirtualJoinAccessId,
+      eventOccurrenceId: destination.eventOccurrenceId,
+      eventSessionId: destination.eventSessionId,
+      roomGeneration: destination.roomGeneration,
+      eventParticipationId: participant.id,
+      userId: participant.userId,
+      channel,
+      recipientAddress: normalizedIdentifier,
+      publicReference: input.publicReference,
+      now: reservedAt,
+    });
+    if (!currentTarget) return false;
     const recent = await transaction
       .selectFrom("event_virtual_recovery_challenge")
       .select((expression) => expression.fn.countAll<string>().as("count"))
@@ -966,66 +955,16 @@ export async function requestEventVirtualRecoveryCode(
         createdAt: reservedAt,
       })
       .execute();
+    await enqueueEventVirtualRecoveryDelivery(transaction, {
+      challengeId,
+      recipientAddress: normalizedIdentifier,
+      code,
+      createdAt: reservedAt,
+    });
     return true;
   });
   if (!reserved)
     return { status: "accepted", challengeReference: fallbackReference };
-  try {
-    if (channel === "sms")
-      await (deliveryOverrides.sendSms ?? sendEventVirtualRecoverySms)(
-        database,
-        {
-          deliveryId: challengeId,
-          recipientUserId: participant.userId,
-          recipientName: participant.name,
-          recipientPhone: normalizedIdentifier,
-          message: `Your Upskill webinar access code is ${code}. It expires in 10 minutes. If you did not request it, ignore this message.`,
-        },
-      );
-    else
-      await (deliveryOverrides.sendEmail ?? sendEventVirtualRecoveryEmail)(
-        database,
-        {
-          challengeId,
-          recipientEmail: normalizeEmail(participant.email),
-          ...recoveryEmail({
-            code,
-            eventTitle: destination.eventTitle,
-            sessionTitle: destination.sessionTitle,
-          }),
-        },
-      );
-    await database
-      .updateTable("event_virtual_recovery_challenge")
-      .set({ deliveryStatus: "sent" })
-      .where("id", "=", challengeId)
-      .execute();
-  } catch (error) {
-    const ambiguous =
-      isAmbiguousEmailDeliveryError(error) ||
-      isAmbiguousSmsDeliveryError(error);
-    if (ambiguous)
-      await database
-        .updateTable("event_virtual_recovery_challenge")
-        .set({ deliveryStatus: "unknown" })
-        .where("id", "=", challengeId)
-        .execute();
-    else
-      await database
-        .updateTable("event_virtual_recovery_challenge")
-        .set({ deliveryStatus: "failed", consumedAt: new Date() })
-        .where("id", "=", challengeId)
-        .execute();
-    logServerEvent({
-      level: "error",
-      event: "event_virtual_lobby.recovery_delivery_failed",
-      fields: {
-        entityType: "event_virtual_join_access",
-        entityId: destination.eventVirtualJoinAccessId,
-        outcome: "failed",
-      },
-    });
-  }
   return { status: "accepted", challengeReference };
 }
 
@@ -1723,7 +1662,8 @@ async function changeAdmission(
   if (
     action === "revoke" &&
     destination.roomId &&
-    ["token_issued", "connected", "left"].includes(entry.state)
+    (["token_issued", "connected", "left"].includes(entry.state) ||
+      (entry.credentialExpiresAt?.getTime() ?? 0) > now.getTime())
   )
     await enqueueEventVirtualParticipantRemoval(transaction, {
       roomId: destination.roomId,
