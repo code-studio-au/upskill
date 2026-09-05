@@ -474,8 +474,10 @@ lacks an eligible Presenter/administrator coverage path.
 
 ### Operational workspace
 
-An authorised occurrence administrator receives the same live operational
-panel as a presenter plus:
+An authorised Platform Administrator receives the same live operational panel
+as a presenter. An occurrence assignment prioritises operational ownership but,
+consistently with the standard-role boundary, does not preserve authority if the
+Platform Administrator role is revoked. The panel also provides:
 
 - provider-room creation and health state;
 - current generation and lifecycle timestamps;

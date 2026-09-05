@@ -790,6 +790,8 @@ try {
   assert.equal(firstQueuePage.status, "ready");
   assert.equal(firstQueuePage.data.entries.length, 50);
   assert.equal(firstQueuePage.data.hasNextPage, true);
+  const firstQueueEntry = firstQueuePage.data.entries[0];
+  assert.ok(firstQueueEntry);
   const lastQueuePage = await findEventVirtualLobbyQueue(
     ids.occurrence,
     ids.session,
@@ -799,6 +801,46 @@ try {
   assert.equal(lastQueuePage.status, "ready");
   assert.equal(lastQueuePage.data.entries.length, 3);
   assert.equal(lastQueuePage.data.hasNextPage, false);
+  await database
+    .insertInto("event_admin_assignment")
+    .values({
+      id: "verify_livekit_lobby_assignment_only_admin",
+      eventOccurrenceId: ids.occurrence,
+      userId: secondLearner.id,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
+    })
+    .execute();
+  assert.deepEqual(
+    await findEventVirtualLobbyQueue(
+      ids.occurrence,
+      ids.session,
+      secondLearner.id,
+      0,
+    ),
+    { status: "forbidden" },
+    "An occurrence assignment must not survive revocation of the Platform Administrator role",
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: firstQueueEntry.id,
+        action: "admit",
+      },
+      secondLearner,
+    ),
+    { status: "forbidden" },
+  );
+  await database
+    .updateTable("event_admin_assignment")
+    .set({ endedAt: new Date(), endReason: "assignment_ended" })
+    .where("id", "=", "verify_livekit_lobby_assignment_only_admin")
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await findEventVirtualLobbyQueue(
       ids.occurrence,
@@ -818,6 +860,18 @@ try {
       administrator,
     ),
     { status: "ready" },
+  );
+  const changedQueuePage = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    0,
+  );
+  assert.equal(changedQueuePage.status, "ready");
+  assert.notEqual(
+    changedQueuePage.data.etag,
+    firstQueuePage.data.etag,
+    "Admission changes must advance the queue revision used to reset remote pages",
   );
   assert.equal(
     await database
@@ -963,15 +1017,81 @@ try {
     .where("id", "=", ids.room)
     .executeTakeFirstOrThrow();
 
+  const terminalChallenge = await requestEventVirtualRecoveryCode(
+    { publicReference: access.publicReference, identifier: learner.email },
+    "terminal-verification".padEnd(43, "x"),
+    { requestLimitStore: new Map() },
+  );
+  assert.equal(terminalChallenge.status, "accepted");
+  assert.ok("challengeReference" in terminalChallenge);
+  const terminalChallengeId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", terminalChallenge.challengeReference)
+    .executeTakeFirstOrThrow();
+  const terminalCode = await database
+    .selectFrom("event_virtual_recovery_email_capture")
+    .select("textBody")
+    .where("challengeId", "=", terminalChallengeId.id)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.textBody.match(/\b\d{6}\b/u)?.[0]);
+  assert.ok(terminalCode);
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "ended",
+      endedAt: new Date(),
+      endedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await verifyEventVirtualRecoveryCode({
+      publicReference: access.publicReference,
+      challengeReference: terminalChallenge.challengeReference,
+      code: terminalCode,
+    }),
+    { status: "expired" },
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_virtual_recovery_challenge")
+      .select("consumedAt")
+      .where("id", "=", terminalChallengeId.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.consumedAt),
+    "Terminal verification must consume the challenge without issuing a capability",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_join_session")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("challengeId", "=", terminalChallengeId.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    0,
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", endedAt: null, endedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+
   const challenge = await requestEventVirtualRecoveryCode(
     { publicReference: access.publicReference, identifier: learner.email },
     "v".repeat(43),
   );
   assert.equal(challenge.status, "accepted");
   assert.ok("challengeReference" in challenge);
+  const challengeId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", challenge.challengeReference)
+    .executeTakeFirstOrThrow();
   const capture = await database
     .selectFrom("event_virtual_recovery_email_capture")
     .select("textBody")
+    .where("challengeId", "=", challengeId.id)
     .executeTakeFirstOrThrow();
   const code = capture.textBody.match(/\b\d{6}\b/u)?.[0];
   assert.ok(code);

@@ -928,18 +928,56 @@ export async function verifyEventVirtualRecoveryCode(input: {
 }): Promise<EventVirtualRecoveryVerificationResult> {
   const database = getDatabase();
   return await database.transaction().execute(async (transaction) => {
-    const challenge = await transaction
+    const locator = await transaction
       .selectFrom("event_virtual_recovery_challenge as challenge")
       .innerJoin(
         "event_virtual_join_access as access",
         "access.id",
         "challenge.eventVirtualJoinAccessId",
       )
-      .innerJoin(
-        "event_occurrence as occurrence",
-        "occurrence.id",
+      .select([
+        "challenge.id",
+        "challenge.eventVirtualJoinAccessId",
         "challenge.eventOccurrenceId",
-      )
+        "challenge.eventSessionId",
+        "challenge.roomGeneration",
+      ])
+      .where("challenge.reference", "=", input.challengeReference)
+      .where("access.publicReference", "=", input.publicReference)
+      .executeTakeFirst();
+    if (!locator) return { status: "invalid" };
+    // Match room lifecycle order and lock the challenge last because access
+    // replacement consumes outstanding challenges in the same transaction.
+    const occurrence = await transaction
+      .selectFrom("event_occurrence")
+      .select("status")
+      .where("id", "=", locator.eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    const session = await transaction
+      .selectFrom("event_session")
+      .select("id")
+      .where("id", "=", locator.eventSessionId)
+      .where("eventOccurrenceId", "=", locator.eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    await transaction
+      .selectFrom("event_virtual_room")
+      .select("id")
+      .where("eventSessionId", "=", locator.eventSessionId)
+      .where("generation", "=", locator.roomGeneration)
+      .where("replacedAt", "is", null)
+      .forUpdate()
+      .executeTakeFirst();
+    const access = await transaction
+      .selectFrom("event_virtual_join_access")
+      .select("revokedAt")
+      .where("id", "=", locator.eventVirtualJoinAccessId)
+      .where("publicReference", "=", input.publicReference)
+      .forUpdate()
+      .executeTakeFirst();
+    const challenge = await transaction
+      .selectFrom("event_virtual_recovery_challenge as challenge")
       .select([
         "challenge.id",
         "challenge.eventVirtualJoinAccessId",
@@ -953,31 +991,40 @@ export async function verifyEventVirtualRecoveryCode(input: {
         "challenge.attempts",
         "challenge.expiresAt",
         "challenge.consumedAt",
-        "access.revokedAt as accessRevokedAt",
-        "occurrence.status as occurrenceStatus",
       ])
-      .where("challenge.reference", "=", input.challengeReference)
-      .where("access.publicReference", "=", input.publicReference)
+      .where("challenge.id", "=", locator.id)
       .forUpdate("challenge")
       .executeTakeFirst();
-    if (!challenge) return { status: "invalid" };
     const now = new Date();
     if (
+      !occurrence ||
+      !session ||
+      !access ||
+      !challenge ||
       challenge.consumedAt ||
       challenge.expiresAt <= now ||
-      challenge.accessRevokedAt ||
-      challenge.occurrenceStatus !== "published"
+      access.revokedAt ||
+      occurrence.status !== "published"
     )
       return { status: "expired" };
     const destination = await findPublicDestination(
       transaction,
       input.publicReference,
     );
-    const participation = destination
-      ? await eligibleParticipation(transaction, destination, challenge.userId)
-      : null;
+    if (!destination || isTerminalDestination(destination, now)) {
+      await transaction
+        .updateTable("event_virtual_recovery_challenge")
+        .set({ consumedAt: now })
+        .where("id", "=", challenge.id)
+        .execute();
+      return { status: "expired" };
+    }
+    const participation = await eligibleParticipation(
+      transaction,
+      destination,
+      challenge.userId,
+    );
     if (
-      !destination ||
       !participation?.questionnaireComplete ||
       participation.id !== challenge.eventParticipationId
     ) {

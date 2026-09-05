@@ -8,6 +8,7 @@ import classes from "./webinars.$publicReference.module.css";
 
 const recoveryStatuses = new Set([
   "sent",
+  "request-invalid",
   "invalid",
   "expired",
   "rate-limited",
@@ -113,7 +114,9 @@ export const Route = createFileRoute("/webinars/$publicReference")({
             identifier: form.get("identifier"),
           });
           if (!input.success)
-            return redirectResponse(routeLocation(publicReference, "invalid"));
+            return redirectResponse(
+              routeLocation(publicReference, "request-invalid"),
+            );
           const result = await recovery.requestEventVirtualRecoveryCode(
             input.data,
           );
@@ -206,7 +209,7 @@ function EventVirtualLobbyPage() {
               >
                 {recovery === "sent"
                   ? "Code sent. Enter the 6-digit code below."
-                  : "The code could not be sent or verified. Try again."}
+                  : "Check the code or details."}
               </p>
             ) : null}
             <form method="post">

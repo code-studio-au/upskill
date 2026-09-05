@@ -140,9 +140,21 @@ export async function findEventVirtualLobbyQueue(
     .limit(LOBBY_QUEUE_PAGE_SIZE + 1)
     .offset(page * LOBBY_QUEUE_PAGE_SIZE)
     .execute();
+  // Read the revision after the page so a mutation between the two reads
+  // causes a safe client reset rather than an undetected shifted offset.
+  const revision = await database
+    .selectFrom("event_virtual_lobby_entry as lobby")
+    .select(
+      sql<string>`hashtextextended(coalesce(string_agg("lobby"."id" || ':' || "lobby"."state", ',' order by "lobby"."id"), ''), 0)::text`.as(
+        "value",
+      ),
+    )
+    .where("lobby.eventVirtualJoinAccessId", "=", access.id)
+    .executeTakeFirstOrThrow();
   return {
     status: "ready",
     data: {
+      etag: revision.value,
       entries: rows.slice(0, LOBBY_QUEUE_PAGE_SIZE).map((entry) => ({
         id: entry.id,
         eventParticipationId: entry.eventParticipationId,

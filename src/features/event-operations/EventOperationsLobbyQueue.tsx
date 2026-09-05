@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getEventVirtualLobbyQueue } from "#/server/functions/event-operations";
 import type {
   EventOperationsWorkspace,
@@ -30,9 +30,11 @@ export function EventOperationsLobbyQueue({
 }) {
   const [page, setPage] = useState(0);
   const [queue, setQueue] = useState<EventVirtualLobbyQueueData | null>(null);
+  const revision = useRef<string | null>(null);
 
   useEffect(() => {
     if (!showQueue) return;
+    let stopped = false;
     const load = async () => {
       const result = await getEventVirtualLobbyQueue({
         data: {
@@ -41,14 +43,25 @@ export function EventOperationsLobbyQueue({
           page,
         },
       });
-      setQueue(result.status === "ready" ? result.data : null);
+      if (stopped) return;
+      if (result.status !== "ready") {
+        setQueue(null);
+        return;
+      }
+      const changed = revision.current && revision.current !== result.data.etag;
+      revision.current = result.data.etag;
+      if (page && changed) {
+        setPage(0);
+        return;
+      }
+      setQueue(result.data);
     };
-    const initial = window.setTimeout(() => void load(), 0);
+    void load();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void load();
+      if (!document.hidden) void load();
     }, 4_000);
     return () => {
-      window.clearTimeout(initial);
+      stopped = true;
       window.clearInterval(timer);
     };
   }, [eventOccurrenceId, page, session.eventSessionId, showQueue]);
@@ -58,7 +71,7 @@ export function EventOperationsLobbyQueue({
   return (
     <div className={classes.lobbyPanel}>
       <section>
-        <strong>Attendee waiting-room link</strong>
+        <strong>Attendee lobby link</strong>
         <a
           className={classes.guestLink}
           href={lobbyPath}

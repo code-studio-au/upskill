@@ -250,6 +250,7 @@ export interface EventOperationsWorkspace {
 }
 
 export interface EventVirtualLobbyQueueData {
+  etag: string;
   entries: Array<{
     id: string;
     eventParticipationId: string;
