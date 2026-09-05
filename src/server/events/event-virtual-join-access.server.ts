@@ -9,6 +9,17 @@ function publicReference(): string {
   return randomBytes(32).toString("base64url");
 }
 
+export async function advanceEventVirtualLobbyRevision(
+  transaction: Transaction<Database>,
+  eventVirtualJoinAccessId: string,
+): Promise<void> {
+  await transaction
+    .updateTable("event_virtual_join_access")
+    .set({ lobbyRevision: sql`"lobbyRevision" + 1` })
+    .where("id", "=", eventVirtualJoinAccessId)
+    .execute();
+}
+
 async function revokeJoinAccess(
   transaction: Transaction<Database>,
   access: {

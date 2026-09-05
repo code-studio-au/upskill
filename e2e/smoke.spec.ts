@@ -2427,6 +2427,25 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.locator("li").filter({ hasText: administratorUser.name }),
     ).toBeVisible({ timeout: 10_000 });
+    const browser = page.context().browser();
+    if (!browser) throw new Error("Playwright browser is unavailable");
+    const attendeeContext = await browser.newContext({
+      baseURL: new URL(page.url()).origin,
+    });
+    try {
+      const attendeePage = await attendeeContext.newPage();
+      await attendeePage.goto(`/webinars/${"l".repeat(43)}?recovery=sent`);
+      await expect(attendeePage.getByLabel("6-digit code")).toBeVisible();
+      await attendeePage.getByRole("link", { name: "Start over" }).click();
+      await expect(attendeePage).toHaveURL(
+        new RegExp(`/webinars/${"l".repeat(43)}\\?$`, "u"),
+      );
+      await expect(
+        attendeePage.getByLabel("Verified email or mobile"),
+      ).toBeVisible();
+    } finally {
+      await attendeeContext.close();
+    }
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);

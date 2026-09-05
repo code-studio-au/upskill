@@ -74,6 +74,13 @@
   gap: var(--mantine-spacing-sm);
 }
 
+.card form > div > a {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  padding-inline: var(--mantine-spacing-sm);
+}
+
 @media (max-width: 40rem) {
   .page {
     padding: var(--mantine-spacing-md);

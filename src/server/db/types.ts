@@ -795,6 +795,7 @@ interface EventVirtualJoinAccessTable {
   eventSessionId: string;
   roomGeneration: number;
   publicReference: string;
+  lobbyRevision: Generated<number>;
   createdAt: Timestamp;
   revokedAt: Timestamp | null;
   revokedByUserId: string | null;

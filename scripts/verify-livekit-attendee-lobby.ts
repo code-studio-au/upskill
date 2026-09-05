@@ -531,6 +531,89 @@ try {
       .then((row) => Number(row.count)),
     tokenIssuedAuditCount,
   );
+  const rejoinNow = new Date();
+  const recentLeave = new Date(rejoinNow.getTime() - 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "left",
+      firstConnectedAt: new Date(rejoinNow.getTime() - 2 * 60_000),
+      lastSeenAt: recentLeave,
+      leftAt: recentLeave,
+      updatedAt: rejoinNow,
+    })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "locked",
+      lockedAt: rejoinNow,
+      lockedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const graceRejoin = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+    { clock: () => rejoinNow },
+  );
+  assert.equal(
+    graceRejoin.status === "ready" ? graceRejoin.data.outcome : null,
+    "ready_to_join",
+    "A previously connected attendee may rejoin a locked room during the configured grace period",
+  );
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        learner,
+        {
+          provider: new FakeLiveKitProvider(),
+          websocketUrl: "wss://verify.example.com",
+        },
+      )
+    ).status,
+    "ready",
+  );
+  const expiredLeave = new Date(rejoinNow.getTime() - 11 * 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ state: "left", lastSeenAt: expiredLeave, leftAt: expiredLeave })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  const expiredGrace = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+    { clock: () => rejoinNow },
+  );
+  assert.equal(
+    expiredGrace.status === "ready" ? expiredGrace.data.outcome : null,
+    "locked",
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      reopenedAt: rejoinNow,
+      reopenedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        learner,
+        {
+          provider: new FakeLiveKitProvider(),
+          websocketUrl: "wss://verify.example.com",
+        },
+      )
+    ).status,
+    "ready",
+    "Reopening the door must restore normal admitted attendee token issuance",
+  );
   await database
     .insertInto("event_presenter_assignment")
     .values({
@@ -1171,6 +1254,11 @@ try {
     "expired",
   );
   await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ admittedByUserId: administrator.id })
+    .where("eventParticipationId", "=", ids.participation)
+    .executeTakeFirstOrThrow();
+  await database
     .updateTable("event_registration")
     .set({ status: "cancelled", lockedInAt: null })
     .where("id", "=", ids.registration)
@@ -1209,16 +1297,32 @@ try {
   );
   const restoredEntry = await database
     .selectFrom("event_virtual_lobby_entry")
-    .select(["id", "state", "revokedAt", "revokedByUserId"])
+    .select([
+      "id",
+      "state",
+      "admittedAt",
+      "admittedByUserId",
+      "revokedAt",
+      "revokedByUserId",
+    ])
     .where("eventParticipationId", "=", ids.participation)
     .executeTakeFirstOrThrow();
   assert.deepEqual(
     {
       state: restoredEntry.state,
+      admittedAt: restoredEntry.admittedAt,
+      admittedByUserId: restoredEntry.admittedByUserId,
       revokedAt: restoredEntry.revokedAt,
       revokedByUserId: restoredEntry.revokedByUserId,
     },
-    { state: "waiting", revokedAt: null, revokedByUserId: null },
+    {
+      state: "waiting",
+      admittedAt: null,
+      admittedByUserId: null,
+      revokedAt: null,
+      revokedByUserId: null,
+    },
+    "Manual eligibility restoration must clear the current admission metadata",
   );
   const restoredAudit = await database
     .selectFrom("audit_event")
@@ -1230,6 +1334,66 @@ try {
   assert.match(
     JSON.stringify(restoredAudit.metadata),
     /"action":"reactivate"/u,
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await setEventVirtualRoomAdmissionMode(
+      ids.occurrence,
+      ids.session,
+      "automatic",
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", restoredEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "waiting",
+    "Automatic admission must skip a currently ineligible waiting entry",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  const automaticRestoration = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    automaticRestoration.status === "ready"
+      ? automaticRestoration.data.outcome
+      : null,
+    "ready_to_join",
+    "A re-selected waiting attendee must be reconciled against the locked automatic admission mode",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "admittedAt", "admittedByUserId"])
+      .where("id", "=", restoredEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => ({
+        state: row.state,
+        admitted: Boolean(row.admittedAt),
+        admittedByUserId: row.admittedByUserId,
+      })),
+    { state: "admitted", admitted: true, admittedByUserId: null },
+    "Automatic eligibility restoration must record a fresh system admission",
+  );
+  await setEventVirtualRoomAdmissionMode(
+    ids.occurrence,
+    ids.session,
+    "manual",
+    administrator,
   );
   await database
     .updateTable("event_registration")

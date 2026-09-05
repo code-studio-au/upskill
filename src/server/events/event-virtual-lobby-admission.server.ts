@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import { sql, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { Database } from "#/server/db/types";
+import { advanceEventVirtualLobbyRevision } from "./event-virtual-join-access.server";
 
 export async function admitEligibleWaitingEntries(
   transaction: Transaction<Database>,
@@ -22,10 +23,12 @@ export async function admitEligibleWaitingEntries(
     .where("eventSessionId", "=", input.eventSessionId)
     .where("roomGeneration", "=", input.roomGeneration)
     .where("revokedAt", "is", null)
+    .forUpdate()
     .executeTakeFirst();
   if (!access) return;
   let cursor: { requestedAt: Date; id: string } | null = null;
   let hasMore = true;
+  let changed = false;
   while (hasMore) {
     let query = transaction
       .selectFrom("event_virtual_lobby_entry as lobby")
@@ -103,6 +106,7 @@ export async function admitEligibleWaitingEntries(
         .returning("id")
         .executeTakeFirst();
       if (!admitted) continue;
+      changed = true;
       await recordDurableAuditEvent(transaction, {
         actorUserId: input.actorUserId,
         action: "event_virtual_lobby.admission_changed",
@@ -121,4 +125,5 @@ export async function admitEligibleWaitingEntries(
     hasMore = Boolean(last) && waiting.length === 500;
     if (last) cursor = { requestedAt: last.requestedAt, id: last.id };
   }
+  if (changed) await advanceEventVirtualLobbyRevision(transaction, access.id);
 }

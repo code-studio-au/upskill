@@ -207,9 +207,7 @@ function EventVirtualLobbyPage() {
                       : "red"
                 }
               >
-                {recovery === "sent"
-                  ? "Code sent. Enter the 6-digit code below."
-                  : "Check the code or details."}
+                {recovery === "sent" ? "Enter the code." : "Check details."}
               </p>
             ) : null}
             <form method="post">
@@ -236,6 +234,7 @@ function EventVirtualLobbyPage() {
                 >
                   Sign in with password
                 </Button>
+                {codeSent ? <a href="?">Start over</a> : null}
               </div>
             </form>
           </>

@@ -43,6 +43,7 @@ import {
   isAmbiguousSmsDeliveryError,
   sendEventVirtualRecoverySms,
 } from "#/server/notifications/sms-provider.server";
+import { advanceEventVirtualLobbyRevision } from "./event-virtual-join-access.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
 import { lockVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
@@ -219,10 +220,12 @@ async function findPublicDestination(
       "session.startsAt",
       "session.endsAt",
       "session.livekitAdmissionMode",
+      "session.livekitAttendeeRejoinGraceMinutes",
       "session.livekitAttendeeRecordingNotice",
       "room.id as roomId",
       "room.providerRoomName",
       "room.doorState",
+      "room.lockedAt",
       "room.admissionMode",
       "room.recordingMode",
       "room.providerStatus",
@@ -246,6 +249,33 @@ function isTerminalDestination(
     destination.doorState === "ended" ||
     ((!destination.roomId || destination.doorState === "scheduled") &&
       destination.endsAt <= now)
+  );
+}
+
+function canJoinThroughDoor(
+  doorState: PublicDestination["doorState"],
+  rejoinGraceMinutes: number | null,
+  entry: {
+    state: string;
+    firstConnectedAt: Date | null;
+    leftAt: Date | null;
+  },
+  now: Date,
+): boolean {
+  if (doorState === "open") return true;
+  if (
+    doorState !== "locked" ||
+    !["admitted", "token_issued", "connected", "left"].includes(entry.state) ||
+    !entry.firstConnectedAt ||
+    !entry.leftAt ||
+    entry.firstConnectedAt > entry.leftAt ||
+    entry.leftAt > now
+  )
+    return false;
+  const graceMilliseconds = (rejoinGraceMinutes ?? 0) * 60_000;
+  return (
+    graceMilliseconds > 0 &&
+    now.getTime() <= entry.leftAt.getTime() + graceMilliseconds
   );
 }
 
@@ -372,20 +402,6 @@ async function ensureLobbyEntry(
     await sql`select pg_advisory_xact_lock(hashtextextended(
       ${`${destination.eventVirtualJoinAccessId}:${participation.id}`}, 0
     ))`.execute(transaction);
-    const existing = await transaction
-      .selectFrom("event_virtual_lobby_entry")
-      .selectAll()
-      .where(
-        "eventVirtualJoinAccessId",
-        "=",
-        destination.eventVirtualJoinAccessId,
-      )
-      .where("eventParticipationId", "=", participation.id)
-      .forUpdate()
-      .executeTakeFirst();
-    if (existing && (existing.state !== "revoked" || existing.revokedByUserId))
-      return existing;
-    const now = new Date();
     const currentRoom = destination.roomId
       ? await transaction
           .selectFrom("event_virtual_room")
@@ -397,18 +413,72 @@ async function ensureLobbyEntry(
           .forUpdate()
           .executeTakeFirst()
       : null;
+    const currentAccess = await transaction
+      .selectFrom("event_virtual_join_access")
+      .select("id")
+      .where("id", "=", destination.eventVirtualJoinAccessId)
+      .where("revokedAt", "is", null)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!currentAccess) return null;
+    const existing = await transaction
+      .selectFrom("event_virtual_lobby_entry")
+      .selectAll()
+      .where(
+        "eventVirtualJoinAccessId",
+        "=",
+        destination.eventVirtualJoinAccessId,
+      )
+      .where("eventParticipationId", "=", participation.id)
+      .forUpdate()
+      .executeTakeFirst();
+    const now = new Date();
     const automatic =
       (currentRoom?.admissionMode ?? destination.livekitAdmissionMode) ===
       "automatic";
+    if (existing?.state === "waiting" && automatic) {
+      const admitted = await transaction
+        .updateTable("event_virtual_lobby_entry")
+        .set({
+          state: "admitted",
+          admittedAt: now,
+          admittedByUserId: null,
+          updatedAt: now,
+        })
+        .where("id", "=", existing.id)
+        .where("state", "=", "waiting")
+        .returningAll()
+        .executeTakeFirst();
+      if (!admitted) return existing;
+      await advanceEventVirtualLobbyRevision(
+        transaction,
+        destination.eventVirtualJoinAccessId,
+      );
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: null,
+        action: "event_virtual_lobby.admission_changed",
+        subjectType: "event_virtual_lobby_entry",
+        subjectId: admitted.id,
+        aggregateId: destination.eventOccurrenceId,
+        metadata: {
+          action: "admit",
+          eventSessionId: destination.eventSessionId,
+          source: "automatic_eligibility_restored",
+        },
+        createdAt: now,
+      });
+      return admitted;
+    }
+    if (existing && (existing.state !== "revoked" || existing.revokedByUserId))
+      return existing;
     if (existing) {
       const restored = await transaction
         .updateTable("event_virtual_lobby_entry")
         .set({
           state: automatic ? "admitted" : "waiting",
           accessMethod: actor.accessMethod,
-          admittedAt: automatic
-            ? (existing.admittedAt ?? now)
-            : existing.admittedAt,
+          admittedAt: automatic ? now : null,
+          admittedByUserId: null,
           revokedAt: null,
           revokedByUserId: null,
           updatedAt: now,
@@ -416,6 +486,10 @@ async function ensureLobbyEntry(
         .where("id", "=", existing.id)
         .returningAll()
         .executeTakeFirstOrThrow();
+      await advanceEventVirtualLobbyRevision(
+        transaction,
+        destination.eventVirtualJoinAccessId,
+      );
       await recordDurableAuditEvent(transaction, {
         actorUserId: actor.user.id,
         action: "event_virtual_lobby.admission_changed",
@@ -460,6 +534,10 @@ async function ensureLobbyEntry(
       })
       .returningAll()
       .executeTakeFirstOrThrow();
+    await advanceEventVirtualLobbyRevision(
+      transaction,
+      destination.eventVirtualJoinAccessId,
+    );
     await recordDurableAuditEvent(transaction, {
       actorUserId: actor.user.id,
       action: "event_virtual_lobby.requested",
@@ -494,6 +572,14 @@ async function revokeIneligibleLobbyAccess(
   await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      const access = await transaction
+        .selectFrom("event_virtual_join_access")
+        .select("id")
+        .where("id", "=", destination.eventVirtualJoinAccessId)
+        .where("revokedAt", "is", null)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!access) return;
       const participation = await transaction
         .selectFrom("event_participation")
         .select("id")
@@ -519,6 +605,10 @@ async function revokeIneligibleLobbyAccess(
           .set({ state: "revoked", revokedAt: now, updatedAt: now })
           .where("id", "=", entry.id)
           .execute();
+        await advanceEventVirtualLobbyRevision(
+          transaction,
+          destination.eventVirtualJoinAccessId,
+        );
         await recordDurableAuditEvent(transaction, {
           actorUserId: null,
           action: "event_virtual_lobby.admission_changed",
@@ -568,6 +658,7 @@ export async function resolveEventVirtualLobby(
     publicReference,
   );
   if (!destination) return { status: "not-found" };
+  const now = options.clock?.() ?? new Date();
   const publicBase = {
     eventTitle: destination.eventTitle,
     sessionTitle: destination.sessionTitle,
@@ -594,7 +685,7 @@ export async function resolveEventVirtualLobby(
     ["draft", "archived"].includes(destination.occurrenceStatus)
   )
     return { status: "not-found" };
-  if (isTerminalDestination(destination, options.clock?.() ?? new Date()))
+  if (isTerminalDestination(destination, now))
     return { status: "ready", data: { ...empty, outcome: "ended" } };
   const actor = await resolveActor(
     destination,
@@ -635,6 +726,7 @@ export async function resolveEventVirtualLobby(
       },
     };
   const entry = await ensureLobbyEntry(destination, actor, participation);
+  if (!entry) return { status: "not-found" };
   const notice = recordingNotice(destination);
   const acknowledged = Boolean(
     notice && entry.recordingNoticeDigest === recordingDigest(notice),
@@ -664,7 +756,15 @@ export async function resolveEventVirtualLobby(
         pollAfterMilliseconds: POLL_AFTER_MS,
       },
     };
-  if (destination.doorState === "locked")
+  if (
+    destination.doorState === "locked" &&
+    !canJoinThroughDoor(
+      destination.doorState,
+      destination.livekitAttendeeRejoinGraceMinutes,
+      entry,
+      now,
+    )
+  )
     return {
       status: "ready",
       data: {
@@ -1398,10 +1498,21 @@ export async function issueEventVirtualAttendeeCredential(
         (resolved.actor.accessMethod !== "authenticated" &&
           !recoveredJoinSession) ||
         !room ||
-        room.doorState !== "open" ||
+        !canJoinThroughDoor(
+          room.doorState,
+          resolved.destination.livekitAttendeeRejoinGraceMinutes,
+          entry ?? {
+            state: "revoked",
+            firstConnectedAt: null,
+            leftAt: null,
+          },
+          revalidationNow,
+        ) ||
         room.providerStatus !== "ready" ||
         !entry ||
-        !["admitted", "token_issued"].includes(entry.state) ||
+        !["admitted", "token_issued", "connected", "left"].includes(
+          entry.state,
+        ) ||
         !participation?.questionnaireComplete ||
         (notice && entry.recordingNoticeDigest !== recordingDigest(notice))
       )
@@ -1416,6 +1527,11 @@ export async function issueEventVirtualAttendeeCredential(
         })
         .where("id", "=", entry.id)
         .execute();
+      if (entry.state !== "token_issued")
+        await advanceEventVirtualLobbyRevision(
+          transaction,
+          resolved.destination.eventVirtualJoinAccessId,
+        );
       await recordDurableAuditEvent(transaction, {
         actorUserId: resolved.actor.user.id,
         action: "event_virtual_lobby.attendee_token_issued",
@@ -1524,6 +1640,10 @@ async function changeAdmission(
     .set({ ...updates, updatedAt: now })
     .where("id", "=", entry.id)
     .execute();
+  await advanceEventVirtualLobbyRevision(
+    transaction,
+    destination.eventVirtualJoinAccessId,
+  );
   await recordDurableAuditEvent(transaction, {
     actorUserId,
     action: "event_virtual_lobby.admission_changed",

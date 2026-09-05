@@ -653,6 +653,7 @@ try {
           'event_virtual_join_access_reference_ck',
           'event_virtual_join_access_generation_ck',
           'event_virtual_join_access_revocation_ck',
+          'event_virtual_join_access_lobby_revision_ck',
           'event_virtual_lobby_entry_access_fk',
           'event_virtual_lobby_entry_participation_fk',
           'event_virtual_lobby_entry_identity_uq',
@@ -677,7 +678,7 @@ try {
         )`.execute(db);
   assert.equal(
     liveKitLobbyConstraints.rows.length,
-    29,
+    30,
     "LiveKit attendee access, lobby, recovery and capability scope must be constrained",
   );
   const eventTemplateVersionColumns = await sql<{

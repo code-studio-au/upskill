@@ -140,21 +140,19 @@ export async function findEventVirtualLobbyQueue(
     .limit(LOBBY_QUEUE_PAGE_SIZE + 1)
     .offset(page * LOBBY_QUEUE_PAGE_SIZE)
     .execute();
-  // Read the revision after the page so a mutation between the two reads
-  // causes a safe client reset rather than an undetected shifted offset.
+  // Read the transactionally advanced revision after the page so a mutation
+  // between the two reads causes a safe client reset without scanning history.
   const revision = await database
-    .selectFrom("event_virtual_lobby_entry as lobby")
-    .select(
-      sql<string>`hashtextextended(coalesce(string_agg("lobby"."id" || ':' || "lobby"."state", ',' order by "lobby"."id"), ''), 0)::text`.as(
-        "value",
-      ),
-    )
-    .where("lobby.eventVirtualJoinAccessId", "=", access.id)
-    .executeTakeFirstOrThrow();
+    .selectFrom("event_virtual_join_access")
+    .select("lobbyRevision")
+    .where("id", "=", access.id)
+    .where("revokedAt", "is", null)
+    .executeTakeFirst();
+  if (!revision) return { status: "not-found" } as const;
   return {
     status: "ready",
     data: {
-      etag: revision.value,
+      etag: String(revision.lobbyRevision),
       entries: rows.slice(0, LOBBY_QUEUE_PAGE_SIZE).map((entry) => ({
         id: entry.id,
         eventParticipationId: entry.eventParticipationId,
