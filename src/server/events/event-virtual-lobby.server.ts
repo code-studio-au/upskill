@@ -797,6 +797,97 @@ export async function resolveEventVirtualLobby(
   };
 }
 
+interface RecoveryAuditTarget {
+  subjectType: string;
+  subjectId: string;
+  aggregateId: string;
+  eventSessionId?: string;
+  roomGeneration?: number;
+}
+
+function privateRecoveryAuditTarget(
+  subjectType:
+    "event_virtual_recovery_request" | "event_virtual_recovery_verification",
+  ...references: string[]
+): RecoveryAuditTarget {
+  const subjectId = `${subjectType}_${secretDigest(
+    `audit:${subjectType}:${references.join(":")}`,
+  )}`;
+  return { subjectType, subjectId, aggregateId: subjectId };
+}
+
+function recoveryAuditTargetForDestination(
+  destination: PublicDestination,
+): RecoveryAuditTarget {
+  return {
+    subjectType: "event_virtual_join_access",
+    subjectId: destination.eventVirtualJoinAccessId,
+    aggregateId: destination.eventOccurrenceId,
+    eventSessionId: destination.eventSessionId,
+    roomGeneration: destination.roomGeneration,
+  };
+}
+
+async function recordRecoveryRequestOutcome(
+  transaction: Transaction<Database>,
+  input: {
+    target: RecoveryAuditTarget;
+    channel: "email" | "sms";
+    responseStatus: "accepted" | "rate-limited" | "unavailable";
+    reasonCode: string;
+    createdAt?: Date;
+  },
+): Promise<void> {
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: null,
+    action: "event_virtual_lobby.recovery_request_outcome",
+    subjectType: input.target.subjectType,
+    subjectId: input.target.subjectId,
+    aggregateId: input.target.aggregateId,
+    reasonCode: input.reasonCode,
+    metadata: {
+      channel: input.channel,
+      responseStatus: input.responseStatus,
+      eventSessionId: input.target.eventSessionId,
+      roomGeneration: input.target.roomGeneration,
+    },
+    ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+  });
+}
+
+async function recordStandaloneRecoveryRequestOutcome(
+  input: Parameters<typeof recordRecoveryRequestOutcome>[1],
+): Promise<void> {
+  await getDatabase()
+    .transaction()
+    .execute((transaction) => recordRecoveryRequestOutcome(transaction, input));
+}
+
+async function recordRecoveryVerificationFailure(
+  transaction: Transaction<Database>,
+  input: {
+    target: RecoveryAuditTarget;
+    responseStatus: "expired" | "invalid" | "rate-limited";
+    reasonCode: string;
+    createdAt?: Date;
+  },
+): Promise<void> {
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: null,
+    action: "event_virtual_lobby.recovery_verification_failed",
+    subjectType: input.target.subjectType,
+    subjectId: input.target.subjectId,
+    aggregateId: input.target.aggregateId,
+    reasonCode: input.reasonCode,
+    metadata: {
+      responseStatus: input.responseStatus,
+      eventSessionId: input.target.eventSessionId,
+      roomGeneration: input.target.roomGeneration,
+    },
+    ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+  });
+}
+
 export async function requestEventVirtualRecoveryCode(
   input: { publicReference: string; identifier: string },
   fingerprintOverride?: string,
@@ -816,16 +907,49 @@ export async function requestEventVirtualRecoveryCode(
       fingerprint,
       requestOverrides.requestLimitStore,
     )
-  )
+  ) {
+    await recordStandaloneRecoveryRequestOutcome({
+      target: privateRecoveryAuditTarget(
+        "event_virtual_recovery_request",
+        input.publicReference,
+      ),
+      channel,
+      responseStatus: "rate-limited",
+      reasonCode: "local_rate_limited",
+    });
     return { status: "rate-limited" };
+  }
   const destination = await findPublicDestination(
     database,
     input.publicReference,
   );
-  if (!destination?.publishedAt || destination.occurrenceStatus !== "published")
+  const requestAuditTarget = destination
+    ? recoveryAuditTargetForDestination(destination)
+    : privateRecoveryAuditTarget(
+        "event_virtual_recovery_request",
+        input.publicReference,
+      );
+  if (
+    !destination?.publishedAt ||
+    destination.occurrenceStatus !== "published"
+  ) {
+    await recordStandaloneRecoveryRequestOutcome({
+      target: requestAuditTarget,
+      channel,
+      responseStatus: "unavailable",
+      reasonCode: "destination_unavailable",
+    });
     return { status: "unavailable" };
-  if (isTerminalDestination(destination, new Date()))
+  }
+  if (isTerminalDestination(destination, new Date())) {
+    await recordStandaloneRecoveryRequestOutcome({
+      target: requestAuditTarget,
+      channel,
+      responseStatus: "unavailable",
+      reasonCode: "terminal_session",
+    });
     return { status: "unavailable" };
+  }
   const fallbackReference = opaqueReference();
   const participant = await database
     .selectFrom("event_participation as participation")
@@ -854,15 +978,29 @@ export async function requestEventVirtualRecoveryCode(
         : sql<boolean>`"user"."emailEnabled" = true and "user"."emailVerified" = true and lower("user".email) = ${normalizedIdentifier}`,
     )
     .executeTakeFirst();
-  if (!participant)
+  if (!participant) {
+    await recordStandaloneRecoveryRequestOutcome({
+      target: requestAuditTarget,
+      channel,
+      responseStatus: "accepted",
+      reasonCode: "enumeration_safe_fallback",
+    });
     return { status: "accepted", challengeReference: fallbackReference };
+  }
   const eligibility = await eligibleParticipation(
     database,
     destination,
     participant.userId,
   );
-  if (!eligibility?.questionnaireComplete)
+  if (!eligibility?.questionnaireComplete) {
+    await recordStandaloneRecoveryRequestOutcome({
+      target: requestAuditTarget,
+      channel,
+      responseStatus: "accepted",
+      reasonCode: "enumeration_safe_fallback",
+    });
     return { status: "accepted", challengeReference: fallbackReference };
+  }
   const challengeId = `event_virtual_recovery_${randomUUID()}`;
   const challengeReference = opaqueReference();
   const code = randomInt(0, 1_000_000).toString().padStart(6, "0");
@@ -884,7 +1022,16 @@ export async function requestEventVirtualRecoveryCode(
       publicReference: input.publicReference,
       now: reservedAt,
     });
-    if (!currentTarget) return false;
+    if (!currentTarget) {
+      await recordRecoveryRequestOutcome(transaction, {
+        target: requestAuditTarget,
+        channel,
+        responseStatus: "accepted",
+        reasonCode: "eligibility_changed",
+        createdAt: reservedAt,
+      });
+      return false;
+    }
     const recent = await transaction
       .selectFrom("event_virtual_recovery_challenge")
       .select((expression) => expression.fn.countAll<string>().as("count"))
@@ -900,7 +1047,16 @@ export async function requestEventVirtualRecoveryCode(
         new Date(reservedAt.getTime() - RATE_LIMIT_WINDOW_MS),
       )
       .executeTakeFirstOrThrow();
-    if (Number(recent.count) >= 3) return false;
+    if (Number(recent.count) >= 3) {
+      await recordRecoveryRequestOutcome(transaction, {
+        target: requestAuditTarget,
+        channel,
+        responseStatus: "accepted",
+        reasonCode: "durable_rate_limited",
+        createdAt: reservedAt,
+      });
+      return false;
+    }
     await transaction
       .updateTable("event_virtual_recovery_challenge")
       .set({ consumedAt: reservedAt })
@@ -941,6 +1097,13 @@ export async function requestEventVirtualRecoveryCode(
       code,
       createdAt: reservedAt,
     });
+    await recordRecoveryRequestOutcome(transaction, {
+      target: requestAuditTarget,
+      channel,
+      responseStatus: "accepted",
+      reasonCode: "challenge_queued",
+      createdAt: reservedAt,
+    });
     return true;
   });
   if (!reserved)
@@ -964,6 +1127,11 @@ export async function verifyEventVirtualRecoveryCode(input: {
 }): Promise<EventVirtualRecoveryVerificationResult> {
   const database = getDatabase();
   return await database.transaction().execute(async (transaction) => {
+    const privateAuditTarget = privateRecoveryAuditTarget(
+      "event_virtual_recovery_verification",
+      input.publicReference,
+      input.challengeReference,
+    );
     const locator = await transaction
       .selectFrom("event_virtual_recovery_challenge as challenge")
       .innerJoin(
@@ -981,7 +1149,21 @@ export async function verifyEventVirtualRecoveryCode(input: {
       .where("challenge.reference", "=", input.challengeReference)
       .where("access.publicReference", "=", input.publicReference)
       .executeTakeFirst();
-    if (!locator) return { status: "invalid" };
+    if (!locator) {
+      await recordRecoveryVerificationFailure(transaction, {
+        target: privateAuditTarget,
+        responseStatus: "invalid",
+        reasonCode: "invalid_reference",
+      });
+      return { status: "invalid" };
+    }
+    const verificationAuditTarget: RecoveryAuditTarget = {
+      subjectType: "event_virtual_recovery_challenge",
+      subjectId: locator.id,
+      aggregateId: locator.eventOccurrenceId,
+      eventSessionId: locator.eventSessionId,
+      roomGeneration: locator.roomGeneration,
+    };
     // Match room lifecycle order and lock the challenge last because access
     // replacement consumes outstanding challenges in the same transaction.
     const occurrence = await transaction
@@ -1041,8 +1223,15 @@ export async function verifyEventVirtualRecoveryCode(input: {
       challenge.expiresAt <= now ||
       access.revokedAt ||
       occurrence.status !== "published"
-    )
+    ) {
+      await recordRecoveryVerificationFailure(transaction, {
+        target: verificationAuditTarget,
+        responseStatus: "expired",
+        reasonCode: "expired_or_revoked",
+        createdAt: now,
+      });
       return { status: "expired" };
+    }
     const destination = await findPublicDestination(
       transaction,
       input.publicReference,
@@ -1053,6 +1242,12 @@ export async function verifyEventVirtualRecoveryCode(input: {
         .set({ consumedAt: now })
         .where("id", "=", challenge.id)
         .execute();
+      await recordRecoveryVerificationFailure(transaction, {
+        target: verificationAuditTarget,
+        responseStatus: "expired",
+        reasonCode: "terminal_session",
+        createdAt: now,
+      });
       return { status: "expired" };
     }
     const participation = await eligibleParticipation(
@@ -1069,9 +1264,23 @@ export async function verifyEventVirtualRecoveryCode(input: {
         .set({ consumedAt: now })
         .where("id", "=", challenge.id)
         .execute();
+      await recordRecoveryVerificationFailure(transaction, {
+        target: verificationAuditTarget,
+        responseStatus: "expired",
+        reasonCode: "eligibility_changed",
+        createdAt: now,
+      });
       return { status: "expired" };
     }
-    if (challenge.attempts >= 5) return { status: "rate-limited" };
+    if (challenge.attempts >= 5) {
+      await recordRecoveryVerificationFailure(transaction, {
+        target: verificationAuditTarget,
+        responseStatus: "rate-limited",
+        reasonCode: "attempt_limit_reached",
+        createdAt: now,
+      });
+      return { status: "rate-limited" };
+    }
     const attempts = challenge.attempts + 1;
     if (
       !codeMatches(
@@ -1084,7 +1293,17 @@ export async function verifyEventVirtualRecoveryCode(input: {
         .set({ attempts })
         .where("id", "=", challenge.id)
         .execute();
-      return attempts >= 5 ? { status: "rate-limited" } : { status: "invalid" };
+      const responseStatus = attempts >= 5 ? "rate-limited" : "invalid";
+      await recordRecoveryVerificationFailure(transaction, {
+        target: verificationAuditTarget,
+        responseStatus,
+        reasonCode:
+          responseStatus === "rate-limited"
+            ? "attempt_limit_reached"
+            : "incorrect_code",
+        createdAt: now,
+      });
+      return { status: responseStatus };
     }
     const token = opaqueReference(32);
     const joinSessionId = `event_virtual_join_session_${randomUUID()}`;
@@ -1122,6 +1341,7 @@ export async function verifyEventVirtualRecoveryCode(input: {
         accessMethod: `${challenge.channel}_otp`,
         eventSessionId: challenge.eventSessionId,
         roomGeneration: challenge.roomGeneration,
+        responseStatus: "ready",
       },
       createdAt: now,
     });

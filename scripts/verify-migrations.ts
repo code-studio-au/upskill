@@ -402,6 +402,14 @@ try {
     auditActionDefinition.definition,
     /event_virtual_lobby\.attendee_token_issued/u,
   );
+  assert.match(
+    auditActionDefinition.definition,
+    /event_virtual_lobby\.recovery_request_outcome/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
+    /event_virtual_lobby\.recovery_verification_failed/u,
+  );
   const enterpriseContractConstraints = await sql<{
     constraint_name: string;
   }>`select constraint_name from information_schema.table_constraints

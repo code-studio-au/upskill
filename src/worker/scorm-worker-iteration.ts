@@ -5,6 +5,8 @@ import type { VirtualRoomOperationBatch } from "#/server/events/event-virtual-ro
 import type { EventVirtualRecoveryDeliveryBatch } from "#/server/events/event-virtual-recovery-delivery.server";
 import type { EventVirtualLobbyEligibilityRevocationBatch } from "#/server/events/event-virtual-lobby-reconciliation.server";
 
+const ELIGIBILITY_RECONCILIATION_MAX_QUEUE_WAIT_SECONDS = 1;
+
 export interface ScormWorkerIterationDependencies {
   processAvailableEventCommunicationSchedules: () => Promise<EventCommunicationScheduleBatch>;
   processAvailableEventVirtualRoomOperations: () => Promise<VirtualRoomOperationBatch>;
@@ -47,7 +49,7 @@ export async function runScormWorkerIteration(
       virtualRecoveryDeliveries.outcomes.length > 0 ||
       dispatch.outcomes.length > 0
       ? 0
-      : undefined,
+      : ELIGIBILITY_RECONCILIATION_MAX_QUEUE_WAIT_SECONDS,
   );
   return {
     schedules,

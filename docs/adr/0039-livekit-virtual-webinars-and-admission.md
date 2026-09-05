@@ -913,6 +913,11 @@ challenge and ambiguous delivery remains visible as unknown. A poison event
 remains visible with a bounded error classification and retry history; it is not
 dropped or allowed to block unrelated rooms.
 
+Eligibility withdrawal reconciliation is latency-sensitive because it removes
+an already-connected attendee. The worker caps its otherwise idle SQS long poll
+at one second while this scanner is active, so registration changes cannot sit
+behind the general queue's longer configured wait.
+
 The final attendance calculation may be rerun deterministically from retained
 normalised evidence and the snapshotted policy. Calculation-version changes do
 not silently rewrite historical decisions; they require an explicit audited
@@ -1054,6 +1059,12 @@ Durable audit events cover:
   deletion;
 - automatic attendance decisions and staff corrections; and
 - emergency pre-start switch to external delivery.
+
+Recovery audit events record the externally returned status, a bounded safe
+reason code, channel, and known session scope. Unknown or mismatched references
+use a server-keyed digest only; the submitted email address, phone number, OTP,
+challenge reference, and lobby bearer reference are never written to audit
+metadata.
 
 Operational metrics and alerts include provider-room creation failures, token
 denial rates by safe reason code, lobby polling errors, webhook signature

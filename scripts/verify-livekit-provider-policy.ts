@@ -35,6 +35,10 @@ import {
   down as downCredentialReservationIndex,
   up as upCredentialReservationIndex,
 } from "#/server/db/migrations/0091_livekit_credential_reservation_index";
+import {
+  down as downRecoveryOutcomeAudit,
+  up as upRecoveryOutcomeAudit,
+} from "#/server/db/migrations/0092_livekit_recovery_outcome_audit";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -61,6 +65,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downRecoveryOutcomeAudit(database);
   await downCredentialReservationIndex(database);
   await downRecoveryDeliveryQueue(database);
   await downParticipantOperations(database);
@@ -185,6 +190,7 @@ try {
   await upParticipantOperations(database);
   await upRecoveryDeliveryQueue(database);
   await upCredentialReservationIndex(database);
+  await upRecoveryOutcomeAudit(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -699,6 +705,7 @@ try {
       await upParticipantOperations(database);
       await upRecoveryDeliveryQueue(database);
       await upCredentialReservationIndex(database);
+      await upRecoveryOutcomeAudit(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

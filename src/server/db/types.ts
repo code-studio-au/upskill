@@ -1737,6 +1737,8 @@ export type AuditEventAction =
   | "event_virtual_join_access.revoked"
   | "event_virtual_lobby.requested"
   | "event_virtual_lobby.admission_changed"
+  | "event_virtual_lobby.recovery_request_outcome"
+  | "event_virtual_lobby.recovery_verification_failed"
   | "event_virtual_lobby.recovery_verified"
   | "event_virtual_lobby.attendee_token_issued"
   | "enrollment.access_code_redeemed"

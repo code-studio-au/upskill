@@ -35,7 +35,7 @@ describe("runScormWorkerIteration", () => {
     expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
   });
 
-  it("retains long polling when the outbox is empty", async () => {
+  it("caps idle queue polling so eligibility reconciliation resumes promptly", async () => {
     const consumeNextWorkMessage = vi
       .fn()
       .mockResolvedValue({ status: "no-work" });
@@ -62,7 +62,7 @@ describe("runScormWorkerIteration", () => {
       consumeNextWorkMessage,
     });
 
-    expect(consumeNextWorkMessage).toHaveBeenCalledWith(undefined);
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(1);
   });
 
   it("uses a non-blocking queue receive after materializing scheduled communications", async () => {

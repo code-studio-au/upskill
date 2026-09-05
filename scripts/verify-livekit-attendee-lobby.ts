@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
+import type { FixedWindowRateLimitEntry } from "#/features/event-guest/event-guest-rate-limit";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { ensureEventVirtualJoinAccess } from "#/server/events/event-virtual-join-access.server";
 import {
@@ -2281,12 +2282,162 @@ try {
     "Failed delivery history must remain part of the durable rate limit",
   );
 
+  assert.equal(
+    (
+      await requestEventVirtualRecoveryCode(
+        {
+          publicReference: access.publicReference,
+          identifier: "unknown-recovery-user@example.com",
+        },
+        "enumeration-safe-audit".padEnd(43, "x"),
+        { requestLimitStore: new Map() },
+      )
+    ).status,
+    "accepted",
+  );
+  const localLimitStore = new Map<string, FixedWindowRateLimitEntry>();
+  const locallyLimitedRequests = [];
+  for (let index = 0; index < 4; index += 1)
+    locallyLimitedRequests.push(
+      await requestEventVirtualRecoveryCode(
+        {
+          publicReference: "unknown-livekit-reference",
+          identifier: "rate-limit-audit@example.com",
+        },
+        "local-rate-limit-audit".padEnd(43, "x"),
+        { requestLimitStore: localLimitStore },
+      ),
+    );
+  assert.deepEqual(
+    locallyLimitedRequests.map((result) => result.status),
+    ["unavailable", "unavailable", "unavailable", "rate-limited"],
+  );
+  assert.deepEqual(
+    await verifyEventVirtualRecoveryCode({
+      publicReference: access.publicReference,
+      challengeReference: "invalid-recovery-reference".padEnd(32, "x"),
+      code: "000000",
+    }),
+    { status: "invalid" },
+  );
+  const verificationLimitLearner = bulkLearners[10];
+  assert.ok(verificationLimitLearner);
+  const verificationLimitChallenge = await requestEventVirtualRecoveryCode(
+    {
+      publicReference: access.publicReference,
+      identifier: verificationLimitLearner.email,
+    },
+    "verification-limit-audit".padEnd(43, "x"),
+    { requestLimitStore: new Map() },
+  );
+  assert.equal(verificationLimitChallenge.status, "accepted");
+  assert.ok("challengeReference" in verificationLimitChallenge);
+  await processAvailableEventVirtualRecoveryDeliveries(10);
+  const verificationLimitCode = await database
+    .selectFrom("event_virtual_recovery_challenge as challenge")
+    .innerJoin(
+      "event_virtual_recovery_email_capture as capture",
+      "capture.challengeId",
+      "challenge.id",
+    )
+    .select("capture.textBody")
+    .where(
+      "challenge.reference",
+      "=",
+      verificationLimitChallenge.challengeReference,
+    )
+    .executeTakeFirstOrThrow()
+    .then((row) => row.textBody.match(/\b\d{6}\b/u)?.[0]);
+  assert.ok(verificationLimitCode);
+  const incorrectVerificationCode =
+    verificationLimitCode === "000000" ? "000001" : "000000";
+  const verificationLimitStatuses = [];
+  for (let index = 0; index < 6; index += 1)
+    verificationLimitStatuses.push(
+      (
+        await verifyEventVirtualRecoveryCode({
+          publicReference: access.publicReference,
+          challengeReference: verificationLimitChallenge.challengeReference,
+          code: incorrectVerificationCode,
+        })
+      ).status,
+    );
+  assert.deepEqual(verificationLimitStatuses, [
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "rate-limited",
+    "rate-limited",
+  ]);
+
+  const recoveryOutcomeAudits = await database
+    .selectFrom("audit_event")
+    .select(["action", "reason", "metadata"])
+    .where("action", "in", [
+      "event_virtual_lobby.recovery_request_outcome",
+      "event_virtual_lobby.recovery_verification_failed",
+      "event_virtual_lobby.recovery_verified",
+    ])
+    .execute();
+  const recoveryRequestReasons = new Set(
+    recoveryOutcomeAudits
+      .filter(
+        (audit) =>
+          audit.action === "event_virtual_lobby.recovery_request_outcome",
+      )
+      .map((audit) => audit.reason),
+  );
+  for (const reason of [
+    "challenge_queued",
+    "destination_unavailable",
+    "durable_rate_limited",
+    "eligibility_changed",
+    "enumeration_safe_fallback",
+    "local_rate_limited",
+    "terminal_session",
+  ])
+    assert.ok(
+      recoveryRequestReasons.has(reason),
+      `Recovery request outcome ${reason} must be durably audited`,
+    );
+  const recoveryVerificationReasons = new Set(
+    recoveryOutcomeAudits
+      .filter(
+        (audit) =>
+          audit.action === "event_virtual_lobby.recovery_verification_failed",
+      )
+      .map((audit) => audit.reason),
+  );
+  for (const reason of [
+    "attempt_limit_reached",
+    "expired_or_revoked",
+    "incorrect_code",
+    "invalid_reference",
+    "terminal_session",
+  ])
+    assert.ok(
+      recoveryVerificationReasons.has(reason),
+      `Recovery verification outcome ${reason} must be durably audited`,
+    );
+  assert.ok(
+    recoveryOutcomeAudits.some(
+      (audit) => audit.action === "event_virtual_lobby.recovery_verified",
+    ),
+    "Successful recovery verification must remain durably audited",
+  );
+
   const auditRows = await database
     .selectFrom("audit_event")
     .select("metadata")
     .where("subjectId", "like", "event_virtual_%")
     .execute();
   assert.doesNotMatch(JSON.stringify(auditRows), /fake-livekit-token/u);
+  assert.doesNotMatch(
+    JSON.stringify(recoveryOutcomeAudits),
+    /unknown-recovery-user|rate-limit-audit|000000|000001/u,
+    "Recovery outcome audits must not contain an identifier or submitted code",
+  );
 
   const replacement = await database
     .transaction()
