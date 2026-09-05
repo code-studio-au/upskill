@@ -186,6 +186,27 @@ async function cleanupEventAuthoringFixture(
       [[eventTemplateId, ...versionIds, ...occurrenceIds]],
     );
     if (occurrenceIds.length > 0) {
+      const virtualRooms = await transaction.query<{ id: string }>(
+        `select room.id from event_virtual_room room
+          join event_session session on session.id = room."eventSessionId"
+          where session."eventOccurrenceId" = any($1::text[])`,
+        [occurrenceIds],
+      );
+      const virtualRoomIds = virtualRooms.rows.map((room) => room.id);
+      if (virtualRoomIds.length > 0) {
+        await transaction.query(
+          `delete from event_virtual_room_operation where "roomId" = any($1::text[])`,
+          [virtualRoomIds],
+        );
+        await transaction.query(
+          `delete from audit_event where "subjectId" = any($1::text[])`,
+          [virtualRoomIds],
+        );
+        await transaction.query(
+          `delete from event_virtual_room where id = any($1::text[])`,
+          [virtualRoomIds],
+        );
+      }
       const participations = await transaction.query<{ id: string }>(
         `select id from event_participation where "eventOccurrenceId" = any($1::text[])`,
         [occurrenceIds],
@@ -2226,6 +2247,146 @@ test("platform administrators can inspect learner progress", async ({
         name: "Registration and attendance history",
       }),
     ).toBeVisible();
+
+    const webinarStartsAt = new Date(Date.now() + 30 * 60 * 1_000);
+    const webinarEndsAt = new Date(Date.now() + 90 * 60 * 1_000);
+    await authoringDatabase.query(
+      `update event_occurrence
+       set "virtualDeliveryProvider" = 'livekit', "virtualJoinUrl" = null,
+         "startsAt" = $2, "endsAt" = $3
+       where id = $1`,
+      [occurrenceId, webinarStartsAt, webinarEndsAt],
+    );
+    await authoringDatabase.query(
+      `update event_session
+       set "virtualDeliveryProvider" = 'livekit', "virtualJoinUrl" = null,
+         "startsAt" = $2, "endsAt" = $3,
+         "livekitAdmissionMode" = 'manual',
+         "livekitAttendanceMode" = 'manual',
+         "livekitAttendanceMinimumMinutes" = null,
+         "livekitPresenterPreparationMinutes" = 60,
+         "livekitAttendeeRejoinGraceMinutes" = 10,
+         "livekitCapacityHeadroom" = 5,
+         "livekitOpenEntryGuestsAllowed" = false,
+         "livekitRecordingMode" = 'off',
+         "livekitRecordingRetentionDays" = null,
+         "livekitAttendeeRecordingNotice" = '',
+         "livekitPresenterRecordingNotice" = ''
+       where id = $1`,
+      [occurrenceSessionId, webinarStartsAt, webinarEndsAt],
+    );
+    await page.goto(
+      `/event-operations/${encodeURIComponent(occurrenceId)}?view=virtual_sessions&q=&state=all`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Webinar operations" }),
+    ).toBeVisible();
+    await expect(page.getByText("Not prepared")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Prepare green room" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Test camera and microphone" }),
+    ).toBeVisible();
+    await page.evaluate(() => {
+      const testWindow = window as Window & {
+        resolveDelayedPreview?: () => void;
+        stoppedDelayedPreviewTracks?: number;
+      };
+      testWindow.stoppedDelayedPreviewTracks = 0;
+      navigator.mediaDevices.getUserMedia = () =>
+        new Promise<MediaStream>((resolve) => {
+          testWindow.resolveDelayedPreview = () => {
+            resolve({
+              getTracks: () => [
+                {
+                  stop: () => {
+                    testWindow.stoppedDelayedPreviewTracks =
+                      (testWindow.stoppedDelayedPreviewTracks ?? 0) + 1;
+                  },
+                } as MediaStreamTrack,
+              ],
+            } as MediaStream);
+          };
+        });
+    });
+    await page
+      .getByRole("button", { name: "Test camera and microphone" })
+      .click();
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            typeof (window as Window & { resolveDelayedPreview?: () => void })
+              .resolveDelayedPreview,
+        ),
+      )
+      .toBe("function");
+    await page.getByRole("button", { name: "Overview" }).click();
+    await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
+    await page.evaluate(() => {
+      const testWindow = window as Window & {
+        resolveDelayedPreview?: () => void;
+      };
+      testWindow.resolveDelayedPreview?.();
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () =>
+            (window as Window & { stoppedDelayedPreviewTracks?: number })
+              .stoppedDelayedPreviewTracks ?? 0,
+        ),
+      )
+      .toBe(1);
+    await page.getByRole("button", { name: "Webinar operations" }).click();
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const webinarOperationsAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(webinarOperationsAccessibility.violations).toEqual([]);
+    await page.getByRole("button", { name: "Prepare green room" }).click();
+    await expect(
+      page.getByRole("alert").filter({
+        hasText: "LiveKit is unavailable or not configured",
+      }),
+    ).toBeVisible();
+    await expect(page.getByText("Not prepared")).toBeVisible();
+    await authoringDatabase.query(
+      `insert into event_virtual_room (
+        id, "eventSessionId", provider, generation, "providerRoomName",
+        "providerRoomSid", "doorState", "admissionMode", "attendanceMode",
+        "attendanceMinimumMinutes", "recordingMode", "recordingRetentionDays",
+        "maxParticipants", "providerStatus", "providerErrorCode",
+        "createdByUserId", "createdAt"
+      ) values (
+        'e2e_livekit_start_confirmation', $1, 'livekit', 1,
+        'upskill_room_e2e_start_confirmation', 'RM_E2E_START_CONFIRMATION',
+        'scheduled', 'manual', 'manual', null, 'off', null,
+        25, 'ready', null,
+        (select id from "user" where email = 'admin@codestudio.au'), now()
+      )`,
+      [occurrenceSessionId],
+    );
+    await page.reload();
+    const startWebinar = page.getByRole("button", { name: "Start webinar" });
+    await expect(startWebinar).toBeEnabled();
+    const confirmation = page.waitForEvent("dialog");
+    const startClick = startWebinar.click();
+    const startDialog = await confirmation;
+    expect(startDialog.message()).toBe(
+      "Start this webinar and open the attendee door?",
+    );
+    await startDialog.dismiss();
+    await startClick;
+    await expect
+      .poll(async () => {
+        const room = await authoringDatabase.query<{ doorState: string }>(
+          `select "doorState" from event_virtual_room where id = 'e2e_livekit_start_confirmation'`,
+        );
+        return room.rows[0]?.doorState;
+      })
+      .toBe("scheduled");
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);

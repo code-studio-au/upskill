@@ -4,6 +4,7 @@ import { destroyQueueClient } from "#/server/queue/sqs.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { processAvailableEventCommunicationSchedules } from "#/server/notifications/event-communication-execution.server";
 import { consumeNextWorkMessage } from "#/server/scorm/scorm-ingestion-consumer.server";
+import { processAvailableEventVirtualRoomOperations } from "#/server/events/event-virtual-room.server";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
@@ -19,11 +20,13 @@ function pause(milliseconds: number): Promise<void> {
 
 try {
   while (!shutdown.signal.aborted) {
-    const { schedules, dispatch, consumption } = await runScormWorkerIteration({
-      processAvailableEventCommunicationSchedules,
-      dispatchAvailableOutboxEvents,
-      consumeNextWorkMessage,
-    });
+    const { schedules, virtualRooms, dispatch, consumption } =
+      await runScormWorkerIteration({
+        processAvailableEventCommunicationSchedules,
+        processAvailableEventVirtualRoomOperations,
+        dispatchAvailableOutboxEvents,
+        consumeNextWorkMessage,
+      });
     for (const outcome of schedules.outcomes)
       logServerEvent({
         level:
@@ -51,6 +54,17 @@ try {
             : {}),
         },
       });
+    for (const outcome of virtualRooms.outcomes)
+      logServerEvent({
+        level: outcome.status === "retry" ? "warn" : "info",
+        event: "worker.event_virtual_room_operation_processed",
+        fields: {
+          status: outcome.status,
+          operationId: outcome.operationId,
+          roomId: outcome.roomId,
+          kind: outcome.kind,
+        },
+      });
     if (consumption.status !== "no-work")
       logServerEvent({
         level: consumption.status === "retry" ? "warn" : "info",
@@ -70,6 +84,7 @@ try {
       });
     if (
       schedules.outcomes.length === 0 &&
+      virtualRooms.outcomes.length === 0 &&
       dispatch.outcomes.length === 0 &&
       consumption.status === "no-work"
     )

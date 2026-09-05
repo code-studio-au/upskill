@@ -73,6 +73,11 @@ export interface CreateLiveKitJoinTokenInput {
   role: LiveKitParticipantRole;
 }
 
+export interface LiveKitJoinCredential {
+  token: string;
+  expiresAt: Date;
+}
+
 export interface LiveKitProvider {
   checkHealth(): Promise<void>;
   ensureRoom(input: EnsureLiveKitRoomInput): Promise<LiveKitRoomSnapshot>;
@@ -82,7 +87,9 @@ export interface LiveKitProvider {
     participantIdentity: string,
   ): Promise<void>;
   closeRoom(roomName: string): Promise<void>;
-  createJoinToken(input: CreateLiveKitJoinTokenInput): Promise<string>;
+  createJoinToken(
+    input: CreateLiveKitJoinTokenInput,
+  ): Promise<LiveKitJoinCredential>;
 }
 
 export type LiveKitRoomCreationCoordinator = <Result>(
@@ -338,7 +345,9 @@ export class LiveKitCloudProvider implements LiveKitProvider {
     }
   }
 
-  async createJoinToken(input: CreateLiveKitJoinTokenInput): Promise<string> {
+  async createJoinToken(
+    input: CreateLiveKitJoinTokenInput,
+  ): Promise<LiveKitJoinCredential> {
     const parsed = joinTokenInputSchema.parse(input);
     const token = new AccessToken(
       this.configuration.apiKey,
@@ -370,7 +379,18 @@ export class LiveKitCloudProvider implements LiveKitProvider {
         : { canPublish: false }),
     });
     try {
-      return await token.toJwt();
+      const serializedToken = await token.toJwt();
+      const encodedPayload = serializedToken.split(".")[1];
+      if (!encodedPayload) throw new Error("missing token payload");
+      const claims = JSON.parse(
+        Buffer.from(encodedPayload, "base64url").toString("utf8"),
+      ) as { exp?: unknown };
+      if (typeof claims.exp !== "number" || !Number.isSafeInteger(claims.exp))
+        throw new Error("missing token expiry");
+      return {
+        token: serializedToken,
+        expiresAt: new Date(claims.exp * 1_000),
+      };
     } catch {
       throw new LiveKitProviderError("create_join_token");
     }

@@ -4,6 +4,7 @@ import {
   eventOperationsCoordinatorDecisionSchema,
   eventOperationsParamsSchema,
   eventOperationsRegionLockSchema,
+  eventVirtualRoomMutationSchema,
   eventSurveyQrPresentationParamsSchema,
   type AssignedEventOperationsResult,
   type EventOperationsMutationResult,
@@ -171,4 +172,44 @@ export const recordEventOperationsAttendance = createServerFn({
     return outcome === "not-found"
       ? { status: "conflict", reason: "attendance_unavailable" }
       : { status: "ready" };
+  });
+
+export const mutateEventVirtualRoom = createServerFn({ method: "POST" })
+  .validator(eventVirtualRoomMutationSchema)
+  .handler(async ({ data }): Promise<EventOperationsMutationResult> => {
+    const { getEventOperationsRequest } =
+      await import("#/server/events/event-operations-access.server");
+    const request = await getEventOperationsRequest(data.eventOccurrenceId);
+    if (request.status !== "ready") return request;
+    const {
+      checkEventVirtualSessionProviderHealth,
+      ensureEventVirtualRoomForStaff,
+      replaceEventVirtualRoom,
+      setEventVirtualRoomAdmissionMode,
+      transitionEventVirtualRoom,
+    } = await import("#/server/events/event-virtual-room.server");
+    const args = [data.eventOccurrenceId, data.eventSessionId] as const;
+    if (data.action === "prepare")
+      return ensureEventVirtualRoomForStaff(...args, request.access.user);
+    if (data.action === "health")
+      return checkEventVirtualSessionProviderHealth(
+        ...args,
+        request.access.user.id,
+      );
+    if (data.action === "replace")
+      return replaceEventVirtualRoom(...args, request.access.user);
+    if (
+      data.action === "admission_manual" ||
+      data.action === "admission_automatic"
+    )
+      return setEventVirtualRoomAdmissionMode(
+        ...args,
+        data.action === "admission_manual" ? "manual" : "automatic",
+        request.access.user,
+      );
+    return transitionEventVirtualRoom(
+      ...args,
+      data.action,
+      request.access.user,
+    );
   });

@@ -78,6 +78,8 @@ try {
     "event_session",
     "event_template",
     "event_template_session_definition",
+    "event_virtual_room",
+    "event_virtual_room_operation",
     "event_template_version",
     "event_template_version_communication",
     "event_template_version_admin_default",
@@ -606,6 +608,23 @@ try {
     liveKitPolicyConstraints.rows.length,
     3,
     "Versioned LiveKit provider policy and exact-session snapshots must be constrained",
+  );
+  const liveKitRoomConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_virtual_room_generation_uq',
+          'event_virtual_room_replaces_session_fk',
+          'event_virtual_room_door_ck',
+          'event_virtual_room_actor_time_ck',
+          'event_virtual_room_operation_kind_uq',
+          'event_virtual_room_operation_state_ck'
+        )`.execute(db);
+  assert.equal(
+    liveKitRoomConstraints.rows.length,
+    6,
+    "LiveKit room generations, lifecycle state and durable provider operations must be constrained",
   );
   const eventTemplateVersionColumns = await sql<{
     column_name: string;

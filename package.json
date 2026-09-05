@@ -83,6 +83,7 @@
     "db:verify:events": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-event-foundation.ts",
     "db:verify:livekit-foundation": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-livekit-room-creation-lock.ts",
     "db:verify:livekit-policy": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-livekit-provider-policy.ts",
+    "db:verify:livekit-room-lifecycle": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-livekit-room-lifecycle.ts",
     "worker:scorm:once": "node --env-file-if-exists=.env.local --import tsx scripts/process-scorm-ingestion.ts",
     "worker:scorm": "node --env-file-if-exists=.env.local --import tsx src/worker/scorm-worker.ts",
     "verify:scorm-ingestion:local": "node --env-file-if-exists=.env.local --import tsx scripts/verify-scorm-package-ingestion.ts",

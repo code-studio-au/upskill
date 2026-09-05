@@ -742,6 +742,53 @@ interface EventSessionTable {
   livekitPresenterRecordingNotice: Generated<string | null>;
 }
 
+interface EventVirtualRoomTable {
+  id: string;
+  eventSessionId: string;
+  provider: "livekit";
+  generation: number;
+  providerRoomName: string;
+  providerRoomSid: string | null;
+  doorState: "scheduled" | "open" | "locked" | "ended";
+  admissionMode: "manual" | "automatic";
+  attendanceMode: "manual" | "automatic_check_in" | "automatic_duration";
+  attendanceMinimumMinutes: number | null;
+  recordingMode: "off" | "automatic";
+  recordingRetentionDays: number | null;
+  maxParticipants: number;
+  providerStatus: "pending" | "ready" | "error" | "closed";
+  providerErrorCode: string | null;
+  createdByUserId: string;
+  createdAt: Timestamp;
+  startedByUserId: string | null;
+  startedAt: Timestamp | null;
+  lockedByUserId: string | null;
+  lockedAt: Timestamp | null;
+  reopenedByUserId: string | null;
+  reopenedAt: Timestamp | null;
+  endedByUserId: string | null;
+  endedAt: Timestamp | null;
+  replacesRoomId: string | null;
+  replacedByUserId: string | null;
+  replacedAt: Timestamp | null;
+}
+
+interface EventVirtualRoomOperationTable {
+  id: string;
+  roomId: string;
+  kind: "ensure_room" | "close_room";
+  deduplicationKey: string;
+  status: "pending" | "processing" | "succeeded";
+  attempts: Generated<number>;
+  availableAt: Timestamp;
+  leasedUntil: Timestamp | null;
+  lastAttemptAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  lastErrorCode: string | null;
+  requestedByUserId: string | null;
+  createdAt: Timestamp;
+}
+
 type EventAssignmentSource =
   "template_default" | "occurrence_local" | "replacement";
 
@@ -1573,6 +1620,9 @@ export type AuditEventAction =
   | "event_template.draft_deleted"
   | "event_template.version_created"
   | "event_template.version_published"
+  | "event_virtual_room.created"
+  | "event_virtual_room.lifecycle_changed"
+  | "event_virtual_room.presenter_token_issued"
   | "enrollment.access_code_redeemed"
   | "enrollment.administrator_added"
   | "enrollment.administrator_removed"
@@ -1684,6 +1734,8 @@ export interface Database {
   event_template_version_region: EventTemplateVersionRegionTable;
   event_template_version_item: EventTemplateVersionItemTable;
   event_template_version_section: EventTemplateVersionSectionTable;
+  event_virtual_room: EventVirtualRoomTable;
+  event_virtual_room_operation: EventVirtualRoomOperationTable;
   learning_item_progress: LearningItemProgressTable;
   learning_activity: LearningActivityTable;
   learning_activity_version: LearningActivityVersionTable;

@@ -84,3 +84,12 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: var(--mantine-font-size-sm);
 }
+
+.devicePreview {
+  display: block;
+  width: min(100%, 36rem);
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-dark-9);
+}

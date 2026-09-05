@@ -13,6 +13,7 @@ import {
 import { resendAccountSetup } from "#/server/identity/account-setup.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 import { revokeOutstandingEventLateInvitations } from "#/server/events/event-late-registration-invitation.server";
+import { endEventVirtualRoomsForOccurrence } from "#/server/events/event-virtual-room.server";
 import {
   enqueueEventOccurrenceLifecycleCommunications,
   enqueueRegistrationOutcomeEventCommunications,
@@ -1177,7 +1178,9 @@ export async function transitionAdminEventOccurrence(
   eventOccurrenceId: string,
   target: "cancelled" | "completed" | "archived",
   actor: AuthenticatedUser,
+  options: { clock?: () => Date } = {},
 ) {
+  const clock = options.clock ?? (() => new Date());
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
@@ -1188,6 +1191,7 @@ export async function transitionAdminEventOccurrence(
         .forUpdate()
         .executeTakeFirst();
       if (!occurrence) return "not-found" as const;
+      const now = clock();
       const allowed =
         ((target === "cancelled" || target === "completed") &&
           occurrence.status === "published") ||
@@ -1196,7 +1200,6 @@ export async function transitionAdminEventOccurrence(
             occurrence.status as never,
           ));
       if (!allowed) return "invalid-transition" as const;
-      const now = new Date();
       if (target === "cancelled") {
         await revokeOutstandingEventLateInvitations(
           transaction,
@@ -1252,6 +1255,13 @@ export async function transitionAdminEventOccurrence(
         })
         .where("id", "=", eventOccurrenceId)
         .execute();
+      if (target === "cancelled" || target === "completed")
+        await endEventVirtualRoomsForOccurrence(
+          transaction,
+          eventOccurrenceId,
+          actor.id,
+          now,
+        );
       if (target === "cancelled" || target === "archived")
         await supersedeEventCommunicationSchedules(
           transaction,
