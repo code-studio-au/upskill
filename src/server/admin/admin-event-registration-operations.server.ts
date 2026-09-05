@@ -1178,8 +1178,9 @@ export async function transitionAdminEventOccurrence(
   eventOccurrenceId: string,
   target: "cancelled" | "completed" | "archived",
   actor: AuthenticatedUser,
-  now = new Date(),
+  options: { clock?: () => Date } = {},
 ) {
+  const clock = options.clock ?? (() => new Date());
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
@@ -1190,6 +1191,7 @@ export async function transitionAdminEventOccurrence(
         .forUpdate()
         .executeTakeFirst();
       if (!occurrence) return "not-found" as const;
+      const now = clock();
       const allowed =
         ((target === "cancelled" || target === "completed") &&
           occurrence.status === "published") ||

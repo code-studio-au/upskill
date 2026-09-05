@@ -1263,15 +1263,35 @@ try {
     ensureCountBeforeStart + 1,
     "Start must reconcile provider state instead of trusting cached readiness",
   );
+  const idempotentStartProvider = new FailFirstEnsureProvider();
   assert.deepEqual(
     await transitionEventVirtualRoom(
       ids.occurrence,
       ids.session,
       "start",
       administrator,
-      { runtime, clock: () => startsAt },
+      {
+        runtime: { ...runtime, provider: idempotentStartProvider },
+        clock: () => startsAt,
+      },
     ),
     { status: "ready" },
+    "A lost-response Start retry must return ready without requiring provider availability",
+  );
+  assert.equal(
+    idempotentStartProvider.operations.length,
+    0,
+    "An already-open Start retry must not reconcile the provider again",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("providerStatus")
+      .where("eventSessionId", "=", ids.session)
+      .where("replacedAt", "is", null)
+      .executeTakeFirstOrThrow()
+      .then((currentRoom) => currentRoom.providerStatus),
+    "ready",
   );
   assert.deepEqual(
     await setEventVirtualRoomAdmissionMode(
@@ -1279,7 +1299,7 @@ try {
       ids.session,
       "automatic",
       wholePresenter,
-      startsAt,
+      { clock: () => startsAt },
     ),
     { status: "ready" },
   );
@@ -1675,14 +1695,64 @@ try {
     { status: "ready" },
   );
   const terminalTransitionTime = new Date("2030-09-04T00:10:00.000Z");
+  let lifecycleClockTime = new Date("2030-09-04T00:09:00.000Z");
+  let confirmLifecycleOccurrenceLock: (() => void) | undefined;
+  let releaseLifecycleOccurrenceLock: (() => void) | undefined;
+  const lifecycleOccurrenceLocked = new Promise<void>((resolve) => {
+    confirmLifecycleOccurrenceLock = resolve;
+  });
+  const lifecycleOccurrenceRelease = new Promise<void>((resolve) => {
+    releaseLifecycleOccurrenceLock = resolve;
+  });
+  const blockingLifecycleTransaction = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_occurrence")
+        .select("id")
+        .where("id", "=", ids.occurrence)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      confirmLifecycleOccurrenceLock?.();
+      await lifecycleOccurrenceRelease;
+      await transaction
+        .updateTable("event_occurrence")
+        .set({ updatedAt: new Date("2030-09-04T00:09:30.000Z") })
+        .where("id", "=", ids.occurrence)
+        .executeTakeFirstOrThrow();
+    });
+  await lifecycleOccurrenceLocked;
+  let terminalTransitionSettled = false;
+  const terminalTransition = transitionAdminEventOccurrence(
+    ids.occurrence,
+    "completed",
+    administrator,
+    { clock: () => lifecycleClockTime },
+  ).finally(() => {
+    terminalTransitionSettled = true;
+  });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      terminalTransitionSettled,
+      false,
+      "Occurrence lifecycle transition must wait behind the occurrence lock",
+    );
+    lifecycleClockTime = terminalTransitionTime;
+  } finally {
+    releaseLifecycleOccurrenceLock?.();
+    await blockingLifecycleTransaction;
+  }
+  assert.equal(await terminalTransition, "updated");
   assert.equal(
-    await transitionAdminEventOccurrence(
-      ids.occurrence,
-      "completed",
-      administrator,
-      terminalTransitionTime,
-    ),
-    "updated",
+    await database
+      .selectFrom("event_occurrence")
+      .select("updatedAt")
+      .where("id", "=", ids.occurrence)
+      .executeTakeFirstOrThrow()
+      .then((occurrence) => occurrence.updatedAt.getTime()),
+    terminalTransitionTime.getTime(),
+    "Occurrence lifecycle evidence must sample time after the lifecycle lock is acquired",
   );
   const terminalRoom = await database
     .selectFrom("event_virtual_room")

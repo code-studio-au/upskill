@@ -1183,7 +1183,60 @@ export async function transitionEventVirtualRoom(
   options: { runtime?: VirtualRoomRuntime; clock?: () => Date } = {},
 ): Promise<EventVirtualRoomMutationOutcome> {
   const clock = options.clock ?? (() => new Date());
+  const database = getDatabase();
   if (action === "start") {
+    const idempotentStart = await database
+      .transaction()
+      .execute(async (transaction) => {
+        const occurrence = await transaction
+          .selectFrom("event_occurrence")
+          .select("id")
+          .where("id", "=", eventOccurrenceId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!occurrence) return { status: "not-found" } as const;
+        const session = await transaction
+          .selectFrom("event_session")
+          .select("id")
+          .where("id", "=", eventSessionId)
+          .where("eventOccurrenceId", "=", eventOccurrenceId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (!session) return { status: "not-found" } as const;
+        const context = await findVirtualSessionContext(
+          transaction,
+          eventOccurrenceId,
+          eventSessionId,
+        );
+        if (!context) return { status: "not-found" } as const;
+        if (context === "not-livekit")
+          return { status: "conflict", reason: "not_livekit" } as const;
+        if (
+          !(await hasVirtualRoomStaffAccess(
+            transaction,
+            eventOccurrenceId,
+            eventSessionId,
+            user.id,
+          ))
+        )
+          return { status: "forbidden" } as const;
+        if (context.occurrenceStatus !== "published")
+          return {
+            status: "conflict",
+            reason: "occurrence_unavailable",
+          } as const;
+        const room = await transaction
+          .selectFrom("event_virtual_room")
+          .select("doorState")
+          .where("eventSessionId", "=", eventSessionId)
+          .where("replacedAt", "is", null)
+          .forUpdate()
+          .executeTakeFirst();
+        return room?.doorState === "open"
+          ? ({ status: "ready" } as const)
+          : null;
+      });
+    if (idempotentStart) return idempotentStart;
     let runtime: VirtualRoomRuntime | null;
     try {
       runtime = options.runtime ?? resolveConfiguredRuntime();
@@ -1199,7 +1252,6 @@ export async function transitionEventVirtualRoom(
     );
     if (preparation.status !== "ready") return preparation;
   }
-  const database = getDatabase();
   return database.transaction().execute(async (transaction) => {
     const occurrence = await transaction
       .selectFrom("event_occurrence")
@@ -1316,8 +1368,9 @@ export async function setEventVirtualRoomAdmissionMode(
   eventSessionId: string,
   admissionMode: "manual" | "automatic",
   user: AuthenticatedUser,
-  now = new Date(),
+  options: { clock?: () => Date } = {},
 ): Promise<EventVirtualRoomMutationOutcome> {
+  const clock = options.clock ?? (() => new Date());
   const database = getDatabase();
   const context = await findVirtualSessionContext(
     database,
@@ -1339,6 +1392,34 @@ export async function setEventVirtualRoomAdmissionMode(
   if (context.occurrenceStatus !== "published")
     return { status: "conflict", reason: "occurrence_unavailable" };
   return database.transaction().execute(async (transaction) => {
+    const occurrence = await transaction
+      .selectFrom("event_occurrence")
+      .select("id")
+      .where("id", "=", eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!occurrence) return { status: "not-found" } as const;
+    const session = await transaction
+      .selectFrom("event_session")
+      .select("id")
+      .where("id", "=", eventSessionId)
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!session) return { status: "not-found" } as const;
+    const currentContext = await findVirtualSessionContext(
+      transaction,
+      eventOccurrenceId,
+      eventSessionId,
+    );
+    if (!currentContext) return { status: "not-found" } as const;
+    if (currentContext === "not-livekit")
+      return { status: "conflict", reason: "not_livekit" } as const;
+    if (currentContext.occurrenceStatus !== "published")
+      return {
+        status: "conflict",
+        reason: "occurrence_unavailable",
+      } as const;
     const room = await transaction
       .selectFrom("event_virtual_room")
       .selectAll()
@@ -1360,6 +1441,7 @@ export async function setEventVirtualRoomAdmissionMode(
       return { status: "conflict", reason: "invalid_transition" } as const;
     if (room.admissionMode === admissionMode)
       return { status: "ready" } as const;
+    const currentNow = clock();
     await transaction
       .updateTable("event_virtual_room")
       .set({ admissionMode })
@@ -1378,7 +1460,7 @@ export async function setEventVirtualRoomAdmissionMode(
         previousAdmissionMode: room.admissionMode,
         admissionMode,
       },
-      createdAt: now,
+      createdAt: currentNow,
     });
     return { status: "ready" } as const;
   });
