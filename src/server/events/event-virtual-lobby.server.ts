@@ -565,9 +565,12 @@ export async function resolveEventVirtualLobby(
     return {
       status: "ready",
       data: {
-        ...empty,
+        ...base,
+        admissionState: "not_requested",
         accessMethod: actor.accessMethod,
         outcome: "questionnaire_required",
+        recording: { enabled: false, notice: null, acknowledged: false },
+        pollAfterMilliseconds: null,
       },
     };
   const entry = await ensureLobbyEntry(destination, actor, participation);

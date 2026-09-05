@@ -22,6 +22,11 @@ const ids = {
   occurrence: "verify_livekit_lobby_occurrence",
   session: "verify_livekit_lobby_session",
   room: "verify_livekit_lobby_room",
+  survey: "verify_livekit_lobby_survey",
+  surveyVersion: "verify_livekit_lobby_survey_version",
+  questionnaireAssignment: "verify_livekit_lobby_questionnaire_assignment",
+  secondQuestionnaireAssignment:
+    "verify_livekit_lobby_second_questionnaire_assignment",
   registration: "verify_livekit_lobby_registration",
   secondRegistration: "verify_livekit_lobby_second_registration",
   participation: "verify_livekit_lobby_participation",
@@ -69,6 +74,33 @@ try {
   await database
     .insertInto("platform_admin")
     .values({ userId: administrator.id, grantedByUserId: null })
+    .execute();
+  await database
+    .insertInto("learning_activity")
+    .values({
+      id: ids.survey,
+      kind: "survey",
+      title: "Lobby registration questionnaire",
+      surveyUsage: "registration",
+      surveyType: "registration",
+      surveyPosition: 0,
+      createdAt,
+    })
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values({
+      id: ids.surveyVersion,
+      activityId: ids.survey,
+      kind: "survey",
+      version: 1,
+      publishedAt: createdAt,
+      createdAt,
+    })
+    .execute();
+  await database
+    .insertInto("survey_version")
+    .values({ id: ids.surveyVersion, content: { sections: [] } })
     .execute();
   await database
     .insertInto("event_template")
@@ -302,6 +334,63 @@ try {
     anonymous.status === "ready" ? anonymous.data.outcome : null,
     "authentication_required",
   );
+  await database
+    .updateTable("event_template_version")
+    .set({ registrationSurveyVersionId: ids.surveyVersion })
+    .where("id", "=", ids.version)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("registration_questionnaire_assignment")
+    .values({
+      id: ids.questionnaireAssignment,
+      userId: learner.id,
+      surveyVersionId: ids.surveyVersion,
+      eventOccurrenceId: ids.occurrence,
+      eventOccurrenceRegionId: null,
+      enrollmentId: null,
+      status: "assigned",
+      assignedAt: createdAt,
+      startedAt: null,
+      completedAt: null,
+      waivedAt: null,
+      waivedByUserId: null,
+      waiverReason: null,
+    })
+    .execute();
+  const questionnaireRequired = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(questionnaireRequired.status, "ready");
+  assert.equal(questionnaireRequired.data.outcome, "questionnaire_required");
+  assert.equal(
+    questionnaireRequired.data.questionnaireUrl,
+    `/my-events/${ids.occurrence}`,
+  );
+  assert.equal(questionnaireRequired.data.eventOccurrenceId, ids.occurrence);
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "completed", startedAt: createdAt, completedAt: createdAt })
+    .where("id", "=", ids.questionnaireAssignment)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("registration_questionnaire_assignment")
+    .values({
+      id: ids.secondQuestionnaireAssignment,
+      userId: secondLearner.id,
+      surveyVersionId: ids.surveyVersion,
+      eventOccurrenceId: ids.occurrence,
+      eventOccurrenceRegionId: null,
+      enrollmentId: null,
+      status: "completed",
+      assignedAt: createdAt,
+      startedAt: createdAt,
+      completedAt: createdAt,
+      waivedAt: null,
+      waivedByUserId: null,
+      waiverReason: null,
+    })
+    .execute();
   const early = await resolveEventVirtualLobby(access.publicReference, learner);
   assert.equal(
     early.status === "ready" ? early.data.outcome : null,

@@ -1666,6 +1666,13 @@ export async function replaceEventVirtualRoom(
       })
       .returningAll()
       .executeTakeFirstOrThrow();
+    await ensureEventVirtualJoinAccess(transaction, {
+      eventOccurrenceId,
+      eventSessionId,
+      roomGeneration: replacement.generation,
+      actorUserId: user.id,
+      now: currentNow,
+    });
     await insertRoomOperation(
       transaction,
       replacement.id,

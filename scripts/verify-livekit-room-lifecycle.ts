@@ -1077,11 +1077,39 @@ try {
     1,
     "A replacement request that crosses the cutoff must not append a generation",
   );
+  const originalJoinAccess = await database
+    .selectFrom("event_virtual_join_access")
+    .select(["id", "publicReference", "roomGeneration"])
+    .where("eventSessionId", "=", ids.session)
+    .where("revokedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  assert.equal(originalJoinAccess.roomGeneration, 1);
   assert.deepEqual(
     await replaceEventVirtualRoom(ids.occurrence, ids.session, administrator, {
       clock: () => replacementTime,
     }),
     { status: "ready" },
+  );
+  const replacementJoinAccess = await database
+    .selectFrom("event_virtual_join_access")
+    .select(["id", "publicReference", "roomGeneration"])
+    .where("eventSessionId", "=", ids.session)
+    .where("revokedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  assert.equal(replacementJoinAccess.roomGeneration, 2);
+  assert.notEqual(replacementJoinAccess.id, originalJoinAccess.id);
+  assert.notEqual(
+    replacementJoinAccess.publicReference,
+    originalJoinAccess.publicReference,
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_virtual_join_access")
+      .select("revokedAt")
+      .where("id", "=", originalJoinAccess.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.revokedAt),
+    "Replacing a room must revoke access to its previous generation",
   );
   const replacementBatch = await processAvailableEventVirtualRoomOperations(
     10,
