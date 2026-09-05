@@ -235,6 +235,18 @@ type PublicDestination = NonNullable<
   Awaited<ReturnType<typeof findPublicDestination>>
 >;
 
+function isTerminalDestination(
+  destination: PublicDestination,
+  now: Date,
+): boolean {
+  return (
+    ["cancelled", "completed"].includes(destination.occurrenceStatus) ||
+    destination.doorState === "ended" ||
+    ((!destination.roomId || destination.doorState === "scheduled") &&
+      destination.endsAt <= now)
+  );
+}
+
 async function eligibleParticipation(
   connection: DatabaseConnection,
   destination: PublicDestination,
@@ -547,7 +559,7 @@ export async function resolveEventVirtualLobby(
     ["draft", "archived"].includes(destination.occurrenceStatus)
   )
     return { status: "not-found" };
-  if (["cancelled", "completed"].includes(destination.occurrenceStatus))
+  if (isTerminalDestination(destination, options.clock?.() ?? new Date()))
     return { status: "ready", data: { ...empty, outcome: "ended" } };
   const actor = await resolveActor(
     destination,
@@ -608,14 +620,6 @@ export async function resolveEventVirtualLobby(
       status: "ready",
       data: { ...data, outcome: "revoked", pollAfterMilliseconds: null },
     };
-  if (
-    (!destination.roomId || destination.doorState === "scheduled") &&
-    destination.endsAt <= (options.clock?.() ?? new Date())
-  )
-    return {
-      status: "ready",
-      data: { ...data, outcome: "ended", pollAfterMilliseconds: null },
-    };
   if (!destination.roomId || destination.doorState === "scheduled")
     return {
       status: "ready",
@@ -624,11 +628,6 @@ export async function resolveEventVirtualLobby(
         outcome: "meeting_not_started",
         pollAfterMilliseconds: POLL_AFTER_MS,
       },
-    };
-  if (destination.doorState === "ended")
-    return {
-      status: "ready",
-      data: { ...data, outcome: "ended", pollAfterMilliseconds: null },
     };
   if (destination.doorState === "locked")
     return {
@@ -712,6 +711,8 @@ export async function requestEventVirtualRecoveryCode(
     input.publicReference,
   );
   if (!destination?.publishedAt || destination.occurrenceStatus !== "published")
+    return { status: "unavailable" };
+  if (isTerminalDestination(destination, new Date()))
     return { status: "unavailable" };
   const fallbackReference = opaqueReference();
   const participant = await database
@@ -1353,9 +1354,18 @@ export async function mutateEventVirtualLobbyAdmission(
   )
     return { status: "forbidden" };
   return await database.transaction().execute(async (transaction) => {
+    const occurrence = await transaction
+      .selectFrom("event_occurrence")
+      .select("status")
+      .where("id", "=", input.eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!occurrence) return { status: "not-found" } as const;
+    if (occurrence.status !== "published")
+      return { status: "conflict", reason: "session_ended" } as const;
     const room = await transaction
       .selectFrom("event_virtual_room")
-      .select("generation")
+      .select(["generation", "doorState"])
       .where("eventSessionId", "=", input.eventSessionId)
       .where("replacedAt", "is", null)
       .forUpdate()
@@ -1377,6 +1387,8 @@ export async function mutateEventVirtualLobbyAdmission(
     );
     if (!destination) return { status: "not-found" } as const;
     const now = new Date();
+    if (isTerminalDestination(destination, now))
+      return { status: "conflict", reason: "session_ended" } as const;
     if (input.action === "admit_all") {
       await admitEligibleWaitingEntries(transaction, {
         eventOccurrenceId: input.eventOccurrenceId,

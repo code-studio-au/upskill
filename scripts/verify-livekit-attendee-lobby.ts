@@ -721,6 +721,103 @@ try {
     administrator,
   );
 
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ state: "waiting", admittedAt: null, admittedByUserId: null })
+    .where("id", "=", secondEntry.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "ended",
+      endedAt: new Date(),
+      endedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const admissionAuditCount = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("subjectId", "=", secondEntry.id)
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: secondEntry.id,
+        action: "admit",
+      },
+      administrator,
+    ),
+    { status: "conflict", reason: "session_ended" },
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        action: "admit_all",
+      },
+      administrator,
+    ),
+    { status: "conflict", reason: "session_ended" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", secondEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "waiting",
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("subjectId", "=", secondEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    admissionAuditCount,
+  );
+  const terminalAnonymous = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+  );
+  assert.equal(
+    terminalAnonymous.status === "ready"
+      ? terminalAnonymous.data.outcome
+      : null,
+    "ended",
+  );
+  const recoveryCaptureCount = await database
+    .selectFrom("event_virtual_recovery_email_capture")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  assert.deepEqual(
+    await requestEventVirtualRecoveryCode(
+      { publicReference: access.publicReference, identifier: learner.email },
+      "terminal-session".padEnd(43, "x"),
+    ),
+    { status: "unavailable" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recovery_email_capture")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    recoveryCaptureCount,
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", endedAt: null, endedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+
   const challenge = await requestEventVirtualRecoveryCode(
     { publicReference: access.publicReference, identifier: learner.email },
     "v".repeat(43),

@@ -10,10 +10,7 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
-import {
-  mutateEventVirtualLobbyAdmission,
-  mutateEventVirtualRoom,
-} from "#/server/functions/event-operations";
+import { mutateEventVirtualRoom } from "#/server/functions/event-operations";
 import type { EventOperationsAction } from "./EventOperationsOverview";
 import type { EventOperationsWorkspace } from "./event-operations.schema";
 import classes from "./EventOperations.module.css";
@@ -85,7 +82,7 @@ export function EventOperationsVirtualSessions({
     operation: AdmissionAction,
   ) => {
     return action(`${operation}-${lobbyEntryId ?? sessionId}`, () =>
-      mutateEventVirtualLobbyAdmission({
+      mutateEventVirtualRoom({
         data: {
           eventOccurrenceId: occurrenceId,
           eventSessionId: sessionId,
@@ -358,7 +355,6 @@ export function EventOperationsVirtualSessions({
                     session={virtualSession}
                     lobbyPath={virtualSession.lobbyPath}
                     showQueue={Boolean(room)}
-                    timeZone={workspace.occurrence.timezone}
                     processingId={processingId}
                     changeAdmission={changeAdmission}
                   />

@@ -1,19 +1,74 @@
 .page {
   min-height: 100vh;
-  padding-block: var(--mantine-spacing-xl);
+  padding: var(--mantine-spacing-xl) var(--mantine-spacing-md);
   background: var(--mantine-color-gray-0);
 }
 
-.heading {
-  overflow-wrap: anywhere;
+.card {
+  display: grid;
+  width: min(100%, 40rem);
+  gap: var(--mantine-spacing-lg);
+  padding: var(--mantine-spacing-xl);
+  margin-inline: auto;
+  background: white;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-lg);
 }
 
-.details {
+.card p,
+.card h1,
+.card h2 {
+  margin: 0;
+}
+
+.card header {
   display: grid;
   gap: var(--mantine-spacing-xs);
 }
 
-.actions {
+.card h1 {
+  overflow-wrap: anywhere;
+}
+
+.alert {
+  padding: var(--mantine-spacing-md);
+  color: var(--mantine-color-dark-8);
+  background: var(--mantine-color-blue-0);
+  border: 1px solid var(--mantine-color-blue-2);
+  border-radius: var(--mantine-radius-sm);
+}
+
+.alert h2 {
+  margin-bottom: var(--mantine-spacing-xs);
+  font-size: var(--mantine-font-size-md);
+}
+
+.alert[data-tone="green"] {
+  background: var(--mantine-color-green-0);
+  border-color: var(--mantine-color-green-2);
+}
+
+.alert[data-tone="orange"] {
+  background: var(--mantine-color-orange-0);
+  border-color: var(--mantine-color-orange-2);
+}
+
+.alert[data-tone="gray"] {
+  background: var(--mantine-color-gray-1);
+  border-color: var(--mantine-color-gray-3);
+}
+
+.alert[data-tone="red"] {
+  background: var(--mantine-color-red-0);
+  border-color: var(--mantine-color-red-2);
+}
+
+.card form {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+}
+
+.card form > div {
   display: flex;
   flex-wrap: wrap;
   gap: var(--mantine-spacing-sm);
@@ -21,11 +76,20 @@
 
 @media (max-width: 40rem) {
   .page {
-    padding-block: var(--mantine-spacing-md);
+    padding: var(--mantine-spacing-md);
   }
 
-  .actions {
+  .card {
+    padding: var(--mantine-spacing-lg);
+  }
+
+  .card form > div {
     align-items: stretch;
     flex-direction: column;
+    gap: var(--mantine-spacing-sm);
+  }
+
+  .card form > div > * {
+    width: 100%;
   }
 }

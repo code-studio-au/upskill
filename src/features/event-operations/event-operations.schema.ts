@@ -40,6 +40,7 @@ export const eventOperationsAttendanceSchema = z.object({
 export const eventVirtualRoomMutationSchema = z.object({
   eventOccurrenceId: identifier,
   eventSessionId: identifier,
+  lobbyEntryId: z.optional(identifier),
   action: z.enum([
     "prepare",
     "health",
@@ -50,6 +51,10 @@ export const eventVirtualRoomMutationSchema = z.object({
     "replace",
     "admission_manual",
     "admission_automatic",
+    "admit",
+    "decline",
+    "revoke",
+    "admit_all",
   ]),
 });
 
@@ -304,6 +309,7 @@ export type EventOperationsMutationResult =
       reason:
         | "attendance_unavailable"
         | "capacity_exceeded"
+        | "ineligible"
         | "invalid_transition"
         | "not_livekit"
         | "occurrence_unavailable"

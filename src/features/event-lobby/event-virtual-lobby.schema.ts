@@ -1,29 +1,7 @@
 import { z } from "#/validation/zod";
 
-const identifier = z.string().check(z.trim(), z.minLength(1), z.maxLength(255));
-
 export const eventVirtualLobbyReferenceSchema = z.object({
   publicReference: z.string().check(z.length(43), z.regex(/^[A-Za-z0-9_-]+$/u)),
-});
-
-export const eventVirtualRecoveryRequestSchema = z.object({
-  publicReference: eventVirtualLobbyReferenceSchema.shape.publicReference,
-  identifier: z.string().check(z.trim(), z.minLength(3), z.maxLength(255)),
-});
-
-export const eventVirtualRecoveryVerificationSchema = z.object({
-  publicReference: eventVirtualLobbyReferenceSchema.shape.publicReference,
-  challengeReference: z
-    .string()
-    .check(z.length(32), z.regex(/^[A-Za-z0-9_-]+$/u)),
-  code: z.string().check(z.regex(/^\d{6}$/u)),
-});
-
-export const eventVirtualLobbyAdmissionSchema = z.object({
-  eventOccurrenceId: identifier,
-  eventSessionId: identifier,
-  lobbyEntryId: z.optional(identifier),
-  action: z.enum(["admit", "decline", "revoke", "admit_all"]),
 });
 
 export type EventVirtualLobbyOutcome =
@@ -39,7 +17,7 @@ export type EventVirtualLobbyOutcome =
   | "revoked"
   | "provider_unavailable";
 
-export interface EventVirtualLobbyData {
+interface EventVirtualLobbyData {
   eventTitle: string;
   sessionTitle: string;
   startsAt: string;
@@ -68,6 +46,19 @@ export interface EventVirtualLobbyData {
 
 export type EventVirtualLobbyResult =
   { status: "ready"; data: EventVirtualLobbyData } | { status: "not-found" };
+
+export interface EventVirtualLobbyPageData extends EventVirtualLobbyData {
+  startsAtLabel: string;
+  presentation: {
+    title: string;
+    message: string;
+    tone: "blue" | "green" | "orange" | "gray" | "red";
+  };
+}
+
+export type EventVirtualLobbyPageResult =
+  | { status: "ready"; data: EventVirtualLobbyPageData }
+  | { status: "not-found" };
 
 export type EventVirtualRecoveryRequestResult =
   | { status: "accepted"; challengeReference: string }
@@ -110,4 +101,7 @@ export type EventVirtualLobbyMutationResult =
   | { status: "unauthenticated" }
   | { status: "forbidden" }
   | { status: "not-found" }
-  | { status: "conflict"; reason: "invalid_transition" | "ineligible" };
+  | {
+      status: "conflict";
+      reason: "invalid_transition" | "ineligible" | "session_ended";
+    };

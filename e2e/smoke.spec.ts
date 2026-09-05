@@ -2394,7 +2394,7 @@ test("platform administrators can inspect learner progress", async ({
       [occurrenceId, occurrenceSessionId, "l".repeat(43)],
     );
     await page.reload();
-    await expect(page.getByText("No active attendees.")).toBeVisible();
+    await expect(page.getByText("No attendees.")).toBeVisible();
     const startWebinar = page.getByRole("button", { name: "Start webinar" });
     await expect(startWebinar).toBeEnabled();
     const confirmation = page.waitForEvent("dialog");
