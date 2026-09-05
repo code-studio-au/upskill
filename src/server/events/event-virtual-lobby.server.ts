@@ -1506,7 +1506,12 @@ export async function issueEventVirtualAttendeeCredential(
               "=",
               resolved.destination.eventVirtualJoinAccessId,
             )
-            .where("state", "=", "token_issued")
+            .where("state", "in", [
+              "admitted",
+              "token_issued",
+              "connected",
+              "left",
+            ])
             .where("credentialExpiresAt", ">", revalidationNow)
             .where("id", "!=", entry.id)
             .execute();

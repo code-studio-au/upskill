@@ -39,8 +39,10 @@ const ids = {
   template: "verify_livekit_lobby_template",
   version: "verify_livekit_lobby_version",
   definition: "verify_livekit_lobby_definition",
+  otherDefinition: "verify_livekit_lobby_other_definition",
   occurrence: "verify_livekit_lobby_occurrence",
   session: "verify_livekit_lobby_session",
+  otherSession: "verify_livekit_lobby_other_session",
   room: "verify_livekit_lobby_room",
   survey: "verify_livekit_lobby_survey",
   surveyVersion: "verify_livekit_lobby_survey_version",
@@ -431,6 +433,73 @@ try {
       waiverReason: null,
     })
     .execute();
+  await database
+    .insertInto("event_template_session_definition")
+    .values({
+      id: ids.otherDefinition,
+      eventTemplateVersionId: ids.version,
+      position: 1,
+      title: "Other presenter session",
+      durationMinutes: 60,
+      presenterRequired: true,
+      livekitAdmissionMode: "manual",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: false,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_session")
+    .values({
+      id: ids.otherSession,
+      eventOccurrenceId: ids.occurrence,
+      sessionDefinitionId: ids.otherDefinition,
+      position: 1,
+      title: "Other presenter session",
+      localStartsAt: "2030-09-04T11:00:00",
+      localEndsAt: "2030-09-04T12:00:00",
+      startsAt,
+      endsAt,
+      presenterRequired: true,
+      venueName: null,
+      venueAddress: null,
+      virtualJoinUrl: null,
+      virtualDeliveryProvider: "livekit",
+      livekitAdmissionMode: "manual",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: false,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_presenter_assignment")
+    .values({
+      id: "verify_livekit_lobby_cross_session_presenter",
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.otherSession,
+      userId: learner.id,
+      scopeKey: ids.otherSession,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
+    })
+    .execute();
   const notificationVariables = await database
     .transaction()
     .execute(async (transaction) => ({
@@ -468,6 +537,7 @@ try {
   assert.equal(
     notificationVariables.learner["session.virtualJoinUrl"],
     `http://localhost:3000/webinars/${access.publicReference}`,
+    "A learner who presents another session must receive the target session's learner lobby URL",
   );
   assert.equal(
     notificationVariables.staff["session.virtualJoinUrl"],
@@ -1240,6 +1310,56 @@ try {
   );
   assert.ok(credentialHolder);
   const credentialHolderEntryId = `verify_livekit_lobby_bulk_entry_${credentialHolder.id}`;
+  const credentialHolderRegistrationId = `verify_livekit_lobby_bulk_registration_${credentialHolder.id}`;
+  const lastSlotRequester = concurrentLearners.find(
+    (candidate) => candidate.id !== credentialHolder.id,
+  );
+  assert.ok(lastSlotRequester);
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", credentialHolderRegistrationId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (await resolveEventVirtualLobby(access.publicReference, credentialHolder))
+      .status,
+    "ready",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", credentialHolderRegistrationId)
+    .executeTakeFirstOrThrow();
+  const automaticallyReactivatedCredentialHolder =
+    await resolveEventVirtualLobby(access.publicReference, credentialHolder);
+  assert.equal(
+    automaticallyReactivatedCredentialHolder.status === "ready"
+      ? automaticallyReactivatedCredentialHolder.data.outcome
+      : null,
+    "ready_to_join",
+  );
+  const reactivatedCredential = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["state", "credentialExpiresAt"])
+    .where("id", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  assert.equal(reactivatedCredential.state, "admitted");
+  assert.ok(
+    reactivatedCredential.credentialExpiresAt &&
+      reactivatedCredential.credentialExpiresAt > new Date(),
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(
+      access.publicReference,
+      lastSlotRequester,
+      {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+      },
+    ),
+    { status: "conflict", reason: "capacity_reached" },
+    "An authorised admitted entry with a live credential must reserve capacity while temporarily disconnected",
+  );
   await database
     .updateTable("event_virtual_lobby_entry")
     .set({
@@ -1264,7 +1384,6 @@ try {
     "manual",
     administrator,
   );
-  const credentialHolderRegistrationId = `verify_livekit_lobby_bulk_registration_${credentialHolder.id}`;
   await database
     .updateTable("event_registration")
     .set({ status: "cancelled", lockedInAt: null })

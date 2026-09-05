@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import type { Transaction } from "kysely";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
+import { hasVirtualRoomStaffAccess } from "#/server/events/event-virtual-staff-access.server";
 import { getEmailTemplateContract } from "./email-template-contracts";
 import { eventRegistrationQuestionnaireComplete } from "#/server/registration/registration-questionnaire-access.server";
 
@@ -424,14 +425,23 @@ export async function buildEventNotificationVariables(
       )
     : undefined;
   if (selectedSession) {
-    const sessionPresenters = await transaction
-      .selectFrom("event_presenter_assignment as assignment")
-      .innerJoin("user", "user.id", "assignment.userId")
-      .select(["user.name", "user.email"])
-      .where("assignment.eventOccurrenceId", "=", event.id)
-      .where("assignment.eventSessionId", "=", selectedSession.id)
-      .where("assignment.endedAt", "is", null)
-      .execute();
+    const [sessionPresenters, selectedSessionStaffAccessReady] =
+      await Promise.all([
+        transaction
+          .selectFrom("event_presenter_assignment as assignment")
+          .innerJoin("user", "user.id", "assignment.userId")
+          .select(["user.name", "user.email"])
+          .where("assignment.eventOccurrenceId", "=", event.id)
+          .where("assignment.eventSessionId", "=", selectedSession.id)
+          .where("assignment.endedAt", "is", null)
+          .execute(),
+        hasVirtualRoomStaffAccess(
+          transaction,
+          event.id,
+          selectedSession.id,
+          input.recipient.userId,
+        ),
+      ]);
     const venueName = selectedSession.venueName ?? event.venueName;
     const venueAddress = selectedSession.venueAddress ?? event.venueAddress;
     variables["session.title"] = selectedSession.title;
@@ -459,7 +469,7 @@ export async function buildEventNotificationVariables(
       [venueName, venueAddress].filter(Boolean).join(", ") || "Virtual session";
     variables["session.venueName"] = venueName ?? "";
     variables["session.venueAddress"] = venueAddress ?? "";
-    variables["session.virtualJoinUrl"] = staffVirtualAccessReady
+    variables["session.virtualJoinUrl"] = selectedSessionStaffAccessReady
       ? eventOperationsUrl
       : learnerVirtualAccessReady
         ? selectedSession.virtualDeliveryProvider === "livekit" &&
