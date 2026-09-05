@@ -36,6 +36,8 @@ import {
 } from "#/server/livekit/livekit-provider.server";
 import { advanceEventVirtualLobbyRevision } from "./event-virtual-join-access.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
+import { revokeEventVirtualLobbyEntryForEligibility } from "./event-virtual-lobby-reconciliation.server";
+import { eventVirtualAttendeeIdentity } from "./event-virtual-participant-identity.server";
 import { enqueueEventVirtualParticipantRemoval } from "./event-virtual-provider-operation.server";
 import {
   enqueueEventVirtualRecoveryDelivery,
@@ -596,43 +598,21 @@ async function revokeIneligibleLobbyAccess(
         .executeTakeFirst();
       const now = new Date();
       if (entry && !["declined", "revoked"].includes(entry.state)) {
-        await transaction
-          .updateTable("event_virtual_lobby_entry")
-          .set({ state: "revoked", revokedAt: now, updatedAt: now })
-          .where("id", "=", entry.id)
-          .execute();
-        if (
-          destination.roomId &&
-          (["token_issued", "connected", "left"].includes(entry.state) ||
-            (entry.credentialExpiresAt?.getTime() ?? 0) > now.getTime())
-        )
-          await enqueueEventVirtualParticipantRemoval(transaction, {
-            roomId: destination.roomId,
-            lobbyEntryId: entry.id,
-            participantIdentity: attendeeIdentity(
-              destination.roomId,
-              participation.id,
-            ),
-            requestedByUserId: null,
-            now,
-          });
-        await advanceEventVirtualLobbyRevision(
-          transaction,
-          destination.eventVirtualJoinAccessId,
-        );
-        await recordDurableAuditEvent(transaction, {
-          actorUserId: null,
-          action: "event_virtual_lobby.admission_changed",
-          subjectType: "event_virtual_lobby_entry",
-          subjectId: entry.id,
-          aggregateId: destination.eventOccurrenceId,
-          metadata: {
-            action: "revoke",
-            eventSessionId: destination.eventSessionId,
-            source: "eligibility_changed",
+        await revokeEventVirtualLobbyEntryForEligibility(transaction, {
+          entry: {
+            ...entry,
+            eventParticipationId: participation.id,
+            state: entry.state as
+              "waiting" | "admitted" | "token_issued" | "connected" | "left",
           },
-          createdAt: now,
+          eventVirtualJoinAccessId: destination.eventVirtualJoinAccessId,
+          eventOccurrenceId: destination.eventOccurrenceId,
+          eventSessionId: destination.eventSessionId,
+          roomId: destination.roomId,
+          userId,
+          now,
         });
+        return;
       }
       await transaction
         .updateTable("event_virtual_join_session")
@@ -1316,12 +1296,6 @@ export async function acknowledgeEventVirtualRecording(
   });
 }
 
-function attendeeIdentity(roomId: string, participationId: string): string {
-  return `attendee:${createHash("sha256")
-    .update(`${roomId}:${participationId}`)
-    .digest("base64url")}`;
-}
-
 export async function issueEventVirtualAttendeeCredential(
   publicReference: string,
   authenticatedUser: AuthenticatedUser | null,
@@ -1373,7 +1347,7 @@ export async function issueEventVirtualAttendeeCredential(
   )
     return { status: "conflict", reason: "provider_unavailable" };
   const providerRoomName = resolved.destination.providerRoomName;
-  const participantIdentity = attendeeIdentity(
+  const participantIdentity = eventVirtualAttendeeIdentity(
     resolved.destination.roomId,
     resolved.participation.id,
   );
@@ -1506,19 +1480,16 @@ export async function issueEventVirtualAttendeeCredential(
               "=",
               resolved.destination.eventVirtualJoinAccessId,
             )
-            .where("state", "in", [
-              "admitted",
-              "token_issued",
-              "connected",
-              "left",
-            ])
             .where("credentialExpiresAt", ">", revalidationNow)
             .where("id", "!=", entry.id)
             .execute();
           const unconnectedReservations = reservations.filter(
             (reservation) =>
               !connectedIdentities.has(
-                attendeeIdentity(room.id, reservation.eventParticipationId),
+                eventVirtualAttendeeIdentity(
+                  room.id,
+                  reservation.eventParticipationId,
+                ),
               ),
           ).length;
           if (
@@ -1673,7 +1644,7 @@ async function changeAdmission(
     await enqueueEventVirtualParticipantRemoval(transaction, {
       roomId: destination.roomId,
       lobbyEntryId: entry.id,
-      participantIdentity: attendeeIdentity(
+      participantIdentity: eventVirtualAttendeeIdentity(
         destination.roomId,
         entry.eventParticipationId,
       ),

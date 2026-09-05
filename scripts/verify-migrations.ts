@@ -230,6 +230,7 @@ try {
     "enterprise_contract_claim_user_idx",
     "event_virtual_join_access_current_uq",
     "event_virtual_lobby_entry_queue_idx",
+    "event_virtual_lobby_entry_active_credential_idx",
     "event_virtual_recovery_rate_idx",
     "event_virtual_recovery_delivery_pending_idx",
     "event_virtual_join_session_active_idx",
@@ -246,6 +247,19 @@ try {
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
+  const activeCredentialIndex = indexResult.rows.find(
+    (index) =>
+      index.indexname === "event_virtual_lobby_entry_active_credential_idx",
+  );
+  if (
+    !activeCredentialIndex?.indexdef.includes(
+      '"credentialExpiresAt" IS NOT NULL',
+    ) ||
+    activeCredentialIndex.indexdef.includes("state")
+  )
+    throw new Error(
+      "LiveKit credential reservations must index every unexpired credential state",
+    );
   const emailDesignerConstraints = await sql<{
     constraint_name: string;
   }>`select constraint_name from information_schema.table_constraints

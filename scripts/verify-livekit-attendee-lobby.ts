@@ -11,6 +11,7 @@ import {
   verifyEventVirtualRecoveryCode,
 } from "#/server/events/event-virtual-lobby.server";
 import { processAvailableEventVirtualRecoveryDeliveries } from "#/server/events/event-virtual-recovery-delivery.server";
+import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
 import {
   findEventVirtualLobbyQueue,
   processAvailableEventVirtualRoomOperations,
@@ -1315,15 +1316,75 @@ try {
     (candidate) => candidate.id !== credentialHolder.id,
   );
   assert.ok(lastSlotRequester);
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "withdrawn-credential-holder",
+      identity: concurrentTokenOperation.input.participantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
   await database
     .updateTable("event_registration")
     .set({ status: "cancelled", lockedInAt: null })
     .where("id", "=", credentialHolderRegistrationId)
     .executeTakeFirstOrThrow();
+  const eligibilityRevocations =
+    await processAvailableEventVirtualLobbyEligibilityRevocations(10);
+  assert.deepEqual(
+    eligibilityRevocations.outcomes.find(
+      (outcome) => outcome.lobbyEntryId === credentialHolderEntryId,
+    ),
+    { status: "revoked", lobbyEntryId: credentialHolderEntryId },
+    "Eligibility withdrawal must revoke an issued credential without learner polling",
+  );
   assert.equal(
-    (await resolveEventVirtualLobby(access.publicReference, credentialHolder))
-      .status,
-    "ready",
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", credentialHolderEntryId)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.state),
+    "revoked",
+  );
+  const withdrawnRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(),
+    });
+  assert.deepEqual(
+    {
+      kind: withdrawnRemovalBatch.outcomes[0]?.kind,
+      status: withdrawnRemovalBatch.outcomes[0]?.status,
+    },
+    { kind: "remove_participant", status: "pending" },
+    "Independent eligibility reconciliation must enforce removal through credential expiry",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) =>
+          participant.identity ===
+          concurrentTokenOperation.input.participantIdentity,
+      ),
+    false,
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(
+      access.publicReference,
+      lastSlotRequester,
+      {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+      },
+    ),
+    { status: "conflict", reason: "capacity_reached" },
+    "A revoked but unexpired credential must retain its capacity reservation",
   );
   await database
     .updateTable("event_registration")

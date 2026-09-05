@@ -699,9 +699,12 @@ necessary. Revocation durably schedules immediate removal and continues
 idempotent removal checks until the most recently issued credential expires.
 
 Attendee issuance serializes against the exact room and durably reserves a
-place through credential expiry. The final gate counts current provider
+place through credential expiry. Every unexpired credential remains a capacity
+reservation even if eligibility withdrawal moves its lobby entry to revoked or
+waiting while removal is enforced. The final gate counts current provider
 participants plus unconnected, unexpired attendee reservations so concurrent
-requests cannot both claim the final place. Connected attendees may refresh
+requests cannot claim the same place and readmission cannot restore an unsafe
+credential after another attendee fills it. Connected attendees may refresh
 their own credential without consuming a second reservation.
 
 Attendee grants are limited to:
