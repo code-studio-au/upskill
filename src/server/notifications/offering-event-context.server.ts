@@ -229,19 +229,26 @@ export async function buildEventNotificationVariables(
     reschedule,
   ] = await Promise.all([
     transaction
-      .selectFrom("event_session")
+      .selectFrom("event_session as session")
+      .leftJoin("event_virtual_join_access as joinAccess", (join) =>
+        join
+          .onRef("joinAccess.eventSessionId", "=", "session.id")
+          .on("joinAccess.revokedAt", "is", null),
+      )
       .select([
-        "id",
-        "sessionDefinitionId",
-        "title",
-        "startsAt",
-        "endsAt",
-        "venueName",
-        "venueAddress",
-        "virtualJoinUrl",
+        "session.id",
+        "session.sessionDefinitionId",
+        "session.title",
+        "session.startsAt",
+        "session.endsAt",
+        "session.venueName",
+        "session.venueAddress",
+        "session.virtualJoinUrl",
+        "session.virtualDeliveryProvider",
+        "joinAccess.publicReference as virtualJoinReference",
       ])
-      .where("eventOccurrenceId", "=", event.id)
-      .orderBy("position")
+      .where("session.eventOccurrenceId", "=", event.id)
+      .orderBy("session.position")
       .execute(),
     transaction
       .selectFrom("event_admin_assignment as assignment")
@@ -452,7 +459,10 @@ export async function buildEventNotificationVariables(
     variables["session.venueName"] = venueName ?? "";
     variables["session.venueAddress"] = venueAddress ?? "";
     variables["session.virtualJoinUrl"] = recipientVirtualAccessReady
-      ? (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
+      ? selectedSession.virtualDeliveryProvider === "livekit" &&
+        selectedSession.virtualJoinReference
+        ? `${baseUrl}/webinars/${selectedSession.virtualJoinReference}`
+        : (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
       : eventDashboardUrl;
     variables["session.presenterNames"] = list(
       sessionPresenters.map((person) => person.name.trim() || person.email),

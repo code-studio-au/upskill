@@ -13,6 +13,9 @@ import {
   type LiveKitProvider,
 } from "#/server/livekit/livekit-provider.server";
 import type { EventOperationsAccess } from "./event-operations-access.server";
+import { ensureEventVirtualJoinAccess } from "./event-virtual-join-access.server";
+import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
+import { hasVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
 const PROVIDER_OPERATION_LEASE_MILLISECONDS = 2 * 60 * 1_000;
 const PROVIDER_RETRY_MAX_SECONDS = 15 * 60;
@@ -76,6 +79,23 @@ export interface EventVirtualSessionOperations {
   eventSessionId: string;
   preparationOpensAt: string;
   canEnterGreenRoom: boolean;
+  lobbyPath: string | null;
+  lobbyEntries: Array<{
+    id: string;
+    eventParticipationId: string;
+    name: string;
+    state:
+      | "waiting"
+      | "admitted"
+      | "token_issued"
+      | "connected"
+      | "left"
+      | "declined"
+      | "revoked";
+    accessMethod: "authenticated" | "email" | "sms";
+    requestedAt: string;
+    admittedAt: string | null;
+  }>;
   room: EventVirtualRoomState | null;
 }
 
@@ -248,35 +268,6 @@ async function findVirtualSessionContext(
   };
 }
 
-async function hasVirtualRoomStaffAccess(
-  connection: DatabaseConnection,
-  eventOccurrenceId: string,
-  eventSessionId: string,
-  userId: string,
-): Promise<boolean> {
-  const [platformAdministrator, presenter] = await Promise.all([
-    connection
-      .selectFrom("platform_admin")
-      .select("userId")
-      .where("userId", "=", userId)
-      .executeTakeFirst(),
-    connection
-      .selectFrom("event_presenter_assignment")
-      .select("id")
-      .where("eventOccurrenceId", "=", eventOccurrenceId)
-      .where("userId", "=", userId)
-      .where("endedAt", "is", null)
-      .where((expression) =>
-        expression.or([
-          expression("eventSessionId", "=", eventSessionId),
-          expression("eventSessionId", "is", null),
-        ]),
-      )
-      .executeTakeFirst(),
-  ]);
-  return Boolean(presenter || platformAdministrator);
-}
-
 async function hasVirtualRoomAdministratorAccess(
   connection: DatabaseConnection,
   userId: string,
@@ -430,6 +421,13 @@ async function createRoomGeneration(
         })
         .returningAll()
         .executeTakeFirstOrThrow();
+      await ensureEventVirtualJoinAccess(transaction, {
+        eventOccurrenceId,
+        eventSessionId,
+        roomGeneration: generation,
+        actorUserId: userId,
+        now: currentNow,
+      });
       await insertRoomOperation(
         transaction,
         room.id,
@@ -810,12 +808,52 @@ export async function findEventVirtualSessionOperations(
   const roomBySession = new Map(
     rooms.map((room) => [room.eventSessionId, room]),
   );
+  const joinAccess = await database
+    .selectFrom("event_virtual_join_access")
+    .select(["id", "eventSessionId", "publicReference"])
+    .where(
+      "eventSessionId",
+      "in",
+      authorised.map((session) => session.id),
+    )
+    .where("revokedAt", "is", null)
+    .execute();
+  const accessBySession = new Map(
+    joinAccess.map((item) => [item.eventSessionId, item]),
+  );
+  const lobbyRows = joinAccess.length
+    ? await database
+        .selectFrom("event_virtual_lobby_entry as lobby")
+        .innerJoin(
+          "event_participation as participation",
+          "participation.id",
+          "lobby.eventParticipationId",
+        )
+        .select([
+          "lobby.id",
+          "lobby.eventVirtualJoinAccessId",
+          "lobby.eventParticipationId",
+          "lobby.state",
+          "lobby.accessMethod",
+          "lobby.requestedAt",
+          "lobby.admittedAt",
+          "participation.nameSnapshot as name",
+        ])
+        .where(
+          "lobby.eventVirtualJoinAccessId",
+          "in",
+          joinAccess.map((item) => item.id),
+        )
+        .orderBy("lobby.requestedAt")
+        .execute()
+    : [];
   return authorised.map((session) => {
     const opensAt = new Date(
       session.startsAt.getTime() -
         (session.livekitPresenterPreparationMinutes ?? 0) * 60 * 1_000,
     );
     const room = roomBySession.get(session.id);
+    const accessRecord = accessBySession.get(session.id);
     return {
       eventSessionId: session.id,
       preparationOpensAt: opensAt.toISOString(),
@@ -824,6 +862,24 @@ export async function findEventVirtualSessionOperations(
         now >= opensAt &&
         now < session.endsAt &&
         room?.doorState !== "ended",
+      lobbyPath: accessRecord
+        ? `/webinars/${accessRecord.publicReference}`
+        : null,
+      lobbyEntries: accessRecord
+        ? lobbyRows
+            .filter(
+              (entry) => entry.eventVirtualJoinAccessId === accessRecord.id,
+            )
+            .map((entry) => ({
+              id: entry.id,
+              eventParticipationId: entry.eventParticipationId,
+              name: entry.name,
+              state: entry.state,
+              accessMethod: entry.accessMethod,
+              requestedAt: entry.requestedAt.toISOString(),
+              admittedAt: entry.admittedAt?.toISOString() ?? null,
+            }))
+        : [],
       room: room ? roomState(room) : null,
     };
   });
@@ -1447,6 +1503,14 @@ export async function setEventVirtualRoomAdmissionMode(
       .set({ admissionMode })
       .where("id", "=", room.id)
       .execute();
+    if (admissionMode === "automatic")
+      await admitEligibleWaitingEntries(transaction, {
+        eventOccurrenceId,
+        eventSessionId,
+        roomGeneration: room.generation,
+        actorUserId: user.id,
+        now: currentNow,
+      });
     await recordDurableAuditEvent(transaction, {
       actorUserId: user.id,
       action: "event_virtual_room.lifecycle_changed",

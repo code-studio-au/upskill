@@ -1,0 +1,31 @@
+.page {
+  min-height: 100vh;
+  padding-block: var(--mantine-spacing-xl);
+  background: var(--mantine-color-gray-0);
+}
+
+.heading {
+  overflow-wrap: anywhere;
+}
+
+.details {
+  display: grid;
+  gap: var(--mantine-spacing-xs);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--mantine-spacing-sm);
+}
+
+@media (max-width: 40rem) {
+  .page {
+    padding-block: var(--mantine-spacing-md);
+  }
+
+  .actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

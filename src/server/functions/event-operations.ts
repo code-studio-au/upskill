@@ -11,6 +11,10 @@ import {
   type EventOperationsResult,
   type EventSurveyQrPresentationResult,
 } from "#/features/event-operations/event-operations.schema";
+import {
+  eventVirtualLobbyAdmissionSchema,
+  type EventVirtualLobbyMutationResult,
+} from "#/features/event-lobby/event-virtual-lobby.schema";
 export const getAssignedEventOperations = createServerFn({
   method: "GET",
 }).handler(async (): Promise<AssignedEventOperationsResult> => {
@@ -211,5 +215,26 @@ export const mutateEventVirtualRoom = createServerFn({ method: "POST" })
       ...args,
       data.action,
       request.access.user,
+    );
+  });
+
+export const mutateEventVirtualLobbyAdmission = createServerFn({
+  method: "POST",
+})
+  .validator(eventVirtualLobbyAdmissionSchema)
+  .handler(async ({ data }): Promise<EventVirtualLobbyMutationResult> => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" };
+    const { mutateEventVirtualLobbyAdmission: mutate } =
+      await import("#/server/events/event-virtual-lobby.server");
+    return await mutate(
+      {
+        eventOccurrenceId: data.eventOccurrenceId,
+        eventSessionId: data.eventSessionId,
+        action: data.action,
+        ...(data.lobbyEntryId ? { lobbyEntryId: data.lobbyEntryId } : {}),
+      },
+      user,
     );
   });

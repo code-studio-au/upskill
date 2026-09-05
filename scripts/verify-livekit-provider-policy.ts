@@ -15,6 +15,10 @@ import {
   down as downRoomLifecycle,
   up as upRoomLifecycle,
 } from "#/server/db/migrations/0086_livekit_room_lifecycle";
+import {
+  down as downAttendeeLobby,
+  up as upAttendeeLobby,
+} from "#/server/db/migrations/0087_livekit_attendee_lobby";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -41,6 +45,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downAttendeeLobby(database);
   await downRoomLifecycle(database);
   await downProviderPolicy(database);
   await database
@@ -155,6 +160,7 @@ try {
 
   await upProviderPolicy(database);
   await upRoomLifecycle(database);
+  await upAttendeeLobby(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -664,10 +670,20 @@ try {
     try {
       await upProviderPolicy(database);
       await upRoomLifecycle(database);
+      await upAttendeeLobby(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }
   if (migrationRestored) {
+    await database
+      .deleteFrom("event_virtual_join_access")
+      .where("eventOccurrenceId", "in", (builder) =>
+        builder
+          .selectFrom("event_occurrence")
+          .select("id")
+          .where("eventTemplateVersionId", "=", ids.version),
+      )
+      .execute();
     await database
       .deleteFrom("event_virtual_room")
       .where("id", "=", ids.preparedRoom)

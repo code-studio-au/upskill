@@ -137,18 +137,25 @@ export async function findLearnerEventWorkspace(
       .orderBy("position")
       .execute(),
     database
-      .selectFrom("event_session")
+      .selectFrom("event_session as session")
+      .leftJoin("event_virtual_join_access as joinAccess", (join) =>
+        join
+          .onRef("joinAccess.eventSessionId", "=", "session.id")
+          .on("joinAccess.revokedAt", "is", null),
+      )
       .select([
-        "id",
-        "sessionDefinitionId",
-        "startsAt",
-        "endsAt",
-        "venueName",
-        "venueAddress",
-        "virtualJoinUrl",
+        "session.id",
+        "session.sessionDefinitionId",
+        "session.startsAt",
+        "session.endsAt",
+        "session.venueName",
+        "session.venueAddress",
+        "session.virtualJoinUrl",
+        "session.virtualDeliveryProvider",
+        "joinAccess.publicReference as virtualJoinReference",
       ])
-      .where("eventOccurrenceId", "=", participation.eventOccurrenceId)
-      .orderBy("position")
+      .where("session.eventOccurrenceId", "=", participation.eventOccurrenceId)
+      .orderBy("session.position")
       .execute(),
     database
       .selectFrom("event_attendance")
@@ -206,7 +213,11 @@ export async function findLearnerEventWorkspace(
             ? attendanceState === "attended"
             : completedItemIds.has(item.id);
           const sessionAvailable = Boolean(
-            available && session && session.startsAt <= now,
+            available &&
+            session &&
+            (session.virtualDeliveryProvider === "livekit"
+              ? session.virtualJoinReference
+              : session.startsAt <= now),
           );
           return {
             id: item.id,
@@ -226,7 +237,10 @@ export async function findLearnerEventWorkspace(
                   venueName: session.venueName,
                   venueAddress: session.venueAddress,
                   virtualJoinUrl: sessionAvailable
-                    ? session.virtualJoinUrl
+                    ? session.virtualDeliveryProvider === "livekit" &&
+                      session.virtualJoinReference
+                      ? `/webinars/${session.virtualJoinReference}`
+                      : session.virtualJoinUrl
                     : null,
                   attendanceState,
                 }

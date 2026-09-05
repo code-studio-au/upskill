@@ -1869,6 +1869,14 @@ try {
     .where("id", "=", ids.occurrenceRegion)
     .execute();
   await database
+    .deleteFrom("event_virtual_join_access")
+    .where("eventSessionId", "in", [
+      ids.session,
+      ids.raceSession,
+      ids.failureSession,
+    ])
+    .execute();
+  await database
     .deleteFrom("event_session")
     .where("id", "in", [ids.session, ids.raceSession, ids.failureSession])
     .execute();

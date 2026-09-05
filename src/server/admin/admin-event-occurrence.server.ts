@@ -19,6 +19,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { ensureEventSurveyAccessRecords } from "#/server/events/event-survey-access.server";
 import { ensureEventGuestAccessRecord } from "#/server/events/event-guest-access.server";
+import { ensureEventVirtualJoinAccessRecords } from "#/server/events/event-virtual-join-access.server";
 import { reconcileEventLateInvitationsAfterReschedule } from "#/server/events/event-late-registration-invitation.server";
 import { calculateEventSectionReleaseAt } from "#/server/learning/event-section-release.server";
 import { isAdminEventScheduleConsistent } from "#/server/admin/event-timezone.server";
@@ -442,6 +443,12 @@ export async function createAdminEventOccurrence(
             .execute();
         sessionStartsAt = sessionEndsAt;
       }
+      await ensureEventVirtualJoinAccessRecords(
+        transaction,
+        eventOccurrenceId,
+        administrator.id,
+        now,
+      );
       for (const region of regions) {
         const eventOccurrenceRegionId = `event_occurrence_region_${randomUUID()}`;
         await transaction
@@ -646,6 +653,12 @@ export async function updateAdminEventOccurrence(
           .where("id", "=", session.id)
           .execute();
       }
+      await ensureEventVirtualJoinAccessRecords(
+        transaction,
+        eventOccurrenceId,
+        administrator.id,
+        now,
+      );
 
       await transaction
         .deleteFrom("event_occurrence_domain")

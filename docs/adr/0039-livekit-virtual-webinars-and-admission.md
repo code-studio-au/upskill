@@ -1,6 +1,6 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–2 implemented, later slices pending
+- **Status:** Accepted; Slices 1–3 implemented, later slices pending
 - **Date:** 2026-08-31
 
 ## Context
@@ -1135,10 +1135,11 @@ gates passed; it does not by itself authorise staging or production activation.
       delivery paths are implemented; environment configuration alone does not
       make them publishable.
       Implemented by [PR #65](https://github.com/code-studio-au/upskill/pull/65).
-- [ ] **Slice 3 — room lifecycle and presenter green room:** add room-generation
+- [x] **Slice 3 — room lifecycle and presenter green room:** add room-generation
       persistence, exact staff policy, idempotent outbox operations, lazy room
       creation, presenter grants, device preview, provider health, and
       start/lock/reopen/end/replacement controls.
+      Implemented by [PR #66](https://github.com/code-studio-au/upskill/pull/66).
 - [ ] **Slice 4 — attendee lobby, admission and recovery:** add opaque join
       access, the central attendee policy, authenticated lobby, narrow email/SMS
       recovery, manual/bulk/automatic admission, polling, meeting-not-started and

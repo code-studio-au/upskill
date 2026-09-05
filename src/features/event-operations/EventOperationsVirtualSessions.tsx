@@ -10,7 +10,10 @@ import {
   Text,
   Title,
 } from "#/features/shared/mantine";
-import { mutateEventVirtualRoom } from "#/server/functions/event-operations";
+import {
+  mutateEventVirtualLobbyAdmission,
+  mutateEventVirtualRoom,
+} from "#/server/functions/event-operations";
 import type { EventOperationsAction } from "./EventOperationsOverview";
 import type { EventOperationsWorkspace } from "./event-operations.schema";
 import classes from "./EventOperations.module.css";
@@ -18,6 +21,10 @@ import classes from "./EventOperations.module.css";
 const EventOperationsDevicePreview = lazy(async () => {
   const module = await import("./EventOperationsDevicePreview");
   return { default: module.EventOperationsDevicePreview };
+});
+const EventOperationsLobbyQueue = lazy(async () => {
+  const module = await import("./EventOperationsLobbyQueue");
+  return { default: module.EventOperationsLobbyQueue };
 });
 
 function statusColour(
@@ -31,6 +38,8 @@ function statusColour(
         ? "gray"
         : "yellow";
 }
+
+type AdmissionAction = "admit" | "decline" | "revoke" | "admit_all";
 
 export function EventOperationsVirtualSessions({
   workspace,
@@ -70,6 +79,23 @@ export function EventOperationsVirtualSessions({
     );
   };
 
+  const changeAdmission = (
+    sessionId: string,
+    lobbyEntryId: string | undefined,
+    operation: AdmissionAction,
+  ) => {
+    void action(`${operation}-${lobbyEntryId ?? sessionId}`, () =>
+      mutateEventVirtualLobbyAdmission({
+        data: {
+          eventOccurrenceId: occurrenceId,
+          eventSessionId: sessionId,
+          lobbyEntryId,
+          action: operation,
+        },
+      }),
+    );
+  };
+
   return (
     <Stack gap="lg">
       <div>
@@ -82,8 +108,7 @@ export function EventOperationsVirtualSessions({
       {workspace.occurrence.status !== "published" ? (
         <Alert color="blue">
           LiveKit rooms remain dormant until the event is published. Publication
-          stays disabled until the attendee lobby and webinar media slices are
-          complete.
+          stays disabled until the webinar media slice is complete.
         </Alert>
       ) : null}
       <div className={classes.sessionList}>
@@ -327,6 +352,16 @@ export function EventOperationsVirtualSessions({
                     Check provider
                   </Button>
                 </Group>
+                {virtualSession.lobbyPath ? (
+                  <EventOperationsLobbyQueue
+                    session={virtualSession}
+                    lobbyPath={virtualSession.lobbyPath}
+                    showQueue={Boolean(room)}
+                    timeZone={workspace.occurrence.timezone}
+                    processingId={processingId}
+                    changeAdmission={changeAdmission}
+                  />
+                ) : null}
                 <EventOperationsDevicePreview />
               </Stack>
             </Paper>

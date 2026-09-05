@@ -217,6 +217,23 @@ export interface EventOperationsWorkspace {
     eventSessionId: string;
     preparationOpensAt: string;
     canEnterGreenRoom: boolean;
+    lobbyPath: string | null;
+    lobbyEntries: Array<{
+      id: string;
+      eventParticipationId: string;
+      name: string;
+      state:
+        | "waiting"
+        | "admitted"
+        | "token_issued"
+        | "connected"
+        | "left"
+        | "declined"
+        | "revoked";
+      accessMethod: "authenticated" | "email" | "sms";
+      requestedAt: string;
+      admittedAt: string | null;
+    }>;
     room: {
       id: string;
       eventSessionId: string;
