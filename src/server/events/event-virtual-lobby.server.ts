@@ -50,9 +50,11 @@ const JOIN_SESSION_LIFETIME_MS = 30 * 60_000;
 const JOIN_SESSION_IDLE_MS = 10 * 60_000;
 const RATE_LIMIT_WINDOW_MS = 15 * 60_000;
 const RATE_LIMIT_MAXIMUM_ENTRIES = 20_000;
+const REQUEST_AUDIT_MAXIMUM_WRITES = 10;
 const VERIFICATION_AUDIT_MAXIMUM_WRITES = 10;
 const POLL_AFTER_MS = 4_000;
 const requestLimits = new Map<string, FixedWindowRateLimitEntry>();
+const requestAuditLimits = new Map<string, FixedWindowRateLimitEntry>();
 const verificationAuditLimits = new Map<string, FixedWindowRateLimitEntry>();
 const credentialDenialAuditLimits = new Map<
   string,
@@ -65,6 +67,7 @@ const SECURE_CHALLENGE_COOKIE = "__Secure-upskill_virtual_challenge";
 
 interface RecoveryRequestOverrides {
   requestLimitStore?: Map<string, FixedWindowRateLimitEntry>;
+  auditLimitStore?: Map<string, FixedWindowRateLimitEntry>;
   beforeReserve?: () => Promise<void>;
 }
 
@@ -203,6 +206,23 @@ function consumeVerificationAuditLimit(
     {
       maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
       maximumRequests: VERIFICATION_AUDIT_MAXIMUM_WRITES,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+    },
+  );
+}
+
+function consumeRequestAuditLimit(
+  publicReference: string,
+  fingerprint: string,
+  store = requestAuditLimits,
+): boolean {
+  return consumeFixedWindowRateLimit(
+    store,
+    `request-audit:${publicReference}:${fingerprint}`,
+    Date.now(),
+    {
+      maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
+      maximumRequests: REQUEST_AUDIT_MAXIMUM_WRITES,
       windowMs: RATE_LIMIT_WINDOW_MS,
     },
   );
@@ -900,6 +920,25 @@ async function recordStandaloneRecoveryRequestOutcome(
     .execute((transaction) => recordRecoveryRequestOutcome(transaction, input));
 }
 
+async function recordLimitedStandaloneRecoveryRequestOutcome(
+  input: Parameters<typeof recordRecoveryRequestOutcome>[1],
+  audit: {
+    publicReference: string;
+    fingerprint: string;
+    store?: Map<string, FixedWindowRateLimitEntry>;
+  },
+): Promise<void> {
+  if (
+    !consumeRequestAuditLimit(
+      audit.publicReference,
+      audit.fingerprint,
+      audit.store,
+    )
+  )
+    return;
+  await recordStandaloneRecoveryRequestOutcome(input);
+}
+
 async function recordAttendeeCredentialDenial(
   transaction: Transaction<Database>,
   input: {
@@ -1073,15 +1112,24 @@ export async function requestEventVirtualRecoveryCode(
       requestOverrides.requestLimitStore,
     )
   ) {
-    await recordStandaloneRecoveryRequestOutcome({
-      target: privateRecoveryAuditTarget(
-        "event_virtual_recovery_request",
-        input.publicReference,
-      ),
-      channel,
-      responseStatus: "rate-limited",
-      reasonCode: "local_rate_limited",
-    });
+    await recordLimitedStandaloneRecoveryRequestOutcome(
+      {
+        target: privateRecoveryAuditTarget(
+          "event_virtual_recovery_request",
+          input.publicReference,
+        ),
+        channel,
+        responseStatus: "rate-limited",
+        reasonCode: "local_rate_limited",
+      },
+      {
+        publicReference: input.publicReference,
+        fingerprint,
+        ...(requestOverrides.auditLimitStore
+          ? { store: requestOverrides.auditLimitStore }
+          : {}),
+      },
+    );
     return { status: "rate-limited" };
   }
   const destination = await findPublicDestination(

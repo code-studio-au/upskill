@@ -1070,6 +1070,9 @@ metadata. Public verification-failure audit writes are capped per connection
 and lobby window, including failures rejected by route validation. Repeated
 requests after a real challenge reaches its attempt limit reuse the recorded
 limit transition instead of producing further audit or outbox rows.
+Recovery-request denials after the request throttle is exhausted have their own
+bounded connection-and-lobby audit budget, so continued rejected submissions
+cannot create unbounded audit or outbox rows.
 Attendee and presenter credential denials are reason-coded without retaining a
 token and coalesced per target, reason, phase and audit window so client retries
 cannot turn operational evidence into an unbounded write path.

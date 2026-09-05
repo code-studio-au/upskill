@@ -2366,8 +2366,16 @@ try {
     "accepted",
   );
   const localLimitStore = new Map<string, FixedWindowRateLimitEntry>();
+  const localAuditLimitStore = new Map<string, FixedWindowRateLimitEntry>();
+  const localLimitAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+    .where("reason", "=", "local_rate_limited")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
   const locallyLimitedRequests = [];
-  for (let index = 0; index < 4; index += 1)
+  for (let index = 0; index < 15; index += 1)
     locallyLimitedRequests.push(
       await requestEventVirtualRecoveryCode(
         {
@@ -2375,12 +2383,76 @@ try {
           identifier: "rate-limit-audit@example.com",
         },
         "local-rate-limit-audit".padEnd(43, "x"),
-        { requestLimitStore: localLimitStore },
+        {
+          requestLimitStore: localLimitStore,
+          auditLimitStore: localAuditLimitStore,
+        },
       ),
     );
   assert.deepEqual(
     locallyLimitedRequests.map((result) => result.status),
-    ["unavailable", "unavailable", "unavailable", "rate-limited"],
+    [
+      "unavailable",
+      "unavailable",
+      "unavailable",
+      ...Array.from({ length: 12 }, () => "rate-limited" as const),
+    ],
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+      .where("reason", "=", "local_rate_limited")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - localLimitAuditCountBefore),
+    10,
+    "Post-throttle recovery request audits must not create unbounded audit or outbox rows",
+  );
+  const connectionLimitStore = new Map<string, FixedWindowRateLimitEntry>();
+  const connectionAuditLimitStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  const connectionLimitAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+    .where("reason", "=", "local_rate_limited")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const connectionLimitedRequests = [];
+  for (let index = 0; index < 22; index += 1)
+    connectionLimitedRequests.push(
+      await requestEventVirtualRecoveryCode(
+        {
+          publicReference: "unknown-livekit-reference",
+          identifier: `connection-rate-limit-${String(index)}@example.com`,
+        },
+        "connection-rate-limit-audit".padEnd(43, "x"),
+        {
+          requestLimitStore: connectionLimitStore,
+          auditLimitStore: connectionAuditLimitStore,
+        },
+      ),
+    );
+  assert.deepEqual(
+    connectionLimitedRequests.map((result) => result.status),
+    [
+      ...Array.from({ length: 10 }, () => "unavailable" as const),
+      ...Array.from({ length: 12 }, () => "rate-limited" as const),
+    ],
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+      .where("reason", "=", "local_rate_limited")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - connectionLimitAuditCountBefore),
+    10,
+    "Connection-throttled recovery request audits must share the bounded audit budget",
   );
   const invalidSubmissionAuditCountBefore = await database
     .selectFrom("audit_event")
