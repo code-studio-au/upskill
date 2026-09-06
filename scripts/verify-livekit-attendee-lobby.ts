@@ -4082,11 +4082,58 @@ try {
       createdAt: new Date(smsInvalidatedAt.getTime() - 60_000),
     })
     .execute();
-  await database
+  let releaseSmsChallengeLock = () => {};
+  let markSmsChallengeLocked = () => {};
+  const smsChallengeLockHeld = new Promise<void>((resolve) => {
+    markSmsChallengeLocked = resolve;
+  });
+  const smsChallengeLockRelease = new Promise<void>((resolve) => {
+    releaseSmsChallengeLock = resolve;
+  });
+  const smsChallengeBlocker = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_virtual_recovery_challenge")
+        .select("id")
+        .where("id", "=", smsChallengeId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      markSmsChallengeLocked();
+      await smsChallengeLockRelease;
+    });
+  await smsChallengeLockHeld;
+  const smsInvalidation = database
     .transaction()
     .execute((transaction) =>
       invalidateVerifiedPhone(transaction, learner.id, smsInvalidatedAt),
     );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  let smsAccessProbeSettled = false;
+  const smsAccessProbe = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_virtual_join_access")
+        .select("id")
+        .where("id", "=", access.id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+    })
+    .then(() => {
+      smsAccessProbeSettled = true;
+    });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      smsAccessProbeSettled,
+      false,
+      "SMS invalidation must lock join access before waiting for the recovery challenge",
+    );
+  } finally {
+    releaseSmsChallengeLock();
+  }
+  await Promise.all([smsChallengeBlocker, smsInvalidation, smsAccessProbe]);
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_lobby_entry")

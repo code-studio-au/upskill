@@ -94,19 +94,39 @@ async function revokeSmsRecoveryAccess(
     .execute();
   const virtualRecoveryChallenges = await transaction
     .selectFrom("event_virtual_recovery_challenge")
-    .select("id")
+    .select(["id", "eventVirtualJoinAccessId"])
     .where("userId", "in", userIds)
     .where("channel", "=", "sms")
-    .forUpdate()
+    .orderBy("eventVirtualJoinAccessId")
+    .orderBy("id")
     .execute();
   const virtualRecoveryChallengeIds = virtualRecoveryChallenges.map(
     (challenge) => challenge.id,
   );
+  const virtualJoinAccessIds = [
+    ...new Set(
+      virtualRecoveryChallenges.map(
+        (challenge) => challenge.eventVirtualJoinAccessId,
+      ),
+    ),
+  ].sort();
+  // Recovery verification locks access before its challenge. Keep phone
+  // invalidation in that same order so a profile change or phone transfer
+  // cannot deadlock a concurrent verification transaction.
+  if (virtualJoinAccessIds.length)
+    await transaction
+      .selectFrom("event_virtual_join_access")
+      .select("id")
+      .where("id", "in", virtualJoinAccessIds)
+      .orderBy("id")
+      .forUpdate()
+      .execute();
   const invalidatedJoinSessions = virtualRecoveryChallengeIds.length
     ? await transaction
         .selectFrom("event_virtual_join_session")
         .select("id")
         .where("challengeId", "in", virtualRecoveryChallengeIds)
+        .orderBy("id")
         .execute()
     : [];
   await revokeEventVirtualLobbyEntriesForJoinSessions(transaction, {
@@ -114,6 +134,14 @@ async function revokeSmsRecoveryAccess(
     now: revokedAt,
     source: "verified_phone_invalidated",
   });
+  if (virtualRecoveryChallengeIds.length)
+    await transaction
+      .selectFrom("event_virtual_recovery_challenge")
+      .select("id")
+      .where("id", "in", virtualRecoveryChallengeIds)
+      .orderBy("id")
+      .forUpdate()
+      .execute();
   if (virtualRecoveryChallengeIds.length)
     await transaction
       .updateTable("event_virtual_join_session")
