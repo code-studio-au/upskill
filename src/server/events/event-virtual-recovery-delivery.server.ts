@@ -49,6 +49,33 @@ export async function lockEligibleRecoveryTarget(
   transaction: Transaction<Database>,
   input: RecoveryTargetInput,
 ): Promise<RecoveryTarget | null> {
+  // Verified-phone changes and transfers already own the user row before they
+  // revoke virtual access. Lock the user first here as well so recovery
+  // reservation and delivery cannot hold access while waiting on that user.
+  const user = await transaction
+    .selectFrom("user")
+    .select([
+      "name",
+      "email",
+      "emailEnabled",
+      "emailVerified",
+      "phone",
+      "smsEnabled",
+      "smsVerifiedAt",
+    ])
+    .where("id", "=", input.userId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (!user) return null;
+  const contactMatches =
+    input.channel === "sms"
+      ? user.smsEnabled &&
+        Boolean(user.smsVerifiedAt) &&
+        user.phone === input.recipientAddress
+      : user.emailEnabled &&
+        user.emailVerified &&
+        normalizeEmail(user.email) === input.recipientAddress;
+  if (!contactMatches) return null;
   const occurrence = await transaction
     .selectFrom("event_occurrence as occurrence")
     .innerJoin(
@@ -123,30 +150,6 @@ export async function lockEligibleRecoveryTarget(
     .forUpdate()
     .executeTakeFirst();
   if (registration?.status !== "selected") return null;
-  const user = await transaction
-    .selectFrom("user")
-    .select([
-      "name",
-      "email",
-      "emailEnabled",
-      "emailVerified",
-      "phone",
-      "smsEnabled",
-      "smsVerifiedAt",
-    ])
-    .where("id", "=", input.userId)
-    .forUpdate()
-    .executeTakeFirst();
-  if (!user) return null;
-  const contactMatches =
-    input.channel === "sms"
-      ? user.smsEnabled &&
-        Boolean(user.smsVerifiedAt) &&
-        user.phone === input.recipientAddress
-      : user.emailEnabled &&
-        user.emailVerified &&
-        normalizeEmail(user.email) === input.recipientAddress;
-  if (!contactMatches) return null;
   if (occurrence.registrationSurveyVersionId) {
     const assignment = await transaction
       .selectFrom("registration_questionnaire_assignment")

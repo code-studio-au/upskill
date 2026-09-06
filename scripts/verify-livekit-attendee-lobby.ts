@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { FixedWindowRateLimitEntry } from "#/features/event-guest/event-guest-rate-limit";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
@@ -18,7 +19,10 @@ import {
   resolveEventVirtualLobby,
   verifyEventVirtualRecoveryCode,
 } from "#/server/events/event-virtual-lobby.server";
-import { processAvailableEventVirtualRecoveryDeliveries } from "#/server/events/event-virtual-recovery-delivery.server";
+import {
+  lockEligibleRecoveryTarget,
+  processAvailableEventVirtualRecoveryDeliveries,
+} from "#/server/events/event-virtual-recovery-delivery.server";
 import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
 import { eventVirtualAttendeeIdentity } from "#/server/events/event-virtual-participant-identity.server";
 import {
@@ -4036,6 +4040,98 @@ try {
     })
     .where("id", "=", tokenIssuedEntry.id)
     .executeTakeFirstOrThrow();
+  let releaseSmsUserLock = () => {};
+  let markSmsUserLocked = () => {};
+  const smsUserLockHeld = new Promise<void>((resolve) => {
+    markSmsUserLocked = resolve;
+  });
+  const smsUserLockRelease = new Promise<void>((resolve) => {
+    releaseSmsUserLock = resolve;
+  });
+  const smsUserBlocker = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("user")
+      .select("id")
+      .where("id", "=", learner.id)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    markSmsUserLocked();
+    await smsUserLockRelease;
+  });
+  await smsUserLockHeld;
+  let recoveryTargetBackendPid = 0;
+  let markRecoveryTargetStarted = () => {};
+  const recoveryTargetStarted = new Promise<void>((resolve) => {
+    markRecoveryTargetStarted = resolve;
+  });
+  const blockedRecoveryTarget = database
+    .transaction()
+    .execute(async (transaction) => {
+      recoveryTargetBackendPid = await sql<{
+        pid: number;
+      }>`select pg_backend_pid() as pid`
+        .execute(transaction)
+        .then((result) => result.rows[0]?.pid ?? 0);
+      markRecoveryTargetStarted();
+      return lockEligibleRecoveryTarget(transaction, {
+        eventVirtualJoinAccessId: access.id,
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        roomGeneration: 1,
+        eventParticipationId: ids.participation,
+        userId: learner.id,
+        channel: "sms",
+        recipientAddress: "+61412345678",
+        publicReference: access.publicReference,
+        now: smsInvalidatedAt,
+      });
+    });
+  await recoveryTargetStarted;
+  let recoveryTargetWaiting = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    recoveryTargetWaiting = await sql<{ waiting: boolean }>`
+      select ("wait_event_type" = 'Lock') as waiting
+      from pg_stat_activity
+      where pid = ${recoveryTargetBackendPid}
+    `
+      .execute(database)
+      .then((result) => result.rows[0]?.waiting ?? false);
+    if (recoveryTargetWaiting) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  let accessLockAvailable = false;
+  try {
+    assert.equal(
+      recoveryTargetWaiting,
+      true,
+      "Recovery target validation must wait on the held user lock",
+    );
+    accessLockAvailable = await database
+      .transaction()
+      .execute(async (transaction) => {
+        await sql`set local lock_timeout = '250ms'`.execute(transaction);
+        await transaction
+          .selectFrom("event_virtual_join_access")
+          .select("id")
+          .where("id", "=", access.id)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        return true;
+      })
+      .catch(() => false);
+  } finally {
+    releaseSmsUserLock();
+  }
+  const [recoveryTarget] = await Promise.all([
+    blockedRecoveryTarget,
+    smsUserBlocker,
+  ]);
+  assert.equal(
+    accessLockAvailable,
+    true,
+    "Recovery delivery must wait for the user before locking join access",
+  );
+  assert.ok(recoveryTarget);
   await database
     .insertInto("event_virtual_recovery_challenge")
     .values({
