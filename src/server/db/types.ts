@@ -828,7 +828,7 @@ interface EventVirtualLobbyEntryTable {
     | "left"
     | "declined"
     | "revoked";
-  accessMethod: "authenticated" | "email" | "sms";
+  accessMethod: "authenticated" | "email" | "sms" | "guest";
   requestedAt: Timestamp;
   admittedAt: Timestamp | null;
   admittedByUserId: string | null;
@@ -876,7 +876,8 @@ interface EventVirtualRecoveryDeliveryTable {
 
 interface EventVirtualJoinSessionTable {
   id: string;
-  challengeId: string;
+  challengeId: string | null;
+  eventGuestAccessId: Generated<string | null>;
   tokenDigest: string;
   eventVirtualJoinAccessId: string;
   eventOccurrenceId: string;
@@ -884,7 +885,7 @@ interface EventVirtualJoinSessionTable {
   roomGeneration: number;
   eventParticipationId: string;
   userId: string;
-  accessMethod: "email" | "sms";
+  accessMethod: "email" | "sms" | "guest";
   expiresAt: Timestamp;
   lastUsedAt: Timestamp;
   revokedAt: Timestamp | null;
@@ -1745,6 +1746,7 @@ export type AuditEventAction =
   | "event_virtual_room.presenter_token_issued"
   | "event_virtual_join_access.created"
   | "event_virtual_join_access.revoked"
+  | "event_virtual_lobby.guest_access_issued"
   | "event_virtual_lobby.requested"
   | "event_virtual_lobby.admission_changed"
   | "event_virtual_lobby.recovery_request_outcome"

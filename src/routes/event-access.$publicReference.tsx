@@ -63,10 +63,10 @@ function EventGuestAccessPage() {
     validators: { onSubmit: eventGuestSubmissionSchema },
     onSubmit: async ({ value }) => {
       setError(null);
-      const response = await submitPublicEventGuestAccess({
-        data: value,
-      });
-      if (response.status === "ready") setSubmission(response);
+      const response = await submitPublicEventGuestAccess({ data: value });
+      if (response instanceof Response)
+        window.location.assign(response.headers.get("Location") ?? "/");
+      else if (response.status === "ready") setSubmission(response);
       else
         setError(
           response.status === "rate-limited"
@@ -273,8 +273,7 @@ function EventGuestAccessPage() {
                     Access this event
                   </Title>
                   <Text c="dimmed" mt="xs">
-                    Enter your details to continue. If a session is underway,
-                    your check-in will be recorded automatically.
+                    Enter your details to continue.
                   </Text>
                 </div>
                 {error ? (

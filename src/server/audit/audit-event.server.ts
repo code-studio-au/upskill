@@ -92,6 +92,7 @@ export const durableAuditActions = [
   "event_virtual_room.presenter_token_issued",
   "event_virtual_join_access.created",
   "event_virtual_join_access.revoked",
+  "event_virtual_lobby.guest_access_issued",
   "event_virtual_lobby.requested",
   "event_virtual_lobby.admission_changed",
   "event_virtual_lobby.recovery_request_outcome",

@@ -55,6 +55,10 @@ import {
   down as downPresenterParticipantOperations,
   up as upPresenterParticipantOperations,
 } from "#/server/db/migrations/0096_livekit_presenter_participant_operations";
+import {
+  down as downOpenEntryJoinSessions,
+  up as upOpenEntryJoinSessions,
+} from "#/server/db/migrations/0097_livekit_open_entry_join_sessions";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -81,6 +85,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downOpenEntryJoinSessions(database);
   await downPresenterParticipantOperations(database);
   await downPresenterCredentialReservations(database);
   await downPresenterTokenDenialAudit(database);
@@ -215,6 +220,7 @@ try {
   await upPresenterTokenDenialAudit(database);
   await upPresenterCredentialReservations(database);
   await upPresenterParticipantOperations(database);
+  await upOpenEntryJoinSessions(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -734,6 +740,7 @@ try {
       await upPresenterTokenDenialAudit(database);
       await upPresenterCredentialReservations(database);
       await upPresenterParticipantOperations(database);
+      await upOpenEntryJoinSessions(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

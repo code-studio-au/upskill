@@ -85,7 +85,7 @@ type DatabaseConnection = Kysely<Database> | Transaction<Database>;
 
 interface VirtualLobbyActor {
   user: AuthenticatedUser;
-  accessMethod: "authenticated" | "email" | "sms";
+  accessMethod: "authenticated" | "email" | "sms" | "guest";
   eventParticipationId?: string;
   joinSessionId?: string;
 }
@@ -142,6 +142,65 @@ function scopedCookie(name: string, value: string, maximumAge: number): string {
 
 export function eventVirtualJoinSessionCookie(token: string): string {
   return scopedCookie(cookieName(), token, JOIN_SESSION_LIFETIME_MS / 1_000);
+}
+
+export async function issueEventVirtualGuestJoinSession(
+  transaction: Transaction<Database>,
+  input: {
+    eventGuestAccessId: string;
+    eventVirtualJoinAccessId: string;
+    eventOccurrenceId: string;
+    eventSessionId: string;
+    roomGeneration: number;
+    eventParticipationId: string;
+    userId: string;
+    now: Date;
+  },
+): Promise<string> {
+  const token = opaqueReference(32);
+  const joinSessionId = `event_virtual_join_session_${randomUUID()}`;
+  await transaction
+    .updateTable("event_virtual_join_session")
+    .set({ revokedAt: input.now })
+    .where("eventGuestAccessId", "=", input.eventGuestAccessId)
+    .where("eventVirtualJoinAccessId", "=", input.eventVirtualJoinAccessId)
+    .where("userId", "=", input.userId)
+    .where("revokedAt", "is", null)
+    .execute();
+  await transaction
+    .insertInto("event_virtual_join_session")
+    .values({
+      id: joinSessionId,
+      challengeId: null,
+      eventGuestAccessId: input.eventGuestAccessId,
+      tokenDigest: secretDigest(`join:${token}`),
+      eventVirtualJoinAccessId: input.eventVirtualJoinAccessId,
+      eventOccurrenceId: input.eventOccurrenceId,
+      eventSessionId: input.eventSessionId,
+      roomGeneration: input.roomGeneration,
+      eventParticipationId: input.eventParticipationId,
+      userId: input.userId,
+      accessMethod: "guest",
+      expiresAt: new Date(input.now.getTime() + JOIN_SESSION_LIFETIME_MS),
+      lastUsedAt: input.now,
+      revokedAt: null,
+      createdAt: input.now,
+    })
+    .execute();
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: null,
+    action: "event_virtual_lobby.guest_access_issued",
+    subjectType: "event_virtual_join_session",
+    subjectId: joinSessionId,
+    aggregateId: input.eventOccurrenceId,
+    metadata: {
+      accessMethod: "guest",
+      eventSessionId: input.eventSessionId,
+      roomGeneration: input.roomGeneration,
+    },
+    createdAt: input.now,
+  });
+  return token;
 }
 
 export function eventVirtualChallengeCookie(reference: string): string {
@@ -413,6 +472,11 @@ async function recoveredActor(
   const row = await getDatabase()
     .selectFrom("event_virtual_join_session as joinSession")
     .innerJoin("user", "user.id", "joinSession.userId")
+    .leftJoin(
+      "event_guest_access as guestAccess",
+      "guestAccess.id",
+      "joinSession.eventGuestAccessId",
+    )
     .select([
       "joinSession.id",
       "joinSession.eventParticipationId",
@@ -434,6 +498,21 @@ async function recoveredActor(
     .where("joinSession.expiresAt", ">", now)
     .where("joinSession.lastUsedAt", ">", idleAfter)
     .where("joinSession.revokedAt", "is", null)
+    .where((expression) =>
+      expression.or([
+        expression("joinSession.accessMethod", "in", ["email", "sms"]),
+        expression.and([
+          expression("joinSession.accessMethod", "=", "guest"),
+          expression(
+            "guestAccess.eventOccurrenceId",
+            "=",
+            destination.eventOccurrenceId,
+          ),
+          expression("guestAccess.revokedAt", "is", null),
+          expression("guestAccess.id", "is not", null),
+        ]),
+      ]),
+    )
     .executeTakeFirst();
   if (!row) return null;
   await getDatabase()
@@ -2151,12 +2230,17 @@ export async function issueEventVirtualAttendeeCredential(
       const now = revalidationNow;
       const nextState =
         entry.state === "connected" ? "connected" : "token_issued";
+      const credentialExpiresAt =
+        entry.credentialExpiresAt &&
+        entry.credentialExpiresAt > credential.expiresAt
+          ? entry.credentialExpiresAt
+          : credential.expiresAt;
       await transaction
         .updateTable("event_virtual_lobby_entry")
         .set({
           state: nextState,
           firstTokenIssuedAt: entry.firstTokenIssuedAt ?? now,
-          credentialExpiresAt: credential.expiresAt,
+          credentialExpiresAt,
           updatedAt: now,
         })
         .where("id", "=", entry.id)

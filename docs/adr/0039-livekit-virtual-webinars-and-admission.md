@@ -370,6 +370,14 @@ LiveKit lobby. The guest must first complete the existing name, email, privacy,
 and provisional-participation flow. The lobby labels this access as unverified
 unless the configured email/SMS recovery step has also succeeded.
 
+For an eligible LiveKit session, successful guest submission transactionally
+issues a 30-minute opaque capability bound to the exact guest-access record,
+participation, user, lobby reference, Event Session and room generation. The
+server places it in the same `HttpOnly`, `Secure`, `SameSite=Lax`, lobby-scoped
+cookie used by verified recovery and never exposes it to browser JavaScript.
+This capability permits only the lobby flow and does not verify the submitted
+email address or create a normal authenticated session.
+
 Guest admission is a separately configurable policy and is off by default for
 manual/private webinars. Open-entry access never bypasses capacity, session
 state, privacy acknowledgement, room generation, or admission checks.

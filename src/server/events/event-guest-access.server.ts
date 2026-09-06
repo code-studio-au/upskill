@@ -15,6 +15,7 @@ import { logServerEvent } from "#/server/logging/server-logger";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
+import { issueEventVirtualGuestJoinSession } from "#/server/events/event-virtual-lobby.server";
 import {
   consumeFixedWindowRateLimit,
   forwardedClientAddress,
@@ -25,6 +26,12 @@ const RATE_LIMIT_WINDOW_MS = 15 * 60_000;
 const RATE_LIMIT_MAXIMUM = 10;
 const RATE_LIMIT_MAXIMUM_ENTRIES = 10_000;
 const rateLimit = new Map<string, FixedWindowRateLimitEntry>();
+
+export type EventGuestSubmissionServerResult =
+  | Exclude<EventGuestSubmissionResult, { status: "ready" }>
+  | (Extract<EventGuestSubmissionResult, { status: "ready" }> & {
+      joinSessionToken?: string;
+    });
 
 function issuePublicReference(): string {
   return randomBytes(24).toString("base64url");
@@ -108,6 +115,13 @@ export async function rotateEventGuestAccessRecord(
       )
         return null;
       const now = new Date();
+      await transaction
+        .updateTable("event_virtual_join_session")
+        .set({ revokedAt: now })
+        .where("eventOccurrenceId", "=", eventOccurrenceId)
+        .where("eventGuestAccessId", "is not", null)
+        .where("revokedAt", "is", null)
+        .execute();
       await transaction
         .updateTable("event_guest_access")
         .set({ revokedAt: now })
@@ -210,7 +224,7 @@ export async function submitPublicEventGuestAccess(
     email: string;
   },
   rateLimitKey?: string,
-): Promise<EventGuestSubmissionResult> {
+): Promise<EventGuestSubmissionServerResult> {
   if (!consumeRateLimit(input.publicReference, rateLimitKey)) {
     logServerEvent({
       level: "warn",
@@ -235,6 +249,7 @@ export async function submitPublicEventGuestAccess(
           "occurrence.eventTemplateVersionId",
         )
         .select([
+          "access.id as eventGuestAccessId",
           "occurrence.id",
           "occurrence.title",
           "occurrence.status",
@@ -244,6 +259,7 @@ export async function submitPublicEventGuestAccess(
           "occurrence.endsAt",
           "occurrence.publishedAt",
           "occurrence.virtualJoinUrl",
+          "occurrence.virtualDeliveryProvider",
           "occurrence.venueName",
           "occurrence.venueAddress",
           "occurrence.openEntryAttendanceMode",
@@ -368,6 +384,72 @@ export async function submitPublicEventGuestAccess(
           now,
         );
 
+      const virtualDestination =
+        access.deliveryMode === "virtual" &&
+        access.virtualDeliveryProvider === "livekit"
+          ? await transaction
+              .selectFrom("event_session as session")
+              .innerJoin(
+                "event_virtual_join_access as virtualAccess",
+                "virtualAccess.eventSessionId",
+                "session.id",
+              )
+              .leftJoin("event_virtual_room as room", (join) =>
+                join
+                  .onRef("room.eventSessionId", "=", "session.id")
+                  .onRef("room.generation", "=", "virtualAccess.roomGeneration")
+                  .on("room.replacedAt", "is", null),
+              )
+              .select([
+                "session.id as eventSessionId",
+                "virtualAccess.id as eventVirtualJoinAccessId",
+                "virtualAccess.roomGeneration",
+                "virtualAccess.publicReference",
+              ])
+              .where("session.eventOccurrenceId", "=", access.id)
+              .where("session.virtualDeliveryProvider", "=", "livekit")
+              .where("session.livekitOpenEntryGuestsAllowed", "=", true)
+              .where("virtualAccess.eventOccurrenceId", "=", access.id)
+              .where("virtualAccess.revokedAt", "is", null)
+              .where((expression) =>
+                expression.or([
+                  expression("room.id", "is", null),
+                  expression("room.doorState", "!=", "ended"),
+                ]),
+              )
+              .where((expression) =>
+                expression.or([
+                  expression("session.endsAt", ">=", now),
+                  expression("room.doorState", "in", ["open", "locked"]),
+                ]),
+              )
+              .orderBy(
+                sql`case
+                  when room."doorState" in ('open', 'locked') then 0
+                  when session."startsAt" <= ${now}
+                    and session."endsAt" >= ${now} then 1
+                  else 2
+                end`,
+              )
+              .orderBy("session.startsAt")
+              .orderBy("session.position")
+              .forUpdate(["session", "virtualAccess"])
+              .executeTakeFirst()
+          : null;
+      const joinSessionToken = virtualDestination
+        ? await issueEventVirtualGuestJoinSession(transaction, {
+            eventGuestAccessId: access.eventGuestAccessId,
+            eventVirtualJoinAccessId:
+              virtualDestination.eventVirtualJoinAccessId,
+            eventOccurrenceId: access.id,
+            eventSessionId: virtualDestination.eventSessionId,
+            roomGeneration: virtualDestination.roomGeneration,
+            eventParticipationId,
+            userId: provisioned.user.id,
+            now,
+          })
+        : null;
+
       logServerEvent({
         level: "info",
         event: "event_guest.accessed",
@@ -385,12 +467,17 @@ export async function submitPublicEventGuestAccess(
           eventTitle: access.title,
           deliveryMode: access.deliveryMode,
           destinationUrl:
-            access.deliveryMode === "virtual" ? access.virtualJoinUrl : null,
+            access.deliveryMode === "virtual"
+              ? virtualDestination
+                ? `/webinars/${virtualDestination.publicReference}`
+                : access.virtualJoinUrl
+              : null,
           venueName: access.venueName,
           venueAddress: access.venueAddress,
           attendanceState,
           accountSetupRequested: provisioned.created,
         },
+        ...(joinSessionToken ? { joinSessionToken } : {}),
       } as const;
     });
 }

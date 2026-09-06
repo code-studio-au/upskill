@@ -256,7 +256,7 @@ export interface EventVirtualLobbyQueueData {
     eventParticipationId: string;
     name: string;
     state: "waiting" | "admitted" | "token_issued" | "connected";
-    accessMethod: "authenticated" | "email" | "sms";
+    accessMethod: "authenticated" | "email" | "sms" | "guest";
     requestedAt: string;
     admittedAt: string | null;
   }>;

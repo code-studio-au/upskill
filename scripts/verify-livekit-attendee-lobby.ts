@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { FixedWindowRateLimitEntry } from "#/features/event-guest/event-guest-rate-limit";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import {
+  ensureEventGuestAccessRecord,
+  rotateEventGuestAccessRecord,
+  submitPublicEventGuestAccess,
+} from "#/server/events/event-guest-access.server";
 import { ensureEventVirtualJoinAccess } from "#/server/events/event-virtual-join-access.server";
 import {
   acknowledgeEventVirtualRecording,
@@ -101,7 +106,7 @@ try {
   await database
     .insertInto("user")
     .values(
-      [administrator, learner, secondLearner, openEntryLearner].map((item) => ({
+      [administrator, learner, secondLearner].map((item) => ({
         id: item.id,
         name: item.name,
         email: item.email,
@@ -337,22 +342,6 @@ try {
     )
     .execute();
   await database
-    .insertInto("event_participation")
-    .values({
-      id: "verify_livekit_lobby_open_entry_participation",
-      eventOccurrenceId: ids.occurrence,
-      userId: openEntryLearner.id,
-      registrationId: null,
-      mode: "open_entry",
-      nameSnapshot: openEntryLearner.name,
-      emailSnapshot: openEntryLearner.email,
-      detailsSubmittedAt: createdAt,
-      joinDisclosedAt: createdAt,
-      checkedInAt: null,
-      createdAt,
-    })
-    .execute();
-  await database
     .insertInto("event_virtual_room")
     .values({
       id: ids.room,
@@ -410,13 +399,62 @@ try {
     .set({ admissionMode: "automatic" })
     .where("id", "=", ids.room)
     .executeTakeFirstOrThrow();
+  const guestAccess = await database
+    .transaction()
+    .execute((transaction) =>
+      ensureEventGuestAccessRecord(transaction, ids.occurrence, createdAt),
+    );
+  const guestSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: guestAccess.publicReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry",
+  );
+  assert.equal(guestSubmission.status, "ready");
+  assert.equal(
+    guestSubmission.data.destinationUrl,
+    `/webinars/${access.publicReference}`,
+  );
+  const guestJoinSessionToken = guestSubmission.joinSessionToken;
+  assert.ok(guestJoinSessionToken);
+  const guestParticipation = await database
+    .selectFrom("event_participation")
+    .innerJoin("user", "user.id", "event_participation.userId")
+    .select(["event_participation.id", "event_participation.mode"])
+    .where("event_participation.eventOccurrenceId", "=", ids.occurrence)
+    .where("user.email", "=", openEntryLearner.email)
+    .executeTakeFirstOrThrow();
+  assert.equal(guestParticipation.mode, "open_entry");
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_join_session")
+      .select([
+        "accessMethod",
+        "challengeId",
+        "eventGuestAccessId",
+        "eventParticipationId",
+      ])
+      .where("tokenDigest", "is not", null)
+      .where("eventGuestAccessId", "=", guestAccess.id)
+      .executeTakeFirstOrThrow(),
+    {
+      accessMethod: "guest",
+      challengeId: null,
+      eventGuestAccessId: guestAccess.id,
+      eventParticipationId: guestParticipation.id,
+    },
+  );
   const openEntryAdmission = await resolveEventVirtualLobby(
     access.publicReference,
-    openEntryLearner,
+    null,
+    { joinSessionToken: guestJoinSessionToken },
   );
   assert.equal(openEntryAdmission.status, "ready");
   assert.equal(openEntryAdmission.data.outcome, "meeting_not_started");
   assert.equal(openEntryAdmission.data.admissionState, "admitted");
+  assert.equal(openEntryAdmission.data.accessMethod, "guest");
   await database
     .updateTable("event_session")
     .set({ livekitOpenEntryGuestsAllowed: false })
@@ -424,10 +462,35 @@ try {
     .executeTakeFirstOrThrow();
   const disallowedOpenEntry = await resolveEventVirtualLobby(
     access.publicReference,
-    openEntryLearner,
+    null,
+    { joinSessionToken: guestJoinSessionToken },
   );
   assert.equal(disallowedOpenEntry.status, "ready");
   assert.equal(disallowedOpenEntry.data.outcome, "revoked");
+  assert.ok(await rotateEventGuestAccessRecord(ids.occurrence, administrator));
+  assert.deepEqual(
+    await resolveEventVirtualLobby(access.publicReference, null, {
+      joinSessionToken: guestJoinSessionToken,
+    }),
+    {
+      status: "ready",
+      data: {
+        eventTitle: "Lobby verification",
+        sessionTitle: "Lobby session",
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+        timezone: "Australia/Sydney",
+        eventOccurrenceId: null,
+        questionnaireUrl: null,
+        admissionState: "not_requested",
+        accessMethod: null,
+        outcome: "authentication_required",
+        recording: { enabled: false, notice: null, acknowledged: false },
+        pollAfterMilliseconds: null,
+      },
+    },
+    "Rotating open-entry access must revoke capabilities issued by the old link",
+  );
   await database
     .updateTable("event_occurrence")
     .set({ registrationMode: "required_unrestricted" })
@@ -794,6 +857,32 @@ try {
     .select(["id", "state", "admittedByUserId"])
     .where("eventParticipationId", "=", ids.participation)
     .executeTakeFirstOrThrow();
+  const latestCredentialExpiresAt = new Date(createdAt.getTime() + 20 * 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ credentialExpiresAt: latestCredentialExpiresAt })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        learner,
+        { provider, websocketUrl: "wss://verify.example.com" },
+      )
+    ).status,
+    "ready",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("credentialExpiresAt")
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.credentialExpiresAt),
+    latestCredentialExpiresAt,
+    "An earlier-generated token must not replace a later credential expiry",
+  );
   const tokenIssuedAuditCount = await database
     .selectFrom("audit_event")
     .select((expression) => expression.fn.countAll<string>().as("count"))

@@ -2283,7 +2283,7 @@ test("platform administrators can inspect learner progress", async ({
          "livekitPresenterPreparationMinutes" = 60,
          "livekitAttendeeRejoinGraceMinutes" = 10,
          "livekitCapacityHeadroom" = 5,
-         "livekitOpenEntryGuestsAllowed" = false,
+         "livekitOpenEntryGuestsAllowed" = true,
          "livekitRecordingMode" = 'off',
          "livekitRecordingRetentionDays" = null,
          "livekitAttendeeRecordingNotice" = '',
@@ -2395,6 +2395,55 @@ test("platform administrators can inspect learner progress", async ({
     );
     await page.reload();
     await expect(page.getByText("No attendees.")).toBeVisible();
+    const openEntryGuest = await authoringDatabase.query<{
+      id: string;
+      name: string;
+      email: string;
+    }>(
+      `select id, name, email from "user" where email = 'learner@codestudio.au'`,
+    );
+    const openEntryGuestUser = openEntryGuest.rows[0];
+    if (!openEntryGuestUser)
+      throw new Error("Expected the seeded open-entry learner");
+    const browser = page.context().browser();
+    if (!browser) throw new Error("Playwright browser is unavailable");
+    const guestContext = await browser.newContext({
+      baseURL: new URL(page.url()).origin,
+    });
+    try {
+      const guestPage = await guestContext.newPage();
+      await guestPage.goto(`/event-access/${eventAccessReference}`);
+      await guestPage.getByLabel("Full name").fill(openEntryGuestUser.name);
+      await guestPage
+        .getByLabel("Email address")
+        .fill(openEntryGuestUser.email);
+      await guestPage
+        .getByLabel(/I agree that my name, email and event activity/u)
+        .check();
+      await guestPage
+        .getByRole("button", { name: "Continue to event" })
+        .click();
+      await expect(guestPage).toHaveURL(`/webinars/${"l".repeat(43)}`);
+      await expect(
+        guestPage.getByRole("heading", {
+          name: "The webinar has not started",
+        }),
+      ).toBeVisible();
+      const guestLobbyEntry = await authoringDatabase.query<{
+        accessMethod: string;
+      }>(
+        `select entry."accessMethod"
+         from event_virtual_lobby_entry entry
+         join event_participation participation
+           on participation.id = entry."eventParticipationId"
+         where entry."eventVirtualJoinAccessId" = 'e2e_livekit_join_access'
+           and participation."userId" = $1`,
+        [openEntryGuestUser.id],
+      );
+      expect(guestLobbyEntry.rows[0]?.accessMethod).toBe("guest");
+    } finally {
+      await guestContext.close();
+    }
     const startWebinar = page.getByRole("button", { name: "Start webinar" });
     await expect(startWebinar).toBeEnabled();
     const confirmation = page.waitForEvent("dialog");
@@ -2427,8 +2476,6 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.locator("li").filter({ hasText: administratorUser.name }),
     ).toBeVisible({ timeout: 10_000 });
-    const browser = page.context().browser();
-    if (!browser) throw new Error("Playwright browser is unavailable");
     const attendeeContext = await browser.newContext({
       baseURL: new URL(page.url()).origin,
     });

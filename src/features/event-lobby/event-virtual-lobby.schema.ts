@@ -33,7 +33,7 @@ interface EventVirtualLobbyData {
     | "left"
     | "declined"
     | "revoked";
-  accessMethod: "authenticated" | "email" | "sms" | null;
+  accessMethod: "authenticated" | "email" | "sms" | "guest" | null;
   eventOccurrenceId: string | null;
   questionnaireUrl: string | null;
   recording: {
