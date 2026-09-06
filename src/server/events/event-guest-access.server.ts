@@ -425,7 +425,8 @@ export async function submitPublicEventGuestAccess(
               )
               .orderBy(
                 sql`case
-                  when room."doorState" in ('open', 'locked') then 0
+                  when room."doorState" = 'open' then 0
+                  when room."doorState" = 'locked' then 3
                   when session."startsAt" <= ${now}
                     and session."endsAt" >= ${now} then 1
                   else 2

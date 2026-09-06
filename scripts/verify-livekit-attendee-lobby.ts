@@ -467,7 +467,11 @@ try {
   );
   assert.equal(disallowedOpenEntry.status, "ready");
   assert.equal(disallowedOpenEntry.data.outcome, "revoked");
-  assert.ok(await rotateEventGuestAccessRecord(ids.occurrence, administrator));
+  const rotatedGuestReference = await rotateEventGuestAccessRecord(
+    ids.occurrence,
+    administrator,
+  );
+  assert.ok(rotatedGuestReference);
   assert.deepEqual(
     await resolveEventVirtualLobby(access.publicReference, null, {
       joinSessionToken: guestJoinSessionToken,
@@ -491,6 +495,169 @@ try {
     },
     "Rotating open-entry access must revoke capabilities issued by the old link",
   );
+  const rankedDefinitionId = "verify_livekit_lobby_ranked_definition";
+  const rankedSessionId = "verify_livekit_lobby_ranked_session";
+  const rankedRoomId = "verify_livekit_lobby_ranked_room";
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: true })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "locked",
+      startedAt: createdAt,
+      startedByUserId: administrator.id,
+      lockedAt: createdAt,
+      lockedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("event_template_session_definition")
+    .values({
+      id: rankedDefinitionId,
+      eventTemplateVersionId: ids.version,
+      position: 1,
+      title: "Open ranked session",
+      durationMinutes: 60,
+      presenterRequired: true,
+      livekitAdmissionMode: "automatic",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: true,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_session")
+    .values({
+      id: rankedSessionId,
+      eventOccurrenceId: ids.occurrence,
+      sessionDefinitionId: rankedDefinitionId,
+      position: 1,
+      title: "Open ranked session",
+      localStartsAt: "2030-09-04T12:00:00",
+      localEndsAt: "2030-09-04T13:00:00",
+      startsAt: endsAt,
+      endsAt: new Date(endsAt.getTime() + 60 * 60_000),
+      presenterRequired: true,
+      venueName: null,
+      venueAddress: null,
+      virtualJoinUrl: null,
+      virtualDeliveryProvider: "livekit",
+      livekitAdmissionMode: "automatic",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: true,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_virtual_room")
+    .values({
+      id: rankedRoomId,
+      eventSessionId: rankedSessionId,
+      provider: "livekit",
+      generation: 1,
+      providerRoomName: "event:verify_lobby_ranked:g1",
+      providerRoomSid: "RM_VERIFY_LOBBY_RANKED",
+      doorState: "open",
+      admissionMode: "automatic",
+      attendanceMode: "manual",
+      attendanceMinimumMinutes: null,
+      recordingMode: "off",
+      recordingRetentionDays: null,
+      maxParticipants: 25,
+      providerStatus: "ready",
+      providerErrorCode: null,
+      createdByUserId: administrator.id,
+      createdAt,
+      startedByUserId: administrator.id,
+      startedAt: createdAt,
+      lockedByUserId: null,
+      lockedAt: null,
+      reopenedByUserId: null,
+      reopenedAt: null,
+      endedByUserId: null,
+      endedAt: null,
+      replacesRoomId: null,
+      replacedByUserId: null,
+      replacedAt: null,
+    })
+    .execute();
+  const rankedAccess = await database.transaction().execute((transaction) =>
+    ensureEventVirtualJoinAccess(transaction, {
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: rankedSessionId,
+      roomGeneration: 1,
+      actorUserId: administrator.id,
+      now: createdAt,
+    }),
+  );
+  const rankedSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: rotatedGuestReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry-ranking",
+  );
+  assert.equal(rankedSubmission.status, "ready");
+  assert.equal(
+    rankedSubmission.data.destinationUrl,
+    `/webinars/${rankedAccess.publicReference}`,
+    "An open later room must rank ahead of an earlier locked room",
+  );
+  await database
+    .deleteFrom("event_virtual_join_session")
+    .where("eventVirtualJoinAccessId", "=", rankedAccess.id)
+    .execute();
+  await database
+    .deleteFrom("event_virtual_join_access")
+    .where("id", "=", rankedAccess.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("event_virtual_room")
+    .where("id", "=", rankedRoomId)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("event_session")
+    .where("id", "=", rankedSessionId)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("event_template_session_definition")
+    .where("id", "=", rankedDefinitionId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "scheduled",
+      startedAt: null,
+      startedByUserId: null,
+      lockedAt: null,
+      lockedByUserId: null,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: false })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
   await database
     .updateTable("event_occurrence")
     .set({ registrationMode: "required_unrestricted" })
