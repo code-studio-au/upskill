@@ -1136,7 +1136,7 @@ try {
   );
   const presenterRemoval = await database
     .selectFrom("event_virtual_room_operation")
-    .select(["status", "participantIdentity"])
+    .select(["id", "status", "participantIdentity"])
     .where("roomId", "=", room.id)
     .where("kind", "=", "remove_participant")
     .where("targetKey", "=", `presenter:${platformAdministrator.id}`)
@@ -1179,6 +1179,43 @@ try {
         outcome.kind === "remove_participant" && outcome.status === "processed",
     ),
     "Presenter removal must remain enforced until the issued credential expires",
+  );
+  await database
+    .updateTable("event_virtual_room_operation")
+    .set({ attempts: 6, lastAttemptAt: platformCredentialExpiry })
+    .where("id", "=", presenterRemoval.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("platform_admin")
+    .values({
+      userId: platformAdministrator.id,
+      grantedByUserId: administrator.id,
+    })
+    .execute();
+  assert.deepEqual(
+    await removePlatformAdministrator(platformAdministrator.id, administrator),
+    { status: "revoked" },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "attempts", "lastAttemptAt"])
+      .where("id", "=", presenterRemoval.id)
+      .executeTakeFirstOrThrow(),
+    { status: "pending", attempts: 0, lastAttemptAt: null },
+    "Reopening a presenter removal must start a fresh retry cycle",
+  );
+  const reopenedPresenterRemoval =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime,
+      now: platformCredentialExpiry,
+    });
+  assert.ok(
+    reopenedPresenterRemoval.outcomes.some(
+      (outcome) =>
+        outcome.operationId === presenterRemoval.id &&
+        outcome.status === "processed",
+    ),
   );
   await database
     .updateTable("event_virtual_room")

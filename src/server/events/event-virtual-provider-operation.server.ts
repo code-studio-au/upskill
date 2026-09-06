@@ -42,8 +42,10 @@ export async function enqueueEventVirtualParticipantRemoval(
     .onConflict((conflict) =>
       conflict.columns(["roomId", "kind", "targetKey"]).doUpdateSet({
         status: "pending",
+        attempts: 0,
         availableAt: input.now,
         leasedUntil: null,
+        lastAttemptAt: null,
         completedAt: null,
         lastErrorCode: null,
         requestedByUserId: input.requestedByUserId,
@@ -95,8 +97,10 @@ async function enqueueEventVirtualPresenterRemoval(
     .onConflict((conflict) =>
       conflict.columns(["roomId", "kind", "targetKey"]).doUpdateSet({
         status: "pending",
+        attempts: 0,
         availableAt: input.now,
         leasedUntil: null,
+        lastAttemptAt: null,
         completedAt: null,
         lastErrorCode: null,
         requestedByUserId: input.requestedByUserId,

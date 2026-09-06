@@ -474,7 +474,7 @@ export async function buildEventNotificationVariables(
       selectedSessionStaffAccessReady
         ? eventOperationsUrl
         : selectedSession.virtualDeliveryProvider === "external_url" &&
-            selectedSessionStaffAccessReady
+            staffVirtualAccessReady
           ? (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
           : learnerVirtualAccessReady
             ? selectedSession.virtualDeliveryProvider === "livekit" &&

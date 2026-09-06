@@ -559,12 +559,13 @@ async function recoveredActor(
     )
     .executeTakeFirst();
   if (!row) return null;
-  await getDatabase()
+  const touched = await getDatabase()
     .updateTable("event_virtual_join_session")
     .set({ lastUsedAt: now })
     .where("id", "=", row.id)
     .where("revokedAt", "is", null)
-    .execute();
+    .executeTakeFirst();
+  if (touched.numUpdatedRows !== 1n) return null;
   return {
     user: {
       id: row.userId,
@@ -576,6 +577,61 @@ async function recoveredActor(
     eventParticipationId: row.eventParticipationId,
     joinSessionId: row.id,
   };
+}
+
+async function lockRecoveredJoinSession(
+  transaction: Transaction<Database>,
+  destination: PublicDestination,
+  actor: VirtualLobbyActor,
+  now: Date,
+): Promise<boolean> {
+  if (actor.accessMethod === "authenticated") return true;
+  if (!actor.joinSessionId || !actor.eventParticipationId) return false;
+  const session = await transaction
+    .selectFrom("event_virtual_join_session as joinSession")
+    .leftJoin(
+      "event_guest_access as guestAccess",
+      "guestAccess.id",
+      "joinSession.eventGuestAccessId",
+    )
+    .select("joinSession.id")
+    .where("joinSession.id", "=", actor.joinSessionId)
+    .where(
+      "joinSession.eventVirtualJoinAccessId",
+      "=",
+      destination.eventVirtualJoinAccessId,
+    )
+    .where("joinSession.eventOccurrenceId", "=", destination.eventOccurrenceId)
+    .where("joinSession.eventSessionId", "=", destination.eventSessionId)
+    .where("joinSession.roomGeneration", "=", destination.roomGeneration)
+    .where("joinSession.eventParticipationId", "=", actor.eventParticipationId)
+    .where("joinSession.userId", "=", actor.user.id)
+    .where("joinSession.accessMethod", "=", actor.accessMethod)
+    .where("joinSession.expiresAt", ">", now)
+    .where(
+      "joinSession.lastUsedAt",
+      ">",
+      new Date(now.getTime() - JOIN_SESSION_IDLE_MS),
+    )
+    .where("joinSession.revokedAt", "is", null)
+    .where((expression) =>
+      expression.or([
+        expression("joinSession.accessMethod", "in", ["email", "sms"]),
+        expression.and([
+          expression("joinSession.accessMethod", "=", "guest"),
+          expression(
+            "guestAccess.eventOccurrenceId",
+            "=",
+            destination.eventOccurrenceId,
+          ),
+          expression("guestAccess.revokedAt", "is", null),
+          expression("guestAccess.id", "is not", null),
+        ]),
+      ]),
+    )
+    .forUpdate("joinSession")
+    .executeTakeFirst();
+  return Boolean(session);
 }
 
 async function resolveActor(
@@ -637,6 +693,9 @@ async function ensureLobbyEntry(
       .forUpdate()
       .executeTakeFirst();
     if (!currentAccess) return null;
+    const now = new Date();
+    if (!(await lockRecoveredJoinSession(transaction, destination, actor, now)))
+      return "capability-revoked" as const;
     if (
       !(await lockEventVirtualAdmissionEligibility(transaction, {
         eventOccurrenceId: destination.eventOccurrenceId,
@@ -658,7 +717,6 @@ async function ensureLobbyEntry(
       .where("eventParticipationId", "=", participation.id)
       .forUpdate()
       .executeTakeFirst();
-    const now = new Date();
     const automatic =
       (currentRoom?.admissionMode ?? destination.livekitAdmissionMode) ===
       "automatic";
@@ -880,7 +938,11 @@ function recordingDigest(notice: string): string {
 export async function resolveEventVirtualLobby(
   publicReference: string,
   authenticatedUser: AuthenticatedUser | null,
-  options: { joinSessionToken?: string | null; clock?: () => Date } = {},
+  options: {
+    joinSessionToken?: string | null;
+    clock?: () => Date;
+    beforeEnsureLobbyEntry?: () => Promise<void>;
+  } = {},
 ): Promise<EventVirtualLobbyResult> {
   const destination = await findPublicDestination(
     getDatabase(),
@@ -954,7 +1016,23 @@ export async function resolveEventVirtualLobby(
         pollAfterMilliseconds: null,
       },
     };
+  await options.beforeEnsureLobbyEntry?.();
   const entry = await ensureLobbyEntry(destination, actor, participation);
+  if (entry === "capability-revoked") {
+    if (authenticatedUser)
+      return await resolveEventVirtualLobby(
+        publicReference,
+        authenticatedUser,
+        {
+          joinSessionToken: null,
+          ...(options.clock ? { clock: options.clock } : {}),
+        },
+      );
+    return {
+      status: "ready",
+      data: { ...empty, outcome: "authentication_required" },
+    };
+  }
   if (entry === "ineligible") {
     await revokeIneligibleLobbyAccess(destination, actor.user.id);
     return { status: "ready", data: { ...empty, outcome: "revoked" } };

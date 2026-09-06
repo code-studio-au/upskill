@@ -57,6 +57,7 @@ const ids = {
   administrator: "verify_livekit_lobby_administrator",
   learner: "verify_livekit_lobby_learner",
   secondLearner: "verify_livekit_lobby_second_learner",
+  coordinator: "verify_livekit_lobby_coordinator",
   openEntryLearner: "verify_livekit_lobby_open_entry_learner",
   template: "verify_livekit_lobby_template",
   version: "verify_livekit_lobby_version",
@@ -75,6 +76,8 @@ const ids = {
   secondRegistration: "verify_livekit_lobby_second_registration",
   participation: "verify_livekit_lobby_participation",
   secondParticipation: "verify_livekit_lobby_second_participation",
+  region: "verify_livekit_lobby_region",
+  occurrenceRegion: "verify_livekit_lobby_occurrence_region",
 };
 
 function authenticatedUser(id: string, name: string): AuthenticatedUser {
@@ -95,6 +98,7 @@ const secondLearner = authenticatedUser(
   ids.secondLearner,
   "Second lobby learner",
 );
+const coordinator = authenticatedUser(ids.coordinator, "Lobby coordinator");
 const openEntryLearner = authenticatedUser(
   ids.openEntryLearner,
   "Open-entry lobby learner",
@@ -108,7 +112,7 @@ try {
   await database
     .insertInto("user")
     .values(
-      [administrator, learner, secondLearner].map((item) => ({
+      [administrator, learner, secondLearner, coordinator].map((item) => ({
         id: item.id,
         name: item.name,
         email: item.email,
@@ -234,6 +238,40 @@ try {
       createdByUserId: administrator.id,
       createdAt,
       updatedAt: createdAt,
+    })
+    .execute();
+  await database
+    .insertInto("coordination_region")
+    .values({
+      id: ids.region,
+      parentId: null,
+      code: "VERIFY-LIVEKIT-LOBBY",
+      name: "LiveKit lobby verification region",
+      kind: "operational",
+      status: "active",
+    })
+    .execute();
+  await database
+    .insertInto("event_occurrence_region")
+    .values({
+      id: ids.occurrenceRegion,
+      eventOccurrenceId: ids.occurrence,
+      regionId: ids.region,
+      position: 0,
+      retiredAt: null,
+    })
+    .execute();
+  await database
+    .insertInto("event_coordinator_assignment")
+    .values({
+      id: "verify_livekit_lobby_coordinator_assignment",
+      eventOccurrenceRegionId: ids.occurrenceRegion,
+      userId: coordinator.id,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
     })
     .execute();
   await database
@@ -553,10 +591,29 @@ try {
     .set({ state: "connected", firstConnectedAt: new Date() })
     .where("id", "=", guestLobbyEntry.id)
     .executeTakeFirstOrThrow();
-  const rotatedGuestReference = await rotateEventGuestAccessRecord(
-    ids.occurrence,
-    administrator,
+  const rotatedGuestReferenceHolder: { value: string | null } = {
+    value: null,
+  };
+  const capabilityRevocationRace = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    {
+      joinSessionToken: reactivatedGuestSubmission.joinSessionToken,
+      beforeEnsureLobbyEntry: async () => {
+        rotatedGuestReferenceHolder.value = await rotateEventGuestAccessRecord(
+          ids.occurrence,
+          administrator,
+        );
+      },
+    },
   );
+  assert.equal(capabilityRevocationRace.status, "ready");
+  assert.equal(
+    capabilityRevocationRace.data.outcome,
+    "authentication_required",
+    "A capability revoked after actor resolution must not restore lobby access",
+  );
+  const rotatedGuestReference = rotatedGuestReferenceHolder.value;
   assert.ok(rotatedGuestReference);
   assert.deepEqual(
     await resolveEventVirtualLobby(access.publicReference, null, {
@@ -1013,6 +1070,21 @@ try {
           participationId: null,
         },
       }),
+      externalCoordinator: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_external_coordinator_communication",
+          sectionId: null,
+          sessionDefinitionId: ids.otherDefinition,
+        },
+        recipient: {
+          userId: coordinator.id,
+          name: coordinator.name,
+          email: coordinator.email,
+          registrationId: null,
+          participationId: null,
+        },
+      }),
     }));
   assert.equal(
     notificationVariables.learner["session.virtualJoinUrl"],
@@ -1031,6 +1103,11 @@ try {
     notificationVariables.externalStaff["session.virtualJoinUrl"],
     "https://meet.example.com/external-session",
     "Staff communications for external sessions must preserve the provider join link",
+  );
+  assert.equal(
+    notificationVariables.externalCoordinator["session.virtualJoinUrl"],
+    "https://meet.example.com/external-session",
+    "Coordinators must receive the provider link for external sessions",
   );
   const early = await resolveEventVirtualLobby(access.publicReference, learner);
   assert.equal(
@@ -2492,6 +2569,11 @@ try {
       ),
     true,
   );
+  await database
+    .updateTable("event_virtual_room_operation")
+    .set({ attempts: 6, lastAttemptAt: new Date() })
+    .where("id", "=", participantRemoval.id)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await mutateEventVirtualLobbyAdmission(
       {
@@ -2503,6 +2585,15 @@ try {
       administrator,
     ),
     { status: "ready" },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "attempts", "lastAttemptAt"])
+      .where("id", "=", participantRemoval.id)
+      .executeTakeFirstOrThrow(),
+    { status: "pending", attempts: 0, lastAttemptAt: null },
+    "Reopening an attendee removal must start a fresh retry cycle",
   );
   const rerevokedRemovalBatch =
     await processAvailableEventVirtualRoomOperations(10, {
