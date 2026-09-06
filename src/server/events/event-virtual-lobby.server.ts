@@ -36,6 +36,7 @@ import {
 } from "#/server/livekit/livekit-provider.server";
 import { advanceEventVirtualLobbyRevision } from "./event-virtual-join-access.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
+import { lockEventVirtualAdmissionEligibility } from "./event-virtual-lobby-eligibility.server";
 import { revokeEventVirtualLobbyEntryForEligibility } from "./event-virtual-lobby-reconciliation.server";
 import { eventVirtualAttendeeIdentity } from "./event-virtual-participant-identity.server";
 import { enqueueEventVirtualParticipantRemoval } from "./event-virtual-provider-operation.server";
@@ -73,6 +74,10 @@ interface RecoveryRequestOverrides {
 }
 
 interface RecoveryVerificationAuditOverrides {
+  auditLimitStore?: Map<string, FixedWindowRateLimitEntry>;
+}
+
+interface RecoveryRequestAuditOverrides {
   auditLimitStore?: Map<string, FixedWindowRateLimitEntry>;
 }
 
@@ -901,8 +906,8 @@ async function recordRecoveryRequestOutcome(
   transaction: Transaction<Database>,
   input: {
     target: RecoveryAuditTarget;
-    channel: "email" | "sms";
-    responseStatus: "accepted" | "rate-limited" | "unavailable";
+    channel: "email" | "sms" | null;
+    responseStatus: "accepted" | "invalid" | "rate-limited" | "unavailable";
     reasonCode: string;
     createdAt?: Date;
   },
@@ -1088,6 +1093,29 @@ export async function recordEventVirtualRecoveryVerificationInputRejected(
     .execute((transaction) =>
       recordRecoveryVerificationFailure(transaction, {
         target,
+        responseStatus: "invalid",
+        reasonCode: "invalid_submission",
+      }),
+    );
+}
+
+export async function recordEventVirtualRecoveryRequestInputRejected(
+  publicReference: string,
+  fingerprint = secretDigest(`request-internal:${publicReference}`),
+  overrides: RecoveryRequestAuditOverrides = {},
+): Promise<void> {
+  if (!consumeRequestAuditLimit(fingerprint, overrides.auditLimitStore)) return;
+  const target = privateRecoveryAuditTarget(
+    "event_virtual_recovery_request",
+    publicReference,
+    "invalid-submission",
+  );
+  await getDatabase()
+    .transaction()
+    .execute((transaction) =>
+      recordRecoveryRequestOutcome(transaction, {
+        target,
+        channel: null,
         responseStatus: "invalid",
         reasonCode: "invalid_submission",
       }),
@@ -2125,29 +2153,6 @@ export async function issueEventVirtualAttendeeCredential(
   };
 }
 
-async function admissionEligible(
-  transaction: Transaction<Database>,
-  destination: PublicDestination,
-  entry: { eventParticipationId: string },
-): Promise<boolean> {
-  const participation = await transaction
-    .selectFrom("event_participation")
-    .select("userId")
-    .where("id", "=", entry.eventParticipationId)
-    .where("eventOccurrenceId", "=", destination.eventOccurrenceId)
-    .executeTakeFirst();
-  if (!participation) return false;
-  return Boolean(
-    (
-      await eligibleParticipation(
-        transaction,
-        destination,
-        participation.userId,
-      )
-    )?.questionnaireComplete,
-  );
-}
-
 async function changeAdmission(
   transaction: Transaction<Database>,
   destination: PublicDestination,
@@ -2156,6 +2161,33 @@ async function changeAdmission(
   actorUserId: string | null,
   now: Date,
 ): Promise<"ready" | "not-found" | "invalid-transition" | "ineligible"> {
+  const candidate = await transaction
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["id", "eventParticipationId", "state"])
+    .where("id", "=", entryId)
+    .where(
+      "eventVirtualJoinAccessId",
+      "=",
+      destination.eventVirtualJoinAccessId,
+    )
+    .executeTakeFirst();
+  if (!candidate) return "not-found";
+  if (
+    action === "admit" &&
+    ["admitted", "token_issued", "connected"].includes(candidate.state)
+  )
+    return "ready";
+  if (action === "admit" && candidate.state !== "waiting")
+    return "invalid-transition";
+  if (
+    action === "admit" &&
+    !(await lockEventVirtualAdmissionEligibility(transaction, {
+      eventOccurrenceId: destination.eventOccurrenceId,
+      eventParticipationId: candidate.eventParticipationId,
+      registrationSurveyVersionId: destination.registrationSurveyVersionId,
+    }))
+  )
+    return "ineligible";
   const entry = await transaction
     .selectFrom("event_virtual_lobby_entry")
     .selectAll()
@@ -2179,11 +2211,6 @@ async function changeAdmission(
     return "invalid-transition";
   if (action === "revoke" && ["declined", "revoked"].includes(entry.state))
     return entry.state === "revoked" ? "ready" : "invalid-transition";
-  if (
-    action === "admit" &&
-    !(await admissionEligible(transaction, destination, entry))
-  )
-    return "ineligible";
   const updates =
     action === "admit"
       ? {

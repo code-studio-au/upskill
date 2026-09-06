@@ -26,6 +26,7 @@ import { hasVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 const PROVIDER_OPERATION_LEASE_MILLISECONDS = 2 * 60 * 1_000;
 const PROVIDER_RETRY_MAX_SECONDS = 15 * 60;
 const PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS = 5 * 1_000;
+const TERMINAL_ROOM_RECHECK_MILLISECONDS = 5 * 1_000;
 const ROOM_EMPTY_TIMEOUT_SECONDS = 10 * 60;
 const ROOM_DEPARTURE_TIMEOUT_SECONDS = 20;
 const TOKEN_DENIAL_AUDIT_WINDOW_MILLISECONDS = 15 * 60_000;
@@ -2056,23 +2057,70 @@ async function executeCloseRoom(
   }
   try {
     await runtime.provider.closeRoom(room.providerRoomName);
-    await getDatabase()
+    const enforcementPending = await getDatabase()
       .transaction()
       .execute(async (transaction) => {
         const lockedRoom = await transaction
           .selectFrom("event_virtual_room")
-          .select("id")
+          .select(["id", "eventSessionId", "generation"])
           .where("id", "=", roomId)
           .forUpdate()
           .executeTakeFirst();
+        const attendeeReservation = lockedRoom
+          ? await transaction
+              .selectFrom("event_virtual_lobby_entry as lobby")
+              .innerJoin(
+                "event_virtual_join_access as access",
+                "access.id",
+                "lobby.eventVirtualJoinAccessId",
+              )
+              .select("lobby.credentialExpiresAt")
+              .where("access.eventSessionId", "=", lockedRoom.eventSessionId)
+              .where("access.roomGeneration", "=", lockedRoom.generation)
+              .where("lobby.credentialExpiresAt", ">", now)
+              .orderBy("lobby.credentialExpiresAt", "desc")
+              .executeTakeFirst()
+          : undefined;
+        const presenterReservation = lockedRoom
+          ? await transaction
+              .selectFrom("event_virtual_presenter_credential_reservation")
+              .select("credentialExpiresAt")
+              .where("roomId", "=", lockedRoom.id)
+              .where("credentialExpiresAt", ">", now)
+              .orderBy("credentialExpiresAt", "desc")
+              .executeTakeFirst()
+          : undefined;
+        const reservationExpiry = [
+          attendeeReservation?.credentialExpiresAt,
+          presenterReservation?.credentialExpiresAt,
+        ]
+          .filter((expiry): expiry is Date => Boolean(expiry))
+          .sort((left, right) => right.getTime() - left.getTime())[0];
+        const keepEnforcing = Boolean(reservationExpiry);
         const operation = await transaction
           .updateTable("event_virtual_room_operation")
-          .set({
-            status: "succeeded",
-            leasedUntil: null,
-            completedAt: now,
-            lastErrorCode: null,
-          })
+          .set(
+            keepEnforcing && reservationExpiry
+              ? {
+                  status: "pending",
+                  availableAt: new Date(
+                    Math.min(
+                      reservationExpiry.getTime(),
+                      now.getTime() + TERMINAL_ROOM_RECHECK_MILLISECONDS,
+                    ),
+                  ),
+                  leasedUntil: null,
+                  completedAt: null,
+                  lastErrorCode: null,
+                  attempts: 0,
+                }
+              : {
+                  status: "succeeded",
+                  leasedUntil: null,
+                  completedAt: now,
+                  lastErrorCode: null,
+                },
+          )
           .where("id", "=", claimed.id)
           .where("status", "=", "processing")
           .where("attempts", "=", claimed.attempts)
@@ -2083,9 +2131,10 @@ async function executeCloseRoom(
             .set({ providerStatus: "closed", providerErrorCode: null })
             .where("id", "=", roomId)
             .execute();
+        return keepEnforcing && operation.numUpdatedRows === 1n;
       });
     return {
-      status: "processed",
+      status: enforcementPending ? "pending" : "processed",
       operationId: claimed.id,
       roomId,
       kind: "close_room",

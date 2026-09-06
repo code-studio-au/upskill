@@ -7,6 +7,7 @@ import {
   acknowledgeEventVirtualRecording,
   issueEventVirtualAttendeeCredential,
   mutateEventVirtualLobbyAdmission,
+  recordEventVirtualRecoveryRequestInputRejected,
   recordEventVirtualRecoveryVerificationInputRejected,
   requestEventVirtualRecoveryCode,
   resolveEventVirtualLobby,
@@ -18,6 +19,7 @@ import {
   findEventVirtualLobbyQueue,
   processAvailableEventVirtualRoomOperations,
   setEventVirtualRoomAdmissionMode,
+  transitionEventVirtualRoom,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import {
@@ -482,19 +484,19 @@ try {
       presenterRequired: true,
       venueName: null,
       venueAddress: null,
-      virtualJoinUrl: null,
-      virtualDeliveryProvider: "livekit",
-      livekitAdmissionMode: "manual",
-      livekitAttendanceMode: "manual",
+      virtualJoinUrl: "https://meet.example.com/external-session",
+      virtualDeliveryProvider: "external_url",
+      livekitAdmissionMode: null,
+      livekitAttendanceMode: null,
       livekitAttendanceMinimumMinutes: null,
-      livekitPresenterPreparationMinutes: 60,
-      livekitAttendeeRejoinGraceMinutes: 10,
-      livekitCapacityHeadroom: 5,
-      livekitOpenEntryGuestsAllowed: false,
-      livekitRecordingMode: "off",
+      livekitPresenterPreparationMinutes: null,
+      livekitAttendeeRejoinGraceMinutes: null,
+      livekitCapacityHeadroom: null,
+      livekitOpenEntryGuestsAllowed: null,
+      livekitRecordingMode: null,
       livekitRecordingRetentionDays: null,
-      livekitAttendeeRecordingNotice: "",
-      livekitPresenterRecordingNotice: "",
+      livekitAttendeeRecordingNotice: null,
+      livekitPresenterRecordingNotice: null,
     })
     .execute();
   await database
@@ -545,6 +547,21 @@ try {
           participationId: null,
         },
       }),
+      externalStaff: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_external_staff_communication",
+          sectionId: null,
+          sessionDefinitionId: ids.otherDefinition,
+        },
+        recipient: {
+          userId: administrator.id,
+          name: administrator.name,
+          email: administrator.email,
+          registrationId: null,
+          participationId: null,
+        },
+      }),
     }));
   assert.equal(
     notificationVariables.learner["session.virtualJoinUrl"],
@@ -558,6 +575,11 @@ try {
   assert.equal(
     notificationVariables.staff["event.operationsUrl"],
     `http://localhost:3000/event-operations/${ids.occurrence}`,
+  );
+  assert.equal(
+    notificationVariables.externalStaff["session.virtualJoinUrl"],
+    "https://meet.example.com/external-session",
+    "Staff communications for external sessions must preserve the provider join link",
   );
   const early = await resolveEventVirtualLobby(access.publicReference, learner);
   assert.equal(
@@ -1166,6 +1188,74 @@ try {
       })),
     )
     .execute();
+  const admissionRaceLearner = bulkLearners[0];
+  assert.ok(admissionRaceLearner);
+  const admissionRaceRegistrationId = `verify_livekit_lobby_bulk_registration_${admissionRaceLearner.id}`;
+  const admissionRaceEntryId = `verify_livekit_lobby_bulk_entry_${admissionRaceLearner.id}`;
+  let releaseRegistrationLock = () => {};
+  let markRegistrationLocked = () => {};
+  const registrationLockHeld = new Promise<void>((resolve) => {
+    markRegistrationLocked = resolve;
+  });
+  const registrationLockRelease = new Promise<void>((resolve) => {
+    releaseRegistrationLock = resolve;
+  });
+  const cancellation = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("event_registration")
+      .select("id")
+      .where("id", "=", admissionRaceRegistrationId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    markRegistrationLocked();
+    await registrationLockRelease;
+    await transaction
+      .updateTable("event_registration")
+      .set({ status: "cancelled", lockedInAt: null })
+      .where("id", "=", admissionRaceRegistrationId)
+      .executeTakeFirstOrThrow();
+  });
+  await registrationLockHeld;
+  let admissionSettled = false;
+  const racedAdmission = mutateEventVirtualLobbyAdmission(
+    {
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      lobbyEntryId: admissionRaceEntryId,
+      action: "admit",
+    },
+    administrator,
+  ).then((result) => {
+    admissionSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(
+    admissionSettled,
+    false,
+    "Admission must wait for a concurrent final-registration decision",
+  );
+  releaseRegistrationLock();
+  await cancellation;
+  assert.deepEqual(await racedAdmission, {
+    status: "conflict",
+    reason: "ineligible",
+  });
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", admissionRaceEntryId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "waiting",
+    "Cancellation committed ahead of admission must leave the learner waiting",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: createdAt })
+    .where("id", "=", admissionRaceRegistrationId)
+    .executeTakeFirstOrThrow();
   const firstQueuePage = await findEventVirtualLobbyQueue(
     ids.occurrence,
     ids.session,
@@ -1768,13 +1858,108 @@ try {
     .set({ state: "waiting", admittedAt: null, admittedByUserId: null })
     .where("id", "=", secondEntry.id)
     .executeTakeFirstOrThrow();
+  const terminalCloseTime = new Date("2030-09-04T01:30:00.000Z");
+  const outstandingAttendeeCredentialExpiry = new Date(
+    terminalCloseTime.getTime() + 12_000,
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ credentialExpiresAt: outstandingAttendeeCredentialExpiry })
+    .where("id", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await transitionEventVirtualRoom(
+      ids.occurrence,
+      ids.session,
+      "end",
+      administrator,
+      { clock: () => terminalCloseTime },
+    ),
+    { status: "ready" },
+  );
+  concurrentProvider.rooms.set("event:verify_lobby:g1", {
+    sid: "RM_TERMINAL_REPLAY_1",
+    name: "event:verify_lobby:g1",
+    maxParticipants: 605,
+  });
+  const firstTerminalClose = await processAvailableEventVirtualRoomOperations(
+    10,
+    {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: terminalCloseTime,
+    },
+  );
+  assert.deepEqual(
+    {
+      kind: firstTerminalClose.outcomes[0]?.kind,
+      status: firstTerminalClose.outcomes[0]?.status,
+    },
+    { kind: "close_room", status: "pending" },
+    "Terminal closure must remain pending while an attendee credential can recreate the room",
+  );
+  assert.equal(concurrentProvider.rooms.has("event:verify_lobby:g1"), false);
+  concurrentProvider.rooms.set("event:verify_lobby:g1", {
+    sid: "RM_TERMINAL_REPLAY_2",
+    name: "event:verify_lobby:g1",
+    maxParticipants: 605,
+  });
+  const repeatedTerminalClose =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(terminalCloseTime.getTime() + 5_000),
+    });
+  assert.equal(repeatedTerminalClose.outcomes[0]?.status, "pending");
+  assert.equal(concurrentProvider.rooms.has("event:verify_lobby:g1"), false);
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "attempts"])
+      .where("roomId", "=", ids.room)
+      .where("kind", "=", "close_room")
+      .executeTakeFirstOrThrow(),
+    { status: "pending", attempts: 0 },
+    "Successful terminal closure passes must reset retry attempts",
+  );
+  concurrentProvider.rooms.set("event:verify_lobby:g1", {
+    sid: "RM_TERMINAL_REPLAY_3",
+    name: "event:verify_lobby:g1",
+    maxParticipants: 605,
+  });
+  const finalTerminalClose = await processAvailableEventVirtualRoomOperations(
+    10,
+    {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: outstandingAttendeeCredentialExpiry,
+    },
+  );
+  assert.equal(finalTerminalClose.outcomes[0]?.status, "processed");
+  assert.equal(concurrentProvider.rooms.has("event:verify_lobby:g1"), false);
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select("status")
+      .where("roomId", "=", ids.room)
+      .where("kind", "=", "close_room")
+      .executeTakeFirstOrThrow()
+      .then((operation) => operation.status),
+    "succeeded",
+    "Terminal closure may settle only after every issued credential expires",
+  );
   await database
     .updateTable("event_virtual_room")
-    .set({
-      doorState: "ended",
-      endedAt: new Date(),
-      endedByUserId: administrator.id,
-    })
+    .set({ providerStatus: "ready", providerErrorCode: null })
     .where("id", "=", ids.room)
     .executeTakeFirstOrThrow();
   const admissionAuditCount = await database
@@ -2618,6 +2803,31 @@ try {
     10,
     "Rotating lobby references must not create unbounded audit outbox projections",
   );
+  const invalidRequestAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+    .where("reason", "=", "invalid_submission")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const invalidRequestAuditStore = new Map<string, FixedWindowRateLimitEntry>();
+  for (let index = 0; index < 12; index += 1)
+    await recordEventVirtualRecoveryRequestInputRejected(
+      `rotating-request-${String(index)}`.padEnd(43, "x"),
+      "invalid-request-audit".padEnd(43, "x"),
+      { auditLimitStore: invalidRequestAuditStore },
+    );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+      .where("reason", "=", "invalid_submission")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - invalidRequestAuditCountBefore),
+    10,
+    "Schema-rejected recovery requests must share a bounded connection audit budget",
+  );
   const invalidSubmissionAuditCountBefore = await database
     .selectFrom("audit_event")
     .select((expression) => expression.fn.countAll<string>().as("count"))
@@ -2811,6 +3021,7 @@ try {
     "durable_rate_limited",
     "eligibility_changed",
     "enumeration_safe_fallback",
+    "invalid_submission",
     "local_rate_limited",
     "terminal_session",
   ])

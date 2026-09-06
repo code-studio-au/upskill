@@ -469,14 +469,19 @@ export async function buildEventNotificationVariables(
       [venueName, venueAddress].filter(Boolean).join(", ") || "Virtual session";
     variables["session.venueName"] = venueName ?? "";
     variables["session.venueAddress"] = venueAddress ?? "";
-    variables["session.virtualJoinUrl"] = selectedSessionStaffAccessReady
-      ? eventOperationsUrl
-      : learnerVirtualAccessReady
-        ? selectedSession.virtualDeliveryProvider === "livekit" &&
-          selectedSession.virtualJoinReference
-          ? `${baseUrl}/webinars/${selectedSession.virtualJoinReference}`
-          : (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
-        : eventDashboardUrl;
+    variables["session.virtualJoinUrl"] =
+      selectedSession.virtualDeliveryProvider === "livekit" &&
+      selectedSessionStaffAccessReady
+        ? eventOperationsUrl
+        : selectedSession.virtualDeliveryProvider === "external_url" &&
+            selectedSessionStaffAccessReady
+          ? (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
+          : learnerVirtualAccessReady
+            ? selectedSession.virtualDeliveryProvider === "livekit" &&
+              selectedSession.virtualJoinReference
+              ? `${baseUrl}/webinars/${selectedSession.virtualJoinReference}`
+              : (selectedSession.virtualJoinUrl ?? event.virtualJoinUrl ?? "")
+            : eventDashboardUrl;
     variables["session.presenterNames"] = list(
       sessionPresenters.map((person) => person.name.trim() || person.email),
       "To be confirmed",

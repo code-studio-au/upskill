@@ -107,18 +107,27 @@ export const Route = createFileRoute("/webinars/$publicReference")({
           );
         }
         if (intent === "request") {
+          const requestFingerprint = recovery.eventVirtualRecoveryFingerprint(
+            request.headers,
+          );
           const input = (
             await import("#/features/event-lobby/event-virtual-recovery.schema")
           ).eventVirtualRecoveryRequestSchema.safeParse({
             publicReference,
             identifier: form.get("identifier"),
           });
-          if (!input.success)
+          if (!input.success) {
+            await recovery.recordEventVirtualRecoveryRequestInputRejected(
+              publicReference,
+              requestFingerprint,
+            );
             return redirectResponse(
               routeLocation(publicReference, "request-invalid"),
             );
+          }
           const result = await recovery.requestEventVirtualRecoveryCode(
             input.data,
+            requestFingerprint,
           );
           if (result.status !== "accepted")
             return redirectResponse(

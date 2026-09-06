@@ -4,6 +4,7 @@ import { sql, type Kysely } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { Database } from "#/server/db/types";
 import { advanceEventVirtualLobbyRevision } from "./event-virtual-join-access.server";
+import { lockEventVirtualAdmissionEligibility } from "./event-virtual-lobby-eligibility.server";
 import { lockVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
 
 const DEFAULT_ADMISSION_BATCH_SIZE = 100;
@@ -55,7 +56,7 @@ export async function admitEligibleWaitingEntries(
       .execute(async (transaction) => {
         const occurrence = await transaction
           .selectFrom("event_occurrence")
-          .select("status")
+          .select(["status", "eventTemplateVersionId"])
           .where("id", "=", input.eventOccurrenceId)
           .forUpdate()
           .executeTakeFirst();
@@ -107,50 +108,25 @@ export async function admitEligibleWaitingEntries(
             stopped: true,
           };
 
+        const version = await transaction
+          .selectFrom("event_template_version")
+          .select("registrationSurveyVersionId")
+          .where("id", "=", occurrence.eventTemplateVersionId)
+          .executeTakeFirst();
+        if (!version)
+          return {
+            admittedCount: 0,
+            cursor: null,
+            hasMore: false,
+            stopped: true,
+          };
+
         let query = transaction
           .selectFrom("event_virtual_lobby_entry as lobby")
-          .innerJoin(
-            "event_participation as participation",
-            "participation.id",
-            "lobby.eventParticipationId",
-          )
-          .innerJoin(
-            "event_registration as registration",
-            "registration.id",
-            "participation.registrationId",
-          )
-          .innerJoin(
-            "event_occurrence as occurrence",
-            "occurrence.id",
-            "lobby.eventOccurrenceId",
-          )
-          .innerJoin(
-            "event_template_version as version",
-            "version.id",
-            "occurrence.eventTemplateVersionId",
-          )
-          .leftJoin(
-            "registration_questionnaire_assignment as assignment",
-            (join) =>
-              join
-                .onRef(
-                  "assignment.eventOccurrenceId",
-                  "=",
-                  "lobby.eventOccurrenceId",
-                )
-                .onRef("assignment.userId", "=", "participation.userId")
-                .onRef(
-                  "assignment.surveyVersionId",
-                  "=",
-                  "version.registrationSurveyVersionId",
-                ),
-          )
           .select([
             "lobby.id",
             "lobby.requestedAt",
-            "registration.status as registrationStatus",
-            "version.registrationSurveyVersionId",
-            "assignment.status as questionnaireStatus",
+            "lobby.eventParticipationId",
           ])
           .where("lobby.eventVirtualJoinAccessId", "=", access.id)
           .where("lobby.state", "=", "waiting");
@@ -162,7 +138,6 @@ export async function admitEligibleWaitingEntries(
           .orderBy("lobby.requestedAt")
           .orderBy("lobby.id")
           .limit(batchSize)
-          .forUpdate("lobby")
           .execute();
         if (!waiting.length)
           return {
@@ -174,13 +149,22 @@ export async function admitEligibleWaitingEntries(
 
         let admittedCount = 0;
         for (const entry of waiting) {
-          if (entry.registrationStatus !== "selected") continue;
           if (
-            entry.registrationSurveyVersionId &&
-            entry.questionnaireStatus !== "completed" &&
-            entry.questionnaireStatus !== "waived"
+            !(await lockEventVirtualAdmissionEligibility(transaction, {
+              eventOccurrenceId: input.eventOccurrenceId,
+              eventParticipationId: entry.eventParticipationId,
+              registrationSurveyVersionId: version.registrationSurveyVersionId,
+            }))
           )
             continue;
+          const lockedEntry = await transaction
+            .selectFrom("event_virtual_lobby_entry")
+            .select("state")
+            .where("id", "=", entry.id)
+            .where("eventVirtualJoinAccessId", "=", access.id)
+            .forUpdate()
+            .executeTakeFirst();
+          if (lockedEntry?.state !== "waiting") continue;
           const admitted = await transaction
             .updateTable("event_virtual_lobby_entry")
             .set({
