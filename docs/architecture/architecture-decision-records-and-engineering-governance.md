@@ -347,6 +347,13 @@ must not be exposed. Do not impose a mechanical line limit, but split work when
 a reviewer cannot reasonably verify the policy, migrations, UI and every
 integration boundary together.
 
+A planned change that introduces more than one privileged capability, state
+machine, asynchronous pipeline or primary actor journey is presumptively too
+broad for one pull request. Split it into dormant or independently safe
+increments. If those boundaries genuinely cannot be separated, the impact
+matrix must explain why the combined change remains reviewable and how its
+independent invariants are verified.
+
 ### Pre-Review and Review Remediation
 
 Before requesting the first pull-request review:
@@ -357,6 +364,14 @@ Before requesting the first pull-request review:
 3.  perform a failure-, authorisation- and lifecycle-oriented self-review;
 4.  add focused regression coverage for negative and malicious inputs; and
 5.  run the relevant application, database, infrastructure and browser gates.
+
+Every pull request uses the repository template. Its preflight checklist records
+the bounded-scope decision, applicable impact-matrix delta, central policy and
+consumer audit, negative coverage, verification evidence and operational
+effects. A checked item means the work is complete or the corresponding section
+contains an explicit not-applicable rationale. The lightweight PR preflight
+workflow rejects missing sections, missing checklist controls and unchecked
+controls before review.
 
 When review identifies a defect, classify the violated invariant before editing.
 Audit all equivalent callers, roles, targets, lifecycle states and downstream
