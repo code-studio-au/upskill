@@ -7,6 +7,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { enqueuePhoneVerificationTransferredNotification } from "#/server/notifications/notification.server";
+import { revokeEventVirtualLobbyEntriesForJoinSessions } from "#/server/events/event-virtual-lobby-reconciliation.server";
 
 export const CONTACT_CHALLENGE_LIFETIME_MS = 10 * 60_000;
 export const CONTACT_RATE_LIMIT_WINDOW_MS = 15 * 60_000;
@@ -91,17 +92,35 @@ async function revokeSmsRecoveryAccess(
     .where("deliveryChannel", "=", "sms")
     .where("consumedAt", "is", null)
     .execute();
-  const virtualRecoveryChallenges = transaction
+  const virtualRecoveryChallenges = await transaction
     .selectFrom("event_virtual_recovery_challenge")
     .select("id")
     .where("userId", "in", userIds)
-    .where("channel", "=", "sms");
-  await transaction
-    .updateTable("event_virtual_join_session")
-    .set({ revokedAt })
-    .where("challengeId", "in", virtualRecoveryChallenges)
-    .where("revokedAt", "is", null)
+    .where("channel", "=", "sms")
+    .forUpdate()
     .execute();
+  const virtualRecoveryChallengeIds = virtualRecoveryChallenges.map(
+    (challenge) => challenge.id,
+  );
+  const invalidatedJoinSessions = virtualRecoveryChallengeIds.length
+    ? await transaction
+        .selectFrom("event_virtual_join_session")
+        .select("id")
+        .where("challengeId", "in", virtualRecoveryChallengeIds)
+        .execute()
+    : [];
+  await revokeEventVirtualLobbyEntriesForJoinSessions(transaction, {
+    joinSessionIds: invalidatedJoinSessions.map((session) => session.id),
+    now: revokedAt,
+    source: "verified_phone_invalidated",
+  });
+  if (virtualRecoveryChallengeIds.length)
+    await transaction
+      .updateTable("event_virtual_join_session")
+      .set({ revokedAt })
+      .where("challengeId", "in", virtualRecoveryChallengeIds)
+      .where("revokedAt", "is", null)
+      .execute();
   await transaction
     .updateTable("event_virtual_recovery_challenge")
     .set({ consumedAt: revokedAt })

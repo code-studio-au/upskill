@@ -24,6 +24,10 @@ interface EligibilityRevocationInput {
   roomId: string | null;
   userId: string;
   now: Date;
+  source?:
+    | "eligibility_changed"
+    | "guest_access_rotated"
+    | "verified_phone_invalidated";
 }
 
 interface EventVirtualLobbyEligibilityRevocationOutcome {
@@ -79,7 +83,7 @@ export async function revokeEventVirtualLobbyEntryForEligibility(
     metadata: {
       action: "revoke",
       eventSessionId: input.eventSessionId,
-      source: "eligibility_changed",
+      source: input.source ?? "eligibility_changed",
     },
     createdAt: input.now,
   });
@@ -90,6 +94,78 @@ export async function revokeEventVirtualLobbyEntryForEligibility(
     .where("userId", "=", input.userId)
     .where("revokedAt", "is", null)
     .execute();
+}
+
+export async function revokeEventVirtualLobbyEntriesForJoinSessions(
+  transaction: Transaction<Database>,
+  input: {
+    joinSessionIds: ReadonlyArray<string>;
+    now: Date;
+    source: "guest_access_rotated" | "verified_phone_invalidated";
+  },
+): Promise<void> {
+  if (input.joinSessionIds.length === 0) return;
+  const candidates = await transaction
+    .selectFrom("event_virtual_join_session as joinSession")
+    .innerJoin(
+      "event_virtual_join_access as access",
+      "access.id",
+      "joinSession.eventVirtualJoinAccessId",
+    )
+    .innerJoin("event_virtual_lobby_entry as lobby", (join) =>
+      join
+        .onRef(
+          "lobby.eventVirtualJoinAccessId",
+          "=",
+          "joinSession.eventVirtualJoinAccessId",
+        )
+        .onRef(
+          "lobby.eventParticipationId",
+          "=",
+          "joinSession.eventParticipationId",
+        ),
+    )
+    .leftJoin("event_virtual_room as room", (join) =>
+      join
+        .onRef("room.eventSessionId", "=", "access.eventSessionId")
+        .onRef("room.generation", "=", "access.roomGeneration")
+        .on("room.replacedAt", "is", null),
+    )
+    .select([
+      "lobby.id as lobbyEntryId",
+      "lobby.state",
+      "lobby.credentialExpiresAt",
+      "lobby.eventParticipationId",
+      "access.id as eventVirtualJoinAccessId",
+      "access.eventOccurrenceId",
+      "access.eventSessionId",
+      "room.id as roomId",
+      "joinSession.userId",
+    ])
+    .where("joinSession.id", "in", input.joinSessionIds)
+    .where("lobby.state", "not in", ["declined", "revoked"])
+    .orderBy("lobby.id")
+    .forUpdate(["access", "lobby"])
+    .execute();
+  const uniqueCandidates = new Map(
+    candidates.map((candidate) => [candidate.lobbyEntryId, candidate]),
+  );
+  for (const candidate of uniqueCandidates.values())
+    await revokeEventVirtualLobbyEntryForEligibility(transaction, {
+      entry: {
+        id: candidate.lobbyEntryId,
+        state: candidate.state as RevocableLobbyState,
+        credentialExpiresAt: candidate.credentialExpiresAt,
+        eventParticipationId: candidate.eventParticipationId,
+      },
+      eventVirtualJoinAccessId: candidate.eventVirtualJoinAccessId,
+      eventOccurrenceId: candidate.eventOccurrenceId,
+      eventSessionId: candidate.eventSessionId,
+      roomId: candidate.roomId,
+      userId: candidate.userId,
+      now: input.now,
+      source: input.source,
+    });
 }
 
 async function revokeNextIneligibleLobbyEntry(

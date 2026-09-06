@@ -32,6 +32,7 @@ import {
   LiveKitProviderError,
 } from "#/server/livekit/livekit-provider.server";
 import { buildEventNotificationVariables } from "#/server/notifications/offering-event-context.server";
+import { invalidateVerifiedPhone } from "#/server/profile/contact-verification-core.server";
 
 class MutatingJoinProvider extends FakeLiveKitProvider {
   constructor(private readonly mutation: () => Promise<void>) {
@@ -467,6 +468,59 @@ try {
   );
   assert.equal(disallowedOpenEntry.status, "ready");
   assert.equal(disallowedOpenEntry.data.outcome, "revoked");
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: true })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  const reactivatedGuestSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: guestAccess.publicReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry-reactivated",
+  );
+  assert.equal(reactivatedGuestSubmission.status, "ready");
+  assert.ok(reactivatedGuestSubmission.joinSessionToken);
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      startedAt: new Date(),
+      startedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await resolveEventVirtualLobby(access.publicReference, null, {
+        joinSessionToken: reactivatedGuestSubmission.joinSessionToken,
+      })
+    ).status,
+    "ready",
+  );
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(access.publicReference, null, {
+        joinSessionToken: reactivatedGuestSubmission.joinSessionToken,
+        provider: new FakeLiveKitProvider(),
+        websocketUrl: "wss://verify.example.com",
+      })
+    ).status,
+    "ready",
+  );
+  const guestLobbyEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select("id")
+    .where("eventVirtualJoinAccessId", "=", access.id)
+    .where("eventParticipationId", "=", guestParticipation.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ state: "connected", firstConnectedAt: new Date() })
+    .where("id", "=", guestLobbyEntry.id)
+    .executeTakeFirstOrThrow();
   const rotatedGuestReference = await rotateEventGuestAccessRecord(
     ids.occurrence,
     administrator,
@@ -495,21 +549,68 @@ try {
     },
     "Rotating open-entry access must revoke capabilities issued by the old link",
   );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", guestLobbyEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.state),
+    "revoked",
+    "Guest-link rotation must revoke the associated lobby admission",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["kind", "status"])
+      .where("lobbyEntryId", "=", guestLobbyEntry.id)
+      .where("kind", "=", "remove_participant")
+      .executeTakeFirstOrThrow(),
+    { kind: "remove_participant", status: "pending" },
+    "Guest-link rotation must durably queue provider-side removal",
+  );
   const rankedDefinitionId = "verify_livekit_lobby_ranked_definition";
   const rankedSessionId = "verify_livekit_lobby_ranked_session";
   const rankedRoomId = "verify_livekit_lobby_ranked_room";
+  const rejoinSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: rotatedGuestReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry-rejoin-setup",
+  );
+  assert.equal(rejoinSubmission.status, "ready");
+  assert.ok(rejoinSubmission.joinSessionToken);
+  assert.equal(
+    (
+      await resolveEventVirtualLobby(access.publicReference, null, {
+        joinSessionToken: rejoinSubmission.joinSessionToken,
+      })
+    ).status,
+    "ready",
+  );
+  const guestRejoinNow = new Date();
+  const firstConnectedAt = new Date(guestRejoinNow.getTime() - 2 * 60_000);
+  const leftAt = new Date(guestRejoinNow.getTime() - 60_000);
   await database
-    .updateTable("event_session")
-    .set({ livekitOpenEntryGuestsAllowed: true })
-    .where("id", "=", ids.session)
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "left",
+      firstConnectedAt,
+      lastSeenAt: leftAt,
+      leftAt,
+      updatedAt: guestRejoinNow,
+    })
+    .where("id", "=", guestLobbyEntry.id)
     .executeTakeFirstOrThrow();
   await database
     .updateTable("event_virtual_room")
     .set({
       doorState: "locked",
-      startedAt: createdAt,
+      startedAt: firstConnectedAt,
       startedByUserId: administrator.id,
-      lockedAt: createdAt,
+      lockedAt: guestRejoinNow,
       lockedByUserId: administrator.id,
     })
     .where("id", "=", ids.room)
@@ -575,7 +676,7 @@ try {
       generation: 1,
       providerRoomName: "event:verify_lobby_ranked:g1",
       providerRoomSid: "RM_VERIFY_LOBBY_RANKED",
-      doorState: "open",
+      doorState: "scheduled",
       admissionMode: "automatic",
       attendanceMode: "manual",
       attendanceMinimumMinutes: null,
@@ -586,8 +687,8 @@ try {
       providerErrorCode: null,
       createdByUserId: administrator.id,
       createdAt,
-      startedByUserId: administrator.id,
-      startedAt: createdAt,
+      startedByUserId: null,
+      startedAt: null,
       lockedByUserId: null,
       lockedAt: null,
       reopenedByUserId: null,
@@ -619,6 +720,29 @@ try {
   assert.equal(rankedSubmission.status, "ready");
   assert.equal(
     rankedSubmission.data.destinationUrl,
+    `/webinars/${access.publicReference}`,
+    "A locked room within the attendee rejoin grace must rank ahead of an upcoming room",
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      startedAt: new Date(),
+      startedByUserId: administrator.id,
+    })
+    .where("id", "=", rankedRoomId)
+    .executeTakeFirstOrThrow();
+  const openRankedSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: rotatedGuestReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry-ranking-open",
+  );
+  assert.equal(openRankedSubmission.status, "ready");
+  assert.equal(
+    openRankedSubmission.data.destinationUrl,
     `/webinars/${rankedAccess.publicReference}`,
     "An open later room must rank ahead of an earlier locked room",
   );
@@ -3513,6 +3637,122 @@ try {
     JSON.stringify(recoveryOutcomeAudits),
     /unknown-recovery-user|rate-limit-audit|000000|000001/u,
     "Recovery outcome audits must not contain an identifier or submitted code",
+  );
+
+  const smsInvalidatedAt = new Date();
+  const smsChallengeId = "verify_livekit_lobby_sms_invalidation_challenge";
+  const smsJoinSessionId = "verify_livekit_lobby_sms_invalidation_session";
+  await database
+    .updateTable("user")
+    .set({
+      phone: "+61412345678",
+      smsEnabled: true,
+      smsVerifiedAt: new Date(smsInvalidatedAt.getTime() - 60_000),
+    })
+    .where("id", "=", learner.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      providerStatus: "ready",
+      endedAt: null,
+      endedByUserId: null,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "connected",
+      firstConnectedAt: new Date(smsInvalidatedAt.getTime() - 2 * 60_000),
+      lastSeenAt: new Date(smsInvalidatedAt.getTime() - 60_000),
+      credentialExpiresAt: new Date(smsInvalidatedAt.getTime() + 10 * 60_000),
+      revokedAt: null,
+      revokedByUserId: null,
+      updatedAt: smsInvalidatedAt,
+    })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("event_virtual_recovery_challenge")
+    .values({
+      id: smsChallengeId,
+      reference: "verify-livekit-sms-invalidation-reference",
+      eventVirtualJoinAccessId: access.id,
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      roomGeneration: 1,
+      eventParticipationId: ids.participation,
+      userId: learner.id,
+      channel: "sms",
+      identifierDigest: "verify-livekit-sms-identifier-digest",
+      requestFingerprint: "verify-livekit-sms-request-fingerprint",
+      codeDigest: "verify-livekit-sms-code-digest",
+      attempts: 0,
+      resendCount: 0,
+      deliveryStatus: "sent",
+      expiresAt: new Date(smsInvalidatedAt.getTime() + 10 * 60_000),
+      consumedAt: null,
+      createdAt: new Date(smsInvalidatedAt.getTime() - 60_000),
+    })
+    .execute();
+  await database
+    .insertInto("event_virtual_join_session")
+    .values({
+      id: smsJoinSessionId,
+      challengeId: smsChallengeId,
+      eventGuestAccessId: null,
+      tokenDigest: "verify-livekit-sms-join-session-digest",
+      eventVirtualJoinAccessId: access.id,
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      roomGeneration: 1,
+      eventParticipationId: ids.participation,
+      userId: learner.id,
+      accessMethod: "sms",
+      expiresAt: new Date(smsInvalidatedAt.getTime() + 10 * 60_000),
+      lastUsedAt: smsInvalidatedAt,
+      revokedAt: new Date(smsInvalidatedAt.getTime() - 30_000),
+      createdAt: new Date(smsInvalidatedAt.getTime() - 60_000),
+    })
+    .execute();
+  await database
+    .transaction()
+    .execute((transaction) =>
+      invalidateVerifiedPhone(transaction, learner.id, smsInvalidatedAt),
+    );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow(),
+    { state: "revoked" },
+    "Invalidating an SMS recovery identity must revoke its lobby admission",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["kind", "status"])
+      .where("lobbyEntryId", "=", tokenIssuedEntry.id)
+      .where("kind", "=", "remove_participant")
+      .executeTakeFirstOrThrow(),
+    { kind: "remove_participant", status: "pending" },
+    "SMS invalidation must enforce provider removal through credential expiry",
+  );
+  const smsInvalidationAudit = await database
+    .selectFrom("audit_event")
+    .select("metadata")
+    .where("subjectId", "=", tokenIssuedEntry.id)
+    .where("action", "=", "event_virtual_lobby.admission_changed")
+    .orderBy("createdAt", "desc")
+    .orderBy("id", "desc")
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (smsInvalidationAudit.metadata as { source?: string }).source,
+    "verified_phone_invalidated",
+    "SMS invalidation must record the source of the lobby revocation",
   );
 
   const replacement = await database

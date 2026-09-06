@@ -16,6 +16,7 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 import { issueEventVirtualGuestJoinSession } from "#/server/events/event-virtual-lobby.server";
+import { revokeEventVirtualLobbyEntriesForJoinSessions } from "#/server/events/event-virtual-lobby-reconciliation.server";
 import {
   consumeFixedWindowRateLimit,
   forwardedClientAddress,
@@ -115,6 +116,22 @@ export async function rotateEventGuestAccessRecord(
       )
         return null;
       const now = new Date();
+      const invalidatedJoinSessions = await transaction
+        .selectFrom("event_virtual_join_session as joinSession")
+        .innerJoin(
+          "event_guest_access as guestAccess",
+          "guestAccess.id",
+          "joinSession.eventGuestAccessId",
+        )
+        .select("joinSession.id")
+        .where("guestAccess.eventOccurrenceId", "=", eventOccurrenceId)
+        .where("guestAccess.revokedAt", "is", null)
+        .execute();
+      await revokeEventVirtualLobbyEntriesForJoinSessions(transaction, {
+        joinSessionIds: invalidatedJoinSessions.map((session) => session.id),
+        now,
+        source: "guest_access_rotated",
+      });
       await transaction
         .updateTable("event_virtual_join_session")
         .set({ revokedAt: now })
@@ -400,6 +417,15 @@ export async function submitPublicEventGuestAccess(
                   .onRef("room.generation", "=", "virtualAccess.roomGeneration")
                   .on("room.replacedAt", "is", null),
               )
+              .leftJoin("event_virtual_lobby_entry as lobby", (join) =>
+                join
+                  .onRef(
+                    "lobby.eventVirtualJoinAccessId",
+                    "=",
+                    "virtualAccess.id",
+                  )
+                  .on("lobby.eventParticipationId", "=", eventParticipationId),
+              )
               .select([
                 "session.id as eventSessionId",
                 "virtualAccess.id as eventVirtualJoinAccessId",
@@ -426,10 +452,20 @@ export async function submitPublicEventGuestAccess(
               .orderBy(
                 sql`case
                   when room."doorState" = 'open' then 0
-                  when room."doorState" = 'locked' then 3
+                  when room."doorState" = 'locked'
+                    and lobby.state in ('admitted', 'token_issued', 'connected', 'left')
+                    and lobby."firstConnectedAt" is not null
+                    and lobby."leftAt" is not null
+                    and lobby."firstConnectedAt" <= lobby."leftAt"
+                    and lobby."leftAt" <= ${now}
+                    and coalesce(session."livekitAttendeeRejoinGraceMinutes", 0) > 0
+                    and ${now} <= lobby."leftAt"
+                      + coalesce(session."livekitAttendeeRejoinGraceMinutes", 0)
+                        * interval '1 minute' then 1
                   when session."startsAt" <= ${now}
-                    and session."endsAt" >= ${now} then 1
-                  else 2
+                    and session."endsAt" >= ${now} then 2
+                  when room."doorState" = 'locked' then 4
+                  else 3
                 end`,
               )
               .orderBy("session.startsAt")
