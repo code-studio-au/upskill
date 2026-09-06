@@ -539,9 +539,22 @@ async function resolveActor(
   authenticatedUser: AuthenticatedUser | null,
   tokenOverride?: string | null,
 ): Promise<VirtualLobbyActor | null> {
-  if (authenticatedUser)
-    return { user: authenticatedUser, accessMethod: "authenticated" };
-  return await recoveredActor(destination, tokenOverride);
+  const recovered = await recoveredActor(destination, tokenOverride);
+  if (!authenticatedUser) return recovered;
+  const authenticated = {
+    user: authenticatedUser,
+    accessMethod: "authenticated" as const,
+  };
+  if (!recovered || recovered.user.id === authenticatedUser.id)
+    return authenticated;
+  const recoveredParticipation = await eligibleParticipation(
+    getDatabase(),
+    destination,
+    recovered.user.id,
+  );
+  return recoveredParticipation?.id === recovered.eventParticipationId
+    ? recovered
+    : authenticated;
 }
 
 async function ensureLobbyEntry(

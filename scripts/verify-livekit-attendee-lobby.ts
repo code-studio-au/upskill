@@ -447,6 +447,21 @@ try {
       eventParticipationId: guestParticipation.id,
     },
   );
+  const guestCapabilityWithUnrelatedLogin = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+    { joinSessionToken: guestJoinSessionToken },
+  );
+  assert.equal(guestCapabilityWithUnrelatedLogin.status, "ready");
+  assert.equal(
+    guestCapabilityWithUnrelatedLogin.data.outcome,
+    "meeting_not_started",
+  );
+  assert.equal(guestCapabilityWithUnrelatedLogin.data.accessMethod, "guest");
+  assert.equal(
+    guestCapabilityWithUnrelatedLogin.data.admissionState,
+    "admitted",
+  );
   const openEntryAdmission = await resolveEventVirtualLobby(
     access.publicReference,
     null,
@@ -1968,7 +1983,7 @@ try {
     .updateTable("event_virtual_lobby_entry")
     .set({ credentialExpiresAt: new Date() })
     .where("eventVirtualJoinAccessId", "=", access.id)
-    .where("state", "=", "token_issued")
+    .where("credentialExpiresAt", "is not", null)
     .execute();
   const concurrentProvider = new FakeLiveKitProvider();
   concurrentProvider.participants.set(

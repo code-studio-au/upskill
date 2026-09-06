@@ -43,6 +43,8 @@ const ids = {
   wholePresenter: "verify_livekit_room_whole_presenter",
   coordinator: "verify_livekit_room_coordinator",
   platformAdministrator: "verify_livekit_room_platform_administrator",
+  expiredPlatformAdministrator:
+    "verify_livekit_room_expired_platform_administrator",
 };
 
 function user(id: string, name: string): AuthenticatedUser {
@@ -61,6 +63,10 @@ const coordinator = user(ids.coordinator, "Regional Coordinator");
 const platformAdministrator = user(
   ids.platformAdministrator,
   "Platform Administrator",
+);
+const expiredPlatformAdministrator = user(
+  ids.expiredPlatformAdministrator,
+  "Expired-token Platform Administrator",
 );
 const startsAt = new Date("2030-09-04T00:00:00.000Z");
 const endsAt = new Date("2030-09-04T01:00:00.000Z");
@@ -236,6 +242,7 @@ try {
         wholePresenter,
         coordinator,
         platformAdministrator,
+        expiredPlatformAdministrator,
       ].map((item) => ({
         id: item.id,
         name: item.name,
@@ -256,6 +263,10 @@ try {
       {
         userId: platformAdministrator.id,
         grantedByUserId: null,
+      },
+      {
+        userId: expiredPlatformAdministrator.id,
+        grantedByUserId: platformAdministrator.id,
       },
     ])
     .execute();
@@ -1031,6 +1042,66 @@ try {
     ),
     [],
   );
+
+  const expiredPresenterIssuedAt = new Date(Date.now() - 10 * 60_000);
+  const expiredPresenterCredentialAt = new Date(
+    expiredPresenterIssuedAt.getTime() + 5 * 60_000,
+  );
+  await database
+    .insertInto("event_virtual_presenter_credential_reservation")
+    .values({
+      roomId: room.id,
+      userId: expiredPlatformAdministrator.id,
+      firstTokenIssuedAt: expiredPresenterIssuedAt,
+      lastTokenIssuedAt: expiredPresenterIssuedAt,
+      credentialExpiresAt: expiredPresenterCredentialAt,
+    })
+    .execute();
+  const expiredPlatformIdentity = eventVirtualPresenterIdentity(
+    room.id,
+    expiredPlatformAdministrator.id,
+  );
+  fakeProvider.participants.set(room.providerRoomName, [
+    {
+      sid: "expired-platform-administrator-participant",
+      identity: expiredPlatformIdentity,
+      displayName: expiredPlatformAdministrator.name,
+    },
+  ]);
+  assert.deepEqual(
+    await removePlatformAdministrator(
+      expiredPlatformAdministrator.id,
+      administrator,
+    ),
+    { status: "revoked" },
+  );
+  const expiredPresenterRemoval = await database
+    .selectFrom("event_virtual_room_operation")
+    .select(["id", "status", "participantIdentity"])
+    .where("roomId", "=", room.id)
+    .where("kind", "=", "remove_participant")
+    .where("targetKey", "=", `presenter:${expiredPlatformAdministrator.id}`)
+    .executeTakeFirstOrThrow();
+  assert.equal(expiredPresenterRemoval.status, "pending");
+  assert.equal(
+    expiredPresenterRemoval.participantIdentity,
+    expiredPlatformIdentity,
+  );
+  await processAvailableEventVirtualRoomOperations(10, {
+    runtime,
+    now: new Date(),
+  });
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select("status")
+      .where("id", "=", expiredPresenterRemoval.id)
+      .executeTakeFirstOrThrow()
+      .then((operation) => operation.status),
+    "succeeded",
+    "Expired presenter credentials must still trigger one provider removal pass",
+  );
+  assert.deepEqual(fakeProvider.participants.get(room.providerRoomName), []);
 
   assert.deepEqual(
     await checkEventVirtualSessionProviderHealth(
@@ -2133,7 +2204,11 @@ try {
     .execute();
   await database
     .deleteFrom("platform_admin")
-    .where("userId", "in", [administrator.id, platformAdministrator.id])
+    .where("userId", "in", [
+      administrator.id,
+      platformAdministrator.id,
+      expiredPlatformAdministrator.id,
+    ])
     .execute();
   await database
     .deleteFrom("user")
@@ -2143,6 +2218,7 @@ try {
       wholePresenter.id,
       coordinator.id,
       platformAdministrator.id,
+      expiredPlatformAdministrator.id,
     ])
     .execute();
   await destroyDatabase();

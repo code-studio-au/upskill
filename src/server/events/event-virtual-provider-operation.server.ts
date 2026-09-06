@@ -115,7 +115,6 @@ export async function enqueueRevokedEventVirtualPresenterAccess(
       "session.eventOccurrenceId",
     ])
     .where("reservation.userId", "=", input.presenterUserId)
-    .where("reservation.credentialExpiresAt", ">", input.now)
     .execute();
   for (const reservation of reservations) {
     if (
