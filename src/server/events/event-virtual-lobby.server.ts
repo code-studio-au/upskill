@@ -2321,6 +2321,8 @@ export async function issueEventVirtualAttendeeCredential(
         denialReason = "recording_acknowledgement_required";
       else if (room.providerStatus !== "ready")
         denialReason = "provider_unavailable";
+      else if (credential.expiresAt <= revalidationNow)
+        denialReason = "provider_unavailable";
       if (denialReason) {
         await recordAttendeeCredentialDenial(transaction, {
           target: credentialAuditTarget,

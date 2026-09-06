@@ -736,6 +736,34 @@ try {
     .set({ endedAt: null, endReason: null })
     .where("id", "=", "verify_livekit_room_exact_presenter")
     .executeTakeFirstOrThrow();
+  const expiredPresenterRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    provider: new FakeLiveKitProvider(() => new Date(0)),
+  };
+  assert.deepEqual(
+    await issueEventVirtualPresenterCredential(
+      ids.occurrence,
+      ids.session,
+      presenter,
+      {
+        runtime: expiredPresenterRuntime,
+        clock: () => providerRetryTime,
+      },
+    ),
+    { status: "conflict", reason: "provider_unavailable" },
+    "A presenter credential that expires before reservation must be retried",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_presenter_credential_reservation")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("roomId", "=", room.id)
+      .where("userId", "=", presenter.id)
+      .executeTakeFirstOrThrow()
+      .then((result) => result.count),
+    0,
+    "An expired presenter credential must not reserve capacity",
+  );
   const presenterCredential = await issueEventVirtualPresenterCredential(
     ids.occurrence,
     ids.session,

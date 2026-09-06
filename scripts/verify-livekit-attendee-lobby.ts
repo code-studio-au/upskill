@@ -1264,6 +1264,31 @@ try {
     }),
     { status: "conflict", reason: "provider_unavailable" },
   );
+  const expiredCredentialProvider = new FakeLiveKitProvider(() => new Date(0));
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      provider: expiredCredentialProvider,
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "provider_unavailable" },
+    "A credential that expires before the room reservation is acquired must be retried",
+  );
+  assert.equal(
+    expiredCredentialProvider.operations.some(
+      (operation) => operation.operation === "create_join_token",
+    ),
+    true,
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("eventParticipationId", "=", ids.participation)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.state),
+    "admitted",
+    "An expired credential must not advance attendee lifecycle evidence",
+  );
   const provider = new FakeLiveKitProvider(() => createdAt);
   const credential = await issueEventVirtualAttendeeCredential(
     access.publicReference,

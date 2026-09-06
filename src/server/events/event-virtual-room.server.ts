@@ -1321,6 +1321,10 @@ export async function issueEventVirtualPresenterCredential(
           await deny(currentConflict, currentNow);
           return currentConflict;
         }
+        if (providerCredential.expiresAt <= currentNow) {
+          await deny("provider_unavailable", currentNow);
+          return "provider_unavailable" as const;
+        }
         try {
           const participantIdentity = eventVirtualPresenterIdentity(
             room.id,
