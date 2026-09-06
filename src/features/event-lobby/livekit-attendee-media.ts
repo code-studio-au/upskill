@@ -3,7 +3,12 @@ import type * as LiveKitClient from "livekit-client";
 
 type LiveKitClientModule = Pick<
   typeof LiveKitClient,
-  "ConnectionState" | "isBrowserSupported" | "Room" | "RoomEvent" | "Track"
+  | "ConnectionState"
+  | "DisconnectReason"
+  | "isBrowserSupported"
+  | "Room"
+  | "RoomEvent"
+  | "Track"
 >;
 
 export type LiveKitClientLoader = () => Promise<LiveKitClientModule>;
@@ -23,9 +28,19 @@ export interface AttendeeMediaTrack {
 
 export interface AttendeeMediaSnapshot {
   connected: boolean;
+  connectionState: "disconnected" | "connecting" | "connected" | "reconnecting";
+  disconnectReason: AttendeeMediaDisconnectReason;
   canPlaybackAudio: boolean;
   tracks: Array<AttendeeMediaTrack>;
 }
+
+export type AttendeeMediaDisconnectReason =
+  | "client_initiated"
+  | "duplicate_identity"
+  | "participant_removed"
+  | "room_ended"
+  | "connection_lost"
+  | null;
 
 export interface AttendeeMediaSession {
   connect(credential: EventVirtualAttendeeCredential): Promise<void>;
@@ -58,9 +73,14 @@ export async function createLiveKitAttendeeMediaSession(
   const room = new client.Room({ adaptiveStream: true });
   const listeners = new Set<(snapshot: AttendeeMediaSnapshot) => void>();
   let disposed = false;
+  let connectionState: AttendeeMediaSnapshot["connectionState"] =
+    "disconnected";
+  let disconnectReason: AttendeeMediaDisconnectReason = null;
 
   const snapshot = (): AttendeeMediaSnapshot => ({
-    connected: room.state === client.ConnectionState.Connected,
+    connected: connectionState === "connected",
+    connectionState,
+    disconnectReason,
     canPlaybackAudio: room.canPlaybackAudio,
     tracks: [...room.remoteParticipants.values()].flatMap((participant) =>
       [...participant.trackPublications.values()].flatMap((publication) => {
@@ -94,8 +114,37 @@ export async function createLiveKitAttendeeMediaSession(
     for (const listener of listeners) listener(value);
   };
 
-  room.on(client.RoomEvent.Connected, notify);
-  room.on(client.RoomEvent.Disconnected, notify);
+  const handleConnected = () => {
+    connectionState = "connected";
+    disconnectReason = null;
+    notify();
+  };
+  const handleReconnecting = () => {
+    connectionState = "reconnecting";
+    disconnectReason = null;
+    notify();
+  };
+  const handleDisconnected = (reason?: number) => {
+    connectionState = "disconnected";
+    disconnectReason =
+      reason === client.DisconnectReason.CLIENT_INITIATED
+        ? "client_initiated"
+        : reason === client.DisconnectReason.DUPLICATE_IDENTITY
+          ? "duplicate_identity"
+          : reason === client.DisconnectReason.PARTICIPANT_REMOVED
+            ? "participant_removed"
+            : reason === client.DisconnectReason.ROOM_DELETED ||
+                reason === client.DisconnectReason.ROOM_CLOSED
+              ? "room_ended"
+              : "connection_lost";
+    notify();
+  };
+
+  room.on(client.RoomEvent.Connected, handleConnected);
+  room.on(client.RoomEvent.Reconnecting, handleReconnecting);
+  room.on(client.RoomEvent.SignalReconnecting, handleReconnecting);
+  room.on(client.RoomEvent.Reconnected, handleConnected);
+  room.on(client.RoomEvent.Disconnected, handleDisconnected);
   room.on(client.RoomEvent.ParticipantConnected, notify);
   room.on(client.RoomEvent.ParticipantDisconnected, notify);
   room.on(client.RoomEvent.ParticipantNameChanged, notify);
@@ -106,8 +155,11 @@ export async function createLiveKitAttendeeMediaSession(
   room.on(client.RoomEvent.AudioPlaybackStatusChanged, notify);
 
   const removeRoomListeners = () => {
-    room.off(client.RoomEvent.Connected, notify);
-    room.off(client.RoomEvent.Disconnected, notify);
+    room.off(client.RoomEvent.Connected, handleConnected);
+    room.off(client.RoomEvent.Reconnecting, handleReconnecting);
+    room.off(client.RoomEvent.SignalReconnecting, handleReconnecting);
+    room.off(client.RoomEvent.Reconnected, handleConnected);
+    room.off(client.RoomEvent.Disconnected, handleDisconnected);
     room.off(client.RoomEvent.ParticipantConnected, notify);
     room.off(client.RoomEvent.ParticipantDisconnected, notify);
     room.off(client.RoomEvent.ParticipantNameChanged, notify);
@@ -123,10 +175,13 @@ export async function createLiveKitAttendeeMediaSession(
     session: {
       async connect(credential) {
         if (disposed) throw new Error("Attendee media session was disposed");
+        connectionState = "connecting";
+        disconnectReason = null;
+        notify();
         await room.connect(credential.websocketUrl, credential.token, {
           autoSubscribe: true,
         });
-        notify();
+        handleConnected();
       },
       async disconnect() {
         await room.disconnect(true);

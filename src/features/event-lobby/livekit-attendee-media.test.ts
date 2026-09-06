@@ -7,6 +7,9 @@ import {
 
 const events = {
   Connected: "connected",
+  Reconnecting: "reconnecting",
+  SignalReconnecting: "signalReconnecting",
+  Reconnected: "reconnected",
   Disconnected: "disconnected",
   ParticipantConnected: "participantConnected",
   ParticipantDisconnected: "participantDisconnected",
@@ -20,7 +23,7 @@ const events = {
 
 class FakeRoom {
   static last: FakeRoom | null = null;
-  readonly listeners = new Map<string, Set<() => void>>();
+  readonly listeners = new Map<string, Set<(reason?: number) => void>>();
   readonly remoteParticipants = new Map();
   readonly connect = vi.fn(() => {
     this.state = "connected";
@@ -29,7 +32,7 @@ class FakeRoom {
   });
   readonly disconnect = vi.fn(() => {
     this.state = "disconnected";
-    this.emit(events.Disconnected);
+    this.emit(events.Disconnected, 1);
     return Promise.resolve();
   });
   readonly startAudio = vi.fn(() => {
@@ -44,20 +47,20 @@ class FakeRoom {
     FakeRoom.last = this;
   }
 
-  on(event: string, listener: () => void) {
+  on(event: string, listener: (reason?: number) => void) {
     const listeners = this.listeners.get(event) ?? new Set();
     listeners.add(listener);
     this.listeners.set(event, listeners);
     return this;
   }
 
-  off(event: string, listener: () => void) {
+  off(event: string, listener: (reason?: number) => void) {
     this.listeners.get(event)?.delete(listener);
     return this;
   }
 
-  emit(event: string) {
-    for (const listener of this.listeners.get(event) ?? []) listener();
+  emit(event: string, reason?: number) {
+    for (const listener of this.listeners.get(event) ?? []) listener(reason);
   }
 }
 
@@ -65,6 +68,13 @@ function fakeClient(supported = true): LiveKitClientLoader {
   return (() =>
     Promise.resolve({
       ConnectionState: { Connected: "connected" },
+      DisconnectReason: {
+        CLIENT_INITIATED: 1,
+        DUPLICATE_IDENTITY: 2,
+        PARTICIPANT_REMOVED: 4,
+        ROOM_DELETED: 5,
+        ROOM_CLOSED: 10,
+      },
       isBrowserSupported: () => supported,
       Room: FakeRoom,
       RoomEvent: events,
@@ -113,14 +123,82 @@ describe("LiveKit attendee media session", () => {
       { autoSubscribe: true },
     );
     expect(result.session.snapshot().connected).toBe(true);
+    expect(result.session.snapshot().connectionState).toBe("connected");
 
     await result.session.enableAudio();
     expect(result.session.snapshot().canPlaybackAudio).toBe(true);
     await result.session.disconnect();
     expect(room.disconnect).toHaveBeenCalledWith(true);
     expect(result.session.snapshot().connected).toBe(false);
+    expect(result.session.snapshot()).toMatchObject({
+      connectionState: "disconnected",
+      disconnectReason: "client_initiated",
+    });
     expect(snapshots).toHaveBeenCalled();
   });
+
+  it("reports reconnect progress and clears it after recovery", async () => {
+    const result = await createLiveKitAttendeeMediaSession(fakeClient());
+    if (result.status !== "ready") throw new Error("Expected a ready session");
+    const room = FakeRoom.last;
+    if (!room) throw new Error("Expected a fake LiveKit room");
+    await result.session.connect({
+      token: "short-lived-token",
+      websocketUrl: "wss://tenant.livekit.cloud",
+      expiresAt: "2026-09-06T10:05:00.000Z",
+      generation: 1,
+    });
+
+    room.state = "reconnecting";
+    room.emit(events.Reconnecting);
+    expect(result.session.snapshot()).toMatchObject({
+      connected: false,
+      connectionState: "reconnecting",
+      disconnectReason: null,
+    });
+
+    room.state = "connected";
+    room.emit(events.Reconnected);
+    expect(result.session.snapshot()).toMatchObject({
+      connected: true,
+      connectionState: "connected",
+      disconnectReason: null,
+    });
+  });
+
+  it.each([
+    [2, "duplicate_identity"],
+    [4, "participant_removed"],
+    [5, "room_ended"],
+    [10, "room_ended"],
+    [9, "connection_lost"],
+    [undefined, "connection_lost"],
+  ] as const)(
+    "normalises disconnect reason %s as %s",
+    async (reason, expected) => {
+      const result = await createLiveKitAttendeeMediaSession(fakeClient());
+      if (result.status !== "ready")
+        throw new Error("Expected a ready session");
+      const room = FakeRoom.last;
+      if (!room) throw new Error("Expected a fake LiveKit room");
+      await result.session.connect({
+        token: "short-lived-token",
+        websocketUrl: "wss://tenant.livekit.cloud",
+        expiresAt: "2026-09-06T10:05:00.000Z",
+        generation: 1,
+      });
+
+      room.state = "disconnected";
+      room.emit(events.Disconnected, reason);
+
+      expect(result.session.snapshot()).toMatchObject({
+        connected: false,
+        connectionState: "disconnected",
+        disconnectReason: expected,
+      });
+      await result.session.dispose();
+    },
+  );
 
   it("projects only subscribed remote audio and video without local capture", async () => {
     const result = await createLiveKitAttendeeMediaSession(fakeClient());

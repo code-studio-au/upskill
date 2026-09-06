@@ -7,6 +7,12 @@ import {
   type AttendeeMediaSnapshot,
   type AttendeeMediaTrack,
 } from "./livekit-attendee-media";
+import {
+  attendeeCredentialDisposition,
+  attendeeCredentialCanStartConnection,
+  attendeeTerminalConnectionPhase,
+  shouldReloadLobbyAfterDisconnect,
+} from "./livekit-attendee-lifecycle";
 import { Button } from "#/features/shared/mantine";
 import classes from "./LiveKitAttendeeRoom.module.css";
 
@@ -15,7 +21,12 @@ type ConnectionPhase =
   | "requesting"
   | "connecting"
   | "connected"
+  | "reconnecting"
   | "disconnected"
+  | "duplicate"
+  | "removed"
+  | "ended"
+  | "credential-expired"
   | "leaving"
   | "left"
   | "unsupported"
@@ -23,6 +34,8 @@ type ConnectionPhase =
 
 const emptySnapshot: AttendeeMediaSnapshot = {
   connected: false,
+  connectionState: "disconnected",
+  disconnectReason: null,
   canPlaybackAudio: true,
   tracks: [],
 };
@@ -147,7 +160,10 @@ export function LiveKitAttendeeRoom({
     setMessage(null);
     setAudioBlocked(false);
     setPhase("requesting");
+    let credentialExpiresAt: string | null = null;
     try {
+      await clearSession();
+      if (operation.current !== currentOperation) return;
       const preparation = await prepareLiveKitAttendeeJoin(
         publicReference,
         abortController.signal,
@@ -159,10 +175,7 @@ export function LiveKitAttendeeRoom({
       }
       const result = preparation.result;
       if (result.status !== "ready") {
-        if (
-          result.status !== "conflict" ||
-          !["capacity_reached", "provider_unavailable"].includes(result.reason)
-        ) {
+        if (attendeeCredentialDisposition(result) === "reload-lobby") {
           window.location.reload();
           return;
         }
@@ -170,9 +183,12 @@ export function LiveKitAttendeeRoom({
         setPhase("error");
         return;
       }
-      if (Date.parse(result.credential.expiresAt) <= Date.now()) {
-        setMessage("The secure join credential expired. Request a new one.");
-        setPhase("error");
+      credentialExpiresAt = result.credential.expiresAt;
+      if (!attendeeCredentialCanStartConnection(result.credential.expiresAt)) {
+        setMessage(
+          "The secure join credential expired before the connection could start.",
+        );
+        setPhase("credential-expired");
         return;
       }
       setPhase("connecting");
@@ -189,11 +205,36 @@ export function LiveKitAttendeeRoom({
       unsubscribe.current = created.session.subscribe((nextSnapshot) => {
         if (operation.current !== currentOperation) return;
         setSnapshot(nextSnapshot);
-        if (nextSnapshot.connected) {
+        if (nextSnapshot.connectionState === "connected") {
           connectedOnce.current = true;
           setPhase("connected");
-        } else if (connectedOnce.current) {
-          setPhase("disconnected");
+        } else if (nextSnapshot.connectionState === "connecting") {
+          setPhase("connecting");
+        } else if (
+          nextSnapshot.connectionState === "reconnecting" &&
+          connectedOnce.current
+        ) {
+          setPhase("reconnecting");
+        } else if (
+          nextSnapshot.connectionState === "disconnected" &&
+          connectedOnce.current
+        ) {
+          const terminalPhase = attendeeTerminalConnectionPhase(
+            nextSnapshot.disconnectReason,
+          );
+          const nextPhase =
+            terminalPhase === "disconnected" &&
+            credentialExpiresAt &&
+            !attendeeCredentialCanStartConnection(credentialExpiresAt)
+              ? "credential-expired"
+              : terminalPhase;
+          if (nextPhase === "credential-expired")
+            setMessage(
+              "The secure join credential expired while reconnecting. Request a new one to continue.",
+            );
+          setPhase(nextPhase);
+          if (shouldReloadLobbyAfterDisconnect(terminalPhase))
+            window.location.reload();
         }
       });
       await created.session.connect(result.credential);
@@ -210,10 +251,20 @@ export function LiveKitAttendeeRoom({
       )
         return;
       await clearSession();
-      setMessage(
-        "We could not connect to the webinar. Check your connection and try again.",
-      );
-      setPhase("error");
+      if (
+        credentialExpiresAt &&
+        !attendeeCredentialCanStartConnection(credentialExpiresAt)
+      ) {
+        setMessage(
+          "The secure join credential expired before the connection finished.",
+        );
+        setPhase("credential-expired");
+      } else {
+        setMessage(
+          "We could not connect to the webinar. Check your connection and try again.",
+        );
+        setPhase("error");
+      }
     } finally {
       if (request.current === abortController) request.current = null;
     }
@@ -252,13 +303,23 @@ export function LiveKitAttendeeRoom({
         ? "Connecting to the webinar…"
         : phase === "connected"
           ? "Connected to the webinar. Your camera and microphone are off."
-          : phase === "disconnected"
-            ? "The webinar connection ended."
-            : phase === "left"
-              ? "You left the webinar."
-              : phase === "unsupported"
-                ? "This browser cannot connect to the webinar. Use a current version of Chrome, Firefox, Safari or Edge."
-                : message;
+          : phase === "reconnecting"
+            ? "Your connection was interrupted. Reconnecting to the webinar…"
+            : phase === "disconnected"
+              ? "The webinar connection ended. Rejoin to ask Upskill to check your access again."
+              : phase === "duplicate"
+                ? "This webinar is open in another tab or browser. You can continue there or move the connection back to this tab."
+                : phase === "removed"
+                  ? "Your webinar access changed. Returning to the waiting room…"
+                  : phase === "ended"
+                    ? "The webinar has ended. Returning to the event page…"
+                    : phase === "credential-expired"
+                      ? message
+                      : phase === "left"
+                        ? "You left the webinar."
+                        : phase === "unsupported"
+                          ? "This browser cannot connect to the webinar. Use a current version of Chrome, Firefox, Safari or Edge."
+                          : message;
 
   return (
     <section className={classes.room} aria-labelledby="webinar-media-heading">
@@ -267,7 +328,7 @@ export function LiveKitAttendeeRoom({
           <h2 id="webinar-media-heading">Webinar room</h2>
           {statusMessage ? <p role="status">{statusMessage}</p> : null}
         </div>
-        {["requesting", "connecting", "connected", "disconnected"].includes(
+        {["requesting", "connecting", "connected", "reconnecting"].includes(
           phase,
         ) ? (
           <Button type="button" variant="light" onClick={() => void leave()}>
@@ -278,7 +339,7 @@ export function LiveKitAttendeeRoom({
         ) : null}
       </div>
 
-      {phase === "connected" ? (
+      {phase === "connected" || phase === "reconnecting" ? (
         <div className={classes.mediaRegion}>
           <div className={classes.videoGrid}>
             {videos.length > 0 ? (
@@ -302,9 +363,20 @@ export function LiveKitAttendeeRoom({
         </div>
       ) : null}
 
-      {phase === "idle" || phase === "left" || phase === "error" ? (
+      {[
+        "idle",
+        "left",
+        "error",
+        "disconnected",
+        "duplicate",
+        "credential-expired",
+      ].includes(phase) ? (
         <Button type="button" onClick={() => void join()}>
-          {phase === "left" ? "Join webinar again" : "Join webinar"}
+          {phase === "duplicate"
+            ? "Use this tab instead"
+            : ["left", "disconnected", "credential-expired"].includes(phase)
+              ? "Rejoin webinar"
+              : "Join webinar"}
         </Button>
       ) : null}
     </section>
