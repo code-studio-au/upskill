@@ -478,7 +478,11 @@ try {
   const guestParticipation = await database
     .selectFrom("event_participation")
     .innerJoin("user", "user.id", "event_participation.userId")
-    .select(["event_participation.id", "event_participation.mode"])
+    .select([
+      "event_participation.id",
+      "event_participation.mode",
+      "event_participation.userId",
+    ])
     .where("event_participation.eventOccurrenceId", "=", ids.occurrence)
     .where("user.email", "=", openEntryLearner.email)
     .executeTakeFirstOrThrow();
@@ -516,6 +520,27 @@ try {
   assert.equal(
     guestCapabilityWithUnrelatedLogin.data.admissionState,
     "admitted",
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      joinSessionToken: guestJoinSessionToken,
+      provider: new FakeLiveKitProvider(),
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "meeting_not_started" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select("actorUserId")
+      .where("action", "=", "event_virtual_lobby.attendee_token_denied")
+      .where("subjectType", "=", "event_virtual_join_access")
+      .where("subjectId", "=", access.id)
+      .where("reason", "=", "meeting_not_started")
+      .executeTakeFirstOrThrow()
+      .then((audit) => audit.actorUserId),
+    guestParticipation.userId,
+    "A denial must be attributed to the capability actor that won lobby resolution",
   );
   const openEntryAdmission = await resolveEventVirtualLobby(
     access.publicReference,

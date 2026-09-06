@@ -946,6 +946,7 @@ export async function resolveEventVirtualLobby(
     joinSessionToken?: string | null;
     clock?: () => Date;
     beforeEnsureLobbyEntry?: () => Promise<void>;
+    onActorResolved?: (actorUserId: string) => void;
   } = {},
 ): Promise<EventVirtualLobbyResult> {
   const destination = await findPublicDestination(
@@ -992,6 +993,7 @@ export async function resolveEventVirtualLobby(
       status: "ready",
       data: { ...empty, outcome: "authentication_required" },
     };
+  options.onActorResolved?.(actor.user.id);
   const participation = await eligibleParticipation(
     getDatabase(),
     destination,
@@ -1030,6 +1032,9 @@ export async function resolveEventVirtualLobby(
         {
           joinSessionToken: null,
           ...(options.clock ? { clock: options.clock } : {}),
+          ...(options.onActorResolved
+            ? { onActorResolved: options.onActorResolved }
+            : {}),
         },
       );
     return {
@@ -2075,10 +2080,16 @@ export async function issueEventVirtualAttendeeCredential(
     joinSessionToken?: string | null;
   } = {},
 ): Promise<EventVirtualAttendeeCredentialResult> {
+  let denialActorUserId = authenticatedUser?.id ?? null;
   const status = await resolveEventVirtualLobby(
     publicReference,
     authenticatedUser,
-    { joinSessionToken: options.joinSessionToken ?? null },
+    {
+      joinSessionToken: options.joinSessionToken ?? null,
+      onActorResolved: (actorUserId) => {
+        denialActorUserId = actorUserId;
+      },
+    },
   );
   if (status.status === "not-found") return { status: "not-found" };
   if (status.data.outcome === "authentication_required")
@@ -2088,7 +2099,7 @@ export async function issueEventVirtualAttendeeCredential(
       status.data.outcome === "declined" ? "revoked" : status.data.outcome;
     await recordLobbyDecisionCredentialDenial(
       publicReference,
-      authenticatedUser?.id ?? null,
+      denialActorUserId,
       reason,
     );
     return {
