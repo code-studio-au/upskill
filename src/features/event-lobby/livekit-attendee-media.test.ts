@@ -9,6 +9,7 @@ const events = {
   Connected: "connected",
   Reconnecting: "reconnecting",
   SignalReconnecting: "signalReconnecting",
+  SignalConnected: "signalConnected",
   Reconnected: "reconnected",
   Disconnected: "disconnected",
   ParticipantConnected: "participantConnected",
@@ -26,6 +27,8 @@ class FakeRoom {
   readonly listeners = new Map<string, Set<(reason?: number) => void>>();
   readonly remoteParticipants = new Map();
   readonly connect = vi.fn(() => {
+    this.state = "connecting";
+    this.emit(events.SignalConnected);
     this.state = "connected";
     this.emit(events.Connected);
     return Promise.resolve();
@@ -156,6 +159,69 @@ describe("LiveKit attendee media session", () => {
       connectionState: "reconnecting",
       disconnectReason: null,
     });
+
+    room.state = "connected";
+    room.emit(events.Reconnected);
+    expect(result.session.snapshot()).toMatchObject({
+      connected: true,
+      connectionState: "connected",
+      disconnectReason: null,
+    });
+  });
+
+  it("clears a signal-only reconnect without treating the initial signal handshake as connected", async () => {
+    const result = await createLiveKitAttendeeMediaSession(fakeClient());
+    if (result.status !== "ready") throw new Error("Expected a ready session");
+    const room = FakeRoom.last;
+    if (!room) throw new Error("Expected a fake LiveKit room");
+    const connectionStates: Array<string> = [];
+    result.session.subscribe((snapshot) => {
+      connectionStates.push(snapshot.connectionState);
+    });
+
+    await result.session.connect({
+      token: "short-lived-token",
+      websocketUrl: "wss://tenant.livekit.cloud",
+      expiresAt: "2026-09-06T10:05:00.000Z",
+      generation: 1,
+    });
+    expect(connectionStates.slice(0, 3)).toEqual([
+      "disconnected",
+      "connecting",
+      "connected",
+    ]);
+
+    room.state = "signalReconnecting";
+    room.emit(events.SignalReconnecting);
+    expect(result.session.snapshot().connectionState).toBe("reconnecting");
+
+    room.state = "connected";
+    room.emit(events.SignalConnected);
+    expect(result.session.snapshot()).toMatchObject({
+      connected: true,
+      connectionState: "connected",
+      disconnectReason: null,
+    });
+  });
+
+  it("waits for full media recovery when a signal interruption escalates", async () => {
+    const result = await createLiveKitAttendeeMediaSession(fakeClient());
+    if (result.status !== "ready") throw new Error("Expected a ready session");
+    const room = FakeRoom.last;
+    if (!room) throw new Error("Expected a fake LiveKit room");
+    await result.session.connect({
+      token: "short-lived-token",
+      websocketUrl: "wss://tenant.livekit.cloud",
+      expiresAt: "2026-09-06T10:05:00.000Z",
+      generation: 1,
+    });
+
+    room.state = "signalReconnecting";
+    room.emit(events.SignalReconnecting);
+    room.state = "reconnecting";
+    room.emit(events.Reconnecting);
+    room.emit(events.SignalConnected);
+    expect(result.session.snapshot().connectionState).toBe("reconnecting");
 
     room.state = "connected";
     room.emit(events.Reconnected);

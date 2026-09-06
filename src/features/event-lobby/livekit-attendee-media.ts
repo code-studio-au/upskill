@@ -76,6 +76,7 @@ export async function createLiveKitAttendeeMediaSession(
   let connectionState: AttendeeMediaSnapshot["connectionState"] =
     "disconnected";
   let disconnectReason: AttendeeMediaDisconnectReason = null;
+  let signalReconnectPending = false;
 
   const snapshot = (): AttendeeMediaSnapshot => ({
     connected: connectionState === "connected",
@@ -115,16 +116,29 @@ export async function createLiveKitAttendeeMediaSession(
   };
 
   const handleConnected = () => {
+    signalReconnectPending = false;
     connectionState = "connected";
     disconnectReason = null;
     notify();
   };
   const handleReconnecting = () => {
+    signalReconnectPending = false;
     connectionState = "reconnecting";
     disconnectReason = null;
     notify();
   };
+  const handleSignalReconnecting = () => {
+    signalReconnectPending = true;
+    connectionState = "reconnecting";
+    disconnectReason = null;
+    notify();
+  };
+  const handleSignalConnected = () => {
+    if (!signalReconnectPending) return;
+    handleConnected();
+  };
   const handleDisconnected = (reason?: number) => {
+    signalReconnectPending = false;
     connectionState = "disconnected";
     disconnectReason =
       reason === client.DisconnectReason.CLIENT_INITIATED
@@ -142,7 +156,8 @@ export async function createLiveKitAttendeeMediaSession(
 
   room.on(client.RoomEvent.Connected, handleConnected);
   room.on(client.RoomEvent.Reconnecting, handleReconnecting);
-  room.on(client.RoomEvent.SignalReconnecting, handleReconnecting);
+  room.on(client.RoomEvent.SignalReconnecting, handleSignalReconnecting);
+  room.on(client.RoomEvent.SignalConnected, handleSignalConnected);
   room.on(client.RoomEvent.Reconnected, handleConnected);
   room.on(client.RoomEvent.Disconnected, handleDisconnected);
   room.on(client.RoomEvent.ParticipantConnected, notify);
@@ -157,7 +172,8 @@ export async function createLiveKitAttendeeMediaSession(
   const removeRoomListeners = () => {
     room.off(client.RoomEvent.Connected, handleConnected);
     room.off(client.RoomEvent.Reconnecting, handleReconnecting);
-    room.off(client.RoomEvent.SignalReconnecting, handleReconnecting);
+    room.off(client.RoomEvent.SignalReconnecting, handleSignalReconnecting);
+    room.off(client.RoomEvent.SignalConnected, handleSignalConnected);
     room.off(client.RoomEvent.Reconnected, handleConnected);
     room.off(client.RoomEvent.Disconnected, handleDisconnected);
     room.off(client.RoomEvent.ParticipantConnected, notify);
