@@ -108,17 +108,22 @@ function secureEnvironment(): boolean {
   return ["production", "staging"].includes(getServerEnv().APP_ENV);
 }
 
-function cookieName(): string {
-  return secureEnvironment() ? SECURE_COOKIE : DEVELOPMENT_COOKIE;
+function cookieName(publicReference: string): string {
+  const prefix = secureEnvironment() ? SECURE_COOKIE : DEVELOPMENT_COOKIE;
+  return `${prefix}_${publicReference}`;
 }
 
-function challengeCookieName(): string {
-  return secureEnvironment()
+function challengeCookieName(publicReference: string): string {
+  const prefix = secureEnvironment()
     ? SECURE_CHALLENGE_COOKIE
     : DEVELOPMENT_CHALLENGE_COOKIE;
+  return `${prefix}_${publicReference}`;
 }
 
-function cookieValue(headers: Headers, name: string): string | null {
+function cookieValue(
+  headers: Pick<Headers, "get">,
+  name: string,
+): string | null {
   const cookie = headers.get("cookie");
   if (!cookie) return null;
   for (const pair of cookie.split(";")) {
@@ -129,10 +134,15 @@ function cookieValue(headers: Headers, name: string): string | null {
   return null;
 }
 
-function scopedCookie(name: string, value: string, maximumAge: number): string {
+function scopedCookie(
+  name: string,
+  value: string,
+  maximumAge: number,
+  publicReference: string,
+): string {
   return [
     `${name}=${value}`,
-    "Path=/webinars",
+    `Path=/webinars/${encodeURIComponent(publicReference)}`,
     "HttpOnly",
     "SameSite=Lax",
     `Max-Age=${String(maximumAge)}`,
@@ -140,8 +150,24 @@ function scopedCookie(name: string, value: string, maximumAge: number): string {
   ].join("; ");
 }
 
-export function eventVirtualJoinSessionCookie(token: string): string {
-  return scopedCookie(cookieName(), token, JOIN_SESSION_LIFETIME_MS / 1_000);
+export function eventVirtualJoinSessionCookie(
+  token: string,
+  publicReference: string,
+): string {
+  return scopedCookie(
+    cookieName(publicReference),
+    token,
+    JOIN_SESSION_LIFETIME_MS / 1_000,
+    publicReference,
+  );
+}
+
+export function readEventVirtualJoinSessionCookie(
+  headers: Pick<Headers, "get">,
+  publicReference: string,
+): string | null {
+  const token = cookieValue(headers, cookieName(publicReference));
+  return token && /^[A-Za-z0-9_-]{43}$/u.test(token) ? token : null;
 }
 
 export async function issueEventVirtualGuestJoinSession(
@@ -203,22 +229,37 @@ export async function issueEventVirtualGuestJoinSession(
   return token;
 }
 
-export function eventVirtualChallengeCookie(reference: string): string {
+export function eventVirtualChallengeCookie(
+  reference: string,
+  publicReference: string,
+): string {
   return scopedCookie(
-    challengeCookieName(),
+    challengeCookieName(publicReference),
     reference,
     CHALLENGE_LIFETIME_MS / 1_000,
+    publicReference,
   );
 }
 
-export function clearEventVirtualChallengeCookie(): string {
-  return scopedCookie(challengeCookieName(), "", 0);
+export function clearEventVirtualChallengeCookie(
+  publicReference: string,
+): string {
+  return scopedCookie(
+    challengeCookieName(publicReference),
+    "",
+    0,
+    publicReference,
+  );
 }
 
 export function readEventVirtualChallengeCookie(
   request: Request,
+  publicReference: string,
 ): string | null {
-  const reference = cookieValue(request.headers, challengeCookieName());
+  const reference = cookieValue(
+    request.headers,
+    challengeCookieName(publicReference),
+  );
   return reference && /^[A-Za-z0-9_-]{32}$/u.test(reference) ? reference : null;
 }
 
@@ -464,8 +505,7 @@ async function recoveredActor(
   destination: PublicDestination,
   tokenOverride?: string | null,
 ): Promise<VirtualLobbyActor | null> {
-  if (tokenOverride === null) return null;
-  const token = tokenOverride ?? cookieValue(getRequestHeaders(), cookieName());
+  const token = tokenOverride;
   if (!token || !/^[A-Za-z0-9_-]{43}$/u.test(token)) return null;
   const now = new Date();
   const idleAfter = new Date(now.getTime() - JOIN_SESSION_IDLE_MS);
@@ -1771,7 +1811,7 @@ export async function verifyEventVirtualRecoveryCode(
 async function actorAndEntry(
   publicReference: string,
   authenticatedUser: AuthenticatedUser | null,
-  joinSessionToken?: string,
+  joinSessionToken?: string | null,
 ) {
   const destination = await findPublicDestination(
     getDatabase(),
@@ -1807,6 +1847,7 @@ async function actorAndEntry(
 export async function acknowledgeEventVirtualRecording(
   publicReference: string,
   authenticatedUser: AuthenticatedUser | null,
+  joinSessionToken?: string | null,
 ): Promise<EventVirtualLobbyMutationResult> {
   const database = getDatabase();
   const initialDestination = await findPublicDestination(
@@ -1814,7 +1855,11 @@ export async function acknowledgeEventVirtualRecording(
     publicReference,
   );
   if (!initialDestination) return { status: "not-found" };
-  const actor = await resolveActor(initialDestination, authenticatedUser);
+  const actor = await resolveActor(
+    initialDestination,
+    authenticatedUser,
+    joinSessionToken,
+  );
   if (!actor) return { status: "unauthenticated" };
   return await database.transaction().execute(async (transaction) => {
     const occurrence = await transaction
@@ -1941,15 +1986,13 @@ export async function issueEventVirtualAttendeeCredential(
   options: {
     provider?: LiveKitProvider;
     websocketUrl?: string;
-    joinSessionToken?: string;
+    joinSessionToken?: string | null;
   } = {},
 ): Promise<EventVirtualAttendeeCredentialResult> {
   const status = await resolveEventVirtualLobby(
     publicReference,
     authenticatedUser,
-    options.joinSessionToken
-      ? { joinSessionToken: options.joinSessionToken }
-      : {},
+    { joinSessionToken: options.joinSessionToken ?? null },
   );
   if (status.status === "not-found") return { status: "not-found" };
   if (status.data.outcome === "authentication_required")

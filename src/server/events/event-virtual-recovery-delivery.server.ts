@@ -74,9 +74,8 @@ export async function lockEligibleRecoveryTarget(
     .executeTakeFirst();
   const room = await transaction
     .selectFrom("event_virtual_room")
-    .select("doorState")
+    .select(["doorState", "generation"])
     .where("eventSessionId", "=", input.eventSessionId)
-    .where("generation", "=", input.roomGeneration)
     .where("replacedAt", "is", null)
     .forUpdate()
     .executeTakeFirst();
@@ -98,9 +97,10 @@ export async function lockEligibleRecoveryTarget(
     occurrence.status !== "published" ||
     !session ||
     session.virtualDeliveryProvider !== "livekit" ||
-    !room ||
-    room.doorState === "ended" ||
-    (room.doorState === "scheduled" && session.endsAt <= input.now) ||
+    (room && room.generation !== input.roomGeneration) ||
+    room?.doorState === "ended" ||
+    ((!room || room.doorState === "scheduled") &&
+      session.endsAt <= input.now) ||
     !access
   )
     return null;

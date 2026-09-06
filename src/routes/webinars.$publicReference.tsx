@@ -68,6 +68,10 @@ export const Route = createFileRoute("/webinars/$publicReference")({
           );
         const recovery =
           await import("#/server/events/event-virtual-lobby.server");
+        const joinSessionToken = recovery.readEventVirtualJoinSessionCookie(
+          request.headers,
+          publicReference,
+        );
         const intent = form.get("intent");
         if (intent === "credential") {
           const { getRequestUser } =
@@ -75,6 +79,7 @@ export const Route = createFileRoute("/webinars/$publicReference")({
           const result = await recovery.issueEventVirtualAttendeeCredential(
             publicReference,
             await getRequestUser(),
+            { joinSessionToken },
           );
           return Response.json(result, {
             status:
@@ -98,6 +103,7 @@ export const Route = createFileRoute("/webinars/$publicReference")({
           const result = await recovery.acknowledgeEventVirtualRecording(
             publicReference,
             await getRequestUser(),
+            joinSessionToken,
           );
           return redirectResponse(
             routeLocation(
@@ -134,11 +140,16 @@ export const Route = createFileRoute("/webinars/$publicReference")({
               routeLocation(publicReference, result.status),
             );
           return redirectResponse(routeLocation(publicReference, "sent"), [
-            recovery.eventVirtualChallengeCookie(result.challengeReference),
+            recovery.eventVirtualChallengeCookie(
+              result.challengeReference,
+              publicReference,
+            ),
           ]);
         }
-        const challengeReference =
-          recovery.readEventVirtualChallengeCookie(request);
+        const challengeReference = recovery.readEventVirtualChallengeCookie(
+          request,
+          publicReference,
+        );
         const input = (
           await import("#/features/event-lobby/event-virtual-recovery.schema")
         ).eventVirtualRecoveryVerificationSchema.safeParse({
@@ -164,8 +175,11 @@ export const Route = createFileRoute("/webinars/$publicReference")({
             routeLocation(publicReference, result.status),
           );
         return redirectResponse(routeLocation(publicReference), [
-          recovery.eventVirtualJoinSessionCookie(result.joinSessionToken),
-          recovery.clearEventVirtualChallengeCookie(),
+          recovery.eventVirtualJoinSessionCookie(
+            result.joinSessionToken,
+            publicReference,
+          ),
+          recovery.clearEventVirtualChallengeCookie(publicReference),
         ]);
       },
     },

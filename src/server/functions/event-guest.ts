@@ -33,12 +33,19 @@ export const submitPublicEventGuestAccess = createServerFn({ method: "POST" })
       Pragma: "no-cache",
       "Referrer-Policy": "no-referrer",
     });
-    if (result.status === "ready" && result.joinSessionToken) {
+    if (
+      result.status === "ready" &&
+      result.joinSessionToken &&
+      result.joinSessionPublicReference
+    ) {
       const { eventVirtualJoinSessionCookie } =
         await import("#/server/events/event-virtual-lobby.server");
       headers.set(
         "Set-Cookie",
-        eventVirtualJoinSessionCookie(result.joinSessionToken),
+        eventVirtualJoinSessionCookie(
+          result.joinSessionToken,
+          result.joinSessionPublicReference,
+        ),
       );
       headers.set("Location", result.data.destinationUrl ?? "/");
       return new Response(null, { status: 204, headers });

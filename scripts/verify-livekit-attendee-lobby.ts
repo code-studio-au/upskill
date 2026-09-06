@@ -342,6 +342,31 @@ try {
       })),
     )
     .execute();
+  const access = await database.transaction().execute(async (transaction) =>
+    ensureEventVirtualJoinAccess(transaction, {
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      roomGeneration: 1,
+      actorUserId: administrator.id,
+      now: createdAt,
+    }),
+  );
+  const prePreparationRecovery = await requestEventVirtualRecoveryCode(
+    { publicReference: access.publicReference, identifier: learner.email },
+    "preparation-recovery".padEnd(43, "x"),
+    { requestLimitStore: new Map() },
+  );
+  assert.equal(prePreparationRecovery.status, "accepted");
+  assert.ok("challengeReference" in prePreparationRecovery);
+  const prePreparationChallenge = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", prePreparationRecovery.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await processAvailableEventVirtualRecoveryDeliveries(1), {
+    outcomes: [{ status: "sent", challengeId: prePreparationChallenge.id }],
+    limitReached: true,
+  });
   await database
     .insertInto("event_virtual_room")
     .values({
@@ -375,15 +400,6 @@ try {
       replacedAt: null,
     })
     .execute();
-  const access = await database.transaction().execute(async (transaction) =>
-    ensureEventVirtualJoinAccess(transaction, {
-      eventOccurrenceId: ids.occurrence,
-      eventSessionId: ids.session,
-      roomGeneration: 1,
-      actorUserId: administrator.id,
-      now: createdAt,
-    }),
-  );
 
   await database
     .updateTable("event_occurrence")

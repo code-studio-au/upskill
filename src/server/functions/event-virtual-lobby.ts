@@ -80,7 +80,8 @@ function presentation(
 export const getEventVirtualLobby = createServerFn({ method: "GET" })
   .validator(eventVirtualLobbyReferenceSchema)
   .handler(async ({ data }): Promise<EventVirtualLobbyPageResult> => {
-    const { setResponseHeaders } = await import("@tanstack/react-start/server");
+    const { getRequestHeaders, setResponseHeaders } =
+      await import("@tanstack/react-start/server");
     setResponseHeaders(
       new Headers({
         "Cache-Control": "private, no-store",
@@ -90,11 +91,17 @@ export const getEventVirtualLobby = createServerFn({ method: "GET" })
       }),
     );
     const { getRequestUser } = await import("#/server/auth/session.server");
-    const { resolveEventVirtualLobby } =
+    const { readEventVirtualJoinSessionCookie, resolveEventVirtualLobby } =
       await import("#/server/events/event-virtual-lobby.server");
     const result = await resolveEventVirtualLobby(
       data.publicReference,
       await getRequestUser(),
+      {
+        joinSessionToken: readEventVirtualJoinSessionCookie(
+          getRequestHeaders(),
+          data.publicReference,
+        ),
+      },
     );
     if (result.status === "not-found") return result;
     return {

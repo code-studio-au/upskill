@@ -32,6 +32,7 @@ export type EventGuestSubmissionServerResult =
   | Exclude<EventGuestSubmissionResult, { status: "ready" }>
   | (Extract<EventGuestSubmissionResult, { status: "ready" }> & {
       joinSessionToken?: string;
+      joinSessionPublicReference?: string;
     });
 
 function issuePublicReference(): string {
@@ -514,7 +515,12 @@ export async function submitPublicEventGuestAccess(
           attendanceState,
           accountSetupRequested: provisioned.created,
         },
-        ...(joinSessionToken ? { joinSessionToken } : {}),
+        ...(joinSessionToken && virtualDestination
+          ? {
+              joinSessionToken,
+              joinSessionPublicReference: virtualDestination.publicReference,
+            }
+          : {}),
       } as const;
     });
 }
