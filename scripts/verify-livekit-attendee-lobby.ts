@@ -3605,6 +3605,11 @@ try {
     ],
   );
   assert.equal(
+    connectionLimitStore.size,
+    11,
+    "A connection over budget must not allocate buckets for rotating identifiers",
+  );
+  assert.equal(
     await database
       .selectFrom("audit_event")
       .select((expression) => expression.fn.countAll<string>().as("count"))

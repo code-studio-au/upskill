@@ -285,22 +285,26 @@ function consumeRequestLimit(
   store = requestLimits,
 ): boolean {
   const now = Date.now();
-  return (
-    consumeFixedWindowRateLimit(
-      store,
-      `identifier:${publicReference}:${identifierDigest}`,
-      now,
-      {
-        maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
-        maximumRequests: 3,
-        windowMs: RATE_LIMIT_WINDOW_MS,
-      },
-    ) &&
-    consumeFixedWindowRateLimit(store, `connection:${fingerprint}`, now, {
+  const connectionAllowed = consumeFixedWindowRateLimit(
+    store,
+    `connection:${fingerprint}`,
+    now,
+    {
       maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
       maximumRequests: 10,
       windowMs: RATE_LIMIT_WINDOW_MS,
-    })
+    },
+  );
+  if (!connectionAllowed) return false;
+  return consumeFixedWindowRateLimit(
+    store,
+    `identifier:${publicReference}:${identifierDigest}`,
+    now,
+    {
+      maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
+      maximumRequests: 3,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+    },
   );
 }
 

@@ -42,6 +42,10 @@ const TASK_SESSION_IDLE_MS = 10 * 60_000;
 const RATE_LIMIT_WINDOW_MS = 15 * 60_000;
 const RATE_LIMIT_MAXIMUM_ENTRIES = 20_000;
 const requestLimits = new Map<string, FixedWindowRateLimitEntry>();
+
+interface RecoveryRequestOverrides {
+  requestLimitStore?: Map<string, FixedWindowRateLimitEntry>;
+}
 const DEVELOPMENT_COOKIE = "upskill_event_task";
 const SECURE_COOKIE = "__Host-upskill_event_task";
 const DEVELOPMENT_CHALLENGE_COOKIE = "upskill_event_challenge";
@@ -168,20 +172,11 @@ function consumeRequestLimit(
   publicReference: string,
   identifierDigest: string,
   fingerprint: string,
+  store = requestLimits,
 ): boolean {
   const now = Date.now();
-  const identifierAllowed = consumeFixedWindowRateLimit(
-    requestLimits,
-    `identifier:${publicReference}:${identifierDigest}`,
-    now,
-    {
-      maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
-      maximumRequests: 3,
-      windowMs: RATE_LIMIT_WINDOW_MS,
-    },
-  );
   const connectionAllowed = consumeFixedWindowRateLimit(
-    requestLimits,
+    store,
     `connection:${fingerprint}`,
     now,
     {
@@ -190,7 +185,17 @@ function consumeRequestLimit(
       windowMs: RATE_LIMIT_WINDOW_MS,
     },
   );
-  return identifierAllowed && connectionAllowed;
+  if (!connectionAllowed) return false;
+  return consumeFixedWindowRateLimit(
+    store,
+    `identifier:${publicReference}:${identifierDigest}`,
+    now,
+    {
+      maximumEntries: RATE_LIMIT_MAXIMUM_ENTRIES,
+      maximumRequests: 3,
+      windowMs: RATE_LIMIT_WINDOW_MS,
+    },
+  );
 }
 
 async function findPublicDestination(
@@ -427,6 +432,7 @@ export async function requestEventRecoveryCode(
     identifier: string;
   },
   requestFingerprintOverride?: string,
+  requestOverrides: RecoveryRequestOverrides = {},
 ): Promise<EventRecoveryRequestResult> {
   const database = getDatabase();
   const normalizedPhone = normalizeInternationalPhone(input.identifier);
@@ -441,7 +447,12 @@ export async function requestEventRecoveryCode(
   const fingerprint =
     requestFingerprintOverride ?? requestFingerprint(input.publicReference);
   if (
-    !consumeRequestLimit(input.publicReference, identifierDigest, fingerprint)
+    !consumeRequestLimit(
+      input.publicReference,
+      identifierDigest,
+      fingerprint,
+      requestOverrides.requestLimitStore,
+    )
   )
     return { status: "rate-limited" };
   const destination = await findPublicDestination(
