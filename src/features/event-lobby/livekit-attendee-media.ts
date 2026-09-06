@@ -42,6 +42,13 @@ export type AttendeeMediaSessionResult =
 
 const defaultClientLoader: LiveKitClientLoader = () => import("livekit-client");
 
+export async function isLiveKitAttendeeMediaSupported(
+  loadClient: LiveKitClientLoader = defaultClientLoader,
+): Promise<boolean> {
+  const client = await loadClient();
+  return client.isBrowserSupported();
+}
+
 export async function createLiveKitAttendeeMediaSession(
   loadClient: LiveKitClientLoader = defaultClientLoader,
 ): Promise<AttendeeMediaSessionResult> {

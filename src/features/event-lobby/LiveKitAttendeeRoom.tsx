@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  eventVirtualAttendeeCredentialResultSchema,
-  type EventVirtualAttendeeCredentialResult,
-} from "./event-virtual-lobby.schema";
+import { type EventVirtualAttendeeCredentialResult } from "./event-virtual-lobby.schema";
+import { prepareLiveKitAttendeeJoin } from "./livekit-attendee-join";
 import {
   createLiveKitAttendeeMediaSession,
   type AttendeeMediaSession,
@@ -52,45 +50,6 @@ function credentialErrorMessage(
       "The webinar connection is temporarily unavailable. Try again shortly.",
   } as const;
   return messages[result.reason];
-}
-
-async function requestCredential(
-  publicReference: string,
-  signal: AbortSignal,
-): Promise<EventVirtualAttendeeCredentialResult> {
-  const body = new FormData();
-  body.set("intent", "credential");
-  const response = await fetch(
-    `/webinars/${encodeURIComponent(publicReference)}`,
-    {
-      method: "POST",
-      credentials: "same-origin",
-      headers: { Accept: "application/json" },
-      body,
-      signal,
-    },
-  );
-  if (!response.ok) {
-    if (![401, 404, 409].includes(response.status))
-      throw new Error("Unexpected attendee credential response");
-    const payload: unknown = await response.json();
-    const parsed =
-      eventVirtualAttendeeCredentialResultSchema.safeParse(payload);
-    if (
-      !parsed.success ||
-      parsed.data.status === "ready" ||
-      (parsed.data.status === "unauthenticated" && response.status !== 401) ||
-      (parsed.data.status === "not-found" && response.status !== 404) ||
-      (parsed.data.status === "conflict" && response.status !== 409)
-    )
-      throw new Error("Invalid attendee credential response");
-    return parsed.data;
-  }
-  const payload: unknown = await response.json();
-  const parsed = eventVirtualAttendeeCredentialResultSchema.safeParse(payload);
-  if (!parsed.success || parsed.data.status !== "ready")
-    throw new Error("Invalid attendee credential response");
-  return parsed.data;
 }
 
 function RemoteAudio({ track }: { track: AttendeeMediaTrack }) {
@@ -189,11 +148,16 @@ export function LiveKitAttendeeRoom({
     setAudioBlocked(false);
     setPhase("requesting");
     try {
-      const result = await requestCredential(
+      const preparation = await prepareLiveKitAttendeeJoin(
         publicReference,
         abortController.signal,
       );
       if (operation.current !== currentOperation) return;
+      if (preparation.status === "unsupported") {
+        setPhase("unsupported");
+        return;
+      }
+      const result = preparation.result;
       if (result.status !== "ready") {
         if (
           result.status !== "conflict" ||

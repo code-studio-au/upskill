@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createLiveKitAttendeeMediaSession,
+  isLiveKitAttendeeMediaSupported,
   type LiveKitClientLoader,
 } from "./livekit-attendee-media";
 
@@ -74,6 +75,13 @@ function fakeClient(supported = true): LiveKitClientLoader {
 describe("LiveKit attendee media session", () => {
   beforeEach(() => {
     FakeRoom.last = null;
+  });
+
+  it("checks browser support without creating a room", async () => {
+    await expect(
+      isLiveKitAttendeeMediaSupported(fakeClient(false)),
+    ).resolves.toBe(false);
+    expect(FakeRoom.last).toBeNull();
   });
 
   it("refuses to create a room in an unsupported browser", async () => {
