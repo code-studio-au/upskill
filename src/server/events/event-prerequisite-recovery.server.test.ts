@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { FixedWindowRateLimitEntry } from "#/features/event-guest/event-guest-rate-limit";
 
 const mocks = vi.hoisted(() => {
   const selectResults = new Map<string, Array<unknown>>();
@@ -337,6 +338,39 @@ describe("event prerequisite recovery boundary", () => {
     expect((await requestEventRecoveryCode(input)).status).toBe("accepted");
     expect((await requestEventRecoveryCode(input)).status).toBe("accepted");
     expect((await requestEventRecoveryCode(input)).status).toBe("rate-limited");
+  });
+
+  it("does not allocate identifier buckets after a connection is limited", async () => {
+    mocks.selectResults.set(
+      "event_survey_access as access",
+      Array.from({ length: 10 }, () => ({ ...destination })),
+    );
+    mocks.selectResults.set(
+      "event_participation as participation",
+      Array.from({ length: 10 }, () => undefined),
+    );
+    const requestLimitStore = new Map<string, FixedWindowRateLimitEntry>();
+    const { requestEventRecoveryCode } =
+      await import("./event-prerequisite-recovery.server");
+    const statuses = [];
+    for (let index = 0; index < 22; index += 1)
+      statuses.push(
+        (
+          await requestEventRecoveryCode(
+            {
+              publicReference: `rotating-reference-${String(index)}`,
+              identifier: "rotating@example.com",
+            },
+            "shared-connection",
+            { requestLimitStore },
+          )
+        ).status,
+      );
+    expect(statuses).toEqual([
+      ...Array.from({ length: 10 }, () => "accepted" as const),
+      ...Array.from({ length: 12 }, () => "rate-limited" as const),
+    ]);
+    expect(requestLimitStore.size).toBe(11);
   });
 
   it("fails closed and records only safe telemetry when delivery fails", async () => {

@@ -7,6 +7,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { enqueuePhoneVerificationTransferredNotification } from "#/server/notifications/notification.server";
+import { revokeEventVirtualLobbyEntriesForJoinSessions } from "#/server/events/event-virtual-lobby-reconciliation.server";
 
 export const CONTACT_CHALLENGE_LIFETIME_MS = 10 * 60_000;
 export const CONTACT_RATE_LIMIT_WINDOW_MS = 15 * 60_000;
@@ -89,6 +90,70 @@ async function revokeSmsRecoveryAccess(
     .set({ consumedAt: revokedAt })
     .where("userId", "in", userIds)
     .where("deliveryChannel", "=", "sms")
+    .where("consumedAt", "is", null)
+    .execute();
+  const virtualRecoveryChallenges = await transaction
+    .selectFrom("event_virtual_recovery_challenge")
+    .select(["id", "eventVirtualJoinAccessId"])
+    .where("userId", "in", userIds)
+    .where("channel", "=", "sms")
+    .orderBy("eventVirtualJoinAccessId")
+    .orderBy("id")
+    .execute();
+  const virtualRecoveryChallengeIds = virtualRecoveryChallenges.map(
+    (challenge) => challenge.id,
+  );
+  const virtualJoinAccessIds = [
+    ...new Set(
+      virtualRecoveryChallenges.map(
+        (challenge) => challenge.eventVirtualJoinAccessId,
+      ),
+    ),
+  ].sort();
+  // Recovery verification locks access before its challenge. Keep phone
+  // invalidation in that same order so a profile change or phone transfer
+  // cannot deadlock a concurrent verification transaction.
+  if (virtualJoinAccessIds.length)
+    await transaction
+      .selectFrom("event_virtual_join_access")
+      .select("id")
+      .where("id", "in", virtualJoinAccessIds)
+      .orderBy("id")
+      .forUpdate()
+      .execute();
+  const invalidatedJoinSessions = virtualRecoveryChallengeIds.length
+    ? await transaction
+        .selectFrom("event_virtual_join_session")
+        .select("id")
+        .where("challengeId", "in", virtualRecoveryChallengeIds)
+        .orderBy("id")
+        .execute()
+    : [];
+  await revokeEventVirtualLobbyEntriesForJoinSessions(transaction, {
+    joinSessionIds: invalidatedJoinSessions.map((session) => session.id),
+    now: revokedAt,
+    source: "verified_phone_invalidated",
+  });
+  if (virtualRecoveryChallengeIds.length)
+    await transaction
+      .selectFrom("event_virtual_recovery_challenge")
+      .select("id")
+      .where("id", "in", virtualRecoveryChallengeIds)
+      .orderBy("id")
+      .forUpdate()
+      .execute();
+  if (virtualRecoveryChallengeIds.length)
+    await transaction
+      .updateTable("event_virtual_join_session")
+      .set({ revokedAt })
+      .where("challengeId", "in", virtualRecoveryChallengeIds)
+      .where("revokedAt", "is", null)
+      .execute();
+  await transaction
+    .updateTable("event_virtual_recovery_challenge")
+    .set({ consumedAt: revokedAt })
+    .where("userId", "in", userIds)
+    .where("channel", "=", "sms")
     .where("consumedAt", "is", null)
     .execute();
 }

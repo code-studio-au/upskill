@@ -15,6 +15,54 @@ import {
   down as downRoomLifecycle,
   up as upRoomLifecycle,
 } from "#/server/db/migrations/0086_livekit_room_lifecycle";
+import {
+  down as downAttendeeLobby,
+  up as upAttendeeLobby,
+} from "#/server/db/migrations/0087_livekit_attendee_lobby";
+import {
+  down as downLobbyRevision,
+  up as upLobbyRevision,
+} from "#/server/db/migrations/0088_livekit_lobby_revision";
+import {
+  down as downParticipantOperations,
+  up as upParticipantOperations,
+} from "#/server/db/migrations/0089_livekit_participant_operations";
+import {
+  down as downRecoveryDeliveryQueue,
+  up as upRecoveryDeliveryQueue,
+} from "#/server/db/migrations/0090_livekit_recovery_delivery_queue";
+import {
+  down as downCredentialReservationIndex,
+  up as upCredentialReservationIndex,
+} from "#/server/db/migrations/0091_livekit_credential_reservation_index";
+import {
+  down as downRecoveryOutcomeAudit,
+  up as upRecoveryOutcomeAudit,
+} from "#/server/db/migrations/0092_livekit_recovery_outcome_audit";
+import {
+  down as downAttendeeTokenDenialAudit,
+  up as upAttendeeTokenDenialAudit,
+} from "#/server/db/migrations/0093_livekit_attendee_token_denial_audit";
+import {
+  down as downPresenterTokenDenialAudit,
+  up as upPresenterTokenDenialAudit,
+} from "#/server/db/migrations/0094_livekit_presenter_token_denial_audit";
+import {
+  down as downPresenterCredentialReservations,
+  up as upPresenterCredentialReservations,
+} from "#/server/db/migrations/0095_livekit_presenter_credential_reservations";
+import {
+  down as downPresenterParticipantOperations,
+  up as upPresenterParticipantOperations,
+} from "#/server/db/migrations/0096_livekit_presenter_participant_operations";
+import {
+  down as downOpenEntryJoinSessions,
+  up as upOpenEntryJoinSessions,
+} from "#/server/db/migrations/0097_livekit_open_entry_join_sessions";
+import {
+  down as downParticipantRemovalEnforcement,
+  up as upParticipantRemovalEnforcement,
+} from "#/server/db/migrations/0098_livekit_participant_removal_enforcement";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -41,6 +89,18 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downParticipantRemovalEnforcement(database);
+  await downOpenEntryJoinSessions(database);
+  await downPresenterParticipantOperations(database);
+  await downPresenterCredentialReservations(database);
+  await downPresenterTokenDenialAudit(database);
+  await downAttendeeTokenDenialAudit(database);
+  await downRecoveryOutcomeAudit(database);
+  await downCredentialReservationIndex(database);
+  await downRecoveryDeliveryQueue(database);
+  await downParticipantOperations(database);
+  await downLobbyRevision(database);
+  await downAttendeeLobby(database);
   await downRoomLifecycle(database);
   await downProviderPolicy(database);
   await database
@@ -155,6 +215,18 @@ try {
 
   await upProviderPolicy(database);
   await upRoomLifecycle(database);
+  await upAttendeeLobby(database);
+  await upLobbyRevision(database);
+  await upParticipantOperations(database);
+  await upRecoveryDeliveryQueue(database);
+  await upCredentialReservationIndex(database);
+  await upRecoveryOutcomeAudit(database);
+  await upAttendeeTokenDenialAudit(database);
+  await upPresenterTokenDenialAudit(database);
+  await upPresenterCredentialReservations(database);
+  await upPresenterParticipantOperations(database);
+  await upOpenEntryJoinSessions(database);
+  await upParticipantRemovalEnforcement(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -664,10 +736,31 @@ try {
     try {
       await upProviderPolicy(database);
       await upRoomLifecycle(database);
+      await upAttendeeLobby(database);
+      await upLobbyRevision(database);
+      await upParticipantOperations(database);
+      await upRecoveryDeliveryQueue(database);
+      await upCredentialReservationIndex(database);
+      await upRecoveryOutcomeAudit(database);
+      await upAttendeeTokenDenialAudit(database);
+      await upPresenterTokenDenialAudit(database);
+      await upPresenterCredentialReservations(database);
+      await upPresenterParticipantOperations(database);
+      await upOpenEntryJoinSessions(database);
+      await upParticipantRemovalEnforcement(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }
   if (migrationRestored) {
+    await database
+      .deleteFrom("event_virtual_join_access")
+      .where("eventOccurrenceId", "in", (builder) =>
+        builder
+          .selectFrom("event_occurrence")
+          .select("id")
+          .where("eventTemplateVersionId", "=", ids.version),
+      )
+      .execute();
     await database
       .deleteFrom("event_virtual_room")
       .where("id", "=", ids.preparedRoom)

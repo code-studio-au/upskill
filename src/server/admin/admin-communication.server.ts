@@ -658,18 +658,25 @@ export async function previewOfferingCommunication(
 
     if (item?.sessionDefinitionId) {
       const session = await database
-        .selectFrom("event_session")
+        .selectFrom("event_session as session")
+        .leftJoin("event_virtual_join_access as joinAccess", (join) =>
+          join
+            .onRef("joinAccess.eventSessionId", "=", "session.id")
+            .on("joinAccess.revokedAt", "is", null),
+        )
         .select([
-          "id",
-          "title",
-          "startsAt",
-          "endsAt",
-          "venueName",
-          "venueAddress",
-          "virtualJoinUrl",
+          "session.id",
+          "session.title",
+          "session.startsAt",
+          "session.endsAt",
+          "session.venueName",
+          "session.venueAddress",
+          "session.virtualJoinUrl",
+          "session.virtualDeliveryProvider",
+          "joinAccess.publicReference as virtualJoinReference",
         ])
-        .where("eventOccurrenceId", "=", event.id)
-        .where("sessionDefinitionId", "=", item.sessionDefinitionId)
+        .where("session.eventOccurrenceId", "=", event.id)
+        .where("session.sessionDefinitionId", "=", item.sessionDefinitionId)
         .executeTakeFirst();
       if (session) {
         const presenters = await database
@@ -714,9 +721,12 @@ export async function previewOfferingCommunication(
         variables["session.venueName"] = venueName ?? "Not applicable";
         variables["session.venueAddress"] = venueAddress ?? "Not applicable";
         variables["session.virtualJoinUrl"] =
-          session.virtualJoinUrl ??
-          event.virtualJoinUrl ??
-          `${baseUrl}/my-events/${event.id}`;
+          session.virtualDeliveryProvider === "livekit" &&
+          session.virtualJoinReference
+            ? `${baseUrl}/webinars/${session.virtualJoinReference}`
+            : (session.virtualJoinUrl ??
+              event.virtualJoinUrl ??
+              `${baseUrl}/my-events/${event.id}`);
         variables["session.presenterNames"] =
           presenterNames.length > 0
             ? new Intl.ListFormat("en-AU", {

@@ -1,0 +1,4350 @@
+import assert from "node:assert/strict";
+import { sql } from "kysely";
+import type { AuthenticatedUser } from "#/server/auth/session.server";
+import type { FixedWindowRateLimitEntry } from "#/features/event-guest/event-guest-rate-limit";
+import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import {
+  ensureEventGuestAccessRecord,
+  rotateEventGuestAccessRecord,
+  submitPublicEventGuestAccess,
+} from "#/server/events/event-guest-access.server";
+import { ensureEventVirtualJoinAccess } from "#/server/events/event-virtual-join-access.server";
+import {
+  acknowledgeEventVirtualRecording,
+  issueEventVirtualAttendeeCredential,
+  mutateEventVirtualLobbyAdmission,
+  recordEventVirtualRecoveryRequestInputRejected,
+  recordEventVirtualRecoveryVerificationInputRejected,
+  requestEventVirtualRecoveryCode,
+  resolveEventVirtualLobby,
+  verifyEventVirtualRecoveryCode,
+} from "#/server/events/event-virtual-lobby.server";
+import {
+  lockEligibleRecoveryTarget,
+  processAvailableEventVirtualRecoveryDeliveries,
+} from "#/server/events/event-virtual-recovery-delivery.server";
+import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
+import { eventVirtualAttendeeIdentity } from "#/server/events/event-virtual-participant-identity.server";
+import {
+  findEventVirtualLobbyQueue,
+  processAvailableEventVirtualRoomOperations,
+  setEventVirtualRoomAdmissionMode,
+  transitionEventVirtualRoom,
+} from "#/server/events/event-virtual-room.server";
+import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
+import {
+  type CreateLiveKitJoinTokenInput,
+  LiveKitProviderError,
+} from "#/server/livekit/livekit-provider.server";
+import { buildEventNotificationVariables } from "#/server/notifications/offering-event-context.server";
+import { invalidateVerifiedPhone } from "#/server/profile/contact-verification-core.server";
+
+class MutatingJoinProvider extends FakeLiveKitProvider {
+  constructor(private readonly mutation: () => Promise<void>) {
+    super();
+  }
+
+  override async createJoinToken(input: CreateLiveKitJoinTokenInput) {
+    const credential = await super.createJoinToken(input);
+    await this.mutation();
+    return credential;
+  }
+}
+
+class UnavailableParticipantsProvider extends FakeLiveKitProvider {
+  override listParticipants(): Promise<never> {
+    return Promise.reject(new LiveKitProviderError("list_participants"));
+  }
+}
+
+class AdvancingParticipantsProvider extends FakeLiveKitProvider {
+  private listCalls = 0;
+
+  constructor(
+    clock: () => Date,
+    private readonly advanceOnCall: number,
+    private readonly advance: () => void,
+  ) {
+    super(clock);
+  }
+
+  override async listParticipants(roomName: string) {
+    const participants = await super.listParticipants(roomName);
+    this.listCalls += 1;
+    if (this.listCalls === this.advanceOnCall) this.advance();
+    return participants;
+  }
+}
+
+const ids = {
+  administrator: "verify_livekit_lobby_administrator",
+  learner: "verify_livekit_lobby_learner",
+  secondLearner: "verify_livekit_lobby_second_learner",
+  coordinator: "verify_livekit_lobby_coordinator",
+  openEntryLearner: "verify_livekit_lobby_open_entry_learner",
+  template: "verify_livekit_lobby_template",
+  version: "verify_livekit_lobby_version",
+  definition: "verify_livekit_lobby_definition",
+  otherDefinition: "verify_livekit_lobby_other_definition",
+  occurrence: "verify_livekit_lobby_occurrence",
+  session: "verify_livekit_lobby_session",
+  otherSession: "verify_livekit_lobby_other_session",
+  room: "verify_livekit_lobby_room",
+  survey: "verify_livekit_lobby_survey",
+  surveyVersion: "verify_livekit_lobby_survey_version",
+  questionnaireAssignment: "verify_livekit_lobby_questionnaire_assignment",
+  secondQuestionnaireAssignment:
+    "verify_livekit_lobby_second_questionnaire_assignment",
+  registration: "verify_livekit_lobby_registration",
+  secondRegistration: "verify_livekit_lobby_second_registration",
+  participation: "verify_livekit_lobby_participation",
+  secondParticipation: "verify_livekit_lobby_second_participation",
+  region: "verify_livekit_lobby_region",
+  occurrenceRegion: "verify_livekit_lobby_occurrence_region",
+};
+
+function authenticatedUser(id: string, name: string): AuthenticatedUser {
+  return {
+    id,
+    name,
+    email: `${id}@example.com`,
+    emailVerified: true,
+  };
+}
+
+const administrator = authenticatedUser(
+  ids.administrator,
+  "Lobby administrator",
+);
+const learner = authenticatedUser(ids.learner, "Lobby learner");
+const secondLearner = authenticatedUser(
+  ids.secondLearner,
+  "Second lobby learner",
+);
+const coordinator = authenticatedUser(ids.coordinator, "Lobby coordinator");
+const openEntryLearner = authenticatedUser(
+  ids.openEntryLearner,
+  "Open-entry lobby learner",
+);
+const createdAt = new Date("2030-09-04T00:00:00.000Z");
+const startsAt = new Date("2030-09-04T01:00:00.000Z");
+const endsAt = new Date("2030-09-04T02:00:00.000Z");
+const database = getDatabase();
+
+try {
+  await database
+    .insertInto("user")
+    .values(
+      [administrator, learner, secondLearner, coordinator].map((item) => ({
+        id: item.id,
+        name: item.name,
+        email: item.email,
+        emailVerified: true,
+        emailEnabled: true,
+        image: null,
+        stripeCustomerId: null,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("platform_admin")
+    .values({ userId: administrator.id, grantedByUserId: null })
+    .execute();
+  await database
+    .insertInto("learning_activity")
+    .values({
+      id: ids.survey,
+      kind: "survey",
+      title: "Lobby registration questionnaire",
+      surveyUsage: "registration",
+      surveyType: "registration",
+      surveyPosition: 0,
+      createdAt,
+    })
+    .execute();
+  await database
+    .insertInto("learning_activity_version")
+    .values({
+      id: ids.surveyVersion,
+      activityId: ids.survey,
+      kind: "survey",
+      version: 1,
+      publishedAt: createdAt,
+      createdAt,
+    })
+    .execute();
+  await database
+    .insertInto("survey_version")
+    .values({ id: ids.surveyVersion, content: { sections: [] } })
+    .execute();
+  await database
+    .insertInto("event_template")
+    .values({
+      id: ids.template,
+      title: "Lobby verification",
+      status: "published",
+    })
+    .execute();
+  await database
+    .insertInto("event_template_version")
+    .values({
+      id: ids.version,
+      eventTemplateId: ids.template,
+      version: 1,
+      topic: "General",
+      summary: "Lobby verification.",
+      description: "Verifies attendee admission and recovery.",
+      coverImage: null,
+      hasCompletionCertificate: false,
+      accreditations: JSON.stringify([]),
+      registrationSurveyVersionId: null,
+      publishedAt: createdAt,
+    })
+    .execute();
+  await database
+    .insertInto("event_template_session_definition")
+    .values({
+      id: ids.definition,
+      eventTemplateVersionId: ids.version,
+      position: 0,
+      title: "Lobby session",
+      durationMinutes: 60,
+      presenterRequired: true,
+      livekitAdmissionMode: "manual",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: false,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_occurrence")
+    .values({
+      id: ids.occurrence,
+      eventTemplateVersionId: ids.version,
+      title: "Lobby verification",
+      slug: "verify-livekit-attendee-lobby",
+      status: "published",
+      deliveryMode: "virtual",
+      virtualDeliveryProvider: "livekit",
+      registrationMode: "required_unrestricted",
+      approvalMode: "automatic",
+      timezone: "Australia/Sydney",
+      localStartsAt: "2030-09-04T11:00:00",
+      localEndsAt: "2030-09-04T12:00:00",
+      localRegistrationOpensAt: "2030-08-01T10:00:00",
+      localRegistrationClosesAt: "2030-09-01T10:00:00",
+      localCoordinatorLockAt: null,
+      startsAt,
+      endsAt,
+      registrationOpensAt: new Date("2030-08-01T00:00:00.000Z"),
+      registrationClosesAt: new Date("2030-09-01T00:00:00.000Z"),
+      coordinatorLockAt: null,
+      capacity: 20,
+      venueName: null,
+      venueAddress: null,
+      virtualJoinUrl: null,
+      priceCents: null,
+      salePriceCents: null,
+      currency: "AUD",
+      bulkPricing: JSON.stringify({ enabled: false, tiers: [] }),
+      listInStore: false,
+      featured: false,
+      openEntryAttendanceMode: "checked_in",
+      publishedAt: createdAt,
+      createdByUserId: administrator.id,
+      createdAt,
+      updatedAt: createdAt,
+    })
+    .execute();
+  await database
+    .insertInto("coordination_region")
+    .values({
+      id: ids.region,
+      parentId: null,
+      code: "VERIFY-LIVEKIT-LOBBY",
+      name: "LiveKit lobby verification region",
+      kind: "operational",
+      status: "active",
+    })
+    .execute();
+  await database
+    .insertInto("event_occurrence_region")
+    .values({
+      id: ids.occurrenceRegion,
+      eventOccurrenceId: ids.occurrence,
+      regionId: ids.region,
+      position: 0,
+      retiredAt: null,
+    })
+    .execute();
+  await database
+    .insertInto("event_coordinator_assignment")
+    .values({
+      id: "verify_livekit_lobby_coordinator_assignment",
+      eventOccurrenceRegionId: ids.occurrenceRegion,
+      userId: coordinator.id,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
+    })
+    .execute();
+  await database
+    .insertInto("event_admin_assignment")
+    .values({
+      id: "verify_livekit_lobby_active_admin_assignment",
+      eventOccurrenceId: ids.occurrence,
+      userId: administrator.id,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
+    })
+    .execute();
+  await database
+    .insertInto("event_session")
+    .values({
+      id: ids.session,
+      eventOccurrenceId: ids.occurrence,
+      sessionDefinitionId: ids.definition,
+      position: 0,
+      title: "Lobby session",
+      localStartsAt: "2030-09-04T11:00:00",
+      localEndsAt: "2030-09-04T12:00:00",
+      startsAt,
+      endsAt,
+      presenterRequired: true,
+      venueName: null,
+      venueAddress: null,
+      virtualJoinUrl: null,
+      virtualDeliveryProvider: "livekit",
+      livekitAdmissionMode: "manual",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: false,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_registration")
+    .values(
+      [
+        {
+          id: ids.registration,
+          eventOccurrenceId: ids.occurrence,
+          userId: learner.id,
+          nameSnapshot: learner.name,
+          emailSnapshot: learner.email,
+        },
+        {
+          id: ids.secondRegistration,
+          eventOccurrenceId: ids.occurrence,
+          userId: secondLearner.id,
+          nameSnapshot: secondLearner.name,
+          emailSnapshot: secondLearner.email,
+        },
+      ].map((registration) => ({
+        ...registration,
+        eventOccurrenceRegionId: null,
+        reviewRoundId: null,
+        source: "ordinary" as const,
+        eligibilitySource: "unrestricted" as const,
+        status: "selected" as const,
+        coordinatorPriority: null,
+        submittedAt: createdAt,
+        coordinatorDecidedAt: null,
+        coordinatorDecidedByUserId: null,
+        finalDecidedAt: createdAt,
+        finalDecidedByUserId: administrator.id,
+        lockedInAt: createdAt,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("event_participation")
+    .values(
+      [
+        {
+          id: ids.participation,
+          userId: learner.id,
+          registrationId: ids.registration,
+          nameSnapshot: learner.name,
+          emailSnapshot: learner.email,
+        },
+        {
+          id: ids.secondParticipation,
+          userId: secondLearner.id,
+          registrationId: ids.secondRegistration,
+          nameSnapshot: secondLearner.name,
+          emailSnapshot: secondLearner.email,
+        },
+      ].map((participation) => ({
+        ...participation,
+        eventOccurrenceId: ids.occurrence,
+        mode: "registered" as const,
+        detailsSubmittedAt: null,
+        joinDisclosedAt: null,
+        checkedInAt: null,
+        createdAt,
+      })),
+    )
+    .execute();
+  const access = await database.transaction().execute(async (transaction) =>
+    ensureEventVirtualJoinAccess(transaction, {
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      roomGeneration: 1,
+      actorUserId: administrator.id,
+      now: createdAt,
+    }),
+  );
+  const prePreparationRecovery = await requestEventVirtualRecoveryCode(
+    { publicReference: access.publicReference, identifier: learner.email },
+    "preparation-recovery".padEnd(43, "x"),
+    { requestLimitStore: new Map() },
+  );
+  assert.equal(prePreparationRecovery.status, "accepted");
+  assert.ok("challengeReference" in prePreparationRecovery);
+  const prePreparationChallenge = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", prePreparationRecovery.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await processAvailableEventVirtualRecoveryDeliveries(1), {
+    outcomes: [{ status: "sent", challengeId: prePreparationChallenge.id }],
+    limitReached: true,
+  });
+  await database
+    .insertInto("event_virtual_room")
+    .values({
+      id: ids.room,
+      eventSessionId: ids.session,
+      provider: "livekit",
+      generation: 1,
+      providerRoomName: "event:verify_lobby:g1",
+      providerRoomSid: "RM_VERIFY_LOBBY",
+      doorState: "scheduled",
+      admissionMode: "manual",
+      attendanceMode: "manual",
+      attendanceMinimumMinutes: null,
+      recordingMode: "off",
+      recordingRetentionDays: null,
+      maxParticipants: 25,
+      providerStatus: "ready",
+      providerErrorCode: null,
+      createdByUserId: administrator.id,
+      createdAt,
+      startedByUserId: null,
+      startedAt: null,
+      lockedByUserId: null,
+      lockedAt: null,
+      reopenedByUserId: null,
+      reopenedAt: null,
+      endedByUserId: null,
+      endedAt: null,
+      replacesRoomId: null,
+      replacedByUserId: null,
+      replacedAt: null,
+    })
+    .execute();
+
+  await database
+    .updateTable("event_occurrence")
+    .set({ registrationMode: "open_entry" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: true })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ admissionMode: "automatic" })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const guestAccess = await database
+    .transaction()
+    .execute((transaction) =>
+      ensureEventGuestAccessRecord(transaction, ids.occurrence, createdAt),
+    );
+  const guestSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: guestAccess.publicReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry",
+  );
+  assert.equal(guestSubmission.status, "ready");
+  assert.equal(
+    guestSubmission.data.destinationUrl,
+    `/webinars/${access.publicReference}`,
+  );
+  const guestJoinSessionToken = guestSubmission.joinSessionToken;
+  assert.ok(guestJoinSessionToken);
+  const guestParticipation = await database
+    .selectFrom("event_participation")
+    .innerJoin("user", "user.id", "event_participation.userId")
+    .select([
+      "event_participation.id",
+      "event_participation.mode",
+      "event_participation.userId",
+    ])
+    .where("event_participation.eventOccurrenceId", "=", ids.occurrence)
+    .where("user.email", "=", openEntryLearner.email)
+    .executeTakeFirstOrThrow();
+  assert.equal(guestParticipation.mode, "open_entry");
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_join_session")
+      .select([
+        "accessMethod",
+        "challengeId",
+        "eventGuestAccessId",
+        "eventParticipationId",
+      ])
+      .where("tokenDigest", "is not", null)
+      .where("eventGuestAccessId", "=", guestAccess.id)
+      .executeTakeFirstOrThrow(),
+    {
+      accessMethod: "guest",
+      challengeId: null,
+      eventGuestAccessId: guestAccess.id,
+      eventParticipationId: guestParticipation.id,
+    },
+  );
+  const guestCapabilityWithUnrelatedLogin = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+    { joinSessionToken: guestJoinSessionToken },
+  );
+  assert.equal(guestCapabilityWithUnrelatedLogin.status, "ready");
+  assert.equal(
+    guestCapabilityWithUnrelatedLogin.data.outcome,
+    "meeting_not_started",
+  );
+  assert.equal(guestCapabilityWithUnrelatedLogin.data.accessMethod, "guest");
+  assert.equal(
+    guestCapabilityWithUnrelatedLogin.data.admissionState,
+    "admitted",
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      joinSessionToken: guestJoinSessionToken,
+      provider: new FakeLiveKitProvider(),
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "meeting_not_started" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select("actorUserId")
+      .where("action", "=", "event_virtual_lobby.attendee_token_denied")
+      .where("subjectType", "=", "event_virtual_join_access")
+      .where("subjectId", "=", access.id)
+      .where("reason", "=", "meeting_not_started")
+      .executeTakeFirstOrThrow()
+      .then((audit) => audit.actorUserId),
+    guestParticipation.userId,
+    "A denial must be attributed to the capability actor that won lobby resolution",
+  );
+  const openEntryAdmission = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    { joinSessionToken: guestJoinSessionToken },
+  );
+  assert.equal(openEntryAdmission.status, "ready");
+  assert.equal(openEntryAdmission.data.outcome, "meeting_not_started");
+  assert.equal(openEntryAdmission.data.admissionState, "admitted");
+  assert.equal(openEntryAdmission.data.accessMethod, "guest");
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: false })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  const disallowedOpenEntry = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    { joinSessionToken: guestJoinSessionToken },
+  );
+  assert.equal(disallowedOpenEntry.status, "ready");
+  assert.equal(disallowedOpenEntry.data.outcome, "revoked");
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: true })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  const reactivatedGuestSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: guestAccess.publicReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry-reactivated",
+  );
+  assert.equal(reactivatedGuestSubmission.status, "ready");
+  assert.ok(reactivatedGuestSubmission.joinSessionToken);
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      startedAt: new Date(),
+      startedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await resolveEventVirtualLobby(access.publicReference, null, {
+        joinSessionToken: reactivatedGuestSubmission.joinSessionToken,
+      })
+    ).status,
+    "ready",
+  );
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(access.publicReference, null, {
+        joinSessionToken: reactivatedGuestSubmission.joinSessionToken,
+        provider: new FakeLiveKitProvider(),
+        websocketUrl: "wss://verify.example.com",
+      })
+    ).status,
+    "ready",
+  );
+  const guestLobbyEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select("id")
+    .where("eventVirtualJoinAccessId", "=", access.id)
+    .where("eventParticipationId", "=", guestParticipation.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ state: "connected", firstConnectedAt: new Date() })
+    .where("id", "=", guestLobbyEntry.id)
+    .executeTakeFirstOrThrow();
+  const rotatedGuestReferenceHolder: { value: string | null } = {
+    value: null,
+  };
+  const capabilityRevocationRace = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    {
+      joinSessionToken: reactivatedGuestSubmission.joinSessionToken,
+      beforeEnsureLobbyEntry: async () => {
+        rotatedGuestReferenceHolder.value = await rotateEventGuestAccessRecord(
+          ids.occurrence,
+          administrator,
+        );
+      },
+    },
+  );
+  assert.equal(capabilityRevocationRace.status, "ready");
+  assert.equal(
+    capabilityRevocationRace.data.outcome,
+    "authentication_required",
+    "A capability revoked after actor resolution must not restore lobby access",
+  );
+  const rotatedGuestReference = rotatedGuestReferenceHolder.value;
+  assert.ok(rotatedGuestReference);
+  assert.deepEqual(
+    await resolveEventVirtualLobby(access.publicReference, null, {
+      joinSessionToken: guestJoinSessionToken,
+    }),
+    {
+      status: "ready",
+      data: {
+        eventTitle: "Lobby verification",
+        sessionTitle: "Lobby session",
+        startsAt: startsAt.toISOString(),
+        endsAt: endsAt.toISOString(),
+        timezone: "Australia/Sydney",
+        eventOccurrenceId: null,
+        questionnaireUrl: null,
+        admissionState: "not_requested",
+        accessMethod: null,
+        outcome: "authentication_required",
+        recording: { enabled: false, notice: null, acknowledged: false },
+        pollAfterMilliseconds: null,
+      },
+    },
+    "Rotating open-entry access must revoke capabilities issued by the old link",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", guestLobbyEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.state),
+    "revoked",
+    "Guest-link rotation must revoke the associated lobby admission",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["kind", "status"])
+      .where("lobbyEntryId", "=", guestLobbyEntry.id)
+      .where("kind", "=", "remove_participant")
+      .executeTakeFirstOrThrow(),
+    { kind: "remove_participant", status: "pending" },
+    "Guest-link rotation must durably queue provider-side removal",
+  );
+  const rankedDefinitionId = "verify_livekit_lobby_ranked_definition";
+  const rankedSessionId = "verify_livekit_lobby_ranked_session";
+  const rankedRoomId = "verify_livekit_lobby_ranked_room";
+  const rejoinSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: rotatedGuestReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry-rejoin-setup",
+  );
+  assert.equal(rejoinSubmission.status, "ready");
+  assert.ok(rejoinSubmission.joinSessionToken);
+  assert.equal(
+    (
+      await resolveEventVirtualLobby(access.publicReference, null, {
+        joinSessionToken: rejoinSubmission.joinSessionToken,
+      })
+    ).status,
+    "ready",
+  );
+  const guestRejoinNow = new Date();
+  const firstConnectedAt = new Date(guestRejoinNow.getTime() - 2 * 60_000);
+  const leftAt = new Date(guestRejoinNow.getTime() - 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "left",
+      firstConnectedAt,
+      lastSeenAt: leftAt,
+      leftAt,
+      updatedAt: guestRejoinNow,
+    })
+    .where("id", "=", guestLobbyEntry.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "locked",
+      startedAt: firstConnectedAt,
+      startedByUserId: administrator.id,
+      lockedAt: guestRejoinNow,
+      lockedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("event_template_session_definition")
+    .values({
+      id: rankedDefinitionId,
+      eventTemplateVersionId: ids.version,
+      position: 1,
+      title: "Open ranked session",
+      durationMinutes: 60,
+      presenterRequired: true,
+      livekitAdmissionMode: "automatic",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: true,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_session")
+    .values({
+      id: rankedSessionId,
+      eventOccurrenceId: ids.occurrence,
+      sessionDefinitionId: rankedDefinitionId,
+      position: 1,
+      title: "Open ranked session",
+      localStartsAt: "2030-09-04T12:00:00",
+      localEndsAt: "2030-09-04T13:00:00",
+      startsAt: endsAt,
+      endsAt: new Date(endsAt.getTime() + 60 * 60_000),
+      presenterRequired: true,
+      venueName: null,
+      venueAddress: null,
+      virtualJoinUrl: null,
+      virtualDeliveryProvider: "livekit",
+      livekitAdmissionMode: "automatic",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: true,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_virtual_room")
+    .values({
+      id: rankedRoomId,
+      eventSessionId: rankedSessionId,
+      provider: "livekit",
+      generation: 1,
+      providerRoomName: "event:verify_lobby_ranked:g1",
+      providerRoomSid: "RM_VERIFY_LOBBY_RANKED",
+      doorState: "scheduled",
+      admissionMode: "automatic",
+      attendanceMode: "manual",
+      attendanceMinimumMinutes: null,
+      recordingMode: "off",
+      recordingRetentionDays: null,
+      maxParticipants: 25,
+      providerStatus: "ready",
+      providerErrorCode: null,
+      createdByUserId: administrator.id,
+      createdAt,
+      startedByUserId: null,
+      startedAt: null,
+      lockedByUserId: null,
+      lockedAt: null,
+      reopenedByUserId: null,
+      reopenedAt: null,
+      endedByUserId: null,
+      endedAt: null,
+      replacesRoomId: null,
+      replacedByUserId: null,
+      replacedAt: null,
+    })
+    .execute();
+  const rankedAccess = await database.transaction().execute((transaction) =>
+    ensureEventVirtualJoinAccess(transaction, {
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: rankedSessionId,
+      roomGeneration: 1,
+      actorUserId: administrator.id,
+      now: createdAt,
+    }),
+  );
+  const rankedSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: rotatedGuestReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry-ranking",
+  );
+  assert.equal(rankedSubmission.status, "ready");
+  assert.equal(
+    rankedSubmission.data.destinationUrl,
+    `/webinars/${access.publicReference}`,
+    "A locked room within the attendee rejoin grace must rank ahead of an upcoming room",
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      startedAt: new Date(),
+      startedByUserId: administrator.id,
+    })
+    .where("id", "=", rankedRoomId)
+    .executeTakeFirstOrThrow();
+  const openRankedSubmission = await submitPublicEventGuestAccess(
+    {
+      publicReference: rotatedGuestReference,
+      name: openEntryLearner.name,
+      email: openEntryLearner.email,
+    },
+    "verify-livekit-open-entry-ranking-open",
+  );
+  assert.equal(openRankedSubmission.status, "ready");
+  assert.equal(
+    openRankedSubmission.data.destinationUrl,
+    `/webinars/${rankedAccess.publicReference}`,
+    "An open later room must rank ahead of an earlier locked room",
+  );
+  await database
+    .deleteFrom("event_virtual_join_session")
+    .where("eventVirtualJoinAccessId", "=", rankedAccess.id)
+    .execute();
+  await database
+    .deleteFrom("event_virtual_join_access")
+    .where("id", "=", rankedAccess.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("event_virtual_room")
+    .where("id", "=", rankedRoomId)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("event_session")
+    .where("id", "=", rankedSessionId)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("event_template_session_definition")
+    .where("id", "=", rankedDefinitionId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "scheduled",
+      startedAt: null,
+      startedByUserId: null,
+      lockedAt: null,
+      lockedByUserId: null,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: false })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_occurrence")
+    .set({ registrationMode: "required_unrestricted" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ admissionMode: "manual" })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+
+  const anonymous = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    { joinSessionToken: null },
+  );
+  assert.equal(
+    anonymous.status === "ready" ? anonymous.data.outcome : null,
+    "authentication_required",
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, null, {
+      joinSessionToken: "x".repeat(43),
+    }),
+    { status: "unauthenticated" },
+    "An expired attendee actor must remain distinguishable from revoked admission",
+  );
+  await database
+    .updateTable("event_template_version")
+    .set({ registrationSurveyVersionId: ids.surveyVersion })
+    .where("id", "=", ids.version)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("registration_questionnaire_assignment")
+    .values({
+      id: ids.questionnaireAssignment,
+      userId: learner.id,
+      surveyVersionId: ids.surveyVersion,
+      eventOccurrenceId: ids.occurrence,
+      eventOccurrenceRegionId: null,
+      enrollmentId: null,
+      status: "assigned",
+      assignedAt: createdAt,
+      startedAt: null,
+      completedAt: null,
+      waivedAt: null,
+      waivedByUserId: null,
+      waiverReason: null,
+    })
+    .execute();
+  const questionnaireRequired = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(questionnaireRequired.status, "ready");
+  assert.equal(questionnaireRequired.data.outcome, "questionnaire_required");
+  assert.equal(
+    questionnaireRequired.data.questionnaireUrl,
+    `/my-events/${ids.occurrence}`,
+  );
+  assert.equal(questionnaireRequired.data.eventOccurrenceId, ids.occurrence);
+  await database
+    .updateTable("registration_questionnaire_assignment")
+    .set({ status: "completed", startedAt: createdAt, completedAt: createdAt })
+    .where("id", "=", ids.questionnaireAssignment)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("registration_questionnaire_assignment")
+    .values({
+      id: ids.secondQuestionnaireAssignment,
+      userId: secondLearner.id,
+      surveyVersionId: ids.surveyVersion,
+      eventOccurrenceId: ids.occurrence,
+      eventOccurrenceRegionId: null,
+      enrollmentId: null,
+      status: "completed",
+      assignedAt: createdAt,
+      startedAt: createdAt,
+      completedAt: createdAt,
+      waivedAt: null,
+      waivedByUserId: null,
+      waiverReason: null,
+    })
+    .execute();
+  await database
+    .insertInto("event_template_session_definition")
+    .values({
+      id: ids.otherDefinition,
+      eventTemplateVersionId: ids.version,
+      position: 1,
+      title: "Other presenter session",
+      durationMinutes: 60,
+      presenterRequired: true,
+      livekitAdmissionMode: "manual",
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: 60,
+      livekitAttendeeRejoinGraceMinutes: 10,
+      livekitCapacityHeadroom: 5,
+      livekitOpenEntryGuestsAllowed: false,
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .execute();
+  await database
+    .insertInto("event_session")
+    .values({
+      id: ids.otherSession,
+      eventOccurrenceId: ids.occurrence,
+      sessionDefinitionId: ids.otherDefinition,
+      position: 1,
+      title: "Other presenter session",
+      localStartsAt: "2030-09-04T11:00:00",
+      localEndsAt: "2030-09-04T12:00:00",
+      startsAt,
+      endsAt,
+      presenterRequired: true,
+      venueName: null,
+      venueAddress: null,
+      virtualJoinUrl: "https://meet.example.com/external-session",
+      virtualDeliveryProvider: "external_url",
+      livekitAdmissionMode: null,
+      livekitAttendanceMode: null,
+      livekitAttendanceMinimumMinutes: null,
+      livekitPresenterPreparationMinutes: null,
+      livekitAttendeeRejoinGraceMinutes: null,
+      livekitCapacityHeadroom: null,
+      livekitOpenEntryGuestsAllowed: null,
+      livekitRecordingMode: null,
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: null,
+      livekitPresenterRecordingNotice: null,
+    })
+    .execute();
+  await database
+    .insertInto("event_presenter_assignment")
+    .values({
+      id: "verify_livekit_lobby_cross_session_presenter",
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.otherSession,
+      userId: learner.id,
+      scopeKey: ids.otherSession,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
+    })
+    .execute();
+  const notificationVariables = await database
+    .transaction()
+    .execute(async (transaction) => ({
+      occurrenceLearner: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_occurrence_learner_communication",
+          sectionId: null,
+          sessionDefinitionId: null,
+        },
+        recipient: {
+          userId: secondLearner.id,
+          name: secondLearner.name,
+          email: secondLearner.email,
+          registrationId: ids.secondRegistration,
+          participationId: ids.secondParticipation,
+        },
+      }),
+      occurrenceStaff: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_occurrence_staff_communication",
+          sectionId: null,
+          sessionDefinitionId: null,
+        },
+        recipient: {
+          userId: administrator.id,
+          name: administrator.name,
+          email: administrator.email,
+          registrationId: null,
+          participationId: null,
+        },
+      }),
+      occurrenceCoordinator: await buildEventNotificationVariables(
+        transaction,
+        {
+          eventOccurrenceId: ids.occurrence,
+          communication: {
+            id: "verify_livekit_lobby_occurrence_coordinator_communication",
+            sectionId: null,
+            sessionDefinitionId: null,
+          },
+          recipient: {
+            userId: coordinator.id,
+            name: coordinator.name,
+            email: coordinator.email,
+            registrationId: null,
+            participationId: null,
+          },
+        },
+      ),
+      learner: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_learner_communication",
+          sectionId: null,
+          sessionDefinitionId: ids.definition,
+        },
+        recipient: {
+          userId: learner.id,
+          name: learner.name,
+          email: learner.email,
+          registrationId: ids.registration,
+          participationId: ids.participation,
+        },
+      }),
+      staff: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_staff_communication",
+          sectionId: null,
+          sessionDefinitionId: ids.definition,
+        },
+        recipient: {
+          userId: administrator.id,
+          name: administrator.name,
+          email: administrator.email,
+          registrationId: null,
+          participationId: null,
+        },
+      }),
+      externalStaff: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_external_staff_communication",
+          sectionId: null,
+          sessionDefinitionId: ids.otherDefinition,
+        },
+        recipient: {
+          userId: administrator.id,
+          name: administrator.name,
+          email: administrator.email,
+          registrationId: null,
+          participationId: null,
+        },
+      }),
+      externalCoordinator: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_external_coordinator_communication",
+          sectionId: null,
+          sessionDefinitionId: ids.otherDefinition,
+        },
+        recipient: {
+          userId: coordinator.id,
+          name: coordinator.name,
+          email: coordinator.email,
+          registrationId: null,
+          participationId: null,
+        },
+      }),
+    }));
+  assert.equal(
+    notificationVariables.occurrenceLearner["event.virtualJoinUrl"],
+    `http://localhost:3000/my-events/${ids.occurrence}`,
+    "Occurrence-scoped LiveKit learner communications must route to the learner event dashboard",
+  );
+  assert.equal(
+    notificationVariables.occurrenceStaff["event.virtualJoinUrl"],
+    `http://localhost:3000/event-operations/${ids.occurrence}`,
+    "Occurrence-scoped LiveKit administrator communications must route to event operations",
+  );
+  assert.equal(
+    notificationVariables.occurrenceCoordinator["event.virtualJoinUrl"],
+    `http://localhost:3000/event-operations/${ids.occurrence}`,
+    "Occurrence-scoped LiveKit coordinator communications must route to event operations",
+  );
+  assert.equal(
+    notificationVariables.learner["session.virtualJoinUrl"],
+    `http://localhost:3000/webinars/${access.publicReference}`,
+    "A learner who presents another session must receive the target session's learner lobby URL",
+  );
+  assert.equal(
+    notificationVariables.staff["session.virtualJoinUrl"],
+    `http://localhost:3000/event-operations/${ids.occurrence}`,
+  );
+  assert.equal(
+    notificationVariables.staff["event.operationsUrl"],
+    `http://localhost:3000/event-operations/${ids.occurrence}`,
+  );
+  assert.equal(
+    notificationVariables.externalStaff["session.virtualJoinUrl"],
+    "https://meet.example.com/external-session",
+    "Staff communications for external sessions must preserve the provider join link",
+  );
+  assert.equal(
+    notificationVariables.externalCoordinator["session.virtualJoinUrl"],
+    "https://meet.example.com/external-session",
+    "Coordinators must receive the provider link for external sessions",
+  );
+  const early = await resolveEventVirtualLobby(access.publicReference, learner);
+  assert.equal(
+    early.status === "ready" ? early.data.outcome : null,
+    "meeting_not_started",
+  );
+  assert.equal(
+    early.status === "ready" ? early.data.admissionState : null,
+    "waiting",
+  );
+  const expiredUnstarted = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+    { clock: () => endsAt },
+  );
+  assert.equal(
+    expiredUnstarted.status === "ready" ? expiredUnstarted.data.outcome : null,
+    "ended",
+  );
+  assert.equal(
+    expiredUnstarted.status === "ready"
+      ? expiredUnstarted.data.pollAfterMilliseconds
+      : 1,
+    null,
+  );
+
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      startedAt: createdAt,
+      startedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .execute();
+  const waitingCredential = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      provider: new FakeLiveKitProvider(),
+      websocketUrl: "wss://verify.example.com",
+    },
+  );
+  assert.deepEqual(waitingCredential, {
+    status: "conflict",
+    reason: "waiting_for_admission",
+  });
+
+  assert.deepEqual(
+    await setEventVirtualRoomAdmissionMode(
+      ids.occurrence,
+      ids.session,
+      "automatic",
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  const admitted = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    admitted.status === "ready" ? admitted.data.outcome : null,
+    "ready_to_join",
+  );
+  const fullProvider = new FakeLiveKitProvider(() => createdAt);
+  fullProvider.participants.set(
+    "event:verify_lobby:g1",
+    Array.from({ length: 25 }, (_, index) => ({
+      sid: `full-room-participant-${String(index)}`,
+      identity: `presenter:full-room-participant-${String(index)}`,
+      displayName: `Full room participant ${String(index)}`,
+    })),
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      provider: fullProvider,
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "capacity_reached" },
+  );
+  assert.equal(
+    fullProvider.operations.some(
+      (operation) => operation.operation === "create_join_token",
+    ),
+    false,
+    "A full room must not issue an unusable attendee token",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("eventParticipationId", "=", ids.participation)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.state),
+    "admitted",
+    "A full room must preserve admission for a retry",
+  );
+  const capacityDenialAuditCount = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.attendee_token_denied")
+    .where("reason", "=", "capacity_reached")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  assert.equal(capacityDenialAuditCount, 1);
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      provider: fullProvider,
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "capacity_reached" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.attendee_token_denied")
+      .where("reason", "=", "capacity_reached")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    capacityDenialAuditCount,
+    "Repeated credential denials in one audit window must be coalesced",
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      provider: new UnavailableParticipantsProvider(),
+      websocketUrl: "wss://verify.example.com",
+    }),
+    { status: "conflict", reason: "provider_unavailable" },
+  );
+  let delayedCredentialNow = createdAt;
+  const expiredCredentialProvider = new AdvancingParticipantsProvider(
+    () => delayedCredentialNow,
+    2,
+    () => {
+      delayedCredentialNow = new Date(createdAt.getTime() + 5 * 60_000);
+    },
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
+      provider: expiredCredentialProvider,
+      websocketUrl: "wss://verify.example.com",
+      clock: () => delayedCredentialNow,
+    }),
+    { status: "conflict", reason: "provider_unavailable" },
+    "A credential that expires before the room reservation is acquired must be retried",
+  );
+  assert.equal(
+    expiredCredentialProvider.operations.some(
+      (operation) => operation.operation === "create_join_token",
+    ),
+    true,
+  );
+  assert.equal(
+    expiredCredentialProvider.operations.filter(
+      (operation) => operation.operation === "list_participants",
+    ).length,
+    2,
+    "The serialized capacity check must revalidate expiry after its provider lookup",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("eventParticipationId", "=", ids.participation)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.state),
+    "admitted",
+    "An expired credential must not advance attendee lifecycle evidence",
+  );
+  const provider = new FakeLiveKitProvider(() => createdAt);
+  const credential = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    { provider, websocketUrl: "wss://verify.example.com" },
+  );
+  assert.equal(credential.status, "ready");
+  assert.equal(
+    provider.operations.find(
+      (operation) => operation.operation === "create_join_token",
+    )?.input.role,
+    "attendee",
+  );
+  const tokenIssuedEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["id", "state", "admittedByUserId"])
+    .where("eventParticipationId", "=", ids.participation)
+    .executeTakeFirstOrThrow();
+  const latestCredentialExpiresAt = new Date(createdAt.getTime() + 20 * 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ credentialExpiresAt: latestCredentialExpiresAt })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        learner,
+        { provider, websocketUrl: "wss://verify.example.com" },
+      )
+    ).status,
+    "ready",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("credentialExpiresAt")
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.credentialExpiresAt),
+    latestCredentialExpiresAt,
+    "An earlier-generated token must not replace a later credential expiry",
+  );
+  const tokenIssuedAuditCount = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("subjectId", "=", tokenIssuedEntry.id)
+    .where("action", "=", "event_virtual_lobby.admission_changed")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: tokenIssuedEntry.id,
+        action: "admit",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "admittedByUserId"])
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow(),
+    {
+      state: tokenIssuedEntry.state,
+      admittedByUserId: tokenIssuedEntry.admittedByUserId,
+    },
+    "A repeated admit must preserve token-issued lifecycle evidence",
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("subjectId", "=", tokenIssuedEntry.id)
+      .where("action", "=", "event_virtual_lobby.admission_changed")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    tokenIssuedAuditCount,
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "connected",
+      firstConnectedAt: createdAt,
+      lastSeenAt: createdAt,
+      updatedAt: createdAt,
+    })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  const connectedQueueRevision = await database
+    .selectFrom("event_virtual_join_access")
+    .select("lobbyRevision")
+    .where("id", "=", access.id)
+    .executeTakeFirstOrThrow();
+  const issuedIdentity = provider.operations.find(
+    (operation) => operation.operation === "create_join_token",
+  )?.input.participantIdentity;
+  assert.ok(issuedIdentity);
+  const fullRefreshProvider = new FakeLiveKitProvider(() => createdAt);
+  fullRefreshProvider.participants.set("event:verify_lobby:g1", [
+    {
+      sid: "connected-attendee",
+      identity: issuedIdentity,
+      displayName: learner.name,
+    },
+    ...Array.from({ length: 24 }, (_, index) => ({
+      sid: `full-refresh-participant-${String(index)}`,
+      identity: `presenter:full-refresh-participant-${String(index)}`,
+      displayName: `Full refresh participant ${String(index)}`,
+    })),
+  ]);
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        learner,
+        {
+          provider: fullRefreshProvider,
+          websocketUrl: "wss://verify.example.com",
+        },
+      )
+    ).status,
+    "ready",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "firstConnectedAt"])
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow(),
+    { state: "connected", firstConnectedAt: createdAt },
+    "Refreshing a credential must preserve connected lifecycle evidence",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_join_access")
+      .select("lobbyRevision")
+      .where("id", "=", access.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.lobbyRevision),
+    connectedQueueRevision.lobbyRevision,
+    "A credential refresh without a queue-visible transition must not advance the queue revision",
+  );
+  const rejoinNow = new Date();
+  const recentLeave = new Date(rejoinNow.getTime() - 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "left",
+      firstConnectedAt: new Date(rejoinNow.getTime() - 2 * 60_000),
+      lastSeenAt: recentLeave,
+      leftAt: recentLeave,
+      updatedAt: rejoinNow,
+    })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "locked",
+      lockedAt: rejoinNow,
+      lockedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const graceRejoin = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+    { clock: () => rejoinNow },
+  );
+  assert.equal(
+    graceRejoin.status === "ready" ? graceRejoin.data.outcome : null,
+    "ready_to_join",
+    "A previously connected attendee may rejoin a locked room during the configured grace period",
+  );
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        learner,
+        {
+          provider: new FakeLiveKitProvider(),
+          websocketUrl: "wss://verify.example.com",
+        },
+      )
+    ).status,
+    "ready",
+  );
+  const expiredLeave = new Date(rejoinNow.getTime() - 11 * 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ state: "left", lastSeenAt: expiredLeave, leftAt: expiredLeave })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  const expiredGrace = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+    { clock: () => rejoinNow },
+  );
+  assert.equal(
+    expiredGrace.status === "ready" ? expiredGrace.data.outcome : null,
+    "locked",
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      reopenedAt: rejoinNow,
+      reopenedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        learner,
+        {
+          provider: new FakeLiveKitProvider(),
+          websocketUrl: "wss://verify.example.com",
+        },
+      )
+    ).status,
+    "ready",
+    "Reopening the door must restore normal admitted attendee token issuance",
+  );
+  await database
+    .insertInto("event_presenter_assignment")
+    .values({
+      id: "verify_livekit_lobby_presenter_assignment",
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      userId: secondLearner.id,
+      scopeKey: ids.session,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
+    })
+    .execute();
+  await database
+    .updateTable("event_presenter_assignment")
+    .set({ endedAt: new Date(), endReason: "assignment_ended" })
+    .where("id", "=", "verify_livekit_lobby_presenter_assignment")
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: tokenIssuedEntry.id,
+        action: "revoke",
+      },
+      secondLearner,
+    ),
+    { status: "forbidden" },
+  );
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "automatic",
+      livekitRecordingRetentionDays: 30,
+      livekitAttendeeRecordingNotice: "This webinar is recorded.",
+      livekitPresenterRecordingNotice: "This webinar is recorded.",
+    })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      recordingMode: "automatic",
+      recordingRetentionDays: 30,
+      doorState: "ended",
+      endedAt: new Date(),
+      endedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await acknowledgeEventVirtualRecording(access.publicReference, learner),
+    { status: "conflict", reason: "session_ended" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("recordingAcknowledgedAt")
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.recordingAcknowledgedAt),
+    null,
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", endedAt: null, endedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await acknowledgeEventVirtualRecording(access.publicReference, learner),
+    { status: "ready" },
+  );
+  const acknowledgement = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["recordingAcknowledgedAt", "recordingNoticeDigest"])
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  assert.ok(acknowledgement.recordingAcknowledgedAt);
+  assert.ok(acknowledgement.recordingNoticeDigest);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ recordingAcknowledgedAt: createdAt, updatedAt: createdAt })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await acknowledgeEventVirtualRecording(access.publicReference, learner),
+    { status: "ready" },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["recordingAcknowledgedAt", "recordingNoticeDigest", "updatedAt"])
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow(),
+    {
+      recordingAcknowledgedAt: createdAt,
+      recordingNoticeDigest: acknowledgement.recordingNoticeDigest,
+      updatedAt: createdAt,
+    },
+    "Replayed acknowledgement must preserve the original consent evidence",
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "off", recordingRetentionDays: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+
+  await setEventVirtualRoomAdmissionMode(
+    ids.occurrence,
+    ids.session,
+    "manual",
+    administrator,
+  );
+  const secondLobby = await resolveEventVirtualLobby(
+    access.publicReference,
+    secondLearner,
+  );
+  assert.equal(
+    secondLobby.status === "ready" ? secondLobby.data.outcome : null,
+    "waiting_for_admission",
+  );
+  const secondEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select("id")
+    .where("eventParticipationId", "=", ids.secondParticipation)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: secondEntry.id,
+        action: "admit",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+
+  const bulkLearners = Array.from({ length: 501 }, (_, index) => ({
+    id: `verify_livekit_lobby_bulk_learner_${String(index).padStart(3, "0")}`,
+    name: `Bulk learner ${String(index + 1)}`,
+    email: `verify_livekit_lobby_bulk_${String(index)}@example.com`,
+  }));
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 600 })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ maxParticipants: 605 })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("user")
+    .values(
+      bulkLearners.map((item) => ({
+        ...item,
+        emailVerified: true,
+        emailEnabled: true,
+        image: null,
+        stripeCustomerId: null,
+      })),
+    )
+    .execute();
+  const bulkRequestedAt = new Date(Date.now() - 10_000);
+  await database
+    .insertInto("event_registration")
+    .values(
+      bulkLearners.map((item) => ({
+        id: `verify_livekit_lobby_bulk_registration_${item.id}`,
+        eventOccurrenceId: ids.occurrence,
+        userId: item.id,
+        eventOccurrenceRegionId: null,
+        reviewRoundId: null,
+        nameSnapshot: item.name,
+        emailSnapshot: item.email,
+        source: "ordinary" as const,
+        eligibilitySource: "unrestricted" as const,
+        status: "selected" as const,
+        coordinatorPriority: null,
+        submittedAt: createdAt,
+        coordinatorDecidedAt: null,
+        coordinatorDecidedByUserId: null,
+        finalDecidedAt: createdAt,
+        finalDecidedByUserId: administrator.id,
+        lockedInAt: createdAt,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("event_participation")
+    .values(
+      bulkLearners.map((item) => ({
+        id: `verify_livekit_lobby_bulk_participation_${item.id}`,
+        eventOccurrenceId: ids.occurrence,
+        userId: item.id,
+        registrationId: `verify_livekit_lobby_bulk_registration_${item.id}`,
+        mode: "registered" as const,
+        nameSnapshot: item.name,
+        emailSnapshot: item.email,
+        detailsSubmittedAt: createdAt,
+        joinDisclosedAt: null,
+        checkedInAt: null,
+        createdAt,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("registration_questionnaire_assignment")
+    .values(
+      bulkLearners.map((item) => ({
+        id: `verify_livekit_lobby_bulk_questionnaire_${item.id}`,
+        userId: item.id,
+        surveyVersionId: ids.surveyVersion,
+        eventOccurrenceId: ids.occurrence,
+        eventOccurrenceRegionId: null,
+        enrollmentId: null,
+        status: "completed" as const,
+        assignedAt: createdAt,
+        startedAt: createdAt,
+        completedAt: createdAt,
+        waivedAt: null,
+        waivedByUserId: null,
+        waiverReason: null,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("event_virtual_lobby_entry")
+    .values(
+      bulkLearners.map((item, index) => ({
+        id: `verify_livekit_lobby_bulk_entry_${item.id}`,
+        eventVirtualJoinAccessId: access.id,
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        roomGeneration: 1,
+        eventParticipationId: `verify_livekit_lobby_bulk_participation_${item.id}`,
+        state: "waiting" as const,
+        accessMethod: "authenticated" as const,
+        requestedAt: new Date(bulkRequestedAt.getTime() + index),
+        admittedAt: null,
+        admittedByUserId: null,
+        declinedAt: null,
+        declinedByUserId: null,
+        revokedAt: null,
+        revokedByUserId: null,
+        firstTokenIssuedAt: null,
+        recordingAcknowledgedAt: null,
+        recordingNoticeDigest: null,
+        firstConnectedAt: null,
+        lastSeenAt: null,
+        leftAt: null,
+        updatedAt: new Date(bulkRequestedAt.getTime() + index),
+      })),
+    )
+    .execute();
+  const admissionRaceLearner = bulkLearners[0];
+  assert.ok(admissionRaceLearner);
+  const admissionRaceRegistrationId = `verify_livekit_lobby_bulk_registration_${admissionRaceLearner.id}`;
+  const admissionRaceEntryId = `verify_livekit_lobby_bulk_entry_${admissionRaceLearner.id}`;
+  let releaseRegistrationLock = () => {};
+  let markRegistrationLocked = () => {};
+  const registrationLockHeld = new Promise<void>((resolve) => {
+    markRegistrationLocked = resolve;
+  });
+  const registrationLockRelease = new Promise<void>((resolve) => {
+    releaseRegistrationLock = resolve;
+  });
+  const cancellation = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("event_registration")
+      .select("id")
+      .where("id", "=", admissionRaceRegistrationId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    markRegistrationLocked();
+    await registrationLockRelease;
+    await transaction
+      .updateTable("event_registration")
+      .set({ status: "cancelled", lockedInAt: null })
+      .where("id", "=", admissionRaceRegistrationId)
+      .executeTakeFirstOrThrow();
+  });
+  await registrationLockHeld;
+  let admissionSettled = false;
+  const racedAdmission = mutateEventVirtualLobbyAdmission(
+    {
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      lobbyEntryId: admissionRaceEntryId,
+      action: "admit",
+    },
+    administrator,
+  ).then((result) => {
+    admissionSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(
+    admissionSettled,
+    false,
+    "Admission must wait for a concurrent final-registration decision",
+  );
+  releaseRegistrationLock();
+  await cancellation;
+  assert.deepEqual(await racedAdmission, {
+    status: "conflict",
+    reason: "ineligible",
+  });
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", admissionRaceEntryId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "waiting",
+    "Cancellation committed ahead of admission must leave the learner waiting",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: createdAt })
+    .where("id", "=", admissionRaceRegistrationId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ admissionMode: "automatic" })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  let releaseAutomaticRegistrationLock = () => {};
+  let markAutomaticRegistrationLocked = () => {};
+  const automaticRegistrationLockHeld = new Promise<void>((resolve) => {
+    markAutomaticRegistrationLocked = resolve;
+  });
+  const automaticRegistrationLockRelease = new Promise<void>((resolve) => {
+    releaseAutomaticRegistrationLock = resolve;
+  });
+  const automaticCancellation = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_registration")
+        .select("id")
+        .where("id", "=", admissionRaceRegistrationId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      markAutomaticRegistrationLocked();
+      await automaticRegistrationLockRelease;
+      await transaction
+        .updateTable("event_registration")
+        .set({ status: "cancelled", lockedInAt: null })
+        .where("id", "=", admissionRaceRegistrationId)
+        .executeTakeFirstOrThrow();
+    });
+  await automaticRegistrationLockHeld;
+  let automaticAdmissionSettled = false;
+  const racedAutomaticAdmission = resolveEventVirtualLobby(
+    access.publicReference,
+    authenticatedUser(admissionRaceLearner.id, admissionRaceLearner.name),
+  ).then((result) => {
+    automaticAdmissionSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(
+    automaticAdmissionSettled,
+    false,
+    "Automatic admission must wait for a concurrent registration decision",
+  );
+  releaseAutomaticRegistrationLock();
+  await automaticCancellation;
+  const automaticAdmissionResult = await racedAutomaticAdmission;
+  assert.equal(automaticAdmissionResult.status, "ready");
+  assert.equal(automaticAdmissionResult.data.outcome, "revoked");
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", admissionRaceEntryId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "revoked",
+    "A cancellation committed ahead of auto-admission must revoke the waiter",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: createdAt })
+    .where("id", "=", admissionRaceRegistrationId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ admissionMode: "manual" })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const restoredRaceWaiter = await resolveEventVirtualLobby(
+    access.publicReference,
+    authenticatedUser(admissionRaceLearner.id, admissionRaceLearner.name),
+  );
+  assert.equal(restoredRaceWaiter.status, "ready");
+  assert.equal(restoredRaceWaiter.data.admissionState, "waiting");
+  const firstQueuePage = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    0,
+  );
+  assert.equal(firstQueuePage.status, "ready");
+  assert.equal(firstQueuePage.data.entries.length, 50);
+  assert.equal(firstQueuePage.data.hasNextPage, true);
+  const firstQueueEntry = firstQueuePage.data.entries[0];
+  assert.ok(firstQueueEntry);
+  const lastQueuePage = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    10,
+  );
+  assert.equal(lastQueuePage.status, "ready");
+  assert.equal(lastQueuePage.data.entries.length, 3);
+  assert.equal(lastQueuePage.data.hasNextPage, false);
+  await database
+    .insertInto("event_admin_assignment")
+    .values({
+      id: "verify_livekit_lobby_assignment_only_admin",
+      eventOccurrenceId: ids.occurrence,
+      userId: secondLearner.id,
+      source: "occurrence_local",
+      assignedByUserId: administrator.id,
+      assignedAt: createdAt,
+      endedAt: null,
+      endReason: null,
+    })
+    .execute();
+  assert.deepEqual(
+    await findEventVirtualLobbyQueue(
+      ids.occurrence,
+      ids.session,
+      secondLearner.id,
+      0,
+    ),
+    { status: "forbidden" },
+    "An occurrence assignment must not survive revocation of the Platform Administrator role",
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: firstQueueEntry.id,
+        action: "admit",
+      },
+      secondLearner,
+    ),
+    { status: "forbidden" },
+  );
+  await database
+    .updateTable("event_admin_assignment")
+    .set({ endedAt: new Date(), endReason: "assignment_ended" })
+    .where("id", "=", "verify_livekit_lobby_assignment_only_admin")
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await findEventVirtualLobbyQueue(
+      ids.occurrence,
+      ids.session,
+      learner.id,
+      0,
+    ),
+    { status: "forbidden" },
+  );
+  const committedAdmissionBatchSizes: number[] = [];
+  const firstAdmissionBatchTime = new Date(Date.now() + 1_000);
+  const laterWaiterTime = new Date(firstAdmissionBatchTime.getTime() + 1_000);
+  const laterBatchTime = new Date(laterWaiterTime.getTime() + 1_000);
+  const laterWaiterLearner = bulkLearners.at(-1);
+  assert.ok(laterWaiterLearner);
+  const laterWaiterEntryId = `verify_livekit_lobby_bulk_entry_${laterWaiterLearner.id}`;
+  let admissionBatchTime = firstAdmissionBatchTime;
+  let movedWaiterAfterFirstBatch = false;
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        action: "admit_all",
+      },
+      administrator,
+      {
+        admissionBatchSize: 100,
+        clock: () => admissionBatchTime,
+        afterAdmissionBatch: async () => {
+          committedAdmissionBatchSizes.push(
+            await database
+              .selectFrom("event_virtual_lobby_entry")
+              .select((expression) =>
+                expression.fn.countAll<string>().as("count"),
+              )
+              .where("eventVirtualJoinAccessId", "=", access.id)
+              .where("state", "=", "admitted")
+              .executeTakeFirstOrThrow()
+              .then((row) => Number(row.count)),
+          );
+          if (!movedWaiterAfterFirstBatch) {
+            movedWaiterAfterFirstBatch = true;
+            await database
+              .updateTable("event_virtual_lobby_entry")
+              .set({ requestedAt: laterWaiterTime, updatedAt: laterWaiterTime })
+              .where("id", "=", laterWaiterEntryId)
+              .executeTakeFirstOrThrow();
+            admissionBatchTime = laterBatchTime;
+          }
+        },
+      },
+    ),
+    { status: "ready" },
+  );
+  assert.ok(
+    committedAdmissionBatchSizes.length > 1,
+    "Admit all must commit large queues across multiple transactions",
+  );
+  const laterWaiter = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["requestedAt", "admittedAt"])
+    .where("id", "=", laterWaiterEntryId)
+    .executeTakeFirstOrThrow();
+  assert.ok(laterWaiter.admittedAt);
+  assert.ok(
+    laterWaiter.admittedAt >= laterWaiter.requestedAt,
+    "Each admission batch must use a commit-time timestamp for newly observed waiters",
+  );
+  for (let index = 1; index < committedAdmissionBatchSizes.length; index += 1)
+    assert.ok(
+      (committedAdmissionBatchSizes[index] ?? 0) >
+        (committedAdmissionBatchSizes[index - 1] ?? 0),
+      "Each admission batch must be visible after its transaction commits",
+    );
+  const changedQueuePage = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    0,
+  );
+  assert.equal(changedQueuePage.status, "ready");
+  assert.notEqual(
+    changedQueuePage.data.etag,
+    firstQueuePage.data.etag,
+    "Admission changes must advance the queue revision used to reset remote pages",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("eventVirtualJoinAccessId", "=", access.id)
+      .where("state", "=", "waiting")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    0,
+    "Admit all must process eligible attendees beyond the first 500",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ state: "waiting", admittedAt: null, admittedByUserId: null })
+    .where(
+      "id",
+      "in",
+      bulkLearners.map((item) => `verify_livekit_lobby_bulk_entry_${item.id}`),
+    )
+    .execute();
+  assert.deepEqual(
+    await setEventVirtualRoomAdmissionMode(
+      ids.occurrence,
+      ids.session,
+      "automatic",
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("eventVirtualJoinAccessId", "=", access.id)
+      .where("state", "=", "waiting")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    0,
+    "Enabling auto-admit must process eligible attendees beyond the first 500",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ credentialExpiresAt: new Date() })
+    .where("eventVirtualJoinAccessId", "=", access.id)
+    .where("credentialExpiresAt", "is not", null)
+    .execute();
+  const attendeeHeadroomReservationTime = new Date();
+  const attendeeHeadroomReservedLearners = bulkLearners.slice(0, 2);
+  const attendeeHeadroomRequester = bulkLearners[2];
+  assert.equal(attendeeHeadroomReservedLearners.length, 2);
+  assert.ok(attendeeHeadroomRequester);
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 2 })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ maxParticipants: 7 })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "token_issued",
+      firstTokenIssuedAt: attendeeHeadroomReservationTime,
+      credentialExpiresAt: new Date(
+        attendeeHeadroomReservationTime.getTime() + 6 * 60_000,
+      ),
+      updatedAt: attendeeHeadroomReservationTime,
+    })
+    .where(
+      "id",
+      "in",
+      attendeeHeadroomReservedLearners.map(
+        (learner) => `verify_livekit_lobby_bulk_entry_${learner.id}`,
+      ),
+    )
+    .execute();
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(
+      access.publicReference,
+      {
+        ...attendeeHeadroomRequester,
+        emailVerified: true,
+      },
+      {
+        provider: new FakeLiveKitProvider(),
+        websocketUrl: "wss://verify.example.com",
+      },
+    ),
+    { status: "conflict", reason: "capacity_reached" },
+    "Unconnected attendee credentials must not consume the five staff headroom places",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "admitted",
+      credentialExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      "id",
+      "in",
+      attendeeHeadroomReservedLearners.map(
+        (learner) => `verify_livekit_lobby_bulk_entry_${learner.id}`,
+      ),
+    )
+    .execute();
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 600 })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ maxParticipants: 605 })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const concurrentProvider = new FakeLiveKitProvider();
+  concurrentProvider.participants.set(
+    "event:verify_lobby:g1",
+    Array.from({ length: 604 }, (_, index) => ({
+      sid: `concurrent-existing-${String(index)}`,
+      identity: `presenter:concurrent-existing-${String(index)}`,
+      displayName: `Concurrent existing participant ${String(index)}`,
+    })),
+  );
+  const presenterReservationTime = new Date();
+  await database
+    .insertInto("event_virtual_presenter_credential_reservation")
+    .values({
+      roomId: ids.room,
+      userId: administrator.id,
+      firstTokenIssuedAt: presenterReservationTime,
+      lastTokenIssuedAt: presenterReservationTime,
+      credentialExpiresAt: new Date(
+        presenterReservationTime.getTime() + 6 * 60_000,
+      ),
+    })
+    .execute();
+  const concurrentLearners = bulkLearners.slice(0, 2).map((item) => ({
+    id: item.id,
+    name: item.name,
+    email: item.email,
+    emailVerified: true,
+  }));
+  const reservationBlockedLearner = concurrentLearners[0];
+  assert.ok(reservationBlockedLearner);
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(
+      access.publicReference,
+      reservationBlockedLearner,
+      {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+      },
+    ),
+    { status: "conflict", reason: "capacity_reached" },
+    "An outstanding presenter credential must consume total provider capacity",
+  );
+  await database
+    .deleteFrom("event_virtual_presenter_credential_reservation")
+    .where("roomId", "=", ids.room)
+    .where("userId", "=", administrator.id)
+    .executeTakeFirstOrThrow();
+  const concurrentCredentials = await Promise.all(
+    concurrentLearners.map((concurrentLearner) =>
+      issueEventVirtualAttendeeCredential(
+        access.publicReference,
+        concurrentLearner,
+        {
+          provider: concurrentProvider,
+          websocketUrl: "wss://verify.example.com",
+        },
+      ),
+    ),
+  );
+  assert.deepEqual(
+    concurrentCredentials.map((result) => result.status).sort(),
+    ["conflict", "ready"],
+    "Concurrent requests for the final place must produce one durable reservation",
+  );
+  assert.equal(
+    concurrentCredentials.find((result) => result.status === "conflict")
+      ?.reason,
+    "capacity_reached",
+  );
+  const concurrentReadyCredential = concurrentCredentials.find(
+    (result) => result.status === "ready",
+  );
+  assert.ok(concurrentReadyCredential);
+  const credentialHolderEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["id", "eventParticipationId"])
+    .where(
+      "id",
+      "in",
+      concurrentLearners.map(
+        (candidate) => `verify_livekit_lobby_bulk_entry_${candidate.id}`,
+      ),
+    )
+    .where("credentialExpiresAt", ">", new Date())
+    .executeTakeFirstOrThrow();
+  const credentialHolder = concurrentLearners.find(
+    (candidate) =>
+      credentialHolderEntry.id ===
+      `verify_livekit_lobby_bulk_entry_${candidate.id}`,
+  );
+  assert.ok(credentialHolder);
+  const credentialHolderEntryId = credentialHolderEntry.id;
+  const credentialHolderRegistrationId = `verify_livekit_lobby_bulk_registration_${credentialHolder.id}`;
+  const concurrentParticipantIdentity = eventVirtualAttendeeIdentity(
+    ids.room,
+    credentialHolderEntry.eventParticipationId,
+  );
+  const lastSlotRequester = concurrentLearners.find(
+    (candidate) => candidate.id !== credentialHolder.id,
+  );
+  assert.ok(lastSlotRequester);
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "withdrawn-credential-holder",
+      identity: concurrentParticipantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", credentialHolderRegistrationId)
+    .executeTakeFirstOrThrow();
+  const eligibilityRevocations =
+    await processAvailableEventVirtualLobbyEligibilityRevocations(10);
+  assert.deepEqual(
+    eligibilityRevocations.outcomes.find(
+      (outcome) => outcome.lobbyEntryId === credentialHolderEntryId,
+    ),
+    { status: "revoked", lobbyEntryId: credentialHolderEntryId },
+    "Eligibility withdrawal must revoke an issued credential without learner polling",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", credentialHolderEntryId)
+      .executeTakeFirstOrThrow()
+      .then((entry) => entry.state),
+    "revoked",
+  );
+  const withdrawnRemoval = await database
+    .selectFrom("event_virtual_room_operation")
+    .select("id")
+    .where("kind", "=", "remove_participant")
+    .where("lobbyEntryId", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  const withdrawnRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(),
+    });
+  assert.deepEqual(
+    {
+      kind: withdrawnRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === withdrawnRemoval.id,
+      )?.kind,
+      status: withdrawnRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === withdrawnRemoval.id,
+      )?.status,
+    },
+    { kind: "remove_participant", status: "pending" },
+    "Independent eligibility reconciliation must enforce removal through credential expiry",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) => participant.identity === concurrentParticipantIdentity,
+      ),
+    false,
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(
+      access.publicReference,
+      lastSlotRequester,
+      {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+      },
+    ),
+    { status: "conflict", reason: "capacity_reached" },
+    "A revoked but unexpired credential must retain its capacity reservation",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", credentialHolderRegistrationId)
+    .executeTakeFirstOrThrow();
+  const automaticallyReactivatedCredentialHolder =
+    await resolveEventVirtualLobby(access.publicReference, credentialHolder);
+  assert.equal(
+    automaticallyReactivatedCredentialHolder.status === "ready"
+      ? automaticallyReactivatedCredentialHolder.data.outcome
+      : null,
+    "ready_to_join",
+  );
+  const reactivatedCredential = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["state", "credentialExpiresAt"])
+    .where("id", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  assert.equal(reactivatedCredential.state, "admitted");
+  assert.ok(
+    reactivatedCredential.credentialExpiresAt &&
+      reactivatedCredential.credentialExpiresAt > new Date(),
+  );
+  const automaticallyReactivatedRemoval = await database
+    .selectFrom("event_virtual_room_operation")
+    .select("id")
+    .where("kind", "=", "remove_participant")
+    .where("lobbyEntryId", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "automatically-reactivated-credential-holder",
+      identity: concurrentParticipantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  const automaticallyReactivatedRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(Date.now() + 6_000),
+    });
+  assert.equal(
+    automaticallyReactivatedRemovalBatch.outcomes.find(
+      (outcome) => outcome.operationId === automaticallyReactivatedRemoval.id,
+    )?.status,
+    "pending",
+    "Automatic eligibility restoration must not cancel enforcement of a revoked credential",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) => participant.identity === concurrentParticipantIdentity,
+      ),
+    false,
+    "A credential revoked before automatic reactivation must remain disconnected through its original expiry",
+  );
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(
+      access.publicReference,
+      lastSlotRequester,
+      {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+      },
+    ),
+    { status: "conflict", reason: "capacity_reached" },
+    "An authorised admitted entry with a live credential must reserve capacity while temporarily disconnected",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "connected",
+      firstConnectedAt: new Date(),
+      lastSeenAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where("id", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "concurrent-credential-holder",
+      identity: concurrentParticipantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  await setEventVirtualRoomAdmissionMode(
+    ids.occurrence,
+    ids.session,
+    "manual",
+    administrator,
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", credentialHolderRegistrationId)
+    .executeTakeFirstOrThrow();
+  const systemRevokedCredentialHolder = await resolveEventVirtualLobby(
+    access.publicReference,
+    credentialHolder,
+  );
+  assert.equal(
+    systemRevokedCredentialHolder.status === "ready"
+      ? systemRevokedCredentialHolder.data.outcome
+      : null,
+    "revoked",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", credentialHolderRegistrationId)
+    .executeTakeFirstOrThrow();
+  const manuallyRestoredCredentialHolder = await resolveEventVirtualLobby(
+    access.publicReference,
+    credentialHolder,
+  );
+  assert.equal(
+    manuallyRestoredCredentialHolder.status === "ready"
+      ? manuallyRestoredCredentialHolder.data.outcome
+      : null,
+    "waiting_for_admission",
+    "Manual eligibility restoration must not cancel removal for a still-live credential",
+  );
+  const participantRemoval = await database
+    .selectFrom("event_virtual_room_operation")
+    .select(["id", "status", "participantIdentity"])
+    .where("kind", "=", "remove_participant")
+    .where("lobbyEntryId", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    {
+      status: participantRemoval.status,
+      participantIdentity: participantRemoval.participantIdentity,
+    },
+    {
+      status: "pending",
+      participantIdentity: concurrentParticipantIdentity,
+    },
+    "System revocation must durably queue the exact participant removal",
+  );
+  const participantRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(),
+    });
+  assert.deepEqual(
+    {
+      kind: participantRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.kind,
+      status: participantRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.status,
+    },
+    { kind: "remove_participant", status: "pending" },
+    "Removal enforcement must remain pending while an issued token is valid",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) => participant.identity === concurrentParticipantIdentity,
+      ),
+    false,
+    "The durable removal must disconnect a manually waiting participant with a live credential",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "attempts"])
+      .where("id", "=", participantRemoval.id)
+      .executeTakeFirstOrThrow()
+      .then((operation) => ({
+        status: operation.status,
+        attempts: operation.attempts,
+      })),
+    { status: "pending", attempts: 0 },
+    "A successful enforcement pass must reset retry attempts before its five-second recheck",
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: credentialHolderEntryId,
+        action: "admit",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "readmitted-credential-holder",
+      identity: concurrentParticipantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  const readmittedRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(Date.now() + 6_000),
+    });
+  assert.deepEqual(
+    {
+      kind: readmittedRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.kind,
+      status: readmittedRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.status,
+    },
+    { kind: "remove_participant", status: "processed" },
+    "A genuine presenter readmission may cancel pending removal",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) => participant.identity === concurrentParticipantIdentity,
+      ),
+    true,
+  );
+  await database
+    .updateTable("event_virtual_room_operation")
+    .set({ attempts: 6, lastAttemptAt: new Date() })
+    .where("id", "=", participantRemoval.id)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: credentialHolderEntryId,
+        action: "revoke",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "attempts", "lastAttemptAt"])
+      .where("id", "=", participantRemoval.id)
+      .executeTakeFirstOrThrow(),
+    { status: "pending", attempts: 0, lastAttemptAt: null },
+    "Reopening an attendee removal must start a fresh retry cycle",
+  );
+  const rerevokedRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(Date.now() + 7_000),
+    });
+  assert.equal(
+    rerevokedRemovalBatch.outcomes.find(
+      (outcome) => outcome.operationId === participantRemoval.id,
+    )?.status,
+    "pending",
+  );
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "reconnected-credential-holder",
+      identity: concurrentParticipantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  const expiredRemovalBatch = await processAvailableEventVirtualRoomOperations(
+    10,
+    {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(concurrentReadyCredential.credential.expiresAt),
+    },
+  );
+  assert.deepEqual(
+    {
+      kind: expiredRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.kind,
+      status: expiredRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.status,
+    },
+    { kind: "remove_participant", status: "processed" },
+    "Removal enforcement must make a final pass when the revoked token expires",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) => participant.identity === concurrentParticipantIdentity,
+      ),
+    false,
+    "A revoked token replay must be disconnected through its expiry",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select("status")
+      .where("id", "=", participantRemoval.id)
+      .executeTakeFirstOrThrow()
+      .then((operation) => operation.status),
+    "succeeded",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "admitted",
+      revokedAt: null,
+      revokedByUserId: null,
+      credentialExpiresAt: null,
+    })
+    .where("id", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ state: "waiting", admittedAt: null, admittedByUserId: null })
+    .where("id", "=", secondEntry.id)
+    .executeTakeFirstOrThrow();
+  const terminalCloseTime = new Date("2030-09-04T01:30:00.000Z");
+  const outstandingAttendeeCredentialExpiry = new Date(
+    terminalCloseTime.getTime() + 12_000,
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ credentialExpiresAt: outstandingAttendeeCredentialExpiry })
+    .where("id", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await transitionEventVirtualRoom(
+      ids.occurrence,
+      ids.session,
+      "end",
+      administrator,
+      { clock: () => terminalCloseTime },
+    ),
+    { status: "ready" },
+  );
+  concurrentProvider.rooms.set("event:verify_lobby:g1", {
+    sid: "RM_TERMINAL_REPLAY_1",
+    name: "event:verify_lobby:g1",
+    maxParticipants: 605,
+  });
+  const firstTerminalClose = await processAvailableEventVirtualRoomOperations(
+    10,
+    {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: terminalCloseTime,
+    },
+  );
+  assert.deepEqual(
+    {
+      kind: firstTerminalClose.outcomes[0]?.kind,
+      status: firstTerminalClose.outcomes[0]?.status,
+    },
+    { kind: "close_room", status: "pending" },
+    "Terminal closure must remain pending while an attendee credential can recreate the room",
+  );
+  assert.equal(concurrentProvider.rooms.has("event:verify_lobby:g1"), false);
+  concurrentProvider.rooms.set("event:verify_lobby:g1", {
+    sid: "RM_TERMINAL_REPLAY_2",
+    name: "event:verify_lobby:g1",
+    maxParticipants: 605,
+  });
+  const repeatedTerminalClose =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(terminalCloseTime.getTime() + 5_000),
+    });
+  assert.equal(repeatedTerminalClose.outcomes[0]?.status, "pending");
+  assert.equal(concurrentProvider.rooms.has("event:verify_lobby:g1"), false);
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "attempts"])
+      .where("roomId", "=", ids.room)
+      .where("kind", "=", "close_room")
+      .executeTakeFirstOrThrow(),
+    { status: "pending", attempts: 0 },
+    "Successful terminal closure passes must reset retry attempts",
+  );
+  concurrentProvider.rooms.set("event:verify_lobby:g1", {
+    sid: "RM_TERMINAL_REPLAY_3",
+    name: "event:verify_lobby:g1",
+    maxParticipants: 605,
+  });
+  const finalTerminalClose = await processAvailableEventVirtualRoomOperations(
+    10,
+    {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: outstandingAttendeeCredentialExpiry,
+    },
+  );
+  assert.equal(finalTerminalClose.outcomes[0]?.status, "processed");
+  assert.equal(concurrentProvider.rooms.has("event:verify_lobby:g1"), false);
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select("status")
+      .where("roomId", "=", ids.room)
+      .where("kind", "=", "close_room")
+      .executeTakeFirstOrThrow()
+      .then((operation) => operation.status),
+    "succeeded",
+    "Terminal closure may settle only after every issued credential expires",
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ providerStatus: "ready", providerErrorCode: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const admissionAuditCount = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("subjectId", "=", secondEntry.id)
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: secondEntry.id,
+        action: "admit",
+      },
+      administrator,
+    ),
+    { status: "conflict", reason: "session_ended" },
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        action: "admit_all",
+      },
+      administrator,
+    ),
+    { status: "conflict", reason: "session_ended" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", secondEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "waiting",
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("subjectId", "=", secondEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    admissionAuditCount,
+  );
+  const terminalAnonymous = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+  );
+  assert.equal(
+    terminalAnonymous.status === "ready"
+      ? terminalAnonymous.data.outcome
+      : null,
+    "ended",
+  );
+  const recoveryCaptureCount = await database
+    .selectFrom("event_virtual_recovery_email_capture")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  assert.deepEqual(
+    await requestEventVirtualRecoveryCode(
+      { publicReference: access.publicReference, identifier: learner.email },
+      "terminal-session".padEnd(43, "x"),
+    ),
+    { status: "unavailable" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recovery_email_capture")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    recoveryCaptureCount,
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", endedAt: null, endedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+
+  const recoveryChallengesBeforeRace = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const terminalReservationRace = await requestEventVirtualRecoveryCode(
+    {
+      publicReference: access.publicReference,
+      identifier: secondLearner.email,
+    },
+    "terminal-reservation-race".padEnd(43, "x"),
+    {
+      requestLimitStore: new Map(),
+      beforeReserve: async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set({
+            doorState: "ended",
+            endedAt: new Date(),
+            endedByUserId: administrator.id,
+          })
+          .where("id", "=", ids.room)
+          .executeTakeFirstOrThrow();
+      },
+    },
+  );
+  assert.equal(terminalReservationRace.status, "accepted");
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", endedAt: null, endedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const ineligibleReservationRace = await requestEventVirtualRecoveryCode(
+    {
+      publicReference: access.publicReference,
+      identifier: secondLearner.email,
+    },
+    "ineligible-reservation-race".padEnd(43, "x"),
+    {
+      requestLimitStore: new Map(),
+      beforeReserve: async () => {
+        await database
+          .updateTable("event_registration")
+          .set({ status: "cancelled", lockedInAt: null })
+          .where("id", "=", ids.secondRegistration)
+          .executeTakeFirstOrThrow();
+      },
+    },
+  );
+  assert.equal(ineligibleReservationRace.status, "accepted");
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.secondRegistration)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recovery_challenge")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    recoveryChallengesBeforeRace,
+    "Terminal and ineligible reservation races must not queue or deliver a challenge",
+  );
+
+  const terminalChallenge = await requestEventVirtualRecoveryCode(
+    { publicReference: access.publicReference, identifier: learner.email },
+    "terminal-verification".padEnd(43, "x"),
+    { requestLimitStore: new Map() },
+  );
+  assert.equal(terminalChallenge.status, "accepted");
+  assert.ok("challengeReference" in terminalChallenge);
+  const terminalChallengeId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", terminalChallenge.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await processAvailableEventVirtualRecoveryDeliveries(1), {
+    outcomes: [{ status: "sent", challengeId: terminalChallengeId.id }],
+    limitReached: true,
+  });
+  const terminalCode = await database
+    .selectFrom("event_virtual_recovery_email_capture")
+    .select("textBody")
+    .where("challengeId", "=", terminalChallengeId.id)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.textBody.match(/\b\d{6}\b/u)?.[0]);
+  assert.ok(terminalCode);
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "ended",
+      endedAt: new Date(),
+      endedByUserId: administrator.id,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await verifyEventVirtualRecoveryCode({
+      publicReference: access.publicReference,
+      challengeReference: terminalChallenge.challengeReference,
+      code: terminalCode,
+    }),
+    { status: "expired" },
+  );
+  assert.ok(
+    await database
+      .selectFrom("event_virtual_recovery_challenge")
+      .select("consumedAt")
+      .where("id", "=", terminalChallengeId.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.consumedAt),
+    "Terminal verification must consume the challenge without issuing a capability",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_join_session")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("challengeId", "=", terminalChallengeId.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    0,
+  );
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", endedAt: null, endedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+
+  const challenge = await requestEventVirtualRecoveryCode(
+    { publicReference: access.publicReference, identifier: learner.email },
+    "v".repeat(43),
+  );
+  assert.equal(challenge.status, "accepted");
+  assert.ok("challengeReference" in challenge);
+  const challengeId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", challenge.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await processAvailableEventVirtualRecoveryDeliveries(1), {
+    outcomes: [{ status: "sent", challengeId: challengeId.id }],
+    limitReached: true,
+  });
+  const capture = await database
+    .selectFrom("event_virtual_recovery_email_capture")
+    .select("textBody")
+    .where("challengeId", "=", challengeId.id)
+    .executeTakeFirstOrThrow();
+  const code = capture.textBody.match(/\b\d{6}\b/u)?.[0];
+  assert.ok(code);
+  const verified = await verifyEventVirtualRecoveryCode({
+    publicReference: access.publicReference,
+    challengeReference: challenge.challengeReference,
+    code,
+  });
+  assert.equal(verified.status, "ready");
+  assert.ok(verified.joinSessionToken);
+  const recovered = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    {
+      joinSessionToken: verified.joinSessionToken,
+    },
+  );
+  assert.equal(
+    recovered.status === "ready" ? recovered.data.outcome : null,
+    "ready_to_join",
+  );
+  const recoveredJoinSession = await database
+    .selectFrom("event_virtual_join_session")
+    .select("id")
+    .where("userId", "=", learner.id)
+    .where("revokedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  const recoveryRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    null,
+    {
+      joinSessionToken: verified.joinSessionToken,
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_join_session")
+          .set({ revokedAt: new Date() })
+          .where("id", "=", recoveredJoinSession.id)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(recoveryRace, { status: "unauthenticated" });
+  await database
+    .updateTable("event_virtual_join_session")
+    .set({ revokedAt: null })
+    .where("id", "=", recoveredJoinSession.id)
+    .executeTakeFirstOrThrow();
+  const lockedAt = new Date();
+  const lockedRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set({
+            doorState: "locked",
+            lockedAt,
+            lockedByUserId: administrator.id,
+          })
+          .where("id", "=", ids.room)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(lockedRace, { status: "conflict", reason: "locked" });
+  await database
+    .updateTable("event_virtual_room")
+    .set({ doorState: "open", lockedAt: null, lockedByUserId: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const providerRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set({
+            providerStatus: "error",
+            providerErrorCode: "verification_failure",
+          })
+          .where("id", "=", ids.room)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(providerRace, {
+    status: "conflict",
+    reason: "provider_unavailable",
+  });
+  await database
+    .updateTable("event_virtual_room")
+    .set({ providerStatus: "ready", providerErrorCode: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const recordingRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_virtual_room")
+          .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
+          .where("id", "=", ids.room)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(recordingRace, {
+    status: "conflict",
+    reason: "recording_acknowledgement_required",
+  });
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "off", recordingRetentionDays: null })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const eligibilityRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_registration")
+          .set({ status: "cancelled", lockedInAt: null })
+          .where("id", "=", ids.registration)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(eligibilityRace, {
+    status: "conflict",
+    reason: "revoked",
+  });
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  const occurrenceRace = await issueEventVirtualAttendeeCredential(
+    access.publicReference,
+    learner,
+    {
+      websocketUrl: "wss://verify.example.com",
+      provider: new MutatingJoinProvider(async () => {
+        await database
+          .updateTable("event_occurrence")
+          .set({ status: "cancelled" })
+          .where("id", "=", ids.occurrence)
+          .executeTakeFirstOrThrow();
+      }),
+    },
+  );
+  assert.deepEqual(occurrenceRace, { status: "conflict", reason: "ended" });
+  await database
+    .updateTable("event_occurrence")
+    .set({ status: "published" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (
+      await verifyEventVirtualRecoveryCode({
+        publicReference: access.publicReference,
+        challengeReference: challenge.challengeReference,
+        code,
+      })
+    ).status,
+    "expired",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({ admittedByUserId: administrator.id })
+    .where("eventParticipationId", "=", ids.participation)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", ids.registration)
+    .execute();
+  const revokedRecovery = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    { joinSessionToken: verified.joinSessionToken },
+  );
+  assert.equal(
+    revokedRecovery.status === "ready" ? revokedRecovery.data.outcome : null,
+    "revoked",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_join_session")
+      .select("revokedAt")
+      .executeTakeFirstOrThrow()
+      .then((row) => Boolean(row.revokedAt)),
+    true,
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  const restoredAuthenticated = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    restoredAuthenticated.status === "ready"
+      ? restoredAuthenticated.data.outcome
+      : null,
+    "waiting_for_admission",
+  );
+  const restoredEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select([
+      "id",
+      "state",
+      "admittedAt",
+      "admittedByUserId",
+      "revokedAt",
+      "revokedByUserId",
+    ])
+    .where("eventParticipationId", "=", ids.participation)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    {
+      state: restoredEntry.state,
+      admittedAt: restoredEntry.admittedAt,
+      admittedByUserId: restoredEntry.admittedByUserId,
+      revokedAt: restoredEntry.revokedAt,
+      revokedByUserId: restoredEntry.revokedByUserId,
+    },
+    {
+      state: "waiting",
+      admittedAt: null,
+      admittedByUserId: null,
+      revokedAt: null,
+      revokedByUserId: null,
+    },
+    "Manual eligibility restoration must clear the current admission metadata",
+  );
+  const restoredAudit = await database
+    .selectFrom("audit_event")
+    .select("metadata")
+    .where("action", "=", "event_virtual_lobby.admission_changed")
+    .where("subjectId", "=", restoredEntry.id)
+    .orderBy("createdAt", "desc")
+    .executeTakeFirstOrThrow();
+  assert.match(
+    JSON.stringify(restoredAudit.metadata),
+    /"action":"reactivate"/u,
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await setEventVirtualRoomAdmissionMode(
+      ids.occurrence,
+      ids.session,
+      "automatic",
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", restoredEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "waiting",
+    "Automatic admission must skip a currently ineligible waiting entry",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  const automaticRestoration = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    automaticRestoration.status === "ready"
+      ? automaticRestoration.data.outcome
+      : null,
+    "ready_to_join",
+    "A re-selected waiting attendee must be reconciled against the locked automatic admission mode",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "admittedAt", "admittedByUserId"])
+      .where("id", "=", restoredEntry.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => ({
+        state: row.state,
+        admitted: Boolean(row.admittedAt),
+        admittedByUserId: row.admittedByUserId,
+      })),
+    { state: "admitted", admitted: true, admittedByUserId: null },
+    "Automatic eligibility restoration must record a fresh system admission",
+  );
+  await setEventVirtualRoomAdmissionMode(
+    ids.occurrence,
+    ids.session,
+    "manual",
+    administrator,
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "cancelled", lockedInAt: null })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  const revokedAuthenticated = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    revokedAuthenticated.status === "ready"
+      ? revokedAuthenticated.data.outcome
+      : null,
+    "revoked",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: new Date() })
+    .where("id", "=", ids.registration)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recovery_challenge")
+    .set({ createdAt: new Date(Date.now() - 16 * 60_000) })
+    .where("userId", "=", learner.id)
+    .execute();
+  const restoredChallenge = await requestEventVirtualRecoveryCode(
+    { publicReference: access.publicReference, identifier: learner.email },
+    "restored-eligibility".padEnd(43, "x"),
+  );
+  assert.equal(restoredChallenge.status, "accepted");
+  assert.ok("challengeReference" in restoredChallenge);
+  const restoredChallengeId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", restoredChallenge.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await processAvailableEventVirtualRecoveryDeliveries(1), {
+    outcomes: [{ status: "sent", challengeId: restoredChallengeId.id }],
+    limitReached: true,
+  });
+  const restoredCode = await database
+    .selectFrom("event_virtual_recovery_email_capture")
+    .select("textBody")
+    .where("challengeId", "=", restoredChallengeId.id)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.textBody.match(/\b\d{6}\b/u)?.[0]);
+  assert.ok(restoredCode);
+  const restoredVerification = await verifyEventVirtualRecoveryCode({
+    publicReference: access.publicReference,
+    challengeReference: restoredChallenge.challengeReference,
+    code: restoredCode,
+  });
+  assert.equal(restoredVerification.status, "ready");
+  assert.ok(restoredVerification.joinSessionToken);
+  const restoredRecovery = await resolveEventVirtualLobby(
+    access.publicReference,
+    null,
+    { joinSessionToken: restoredVerification.joinSessionToken },
+  );
+  assert.equal(
+    restoredRecovery.status === "ready" ? restoredRecovery.data.outcome : null,
+    "waiting_for_admission",
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: restoredEntry.id,
+        action: "revoke",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  const presenterRevoked = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.equal(
+    presenterRevoked.status === "ready" ? presenterRevoked.data.outcome : null,
+    "revoked",
+    "An explicit presenter revocation must not be auto-reactivated",
+  );
+  const failedDelivery = await requestEventVirtualRecoveryCode(
+    {
+      publicReference: access.publicReference,
+      identifier: secondLearner.email,
+    },
+    "failed-delivery".padEnd(43, "x"),
+    { requestLimitStore: new Map() },
+  );
+  assert.equal(failedDelivery.status, "accepted");
+  assert.ok("challengeReference" in failedDelivery);
+  const failedDeliveryId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select(["id", "deliveryStatus"])
+    .where("reference", "=", failedDelivery.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    failedDeliveryId.deliveryStatus,
+    "pending",
+    "The request must return after durable reservation without waiting for a provider",
+  );
+  assert.deepEqual(
+    await processAvailableEventVirtualRecoveryDeliveries(1, {
+      delivery: {
+        sendEmail: () =>
+          Promise.reject(new Error("EMAIL_PROVIDER_NOT_CONFIGURED")),
+      },
+    }),
+    {
+      outcomes: [{ status: "failed", challengeId: failedDeliveryId.id }],
+      limitReached: true,
+    },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recovery_challenge")
+      .select(["deliveryStatus", "consumedAt"])
+      .where("reference", "=", failedDelivery.challengeReference)
+      .executeTakeFirstOrThrow()
+      .then((row) => ({
+        deliveryStatus: row.deliveryStatus,
+        consumed: Boolean(row.consumedAt),
+      })),
+    { deliveryStatus: "failed", consumed: true },
+  );
+  const distributedRequests = await Promise.all(
+    Array.from({ length: 4 }, (_, index) => {
+      return requestEventVirtualRecoveryCode(
+        {
+          publicReference: access.publicReference,
+          identifier: secondLearner.email,
+        },
+        `distributed-${String(index)}`.padEnd(43, "x"),
+        { requestLimitStore: new Map() },
+      );
+    }),
+  );
+  assert.deepEqual(
+    distributedRequests.map((result) => result.status).toSorted(),
+    ["accepted", "accepted", "accepted", "accepted"],
+    "Durable throttling must remain externally indistinguishable from an unknown identifier",
+  );
+  assert.equal(
+    new Set(
+      distributedRequests.flatMap((result) =>
+        "challengeReference" in result ? [result.challengeReference] : [],
+      ),
+    ).size,
+    4,
+    "Every enumeration-safe response must carry an opaque reference",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recovery_challenge")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("userId", "=", secondLearner.id)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    3,
+    "Failed delivery history must remain part of the durable rate limit",
+  );
+
+  assert.equal(
+    (
+      await requestEventVirtualRecoveryCode(
+        {
+          publicReference: access.publicReference,
+          identifier: "unknown-recovery-user@example.com",
+        },
+        "enumeration-safe-audit".padEnd(43, "x"),
+        { requestLimitStore: new Map() },
+      )
+    ).status,
+    "accepted",
+  );
+  const localLimitStore = new Map<string, FixedWindowRateLimitEntry>();
+  const localAuditLimitStore = new Map<string, FixedWindowRateLimitEntry>();
+  const localRequestAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const localRequestOutboxCountBefore = await database
+    .selectFrom("outbox_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("topic", "=", "audit.log_requested")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const locallyLimitedRequests = [];
+  for (let index = 0; index < 15; index += 1)
+    locallyLimitedRequests.push(
+      await requestEventVirtualRecoveryCode(
+        {
+          publicReference: "unknown-livekit-reference",
+          identifier: "rate-limit-audit@example.com",
+        },
+        "local-rate-limit-audit".padEnd(43, "x"),
+        {
+          requestLimitStore: localLimitStore,
+          auditLimitStore: localAuditLimitStore,
+        },
+      ),
+    );
+  assert.deepEqual(
+    locallyLimitedRequests.map((result) => result.status),
+    [
+      "unavailable",
+      "unavailable",
+      "unavailable",
+      ...Array.from({ length: 12 }, () => "rate-limited" as const),
+    ],
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - localRequestAuditCountBefore),
+    10,
+    "Pre- and post-throttle recovery request outcomes must share one bounded audit budget",
+  );
+  assert.equal(
+    await database
+      .selectFrom("outbox_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("topic", "=", "audit.log_requested")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - localRequestOutboxCountBefore),
+    10,
+    "The bounded request audit budget must also bound audit outbox projections",
+  );
+  const connectionLimitStore = new Map<string, FixedWindowRateLimitEntry>();
+  const connectionAuditLimitStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  const rotatingReferenceAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const rotatingReferenceOutboxCountBefore = await database
+    .selectFrom("outbox_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("topic", "=", "audit.log_requested")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const connectionLimitedRequests = [];
+  for (let index = 0; index < 22; index += 1)
+    connectionLimitedRequests.push(
+      await requestEventVirtualRecoveryCode(
+        {
+          publicReference: `rotating-reference-${String(index)}`.padEnd(
+            43,
+            "x",
+          ),
+          identifier: "rotating-reference-audit@example.com",
+        },
+        "connection-rate-limit-audit".padEnd(43, "x"),
+        {
+          requestLimitStore: connectionLimitStore,
+          auditLimitStore: connectionAuditLimitStore,
+        },
+      ),
+    );
+  assert.deepEqual(
+    connectionLimitedRequests.map((result) => result.status),
+    [
+      ...Array.from({ length: 10 }, () => "unavailable" as const),
+      ...Array.from({ length: 12 }, () => "rate-limited" as const),
+    ],
+  );
+  assert.equal(
+    connectionLimitStore.size,
+    11,
+    "A connection over budget must not allocate buckets for rotating identifiers",
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - rotatingReferenceAuditCountBefore),
+    10,
+    "Rotating attacker-controlled lobby references must not reset the connection audit budget",
+  );
+  assert.equal(
+    await database
+      .selectFrom("outbox_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("topic", "=", "audit.log_requested")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - rotatingReferenceOutboxCountBefore),
+    10,
+    "Rotating lobby references must not create unbounded audit outbox projections",
+  );
+  const invalidRequestAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+    .where("reason", "=", "invalid_submission")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const invalidRequestAuditStore = new Map<string, FixedWindowRateLimitEntry>();
+  for (let index = 0; index < 12; index += 1)
+    await recordEventVirtualRecoveryRequestInputRejected(
+      `rotating-request-${String(index)}`.padEnd(43, "x"),
+      "invalid-request-audit".padEnd(43, "x"),
+      { auditLimitStore: invalidRequestAuditStore },
+    );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_request_outcome")
+      .where("reason", "=", "invalid_submission")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - invalidRequestAuditCountBefore),
+    10,
+    "Schema-rejected recovery requests must share a bounded connection audit budget",
+  );
+  const invalidSubmissionAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+    .where("reason", "=", "invalid_submission")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const invalidSubmissionAuditStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  for (let index = 0; index < 12; index += 1)
+    await recordEventVirtualRecoveryVerificationInputRejected(
+      access.publicReference,
+      "invalid-submission-audit".padEnd(43, "x"),
+      { auditLimitStore: invalidSubmissionAuditStore },
+    );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+      .where("reason", "=", "invalid_submission")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - invalidSubmissionAuditCountBefore),
+    10,
+    "Schema-rejected verification audits must be bounded per connection window",
+  );
+  const rotatingVerificationAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+    .where("reason", "=", "invalid_submission")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const rotatingVerificationAuditStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  for (let index = 0; index < 12; index += 1)
+    await recordEventVirtualRecoveryVerificationInputRejected(
+      `rotating-verification-${String(index)}`.padEnd(43, "x"),
+      "rotating-verification-audit".padEnd(43, "x"),
+      { auditLimitStore: rotatingVerificationAuditStore },
+    );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+      .where("reason", "=", "invalid_submission")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - rotatingVerificationAuditCountBefore),
+    10,
+    "Rotating lobby references must not reset the verification audit budget",
+  );
+  const invalidReferenceAuditCountBefore = await database
+    .selectFrom("audit_event")
+    .select((expression) => expression.fn.countAll<string>().as("count"))
+    .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+    .where("reason", "=", "invalid_reference")
+    .executeTakeFirstOrThrow()
+    .then((row) => Number(row.count));
+  const invalidReferenceAuditStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  const invalidReferenceResults = [];
+  for (let index = 0; index < 12; index += 1)
+    invalidReferenceResults.push(
+      await verifyEventVirtualRecoveryCode(
+        {
+          publicReference: access.publicReference,
+          challengeReference: "invalid-recovery-reference".padEnd(32, "x"),
+          code: "000000",
+        },
+        "invalid-reference-audit".padEnd(43, "x"),
+        { auditLimitStore: invalidReferenceAuditStore },
+      ),
+    );
+  assert.ok(
+    invalidReferenceResults.every((result) => result.status === "invalid"),
+  );
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+      .where("reason", "=", "invalid_reference")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count) - invalidReferenceAuditCountBefore),
+    10,
+    "Unknown verification references must not create unbounded audit or outbox rows",
+  );
+  const verificationLimitLearner = bulkLearners[10];
+  assert.ok(verificationLimitLearner);
+  const verificationLimitChallenge = await requestEventVirtualRecoveryCode(
+    {
+      publicReference: access.publicReference,
+      identifier: verificationLimitLearner.email,
+    },
+    "verification-limit-audit".padEnd(43, "x"),
+    { requestLimitStore: new Map() },
+  );
+  assert.equal(verificationLimitChallenge.status, "accepted");
+  assert.ok("challengeReference" in verificationLimitChallenge);
+  await processAvailableEventVirtualRecoveryDeliveries(10);
+  const verificationLimitCode = await database
+    .selectFrom("event_virtual_recovery_challenge as challenge")
+    .innerJoin(
+      "event_virtual_recovery_email_capture as capture",
+      "capture.challengeId",
+      "challenge.id",
+    )
+    .select("capture.textBody")
+    .where(
+      "challenge.reference",
+      "=",
+      verificationLimitChallenge.challengeReference,
+    )
+    .executeTakeFirstOrThrow()
+    .then((row) => row.textBody.match(/\b\d{6}\b/u)?.[0]);
+  assert.ok(verificationLimitCode);
+  const incorrectVerificationCode =
+    verificationLimitCode === "000000" ? "000001" : "000000";
+  const verificationLimitStatuses = [];
+  const verificationLimitAuditStore = new Map<
+    string,
+    FixedWindowRateLimitEntry
+  >();
+  for (let index = 0; index < 6; index += 1)
+    verificationLimitStatuses.push(
+      (
+        await verifyEventVirtualRecoveryCode(
+          {
+            publicReference: access.publicReference,
+            challengeReference: verificationLimitChallenge.challengeReference,
+            code: incorrectVerificationCode,
+          },
+          "verification-limit-result".padEnd(43, "x"),
+          { auditLimitStore: verificationLimitAuditStore },
+        )
+      ).status,
+    );
+  assert.deepEqual(verificationLimitStatuses, [
+    "invalid",
+    "invalid",
+    "invalid",
+    "invalid",
+    "rate-limited",
+    "rate-limited",
+  ]);
+  const verificationLimitChallengeId = await database
+    .selectFrom("event_virtual_recovery_challenge")
+    .select("id")
+    .where("reference", "=", verificationLimitChallenge.challengeReference)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("subjectId", "=", verificationLimitChallengeId.id)
+      .where("action", "=", "event_virtual_lobby.recovery_verification_failed")
+      .where("reason", "=", "attempt_limit_reached")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    1,
+    "The attempt-limit transition must be audited once without logging repeated denials",
+  );
+
+  const recoveryOutcomeAudits = await database
+    .selectFrom("audit_event")
+    .select(["action", "reason", "metadata"])
+    .where("action", "in", [
+      "event_virtual_lobby.recovery_request_outcome",
+      "event_virtual_lobby.recovery_verification_failed",
+      "event_virtual_lobby.recovery_verified",
+    ])
+    .execute();
+  const recoveryRequestReasons = new Set(
+    recoveryOutcomeAudits
+      .filter(
+        (audit) =>
+          audit.action === "event_virtual_lobby.recovery_request_outcome",
+      )
+      .map((audit) => audit.reason),
+  );
+  for (const reason of [
+    "challenge_queued",
+    "destination_unavailable",
+    "durable_rate_limited",
+    "eligibility_changed",
+    "enumeration_safe_fallback",
+    "invalid_submission",
+    "local_rate_limited",
+    "terminal_session",
+  ])
+    assert.ok(
+      recoveryRequestReasons.has(reason),
+      `Recovery request outcome ${reason} must be durably audited`,
+    );
+  const recoveryVerificationReasons = new Set(
+    recoveryOutcomeAudits
+      .filter(
+        (audit) =>
+          audit.action === "event_virtual_lobby.recovery_verification_failed",
+      )
+      .map((audit) => audit.reason),
+  );
+  for (const reason of [
+    "attempt_limit_reached",
+    "expired_or_revoked",
+    "incorrect_code",
+    "invalid_reference",
+    "invalid_submission",
+    "terminal_session",
+  ])
+    assert.ok(
+      recoveryVerificationReasons.has(reason),
+      `Recovery verification outcome ${reason} must be durably audited`,
+    );
+  assert.ok(
+    recoveryOutcomeAudits.some(
+      (audit) => audit.action === "event_virtual_lobby.recovery_verified",
+    ),
+    "Successful recovery verification must remain durably audited",
+  );
+  const attendeeCredentialDenials = await database
+    .selectFrom("audit_event")
+    .select(["reason", "metadata"])
+    .where("action", "=", "event_virtual_lobby.attendee_token_denied")
+    .execute();
+  const attendeeCredentialDenialReasons = new Set(
+    attendeeCredentialDenials.map((audit) => audit.reason),
+  );
+  for (const reason of [
+    "capacity_reached",
+    "ended",
+    "locked",
+    "provider_unavailable",
+    "recording_acknowledgement_required",
+    "revoked",
+    "unauthenticated",
+    "waiting_for_admission",
+  ])
+    assert.ok(
+      attendeeCredentialDenialReasons.has(reason),
+      `Attendee credential denial ${reason} must be durably audited`,
+    );
+
+  const auditRows = await database
+    .selectFrom("audit_event")
+    .select("metadata")
+    .where("subjectId", "like", "event_virtual_%")
+    .execute();
+  assert.doesNotMatch(JSON.stringify(auditRows), /fake-livekit-token/u);
+  assert.doesNotMatch(
+    JSON.stringify(recoveryOutcomeAudits),
+    /unknown-recovery-user|rate-limit-audit|000000|000001/u,
+    "Recovery outcome audits must not contain an identifier or submitted code",
+  );
+
+  const smsInvalidatedAt = new Date();
+  const smsChallengeId = "verify_livekit_lobby_sms_invalidation_challenge";
+  const smsJoinSessionId = "verify_livekit_lobby_sms_invalidation_session";
+  await database
+    .updateTable("user")
+    .set({
+      phone: "+61412345678",
+      smsEnabled: true,
+      smsVerifiedAt: new Date(smsInvalidatedAt.getTime() - 60_000),
+    })
+    .where("id", "=", learner.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({
+      doorState: "open",
+      providerStatus: "ready",
+      endedAt: null,
+      endedByUserId: null,
+    })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "connected",
+      admittedAt: new Date(smsInvalidatedAt.getTime() - 4_000),
+      firstConnectedAt: new Date(smsInvalidatedAt.getTime() - 3_000),
+      lastSeenAt: new Date(smsInvalidatedAt.getTime() - 2_000),
+      credentialExpiresAt: new Date(smsInvalidatedAt.getTime() + 10 * 60_000),
+      revokedAt: null,
+      revokedByUserId: null,
+      updatedAt: smsInvalidatedAt,
+    })
+    .where("id", "=", tokenIssuedEntry.id)
+    .executeTakeFirstOrThrow();
+  let releaseSmsUserLock = () => {};
+  let markSmsUserLocked = () => {};
+  const smsUserLockHeld = new Promise<void>((resolve) => {
+    markSmsUserLocked = resolve;
+  });
+  const smsUserLockRelease = new Promise<void>((resolve) => {
+    releaseSmsUserLock = resolve;
+  });
+  const smsUserBlocker = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("user")
+      .select("id")
+      .where("id", "=", learner.id)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    markSmsUserLocked();
+    await smsUserLockRelease;
+  });
+  await smsUserLockHeld;
+  let recoveryTargetBackendPid = 0;
+  let markRecoveryTargetStarted = () => {};
+  const recoveryTargetStarted = new Promise<void>((resolve) => {
+    markRecoveryTargetStarted = resolve;
+  });
+  const blockedRecoveryTarget = database
+    .transaction()
+    .execute(async (transaction) => {
+      recoveryTargetBackendPid = await sql<{
+        pid: number;
+      }>`select pg_backend_pid() as pid`
+        .execute(transaction)
+        .then((result) => result.rows[0]?.pid ?? 0);
+      markRecoveryTargetStarted();
+      return lockEligibleRecoveryTarget(transaction, {
+        eventVirtualJoinAccessId: access.id,
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        roomGeneration: 1,
+        eventParticipationId: ids.participation,
+        userId: learner.id,
+        channel: "sms",
+        recipientAddress: "+61412345678",
+        publicReference: access.publicReference,
+        now: smsInvalidatedAt,
+      });
+    });
+  await recoveryTargetStarted;
+  let recoveryTargetWaiting = false;
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    recoveryTargetWaiting = await sql<{ waiting: boolean }>`
+      select ("wait_event_type" = 'Lock') as waiting
+      from pg_stat_activity
+      where pid = ${recoveryTargetBackendPid}
+    `
+      .execute(database)
+      .then((result) => result.rows[0]?.waiting ?? false);
+    if (recoveryTargetWaiting) break;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  let accessLockAvailable = false;
+  try {
+    assert.equal(
+      recoveryTargetWaiting,
+      true,
+      "Recovery target validation must wait on the held user lock",
+    );
+    accessLockAvailable = await database
+      .transaction()
+      .execute(async (transaction) => {
+        await sql`set local lock_timeout = '250ms'`.execute(transaction);
+        await transaction
+          .selectFrom("event_virtual_join_access")
+          .select("id")
+          .where("id", "=", access.id)
+          .forUpdate()
+          .executeTakeFirstOrThrow();
+        return true;
+      })
+      .catch(() => false);
+  } finally {
+    releaseSmsUserLock();
+  }
+  const [recoveryTarget] = await Promise.all([
+    blockedRecoveryTarget,
+    smsUserBlocker,
+  ]);
+  assert.equal(
+    accessLockAvailable,
+    true,
+    "Recovery delivery must wait for the user before locking join access",
+  );
+  assert.ok(recoveryTarget);
+  await database
+    .insertInto("event_virtual_recovery_challenge")
+    .values({
+      id: smsChallengeId,
+      reference: "r".repeat(32),
+      eventVirtualJoinAccessId: access.id,
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      roomGeneration: 1,
+      eventParticipationId: ids.participation,
+      userId: learner.id,
+      channel: "sms",
+      identifierDigest: "verify-livekit-sms-identifier-digest".padEnd(43, "x"),
+      requestFingerprint: "verify-livekit-sms-request-fingerprint".padEnd(
+        43,
+        "x",
+      ),
+      codeDigest: "verify-livekit-sms-code-digest".padEnd(43, "x"),
+      attempts: 0,
+      resendCount: 0,
+      deliveryStatus: "sent",
+      expiresAt: new Date(smsInvalidatedAt.getTime() + 10 * 60_000),
+      consumedAt: null,
+      createdAt: new Date(smsInvalidatedAt.getTime() - 60_000),
+    })
+    .execute();
+  await database
+    .insertInto("event_virtual_join_session")
+    .values({
+      id: smsJoinSessionId,
+      challengeId: smsChallengeId,
+      eventGuestAccessId: null,
+      tokenDigest: "verify-livekit-sms-join-session-digest".padEnd(43, "x"),
+      eventVirtualJoinAccessId: access.id,
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      roomGeneration: 1,
+      eventParticipationId: ids.participation,
+      userId: learner.id,
+      accessMethod: "sms",
+      expiresAt: new Date(smsInvalidatedAt.getTime() + 10 * 60_000),
+      lastUsedAt: smsInvalidatedAt,
+      revokedAt: new Date(smsInvalidatedAt.getTime() - 30_000),
+      createdAt: new Date(smsInvalidatedAt.getTime() - 60_000),
+    })
+    .execute();
+  let releaseSmsChallengeLock = () => {};
+  let markSmsChallengeLocked = () => {};
+  const smsChallengeLockHeld = new Promise<void>((resolve) => {
+    markSmsChallengeLocked = resolve;
+  });
+  const smsChallengeLockRelease = new Promise<void>((resolve) => {
+    releaseSmsChallengeLock = resolve;
+  });
+  const smsChallengeBlocker = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_virtual_recovery_challenge")
+        .select("id")
+        .where("id", "=", smsChallengeId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      markSmsChallengeLocked();
+      await smsChallengeLockRelease;
+    });
+  await smsChallengeLockHeld;
+  const smsInvalidation = database
+    .transaction()
+    .execute((transaction) =>
+      invalidateVerifiedPhone(transaction, learner.id, smsInvalidatedAt),
+    );
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  let smsAccessProbeSettled = false;
+  const smsAccessProbe = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_virtual_join_access")
+        .select("id")
+        .where("id", "=", access.id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+    })
+    .then(() => {
+      smsAccessProbeSettled = true;
+    });
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(
+      smsAccessProbeSettled,
+      false,
+      "SMS invalidation must lock join access before waiting for the recovery challenge",
+    );
+  } finally {
+    releaseSmsChallengeLock();
+  }
+  await Promise.all([smsChallengeBlocker, smsInvalidation, smsAccessProbe]);
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", tokenIssuedEntry.id)
+      .executeTakeFirstOrThrow(),
+    { state: "revoked" },
+    "Invalidating an SMS recovery identity must revoke its lobby admission",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["kind", "status"])
+      .where("lobbyEntryId", "=", tokenIssuedEntry.id)
+      .where("kind", "=", "remove_participant")
+      .executeTakeFirstOrThrow(),
+    { kind: "remove_participant", status: "pending" },
+    "SMS invalidation must enforce provider removal through credential expiry",
+  );
+  const smsInvalidationAudit = await database
+    .selectFrom("audit_event")
+    .select("metadata")
+    .where("subjectId", "=", tokenIssuedEntry.id)
+    .where("action", "=", "event_virtual_lobby.admission_changed")
+    .orderBy("createdAt", "desc")
+    .orderBy("id", "desc")
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    (smsInvalidationAudit.metadata as { source?: string }).source,
+    "verified_phone_invalidated",
+    "SMS invalidation must record the source of the lobby revocation",
+  );
+
+  const replacement = await database
+    .transaction()
+    .execute(async (transaction) =>
+      ensureEventVirtualJoinAccess(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        roomGeneration: 2,
+        actorUserId: administrator.id,
+        now: new Date(createdAt.getTime() + 60_000),
+      }),
+    );
+  assert.notEqual(replacement.publicReference, access.publicReference);
+  assert.equal(
+    (await resolveEventVirtualLobby(access.publicReference, learner)).status,
+    "not-found",
+  );
+  console.log(
+    "Verified LiveKit attendee lobby, early waiting, admission, recovery, token scoping and generation revocation",
+  );
+} finally {
+  await destroyDatabase();
+}

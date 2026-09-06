@@ -39,6 +39,7 @@ import { Route as EventSurveysPublicReferenceRouteImport } from './routes/event-
 import { Route as EventsSlugRouteImport } from './routes/events.$slug'
 import { Route as LearnEnrollmentIdRouteImport } from './routes/learn.$enrollmentId'
 import { Route as MyEventsEventOccurrenceIdRouteImport } from './routes/my-events_.$eventOccurrenceId'
+import { Route as WebinarsPublicReferenceRouteImport } from './routes/webinars.$publicReference'
 import { Route as AdminContractsNewRouteImport } from './routes/admin.contracts_.new'
 import { Route as AdminCoursesIndexRouteImport } from './routes/admin.courses.index'
 import { Route as AdminCoursesCourseIdRouteImport } from './routes/admin.courses.$courseId'
@@ -247,6 +248,11 @@ const MyEventsEventOccurrenceIdRoute =
     path: '/my-events/$eventOccurrenceId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const WebinarsPublicReferenceRoute = WebinarsPublicReferenceRouteImport.update({
+  id: '/webinars/$publicReference',
+  path: '/webinars/$publicReference',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminContractsNewRoute = AdminContractsNewRouteImport.update({
   id: '/contracts_/new',
   path: '/contracts/new',
@@ -573,6 +579,7 @@ export interface FileRoutesByFullPath {
   '/events/$slug': typeof EventsSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
+  '/webinars/$publicReference': typeof WebinarsPublicReferenceRoute
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/event-operations/': typeof EventOperationsIndexRoute
@@ -656,6 +663,7 @@ export interface FileRoutesByTo {
   '/events/$slug': typeof EventsSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
+  '/webinars/$publicReference': typeof WebinarsPublicReferenceRoute
   '/admin': typeof AdminIndexRoute
   '/courses': typeof CoursesIndexRoute
   '/event-operations': typeof EventOperationsIndexRoute
@@ -742,6 +750,7 @@ export interface FileRoutesById {
   '/events/$slug': typeof EventsSlugRoute
   '/learn/$enrollmentId': typeof LearnEnrollmentIdRoute
   '/my-events_/$eventOccurrenceId': typeof MyEventsEventOccurrenceIdRoute
+  '/webinars/$publicReference': typeof WebinarsPublicReferenceRoute
   '/admin/': typeof AdminIndexRoute
   '/courses/': typeof CoursesIndexRoute
   '/event-operations/': typeof EventOperationsIndexRoute
@@ -829,6 +838,7 @@ export interface FileRouteTypes {
     | '/events/$slug'
     | '/learn/$enrollmentId'
     | '/my-events/$eventOccurrenceId'
+    | '/webinars/$publicReference'
     | '/admin/'
     | '/courses/'
     | '/event-operations/'
@@ -912,6 +922,7 @@ export interface FileRouteTypes {
     | '/events/$slug'
     | '/learn/$enrollmentId'
     | '/my-events/$eventOccurrenceId'
+    | '/webinars/$publicReference'
     | '/admin'
     | '/courses'
     | '/event-operations'
@@ -997,6 +1008,7 @@ export interface FileRouteTypes {
     | '/events/$slug'
     | '/learn/$enrollmentId'
     | '/my-events_/$eventOccurrenceId'
+    | '/webinars/$publicReference'
     | '/admin/'
     | '/courses/'
     | '/event-operations/'
@@ -1075,6 +1087,7 @@ export interface RootRouteChildren {
   EventsSlugRoute: typeof EventsSlugRoute
   LearnEnrollmentIdRoute: typeof LearnEnrollmentIdRoute
   MyEventsEventOccurrenceIdRoute: typeof MyEventsEventOccurrenceIdRoute
+  WebinarsPublicReferenceRoute: typeof WebinarsPublicReferenceRoute
   CoursesIndexRoute: typeof CoursesIndexRoute
   ApiAdminAccreditationLogosRoute: typeof ApiAdminAccreditationLogosRoute
   ApiAdminOfferingImagesRoute: typeof ApiAdminOfferingImagesRouteWithChildren
@@ -1318,6 +1331,13 @@ declare module '@tanstack/react-router' {
       path: '/my-events/$eventOccurrenceId'
       fullPath: '/my-events/$eventOccurrenceId'
       preLoaderRoute: typeof MyEventsEventOccurrenceIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/webinars/$publicReference': {
+      id: '/webinars/$publicReference'
+      path: '/webinars/$publicReference'
+      fullPath: '/webinars/$publicReference'
+      preLoaderRoute: typeof WebinarsPublicReferenceRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/contracts_/new': {
@@ -1852,6 +1872,7 @@ const rootRouteChildren: RootRouteChildren = {
   EventsSlugRoute: EventsSlugRoute,
   LearnEnrollmentIdRoute: LearnEnrollmentIdRoute,
   MyEventsEventOccurrenceIdRoute: MyEventsEventOccurrenceIdRoute,
+  WebinarsPublicReferenceRoute: WebinarsPublicReferenceRoute,
   CoursesIndexRoute: CoursesIndexRoute,
   ApiAdminAccreditationLogosRoute: ApiAdminAccreditationLogosRoute,
   ApiAdminOfferingImagesRoute: ApiAdminOfferingImagesRouteWithChildren,

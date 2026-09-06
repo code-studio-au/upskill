@@ -141,6 +141,35 @@ export async function sendEventPrerequisiteRecoveryEmail(
   });
 }
 
+export async function sendEventVirtualRecoveryEmail(
+  database: Kysely<Database>,
+  message: Omit<EmailDelivery, "notificationId"> & { challengeId: string },
+): Promise<{ messageId: string }> {
+  const environment = getServerEnv();
+  if (environment.EMAIL_PROVIDER === "local_capture") {
+    await database
+      .insertInto("event_virtual_recovery_email_capture")
+      .values({
+        challengeId: message.challengeId,
+        recipientEmail: message.recipientEmail,
+        subject: message.subject,
+        textBody: message.textBody,
+        htmlBody: message.htmlBody,
+        createdAt: new Date(),
+      })
+      .onConflict((conflict) => conflict.column("challengeId").doNothing())
+      .execute();
+    return { messageId: `local:${message.challengeId}` };
+  }
+  return await getEmailProvider(database).send({
+    notificationId: message.challengeId,
+    recipientEmail: message.recipientEmail,
+    subject: message.subject,
+    textBody: message.textBody,
+    htmlBody: message.htmlBody,
+  });
+}
+
 export async function sendContactVerificationEmail(
   database: Kysely<Database>,
   message: Omit<EmailDelivery, "notificationId"> & { challengeId: string },

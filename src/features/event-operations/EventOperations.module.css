@@ -27,6 +27,105 @@
   gap: 1rem;
 }
 
+.lobbyQueue {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lobbyPanel,
+.lobbyPanel > section {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.lobbyPanel header,
+.lobbyPanel nav,
+.lobbyEntry > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.lobbyPanel header,
+.lobbyPanel nav {
+  justify-content: space-between;
+}
+
+.lobbyPanel h4,
+.guestLink {
+  margin: 0;
+}
+
+.guestLink:focus-visible {
+  outline: 2px solid var(--mantine-color-indigo-6);
+  outline-offset: 2px;
+}
+
+.lobbyPanel button {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  padding-inline: 0.75rem;
+  color: var(--mantine-color-indigo-7);
+  font: inherit;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  background: var(--mantine-color-indigo-0);
+  border: 0;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.lobbyPanel button[data-danger] {
+  color: var(--mantine-color-red-7);
+  background: var(--mantine-color-red-0);
+}
+
+.lobbyPanel button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.lobbyPanel button:focus-visible {
+  outline: 2px solid var(--mantine-color-indigo-6);
+  outline-offset: 2px;
+}
+
+.lobbyPanel span[data-state] {
+  padding: 0.2rem 0.55rem;
+  color: var(--mantine-color-teal-9);
+  font-size: var(--mantine-font-size-xs);
+  background: var(--mantine-color-teal-0);
+  border-radius: 999px;
+}
+
+.lobbyPanel span[data-state="waiting"] {
+  color: var(--mantine-color-yellow-9);
+  background: var(--mantine-color-yellow-0);
+}
+
+.lobbyPanel > p {
+  display: block;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.lobbyEntry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
 .workspaceLink {
   margin-top: auto;
 }

@@ -9,6 +9,7 @@ import type {
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
+import { enqueueRevokedEventVirtualPresenterAccess } from "#/server/events/event-virtual-provider-operation.server";
 import { provisionUser } from "#/server/identity/provisional-user.server";
 
 export async function findAdminAdministrators(
@@ -271,6 +272,11 @@ export async function removePlatformAdministrator(
         .deleteFrom("platform_admin")
         .where("userId", "=", userId)
         .executeTakeFirstOrThrow();
+      await enqueueRevokedEventVirtualPresenterAccess(transaction, {
+        presenterUserId: userId,
+        requestedByUserId: administrator.id,
+        now,
+      });
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "authorization.platform_admin.revoked",

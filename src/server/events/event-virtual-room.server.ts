@@ -1,11 +1,15 @@
 import "@tanstack/react-start/server-only";
 
-import { createHash, randomUUID } from "node:crypto";
-import type { Kysely, Transaction } from "kysely";
+import { randomUUID } from "node:crypto";
+import { sql, type Kysely, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import {
+  consumeFixedWindowRateLimit,
+  type FixedWindowRateLimitEntry,
+} from "#/features/event-guest/event-guest-rate-limit";
 import {
   createConfiguredLiveKitProvider,
   getEnabledLiveKitConfiguration,
@@ -13,11 +17,27 @@ import {
   type LiveKitProvider,
 } from "#/server/livekit/livekit-provider.server";
 import type { EventOperationsAccess } from "./event-operations-access.server";
+import { ensureEventVirtualJoinAccess } from "./event-virtual-join-access.server";
+import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
+import { eventVirtualPresenterIdentity } from "./event-virtual-participant-identity.server";
+import { countUnconnectedVirtualCredentialReservations } from "./event-virtual-room-capacity.server";
+import {
+  hasVirtualRoomStaffAccess,
+  lockVirtualRoomStaffAccess,
+} from "./event-virtual-staff-access.server";
 
 const PROVIDER_OPERATION_LEASE_MILLISECONDS = 2 * 60 * 1_000;
 const PROVIDER_RETRY_MAX_SECONDS = 15 * 60;
+const PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS = 5 * 1_000;
+const TERMINAL_ROOM_RECHECK_MILLISECONDS = 5 * 1_000;
 const ROOM_EMPTY_TIMEOUT_SECONDS = 10 * 60;
 const ROOM_DEPARTURE_TIMEOUT_SECONDS = 20;
+const TOKEN_DENIAL_AUDIT_WINDOW_MILLISECONDS = 15 * 60_000;
+const TOKEN_DENIAL_AUDIT_MAXIMUM_ENTRIES = 20_000;
+const presenterCredentialDenialAuditLimits = new Map<
+  string,
+  FixedWindowRateLimitEntry
+>();
 
 type DatabaseConnection = Kysely<Database> | Transaction<Database>;
 type VirtualRoomDoorState = "scheduled" | "open" | "locked" | "ended";
@@ -56,6 +76,69 @@ export type EventVirtualPresenterCredentialOutcome =
     }
   | Exclude<EventVirtualRoomMutationOutcome, { status: "ready" }>;
 
+type PresenterCredentialDenialReason =
+  EventVirtualRoomConflictReason | "forbidden";
+
+async function recordPresenterCredentialDenial(
+  transaction: Transaction<Database>,
+  input: {
+    eventOccurrenceId: string;
+    eventSessionId: string;
+    roomId?: string;
+    roomGeneration?: number;
+    actorUserId: string;
+    reasonCode: PresenterCredentialDenialReason;
+    phase: "preparation" | "provider" | "transaction_revalidation";
+    createdAt?: Date;
+  },
+): Promise<void> {
+  if (
+    !consumeFixedWindowRateLimit(
+      presenterCredentialDenialAuditLimits,
+      [
+        "presenter-token-denial",
+        input.roomId ?? input.eventSessionId,
+        input.actorUserId,
+        input.reasonCode,
+        input.phase,
+      ].join(":"),
+      Date.now(),
+      {
+        maximumEntries: TOKEN_DENIAL_AUDIT_MAXIMUM_ENTRIES,
+        maximumRequests: 1,
+        windowMs: TOKEN_DENIAL_AUDIT_WINDOW_MILLISECONDS,
+      },
+    )
+  )
+    return;
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: input.actorUserId,
+    action: "event_virtual_room.presenter_token_denied",
+    subjectType: input.roomId ? "event_virtual_room" : "event_session",
+    subjectId: input.roomId ?? input.eventSessionId,
+    aggregateId: input.eventOccurrenceId,
+    reasonCode: input.reasonCode,
+    metadata: {
+      responseStatus:
+        input.reasonCode === "forbidden" ? "forbidden" : "conflict",
+      phase: input.phase,
+      eventSessionId: input.eventSessionId,
+      roomGeneration: input.roomGeneration,
+    },
+    ...(input.createdAt ? { createdAt: input.createdAt } : {}),
+  });
+}
+
+async function recordStandalonePresenterCredentialDenial(
+  input: Parameters<typeof recordPresenterCredentialDenial>[1],
+): Promise<void> {
+  await getDatabase()
+    .transaction()
+    .execute((transaction) =>
+      recordPresenterCredentialDenial(transaction, input),
+    );
+}
+
 interface EventVirtualRoomState {
   id: string;
   eventSessionId: string;
@@ -76,7 +159,93 @@ export interface EventVirtualSessionOperations {
   eventSessionId: string;
   preparationOpensAt: string;
   canEnterGreenRoom: boolean;
+  lobbyPath: string | null;
   room: EventVirtualRoomState | null;
+}
+
+const LOBBY_QUEUE_PAGE_SIZE = 50;
+
+export async function findEventVirtualLobbyQueue(
+  eventOccurrenceId: string,
+  eventSessionId: string,
+  userId: string,
+  page: number,
+) {
+  const database = getDatabase();
+  if (
+    !(await hasVirtualRoomStaffAccess(
+      database,
+      eventOccurrenceId,
+      eventSessionId,
+      userId,
+    ))
+  )
+    return { status: "forbidden" } as const;
+  const access = await database
+    .selectFrom("event_virtual_join_access")
+    .select("id")
+    .where("eventOccurrenceId", "=", eventOccurrenceId)
+    .where("eventSessionId", "=", eventSessionId)
+    .where("revokedAt", "is", null)
+    .executeTakeFirst();
+  if (!access) return { status: "not-found" } as const;
+  const rows = await database
+    .selectFrom("event_virtual_lobby_entry as lobby")
+    .innerJoin(
+      "event_participation as participation",
+      "participation.id",
+      "lobby.eventParticipationId",
+    )
+    .select([
+      "lobby.id",
+      "lobby.eventParticipationId",
+      "lobby.state",
+      "lobby.accessMethod",
+      "lobby.requestedAt",
+      "lobby.admittedAt",
+      "participation.nameSnapshot as name",
+    ])
+    .where("lobby.eventVirtualJoinAccessId", "=", access.id)
+    .where("lobby.state", "in", [
+      "waiting",
+      "admitted",
+      "token_issued",
+      "connected",
+    ])
+    .orderBy(
+      sql<number>`case "lobby"."state" when 'waiting' then 0 when 'connected' then 1 else 2 end`,
+    )
+    .orderBy("lobby.requestedAt")
+    .orderBy("lobby.id")
+    .limit(LOBBY_QUEUE_PAGE_SIZE + 1)
+    .offset(page * LOBBY_QUEUE_PAGE_SIZE)
+    .execute();
+  // Read the transactionally advanced revision after the page so a mutation
+  // between the two reads causes a safe client reset without scanning history.
+  const revision = await database
+    .selectFrom("event_virtual_join_access")
+    .select("lobbyRevision")
+    .where("id", "=", access.id)
+    .where("revokedAt", "is", null)
+    .executeTakeFirst();
+  if (!revision) return { status: "not-found" } as const;
+  return {
+    status: "ready",
+    data: {
+      etag: String(revision.lobbyRevision),
+      entries: rows.slice(0, LOBBY_QUEUE_PAGE_SIZE).map((entry) => ({
+        id: entry.id,
+        eventParticipationId: entry.eventParticipationId,
+        name: entry.name,
+        state: entry.state as
+          "waiting" | "admitted" | "token_issued" | "connected",
+        accessMethod: entry.accessMethod,
+        requestedAt: entry.requestedAt.toISOString(),
+        admittedAt: entry.admittedAt?.toISOString() ?? null,
+      })),
+      hasNextPage: rows.length > LOBBY_QUEUE_PAGE_SIZE,
+    },
+  } as const;
 }
 
 interface VirtualSessionContext {
@@ -105,7 +274,12 @@ export interface VirtualRoomRuntime {
 interface ClaimedOperation {
   id: string;
   roomId: string;
-  kind: "ensure_room" | "close_room";
+  kind: "ensure_room" | "close_room" | "remove_participant";
+  targetKey: string;
+  lobbyEntryId: string | null;
+  presenterUserId: string | null;
+  participantIdentity: string | null;
+  removalEnforcedUntil: Date | null;
   attempts: number;
 }
 
@@ -163,12 +337,6 @@ function retryAt(attempts: number, now: Date): Date {
 
 function providerRoomName(): string {
   return `upskill_room_${randomUUID().replaceAll("-", "")}`;
-}
-
-function presenterIdentity(roomId: string, userId: string): string {
-  return `staff_${createHash("sha256")
-    .update(`${roomId}:${userId}`)
-    .digest("hex")}`;
 }
 
 function preparationOpensAt(context: VirtualSessionContext): Date {
@@ -248,35 +416,6 @@ async function findVirtualSessionContext(
   };
 }
 
-async function hasVirtualRoomStaffAccess(
-  connection: DatabaseConnection,
-  eventOccurrenceId: string,
-  eventSessionId: string,
-  userId: string,
-): Promise<boolean> {
-  const [platformAdministrator, presenter] = await Promise.all([
-    connection
-      .selectFrom("platform_admin")
-      .select("userId")
-      .where("userId", "=", userId)
-      .executeTakeFirst(),
-    connection
-      .selectFrom("event_presenter_assignment")
-      .select("id")
-      .where("eventOccurrenceId", "=", eventOccurrenceId)
-      .where("userId", "=", userId)
-      .where("endedAt", "is", null)
-      .where((expression) =>
-        expression.or([
-          expression("eventSessionId", "=", eventSessionId),
-          expression("eventSessionId", "is", null),
-        ]),
-      )
-      .executeTakeFirst(),
-  ]);
-  return Boolean(presenter || platformAdministrator);
-}
-
 async function hasVirtualRoomAdministratorAccess(
   connection: DatabaseConnection,
   userId: string,
@@ -303,6 +442,9 @@ async function insertRoomOperation(
       id: `event_virtual_room_operation_${randomUUID()}`,
       roomId,
       kind,
+      targetKey: "room",
+      lobbyEntryId: null,
+      participantIdentity: null,
       deduplicationKey: `event_virtual_room:${roomId}:${kind}`,
       status: "pending",
       availableAt: now,
@@ -313,7 +455,9 @@ async function insertRoomOperation(
       requestedByUserId,
       createdAt: now,
     })
-    .onConflict((conflict) => conflict.columns(["roomId", "kind"]).doNothing())
+    .onConflict((conflict) =>
+      conflict.columns(["roomId", "kind", "targetKey"]).doNothing(),
+    )
     .execute();
 }
 
@@ -430,6 +574,13 @@ async function createRoomGeneration(
         })
         .returningAll()
         .executeTakeFirstOrThrow();
+      await ensureEventVirtualJoinAccess(transaction, {
+        eventOccurrenceId,
+        eventSessionId,
+        roomGeneration: generation,
+        actorUserId: userId,
+        now: currentNow,
+      });
       await insertRoomOperation(
         transaction,
         room.id,
@@ -456,8 +607,9 @@ async function createRoomGeneration(
 
 async function claimRoomOperation(
   roomId: string,
-  kind: "ensure_room" | "close_room",
+  kind: "ensure_room" | "close_room" | "remove_participant",
   now: Date,
+  targetKey = "room",
 ): Promise<ClaimedOperation | null> {
   return getDatabase()
     .transaction()
@@ -467,6 +619,7 @@ async function claimRoomOperation(
         .selectAll()
         .where("roomId", "=", roomId)
         .where("kind", "=", kind)
+        .where("targetKey", "=", targetKey)
         .forUpdate()
         .executeTakeFirst();
       if (!operation) return null;
@@ -492,7 +645,17 @@ async function claimRoomOperation(
         })
         .where("id", "=", operation.id)
         .executeTakeFirstOrThrow();
-      return { id: operation.id, roomId, kind, attempts };
+      return {
+        id: operation.id,
+        roomId,
+        kind,
+        targetKey: operation.targetKey,
+        lobbyEntryId: operation.lobbyEntryId,
+        presenterUserId: operation.presenterUserId,
+        participantIdentity: operation.participantIdentity,
+        removalEnforcedUntil: operation.removalEnforcedUntil,
+        attempts,
+      };
     });
 }
 
@@ -810,12 +973,26 @@ export async function findEventVirtualSessionOperations(
   const roomBySession = new Map(
     rooms.map((room) => [room.eventSessionId, room]),
   );
+  const joinAccess = await database
+    .selectFrom("event_virtual_join_access")
+    .select(["id", "eventSessionId", "publicReference"])
+    .where(
+      "eventSessionId",
+      "in",
+      authorised.map((session) => session.id),
+    )
+    .where("revokedAt", "is", null)
+    .execute();
+  const accessBySession = new Map(
+    joinAccess.map((item) => [item.eventSessionId, item]),
+  );
   return authorised.map((session) => {
     const opensAt = new Date(
       session.startsAt.getTime() -
         (session.livekitPresenterPreparationMinutes ?? 0) * 60 * 1_000,
     );
     const room = roomBySession.get(session.id);
+    const accessRecord = accessBySession.get(session.id);
     return {
       eventSessionId: session.id,
       preparationOpensAt: opensAt.toISOString(),
@@ -824,6 +1001,9 @@ export async function findEventVirtualSessionOperations(
         now >= opensAt &&
         now < session.endsAt &&
         room?.doorState !== "ended",
+      lobbyPath: accessRecord
+        ? `/webinars/${accessRecord.publicReference}`
+        : null,
       room: room ? roomState(room) : null,
     };
   });
@@ -974,22 +1154,59 @@ export async function issueEventVirtualPresenterCredential(
   options: { runtime?: VirtualRoomRuntime; clock?: () => Date } = {},
 ): Promise<EventVirtualPresenterCredentialOutcome> {
   const clock = options.clock ?? (() => new Date());
+  const database = getDatabase();
   let runtime: VirtualRoomRuntime | null;
   try {
     runtime = options.runtime ?? resolveConfiguredRuntime();
   } catch {
     runtime = null;
   }
-  if (!runtime) return { status: "conflict", reason: "provider_unavailable" };
+  if (!runtime) {
+    const context = await findVirtualSessionContext(
+      database,
+      eventOccurrenceId,
+      eventSessionId,
+    );
+    if (
+      context &&
+      context !== "not-livekit" &&
+      (await hasVirtualRoomStaffAccess(
+        database,
+        eventOccurrenceId,
+        eventSessionId,
+        user.id,
+      ))
+    )
+      await recordStandalonePresenterCredentialDenial({
+        eventOccurrenceId,
+        eventSessionId,
+        actorUserId: user.id,
+        reasonCode: "provider_unavailable",
+        phase: "provider",
+        createdAt: clock(),
+      });
+    return { status: "conflict", reason: "provider_unavailable" };
+  }
   const preparation = await ensureEventVirtualRoomForStaff(
     eventOccurrenceId,
     eventSessionId,
     user,
     { runtime, clock },
   );
-  if (preparation.status !== "ready") return preparation;
+  if (preparation.status !== "ready") {
+    if (preparation.status === "conflict" || preparation.status === "forbidden")
+      await recordStandalonePresenterCredentialDenial({
+        eventOccurrenceId,
+        eventSessionId,
+        actorUserId: user.id,
+        reasonCode:
+          preparation.status === "forbidden" ? "forbidden" : preparation.reason,
+        phase: "preparation",
+        createdAt: clock(),
+      });
+    return preparation;
+  }
 
-  const database = getDatabase();
   const room = await database
     .selectFrom("event_virtual_room")
     .select(["id", "generation", "providerRoomName", "providerStatus"])
@@ -997,8 +1214,18 @@ export async function issueEventVirtualPresenterCredential(
     .where("replacedAt", "is", null)
     .where("doorState", "!=", "ended")
     .executeTakeFirst();
-  if (!room || room.providerStatus !== "ready")
+  if (!room || room.providerStatus !== "ready") {
+    await recordStandalonePresenterCredentialDenial({
+      eventOccurrenceId,
+      eventSessionId,
+      ...(room ? { roomId: room.id, roomGeneration: room.generation } : {}),
+      actorUserId: user.id,
+      reasonCode: "room_not_ready",
+      phase: "preparation",
+      createdAt: clock(),
+    });
     return { status: "conflict", reason: "room_not_ready" };
+  }
   if (
     !(await hasVirtualRoomStaffAccess(
       database,
@@ -1006,36 +1233,66 @@ export async function issueEventVirtualPresenterCredential(
       eventSessionId,
       user.id,
     ))
-  )
+  ) {
+    await recordStandalonePresenterCredentialDenial({
+      eventOccurrenceId,
+      eventSessionId,
+      roomId: room.id,
+      roomGeneration: room.generation,
+      actorUserId: user.id,
+      reasonCode: "forbidden",
+      phase: "transaction_revalidation",
+      createdAt: clock(),
+    });
     return { status: "forbidden" };
+  }
 
   try {
     const providerCredential = await runtime.provider.createJoinToken({
       roomName: room.providerRoomName,
-      participantIdentity: presenterIdentity(room.id, user.id),
+      participantIdentity: eventVirtualPresenterIdentity(room.id, user.id),
       displayName: user.name.trim().slice(0, 200) || "Presenter",
       role: "presenter",
     });
     const credentialStillAuthorised = await database
       .transaction()
       .execute(async (transaction) => {
+        const deny = async (
+          reasonCode: PresenterCredentialDenialReason,
+          createdAt = clock(),
+        ) =>
+          recordPresenterCredentialDenial(transaction, {
+            eventOccurrenceId,
+            eventSessionId,
+            roomId: room.id,
+            roomGeneration: room.generation,
+            actorUserId: user.id,
+            reasonCode,
+            phase: "transaction_revalidation",
+            createdAt,
+          });
         const occurrence = await transaction
           .selectFrom("event_occurrence")
           .select("id")
           .where("id", "=", eventOccurrenceId)
           .forUpdate()
           .executeTakeFirst();
-        if (!occurrence) return "occurrence_unavailable" as const;
+        if (!occurrence) {
+          await deny("occurrence_unavailable");
+          return "occurrence_unavailable" as const;
+        }
         const currentContext = await findVirtualSessionContext(
           transaction,
           eventOccurrenceId,
           eventSessionId,
         );
-        if (!currentContext || currentContext === "not-livekit")
+        if (!currentContext || currentContext === "not-livekit") {
+          await deny("occurrence_unavailable");
           return "occurrence_unavailable" as const;
+        }
         const currentRoom = await transaction
           .selectFrom("event_virtual_room")
-          .select("id")
+          .select(["id", "maxParticipants"])
           .where("id", "=", room.id)
           .where("eventSessionId", "=", eventSessionId)
           .where("replacedAt", "is", null)
@@ -1043,19 +1300,92 @@ export async function issueEventVirtualPresenterCredential(
           .where("providerStatus", "=", "ready")
           .forUpdate()
           .executeTakeFirst();
-        if (!currentRoom) return "room-not-ready" as const;
+        if (!currentRoom) {
+          await deny("room_not_ready");
+          return "room-not-ready" as const;
+        }
         if (
-          !(await hasVirtualRoomStaffAccess(
+          !(await lockVirtualRoomStaffAccess(
             transaction,
             eventOccurrenceId,
             eventSessionId,
             user.id,
           ))
-        )
+        ) {
+          await deny("forbidden");
           return "forbidden" as const;
+        }
         const currentNow = clock();
         const currentConflict = preparationConflict(currentContext, currentNow);
-        if (currentConflict) return currentConflict;
+        if (currentConflict) {
+          await deny(currentConflict, currentNow);
+          return currentConflict;
+        }
+        if (providerCredential.expiresAt <= currentNow) {
+          await deny("provider_unavailable", currentNow);
+          return "provider_unavailable" as const;
+        }
+        try {
+          const participantIdentity = eventVirtualPresenterIdentity(
+            room.id,
+            user.id,
+          );
+          const participants = await runtime.provider.listParticipants(
+            room.providerRoomName,
+          );
+          const connectedIdentities = new Set(
+            participants.map((participant) => participant.identity),
+          );
+          if (!connectedIdentities.has(participantIdentity)) {
+            const unconnectedReservations =
+              await countUnconnectedVirtualCredentialReservations(transaction, {
+                roomId: room.id,
+                eventSessionId,
+                roomGeneration: room.generation,
+                connectedIdentities,
+                now: currentNow,
+                excludingPresenterUserId: user.id,
+              });
+            if (
+              participants.length + unconnectedReservations.total >=
+              currentRoom.maxParticipants
+            ) {
+              await deny("capacity_exceeded", currentNow);
+              return "capacity_exceeded" as const;
+            }
+          }
+        } catch (error) {
+          if (!(error instanceof LiveKitProviderError)) throw error;
+          await deny("provider_unavailable", currentNow);
+          return "provider_unavailable" as const;
+        }
+        const issuedAt = clock();
+        if (providerCredential.expiresAt <= issuedAt) {
+          await deny("provider_unavailable", issuedAt);
+          return "provider_unavailable" as const;
+        }
+        await transaction
+          .insertInto("event_virtual_presenter_credential_reservation")
+          .values({
+            roomId: room.id,
+            userId: user.id,
+            credentialExpiresAt: providerCredential.expiresAt,
+            firstTokenIssuedAt: issuedAt,
+            lastTokenIssuedAt: issuedAt,
+          })
+          .onConflict((conflict) =>
+            conflict.columns(["roomId", "userId"]).doUpdateSet({
+              credentialExpiresAt: sql<Date>`greatest(
+                event_virtual_presenter_credential_reservation."credentialExpiresAt",
+                excluded."credentialExpiresAt"
+              )`,
+              lastTokenIssuedAt: sql<Date>`greatest(
+                event_virtual_presenter_credential_reservation."lastTokenIssuedAt",
+                excluded."lastTokenIssuedAt"
+              )`,
+            }),
+          )
+          .execute();
         await recordDurableAuditEvent(transaction, {
           actorUserId: user.id,
           action: "event_virtual_room.presenter_token_issued",
@@ -1063,7 +1393,7 @@ export async function issueEventVirtualPresenterCredential(
           subjectId: room.id,
           aggregateId: eventOccurrenceId,
           metadata: { eventSessionId, generation: room.generation },
-          createdAt: currentNow,
+          createdAt: issuedAt,
         });
         return "ready" as const;
       });
@@ -1083,6 +1413,16 @@ export async function issueEventVirtualPresenterCredential(
       },
     };
   } catch {
+    await recordStandalonePresenterCredentialDenial({
+      eventOccurrenceId,
+      eventSessionId,
+      roomId: room.id,
+      roomGeneration: room.generation,
+      actorUserId: user.id,
+      reasonCode: "provider_unavailable",
+      phase: "provider",
+      createdAt: clock(),
+    });
     return { status: "conflict", reason: "provider_unavailable" };
   }
 }
@@ -1391,7 +1731,7 @@ export async function setEventVirtualRoomAdmissionMode(
     return { status: "forbidden" };
   if (context.occurrenceStatus !== "published")
     return { status: "conflict", reason: "occurrence_unavailable" };
-  return database.transaction().execute(async (transaction) => {
+  const outcome = await database.transaction().execute(async (transaction) => {
     const occurrence = await transaction
       .selectFrom("event_occurrence")
       .select("id")
@@ -1437,11 +1777,18 @@ export async function setEventVirtualRoomAdmissionMode(
       ))
     )
       return { status: "forbidden" } as const;
+    const currentNow = clock();
+    if (room.doorState === "scheduled" && currentNow >= currentContext.endsAt)
+      return { status: "conflict", reason: "session_ended" } as const;
     if (room.doorState === "ended")
       return { status: "conflict", reason: "invalid_transition" } as const;
     if (room.admissionMode === admissionMode)
-      return { status: "ready" } as const;
-    const currentNow = clock();
+      return admissionMode === "automatic"
+        ? ({
+            status: "ready-auto-admission",
+            roomGeneration: room.generation,
+          } as const)
+        : ({ status: "ready" } as const);
     await transaction
       .updateTable("event_virtual_room")
       .set({ admissionMode })
@@ -1462,8 +1809,26 @@ export async function setEventVirtualRoomAdmissionMode(
       },
       createdAt: currentNow,
     });
-    return { status: "ready" } as const;
+    return admissionMode === "automatic"
+      ? ({
+          status: "ready-auto-admission",
+          roomGeneration: room.generation,
+        } as const)
+      : ({ status: "ready" } as const);
   });
+  if (outcome.status !== "ready-auto-admission") return outcome;
+  await admitEligibleWaitingEntries(
+    database,
+    {
+      eventOccurrenceId,
+      eventSessionId,
+      roomGeneration: outcome.roomGeneration,
+      actorUserId: user.id,
+      source: "automatic_mode_enabled",
+    },
+    { clock },
+  );
+  return { status: "ready" };
 }
 
 export async function replaceEventVirtualRoom(
@@ -1602,6 +1967,13 @@ export async function replaceEventVirtualRoom(
       })
       .returningAll()
       .executeTakeFirstOrThrow();
+    await ensureEventVirtualJoinAccess(transaction, {
+      eventOccurrenceId,
+      eventSessionId,
+      roomGeneration: replacement.generation,
+      actorUserId: user.id,
+      now: currentNow,
+    });
     await insertRoomOperation(
       transaction,
       replacement.id,
@@ -1643,10 +2015,10 @@ export async function replaceEventVirtualRoom(
 type VirtualRoomOperationOutcome =
   | { status: "no-work" }
   | {
-      status: "processed" | "retry";
+      status: "pending" | "processed" | "retry";
       operationId: string;
       roomId: string;
-      kind: "ensure_room" | "close_room";
+      kind: "ensure_room" | "close_room" | "remove_participant";
     };
 
 export interface VirtualRoomOperationBatch {
@@ -1698,23 +2070,70 @@ async function executeCloseRoom(
   }
   try {
     await runtime.provider.closeRoom(room.providerRoomName);
-    await getDatabase()
+    const enforcementPending = await getDatabase()
       .transaction()
       .execute(async (transaction) => {
         const lockedRoom = await transaction
           .selectFrom("event_virtual_room")
-          .select("id")
+          .select(["id", "eventSessionId", "generation"])
           .where("id", "=", roomId)
           .forUpdate()
           .executeTakeFirst();
+        const attendeeReservation = lockedRoom
+          ? await transaction
+              .selectFrom("event_virtual_lobby_entry as lobby")
+              .innerJoin(
+                "event_virtual_join_access as access",
+                "access.id",
+                "lobby.eventVirtualJoinAccessId",
+              )
+              .select("lobby.credentialExpiresAt")
+              .where("access.eventSessionId", "=", lockedRoom.eventSessionId)
+              .where("access.roomGeneration", "=", lockedRoom.generation)
+              .where("lobby.credentialExpiresAt", ">", now)
+              .orderBy("lobby.credentialExpiresAt", "desc")
+              .executeTakeFirst()
+          : undefined;
+        const presenterReservation = lockedRoom
+          ? await transaction
+              .selectFrom("event_virtual_presenter_credential_reservation")
+              .select("credentialExpiresAt")
+              .where("roomId", "=", lockedRoom.id)
+              .where("credentialExpiresAt", ">", now)
+              .orderBy("credentialExpiresAt", "desc")
+              .executeTakeFirst()
+          : undefined;
+        const reservationExpiry = [
+          attendeeReservation?.credentialExpiresAt,
+          presenterReservation?.credentialExpiresAt,
+        ]
+          .filter((expiry): expiry is Date => Boolean(expiry))
+          .sort((left, right) => right.getTime() - left.getTime())[0];
+        const keepEnforcing = Boolean(reservationExpiry);
         const operation = await transaction
           .updateTable("event_virtual_room_operation")
-          .set({
-            status: "succeeded",
-            leasedUntil: null,
-            completedAt: now,
-            lastErrorCode: null,
-          })
+          .set(
+            keepEnforcing && reservationExpiry
+              ? {
+                  status: "pending",
+                  availableAt: new Date(
+                    Math.min(
+                      reservationExpiry.getTime(),
+                      now.getTime() + TERMINAL_ROOM_RECHECK_MILLISECONDS,
+                    ),
+                  ),
+                  leasedUntil: null,
+                  completedAt: null,
+                  lastErrorCode: null,
+                  attempts: 0,
+                }
+              : {
+                  status: "succeeded",
+                  leasedUntil: null,
+                  completedAt: now,
+                  lastErrorCode: null,
+                },
+          )
           .where("id", "=", claimed.id)
           .where("status", "=", "processing")
           .where("attempts", "=", claimed.attempts)
@@ -1725,9 +2144,10 @@ async function executeCloseRoom(
             .set({ providerStatus: "closed", providerErrorCode: null })
             .where("id", "=", roomId)
             .execute();
+        return keepEnforcing && operation.numUpdatedRows === 1n;
       });
     return {
-      status: "processed",
+      status: enforcementPending ? "pending" : "processed",
       operationId: claimed.id,
       roomId,
       kind: "close_room",
@@ -1743,13 +2163,209 @@ async function executeCloseRoom(
   }
 }
 
+async function executeParticipantRemoval(
+  roomId: string,
+  targetKey: string,
+  runtime: VirtualRoomRuntime,
+  now: Date,
+): Promise<VirtualRoomOperationOutcome> {
+  const claimed = await claimRoomOperation(
+    roomId,
+    "remove_participant",
+    now,
+    targetKey,
+  );
+  if (!claimed) return { status: "no-work" };
+  if (
+    !claimed.participantIdentity ||
+    (!claimed.lobbyEntryId && !claimed.presenterUserId) ||
+    !claimed.removalEnforcedUntil
+  ) {
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  }
+  if (claimed.presenterUserId) {
+    const target = await getDatabase()
+      .selectFrom("event_virtual_room as room")
+      .innerJoin(
+        "event_session as session",
+        "session.id",
+        "room.eventSessionId",
+      )
+      .innerJoin(
+        "event_virtual_presenter_credential_reservation as reservation",
+        (join) =>
+          join
+            .onRef("reservation.roomId", "=", "room.id")
+            .on("reservation.userId", "=", claimed.presenterUserId),
+      )
+      .select([
+        "room.providerRoomName",
+        "room.eventSessionId",
+        "session.eventOccurrenceId",
+      ])
+      .where("room.id", "=", roomId)
+      .executeTakeFirst();
+    if (
+      !target ||
+      (await hasVirtualRoomStaffAccess(
+        getDatabase(),
+        target.eventOccurrenceId,
+        target.eventSessionId,
+        claimed.presenterUserId,
+      ))
+    ) {
+      await completeRoomOperation(claimed, now);
+      return {
+        status: "processed",
+        operationId: claimed.id,
+        roomId,
+        kind: "remove_participant",
+      };
+    }
+    try {
+      await runtime.provider.removeParticipant(
+        target.providerRoomName,
+        claimed.participantIdentity,
+      );
+      if (claimed.removalEnforcedUntil > now) {
+        await requeueParticipantRemoval(
+          claimed,
+          claimed.removalEnforcedUntil,
+          now,
+        );
+        return {
+          status: "pending",
+          operationId: claimed.id,
+          roomId,
+          kind: "remove_participant",
+        };
+      }
+      await completeRoomOperation(claimed, now);
+      return {
+        status: "processed",
+        operationId: claimed.id,
+        roomId,
+        kind: "remove_participant",
+      };
+    } catch (error) {
+      await retryRoomOperation(claimed, providerFailureCode(error), now, false);
+      return {
+        status: "retry",
+        operationId: claimed.id,
+        roomId,
+        kind: "remove_participant",
+      };
+    }
+  }
+  if (!claimed.lobbyEntryId) {
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  }
+  const target = await getDatabase()
+    .selectFrom("event_virtual_room as room")
+    .innerJoin(
+      "event_virtual_lobby_entry as lobby",
+      "lobby.eventSessionId",
+      "room.eventSessionId",
+    )
+    .select(["room.providerRoomName", "lobby.state", "lobby.admittedByUserId"])
+    .where("room.id", "=", roomId)
+    .where("lobby.id", "=", claimed.lobbyEntryId)
+    .whereRef("lobby.roomGeneration", "=", "room.generation")
+    .executeTakeFirst();
+  if (
+    !target ||
+    (target.admittedByUserId !== null &&
+      ["admitted", "token_issued", "connected", "left"].includes(target.state))
+  ) {
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  }
+  try {
+    await runtime.provider.removeParticipant(
+      target.providerRoomName,
+      claimed.participantIdentity,
+    );
+    if (claimed.removalEnforcedUntil > now) {
+      await requeueParticipantRemoval(
+        claimed,
+        claimed.removalEnforcedUntil,
+        now,
+      );
+      return {
+        status: "pending",
+        operationId: claimed.id,
+        roomId,
+        kind: "remove_participant",
+      };
+    }
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  } catch (error) {
+    await retryRoomOperation(claimed, providerFailureCode(error), now, false);
+    return {
+      status: "retry",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  }
+}
+
+async function requeueParticipantRemoval(
+  claimed: ClaimedOperation,
+  credentialExpiresAt: Date,
+  now: Date,
+): Promise<void> {
+  await getDatabase()
+    .updateTable("event_virtual_room_operation")
+    .set({
+      status: "pending",
+      availableAt: new Date(
+        Math.min(
+          credentialExpiresAt.getTime(),
+          now.getTime() + PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS,
+        ),
+      ),
+      leasedUntil: null,
+      completedAt: null,
+      lastErrorCode: null,
+      attempts: 0,
+    })
+    .where("id", "=", claimed.id)
+    .where("status", "=", "processing")
+    .where("attempts", "=", claimed.attempts)
+    .execute();
+}
+
 async function processNextEventVirtualRoomOperation(
   options: { runtime?: VirtualRoomRuntime; now?: Date } = {},
 ): Promise<VirtualRoomOperationOutcome> {
   const now = options.now ?? new Date();
   const candidate = await getDatabase()
     .selectFrom("event_virtual_room_operation")
-    .select(["id", "roomId", "kind"])
+    .select(["id", "roomId", "kind", "targetKey"])
     .where((expression) =>
       expression.or([
         expression.and([
@@ -1777,9 +2393,15 @@ async function processNextEventVirtualRoomOperation(
       candidate.roomId,
       candidate.kind,
       now,
+      candidate.targetKey,
     );
     if (!claimed) return { status: "no-work" };
-    await retryRoomOperation(claimed, "livekit_unavailable", now);
+    await retryRoomOperation(
+      claimed,
+      "livekit_unavailable",
+      now,
+      candidate.kind !== "remove_participant",
+    );
     return {
       status: "retry",
       operationId: claimed.id,
@@ -1787,6 +2409,13 @@ async function processNextEventVirtualRoomOperation(
       kind: claimed.kind,
     };
   }
+  if (candidate.kind === "remove_participant")
+    return executeParticipantRemoval(
+      candidate.roomId,
+      candidate.targetKey,
+      runtime,
+      now,
+    );
   if (candidate.kind === "close_room")
     return executeCloseRoom(candidate.roomId, runtime, now);
   const result = await executeEnsureRoom(candidate.roomId, runtime, now);
