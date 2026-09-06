@@ -274,6 +274,7 @@ async function findPublicDestination(
       "session.startsAt",
       "session.endsAt",
       "session.livekitAdmissionMode",
+      "session.livekitOpenEntryGuestsAllowed",
       "session.livekitAttendeeRejoinGraceMinutes",
       "session.livekitAttendeeRecordingNotice",
       "room.id as roomId",
@@ -341,18 +342,14 @@ async function eligibleParticipation(
 ) {
   const participation = await connection
     .selectFrom("event_participation as participation")
-    .innerJoin(
-      "event_registration as registration",
-      "registration.id",
-      "participation.registrationId",
-    )
     .innerJoin("user", "user.id", "participation.userId")
     .select([
       "participation.id",
       "participation.userId",
+      "participation.mode",
+      "participation.registrationId",
       "participation.nameSnapshot",
       "participation.emailSnapshot",
-      "registration.status as registrationStatus",
       "user.name",
       "user.email",
       "user.emailVerified",
@@ -363,12 +360,33 @@ async function eligibleParticipation(
       destination.eventOccurrenceId,
     )
     .where("participation.userId", "=", userId)
-    .where("participation.mode", "=", "registered")
-    .where("registration.status", "=", "selected")
     .executeTakeFirst();
   if (!participation) return null;
+  if (participation.mode === "open_entry")
+    return destination.livekitOpenEntryGuestsAllowed === true &&
+      !participation.registrationId
+      ? {
+          ...participation,
+          registrationStatus: null,
+          questionnaireComplete: true,
+        }
+      : null;
+  if (!participation.registrationId) return null;
+  const registration = await connection
+    .selectFrom("event_registration")
+    .select("status")
+    .where("id", "=", participation.registrationId)
+    .where("eventOccurrenceId", "=", destination.eventOccurrenceId)
+    .where("userId", "=", userId)
+    .where("status", "=", "selected")
+    .executeTakeFirst();
+  if (!registration) return null;
+  const eligible = {
+    ...participation,
+    registrationStatus: registration.status,
+  };
   if (!destination.registrationSurveyVersionId)
-    return { ...participation, questionnaireComplete: true };
+    return { ...eligible, questionnaireComplete: true };
   const assignment = await connection
     .selectFrom("registration_questionnaire_assignment")
     .select("status")
@@ -377,7 +395,7 @@ async function eligibleParticipation(
     .where("surveyVersionId", "=", destination.registrationSurveyVersionId)
     .executeTakeFirst();
   return {
-    ...participation,
+    ...eligible,
     questionnaireComplete:
       assignment?.status === "completed" || assignment?.status === "waived",
   };
@@ -457,6 +475,13 @@ async function ensureLobbyEntry(
     await sql`select pg_advisory_xact_lock(hashtextextended(
       ${`${destination.eventVirtualJoinAccessId}:${participation.id}`}, 0
     ))`.execute(transaction);
+    const occurrence = await transaction
+      .selectFrom("event_occurrence")
+      .select("status")
+      .where("id", "=", destination.eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (occurrence?.status !== "published") return "ineligible" as const;
     const currentRoom = destination.roomId
       ? await transaction
           .selectFrom("event_virtual_room")
@@ -476,6 +501,16 @@ async function ensureLobbyEntry(
       .forUpdate()
       .executeTakeFirst();
     if (!currentAccess) return null;
+    if (
+      !(await lockEventVirtualAdmissionEligibility(transaction, {
+        eventOccurrenceId: destination.eventOccurrenceId,
+        eventParticipationId: participation.id,
+        registrationSurveyVersionId: destination.registrationSurveyVersionId,
+        openEntryGuestsAllowed:
+          destination.livekitOpenEntryGuestsAllowed === true,
+      }))
+    )
+      return "ineligible" as const;
     const existing = await transaction
       .selectFrom("event_virtual_lobby_entry")
       .selectAll()
@@ -784,6 +819,10 @@ export async function resolveEventVirtualLobby(
       },
     };
   const entry = await ensureLobbyEntry(destination, actor, participation);
+  if (entry === "ineligible") {
+    await revokeIneligibleLobbyAccess(destination, actor.user.id);
+    return { status: "ready", data: { ...empty, outcome: "revoked" } };
+  }
   if (!entry) return { status: "not-found" };
   const notice = recordingNotice(destination);
   const acknowledged = Boolean(
@@ -2185,6 +2224,8 @@ async function changeAdmission(
       eventOccurrenceId: destination.eventOccurrenceId,
       eventParticipationId: candidate.eventParticipationId,
       registrationSurveyVersionId: destination.registrationSurveyVersionId,
+      openEntryGuestsAllowed:
+        destination.livekitOpenEntryGuestsAllowed === true,
     }))
   )
     return "ineligible";
@@ -2276,6 +2317,7 @@ export async function mutateEventVirtualLobbyAdmission(
   user: AuthenticatedUser,
   options: {
     admissionBatchSize?: number;
+    clock?: () => Date;
     afterAdmissionBatch?: (outcome: {
       admittedCount: number;
       hasMore: boolean;
@@ -2325,14 +2367,13 @@ export async function mutateEventVirtualLobbyAdmission(
       access.publicReference,
     );
     if (!destination) return { status: "not-found" } as const;
-    const now = new Date();
+    const now = options.clock?.() ?? new Date();
     if (isTerminalDestination(destination, now))
       return { status: "conflict", reason: "session_ended" } as const;
     if (input.action === "admit_all")
       return {
         status: "admit-all",
         roomGeneration: room.generation,
-        now,
       } as const;
     if (!input.lobbyEntryId) return { status: "not-found" } as const;
     const outcome = await changeAdmission(
@@ -2358,13 +2399,13 @@ export async function mutateEventVirtualLobbyAdmission(
       eventSessionId: input.eventSessionId,
       roomGeneration: outcome.roomGeneration,
       actorUserId: user.id,
-      now: outcome.now,
       source: "staff_admit_all",
     },
     {
       ...(options.admissionBatchSize
         ? { batchSize: options.admissionBatchSize }
         : {}),
+      ...(options.clock ? { clock: options.clock } : {}),
       ...(options.afterAdmissionBatch
         ? { afterBatch: options.afterAdmissionBatch }
         : {}),

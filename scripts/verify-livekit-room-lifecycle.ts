@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
+import { removePlatformAdministrator } from "#/server/admin/admin-account.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
 import { transitionAdminEventOccurrence } from "#/server/admin/admin-event-operations.server";
@@ -16,6 +17,7 @@ import {
   type VirtualRoomRuntime,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
+import { eventVirtualPresenterIdentity } from "#/server/events/event-virtual-participant-identity.server";
 import {
   type CreateLiveKitJoinTokenInput,
   LiveKitProviderError,
@@ -1038,6 +1040,74 @@ try {
       runtime,
     ),
     { status: "ready" },
+  );
+  const platformCredential = await issueEventVirtualPresenterCredential(
+    ids.occurrence,
+    ids.session,
+    platformAdministrator,
+    { runtime, clock: () => providerRetryTime },
+  );
+  assert.equal(platformCredential.status, "ready");
+  const platformIdentity = eventVirtualPresenterIdentity(
+    room.id,
+    platformAdministrator.id,
+  );
+  fakeProvider.participants.set(room.providerRoomName, [
+    {
+      sid: "platform-administrator-participant",
+      identity: platformIdentity,
+      displayName: platformAdministrator.name,
+    },
+  ]);
+  assert.deepEqual(
+    await removePlatformAdministrator(platformAdministrator.id, administrator),
+    { status: "revoked" },
+  );
+  const presenterRemoval = await database
+    .selectFrom("event_virtual_room_operation")
+    .select(["status", "participantIdentity"])
+    .where("roomId", "=", room.id)
+    .where("kind", "=", "remove_participant")
+    .where("targetKey", "=", `presenter:${platformAdministrator.id}`)
+    .executeTakeFirstOrThrow();
+  assert.equal(presenterRemoval.status, "pending");
+  assert.equal(presenterRemoval.participantIdentity, platformIdentity);
+  const firstPresenterRemoval =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime,
+      now: providerRetryTime,
+    });
+  assert.ok(
+    firstPresenterRemoval.outcomes.some(
+      (outcome) =>
+        outcome.kind === "remove_participant" && outcome.status === "pending",
+    ),
+  );
+  assert.deepEqual(fakeProvider.participants.get(room.providerRoomName), []);
+  assert.deepEqual(
+    await issueEventVirtualPresenterCredential(
+      ids.occurrence,
+      ids.session,
+      platformAdministrator,
+      { runtime, clock: () => providerRetryTime },
+    ),
+    { status: "forbidden" },
+    "Revoking a platform role must prevent presenter credential refresh",
+  );
+  const platformCredentialExpiry = new Date(
+    platformCredential.credential.expiresAt,
+  );
+  const completedPresenterRemoval =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime,
+      now: platformCredentialExpiry,
+    });
+  assert.ok(
+    completedPresenterRemoval.outcomes.some(
+      (outcome) =>
+        outcome.kind === "remove_participant" && outcome.status === "processed",
+    ),
+    "Presenter removal must remain enforced until the issued credential expires",
   );
   await database
     .updateTable("event_virtual_room")

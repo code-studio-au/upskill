@@ -50,6 +50,7 @@ const ids = {
   administrator: "verify_livekit_lobby_administrator",
   learner: "verify_livekit_lobby_learner",
   secondLearner: "verify_livekit_lobby_second_learner",
+  openEntryLearner: "verify_livekit_lobby_open_entry_learner",
   template: "verify_livekit_lobby_template",
   version: "verify_livekit_lobby_version",
   definition: "verify_livekit_lobby_definition",
@@ -87,6 +88,10 @@ const secondLearner = authenticatedUser(
   ids.secondLearner,
   "Second lobby learner",
 );
+const openEntryLearner = authenticatedUser(
+  ids.openEntryLearner,
+  "Open-entry lobby learner",
+);
 const createdAt = new Date("2030-09-04T00:00:00.000Z");
 const startsAt = new Date("2030-09-04T01:00:00.000Z");
 const endsAt = new Date("2030-09-04T02:00:00.000Z");
@@ -96,7 +101,7 @@ try {
   await database
     .insertInto("user")
     .values(
-      [administrator, learner, secondLearner].map((item) => ({
+      [administrator, learner, secondLearner, openEntryLearner].map((item) => ({
         id: item.id,
         name: item.name,
         email: item.email,
@@ -332,6 +337,22 @@ try {
     )
     .execute();
   await database
+    .insertInto("event_participation")
+    .values({
+      id: "verify_livekit_lobby_open_entry_participation",
+      eventOccurrenceId: ids.occurrence,
+      userId: openEntryLearner.id,
+      registrationId: null,
+      mode: "open_entry",
+      nameSnapshot: openEntryLearner.name,
+      emailSnapshot: openEntryLearner.email,
+      detailsSubmittedAt: createdAt,
+      joinDisclosedAt: createdAt,
+      checkedInAt: null,
+      createdAt,
+    })
+    .execute();
+  await database
     .insertInto("event_virtual_room")
     .values({
       id: ids.room,
@@ -373,6 +394,50 @@ try {
       now: createdAt,
     }),
   );
+
+  await database
+    .updateTable("event_occurrence")
+    .set({ registrationMode: "open_entry" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: true })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ admissionMode: "automatic" })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const openEntryAdmission = await resolveEventVirtualLobby(
+    access.publicReference,
+    openEntryLearner,
+  );
+  assert.equal(openEntryAdmission.status, "ready");
+  assert.equal(openEntryAdmission.data.outcome, "meeting_not_started");
+  assert.equal(openEntryAdmission.data.admissionState, "admitted");
+  await database
+    .updateTable("event_session")
+    .set({ livekitOpenEntryGuestsAllowed: false })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  const disallowedOpenEntry = await resolveEventVirtualLobby(
+    access.publicReference,
+    openEntryLearner,
+  );
+  assert.equal(disallowedOpenEntry.status, "ready");
+  assert.equal(disallowedOpenEntry.data.outcome, "revoked");
+  await database
+    .updateTable("event_occurrence")
+    .set({ registrationMode: "required_unrestricted" })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ admissionMode: "manual" })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
 
   const anonymous = await resolveEventVirtualLobby(
     access.publicReference,
@@ -1256,6 +1321,82 @@ try {
     .set({ status: "selected", lockedInAt: createdAt })
     .where("id", "=", admissionRaceRegistrationId)
     .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ admissionMode: "automatic" })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  let releaseAutomaticRegistrationLock = () => {};
+  let markAutomaticRegistrationLocked = () => {};
+  const automaticRegistrationLockHeld = new Promise<void>((resolve) => {
+    markAutomaticRegistrationLocked = resolve;
+  });
+  const automaticRegistrationLockRelease = new Promise<void>((resolve) => {
+    releaseAutomaticRegistrationLock = resolve;
+  });
+  const automaticCancellation = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_registration")
+        .select("id")
+        .where("id", "=", admissionRaceRegistrationId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      markAutomaticRegistrationLocked();
+      await automaticRegistrationLockRelease;
+      await transaction
+        .updateTable("event_registration")
+        .set({ status: "cancelled", lockedInAt: null })
+        .where("id", "=", admissionRaceRegistrationId)
+        .executeTakeFirstOrThrow();
+    });
+  await automaticRegistrationLockHeld;
+  let automaticAdmissionSettled = false;
+  const racedAutomaticAdmission = resolveEventVirtualLobby(
+    access.publicReference,
+    authenticatedUser(admissionRaceLearner.id, admissionRaceLearner.name),
+  ).then((result) => {
+    automaticAdmissionSettled = true;
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(
+    automaticAdmissionSettled,
+    false,
+    "Automatic admission must wait for a concurrent registration decision",
+  );
+  releaseAutomaticRegistrationLock();
+  await automaticCancellation;
+  const automaticAdmissionResult = await racedAutomaticAdmission;
+  assert.equal(automaticAdmissionResult.status, "ready");
+  assert.equal(automaticAdmissionResult.data.outcome, "revoked");
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select("state")
+      .where("id", "=", admissionRaceEntryId)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.state),
+    "revoked",
+    "A cancellation committed ahead of auto-admission must revoke the waiter",
+  );
+  await database
+    .updateTable("event_registration")
+    .set({ status: "selected", lockedInAt: createdAt })
+    .where("id", "=", admissionRaceRegistrationId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ admissionMode: "manual" })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  const restoredRaceWaiter = await resolveEventVirtualLobby(
+    access.publicReference,
+    authenticatedUser(admissionRaceLearner.id, admissionRaceLearner.name),
+  );
+  assert.equal(restoredRaceWaiter.status, "ready");
+  assert.equal(restoredRaceWaiter.data.admissionState, "waiting");
   const firstQueuePage = await findEventVirtualLobbyQueue(
     ids.occurrence,
     ids.session,
@@ -1326,6 +1467,14 @@ try {
     { status: "forbidden" },
   );
   const committedAdmissionBatchSizes: number[] = [];
+  const firstAdmissionBatchTime = new Date(Date.now() + 1_000);
+  const laterWaiterTime = new Date(firstAdmissionBatchTime.getTime() + 1_000);
+  const laterBatchTime = new Date(laterWaiterTime.getTime() + 1_000);
+  const laterWaiterLearner = bulkLearners.at(-1);
+  assert.ok(laterWaiterLearner);
+  const laterWaiterEntryId = `verify_livekit_lobby_bulk_entry_${laterWaiterLearner.id}`;
+  let admissionBatchTime = firstAdmissionBatchTime;
+  let movedWaiterAfterFirstBatch = false;
   assert.deepEqual(
     await mutateEventVirtualLobbyAdmission(
       {
@@ -1336,6 +1485,7 @@ try {
       administrator,
       {
         admissionBatchSize: 100,
+        clock: () => admissionBatchTime,
         afterAdmissionBatch: async () => {
           committedAdmissionBatchSizes.push(
             await database
@@ -1348,6 +1498,15 @@ try {
               .executeTakeFirstOrThrow()
               .then((row) => Number(row.count)),
           );
+          if (!movedWaiterAfterFirstBatch) {
+            movedWaiterAfterFirstBatch = true;
+            await database
+              .updateTable("event_virtual_lobby_entry")
+              .set({ requestedAt: laterWaiterTime, updatedAt: laterWaiterTime })
+              .where("id", "=", laterWaiterEntryId)
+              .executeTakeFirstOrThrow();
+            admissionBatchTime = laterBatchTime;
+          }
         },
       },
     ),
@@ -1356,6 +1515,16 @@ try {
   assert.ok(
     committedAdmissionBatchSizes.length > 1,
     "Admit all must commit large queues across multiple transactions",
+  );
+  const laterWaiter = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["requestedAt", "admittedAt"])
+    .where("id", "=", laterWaiterEntryId)
+    .executeTakeFirstOrThrow();
+  assert.ok(laterWaiter.admittedAt);
+  assert.ok(
+    laterWaiter.admittedAt >= laterWaiter.requestedAt,
+    "Each admission batch must use a commit-time timestamp for newly observed waiters",
   );
   for (let index = 1; index < committedAdmissionBatchSizes.length; index += 1)
     assert.ok(

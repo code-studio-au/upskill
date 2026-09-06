@@ -9,16 +9,19 @@ export async function lockEventVirtualAdmissionEligibility(
     eventOccurrenceId: string;
     eventParticipationId: string;
     registrationSurveyVersionId: string | null;
+    openEntryGuestsAllowed: boolean;
   },
 ): Promise<boolean> {
   const participation = await transaction
     .selectFrom("event_participation")
-    .select(["registrationId", "userId"])
+    .select(["mode", "registrationId", "userId"])
     .where("id", "=", input.eventParticipationId)
     .where("eventOccurrenceId", "=", input.eventOccurrenceId)
-    .where("mode", "=", "registered")
     .executeTakeFirst();
   if (!participation) return false;
+  if (participation.mode === "open_entry")
+    return input.openEntryGuestsAllowed && !participation.registrationId;
+  if (!participation.registrationId) return false;
 
   const registration = await transaction
     .selectFrom("event_registration")

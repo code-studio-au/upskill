@@ -779,6 +779,7 @@ interface EventVirtualRoomOperationTable {
   kind: "ensure_room" | "close_room" | "remove_participant";
   targetKey: Generated<string>;
   lobbyEntryId: Generated<string | null>;
+  presenterUserId: Generated<string | null>;
   participantIdentity: Generated<string | null>;
   deduplicationKey: string;
   status: "pending" | "processing" | "succeeded";

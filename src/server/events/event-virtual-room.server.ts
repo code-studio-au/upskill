@@ -21,7 +21,10 @@ import { ensureEventVirtualJoinAccess } from "./event-virtual-join-access.server
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
 import { eventVirtualPresenterIdentity } from "./event-virtual-participant-identity.server";
 import { countUnconnectedVirtualCredentialReservations } from "./event-virtual-room-capacity.server";
-import { hasVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
+import {
+  hasVirtualRoomStaffAccess,
+  lockVirtualRoomStaffAccess,
+} from "./event-virtual-staff-access.server";
 
 const PROVIDER_OPERATION_LEASE_MILLISECONDS = 2 * 60 * 1_000;
 const PROVIDER_RETRY_MAX_SECONDS = 15 * 60;
@@ -274,6 +277,7 @@ interface ClaimedOperation {
   kind: "ensure_room" | "close_room" | "remove_participant";
   targetKey: string;
   lobbyEntryId: string | null;
+  presenterUserId: string | null;
   participantIdentity: string | null;
   attempts: number;
 }
@@ -646,6 +650,7 @@ async function claimRoomOperation(
         kind,
         targetKey: operation.targetKey,
         lobbyEntryId: operation.lobbyEntryId,
+        presenterUserId: operation.presenterUserId,
         participantIdentity: operation.participantIdentity,
         attempts,
       };
@@ -1298,7 +1303,7 @@ export async function issueEventVirtualPresenterCredential(
           return "room-not-ready" as const;
         }
         if (
-          !(await hasVirtualRoomStaffAccess(
+          !(await lockVirtualRoomStaffAccess(
             transaction,
             eventOccurrenceId,
             eventSessionId,
@@ -1771,7 +1776,6 @@ export async function setEventVirtualRoomAdmissionMode(
         ? ({
             status: "ready-auto-admission",
             roomGeneration: room.generation,
-            now: currentNow,
           } as const)
         : ({ status: "ready" } as const);
     await transaction
@@ -1798,7 +1802,6 @@ export async function setEventVirtualRoomAdmissionMode(
       ? ({
           status: "ready-auto-admission",
           roomGeneration: room.generation,
-          now: currentNow,
         } as const)
       : ({ status: "ready" } as const);
   });
@@ -1810,7 +1813,6 @@ export async function setEventVirtualRoomAdmissionMode(
       eventSessionId,
       roomGeneration: outcome.roomGeneration,
       actorUserId: user.id,
-      now: outcome.now,
       source: "automatic_mode_enabled",
     },
     { clock },
@@ -2163,7 +2165,94 @@ async function executeParticipantRemoval(
     targetKey,
   );
   if (!claimed) return { status: "no-work" };
-  if (!claimed.lobbyEntryId || !claimed.participantIdentity) {
+  if (
+    !claimed.participantIdentity ||
+    (!claimed.lobbyEntryId && !claimed.presenterUserId)
+  ) {
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "remove_participant",
+    };
+  }
+  if (claimed.presenterUserId) {
+    const target = await getDatabase()
+      .selectFrom("event_virtual_room as room")
+      .innerJoin(
+        "event_session as session",
+        "session.id",
+        "room.eventSessionId",
+      )
+      .innerJoin(
+        "event_virtual_presenter_credential_reservation as reservation",
+        (join) =>
+          join
+            .onRef("reservation.roomId", "=", "room.id")
+            .on("reservation.userId", "=", claimed.presenterUserId),
+      )
+      .select([
+        "room.providerRoomName",
+        "room.eventSessionId",
+        "session.eventOccurrenceId",
+        "reservation.credentialExpiresAt",
+      ])
+      .where("room.id", "=", roomId)
+      .executeTakeFirst();
+    if (
+      !target ||
+      (await hasVirtualRoomStaffAccess(
+        getDatabase(),
+        target.eventOccurrenceId,
+        target.eventSessionId,
+        claimed.presenterUserId,
+      ))
+    ) {
+      await completeRoomOperation(claimed, now);
+      return {
+        status: "processed",
+        operationId: claimed.id,
+        roomId,
+        kind: "remove_participant",
+      };
+    }
+    try {
+      await runtime.provider.removeParticipant(
+        target.providerRoomName,
+        claimed.participantIdentity,
+      );
+      if (target.credentialExpiresAt > now) {
+        await requeueParticipantRemoval(
+          claimed,
+          target.credentialExpiresAt,
+          now,
+        );
+        return {
+          status: "pending",
+          operationId: claimed.id,
+          roomId,
+          kind: "remove_participant",
+        };
+      }
+      await completeRoomOperation(claimed, now);
+      return {
+        status: "processed",
+        operationId: claimed.id,
+        roomId,
+        kind: "remove_participant",
+      };
+    } catch (error) {
+      await retryRoomOperation(claimed, providerFailureCode(error), now, false);
+      return {
+        status: "retry",
+        operationId: claimed.id,
+        roomId,
+        kind: "remove_participant",
+      };
+    }
+  }
+  if (!claimed.lobbyEntryId) {
     await completeRoomOperation(claimed, now);
     return {
       status: "processed",
@@ -2206,25 +2295,7 @@ async function executeParticipantRemoval(
       claimed.participantIdentity,
     );
     if (target.credentialExpiresAt && target.credentialExpiresAt > now) {
-      await getDatabase()
-        .updateTable("event_virtual_room_operation")
-        .set({
-          status: "pending",
-          availableAt: new Date(
-            Math.min(
-              target.credentialExpiresAt.getTime(),
-              now.getTime() + PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS,
-            ),
-          ),
-          leasedUntil: null,
-          completedAt: null,
-          lastErrorCode: null,
-          attempts: 0,
-        })
-        .where("id", "=", claimed.id)
-        .where("status", "=", "processing")
-        .where("attempts", "=", claimed.attempts)
-        .execute();
+      await requeueParticipantRemoval(claimed, target.credentialExpiresAt, now);
       return {
         status: "pending",
         operationId: claimed.id,
@@ -2248,6 +2319,32 @@ async function executeParticipantRemoval(
       kind: "remove_participant",
     };
   }
+}
+
+async function requeueParticipantRemoval(
+  claimed: ClaimedOperation,
+  credentialExpiresAt: Date,
+  now: Date,
+): Promise<void> {
+  await getDatabase()
+    .updateTable("event_virtual_room_operation")
+    .set({
+      status: "pending",
+      availableAt: new Date(
+        Math.min(
+          credentialExpiresAt.getTime(),
+          now.getTime() + PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS,
+        ),
+      ),
+      leasedUntil: null,
+      completedAt: null,
+      lastErrorCode: null,
+      attempts: 0,
+    })
+    .where("id", "=", claimed.id)
+    .where("status", "=", "processing")
+    .where("attempts", "=", claimed.attempts)
+    .execute();
 }
 
 async function processNextEventVirtualRoomOperation(

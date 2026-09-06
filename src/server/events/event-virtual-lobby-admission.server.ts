@@ -29,7 +29,6 @@ export async function admitEligibleWaitingEntries(
     eventSessionId: string;
     roomGeneration: number;
     actorUserId: string;
-    now: Date;
     source: "automatic_mode_enabled" | "staff_admit_all";
   },
   options: {
@@ -54,6 +53,7 @@ export async function admitEligibleWaitingEntries(
     const outcome: AdmissionBatchOutcome = await database
       .transaction()
       .execute(async (transaction) => {
+        const batchNow = options.clock?.() ?? new Date();
         const occurrence = await transaction
           .selectFrom("event_occurrence")
           .select(["status", "eventTemplateVersionId"])
@@ -62,7 +62,7 @@ export async function admitEligibleWaitingEntries(
           .executeTakeFirst();
         const session = await transaction
           .selectFrom("event_session")
-          .select(["id", "endsAt"])
+          .select(["id", "endsAt", "livekitOpenEntryGuestsAllowed"])
           .where("id", "=", input.eventSessionId)
           .where("eventOccurrenceId", "=", input.eventOccurrenceId)
           .forUpdate()
@@ -89,8 +89,7 @@ export async function admitEligibleWaitingEntries(
           !session ||
           !room ||
           room.doorState === "ended" ||
-          (room.doorState === "scheduled" &&
-            session.endsAt <= (options.clock?.() ?? new Date())) ||
+          (room.doorState === "scheduled" && session.endsAt <= batchNow) ||
           !access ||
           (input.source === "automatic_mode_enabled" &&
             room.admissionMode !== "automatic") ||
@@ -154,6 +153,8 @@ export async function admitEligibleWaitingEntries(
               eventOccurrenceId: input.eventOccurrenceId,
               eventParticipationId: entry.eventParticipationId,
               registrationSurveyVersionId: version.registrationSurveyVersionId,
+              openEntryGuestsAllowed:
+                session.livekitOpenEntryGuestsAllowed === true,
             }))
           )
             continue;
@@ -169,9 +170,9 @@ export async function admitEligibleWaitingEntries(
             .updateTable("event_virtual_lobby_entry")
             .set({
               state: "admitted",
-              admittedAt: input.now,
+              admittedAt: batchNow,
               admittedByUserId: input.actorUserId,
-              updatedAt: input.now,
+              updatedAt: batchNow,
             })
             .where("id", "=", entry.id)
             .where("state", "=", "waiting")
@@ -190,7 +191,7 @@ export async function admitEligibleWaitingEntries(
               eventSessionId: input.eventSessionId,
               source: input.source,
             },
-            createdAt: input.now,
+            createdAt: batchNow,
           });
         }
         if (admittedCount > 0)
