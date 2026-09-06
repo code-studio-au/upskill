@@ -1,9 +1,9 @@
 {
-  "clientJavaScriptBytes": 1006000,
+  "clientJavaScriptBytes": 1610000,
   "clientCssBytes": 255000,
-  "clientJavaScriptBrotliBytes": 300000,
+  "clientJavaScriptBrotliBytes": 425000,
   "clientCssBrotliBytes": 36000,
-  "largestJavaScriptAssetBytes": 460000,
+  "largestJavaScriptAssetBytes": 590000,
   "rootPreloadJavaScriptGzipBytes": 163840,
   "rootCssGzipBytes": 46080,
   "routeIncrementalJavaScriptGzipBytes": 32768,
@@ -30,12 +30,15 @@
     "EventOperationsVirtualSessions": 2048,
     "EventTimezoneAutocomplete": 1024,
     "FullscreenScormLauncher": 2048,
+    "LiveKitAttendeeRoom": 4096,
     "LearnerEventSection": 2304,
     "LearnerSurveyExperience": 3072,
     "ResponsiveDataTable": 11264,
     "ScheduleEmailEditor": 2304,
+    "livekit-attendee-media": 150528,
     "profile": 2304
   },
+  "deferredJavaScriptChunks": ["LiveKitAttendeeRoom", "livekit-attendee-media"],
   "routeJavaScriptGzipBytes": {
     "/admin/contracts/new": 12288,
     "/admin/learners/$userId/events/$eventOccurrenceId": 3072,
