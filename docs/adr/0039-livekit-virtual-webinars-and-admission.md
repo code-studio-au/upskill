@@ -1,6 +1,7 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–3 implemented, later slices pending
+- **Status:** Accepted; Slices 1–4, 5a and open-entry lobby integration
+  implemented, later slices pending
 - **Date:** 2026-08-31
 
 ## Context
@@ -1148,8 +1149,10 @@ only for LiveKit sessions whose snapshotted policy enables it.
 
 ## Delivery sequence
 
-Implementation proceeds in bounded slices, each independently reviewed and
-verified:
+Implementation proceeds through the following capability groups. The
+implementation tracker below divides the remaining groups into the actual
+pull-request-sized delivery slices; a capability group is not permission to
+combine all of its work into one pull request.
 
 1. **Managed provider foundation:** isolated LiveKit Cloud projects, validated
    environment URLs and Secrets Manager credentials, signed webhook endpoint,
@@ -1206,31 +1209,68 @@ gates passed; it does not by itself authorise staging or production activation.
       creation, presenter grants, device preview, provider health, and
       start/lock/reopen/end/replacement controls.
       Implemented by [PR #66](https://github.com/code-studio-au/upskill/pull/66).
-- [ ] **Slice 4 — attendee lobby, admission and recovery:** add opaque join
+- [x] **Slice 4 — attendee lobby, admission and recovery:** add opaque join
       access, the central attendee policy, authenticated lobby, narrow email/SMS
       recovery, manual/bulk/automatic admission, polling, meeting-not-started and
       token issuance, then route learner workspaces and communications through it.
-- [ ] **Slice 5 — webinar media client:** add the route-split LiveKit client
-      boundary, custom CSP-safe attendee and presenter media views, exact response
-      security policy, reconnect/leave/removal behaviour, accessibility, responsive
-      layout and deterministic bundle coverage.
-- [ ] **Slice 6 — managed recording:** add the recording evidence model,
-      consent, idempotent RoomComposite Egress lifecycle, dedicated private
-      recording storage and narrowly scoped upload authorisation, private playback,
-      retention, deletion evidence and failure recovery.
-- [ ] **Slice 7 — connection attendance:** add signed webhook receipts,
-      append-only connection intervals, periodic/final reconciliation, versioned
-      policy evaluation, automatic promotion, preserved manual corrections, review
-      UI and exports.
-- [ ] **Slice 8 — open-entry and operational hardening:** route eligible guests
-      through the same lobby, complete provider failure and generation-replacement
-      drills, add quota/cost alerts and cross-browser media smoke, and produce a
-      staging-readiness report while leaving production disabled.
+      Implemented by [PR #67](https://github.com/code-studio-au/upskill/pull/67),
+      together with the open-entry lobby integration originally planned for
+      Slice 8. Its review history demonstrated that this capability group was
+      not sufficiently bounded; every remaining item below is a separate
+      pull-request boundary unless its impact matrix justifies otherwise.
+- [x] **Slice 5a — attendee media-client boundary:** add the exact-version
+      route-split LiveKit browser dependency, validated token exchange, connection
+      ownership, explicit disconnect and initial attendee subscribe-only media
+      view. Keep presenter media and moderation out of this slice.
+      Implemented by [PR #68](https://github.com/code-studio-au/upskill/pull/68).
+- [ ] **Slice 5b — attendee connection lifecycle:** add reconnect, duplicate-tab,
+      token-expiry, lock, removal and ended-session behaviour with server-owned
+      decisions and focused failure coverage.
+- [ ] **Slice 5c — presenter media and moderation:** add the presenter publishing
+      view and server-authorised participant moderation without changing attendee
+      eligibility or admission policy.
+- [ ] **Slice 5d — media experience hardening:** complete responsive and keyboard
+      behaviour, status announcements, permission failures, CSP and Permissions
+      Policy verification, deterministic bundle coverage and supported-browser
+      media smoke tests.
+- [ ] **Slice 6a — dormant recording policy and evidence:** add versioned
+      recording policy, consent requirements, recording evidence persistence and
+      provider-operation contracts without activating Egress.
+- [ ] **Slice 6b — managed Egress execution:** add idempotent RoomComposite Egress,
+      dedicated private storage, narrowly scoped upload authorisation, provider
+      status ingestion and reconciliation.
+- [ ] **Slice 6c — recording consumption and retention:** add authorised private
+      playback/download, retention and deletion evidence, administrator status and
+      recoverable failure handling.
+- [ ] **Slice 7a — connection evidence ingestion:** add signed LiveKit webhook
+      receipts, exact room/generation/participant validation and append-only
+      connection intervals that tolerate duplicate, delayed and out-of-order
+      events.
+- [ ] **Slice 7b — attendance reconciliation and promotion:** add periodic and
+      final reconciliation, versioned attendance-policy evaluation, automatic
+      check-in/duration promotion and preservation of manual corrections.
+- [ ] **Slice 7c — attendance operations and reporting:** add administrator review,
+      evidence explanation, filters and exports without changing the evidence or
+      promotion policy.
+- [x] **Slice 8a — open-entry lobby integration:** route eligible open-entry
+      guests through the same capacity, consent, admission, token and revocation
+      policy as registered learners. Implemented by
+      [PR #67](https://github.com/code-studio-au/upskill/pull/67).
+- [ ] **Slice 8b — provider recovery drills:** complete provider-failure and
+      generation-replacement drills, typed operational recovery and failure-path
+      verification.
+- [ ] **Slice 8c — quota and cost controls:** add provider quota, participant,
+      concurrent-room and Egress monitoring with actionable alerts.
+- [ ] **Slice 8d — staging-readiness review:** complete cross-browser staging media
+      tests and produce an evidence-backed readiness report while leaving
+      production disabled.
 
-Each pull request includes the impact-matrix delta in its description and audits
-equivalent actors, acquisition paths, targets, lifecycle states and downstream
-consumers before review. A review finding is classified as an invariant failure
-and repaired across the affected category before a new exact-head review.
+Each unchecked tracker item is expected to be one pull request. Combining items
+requires an explicit bounded-scope rationale in the pull-request impact matrix.
+Each pull request audits equivalent actors, acquisition paths, targets, lifecycle
+states and downstream consumers before review. A review finding is classified as
+an invariant failure and repaired across the affected category before a new
+exact-head review.
 
 Initial implementation assumptions are:
 

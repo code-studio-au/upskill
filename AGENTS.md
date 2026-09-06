@@ -44,12 +44,14 @@ These instructions apply to the entire repository. Read them before changing cod
 ## Verification and self-review
 
 - Before implementing a significant cross-cutting feature, follow the [cross-cutting feature delivery workflow](docs/architecture/architecture-decision-records-and-engineering-governance.md#cross-cutting-feature-delivery): inventory actors, entry points, targets, lifecycle states and downstream effects; define the server-owned decision policy; and split delivery into independently reviewable slices where practical.
+- Treat a planned change that introduces more than one privileged capability, state machine, asynchronous pipeline, or primary actor journey as presumptively too broad for one pull request. Split it into dormant or independently safe increments, or record in the pull-request impact matrix why combining it remains reviewable.
 - Run the narrowest relevant test during implementation, inspect failures, fix the root cause, and rerun the exact failed command.
 - For application code, run `pnpm run verify:app` before handoff. It covers repository security, migration policy, dependency cohorts/audit, formatting, linting, React diagnostics, types, dead code, coverage, production builds, and bundle budgets.
 - For infrastructure changes, run `pnpm run verify:cdk`. For database changes, run `pnpm run verify:db:gate`. `pnpm run verify:ci` runs all three broad gates.
 - For user-flow or responsive UI changes, run the relevant browser partition: `pnpm run test:e2e:core`, `pnpm run test:e2e:scorm`, `pnpm run test:e2e:admin`, or `pnpm run test:e2e:https`. Use `pnpm run test:e2e` for the full browser suite when the risk or request warrants it.
 - Do not claim a gate passed unless it completed successfully in the current work. If a required gate cannot run, report the exact blocker and which narrower checks did pass.
 - Treat a review finding as evidence of a potentially wider invariant gap. Before making a local patch, audit equivalent callers, targets, roles, lifecycle states and downstream consumers; add focused regression coverage for the whole affected category where practical; then request another review only after that sweep and the relevant gates pass.
+- Before requesting the first review, complete the repository pull-request template, including its bounded-scope decision, impact-matrix delta, consumer audit and verification evidence. The PR preflight check must pass on the exact head. When several review findings exist, classify and repair them by invariant category before requesting another exact-head review.
 - Before handoff, review the diff for authorization gaps, missing validation, mutable historical data, CSP/style violations, dependency or bundle growth, migration safety, Australian date formatting, accessibility, responsive overflow, and accidental secret or generated-file inclusion.
 
 ## Git and delivery
@@ -58,3 +60,4 @@ These instructions apply to the entire repository. Read them before changing cod
 - Do not commit, push, open or edit a pull request, merge, deploy, or mutate external services unless the user asks for that action.
 - When asked to commit and open a pull request, run the relevant gates, commit only the intended slice, push its branch, and open a draft PR unless the user explicitly requests a ready-for-review PR.
 - Pull-request descriptions should state the outcome, important implementation decisions, verification actually run, and any deployment, migration, or operational considerations. Address review comments with a focused regression test where practical.
+- Temporary local checkpoint commits may be consolidated into a small number of coherent commits before the first review. After review begins, preserve useful review history and batch related remediation into one category-level commit where practical instead of producing one commit per comment.
