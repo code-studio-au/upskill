@@ -44,7 +44,7 @@ function presentation(
     ],
     ready_to_join: [
       "Ready to join",
-      "You have been admitted. The webinar player will open here when media delivery is enabled.",
+      "You have been admitted. Join when you are ready; your camera and microphone will remain off.",
       "green",
     ],
     locked: [

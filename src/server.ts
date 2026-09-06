@@ -3,6 +3,7 @@ import {
   createStartHandler,
   defaultStreamHandler,
 } from "@tanstack/react-start/server";
+import { getServerEnv } from "#/server/env.server";
 import { applySecurityHeaders } from "#/server/http/security-headers";
 
 const fetch = createStartHandler(async (context) => {
@@ -12,7 +13,12 @@ const fetch = createStartHandler(async (context) => {
   const result = await defaultStreamHandler(context);
   const response = result instanceof Response ? result : result.response;
   const headers = new Headers(response.headers);
-  applySecurityHeaders(headers, nonce, context.request);
+  const environment = getServerEnv();
+  applySecurityHeaders(headers, nonce, context.request, {
+    ...(environment.LIVEKIT_ENABLED && environment.LIVEKIT_URL
+      ? { liveKitWebsocketUrl: environment.LIVEKIT_URL }
+      : {}),
+  });
 
   const securedResponse = new Response(response.body, {
     headers,

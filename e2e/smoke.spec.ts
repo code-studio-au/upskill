@@ -2429,6 +2429,19 @@ test("platform administrators can inspect learner progress", async ({
           name: "The webinar has not started",
         }),
       ).toBeVisible();
+      const initialLobbyTimeOrigin = await guestPage.evaluate(
+        () => performance.timeOrigin,
+      );
+      await expect
+        .poll(() => guestPage.evaluate(() => performance.timeOrigin), {
+          timeout: 7_000,
+        })
+        .not.toBe(initialLobbyTimeOrigin);
+      await expect(
+        guestPage.getByRole("heading", {
+          name: "The webinar has not started",
+        }),
+      ).toBeVisible();
       const guestLobbyEntry = await authoringDatabase.query<{
         accessMethod: string;
       }>(
@@ -2441,6 +2454,43 @@ test("platform administrators can inspect learner progress", async ({
         [openEntryGuestUser.id],
       );
       expect(guestLobbyEntry.rows[0]?.accessMethod).toBe("guest");
+      await authoringDatabase.query(
+        `update event_virtual_room
+         set "doorState" = 'open', "admissionMode" = 'automatic',
+             "startedAt" = now(), "startedByUserId" = $1
+         where id = 'e2e_livekit_start_confirmation'`,
+        [administratorUser.id],
+      );
+      await guestPage.reload();
+      await expect(
+        guestPage.getByRole("heading", { name: "Ready to join" }),
+      ).toBeVisible();
+      await expect(
+        guestPage.getByRole("heading", { name: "Webinar room" }),
+      ).toBeVisible();
+      await guestPage.getByRole("button", { name: "Join webinar" }).click();
+      await expect(
+        guestPage.getByRole("status").filter({
+          hasText:
+            "The webinar connection is temporarily unavailable. Try again shortly.",
+        }),
+      ).toBeVisible();
+      await authoringDatabase.query(
+        `update event_virtual_room
+         set "doorState" = 'scheduled', "admissionMode" = 'manual',
+             "startedAt" = null, "startedByUserId" = null
+         where id = 'e2e_livekit_start_confirmation'`,
+      );
+      await authoringDatabase.query(
+        `update event_virtual_lobby_entry
+         set state = 'waiting', "admittedAt" = null,
+             "admittedByUserId" = null, "updatedAt" = now()
+         where "eventVirtualJoinAccessId" = 'e2e_livekit_join_access'
+           and "eventParticipationId" in (
+             select id from event_participation where "userId" = $1
+           )`,
+        [openEntryGuestUser.id],
+      );
     } finally {
       await guestContext.close();
     }

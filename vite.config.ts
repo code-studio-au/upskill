@@ -36,6 +36,13 @@ export default defineConfig({
             : "assets/[hash].js",
         codeSplitting: {
           groups: [
+            // The browser media SDK is loaded only after an attendee reaches
+            // the ready-to-join state; keep it out of every route preload.
+            {
+              name: "livekit-attendee-media",
+              test: /node_modules[\\/](?:livekit-client|@livekit[\\/]|sdp-transform|webrtc-adapter)[\\/]/u,
+              priority: 3,
+            },
             // Keep React separate from the framework chunk so shared vendor
             // code remains ordered without folding conditional app UI inward.
             {

@@ -16,9 +16,11 @@ const DIRECTIVES = {
 export function buildContentSecurityPolicy(
   nonce: string,
   learningOrigin: string,
+  connectSources: ReadonlyArray<string> = [],
 ): string {
   const dynamic = {
     ...DIRECTIVES,
+    "connect-src": [...DIRECTIVES["connect-src"], ...connectSources],
     "frame-src": [learningOrigin],
     "script-src": ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'"],
     "style-src": ["'self'", `'nonce-${nonce}'`],
@@ -63,6 +65,7 @@ export function applySecurityHeaders(
   headers: Headers,
   nonce: string,
   request?: Request,
+  options: { liveKitWebsocketUrl?: string } = {},
 ): void {
   const learningOrigin = process.env.LEARNING_ORIGIN ?? "http://localhost:3001";
   const applicationOrigin = process.env.APP_ORIGIN ?? "http://localhost:3000";
@@ -72,11 +75,25 @@ export function applySecurityHeaders(
   const isLearningResponse =
     requestUrl?.origin === normalizedLearningOrigin &&
     requestUrl.pathname.startsWith("/api/scorm/");
+  const liveKitUrl =
+    !isLearningResponse && options.liveKitWebsocketUrl
+      ? new URL(options.liveKitWebsocketUrl)
+      : null;
+  const liveKitConnectSources = liveKitUrl
+    ? [
+        liveKitUrl.origin,
+        `${liveKitUrl.protocol === "wss:" ? "https:" : "http:"}//${liveKitUrl.host}`,
+      ]
+    : [];
   headers.set(
     "Content-Security-Policy",
     isLearningResponse
       ? buildLearningContentSecurityPolicy(normalizedApplicationOrigin)
-      : buildContentSecurityPolicy(nonce, normalizedLearningOrigin),
+      : buildContentSecurityPolicy(
+          nonce,
+          normalizedLearningOrigin,
+          liveKitConnectSources,
+        ),
   );
   if (isLearningResponse) headers.delete("Cross-Origin-Opener-Policy");
   else headers.set("Cross-Origin-Opener-Policy", "same-origin");

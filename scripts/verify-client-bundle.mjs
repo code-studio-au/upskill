@@ -57,6 +57,7 @@ const cssBrotliBytes = css.reduce(
 const largestJs = Math.max(0, ...js.map(size));
 const conditionalJavaScriptBudgets =
   budgets.conditionalJavaScriptGzipBytes ?? {};
+const deferredJavaScriptChunks = budgets.deferredJavaScriptChunks ?? [];
 
 const manifestFiles = files(path.join(root, "dist/server/assets")).filter(
   (file) => path.basename(file).startsWith("_tanstack-start-manifest_v-"),
@@ -96,6 +97,26 @@ for (const [chunkName, budget] of Object.entries(
   if (bytes > budget)
     failures.push(
       `Conditional chunk ${chunkName} gzip ${bytes} > explicit ${budget}`,
+    );
+}
+
+for (const chunkName of deferredJavaScriptChunks) {
+  if (!(chunkName in conditionalJavaScriptBudgets)) {
+    failures.push(
+      `Deferred JavaScript chunk ${chunkName} has no explicit conditional budget`,
+    );
+    continue;
+  }
+  const preloadedBy = Object.entries(routes)
+    .filter(([, entry]) =>
+      (entry.preloads ?? []).some((asset) =>
+        path.basename(asset).startsWith(`${chunkName}-`),
+      ),
+    )
+    .map(([route]) => route);
+  if (preloadedBy.length > 0)
+    failures.push(
+      `Deferred JavaScript chunk ${chunkName} is preloaded by ${preloadedBy.join(", ")}`,
     );
 }
 

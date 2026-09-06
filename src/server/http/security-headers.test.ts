@@ -29,6 +29,38 @@ describe("content security policy", () => {
     expect(headers.has("strict-transport-security")).toBe(false);
   });
 
+  it("allows only the configured LiveKit WebSocket origin on app responses", () => {
+    vi.stubEnv("APP_ORIGIN", "https://app.example.test");
+    vi.stubEnv("LEARNING_ORIGIN", "https://learn.example.test");
+    const webinarHeaders = new Headers();
+    applySecurityHeaders(
+      webinarHeaders,
+      "nonce",
+      new Request(`https://app.example.test/webinars/${"l".repeat(43)}`),
+      { liveKitWebsocketUrl: "wss://tenant.livekit.cloud" },
+    );
+    expect(webinarHeaders.get("content-security-policy")).toContain(
+      "connect-src 'self' wss://tenant.livekit.cloud https://tenant.livekit.cloud",
+    );
+    expect(webinarHeaders.get("permissions-policy")).toContain("camera=()");
+    expect(webinarHeaders.get("permissions-policy")).toContain("microphone=()");
+
+    // A client-side navigation to a webinar retains the original document's
+    // CSP, so the exact signaling origin must also be present on other app
+    // pages without wildcarding the vendor domain or other HTTPS origins.
+    const ordinaryHeaders = new Headers();
+    applySecurityHeaders(
+      ordinaryHeaders,
+      "nonce",
+      new Request("https://app.example.test/my-events"),
+      { liveKitWebsocketUrl: "wss://tenant.livekit.cloud" },
+    );
+    expect(ordinaryHeaders.get("content-security-policy")).toContain(
+      "connect-src 'self' wss://tenant.livekit.cloud https://tenant.livekit.cloud",
+    );
+    vi.unstubAllEnvs();
+  });
+
   it("adds HSTS only in HTTPS deployment environments", () => {
     vi.stubEnv("APP_ENV", "production");
     const headers = new Headers();

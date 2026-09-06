@@ -1,0 +1,95 @@
+.room {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md);
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+}
+
+.roomHeader {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+}
+
+.roomHeader h2,
+.roomHeader p,
+.mediaPlaceholder p {
+  margin: 0;
+}
+
+.roomHeader p {
+  margin-top: var(--mantine-spacing-xs);
+}
+
+.mediaRegion {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.videoGrid {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+}
+
+.videoTile {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: white;
+  background: var(--mantine-color-dark-8);
+  border-radius: var(--mantine-radius-md);
+}
+
+.videoTile video {
+  width: 100%;
+  min-height: 12rem;
+  max-height: 70vh;
+  object-fit: contain;
+  background: black;
+}
+
+.videoTile figcaption {
+  padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm);
+  overflow-wrap: anywhere;
+}
+
+.mediaPlaceholder {
+  display: grid;
+  min-height: 14rem;
+  place-items: center;
+  padding: var(--mantine-spacing-lg);
+  text-align: center;
+  background: var(--mantine-color-dark-8);
+  color: white;
+  border-radius: var(--mantine-radius-md);
+}
+
+.audioTrack {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+@media (max-width: 40rem) {
+  .roomHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .roomHeader > button,
+  .room > button,
+  .mediaRegion > button {
+    width: 100%;
+  }
+
+  .videoTile video {
+    min-height: 10rem;
+  }
+}

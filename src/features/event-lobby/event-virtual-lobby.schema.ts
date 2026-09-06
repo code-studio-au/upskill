@@ -71,31 +71,63 @@ export type EventVirtualRecoveryVerificationResult =
   | { status: "expired" }
   | { status: "rate-limited" };
 
-export type EventVirtualAttendeeCredentialResult =
-  | {
-      status: "ready";
-      credential: {
-        token: string;
-        websocketUrl: string;
-        expiresAt: string;
-        generation: number;
-      };
-    }
-  | { status: "unauthenticated" }
-  | { status: "not-found" }
-  | {
-      status: "conflict";
-      reason:
-        | "questionnaire_required"
-        | "meeting_not_started"
-        | "waiting_for_admission"
-        | "recording_acknowledgement_required"
-        | "locked"
-        | "ended"
-        | "revoked"
-        | "capacity_reached"
-        | "provider_unavailable";
-    };
+const eventVirtualAttendeeCredentialSchema = z.object({
+  token: z.string().check(z.minLength(1), z.maxLength(8192)),
+  websocketUrl: z.url().check(
+    z.refine((value) => {
+      try {
+        const url = new URL(value);
+        return (
+          (url.protocol === "ws:" || url.protocol === "wss:") &&
+          !url.username &&
+          !url.password &&
+          url.pathname === "/" &&
+          !url.search &&
+          !url.hash
+        );
+      } catch {
+        return false;
+      }
+    }, "Expected a canonical LiveKit WebSocket origin"),
+  ),
+  expiresAt: z.iso.datetime(),
+  generation: z.number().check(z.int(), z.positive()),
+});
+
+export const eventVirtualAttendeeCredentialResultSchema = z.discriminatedUnion(
+  "status",
+  [
+    z.object({
+      status: z.literal("ready"),
+      credential: eventVirtualAttendeeCredentialSchema,
+    }),
+    z.object({ status: z.literal("unauthenticated") }),
+    z.object({ status: z.literal("not-found") }),
+    z.object({
+      status: z.literal("conflict"),
+      reason: z.enum([
+        "questionnaire_required",
+        "meeting_not_started",
+        "waiting_for_admission",
+        "recording_acknowledgement_required",
+        "locked",
+        "ended",
+        "revoked",
+        "capacity_reached",
+        "provider_unavailable",
+      ]),
+    }),
+  ],
+);
+
+export type EventVirtualAttendeeCredentialResult = z.infer<
+  typeof eventVirtualAttendeeCredentialResultSchema
+>;
+
+export type EventVirtualAttendeeCredential = Extract<
+  EventVirtualAttendeeCredentialResult,
+  { status: "ready" }
+>["credential"];
 
 export type EventVirtualLobbyMutationResult =
   | { status: "ready" }

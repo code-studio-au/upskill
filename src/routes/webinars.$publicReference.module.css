@@ -15,6 +15,10 @@
   border-radius: var(--mantine-radius-lg);
 }
 
+.card[data-media-ready] {
+  width: min(100%, 72rem);
+}
+
 .card p,
 .card h1,
 .card h2 {

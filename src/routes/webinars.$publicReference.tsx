@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
 import { eventVirtualLobbyReferenceSchema } from "#/features/event-lobby/event-virtual-lobby.schema";
+import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { Button } from "#/features/shared/mantine";
 import { getEventVirtualLobby } from "#/server/functions/event-virtual-lobby";
@@ -14,6 +15,11 @@ const recoveryStatuses = new Set([
   "rate-limited",
   "unavailable",
 ]);
+
+const LiveKitAttendeeRoom = lazy(async () => {
+  const module = await import("#/features/event-lobby/LiveKitAttendeeRoom");
+  return { default: module.LiveKitAttendeeRoom };
+});
 
 function routeLocation(publicReference: string, recovery?: string): string {
   const route = `/webinars/${encodeURIComponent(publicReference)}`;
@@ -189,6 +195,7 @@ export const Route = createFileRoute("/webinars/$publicReference")({
 
 function EventVirtualLobbyPage() {
   const data = Route.useLoaderData();
+  const { publicReference } = Route.useParams();
   const { recovery } = Route.useSearch();
   const router = useRouter();
   useEffect(() => {
@@ -199,7 +206,13 @@ function EventVirtualLobbyPage() {
     const schedule = () => {
       timer = window.setTimeout(
         () => {
-          if (document.visibilityState === "visible") void router.invalidate();
+          if (document.visibilityState === "visible") {
+            if (data.accessMethod === "authenticated") void router.invalidate();
+            else {
+              window.location.reload();
+              return;
+            }
+          }
           if (!stopped) schedule();
         },
         pollAfterMilliseconds * (0.75 + Math.random() * 0.5),
@@ -210,12 +223,15 @@ function EventVirtualLobbyPage() {
       stopped = true;
       window.clearTimeout(timer);
     };
-  }, [data.pollAfterMilliseconds, router]);
+  }, [data.accessMethod, data.pollAfterMilliseconds, router]);
 
   const codeSent = recovery === "sent" || recovery === "invalid";
   return (
     <main className={classes.page}>
-      <article className={classes.card}>
+      <article
+        className={classes.card}
+        data-media-ready={data.outcome === "ready_to_join" || undefined}
+      >
         <header>
           <h1>{data.sessionTitle}</h1>
           <p>{data.eventTitle}</p>
@@ -285,6 +301,11 @@ function EventVirtualLobbyPage() {
               Acknowledge and continue
             </Button>
           </form>
+        ) : null}
+        {data.outcome === "ready_to_join" ? (
+          <Suspense fallback={<LoadingSpinner label="Loading webinar room" />}>
+            <LiveKitAttendeeRoom publicReference={publicReference} />
+          </Suspense>
         ) : null}
       </article>
     </main>
