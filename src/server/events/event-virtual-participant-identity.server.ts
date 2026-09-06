@@ -11,6 +11,10 @@ export function eventVirtualAttendeeIdentity(
     .digest("base64url")}`;
 }
 
+export function isEventVirtualAttendeeIdentity(identity: string): boolean {
+  return /^attendee:[A-Za-z0-9_-]{43}$/.test(identity);
+}
+
 export function eventVirtualPresenterIdentity(
   roomId: string,
   userId: string,

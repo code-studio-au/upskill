@@ -781,6 +781,7 @@ interface EventVirtualRoomOperationTable {
   lobbyEntryId: Generated<string | null>;
   presenterUserId: Generated<string | null>;
   participantIdentity: Generated<string | null>;
+  removalEnforcedUntil: OptionalTimestamp;
   deduplicationKey: string;
   status: "pending" | "processing" | "succeeded";
   attempts: Generated<number>;

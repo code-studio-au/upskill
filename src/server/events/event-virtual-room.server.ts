@@ -279,6 +279,7 @@ interface ClaimedOperation {
   lobbyEntryId: string | null;
   presenterUserId: string | null;
   participantIdentity: string | null;
+  removalEnforcedUntil: Date | null;
   attempts: number;
 }
 
@@ -652,6 +653,7 @@ async function claimRoomOperation(
         lobbyEntryId: operation.lobbyEntryId,
         presenterUserId: operation.presenterUserId,
         participantIdentity: operation.participantIdentity,
+        removalEnforcedUntil: operation.removalEnforcedUntil,
         attempts,
       };
     });
@@ -1341,7 +1343,7 @@ export async function issueEventVirtualPresenterCredential(
                 excludingPresenterUserId: user.id,
               });
             if (
-              participants.length + unconnectedReservations >=
+              participants.length + unconnectedReservations.total >=
               currentRoom.maxParticipants
             ) {
               await deny("capacity_exceeded", currentNow);
@@ -2167,7 +2169,8 @@ async function executeParticipantRemoval(
   if (!claimed) return { status: "no-work" };
   if (
     !claimed.participantIdentity ||
-    (!claimed.lobbyEntryId && !claimed.presenterUserId)
+    (!claimed.lobbyEntryId && !claimed.presenterUserId) ||
+    !claimed.removalEnforcedUntil
   ) {
     await completeRoomOperation(claimed, now);
     return {
@@ -2196,7 +2199,6 @@ async function executeParticipantRemoval(
         "room.providerRoomName",
         "room.eventSessionId",
         "session.eventOccurrenceId",
-        "reservation.credentialExpiresAt",
       ])
       .where("room.id", "=", roomId)
       .executeTakeFirst();
@@ -2222,10 +2224,10 @@ async function executeParticipantRemoval(
         target.providerRoomName,
         claimed.participantIdentity,
       );
-      if (target.credentialExpiresAt > now) {
+      if (claimed.removalEnforcedUntil > now) {
         await requeueParticipantRemoval(
           claimed,
-          target.credentialExpiresAt,
+          claimed.removalEnforcedUntil,
           now,
         );
         return {
@@ -2268,18 +2270,15 @@ async function executeParticipantRemoval(
       "lobby.eventSessionId",
       "room.eventSessionId",
     )
-    .select([
-      "room.providerRoomName",
-      "lobby.state",
-      "lobby.credentialExpiresAt",
-    ])
+    .select(["room.providerRoomName", "lobby.state", "lobby.admittedByUserId"])
     .where("room.id", "=", roomId)
     .where("lobby.id", "=", claimed.lobbyEntryId)
     .whereRef("lobby.roomGeneration", "=", "room.generation")
     .executeTakeFirst();
   if (
     !target ||
-    ["admitted", "token_issued", "connected", "left"].includes(target.state)
+    (target.admittedByUserId !== null &&
+      ["admitted", "token_issued", "connected", "left"].includes(target.state))
   ) {
     await completeRoomOperation(claimed, now);
     return {
@@ -2294,8 +2293,12 @@ async function executeParticipantRemoval(
       target.providerRoomName,
       claimed.participantIdentity,
     );
-    if (target.credentialExpiresAt && target.credentialExpiresAt > now) {
-      await requeueParticipantRemoval(claimed, target.credentialExpiresAt, now);
+    if (claimed.removalEnforcedUntil > now) {
+      await requeueParticipantRemoval(
+        claimed,
+        claimed.removalEnforcedUntil,
+        now,
+      );
       return {
         status: "pending",
         operationId: claimed.id,

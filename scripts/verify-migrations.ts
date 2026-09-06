@@ -668,11 +668,12 @@ try {
           'event_virtual_room_actor_time_ck',
           'event_virtual_room_operation_target_uq',
           'event_virtual_room_operation_target_ck',
-          'event_virtual_room_operation_state_ck'
+          'event_virtual_room_operation_state_ck',
+          'event_virtual_room_operation_removal_enforcement_ck'
         )`.execute(db);
   assert.equal(
     liveKitRoomConstraints.rows.length,
-    7,
+    8,
     "LiveKit room generations, lifecycle state and durable provider operations must be constrained",
   );
   const liveKitLobbyConstraints = await sql<{

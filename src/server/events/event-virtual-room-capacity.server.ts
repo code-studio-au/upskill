@@ -20,7 +20,7 @@ export async function countUnconnectedVirtualCredentialReservations(
     excludingLobbyEntryId?: string;
     excludingPresenterUserId?: string;
   },
-): Promise<number> {
+): Promise<{ attendees: number; presenters: number; total: number }> {
   let attendeeQuery = connection
     .selectFrom("event_virtual_lobby_entry")
     .select(["id", "eventParticipationId"])
@@ -46,21 +46,20 @@ export async function countUnconnectedVirtualCredentialReservations(
     );
   const attendeeReservations = await attendeeQuery.execute();
   const presenterReservations = await presenterQuery.execute();
-  return (
-    attendeeReservations.filter(
-      (reservation) =>
-        !input.connectedIdentities.has(
-          eventVirtualAttendeeIdentity(
-            input.roomId,
-            reservation.eventParticipationId,
-          ),
+  const attendees = attendeeReservations.filter(
+    (reservation) =>
+      !input.connectedIdentities.has(
+        eventVirtualAttendeeIdentity(
+          input.roomId,
+          reservation.eventParticipationId,
         ),
-    ).length +
-    presenterReservations.filter(
-      (reservation) =>
-        !input.connectedIdentities.has(
-          eventVirtualPresenterIdentity(input.roomId, reservation.userId),
-        ),
-    ).length
-  );
+      ),
+  ).length;
+  const presenters = presenterReservations.filter(
+    (reservation) =>
+      !input.connectedIdentities.has(
+        eventVirtualPresenterIdentity(input.roomId, reservation.userId),
+      ),
+  ).length;
+  return { attendees, presenters, total: attendees + presenters };
 }

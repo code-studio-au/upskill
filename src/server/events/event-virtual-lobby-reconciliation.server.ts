@@ -67,6 +67,7 @@ export async function revokeEventVirtualLobbyEntryForEligibility(
         roomId,
         input.entry.eventParticipationId,
       ),
+      credentialExpiresAt: input.entry.credentialExpiresAt ?? input.now,
       requestedByUserId: null,
       now: input.now,
     });

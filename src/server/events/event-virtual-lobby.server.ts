@@ -38,7 +38,10 @@ import { advanceEventVirtualLobbyRevision } from "./event-virtual-join-access.se
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
 import { lockEventVirtualAdmissionEligibility } from "./event-virtual-lobby-eligibility.server";
 import { revokeEventVirtualLobbyEntryForEligibility } from "./event-virtual-lobby-reconciliation.server";
-import { eventVirtualAttendeeIdentity } from "./event-virtual-participant-identity.server";
+import {
+  eventVirtualAttendeeIdentity,
+  isEventVirtualAttendeeIdentity,
+} from "./event-virtual-participant-identity.server";
 import { enqueueEventVirtualParticipantRemoval } from "./event-virtual-provider-operation.server";
 import { countUnconnectedVirtualCredentialReservations } from "./event-virtual-room-capacity.server";
 import {
@@ -369,6 +372,7 @@ async function findPublicDestination(
       "occurrence.status as occurrenceStatus",
       "occurrence.publishedAt",
       "occurrence.timezone",
+      "occurrence.capacity as attendeeCapacity",
       "version.registrationSurveyVersionId",
       "session.title as sessionTitle",
       "session.startsAt",
@@ -2069,7 +2073,10 @@ export async function issueEventVirtualAttendeeCredential(
       !participants.some(
         (participant) => participant.identity === participantIdentity,
       ) &&
-      participants.length >= resolved.destination.maxParticipants
+      (participants.length >= resolved.destination.maxParticipants ||
+        participants.filter((participant) =>
+          isEventVirtualAttendeeIdentity(participant.identity),
+        ).length >= resolved.destination.attendeeCapacity)
     ) {
       await recordStandaloneAttendeeCredentialDenial({
         target: credentialAuditTarget,
@@ -2251,8 +2258,13 @@ export async function issueEventVirtualAttendeeCredential(
               excludingLobbyEntryId: entry.id,
             });
           if (
-            participants.length + unconnectedReservations >=
-            room.maxParticipants
+            participants.length + unconnectedReservations.total >=
+              room.maxParticipants ||
+            participants.filter((participant) =>
+              isEventVirtualAttendeeIdentity(participant.identity),
+            ).length +
+              unconnectedReservations.attendees >=
+              resolved.destination.attendeeCapacity
           ) {
             await recordAttendeeCredentialDenial(transaction, {
               target: credentialAuditTarget,
@@ -2428,6 +2440,7 @@ async function changeAdmission(
         destination.roomId,
         entry.eventParticipationId,
       ),
+      credentialExpiresAt: entry.credentialExpiresAt ?? now,
       requestedByUserId: actorUserId,
       now,
     });

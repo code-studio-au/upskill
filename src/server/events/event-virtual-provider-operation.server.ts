@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import type { Database } from "#/server/db/types";
 import { eventVirtualPresenterIdentity } from "./event-virtual-participant-identity.server";
 import { hasVirtualRoomStaffAccess } from "./event-virtual-staff-access.server";
@@ -12,6 +12,7 @@ export async function enqueueEventVirtualParticipantRemoval(
     roomId: string;
     lobbyEntryId: string;
     participantIdentity: string;
+    credentialExpiresAt: Date;
     requestedByUserId: string | null;
     now: Date;
   },
@@ -26,6 +27,7 @@ export async function enqueueEventVirtualParticipantRemoval(
       lobbyEntryId: input.lobbyEntryId,
       presenterUserId: null,
       participantIdentity: input.participantIdentity,
+      removalEnforcedUntil: input.credentialExpiresAt,
       deduplicationKey: `event_virtual_room:${input.roomId}:remove_participant:${input.lobbyEntryId}`,
       status: "pending",
       attempts: 0,
@@ -45,6 +47,10 @@ export async function enqueueEventVirtualParticipantRemoval(
         completedAt: null,
         lastErrorCode: null,
         requestedByUserId: input.requestedByUserId,
+        removalEnforcedUntil: sql<Date>`greatest(
+          event_virtual_room_operation."removalEnforcedUntil",
+          excluded."removalEnforcedUntil"
+        )`,
       }),
     )
     .execute();
@@ -55,6 +61,7 @@ async function enqueueEventVirtualPresenterRemoval(
   input: {
     roomId: string;
     presenterUserId: string;
+    credentialExpiresAt: Date;
     requestedByUserId: string | null;
     now: Date;
   },
@@ -73,6 +80,7 @@ async function enqueueEventVirtualPresenterRemoval(
         input.roomId,
         input.presenterUserId,
       ),
+      removalEnforcedUntil: input.credentialExpiresAt,
       deduplicationKey: `event_virtual_room:${input.roomId}:remove_participant:${targetKey}`,
       status: "pending",
       attempts: 0,
@@ -92,6 +100,10 @@ async function enqueueEventVirtualPresenterRemoval(
         completedAt: null,
         lastErrorCode: null,
         requestedByUserId: input.requestedByUserId,
+        removalEnforcedUntil: sql<Date>`greatest(
+          event_virtual_room_operation."removalEnforcedUntil",
+          excluded."removalEnforcedUntil"
+        )`,
       }),
     )
     .execute();
@@ -113,6 +125,7 @@ export async function enqueueRevokedEventVirtualPresenterAccess(
       "room.id as roomId",
       "room.eventSessionId",
       "session.eventOccurrenceId",
+      "reservation.credentialExpiresAt",
     ])
     .where("reservation.userId", "=", input.presenterUserId)
     .execute();
@@ -129,6 +142,7 @@ export async function enqueueRevokedEventVirtualPresenterAccess(
     await enqueueEventVirtualPresenterRemoval(transaction, {
       roomId: reservation.roomId,
       presenterUserId: input.presenterUserId,
+      credentialExpiresAt: reservation.credentialExpiresAt,
       requestedByUserId: input.requestedByUserId,
       now: input.now,
     });

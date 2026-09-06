@@ -20,6 +20,7 @@ import {
 } from "#/server/events/event-virtual-lobby.server";
 import { processAvailableEventVirtualRecoveryDeliveries } from "#/server/events/event-virtual-recovery-delivery.server";
 import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
+import { eventVirtualAttendeeIdentity } from "#/server/events/event-virtual-participant-identity.server";
 import {
   findEventVirtualLobbyQueue,
   processAvailableEventVirtualRoomOperations,
@@ -2001,6 +2002,79 @@ try {
     .where("eventVirtualJoinAccessId", "=", access.id)
     .where("credentialExpiresAt", "is not", null)
     .execute();
+  const attendeeHeadroomReservationTime = new Date();
+  const attendeeHeadroomReservedLearners = bulkLearners.slice(0, 2);
+  const attendeeHeadroomRequester = bulkLearners[2];
+  assert.equal(attendeeHeadroomReservedLearners.length, 2);
+  assert.ok(attendeeHeadroomRequester);
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 2 })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ maxParticipants: 7 })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "token_issued",
+      firstTokenIssuedAt: attendeeHeadroomReservationTime,
+      credentialExpiresAt: new Date(
+        attendeeHeadroomReservationTime.getTime() + 6 * 60_000,
+      ),
+      updatedAt: attendeeHeadroomReservationTime,
+    })
+    .where(
+      "id",
+      "in",
+      attendeeHeadroomReservedLearners.map(
+        (learner) => `verify_livekit_lobby_bulk_entry_${learner.id}`,
+      ),
+    )
+    .execute();
+  assert.deepEqual(
+    await issueEventVirtualAttendeeCredential(
+      access.publicReference,
+      {
+        ...attendeeHeadroomRequester,
+        emailVerified: true,
+      },
+      {
+        provider: new FakeLiveKitProvider(),
+        websocketUrl: "wss://verify.example.com",
+      },
+    ),
+    { status: "conflict", reason: "capacity_reached" },
+    "Unconnected attendee credentials must not consume the five staff headroom places",
+  );
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "admitted",
+      credentialExpiresAt: null,
+      updatedAt: new Date(),
+    })
+    .where(
+      "id",
+      "in",
+      attendeeHeadroomReservedLearners.map(
+        (learner) => `verify_livekit_lobby_bulk_entry_${learner.id}`,
+      ),
+    )
+    .execute();
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 600 })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ maxParticipants: 605 })
+    .where("id", "=", ids.room)
+    .executeTakeFirstOrThrow();
   const concurrentProvider = new FakeLiveKitProvider();
   concurrentProvider.participants.set(
     "event:verify_lobby:g1",
@@ -2041,7 +2115,7 @@ try {
       },
     ),
     { status: "conflict", reason: "capacity_reached" },
-    "An outstanding presenter credential must consume attendee capacity",
+    "An outstanding presenter credential must consume total provider capacity",
   );
   await database
     .deleteFrom("event_virtual_presenter_credential_reservation")
@@ -2074,17 +2148,30 @@ try {
     (result) => result.status === "ready",
   );
   assert.ok(concurrentReadyCredential);
-  const concurrentTokenOperation = concurrentProvider.operations.find(
-    (operation) => operation.operation === "create_join_token",
-  );
-  assert.ok(concurrentTokenOperation);
+  const credentialHolderEntry = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select(["id", "eventParticipationId"])
+    .where(
+      "id",
+      "in",
+      concurrentLearners.map(
+        (candidate) => `verify_livekit_lobby_bulk_entry_${candidate.id}`,
+      ),
+    )
+    .where("credentialExpiresAt", ">", new Date())
+    .executeTakeFirstOrThrow();
   const credentialHolder = concurrentLearners.find(
     (candidate) =>
-      concurrentTokenOperation.input.displayName === candidate.name,
+      credentialHolderEntry.id ===
+      `verify_livekit_lobby_bulk_entry_${candidate.id}`,
   );
   assert.ok(credentialHolder);
-  const credentialHolderEntryId = `verify_livekit_lobby_bulk_entry_${credentialHolder.id}`;
+  const credentialHolderEntryId = credentialHolderEntry.id;
   const credentialHolderRegistrationId = `verify_livekit_lobby_bulk_registration_${credentialHolder.id}`;
+  const concurrentParticipantIdentity = eventVirtualAttendeeIdentity(
+    ids.room,
+    credentialHolderEntry.eventParticipationId,
+  );
   const lastSlotRequester = concurrentLearners.find(
     (candidate) => candidate.id !== credentialHolder.id,
   );
@@ -2093,7 +2180,7 @@ try {
     ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
     {
       sid: "withdrawn-credential-holder",
-      identity: concurrentTokenOperation.input.participantIdentity,
+      identity: concurrentParticipantIdentity,
       displayName: credentialHolder.name,
     },
   ]);
@@ -2120,6 +2207,12 @@ try {
       .then((entry) => entry.state),
     "revoked",
   );
+  const withdrawnRemoval = await database
+    .selectFrom("event_virtual_room_operation")
+    .select("id")
+    .where("kind", "=", "remove_participant")
+    .where("lobbyEntryId", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
   const withdrawnRemovalBatch =
     await processAvailableEventVirtualRoomOperations(10, {
       runtime: {
@@ -2131,8 +2224,12 @@ try {
     });
   assert.deepEqual(
     {
-      kind: withdrawnRemovalBatch.outcomes[0]?.kind,
-      status: withdrawnRemovalBatch.outcomes[0]?.status,
+      kind: withdrawnRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === withdrawnRemoval.id,
+      )?.kind,
+      status: withdrawnRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === withdrawnRemoval.id,
+      )?.status,
     },
     { kind: "remove_participant", status: "pending" },
     "Independent eligibility reconciliation must enforce removal through credential expiry",
@@ -2141,9 +2238,7 @@ try {
     concurrentProvider.participants
       .get("event:verify_lobby:g1")
       ?.some(
-        (participant) =>
-          participant.identity ===
-          concurrentTokenOperation.input.participantIdentity,
+        (participant) => participant.identity === concurrentParticipantIdentity,
       ),
     false,
   );
@@ -2182,6 +2277,45 @@ try {
     reactivatedCredential.credentialExpiresAt &&
       reactivatedCredential.credentialExpiresAt > new Date(),
   );
+  const automaticallyReactivatedRemoval = await database
+    .selectFrom("event_virtual_room_operation")
+    .select("id")
+    .where("kind", "=", "remove_participant")
+    .where("lobbyEntryId", "=", credentialHolderEntryId)
+    .executeTakeFirstOrThrow();
+  concurrentProvider.participants.set("event:verify_lobby:g1", [
+    ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
+    {
+      sid: "automatically-reactivated-credential-holder",
+      identity: concurrentParticipantIdentity,
+      displayName: credentialHolder.name,
+    },
+  ]);
+  const automaticallyReactivatedRemovalBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: {
+        provider: concurrentProvider,
+        websocketUrl: "wss://verify.example.com",
+        approvedMaxParticipants: 1_000,
+      },
+      now: new Date(Date.now() + 6_000),
+    });
+  assert.equal(
+    automaticallyReactivatedRemovalBatch.outcomes.find(
+      (outcome) => outcome.operationId === automaticallyReactivatedRemoval.id,
+    )?.status,
+    "pending",
+    "Automatic eligibility restoration must not cancel enforcement of a revoked credential",
+  );
+  assert.equal(
+    concurrentProvider.participants
+      .get("event:verify_lobby:g1")
+      ?.some(
+        (participant) => participant.identity === concurrentParticipantIdentity,
+      ),
+    false,
+    "A credential revoked before automatic reactivation must remain disconnected through its original expiry",
+  );
   assert.deepEqual(
     await issueEventVirtualAttendeeCredential(
       access.publicReference,
@@ -2208,7 +2342,7 @@ try {
     ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
     {
       sid: "concurrent-credential-holder",
-      identity: concurrentTokenOperation.input.participantIdentity,
+      identity: concurrentParticipantIdentity,
       displayName: credentialHolder.name,
     },
   ]);
@@ -2262,7 +2396,7 @@ try {
     },
     {
       status: "pending",
-      participantIdentity: concurrentTokenOperation.input.participantIdentity,
+      participantIdentity: concurrentParticipantIdentity,
     },
     "System revocation must durably queue the exact participant removal",
   );
@@ -2277,8 +2411,12 @@ try {
     });
   assert.deepEqual(
     {
-      kind: participantRemovalBatch.outcomes[0]?.kind,
-      status: participantRemovalBatch.outcomes[0]?.status,
+      kind: participantRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.kind,
+      status: participantRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.status,
     },
     { kind: "remove_participant", status: "pending" },
     "Removal enforcement must remain pending while an issued token is valid",
@@ -2287,9 +2425,7 @@ try {
     concurrentProvider.participants
       .get("event:verify_lobby:g1")
       ?.some(
-        (participant) =>
-          participant.identity ===
-          concurrentTokenOperation.input.participantIdentity,
+        (participant) => participant.identity === concurrentParticipantIdentity,
       ),
     false,
     "The durable removal must disconnect a manually waiting participant with a live credential",
@@ -2323,7 +2459,7 @@ try {
     ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
     {
       sid: "readmitted-credential-holder",
-      identity: concurrentTokenOperation.input.participantIdentity,
+      identity: concurrentParticipantIdentity,
       displayName: credentialHolder.name,
     },
   ]);
@@ -2338,8 +2474,12 @@ try {
     });
   assert.deepEqual(
     {
-      kind: readmittedRemovalBatch.outcomes[0]?.kind,
-      status: readmittedRemovalBatch.outcomes[0]?.status,
+      kind: readmittedRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.kind,
+      status: readmittedRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.status,
     },
     { kind: "remove_participant", status: "processed" },
     "A genuine presenter readmission may cancel pending removal",
@@ -2348,9 +2488,7 @@ try {
     concurrentProvider.participants
       .get("event:verify_lobby:g1")
       ?.some(
-        (participant) =>
-          participant.identity ===
-          concurrentTokenOperation.input.participantIdentity,
+        (participant) => participant.identity === concurrentParticipantIdentity,
       ),
     true,
   );
@@ -2375,12 +2513,17 @@ try {
       },
       now: new Date(Date.now() + 7_000),
     });
-  assert.equal(rerevokedRemovalBatch.outcomes[0]?.status, "pending");
+  assert.equal(
+    rerevokedRemovalBatch.outcomes.find(
+      (outcome) => outcome.operationId === participantRemoval.id,
+    )?.status,
+    "pending",
+  );
   concurrentProvider.participants.set("event:verify_lobby:g1", [
     ...(concurrentProvider.participants.get("event:verify_lobby:g1") ?? []),
     {
       sid: "reconnected-credential-holder",
-      identity: concurrentTokenOperation.input.participantIdentity,
+      identity: concurrentParticipantIdentity,
       displayName: credentialHolder.name,
     },
   ]);
@@ -2397,8 +2540,12 @@ try {
   );
   assert.deepEqual(
     {
-      kind: expiredRemovalBatch.outcomes[0]?.kind,
-      status: expiredRemovalBatch.outcomes[0]?.status,
+      kind: expiredRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.kind,
+      status: expiredRemovalBatch.outcomes.find(
+        (outcome) => outcome.operationId === participantRemoval.id,
+      )?.status,
     },
     { kind: "remove_participant", status: "processed" },
     "Removal enforcement must make a final pass when the revoked token expires",
@@ -2407,9 +2554,7 @@ try {
     concurrentProvider.participants
       .get("event:verify_lobby:g1")
       ?.some(
-        (participant) =>
-          participant.identity ===
-          concurrentTokenOperation.input.participantIdentity,
+        (participant) => participant.identity === concurrentParticipantIdentity,
       ),
     false,
     "A revoked token replay must be disconnected through its expiry",
@@ -3110,6 +3255,11 @@ try {
     .set({ status: "selected", lockedInAt: new Date() })
     .where("id", "=", ids.registration)
     .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recovery_challenge")
+    .set({ createdAt: new Date(Date.now() - 16 * 60_000) })
+    .where("userId", "=", learner.id)
+    .execute();
   const restoredChallenge = await requestEventVirtualRecoveryCode(
     { publicReference: access.publicReference, identifier: learner.email },
     "restored-eligibility".padEnd(43, "x"),
@@ -3696,8 +3846,9 @@ try {
     .updateTable("event_virtual_lobby_entry")
     .set({
       state: "connected",
-      firstConnectedAt: new Date(smsInvalidatedAt.getTime() - 2 * 60_000),
-      lastSeenAt: new Date(smsInvalidatedAt.getTime() - 60_000),
+      admittedAt: new Date(smsInvalidatedAt.getTime() - 4_000),
+      firstConnectedAt: new Date(smsInvalidatedAt.getTime() - 3_000),
+      lastSeenAt: new Date(smsInvalidatedAt.getTime() - 2_000),
       credentialExpiresAt: new Date(smsInvalidatedAt.getTime() + 10 * 60_000),
       revokedAt: null,
       revokedByUserId: null,
@@ -3709,7 +3860,7 @@ try {
     .insertInto("event_virtual_recovery_challenge")
     .values({
       id: smsChallengeId,
-      reference: "verify-livekit-sms-invalidation-reference",
+      reference: "r".repeat(32),
       eventVirtualJoinAccessId: access.id,
       eventOccurrenceId: ids.occurrence,
       eventSessionId: ids.session,
@@ -3717,9 +3868,12 @@ try {
       eventParticipationId: ids.participation,
       userId: learner.id,
       channel: "sms",
-      identifierDigest: "verify-livekit-sms-identifier-digest",
-      requestFingerprint: "verify-livekit-sms-request-fingerprint",
-      codeDigest: "verify-livekit-sms-code-digest",
+      identifierDigest: "verify-livekit-sms-identifier-digest".padEnd(43, "x"),
+      requestFingerprint: "verify-livekit-sms-request-fingerprint".padEnd(
+        43,
+        "x",
+      ),
+      codeDigest: "verify-livekit-sms-code-digest".padEnd(43, "x"),
       attempts: 0,
       resendCount: 0,
       deliveryStatus: "sent",
@@ -3734,7 +3888,7 @@ try {
       id: smsJoinSessionId,
       challengeId: smsChallengeId,
       eventGuestAccessId: null,
-      tokenDigest: "verify-livekit-sms-join-session-digest",
+      tokenDigest: "verify-livekit-sms-join-session-digest".padEnd(43, "x"),
       eventVirtualJoinAccessId: access.id,
       eventOccurrenceId: ids.occurrence,
       eventSessionId: ids.session,
