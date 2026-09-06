@@ -53,6 +53,25 @@ class UnavailableParticipantsProvider extends FakeLiveKitProvider {
   }
 }
 
+class AdvancingParticipantsProvider extends FakeLiveKitProvider {
+  private listCalls = 0;
+
+  constructor(
+    clock: () => Date,
+    private readonly advanceOnCall: number,
+    private readonly advance: () => void,
+  ) {
+    super(clock);
+  }
+
+  override async listParticipants(roomName: string) {
+    const participants = await super.listParticipants(roomName);
+    this.listCalls += 1;
+    if (this.listCalls === this.advanceOnCall) this.advance();
+    return participants;
+  }
+}
+
 const ids = {
   administrator: "verify_livekit_lobby_administrator",
   learner: "verify_livekit_lobby_learner",
@@ -1264,11 +1283,19 @@ try {
     }),
     { status: "conflict", reason: "provider_unavailable" },
   );
-  const expiredCredentialProvider = new FakeLiveKitProvider(() => new Date(0));
+  let delayedCredentialNow = createdAt;
+  const expiredCredentialProvider = new AdvancingParticipantsProvider(
+    () => delayedCredentialNow,
+    2,
+    () => {
+      delayedCredentialNow = new Date(createdAt.getTime() + 5 * 60_000);
+    },
+  );
   assert.deepEqual(
     await issueEventVirtualAttendeeCredential(access.publicReference, learner, {
       provider: expiredCredentialProvider,
       websocketUrl: "wss://verify.example.com",
+      clock: () => delayedCredentialNow,
     }),
     { status: "conflict", reason: "provider_unavailable" },
     "A credential that expires before the room reservation is acquired must be retried",
@@ -1278,6 +1305,13 @@ try {
       (operation) => operation.operation === "create_join_token",
     ),
     true,
+  );
+  assert.equal(
+    expiredCredentialProvider.operations.filter(
+      (operation) => operation.operation === "list_participants",
+    ).length,
+    2,
+    "The serialized capacity check must revalidate expiry after its provider lookup",
   );
   assert.equal(
     await database

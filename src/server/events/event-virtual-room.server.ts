@@ -1359,14 +1359,19 @@ export async function issueEventVirtualPresenterCredential(
           await deny("provider_unavailable", currentNow);
           return "provider_unavailable" as const;
         }
+        const issuedAt = clock();
+        if (providerCredential.expiresAt <= issuedAt) {
+          await deny("provider_unavailable", issuedAt);
+          return "provider_unavailable" as const;
+        }
         await transaction
           .insertInto("event_virtual_presenter_credential_reservation")
           .values({
             roomId: room.id,
             userId: user.id,
             credentialExpiresAt: providerCredential.expiresAt,
-            firstTokenIssuedAt: currentNow,
-            lastTokenIssuedAt: currentNow,
+            firstTokenIssuedAt: issuedAt,
+            lastTokenIssuedAt: issuedAt,
           })
           .onConflict((conflict) =>
             conflict.columns(["roomId", "userId"]).doUpdateSet({
@@ -1388,7 +1393,7 @@ export async function issueEventVirtualPresenterCredential(
           subjectId: room.id,
           aggregateId: eventOccurrenceId,
           metadata: { eventSessionId, generation: room.generation },
-          createdAt: currentNow,
+          createdAt: issuedAt,
         });
         return "ready" as const;
       });

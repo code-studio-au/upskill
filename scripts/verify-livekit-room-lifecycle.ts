@@ -142,6 +142,21 @@ class InvalidatingJoinProvider extends FakeLiveKitProvider {
   }
 }
 
+class AdvancingParticipantsProvider extends FakeLiveKitProvider {
+  constructor(
+    clock: () => Date,
+    private readonly advance: () => void,
+  ) {
+    super(clock);
+  }
+
+  override async listParticipants(roomName: string) {
+    const participants = await super.listParticipants(roomName);
+    this.advance();
+    return participants;
+  }
+}
+
 class InvalidatingEnsureProvider extends FakeLiveKitProvider {
   constructor(private readonly invalidate: () => Promise<void>) {
     super();
@@ -736,9 +751,17 @@ try {
     .set({ endedAt: null, endReason: null })
     .where("id", "=", "verify_livekit_room_exact_presenter")
     .executeTakeFirstOrThrow();
+  let delayedPresenterNow = providerRetryTime;
   const expiredPresenterRuntime: VirtualRoomRuntime = {
     ...runtime,
-    provider: new FakeLiveKitProvider(() => new Date(0)),
+    provider: new AdvancingParticipantsProvider(
+      () => delayedPresenterNow,
+      () => {
+        delayedPresenterNow = new Date(
+          providerRetryTime.getTime() + 5 * 60_000,
+        );
+      },
+    ),
   };
   assert.deepEqual(
     await issueEventVirtualPresenterCredential(
@@ -747,7 +770,7 @@ try {
       presenter,
       {
         runtime: expiredPresenterRuntime,
-        clock: () => providerRetryTime,
+        clock: () => delayedPresenterNow,
       },
     ),
     { status: "conflict", reason: "provider_unavailable" },

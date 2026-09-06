@@ -2078,14 +2078,17 @@ export async function issueEventVirtualAttendeeCredential(
     provider?: LiveKitProvider;
     websocketUrl?: string;
     joinSessionToken?: string | null;
+    clock?: () => Date;
   } = {},
 ): Promise<EventVirtualAttendeeCredentialResult> {
+  const clock = options.clock ?? (() => new Date());
   let denialActorUserId = authenticatedUser?.id ?? null;
   const status = await resolveEventVirtualLobby(
     publicReference,
     authenticatedUser,
     {
       joinSessionToken: options.joinSessionToken ?? null,
+      clock,
       onActorResolved: (actorUserId) => {
         denialActorUserId = actorUserId;
       },
@@ -2236,7 +2239,7 @@ export async function issueEventVirtualAttendeeCredential(
         .where("id", "=", lobbyEntryId)
         .forUpdate()
         .executeTakeFirst();
-      const revalidationNow = new Date();
+      const revalidationNow = clock();
       const recoveredJoinSession = resolved.actor.joinSessionId
         ? await transaction
             .selectFrom("event_virtual_join_session")
@@ -2390,7 +2393,20 @@ export async function issueEventVirtualAttendeeCredential(
         }
         throw error;
       }
-      const now = revalidationNow;
+      const now = clock();
+      if (credential.expiresAt <= now) {
+        await recordAttendeeCredentialDenial(transaction, {
+          target: credentialAuditTarget,
+          actorUserId: resolved.actor.user.id,
+          reasonCode: "provider_unavailable",
+          phase: "transaction_revalidation",
+          createdAt: now,
+        });
+        return {
+          status: "conflict",
+          reason: "provider_unavailable",
+        } as const;
+      }
       const nextState =
         entry.state === "connected" ? "connected" : "token_issued";
       const credentialExpiresAt =
