@@ -356,7 +356,8 @@ export async function buildEventNotificationVariables(
   variables["event.venueName"] = event.venueName ?? "";
   variables["event.venueAddress"] = event.venueAddress ?? "";
   variables["event.virtualJoinUrl"] = recipientVirtualAccessReady
-    ? (event.virtualJoinUrl ?? "")
+    ? (event.virtualJoinUrl ??
+      (staffVirtualAccessReady ? eventOperationsUrl : eventDashboardUrl))
     : eventDashboardUrl;
   variables["event.capacity"] = String(event.capacity);
   variables["event.availablePlaces"] = String(

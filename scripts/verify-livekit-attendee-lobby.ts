@@ -1073,6 +1073,54 @@ try {
   const notificationVariables = await database
     .transaction()
     .execute(async (transaction) => ({
+      occurrenceLearner: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_occurrence_learner_communication",
+          sectionId: null,
+          sessionDefinitionId: null,
+        },
+        recipient: {
+          userId: secondLearner.id,
+          name: secondLearner.name,
+          email: secondLearner.email,
+          registrationId: ids.secondRegistration,
+          participationId: ids.secondParticipation,
+        },
+      }),
+      occurrenceStaff: await buildEventNotificationVariables(transaction, {
+        eventOccurrenceId: ids.occurrence,
+        communication: {
+          id: "verify_livekit_lobby_occurrence_staff_communication",
+          sectionId: null,
+          sessionDefinitionId: null,
+        },
+        recipient: {
+          userId: administrator.id,
+          name: administrator.name,
+          email: administrator.email,
+          registrationId: null,
+          participationId: null,
+        },
+      }),
+      occurrenceCoordinator: await buildEventNotificationVariables(
+        transaction,
+        {
+          eventOccurrenceId: ids.occurrence,
+          communication: {
+            id: "verify_livekit_lobby_occurrence_coordinator_communication",
+            sectionId: null,
+            sessionDefinitionId: null,
+          },
+          recipient: {
+            userId: coordinator.id,
+            name: coordinator.name,
+            email: coordinator.email,
+            registrationId: null,
+            participationId: null,
+          },
+        },
+      ),
       learner: await buildEventNotificationVariables(transaction, {
         eventOccurrenceId: ids.occurrence,
         communication: {
@@ -1134,6 +1182,21 @@ try {
         },
       }),
     }));
+  assert.equal(
+    notificationVariables.occurrenceLearner["event.virtualJoinUrl"],
+    `http://localhost:3000/my-events/${ids.occurrence}`,
+    "Occurrence-scoped LiveKit learner communications must route to the learner event dashboard",
+  );
+  assert.equal(
+    notificationVariables.occurrenceStaff["event.virtualJoinUrl"],
+    `http://localhost:3000/event-operations/${ids.occurrence}`,
+    "Occurrence-scoped LiveKit administrator communications must route to event operations",
+  );
+  assert.equal(
+    notificationVariables.occurrenceCoordinator["event.virtualJoinUrl"],
+    `http://localhost:3000/event-operations/${ids.occurrence}`,
+    "Occurrence-scoped LiveKit coordinator communications must route to event operations",
+  );
   assert.equal(
     notificationVariables.learner["session.virtualJoinUrl"],
     `http://localhost:3000/webinars/${access.publicReference}`,
