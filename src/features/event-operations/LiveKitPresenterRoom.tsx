@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { type EventVirtualPresenterCredentialResult } from "./event-operations.schema";
 import {
   prepareLiveKitPresenterJoin,
@@ -128,6 +128,7 @@ export function LiveKitPresenterRoom({
   eventOccurrenceId: string;
   eventSessionId: string;
 }) {
+  const headingId = useId();
   const [phase, setPhase] = useState<ConnectionPhase>("closed");
   const [message, setMessage] = useState<string | null>(null);
   const [snapshot, setSnapshot] =
@@ -316,10 +317,10 @@ export function LiveKitPresenterRoom({
     );
 
   return (
-    <section className={classes.room} aria-labelledby="green-room-heading">
+    <section className={classes.room} aria-labelledby={headingId}>
       <div className={classes.header}>
         <div>
-          <h4 id="green-room-heading">Presenter green room</h4>
+          <h4 id={headingId}>Presenter green room</h4>
           <Text size="sm" c="dimmed">
             Attendees need start and admission.
           </Text>
