@@ -5,12 +5,14 @@ import {
   eventOperationsParamsSchema,
   eventOperationsRegionLockSchema,
   eventVirtualLobbyQueueSchema,
+  eventVirtualPresenterCredentialSchema,
   eventVirtualRoomMutationSchema,
   eventSurveyQrPresentationParamsSchema,
   type AssignedEventOperationsResult,
   type EventOperationsMutationResult,
   type EventOperationsResult,
   type EventVirtualLobbyQueueResult,
+  type EventVirtualPresenterCredentialResult,
   type EventSurveyQrPresentationResult,
 } from "#/features/event-operations/event-operations.schema";
 export const getAssignedEventOperations = createServerFn({
@@ -247,5 +249,23 @@ export const getEventVirtualLobbyQueue = createServerFn({ method: "GET" })
       data.eventSessionId,
       user.id,
       data.page,
+    );
+  });
+
+export const getEventVirtualPresenterCredential = createServerFn({
+  method: "POST",
+})
+  .validator(eventVirtualPresenterCredentialSchema)
+  .handler(async ({ data }): Promise<EventVirtualPresenterCredentialResult> => {
+    const { getEventOperationsRequest } =
+      await import("#/server/events/event-operations-access.server");
+    const request = await getEventOperationsRequest(data.eventOccurrenceId);
+    if (request.status !== "ready") return request;
+    const { issueEventVirtualPresenterCredential } =
+      await import("#/server/events/event-virtual-room.server");
+    return await issueEventVirtualPresenterCredential(
+      data.eventOccurrenceId,
+      data.eventSessionId,
+      request.access.user,
     );
   });

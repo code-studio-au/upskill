@@ -1,5 +1,6 @@
 import { z } from "#/validation/zod";
 import type { EventRegistrationStatus } from "#/features/admin-event/admin-event-operations.schema";
+import { eventVirtualJoinCredentialSchema } from "#/features/event-lobby/event-virtual-lobby.schema";
 
 const identifier = z.string().check(z.trim(), z.minLength(1), z.maxLength(255));
 
@@ -63,6 +64,49 @@ export const eventVirtualLobbyQueueSchema = z.object({
   eventSessionId: identifier,
   page: z.number().check(z.int(), z.minimum(0), z.maximum(199)),
 });
+
+export const eventVirtualPresenterCredentialSchema = z.object({
+  eventOccurrenceId: identifier,
+  eventSessionId: identifier,
+});
+
+export const eventVirtualPresenterCredentialResultSchema = z.discriminatedUnion(
+  "status",
+  [
+    z.object({
+      status: z.literal("ready"),
+      credential: eventVirtualJoinCredentialSchema,
+    }),
+    z.object({ status: z.literal("unauthenticated") }),
+    z.object({ status: z.literal("forbidden") }),
+    z.object({ status: z.literal("not-found") }),
+    z.object({
+      status: z.literal("conflict"),
+      reason: z.enum([
+        "capacity_exceeded",
+        "invalid_transition",
+        "not_livekit",
+        "occurrence_unavailable",
+        "preparation_not_open",
+        "provider_pending",
+        "provider_unavailable",
+        "recording_unavailable",
+        "room_configuration_changed",
+        "room_not_ready",
+        "session_ended",
+      ]),
+    }),
+  ],
+);
+
+export type EventVirtualPresenterCredentialResult = z.infer<
+  typeof eventVirtualPresenterCredentialResultSchema
+>;
+
+export type EventVirtualPresenterCredential = Extract<
+  EventVirtualPresenterCredentialResult,
+  { status: "ready" }
+>["credential"];
 
 export const eventProgressFilterSchema = z.object({
   q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),

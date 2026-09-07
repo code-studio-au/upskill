@@ -2176,9 +2176,16 @@ test("platform administrators can inspect learner progress", async ({
       page.getByRole("heading", { name: "Survey QR catalogue" }),
     ).toBeVisible();
     await expect(page.getByText(surveyTitles[0] ?? "")).toBeVisible();
+    const surveyCatalogueDocument = await page.evaluate(
+      () => performance.timeOrigin,
+    );
     await page.getByRole("link", { name: "Present QR code" }).click();
     await expect(page).toHaveURL(
       `/event-operations/${occurrenceId}/survey-qr/${surveyQr.id}`,
+    );
+    await page.waitForFunction(
+      (previousTimeOrigin) => performance.timeOrigin !== previousTimeOrigin,
+      surveyCatalogueDocument,
     );
     await expect(
       page.getByRole("img", { name: `QR code for ${surveyTitles[0] ?? ""}` }),
@@ -2189,6 +2196,17 @@ test("platform administrators can inspect learner progress", async ({
     expect(qrImage.status()).toBe(200);
     expect(qrImage.headers()["content-type"]).toContain("image/svg+xml");
     expect(await qrImage.text()).toContain("<svg");
+    const qrPresentationDocument = await page.evaluate(
+      () => performance.timeOrigin,
+    );
+    await page.getByRole("button", { name: "Exit presentation" }).click();
+    await expect(page).toHaveURL(
+      `/event-operations/${occurrenceId}?view=survey_qr&q=&state=all`,
+    );
+    await page.waitForFunction(
+      (previousTimeOrigin) => performance.timeOrigin !== previousTimeOrigin,
+      qrPresentationDocument,
+    );
     await page.goto(`/event-surveys/${surveyQr.publicReference}`);
     await expect(
       page.getByRole("heading", { name: "Survey unavailable" }),
@@ -2291,9 +2309,15 @@ test("platform administrators can inspect learner progress", async ({
        where id = $1`,
       [occurrenceSessionId, webinarStartsAt, webinarEndsAt],
     );
-    await page.goto(
+    const webinarOperationsResponse = await page.goto(
       `/event-operations/${encodeURIComponent(occurrenceId)}?view=virtual_sessions&q=&state=all`,
     );
+    expect(
+      webinarOperationsResponse?.headers()["permissions-policy"],
+    ).toContain("camera=(self)");
+    expect(
+      webinarOperationsResponse?.headers()["permissions-policy"],
+    ).toContain("microphone=(self)");
     await expect(
       page.getByRole("heading", { name: "Webinar operations" }),
     ).toBeVisible();
@@ -2394,6 +2418,28 @@ test("platform administrators can inspect learner progress", async ({
       [occurrenceId, occurrenceSessionId, "l".repeat(43)],
     );
     await page.reload();
+    await expect(
+      page.getByRole("button", { name: "Show green room" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Show green room" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Presenter green room" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Enter green room" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Enter green room" }).click();
+    await expect(
+      page.getByRole("status").filter({
+        hasText: "LiveKit unavailable.",
+      }),
+    ).toBeVisible();
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const presenterGreenRoomAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(presenterGreenRoomAccessibility.violations).toEqual([]);
+    await page.getByRole("button", { name: "Close green room panel" }).click();
     await expect(page.getByText("No attendees.")).toBeVisible();
     const openEntryGuest = await authoringDatabase.query<{
       id: string;
@@ -2432,11 +2478,11 @@ test("platform administrators can inspect learner progress", async ({
       const initialLobbyTimeOrigin = await guestPage.evaluate(
         () => performance.timeOrigin,
       );
-      await expect
-        .poll(() => guestPage.evaluate(() => performance.timeOrigin), {
-          timeout: 7_000,
-        })
-        .not.toBe(initialLobbyTimeOrigin);
+      await guestPage.waitForFunction(
+        (previousTimeOrigin) => performance.timeOrigin !== previousTimeOrigin,
+        initialLobbyTimeOrigin,
+        { timeout: 7_000 },
+      );
       await expect(
         guestPage.getByRole("heading", {
           name: "The webinar has not started",

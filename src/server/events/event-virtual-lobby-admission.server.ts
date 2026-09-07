@@ -166,13 +166,16 @@ export async function admitEligibleWaitingEntries(
             .forUpdate()
             .executeTakeFirst();
           if (lockedEntry?.state !== "waiting") continue;
+          const admittedAt = new Date(
+            Math.max(batchNow.getTime(), entry.requestedAt.getTime()),
+          );
           const admitted = await transaction
             .updateTable("event_virtual_lobby_entry")
             .set({
               state: "admitted",
-              admittedAt: batchNow,
+              admittedAt,
               admittedByUserId: input.actorUserId,
-              updatedAt: batchNow,
+              updatedAt: admittedAt,
             })
             .where("id", "=", entry.id)
             .where("state", "=", "waiting")
@@ -191,7 +194,7 @@ export async function admitEligibleWaitingEntries(
               eventSessionId: input.eventSessionId,
               source: input.source,
             },
-            createdAt: batchNow,
+            createdAt: admittedAt,
           });
         }
         if (admittedCount > 0)

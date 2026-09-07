@@ -1,4 +1,4 @@
-import { lazy } from "react";
+import { lazy, Suspense } from "react";
 import { Badge } from "#/features/shared/Badge";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import {
@@ -22,6 +22,10 @@ const EventOperationsDevicePreview = lazy(async () => {
 const EventOperationsLobbyQueue = lazy(async () => {
   const module = await import("./EventOperationsLobbyQueue");
   return { default: module.EventOperationsLobbyQueue };
+});
+const LiveKitPresenterRoom = lazy(async () => {
+  const module = await import("./LiveKitPresenterRoom");
+  return { default: module.LiveKitPresenterRoom };
 });
 
 function statusColour(
@@ -49,7 +53,6 @@ export function EventOperationsVirtualSessions({
 }) {
   const occurrenceId = workspace.occurrence.id;
   const administrator = workspace.access.roles.includes("administrator");
-
   const operate = (
     sessionId: string,
     operation:
@@ -335,6 +338,23 @@ export function EventOperationsVirtualSessions({
                     ) : null}
                   </Stack>
                 )}
+
+                {room?.providerStatus === "ready" &&
+                room.doorState !== "ended" &&
+                virtualSession.canEnterGreenRoom ? (
+                  <Suspense
+                    fallback={
+                      <Text role="status" size="sm">
+                        Loading green-room controls…
+                      </Text>
+                    }
+                  >
+                    <LiveKitPresenterRoom
+                      eventOccurrenceId={occurrenceId}
+                      eventSessionId={virtualSession.eventSessionId}
+                    />
+                  </Suspense>
+                ) : null}
 
                 <Group gap="sm">
                   <Button

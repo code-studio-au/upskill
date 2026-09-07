@@ -99,6 +99,8 @@ export function EventOperationsSurveyQrCatalogue({
                       eventSurveyAccessId: entry.id,
                     }}
                     className={classes.qrPresentationLink}
+                    // Drop the workspace document's capture permissions.
+                    reloadDocument
                   >
                     <Button component="span" fullWidth>
                       Present QR code
