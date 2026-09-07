@@ -148,6 +148,25 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
       LIVEKIT_PROJECT_ENVIRONMENT: "staging",
     }),
   });
+  const secrets = applicationTemplate.findResources(
+    "AWS::SecretsManager::Secret",
+  ) as Record<
+    string,
+    {
+      Properties?: {
+        Name?: string;
+        GenerateSecretString?: { SecretStringTemplate?: string };
+      };
+    }
+  >;
+  const applicationConfiguration = Object.values(secrets).find(
+    (secret) => secret.Properties?.Name === "upskill/staging/application",
+  );
+  expect(applicationConfiguration).toBeDefined();
+  expect(
+    applicationConfiguration?.Properties?.GenerateSecretString
+      ?.SecretStringTemplate,
+  ).not.toContain("LIVEKIT_RECORDING_UPLOAD_ROLE_ARN");
   const applicationJson = JSON.stringify(applicationTemplate.toJSON());
   expect(applicationJson).toContain("sslmode=verify-full");
   expect(applicationJson).toContain("upskill-web.env");
@@ -171,6 +190,13 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   );
   expect(instanceRoleLogicalId).toBeDefined();
   expect(recordingRoleLogicalId).toBeDefined();
+  if (!recordingRoleLogicalId)
+    throw new Error("Expected the recording upload role in the template");
+  applicationTemplate.hasResourceProperties("AWS::SSM::Parameter", {
+    Name: "/upskill/staging/livekit/recording-upload-role-arn",
+    Type: "String",
+    Value: { "Fn::GetAtt": [recordingRoleLogicalId, "Arn"] },
+  });
   const policies = applicationTemplate.findResources(
     "AWS::IAM::Policy",
   ) as Record<
@@ -223,6 +249,31 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
         Effect: "Allow",
       }),
     ]),
+  );
+  const recordingRoleParameterReadPolicy = Object.values(policies).find(
+    (policy) => {
+      const serialized = JSON.stringify(policy);
+      return (
+        serialized.includes("ssm:GetParameter") &&
+        serialized.includes("RecordingUploadRoleParameter")
+      );
+    },
+  );
+  expect(recordingRoleParameterReadPolicy?.Properties.Roles).toEqual([
+    { Ref: instanceRoleLogicalId },
+  ]);
+  expect(
+    recordingRoleParameterReadPolicy?.Properties.PolicyDocument.Statement,
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        Action: "ssm:GetParameter",
+        Effect: "Allow",
+      }),
+    ]),
+  );
+  expect(JSON.stringify(recordingRoleParameterReadPolicy)).not.toMatch(
+    /ssm:(?:DescribeParameters|GetParameterHistory|GetParameters\b)/u,
   );
   expect(applicationJson).toContain(
     '.key == \\"LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS\\"',

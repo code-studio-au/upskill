@@ -37,6 +37,7 @@ import {
 } from "aws-cdk-lib/aws-iam";
 import type { Bucket } from "aws-cdk-lib/aws-s3";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
+import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Queue } from "aws-cdk-lib/aws-sqs";
 import type { Construct } from "constructs";
 import type { ITopic } from "aws-cdk-lib/aws-sns";
@@ -82,6 +83,23 @@ export class ApplicationStack extends Stack {
       }),
     );
     recordingUploadRole.grantAssumeRole(role);
+    const recordingUploadRoleParameter = new StringParameter(
+      this,
+      "RecordingUploadRoleParameter",
+      {
+        parameterName: `/upskill/${props.config.name}/livekit/recording-upload-role-arn`,
+        description:
+          "Dormant LiveKit recording upload role ARN for application hosts",
+        stringValue: recordingUploadRole.roleArn,
+      },
+    );
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["ssm:GetParameter"],
+        resources: [recordingUploadRoleParameter.parameterArn],
+      }),
+    );
     const configurationSecret = new Secret(this, "ApplicationConfiguration", {
       secretName: `upskill/${props.config.name}/application`,
       generateSecretString: {
@@ -108,7 +126,6 @@ export class ApplicationStack extends Stack {
           S3_LEARNING_CONTENT_BUCKET: props.learningBucket.bucketName,
           S3_PRIVATE_RESOURCES_BUCKET: props.privateBucket.bucketName,
           S3_RECORDING_BUCKET: props.recordingBucket.bucketName,
-          LIVEKIT_RECORDING_UPLOAD_ROLE_ARN: recordingUploadRole.roleArn,
           SQS_QUEUE_URL: props.workQueue.queueUrl,
           SQS_DEAD_LETTER_QUEUE_URL: props.deadLetterQueue.queueUrl,
           SQS_RECEIVE_WAIT_SECONDS: "20",
@@ -238,6 +255,7 @@ database_json=$(aws secretsmanager get-secret-value --region ${this.region} --se
 web_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${webDatabaseCredentials.secretArn}' --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${workerDatabaseCredentials.secretArn}' --query SecretString --output text)
 access_code_encryption_key=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${accessCodeEncryptionSecret.secretArn}' --query SecretString --output text)
+recording_upload_role_arn=$(aws ssm get-parameter --region ${this.region} --name '${recordingUploadRoleParameter.parameterName}' --query Parameter.Value --output text)
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)
@@ -245,6 +263,7 @@ deploy_environment_tmp=$(mktemp)
 trap 'rm -f -- "$base_environment_tmp" "$web_environment_tmp" "$worker_environment_tmp" "$deploy_environment_tmp"' EXIT
 jq -r 'to_entries[] | "\\(.key)=\\(.value|tostring|@json)"' <<< "$application_json" > "$base_environment_tmp"
 jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS") | "\\(.key)=\\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
+jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\\($value|@json)"' >> "$base_environment_tmp"
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")
 database_name=$(jq -r '.dbname' <<< "$database_json")

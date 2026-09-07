@@ -375,6 +375,10 @@ for (const requiredRecordingUploadBoundary of [
   "maxSessionDuration: Duration.hours(1)",
   'actions: ["s3:PutObject"]',
   "recordingUploadRole.grantAssumeRole(role)",
+  "new StringParameter(",
+  '"RecordingUploadRoleParameter"',
+  'actions: ["ssm:GetParameter"]',
+  "/livekit/recording-upload-role-arn",
   "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN",
 ]) {
   if (!applicationStack.includes(requiredRecordingUploadBoundary))
@@ -382,6 +386,14 @@ for (const requiredRecordingUploadBoundary of [
       `The scoped recording upload role is missing: ${requiredRecordingUploadBoundary}`,
     );
 }
+if (
+  applicationStack.includes(
+    "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN: recordingUploadRole.roleArn",
+  )
+)
+  failures.push(
+    "The recording upload role ARN must not mutate the generated application secret template",
+  );
 const recordingUploadAuthorizer = fs.readFileSync(
   path.join(
     root,
@@ -752,6 +764,9 @@ if (
   );
 for (const invariant of [
   'secret-id "${secret_prefix}/livekit"',
+  "aws ssm get-parameter",
+  "/livekit/recording-upload-role-arn",
+  "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN",
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
   "upskill-web.env",
   "upskill-worker.env",
