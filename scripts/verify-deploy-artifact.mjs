@@ -112,6 +112,8 @@ try {
       S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning",
       S3_PRIVATE_RESOURCES_BUCKET: "upskill-staging-private",
       S3_RECORDING_BUCKET: "upskill-staging-recordings",
+      LIVEKIT_RECORDING_UPLOAD_ROLE_ARN:
+        "arn:aws:iam::123456789012:role/upskill-staging-recording-upload",
       SQS_QUEUE_URL:
         "https://sqs.ap-southeast-2.amazonaws.com/123456789012/upskill-work",
       SQS_DEAD_LETTER_QUEUE_URL:

@@ -48,14 +48,14 @@ const uploadAuthorizationSchema = z.object({
   expiresAt: z.date(),
 });
 
-interface LiveKitRecordingUploadAuthorizationRequest {
+export interface LiveKitRecordingUploadAuthorizationRequest {
   bucket: string;
   region: string;
   storageObjectKey: string;
   requiredUntil: Date;
 }
 
-interface LiveKitRecordingUploadAuthorization {
+export interface LiveKitRecordingUploadAuthorization {
   accessKeyId: string;
   secretAccessKey: string;
   sessionToken: string;

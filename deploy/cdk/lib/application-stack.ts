@@ -68,6 +68,20 @@ export class ApplicationStack extends Stack {
         ManagedPolicy.fromAwsManagedPolicyName("AmazonSSMManagedInstanceCore"),
       ],
     });
+    const recordingUploadRole = new Role(this, "RecordingUploadRole", {
+      assumedBy: role,
+      description:
+        "Dormant short-session role for exact-object LiveKit recording uploads",
+      maxSessionDuration: Duration.hours(1),
+    });
+    recordingUploadRole.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["s3:PutObject"],
+        resources: [props.recordingBucket.arnForObjects("recordings/*")],
+      }),
+    );
+    recordingUploadRole.grantAssumeRole(role);
     const configurationSecret = new Secret(this, "ApplicationConfiguration", {
       secretName: `upskill/${props.config.name}/application`,
       generateSecretString: {
@@ -94,6 +108,7 @@ export class ApplicationStack extends Stack {
           S3_LEARNING_CONTENT_BUCKET: props.learningBucket.bucketName,
           S3_PRIVATE_RESOURCES_BUCKET: props.privateBucket.bucketName,
           S3_RECORDING_BUCKET: props.recordingBucket.bucketName,
+          LIVEKIT_RECORDING_UPLOAD_ROLE_ARN: recordingUploadRole.roleArn,
           SQS_QUEUE_URL: props.workQueue.queueUrl,
           SQS_DEAD_LETTER_QUEUE_URL: props.deadLetterQueue.queueUrl,
           SQS_RECEIVE_WAIT_SECONDS: "20",

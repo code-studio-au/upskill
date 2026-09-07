@@ -1,6 +1,6 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–4, 5a–5d, 6a and open-entry lobby
+- **Status:** Accepted; Slices 1–4, 5a–5d, 6a–6b1 and open-entry lobby
   integration implemented, later slices pending
 - **Date:** 2026-08-31
 
@@ -1020,19 +1020,37 @@ an audited emergency stop; pause, restart, multiple layouts, individual-track
 recording, transcription, and AI summaries are outside the initial slice.
 
 The recording is written to an opaque, session-generation-specific prefix in a
-private Upskill S3 bucket. The preferred upload authorization is LiveKit Cloud
-AWS role assumption when enabled for the selected plan. The exact authorization
-mechanism must be proven before activation: role assumption is a plan-dependent
-provider capability, while credentials obtained by chaining from the
-application EC2 role have a one-hour AWS session ceiling and therefore cannot
-cover the currently permitted multi-hour Event Sessions. The adapter accepts
-only temporary upload authorization whose expiry covers the bounded session and
-final upload, but credential issuance remains a separate delivery slice until
-that operational choice is confirmed. The authorization allows only the
-required object writes to that exact recording prefix, is never persisted in
-the database or logs, and cannot list, read, or delete bucket objects. Recording
-object names are unique and replacement protection is enforced by the storage
-policy. Long-lived or general-purpose AWS credentials are not accepted.
+private Upskill S3 bucket. The plan-compatible development path has the
+application EC2 role assume a dedicated recording-upload role and pass the
+resulting temporary credentials to LiveKit Cloud. The upload role can write only
+the dedicated bucket's `recordings/` prefix, while an inline STS session policy
+further restricts each issued credential to `s3:PutObject` for one exact opaque
+MP4 object. The authorizer accepts no caller-selected role, bucket, region, or
+unvalidated key and never persists or logs credentials.
+
+AWS role chaining caps this path at one hour. The requested authorization
+deadline must already include recording finalisation and upload time; a deadline
+more than one hour from issuance is rejected before AWS is called, and an STS
+response that expires before that deadline is rejected. This supports short
+development recordings without introducing long-lived AWS credentials. It does
+not authorize automatic recording or multi-hour production recording.
+
+The production-duration path remains a separate decision and delivery slice.
+The preferred option is LiveKit Cloud AWS role assumption when enabled for the
+selected plan; otherwise Upskill must design a non-chained temporary credential
+issuer with equivalent rotation and operational controls. Long-lived or
+general-purpose AWS credentials are not accepted. Production recording cannot
+be activated until that path is proven for the maximum permitted Event Session
+duration.
+
+The upload-authorization impact delta is deliberately narrow:
+
+| Caller or failure case                                                   | Server-owned decision                                                                                                                  | Proof                                                                                            |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| Dormant recording adapter requests the configured bucket, region and key | Assume only the configured upload role; intersect its prefix policy with one exact-object `s3:PutObject` session policy                | Authorizer unit test and synthesized IAM assertions                                              |
+| Foreign bucket, region, malformed key, expired or over-one-hour deadline | Reject before STS without issuing a credential                                                                                         | Parameterized negative unit tests                                                                |
+| STS error, incomplete result or insufficient expiry                      | Return one safe typed failure; expose no provider detail or credential                                                                 | Failure and post-call expiry tests                                                               |
+| Other application and LiveKit operations                                 | Receive no read, list, delete or general recording-bucket access; automatic recording and durable operations remain unreachable in 6b3 | Synthesized role attachment/action assertions and the existing dormant recording-operation guard |
 
 Recording start, active, stopping, complete, failed, size, duration, provider
 Egress identifier, storage key, retention deadline, and deletion evidence are
@@ -1245,15 +1263,21 @@ gates passed; it does not by itself authorise staging or production activation.
       recording policy, consent requirements, recording evidence persistence and
       provider-operation contracts without activating Egress. Implemented by
       [PR #73](https://github.com/code-studio-au/upskill/pull/73).
-- [ ] **Slice 6b1 — dormant managed-Egress adapter and storage:** add the
+- [x] **Slice 6b1 — dormant managed-Egress adapter and storage:** add the
       LiveKit Cloud `StartEgress`/list/stop adapter, fixed speaker-layout MP4
       request mapping, safe provider-state normalisation and a dedicated private
       recording bucket. Keep automatic recording blocked and inject, but do not
-      yet implement, the exact-prefix upload-authorisation boundary.
-- [ ] **Slice 6b2 — recording upload authorisation:** implement and verify the
-      selected plan-compatible, narrowly scoped authorization for LiveKit Cloud
-      to write one exact opaque recording target. Never persist or log the
-      credential, and reject authorization that expires before final upload.
+      yet implement, the exact-prefix upload-authorisation boundary. Implemented
+      by [PR #74](https://github.com/code-studio-au/upskill/pull/74).
+- [ ] **Slice 6b2a — short-session recording upload authorisation:** add the
+      dormant EC2-role-chained STS authorizer, dedicated upload role and exact
+      object session policy for development recordings whose final upload
+      deadline is no more than one hour away. Never persist or log credentials,
+      and reject foreign scope or insufficient expiry before Egress can start.
+- [ ] **Slice 6b2b — production-duration recording upload authorisation:** prove
+      and implement LiveKit Cloud role assumption for the selected plan, or a
+      separately reviewed non-chained temporary credential issuer, so the
+      authorization safely covers the maximum Event Session plus final upload.
 - [ ] **Slice 6b3 — idempotent recording operations:** connect recording start
       and stop to committed room transitions through stable outbox operations,
       reconcile ambiguous provider outcomes and preserve one logical recording

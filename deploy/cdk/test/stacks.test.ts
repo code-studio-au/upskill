@@ -156,9 +156,74 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(applicationJson).toContain("livekit_json");
   expect(applicationJson).toContain("upskill/staging/livekit");
   expect(applicationJson).toContain("S3_RECORDING_BUCKET");
-  expect(
-    JSON.stringify(applicationTemplate.findResources("AWS::IAM::Policy")),
-  ).not.toContain("RecordingBucket");
+  expect(applicationJson).toContain("LIVEKIT_RECORDING_UPLOAD_ROLE_ARN");
+  applicationTemplate.hasResourceProperties("AWS::IAM::Role", {
+    Description:
+      "Dormant short-session role for exact-object LiveKit recording uploads",
+    MaxSessionDuration: 3600,
+  });
+  const roles = applicationTemplate.findResources("AWS::IAM::Role");
+  const instanceRoleLogicalId = Object.keys(roles).find((logicalId) =>
+    logicalId.startsWith("InstanceRole"),
+  );
+  const recordingRoleLogicalId = Object.keys(roles).find((logicalId) =>
+    logicalId.startsWith("RecordingUploadRole"),
+  );
+  expect(instanceRoleLogicalId).toBeDefined();
+  expect(recordingRoleLogicalId).toBeDefined();
+  const policies = applicationTemplate.findResources(
+    "AWS::IAM::Policy",
+  ) as Record<
+    string,
+    {
+      Properties: {
+        PolicyDocument: { Statement: unknown[] };
+        Roles: unknown[];
+      };
+    }
+  >;
+  const recordingWritePolicy = Object.values(policies).find((policy) => {
+    const serialized = JSON.stringify(policy);
+    return (
+      serialized.includes("s3:PutObject") &&
+      serialized.includes("RecordingBucket")
+    );
+  });
+  expect(recordingWritePolicy).toMatchObject({
+    Properties: {
+      Roles: [{ Ref: recordingRoleLogicalId }],
+      PolicyDocument: {
+        Statement: [
+          {
+            Action: "s3:PutObject",
+            Effect: "Allow",
+          },
+        ],
+      },
+    },
+  });
+  expect(JSON.stringify(recordingWritePolicy)).toContain("recordings/*");
+  expect(JSON.stringify(recordingWritePolicy)).not.toMatch(
+    /s3:(?:GetObject|DeleteObject|ListBucket)/u,
+  );
+  const recordingAssumePolicy = Object.values(policies).find((policy) => {
+    const serialized = JSON.stringify(policy);
+    return (
+      serialized.includes("sts:AssumeRole") &&
+      serialized.includes("RecordingUploadRole")
+    );
+  });
+  expect(recordingAssumePolicy?.Properties.Roles).toEqual([
+    { Ref: instanceRoleLogicalId },
+  ]);
+  expect(recordingAssumePolicy?.Properties.PolicyDocument.Statement).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        Action: "sts:AssumeRole",
+        Effect: "Allow",
+      }),
+    ]),
+  );
   expect(applicationJson).toContain(
     '.key == \\"LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS\\"',
   );
