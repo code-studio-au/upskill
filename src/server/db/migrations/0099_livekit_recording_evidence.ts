@@ -196,6 +196,14 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     language plpgsql
     as $$
     begin
+      if tg_op = 'INSERT' then
+        if new.status is distinct from 'requested' then
+          raise exception 'Recording evidence must begin in the requested state'
+            using errcode = '23514';
+        end if;
+        return new;
+      end if;
+
       if tg_op = 'DELETE' then
         if current_user in ('upskill_web', 'upskill_worker') then
           raise exception 'Recording evidence cannot be physically deleted'
@@ -294,7 +302,7 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     end
     $$`.execute(db);
   await sql`create trigger event_virtual_recording_guard_trg
-    before update or delete on event_virtual_recording
+    before insert or update or delete on event_virtual_recording
     for each row execute function guard_event_virtual_recording_evidence()`.execute(
     db,
   );

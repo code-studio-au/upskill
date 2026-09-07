@@ -712,11 +712,12 @@ try {
   assert.equal(
     liveKitRecordingGuard.rows.length,
     1,
-    "LiveKit recording evidence must have one update/delete guard",
+    "LiveKit recording evidence must have one insert/update/delete guard",
   );
   const recordingGuardDefinition =
     liveKitRecordingGuard.rows[0]?.definition.toUpperCase() ?? "";
   assert.match(recordingGuardDefinition, /BEFORE/u);
+  assert.match(recordingGuardDefinition, /INSERT/u);
   assert.match(recordingGuardDefinition, /UPDATE/u);
   assert.match(recordingGuardDefinition, /DELETE/u);
   const liveKitLobbyConstraints = await sql<{

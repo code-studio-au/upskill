@@ -765,6 +765,29 @@ try {
     deletionReason: null,
     updatedAt: recordingRequestedAt,
   };
+  for (const initialStatus of [
+    "starting",
+    "active",
+    "stopping",
+    "complete",
+    "failed",
+    "deleted",
+  ] as const)
+    await assert.rejects(
+      database
+        .insertInto("event_virtual_recording")
+        .values({
+          ...recordingValues,
+          id: `verify_livekit_forged_${initialStatus}`,
+          status: initialStatus,
+          storageObjectKey: `recordings/opaque_room/forged_${initialStatus}.mp4`,
+        })
+        .executeTakeFirstOrThrow(),
+      {
+        code: "23514",
+        message: /Recording evidence must begin in the requested state/u,
+      },
+    );
   await database
     .insertInto("event_virtual_recording")
     .values(recordingValues)
