@@ -75,6 +75,11 @@ export function applySecurityHeaders(
   const isLearningResponse =
     requestUrl?.origin === normalizedLearningOrigin &&
     requestUrl.pathname.startsWith("/api/scorm/");
+  // Media capture is enabled only for the occurrence operations document.
+  // Its client-side entry and exit links deliberately force document loads.
+  const isPresenterMediaWorkspace =
+    requestUrl?.origin === normalizedApplicationOrigin &&
+    /^\/event-operations\/[^/]+\/?$/u.test(requestUrl.pathname);
   const liveKitUrl =
     !isLearningResponse && options.liveKitWebsocketUrl
       ? new URL(options.liveKitWebsocketUrl)
@@ -101,8 +106,10 @@ export function applySecurityHeaders(
   headers.set(
     "Permissions-Policy",
     isLearningResponse
-      ? "camera=(), geolocation=(), microphone=(), payment=()"
-      : "camera=(), geolocation=(), microphone=(), payment=(self)",
+      ? "camera=(), display-capture=(), geolocation=(), microphone=(), payment=()"
+      : isPresenterMediaWorkspace
+        ? "camera=(self), display-capture=(self), geolocation=(), microphone=(self), payment=(self)"
+        : "camera=(), display-capture=(), geolocation=(), microphone=(), payment=(self)",
   );
   headers.set(
     "Referrer-Policy",

@@ -71,7 +71,7 @@ export type EventVirtualRecoveryVerificationResult =
   | { status: "expired" }
   | { status: "rate-limited" };
 
-const eventVirtualAttendeeCredentialSchema = z.object({
+export const eventVirtualJoinCredentialSchema = z.object({
   token: z.string().check(z.minLength(1), z.maxLength(8192)),
   websocketUrl: z.url().check(
     z.refine((value) => {
@@ -99,7 +99,7 @@ export const eventVirtualAttendeeCredentialResultSchema = z.discriminatedUnion(
   [
     z.object({
       status: z.literal("ready"),
-      credential: eventVirtualAttendeeCredentialSchema,
+      credential: eventVirtualJoinCredentialSchema,
     }),
     z.object({ status: z.literal("unauthenticated") }),
     z.object({ status: z.literal("not-found") }),

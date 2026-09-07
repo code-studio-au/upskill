@@ -1,9 +1,4 @@
-import {
-  createFileRoute,
-  notFound,
-  redirect,
-  useNavigate,
-} from "@tanstack/react-router";
+import { createFileRoute, notFound, redirect } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { eventSurveyQrPresentationParamsSchema } from "#/features/event-operations/event-operations.schema";
 import {
@@ -49,7 +44,6 @@ export const Route = createFileRoute(
 
 function EventSurveyQrPresentationPage() {
   const presentation = Route.useLoaderData();
-  const navigate = useNavigate();
   const [browserFullscreen, setBrowserFullscreen] = useState(false);
   useEffect(() => {
     const update = () => {
@@ -63,11 +57,10 @@ function EventSurveyQrPresentationPage() {
 
   const exitPresentation = async () => {
     if (document.fullscreenElement) await document.exitFullscreen();
-    await navigate({
-      to: "/event-operations/$eventOccurrenceId",
-      params: { eventOccurrenceId: presentation.occurrenceId },
-      search: { view: "survey_qr", q: "", state: "all" },
-    });
+    // The presenter workspace receives its capture policy on a fresh document.
+    window.location.assign(
+      `/event-operations/${encodeURIComponent(presentation.occurrenceId)}?view=survey_qr&q=&state=all`,
+    );
   };
 
   return (

@@ -26,7 +26,46 @@ describe("content security policy", () => {
     expect(headers.get("x-content-type-options")).toBe("nosniff");
     expect(headers.get("x-frame-options")).toBe("DENY");
     expect(headers.get("permissions-policy")).toContain("camera=()");
+    expect(headers.get("permissions-policy")).toContain("display-capture=()");
     expect(headers.has("strict-transport-security")).toBe(false);
+  });
+
+  it("allows capture only on the exact presenter media workspace document", () => {
+    vi.stubEnv("APP_ORIGIN", "https://app.example.test");
+    vi.stubEnv("LEARNING_ORIGIN", "https://learn.example.test");
+    const presenterHeaders = new Headers();
+    applySecurityHeaders(
+      presenterHeaders,
+      "nonce",
+      new Request("https://app.example.test/event-operations/occurrence-1"),
+    );
+    expect(presenterHeaders.get("permissions-policy")).toContain(
+      "camera=(self)",
+    );
+    expect(presenterHeaders.get("permissions-policy")).toContain(
+      "microphone=(self)",
+    );
+    expect(presenterHeaders.get("permissions-policy")).toContain(
+      "display-capture=(self)",
+    );
+
+    for (const path of [
+      "/event-operations/",
+      "/event-operations/occurrence-1/survey-qr/access-1",
+      "/webinars/public-reference",
+      "/dashboard",
+    ]) {
+      const headers = new Headers();
+      applySecurityHeaders(
+        headers,
+        "nonce",
+        new Request(`https://app.example.test${path}`),
+      );
+      expect(headers.get("permissions-policy")).toContain("camera=()");
+      expect(headers.get("permissions-policy")).toContain("microphone=()");
+      expect(headers.get("permissions-policy")).toContain("display-capture=()");
+    }
+    vi.unstubAllEnvs();
   });
 
   it("allows only the configured LiveKit WebSocket origin on app responses", () => {

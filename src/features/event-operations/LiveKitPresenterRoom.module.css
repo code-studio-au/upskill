@@ -1,0 +1,88 @@
+.room {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.header h4,
+.header p,
+.placeholder p {
+  margin: 0;
+}
+
+.controls {
+  align-items: stretch;
+}
+
+.controls > * {
+  flex: 1 1 10rem;
+}
+
+.videoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 1rem;
+}
+
+.videoTile,
+.placeholder {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-dark-8);
+  color: var(--mantine-color-white);
+}
+
+.videoTile video {
+  display: block;
+  width: 100%;
+  max-height: 28rem;
+  aspect-ratio: 16 / 9;
+  background: var(--mantine-color-dark-9);
+  object-fit: contain;
+}
+
+.videoTile figcaption,
+.placeholder {
+  padding: 0.75rem 1rem;
+}
+
+.placeholder {
+  display: grid;
+  min-height: 10rem;
+  place-items: center;
+  text-align: center;
+}
+
+.audioTrack {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+@media (max-width: 36rem) {
+  .header > *,
+  .header button,
+  .controls,
+  .controls > * {
+    width: 100%;
+  }
+
+  .room {
+    padding: 0.75rem;
+  }
+}

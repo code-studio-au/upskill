@@ -1,6 +1,6 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–4, 5a and open-entry lobby integration
+- **Status:** Accepted; Slices 1–4, 5a–5b and open-entry lobby integration
   implemented, later slices pending
 - **Date:** 2026-08-31
 
@@ -1223,9 +1223,10 @@ gates passed; it does not by itself authorise staging or production activation.
       ownership, explicit disconnect and initial attendee subscribe-only media
       view. Keep presenter media and moderation out of this slice.
       Implemented by [PR #68](https://github.com/code-studio-au/upskill/pull/68).
-- [ ] **Slice 5b — attendee connection lifecycle:** add reconnect, duplicate-tab,
+- [x] **Slice 5b — attendee connection lifecycle:** add reconnect, duplicate-tab,
       token-expiry, lock, removal and ended-session behaviour with server-owned
-      decisions and focused failure coverage.
+      decisions and focused failure coverage. Implemented by
+      [PR #70](https://github.com/code-studio-au/upskill/pull/70).
 - [ ] **Slice 5c — presenter media and moderation:** add the presenter publishing
       view and server-authorised participant moderation without changing attendee
       eligibility or admission policy.

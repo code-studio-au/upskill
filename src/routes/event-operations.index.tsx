@@ -87,6 +87,8 @@ function AssignedEventOperationsPage() {
                   params={{ eventOccurrenceId: event.id }}
                   search={{ view: "overview", q: "", state: "all" }}
                   className={classes.workspaceLink}
+                  // Load the document-level camera and microphone policy.
+                  reloadDocument
                 >
                   <Button component="span" fullWidth>
                     Open workspace

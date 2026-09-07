@@ -31,6 +31,11 @@ export function AppHeader({ session }: { session: AppShellSession }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  // Capture permissions belong to the loaded document, not the client-side
+  // route. Force a new document when leaving the narrowly enabled workspace.
+  const leavePresenterMediaDocument = /^\/event-operations\/[^/]+\/?$/u.test(
+    pathname,
+  );
   const navigationItems: Array<NavigationItem> = [];
 
   if (user?.requiresOnboarding)
@@ -55,7 +60,12 @@ export function AppHeader({ session }: { session: AppShellSession }) {
   return (
     <header className={classes.header}>
       <Container size="xl" className={classes.headerInner}>
-        <Link to="/" className={classes.brand} aria-label="Upskill home">
+        <Link
+          to="/"
+          className={classes.brand}
+          aria-label="Upskill home"
+          reloadDocument={leavePresenterMediaDocument}
+        >
           <img
             src="/brand/upskill-icon-navy.png"
             alt=""
@@ -74,7 +84,12 @@ export function AppHeader({ session }: { session: AppShellSession }) {
 
         <nav className={classes.desktopNav} aria-label="Primary navigation">
           {navigationItems.map((item) => (
-            <Link to={item.to} className={classes.headerLink} key={item.to}>
+            <Link
+              to={item.to}
+              className={classes.headerLink}
+              key={item.to}
+              reloadDocument={leavePresenterMediaDocument}
+            >
               {item.label}
             </Link>
           ))}
@@ -104,6 +119,7 @@ export function AppHeader({ session }: { session: AppShellSession }) {
                   to="/profile"
                   search={{ status: undefined }}
                   className={classes.accountProfileLink}
+                  reloadDocument={leavePresenterMediaDocument}
                 >
                   View profile
                 </Link>
@@ -158,7 +174,12 @@ export function AppHeader({ session }: { session: AppShellSession }) {
               </div>
               <nav className={classes.mobileNav} aria-label="Mobile navigation">
                 {navigationItems.map((item) => (
-                  <Link to={item.to} className={classes.menuLink} key={item.to}>
+                  <Link
+                    to={item.to}
+                    className={classes.menuLink}
+                    key={item.to}
+                    reloadDocument={leavePresenterMediaDocument}
+                  >
                     {item.label}
                     <span aria-hidden="true">→</span>
                   </Link>
@@ -168,6 +189,7 @@ export function AppHeader({ session }: { session: AppShellSession }) {
                     to="/profile"
                     search={{ status: undefined }}
                     className={classes.menuLink}
+                    reloadDocument={leavePresenterMediaDocument}
                   >
                     My profile
                     <span aria-hidden="true">→</span>
