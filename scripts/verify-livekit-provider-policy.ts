@@ -587,17 +587,15 @@ try {
         approvedMaxParticipants: 25,
       },
     ),
-    "livekit-unavailable",
+    "published",
   );
-
-  // Published LiveKit rows become reachable only after the later delivery
-  // slices remove the runtime publication guard. Seed that future lifecycle
-  // state directly so this slice still proves reschedule capacity safety.
-  await database
-    .updateTable("event_occurrence")
-    .set({ status: "published", publishedAt: new Date() })
+  const publishedOccurrence = await database
+    .selectFrom("event_occurrence")
+    .select(["status", "publishedAt"])
     .where("id", "=", created.eventOccurrenceId)
     .executeTakeFirstOrThrow();
+  assert.equal(publishedOccurrence.status, "published");
+  assert.ok(publishedOccurrence.publishedAt instanceof Date);
 
   const rescheduleInput = {
     occurrence: { ...occurrenceInput, capacity: 21 },
@@ -735,7 +733,7 @@ try {
   );
 
   console.log(
-    "Verified LiveKit provider backfill, legacy-writer and rollback-edit compatibility, serialized draft publication, versioned defaults, exact-session snapshots, dormant publication and reschedule gating, and database constraints",
+    "Verified LiveKit provider backfill, legacy-writer and rollback-edit compatibility, serialized configured publication, versioned defaults, exact-session snapshots, disabled and capacity publication gates, reschedule gating, and database constraints",
   );
 } finally {
   if (!migrationRestored)

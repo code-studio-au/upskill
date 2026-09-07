@@ -1259,6 +1259,12 @@ gates passed; it does not by itself authorise staging or production activation.
       Policy verification, deterministic bundle coverage and supported-browser
       media smoke tests. Implemented by
       [PR #72](https://github.com/code-studio-au/upskill/pull/72).
+- [ ] **Slice 5e — configured-provider publication activation:** remove the
+      temporary publication guard now that attendee and presenter media journeys
+      are complete, preserve environment and capacity gates, update operational
+      guidance and prove the normal published-event path against a development
+      LiveKit Cloud project. Staging and production activation remain separate
+      operational actions.
 - [x] **Slice 6a — dormant recording policy and evidence:** add versioned
       recording policy, consent requirements, recording evidence persistence and
       provider-operation contracts without activating Egress. Implemented by
@@ -1269,11 +1275,12 @@ gates passed; it does not by itself authorise staging or production activation.
       recording bucket. Keep automatic recording blocked and inject, but do not
       yet implement, the exact-prefix upload-authorisation boundary. Implemented
       by [PR #74](https://github.com/code-studio-au/upskill/pull/74).
-- [ ] **Slice 6b2a — short-session recording upload authorisation:** add the
+- [x] **Slice 6b2a — short-session recording upload authorisation:** add the
       dormant EC2-role-chained STS authorizer, dedicated upload role and exact
       object session policy for development recordings whose final upload
       deadline is no more than one hour away. Never persist or log credentials,
       and reject foreign scope or insufficient expiry before Egress can start.
+      Implemented by [PR #75](https://github.com/code-studio-au/upskill/pull/75).
 - [ ] **Slice 6b2b — production-duration recording upload authorisation:** prove
       and implement LiveKit Cloud role assumption for the selected plan, or a
       separately reviewed non-chained temporary credential issuer, so the

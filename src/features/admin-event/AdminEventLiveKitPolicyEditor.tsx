@@ -224,12 +224,16 @@ export function AdminEventLiveKitConfigurationNotice({
   return (
     <Alert
       role="alert"
-      color="orange"
-      title="LiveKit delivery is not yet available"
+      color={enabled ? "green" : "orange"}
+      title={
+        enabled
+          ? "LiveKit delivery is configured"
+          : "LiveKit delivery is unavailable"
+      }
     >
       {enabled
-        ? `Configuration is present with a participant limit of ${String(approvedMaxParticipants ?? "unknown")}, including staff. Keep this occurrence as a draft until the lobby and webinar workflow is ready.`
-        : "Keep this occurrence as a draft. LiveKit configuration and the lobby and webinar workflow must be ready before publication."}
+        ? `This environment can publish LiveKit occurrences with up to ${String(approvedMaxParticipants ?? "unknown")} participants, including staff.`
+        : "Keep this occurrence as a draft until LiveKit is enabled and fully configured for this environment."}
     </Alert>
   );
 }
