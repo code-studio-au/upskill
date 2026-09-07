@@ -27,6 +27,8 @@ function stagingEnvironment(
     TEXTBEE_WEBHOOK_SECRET: "configured-webhook-secret",
     LIVEKIT_ENABLED: "false",
     LIVEKIT_PROJECT_ENVIRONMENT: "staging",
+    LIVEKIT_RECORDING_UPLOAD_ROLE_ARN:
+      "arn:aws:iam::123456789012:role/upskill-staging-recording-upload",
     AWS_REGION: "ap-southeast-2",
     S3_QUARANTINE_BUCKET: "upskill-staging-quarantine",
     S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning",
@@ -90,5 +92,15 @@ describe("deployed runtime environment", () => {
         stagingEnvironment({ S3_RECORDING_BUCKET: undefined }),
       );
     }).toThrow("S3_RECORDING_BUCKET is required outside local environments");
+  });
+
+  it("rejects a malformed recording upload role ARN", () => {
+    expect(() => {
+      validateDeployedRuntimeEnvironment(
+        stagingEnvironment({
+          LIVEKIT_RECORDING_UPLOAD_ROLE_ARN: "arn:aws:s3:::recording-bucket",
+        }),
+      );
+    }).toThrow();
   });
 });

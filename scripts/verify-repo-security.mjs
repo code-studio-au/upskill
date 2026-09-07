@@ -370,6 +370,52 @@ for (const requiredRecordingStorageBoundary of [
 }
 if (!applicationStack.includes("S3_RECORDING_BUCKET"))
   failures.push("The deployed server must receive its recording bucket name");
+for (const requiredRecordingUploadBoundary of [
+  'new Role(this, "RecordingUploadRole"',
+  "maxSessionDuration: Duration.hours(1)",
+  'actions: ["s3:PutObject"]',
+  "recordingUploadRole.grantAssumeRole(role)",
+  "instance.node.addDependency(recordingUploadRoleParameter)",
+  "new StringParameter(",
+  '"RecordingUploadRoleParameter"',
+  'actions: ["ssm:GetParameter"]',
+  "/livekit/recording-upload-role-arn",
+  "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN",
+]) {
+  if (!applicationStack.includes(requiredRecordingUploadBoundary))
+    failures.push(
+      `The scoped recording upload role is missing: ${requiredRecordingUploadBoundary}`,
+    );
+}
+if (
+  applicationStack.includes(
+    "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN: recordingUploadRole.roleArn",
+  )
+)
+  failures.push(
+    "The recording upload role ARN must not mutate the generated application secret template",
+  );
+const recordingUploadAuthorizer = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/livekit/livekit-recording-upload-authorizer.aws.server.ts",
+  ),
+  "utf8",
+);
+for (const requiredRecordingAuthorizationBoundary of [
+  'import "@tanstack/react-start/server-only"',
+  "new AssumeRoleCommand",
+  'Action: "s3:PutObject"',
+  "MAXIMUM_CHAINED_STS_SESSION_SECONDS = 60 * 60",
+  "parseLiveKitRecordingStorageObjectKey",
+]) {
+  if (
+    !recordingUploadAuthorizer.includes(requiredRecordingAuthorizationBoundary)
+  )
+    failures.push(
+      `The exact-object recording authorization boundary is missing: ${requiredRecordingAuthorizationBoundary}`,
+    );
+}
 for (const relative of [
   ".env.example",
   "deploy/cdk/lib/application-stack.ts",
@@ -719,6 +765,11 @@ if (
   );
 for (const invariant of [
   'secret-id "${secret_prefix}/livekit"',
+  "aws ssm get-parameter",
+  "if ! recording_upload_role_arn=",
+  'if [[ -n "$recording_upload_role_arn" ]]',
+  "/livekit/recording-upload-role-arn",
+  "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN",
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
   "upskill-web.env",
   "upskill-worker.env",
@@ -726,6 +777,14 @@ for (const invariant of [
 ])
   if (!environmentRefresh.includes(invariant))
     failures.push(`Environment refresh safety is missing: ${invariant}`);
+if (
+  /^recording_upload_role_arn=\$\(aws ssm get-parameter/mu.test(
+    environmentRefresh,
+  )
+)
+  failures.push(
+    "The dormant recording upload role lookup must not block application-only release rollout",
+  );
 const deploymentIdentity = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
   "utf8",
