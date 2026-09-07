@@ -11,7 +11,7 @@ export type LiveKitPresenterClientLoader = () => Promise<LiveKitClientModule>;
 export interface PresenterMediaTrack {
   id: string;
   kind: "audio" | "video";
-  source: string;
+  source: LiveKitClient.Track.Source;
   participantName: string;
   local: boolean;
   muted: boolean;
@@ -21,12 +21,18 @@ export interface PresenterMediaTrack {
   };
 }
 
+interface PresenterMediaParticipant {
+  id: string;
+  participantName: string;
+}
+
 export interface PresenterMediaSnapshot {
-  connected: boolean;
+  connectionState: "disconnected" | "connecting" | "connected" | "reconnecting";
   canPlaybackAudio: boolean;
   cameraEnabled: boolean;
   microphoneEnabled: boolean;
   screenShareEnabled: boolean;
+  cameraOffParticipants: Array<PresenterMediaParticipant>;
   tracks: Array<PresenterMediaTrack>;
 }
 
@@ -90,10 +96,13 @@ export async function createLiveKitPresenterMediaSession(
         },
       ];
     });
-    const remoteTracks: Array<PresenterMediaTrack> = [
-      ...room.remoteParticipants.values(),
-    ].flatMap((participant) =>
-      [...participant.trackPublications.values()].flatMap((publication) => {
+    const remoteTracks: Array<PresenterMediaTrack> = [];
+    const cameraOffParticipants: Array<PresenterMediaParticipant> = [];
+    for (const participant of room.remoteParticipants.values()) {
+      const participantName = participant.name?.trim() || "Participant";
+      const participantTracks = [
+        ...participant.trackPublications.values(),
+      ].flatMap((publication) => {
         const media = publication.track;
         if (!media || !publication.isSubscribed) return [];
         const kind =
@@ -108,25 +117,49 @@ export async function createLiveKitPresenterMediaSession(
             id: `${participant.identity}:${publication.trackSid}`,
             kind,
             source: publication.source,
-            participantName: participant.name?.trim() || "Presenter",
+            participantName,
             local: false,
             muted: publication.isMuted,
             media,
           },
         ];
-      }),
-    );
-    const activeLocalSources = new Set<string>();
+      });
+      remoteTracks.push(...participantTracks);
+      if (
+        !participantTracks.some(
+          (track) =>
+            track.kind === "video" &&
+            track.source === client.Track.Source.Camera &&
+            !track.muted,
+        )
+      )
+        cameraOffParticipants.push({
+          id: participant.identity,
+          participantName,
+        });
+    }
+    const activeLocalSources = new Set<LiveKitClient.Track.Source>();
     for (const track of localTracks)
       if (!track.muted) activeLocalSources.add(track.source);
+    const providerState = room.state;
+    const connectionState: PresenterMediaSnapshot["connectionState"] =
+      providerState === client.ConnectionState.Connected
+        ? "connected"
+        : providerState === client.ConnectionState.Connecting
+          ? "connecting"
+          : providerState === client.ConnectionState.Reconnecting ||
+              providerState === client.ConnectionState.SignalReconnecting
+            ? "reconnecting"
+            : "disconnected";
     return {
-      connected: room.state === client.ConnectionState.Connected,
+      connectionState,
       canPlaybackAudio: room.canPlaybackAudio,
       cameraEnabled: activeLocalSources.has(client.Track.Source.Camera),
       microphoneEnabled: activeLocalSources.has(client.Track.Source.Microphone),
       screenShareEnabled: activeLocalSources.has(
         client.Track.Source.ScreenShare,
       ),
+      cameraOffParticipants,
       tracks: [...localTracks, ...remoteTracks],
     };
   };
@@ -139,6 +172,10 @@ export async function createLiveKitPresenterMediaSession(
 
   const roomEvents = [
     client.RoomEvent.Connected,
+    client.RoomEvent.Reconnecting,
+    client.RoomEvent.SignalReconnecting,
+    client.RoomEvent.SignalConnected,
+    client.RoomEvent.Reconnected,
     client.RoomEvent.Disconnected,
     client.RoomEvent.ParticipantConnected,
     client.RoomEvent.ParticipantDisconnected,

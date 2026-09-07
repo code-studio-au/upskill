@@ -3,6 +3,14 @@ import {
   prepareLiveKitPresenterJoin,
   presenterCredentialCanStartConnection,
 } from "./livekit-presenter-join";
+import type { PresenterMediaSession } from "./livekit-presenter-media";
+
+function readyMediaSession(dispose = vi.fn(() => Promise.resolve())) {
+  return {
+    status: "ready" as const,
+    session: { dispose } as unknown as PresenterMediaSession,
+  };
+}
 
 describe("LiveKit presenter join preparation", () => {
   const input = {
@@ -14,7 +22,7 @@ describe("LiveKit presenter join preparation", () => {
     const requestCredential = vi.fn();
     await expect(
       prepareLiveKitPresenterJoin(input, {
-        isBrowserSupported: () => Promise.resolve(false),
+        createMediaSession: () => Promise.resolve({ status: "unsupported" }),
         requestCredential,
       }),
     ).resolves.toEqual({ status: "unsupported" });
@@ -23,10 +31,11 @@ describe("LiveKit presenter join preparation", () => {
 
   it("checks support before requesting and validating a credential", async () => {
     const calls: Array<string> = [];
+    const media = readyMediaSession();
     const result = await prepareLiveKitPresenterJoin(input, {
-      isBrowserSupported: () => {
+      createMediaSession: () => {
         calls.push("support");
-        return Promise.resolve(true);
+        return Promise.resolve(media);
       },
       requestCredential: () => {
         calls.push("credential");
@@ -40,17 +49,20 @@ describe("LiveKit presenter join preparation", () => {
     expect(result).toEqual({
       status: "credential-result",
       result: { status: "conflict", reason: "provider_unavailable" },
+      session: media.session,
     });
   });
 
-  it("rejects an invalid credential response", async () => {
+  it("disposes the unused media session after an invalid credential response", async () => {
+    const dispose = vi.fn(() => Promise.resolve());
     await expect(
       prepareLiveKitPresenterJoin(input, {
-        isBrowserSupported: () => Promise.resolve(true),
+        createMediaSession: () => Promise.resolve(readyMediaSession(dispose)),
         requestCredential: () =>
           Promise.resolve({ status: "ready", credential: { token: "leak" } }),
       }),
     ).rejects.toThrow();
+    expect(dispose).toHaveBeenCalledOnce();
   });
 
   it("requires enough credential lifetime to finish the provider connection", () => {

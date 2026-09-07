@@ -2107,7 +2107,7 @@ try {
     { status: "forbidden" },
   );
   const committedAdmissionBatchSizes: number[] = [];
-  const firstAdmissionBatchTime = new Date(Date.now() + 1_000);
+  const firstAdmissionBatchTime = new Date(bulkRequestedAt.getTime() + 50);
   const laterWaiterTime = new Date(firstAdmissionBatchTime.getTime() + 1_000);
   const laterBatchTime = new Date(laterWaiterTime.getTime() + 1_000);
   const laterWaiterLearner = bulkLearners.at(-1);
@@ -2165,6 +2165,18 @@ try {
   assert.ok(
     laterWaiter.admittedAt >= laterWaiter.requestedAt,
     "Each admission batch must use a commit-time timestamp for newly observed waiters",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("eventVirtualJoinAccessId", "=", access.id)
+      .where("state", "=", "admitted")
+      .whereRef("admittedAt", "<", "requestedAt")
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    0,
+    "Bulk admission must not predate any waiter's request timestamp",
   );
   for (let index = 1; index < committedAdmissionBatchSizes.length; index += 1)
     assert.ok(

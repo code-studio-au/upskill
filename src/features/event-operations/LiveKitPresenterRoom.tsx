@@ -5,7 +5,6 @@ import {
   presenterCredentialCanStartConnection,
 } from "./livekit-presenter-join";
 import {
-  createLiveKitPresenterMediaSession,
   type PresenterMediaSession,
   type PresenterMediaSnapshot,
   type PresenterMediaTrack,
@@ -19,6 +18,7 @@ type ConnectionPhase =
   | "requesting"
   | "connecting"
   | "connected"
+  | "reconnecting"
   | "disconnected"
   | "leaving"
   | "left"
@@ -28,33 +28,45 @@ type ConnectionPhase =
 type MediaControl = "camera" | "microphone" | "screen";
 
 const emptySnapshot: PresenterMediaSnapshot = {
-  connected: false,
+  connectionState: "disconnected",
   canPlaybackAudio: true,
   cameraEnabled: false,
   microphoneEnabled: false,
   screenShareEnabled: false,
+  cameraOffParticipants: [],
   tracks: [],
+};
+
+const credentialFailureMessages: Record<string, string> = {
+  unauthenticated: "Your session expired. Sign in again.",
+  forbidden: "You do not have green-room access.",
+  "not-found": "This webinar is unavailable.",
+  capacity_exceeded: "The webinar is full. Try again shortly.",
+  preparation_not_open: "Presenter preparation is not open yet.",
+  provider_unavailable: "LiveKit is unavailable.",
+  session_ended: "This webinar has ended.",
 };
 
 function credentialErrorMessage(
   result: Exclude<EventVirtualPresenterCredentialResult, { status: "ready" }>,
 ): string {
-  if (result.status === "unauthenticated")
-    return "Your session expired. Sign in again to enter the green room.";
-  if (result.status === "forbidden")
-    return "Your assignment does not permit green-room access.";
-  if (result.status === "not-found")
-    return "This webinar session is unavailable.";
-  if (result.reason === "capacity_exceeded")
-    return "The webinar room is full. Try again shortly.";
-  if (result.reason === "preparation_not_open")
-    return "Presenter preparation has not opened yet.";
-  if (result.reason === "provider_unavailable")
-    return "LiveKit is unavailable or not configured.";
-  if (result.reason === "session_ended")
-    return "This webinar session has ended.";
-  return "The green room is unavailable. Refresh and try again.";
+  const key = result.status === "conflict" ? result.reason : result.status;
+  return (
+    credentialFailureMessages[key] ??
+    "The green room is unavailable. Try again."
+  );
 }
+
+const phaseMessages: Partial<Record<ConnectionPhase, string>> = {
+  requesting: "Requesting green-room access…",
+  connecting: "Connecting to the green room…",
+  connected: "Connected. Camera and microphone start off.",
+  reconnecting: "Connection interrupted. Reconnecting to the green room…",
+  disconnected: "Green-room connection ended.",
+  leaving: "Leaving the green room…",
+  left: "You left the green room.",
+  unsupported: "This browser cannot connect to LiveKit. Try a current browser.",
+};
 
 function RemoteAudio({ track }: { track: PresenterMediaTrack }) {
   const element = useRef<HTMLAudioElement>(null);
@@ -162,47 +174,49 @@ export function LiveKitPresenterRoom({
         eventOccurrenceId,
         eventSessionId,
       });
-      if (operation.current !== currentOperation) return;
+      if (operation.current !== currentOperation) {
+        if (preparation.status === "credential-result")
+          await preparation.session.dispose();
+        return;
+      }
       if (preparation.status === "unsupported") {
         setPhase("unsupported");
         return;
       }
       const result = preparation.result;
       if (result.status !== "ready") {
+        await preparation.session.dispose();
         setMessage(credentialErrorMessage(result));
         setPhase("error");
         return;
       }
       if (!presenterCredentialCanStartConnection(result.credential.expiresAt)) {
+        await preparation.session.dispose();
         setMessage("The green-room credential expired. Try again.");
         setPhase("error");
         return;
       }
       setPhase("connecting");
-      const created = await createLiveKitPresenterMediaSession();
-      if (operation.current !== currentOperation) {
-        if (created.status === "ready") await created.session.dispose();
-        return;
-      }
-      if (created.status === "unsupported") {
-        setPhase("unsupported");
-        return;
-      }
-      mediaSession.current = created.session;
-      unsubscribe.current = created.session.subscribe((nextSnapshot) => {
+      mediaSession.current = preparation.session;
+      unsubscribe.current = preparation.session.subscribe((nextSnapshot) => {
         if (operation.current !== currentOperation) return;
         setSnapshot(nextSnapshot);
-        if (nextSnapshot.connected) {
+        if (nextSnapshot.connectionState === "connected") {
           connectedOnce.current = true;
           setPhase("connected");
+        } else if (
+          nextSnapshot.connectionState === "reconnecting" &&
+          connectedOnce.current
+        ) {
+          setPhase("reconnecting");
         } else if (connectedOnce.current) {
           setPhase("disconnected");
         }
       });
-      await created.session.connect(result.credential);
+      await preparation.session.connect(result.credential);
       if (operation.current !== currentOperation) return;
       try {
-        await created.session.enableAudio();
+        await preparation.session.enableAudio();
       } catch {
         setAudioBlocked(true);
       }
@@ -244,7 +258,7 @@ export function LiveKitPresenterRoom({
       setMessage(
         control === "screen"
           ? "Screen sharing did not start. Choose a screen or window and retry."
-          : `The ${control} could not be ${enabled ? "enabled" : "disabled"}. Check this browser's site permissions and try again.`,
+          : `Could not ${enabled ? "enable" : "disable"} the ${control}. Check browser permissions and try again.`,
       );
     } finally {
       setPendingControl(null);
@@ -257,31 +271,39 @@ export function LiveKitPresenterRoom({
       setAudioBlocked(false);
     } catch {
       setMessage(
-        "Your browser is still blocking green-room audio. Check its site permissions and try again.",
+        "Green-room audio is blocked. Check browser permissions and try again.",
       );
     }
   };
 
-  const videos = snapshot.tracks.filter((track) => track.kind === "video");
+  const videos = snapshot.tracks.filter(
+    (track) => track.kind === "video" && !track.muted,
+  );
   const remoteAudios = snapshot.tracks.filter(
     (track) => track.kind === "audio" && !track.local,
   );
-  const statusMessage =
-    phase === "requesting"
-      ? "Requesting secure green-room access…"
-      : phase === "connecting"
-        ? "Connecting to the green room…"
-        : phase === "connected"
-          ? "Connected. Camera and microphone start off."
-          : phase === "disconnected"
-            ? "The green-room connection ended."
-            : phase === "leaving"
-              ? "Leaving the green room…"
-              : phase === "left"
-                ? "You left the green room."
-                : phase === "unsupported"
-                  ? "This browser cannot connect to LiveKit. Use a current version of Chrome, Firefox, Safari or Edge."
-                  : message;
+  const mediaControls = [
+    {
+      control: "camera" as const,
+      enabled: snapshot.cameraEnabled,
+      enableLabel: "Turn camera on",
+      disableLabel: "Turn camera off",
+    },
+    {
+      control: "microphone" as const,
+      enabled: snapshot.microphoneEnabled,
+      enableLabel: "Unmute microphone",
+      disableLabel: "Mute microphone",
+    },
+    {
+      control: "screen" as const,
+      enabled: snapshot.screenShareEnabled,
+      enableLabel: "Share screen",
+      disableLabel: "Stop sharing",
+    },
+  ];
+  const statusMessage = phaseMessages[phase] ?? message;
+  const roomActive = phase === "connected" || phase === "reconnecting";
 
   if (phase === "closed")
     return (
@@ -301,14 +323,17 @@ export function LiveKitPresenterRoom({
         <div>
           <h4 id="green-room-heading">Presenter green room</h4>
           <Text size="sm" c="dimmed">
-            Attendees cannot connect until the webinar is started and they are
-            admitted.
+            Attendees join after the webinar starts and they are admitted.
           </Text>
           {statusMessage ? <p role="status">{statusMessage}</p> : null}
         </div>
-        {["requesting", "connecting", "connected", "disconnected"].includes(
-          phase,
-        ) ? (
+        {[
+          "requesting",
+          "connecting",
+          "connected",
+          "reconnecting",
+          "disconnected",
+        ].includes(phase) ? (
           <Button type="button" variant="light" onClick={() => void leave()}>
             {phase === "requesting" || phase === "connecting"
               ? "Cancel joining"
@@ -327,53 +352,30 @@ export function LiveKitPresenterRoom({
         )}
       </div>
 
-      {message && phase === "connected" ? (
+      {message && roomActive ? (
         <Alert color="red" role="alert">
           {message}
         </Alert>
       ) : null}
 
-      {phase === "connected" ? (
+      {roomActive ? (
         <Stack gap="md">
           <Group gap="sm" className={classes.controls}>
-            <Button
-              type="button"
-              variant={snapshot.cameraEnabled ? "default" : "light"}
-              aria-pressed={snapshot.cameraEnabled}
-              loading={pendingControl === "camera"}
-              disabled={pendingControl !== null}
-              onClick={() =>
-                void toggleMedia("camera", !snapshot.cameraEnabled)
-              }
-            >
-              {snapshot.cameraEnabled ? "Turn camera off" : "Turn camera on"}
-            </Button>
-            <Button
-              type="button"
-              variant={snapshot.microphoneEnabled ? "default" : "light"}
-              aria-pressed={snapshot.microphoneEnabled}
-              loading={pendingControl === "microphone"}
-              disabled={pendingControl !== null}
-              onClick={() =>
-                void toggleMedia("microphone", !snapshot.microphoneEnabled)
-              }
-            >
-              {snapshot.microphoneEnabled
-                ? "Mute microphone"
-                : "Unmute microphone"}
-            </Button>
-            <Button
-              type="button"
-              variant={snapshot.screenShareEnabled ? "default" : "light"}
-              aria-pressed={snapshot.screenShareEnabled}
-              loading={pendingControl === "screen"}
-              disabled={pendingControl !== null}
-              onClick={() =>
-                void toggleMedia("screen", !snapshot.screenShareEnabled)
-              }
-            >
-              {snapshot.screenShareEnabled ? "Stop sharing" : "Share screen"}
-            </Button>
+            {mediaControls.map(
+              ({ control, enabled, enableLabel, disableLabel }) => (
+                <Button
+                  key={control}
+                  type="button"
+                  variant={enabled ? "default" : "light"}
+                  aria-pressed={enabled}
+                  loading={pendingControl === control}
+                  disabled={pendingControl !== null || phase === "reconnecting"}
+                  onClick={() => void toggleMedia(control, !enabled)}
+                >
+                  {enabled ? disableLabel : enableLabel}
+                </Button>
+              ),
+            )}
           </Group>
 
           {audioBlocked || !snapshot.canPlaybackAudio ? (
@@ -383,17 +385,20 @@ export function LiveKitPresenterRoom({
           ) : null}
 
           <div className={classes.videoGrid}>
-            {videos.length > 0 ? (
-              videos.map((track) => (
-                <PresenterVideo key={track.id} track={track} />
-              ))
-            ) : (
+            {videos.length === 0 &&
+            snapshot.cameraOffParticipants.length === 0 ? (
               <div className={classes.placeholder}>
-                <p>
-                  Connected. Turn on your camera or wait for another presenter.
-                </p>
+                <p>Connected. Waiting for participant presence.</p>
               </div>
-            )}
+            ) : null}
+            {snapshot.cameraOffParticipants.map((participant) => (
+              <div className={classes.placeholder} key={participant.id}>
+                <p>{participant.participantName} — camera off</p>
+              </div>
+            ))}
+            {videos.map((track) => (
+              <PresenterVideo key={track.id} track={track} />
+            ))}
           </div>
           {remoteAudios.map((track) => (
             <RemoteAudio key={track.id} track={track} />

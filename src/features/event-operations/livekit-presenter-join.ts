@@ -3,10 +3,14 @@ import {
   type EventVirtualPresenterCredentialResult,
 } from "./event-operations.schema";
 import { getEventVirtualPresenterCredential } from "#/server/functions/event-operations";
-import { isLiveKitPresenterMediaSupported } from "./livekit-presenter-media";
+import {
+  createLiveKitPresenterMediaSession,
+  type PresenterMediaSession,
+  type PresenterMediaSessionResult,
+} from "./livekit-presenter-media";
 
 interface PresenterJoinDependencies {
-  isBrowserSupported: () => Promise<boolean>;
+  createMediaSession: () => Promise<PresenterMediaSessionResult>;
   requestCredential: () => Promise<unknown>;
 }
 
@@ -27,20 +31,26 @@ export type PresenterJoinPreparationResult =
   | {
       status: "credential-result";
       result: EventVirtualPresenterCredentialResult;
+      session: PresenterMediaSession;
     };
 
 export async function prepareLiveKitPresenterJoin(
   input: { eventOccurrenceId: string; eventSessionId: string },
   dependencies: PresenterJoinDependencies = {
-    isBrowserSupported: isLiveKitPresenterMediaSupported,
+    createMediaSession: createLiveKitPresenterMediaSession,
     requestCredential: () =>
       getEventVirtualPresenterCredential({ data: input }),
   },
 ): Promise<PresenterJoinPreparationResult> {
-  if (!(await dependencies.isBrowserSupported()))
-    return { status: "unsupported" };
-  const result = eventVirtualPresenterCredentialResultSchema.parse(
-    await dependencies.requestCredential(),
-  );
-  return { status: "credential-result", result };
+  const media = await dependencies.createMediaSession();
+  if (media.status === "unsupported") return media;
+  try {
+    const result = eventVirtualPresenterCredentialResultSchema.parse(
+      await dependencies.requestCredential(),
+    );
+    return { status: "credential-result", result, session: media.session };
+  } catch (error) {
+    await media.session.dispose();
+    throw error;
+  }
 }

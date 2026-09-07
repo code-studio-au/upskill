@@ -7,6 +7,10 @@ import {
 
 const events = {
   Connected: "connected",
+  Reconnecting: "reconnecting",
+  SignalReconnecting: "signalReconnecting",
+  SignalConnected: "signalConnected",
+  Reconnected: "reconnected",
   Disconnected: "disconnected",
   ParticipantConnected: "participantConnected",
   ParticipantDisconnected: "participantDisconnected",
@@ -106,7 +110,13 @@ class FakeRoom {
 function fakeClient(supported = true): LiveKitPresenterClientLoader {
   return (() =>
     Promise.resolve({
-      ConnectionState: { Connected: "connected" },
+      ConnectionState: {
+        Connected: "connected",
+        Connecting: "connecting",
+        Disconnected: "disconnected",
+        Reconnecting: "reconnecting",
+        SignalReconnecting: "signalReconnecting",
+      },
       isBrowserSupported: () => supported,
       Room: FakeRoom,
       RoomEvent: events,
@@ -153,7 +163,7 @@ describe("LiveKit presenter media session", () => {
       { autoSubscribe: true },
     );
     expect(result.session.snapshot()).toMatchObject({
-      connected: true,
+      connectionState: "connected",
       cameraEnabled: false,
       microphoneEnabled: false,
       screenShareEnabled: false,
@@ -241,6 +251,15 @@ describe("LiveKit presenter media session", () => {
         .tracks.some((track) => track.id.includes("unsubscribed")),
     ).toBe(false);
 
+    expect(result.session.snapshot().cameraOffParticipants).toEqual([]);
+    expect(
+      result.session
+        .snapshot()
+        .cameraOffParticipants.some(
+          (participant) => participant.id === "staff:presenter-2",
+        ),
+    ).toBe(false);
+
     await result.session.dispose();
     await result.session.dispose();
     expect(room.disconnect).toHaveBeenCalledWith(true);
@@ -248,5 +267,54 @@ describe("LiveKit presenter media session", () => {
     expect(
       [...room.listeners.values()].every((listeners) => listeners.size === 0),
     ).toBe(true);
+  });
+
+  it("projects connected participants even before they publish media", async () => {
+    const result = await createLiveKitPresenterMediaSession(fakeClient());
+    if (result.status !== "ready") throw new Error("Expected a ready session");
+    const room = FakeRoom.last;
+    if (!room) throw new Error("Expected a fake LiveKit room");
+    room.remoteParticipants.set("staff:presenter-2", {
+      identity: "staff:presenter-2",
+      name: "Presenter Two",
+      trackPublications: new Map(),
+    });
+
+    room.emit(events.ParticipantConnected);
+
+    expect(result.session.snapshot().cameraOffParticipants).toEqual([
+      {
+        id: "staff:presenter-2",
+        participantName: "Presenter Two",
+      },
+    ]);
+  });
+
+  it("reports automatic reconnect progress until media recovery completes", async () => {
+    const result = await createLiveKitPresenterMediaSession(fakeClient());
+    if (result.status !== "ready") throw new Error("Expected a ready session");
+    const room = FakeRoom.last;
+    if (!room) throw new Error("Expected a fake LiveKit room");
+    await result.session.connect({
+      token: "short-lived-presenter-token",
+      websocketUrl: "wss://tenant.livekit.cloud",
+      expiresAt: "2026-09-06T10:05:00.000Z",
+      generation: 1,
+    });
+
+    room.state = "signalReconnecting";
+    room.emit(events.SignalReconnecting);
+    room.state = "reconnecting";
+    room.emit(events.Reconnecting);
+    room.emit(events.SignalConnected);
+    expect(result.session.snapshot()).toMatchObject({
+      connectionState: "reconnecting",
+    });
+
+    room.state = "connected";
+    room.emit(events.Reconnected);
+    expect(result.session.snapshot()).toMatchObject({
+      connectionState: "connected",
+    });
   });
 });
