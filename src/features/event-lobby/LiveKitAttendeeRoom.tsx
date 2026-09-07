@@ -33,7 +33,6 @@ type ConnectionPhase =
   | "error";
 
 const emptySnapshot: AttendeeMediaSnapshot = {
-  connected: false,
   connectionState: "disconnected",
   disconnectReason: null,
   canPlaybackAudio: true,
