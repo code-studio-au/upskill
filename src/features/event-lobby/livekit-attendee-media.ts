@@ -27,7 +27,6 @@ export interface AttendeeMediaTrack {
 }
 
 export interface AttendeeMediaSnapshot {
-  connected: boolean;
   connectionState: "disconnected" | "connecting" | "connected" | "reconnecting";
   disconnectReason: AttendeeMediaDisconnectReason;
   canPlaybackAudio: boolean;
@@ -79,7 +78,6 @@ export async function createLiveKitAttendeeMediaSession(
   let signalReconnectPending = false;
 
   const snapshot = (): AttendeeMediaSnapshot => ({
-    connected: connectionState === "connected",
     connectionState,
     disconnectReason,
     canPlaybackAudio: room.canPlaybackAudio,

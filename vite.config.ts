@@ -36,10 +36,10 @@ export default defineConfig({
             : "assets/[hash].js",
         codeSplitting: {
           groups: [
-            // The browser media SDK is loaded only after an attendee reaches
-            // the ready-to-join state; keep it out of every route preload.
+            // The browser media SDK is loaded only after an attendee joins or
+            // staff enters a green room; keep it out of every route preload.
             {
-              name: "livekit-attendee-media",
+              name: "livekit-media-sdk",
               test: /node_modules[\\/](?:livekit-client|@livekit[\\/]|sdp-transform|webrtc-adapter)[\\/]/u,
               priority: 3,
             },

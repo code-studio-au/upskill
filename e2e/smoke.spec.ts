@@ -516,6 +516,42 @@ test("secure local origin negotiates compression", async ({ page }) => {
   expect(await assetResponse.headerValue("vary")).toContain("Accept-Encoding");
 });
 
+test("supported browsers expose webinar media primitives under restrictive capture policy", async ({
+  page,
+}) => {
+  const response = await page.goto("/");
+  const permissionsPolicy = response?.headers()["permissions-policy"];
+  expect(permissionsPolicy).toContain("camera=()");
+  expect(permissionsPolicy).toContain("microphone=()");
+  expect(permissionsPolicy).toContain("display-capture=()");
+
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const video = document.createElement("video");
+        const stream = new MediaStream();
+        video.srcObject = stream;
+        return {
+          mediaDevices:
+            typeof navigator.mediaDevices.getUserMedia === "function",
+          mediaStream: video.srcObject === stream,
+          peerConnection: typeof RTCPeerConnection === "function",
+          secureContext: window.isSecureContext,
+          srcObject: "srcObject" in HTMLMediaElement.prototype,
+          webSocket: typeof WebSocket === "function",
+        };
+      }),
+    )
+    .toEqual({
+      mediaDevices: true,
+      mediaStream: true,
+      peerConnection: true,
+      secureContext: true,
+      srcObject: true,
+      webSocket: true,
+    });
+});
+
 test("public catalogue is responsive, accessible and CSP-hardened", async ({
   page,
 }) => {
@@ -2318,6 +2354,15 @@ test("platform administrators can inspect learner progress", async ({
     expect(
       webinarOperationsResponse?.headers()["permissions-policy"],
     ).toContain("microphone=(self)");
+    expect(
+      webinarOperationsResponse?.headers()["permissions-policy"],
+    ).toContain("display-capture=(self)");
+    await page.evaluate(() => {
+      document.addEventListener("securitypolicyviolation", (event) => {
+        document.documentElement.dataset.liveKitCspViolation =
+          event.violatedDirective;
+      });
+    });
     await expect(
       page.getByRole("heading", { name: "Webinar operations" }),
     ).toBeVisible();
@@ -2327,6 +2372,25 @@ test("platform administrators can inspect learner progress", async ({
     ).toBeEnabled();
     await expect(
       page.getByRole("button", { name: "Test camera and microphone" }),
+    ).toBeVisible();
+    await page.evaluate(() => {
+      navigator.mediaDevices.getUserMedia = () =>
+        Promise.reject(
+          new DOMException(
+            "Permission denied for browser test",
+            "NotAllowedError",
+          ),
+        );
+    });
+    const devicePreviewButton = page.getByRole("button", {
+      name: "Test camera and microphone",
+    });
+    await devicePreviewButton.focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      page.getByRole("alert").filter({
+        hasText: "Camera or microphone access was unavailable",
+      }),
     ).toBeVisible();
     await page.evaluate(() => {
       const testWindow = window as Window & {
@@ -2350,9 +2414,7 @@ test("platform administrators can inspect learner progress", async ({
           };
         });
     });
-    await page
-      .getByRole("button", { name: "Test camera and microphone" })
-      .click();
+    await devicePreviewButton.click();
     await expect
       .poll(() =>
         page.evaluate(
@@ -2421,14 +2483,20 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("button", { name: "Show green room" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Show green room" }).click();
+    const showGreenRoom = page.getByRole("button", { name: "Show green room" });
+    await showGreenRoom.focus();
+    await page.keyboard.press("Enter");
     await expect(
       page.getByRole("heading", { name: "Presenter green room" }),
     ).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Enter green room" }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Enter green room" }).click();
+    const enterGreenRoom = page.getByRole("button", {
+      name: "Enter green room",
+    });
+    await enterGreenRoom.focus();
+    await page.keyboard.press("Enter");
     await expect(
       page.getByRole("status").filter({
         hasText: "LiveKit unavailable.",
@@ -2439,6 +2507,11 @@ test("platform administrators can inspect learner progress", async ({
       page,
     }).analyze();
     expect(presenterGreenRoomAccessibility.violations).toEqual([]);
+    expect(
+      await page.evaluate(
+        () => document.documentElement.dataset.liveKitCspViolation ?? null,
+      ),
+    ).toBeNull();
     await page.getByRole("button", { name: "Close green room panel" }).click();
     await expect(page.getByText("No attendees.")).toBeVisible();
     const openEntryGuest = await authoringDatabase.query<{
@@ -2507,20 +2580,44 @@ test("platform administrators can inspect learner progress", async ({
          where id = 'e2e_livekit_start_confirmation'`,
         [administratorUser.id],
       );
-      await guestPage.reload();
+      const readyWebinarResponse = await guestPage.reload();
+      expect(readyWebinarResponse?.headers()["permissions-policy"]).toContain(
+        "camera=()",
+      );
+      expect(readyWebinarResponse?.headers()["permissions-policy"]).toContain(
+        "microphone=()",
+      );
+      expect(readyWebinarResponse?.headers()["permissions-policy"]).toContain(
+        "display-capture=()",
+      );
       await expect(
         guestPage.getByRole("heading", { name: "Ready to join" }),
       ).toBeVisible();
       await expect(
         guestPage.getByRole("heading", { name: "Webinar room" }),
       ).toBeVisible();
-      await guestPage.getByRole("button", { name: "Join webinar" }).click();
+      await guestPage.evaluate(() => {
+        document.addEventListener("securitypolicyviolation", (event) => {
+          document.documentElement.dataset.liveKitCspViolation =
+            event.violatedDirective;
+        });
+      });
+      const joinWebinar = guestPage.getByRole("button", {
+        name: "Join webinar",
+      });
+      await joinWebinar.focus();
+      await guestPage.keyboard.press("Enter");
       await expect(
         guestPage.getByRole("status").filter({
           hasText:
             "The webinar connection is temporarily unavailable. Try again shortly.",
         }),
       ).toBeVisible();
+      expect(
+        await guestPage.evaluate(
+          () => document.documentElement.dataset.liveKitCspViolation ?? null,
+        ),
+      ).toBeNull();
       await authoringDatabase.query(
         `update event_virtual_room
          set "doorState" = 'scheduled', "admissionMode" = 'manual',

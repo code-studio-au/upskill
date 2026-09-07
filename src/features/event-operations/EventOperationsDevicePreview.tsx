@@ -73,7 +73,11 @@ export function EventOperationsDevicePreview() {
           aria-label="Camera preview"
         />
       ) : null}
-      {error ? <Alert color="red">{error}</Alert> : null}
+      {error ? (
+        <Alert color="red" role="alert">
+          {error}
+        </Alert>
+      ) : null}
       <Button variant="light" onClick={stream ? stop : () => void start()}>
         {stream ? "Stop preview" : "Test camera and microphone"}
       </Button>

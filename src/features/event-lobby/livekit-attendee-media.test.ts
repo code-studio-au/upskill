@@ -125,14 +125,12 @@ describe("LiveKit attendee media session", () => {
       "short-lived-token",
       { autoSubscribe: true },
     );
-    expect(result.session.snapshot().connected).toBe(true);
     expect(result.session.snapshot().connectionState).toBe("connected");
 
     await result.session.enableAudio();
     expect(result.session.snapshot().canPlaybackAudio).toBe(true);
     await result.session.disconnect();
     expect(room.disconnect).toHaveBeenCalledWith(true);
-    expect(result.session.snapshot().connected).toBe(false);
     expect(result.session.snapshot()).toMatchObject({
       connectionState: "disconnected",
       disconnectReason: "client_initiated",
@@ -155,7 +153,6 @@ describe("LiveKit attendee media session", () => {
     room.state = "reconnecting";
     room.emit(events.Reconnecting);
     expect(result.session.snapshot()).toMatchObject({
-      connected: false,
       connectionState: "reconnecting",
       disconnectReason: null,
     });
@@ -163,7 +160,6 @@ describe("LiveKit attendee media session", () => {
     room.state = "connected";
     room.emit(events.Reconnected);
     expect(result.session.snapshot()).toMatchObject({
-      connected: true,
       connectionState: "connected",
       disconnectReason: null,
     });
@@ -198,7 +194,6 @@ describe("LiveKit attendee media session", () => {
     room.state = "connected";
     room.emit(events.SignalConnected);
     expect(result.session.snapshot()).toMatchObject({
-      connected: true,
       connectionState: "connected",
       disconnectReason: null,
     });
@@ -226,7 +221,6 @@ describe("LiveKit attendee media session", () => {
     room.state = "connected";
     room.emit(events.Reconnected);
     expect(result.session.snapshot()).toMatchObject({
-      connected: true,
       connectionState: "connected",
       disconnectReason: null,
     });
@@ -258,7 +252,6 @@ describe("LiveKit attendee media session", () => {
       room.emit(events.Disconnected, reason);
 
       expect(result.session.snapshot()).toMatchObject({
-        connected: false,
         connectionState: "disconnected",
         disconnectReason: expected,
       });
