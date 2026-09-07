@@ -31,7 +31,11 @@ database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" -
 web_database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database/web" --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database/worker" --query SecretString --output text)
 access_code_encryption_key=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/access-code/v1" --query SecretString --output text)
-recording_upload_role_arn=$(aws ssm get-parameter --region "$refresh_region" --name "/${secret_prefix}/livekit/recording-upload-role-arn" --query Parameter.Value --output text)
+recording_upload_role_arn=""
+if ! recording_upload_role_arn=$(aws ssm get-parameter --region "$refresh_region" --name "/${secret_prefix}/livekit/recording-upload-role-arn" --query Parameter.Value --output text 2>/dev/null); then
+  echo "LiveKit recording upload authorization is not provisioned; continuing with recording disabled" >&2
+  recording_upload_role_arn=""
+fi
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)
@@ -39,7 +43,9 @@ deploy_environment_tmp=$(mktemp)
 trap 'rm -f -- "$base_environment_tmp" "$web_environment_tmp" "$worker_environment_tmp" "$deploy_environment_tmp"' EXIT
 jq -r 'to_entries[] | "\(.key)=\(.value|tostring|@json)"' <<< "$application_json" > "$base_environment_tmp"
 jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS") | "\(.key)=\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
-jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\($value|@json)"' >> "$base_environment_tmp"
+if [[ -n "$recording_upload_role_arn" ]]; then
+  jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\($value|@json)"' >> "$base_environment_tmp"
+fi
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")
 database_name=$(jq -r '.dbname' <<< "$database_json")

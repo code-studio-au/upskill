@@ -765,6 +765,8 @@ if (
 for (const invariant of [
   'secret-id "${secret_prefix}/livekit"',
   "aws ssm get-parameter",
+  "if ! recording_upload_role_arn=",
+  'if [[ -n "$recording_upload_role_arn" ]]',
   "/livekit/recording-upload-role-arn",
   "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN",
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
@@ -774,6 +776,14 @@ for (const invariant of [
 ])
   if (!environmentRefresh.includes(invariant))
     failures.push(`Environment refresh safety is missing: ${invariant}`);
+if (
+  /^recording_upload_role_arn=\$\(aws ssm get-parameter/mu.test(
+    environmentRefresh,
+  )
+)
+  failures.push(
+    "The dormant recording upload role lookup must not block application-only release rollout",
+  );
 const deploymentIdentity = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
   "utf8",
