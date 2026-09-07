@@ -59,7 +59,7 @@ function credentialErrorMessage(
 const phaseMessages: Partial<Record<ConnectionPhase, string>> = {
   requesting: "Requesting access…",
   connecting: "Connecting…",
-  connected: "Connected. Media off.",
+  connected: "Connected.",
   reconnecting: "Reconnecting…",
   disconnected: "Disconnected.",
   duplicate: "Open in another tab or device.",
