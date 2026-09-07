@@ -171,10 +171,14 @@ export function LiveKitPresenterRoom({
     try {
       await clearSession();
       if (operation.current !== currentOperation) return;
-      const preparation = await prepareLiveKitPresenterJoin({
-        eventOccurrenceId,
-        eventSessionId,
-      });
+      const preparation = await prepareLiveKitPresenterJoin(
+        {
+          eventOccurrenceId,
+          eventSessionId,
+        },
+        { isCurrent: () => operation.current === currentOperation },
+      );
+      if (preparation.status === "cancelled") return;
       if (operation.current !== currentOperation) {
         if (preparation.status === "credential-result")
           await preparation.session.dispose();

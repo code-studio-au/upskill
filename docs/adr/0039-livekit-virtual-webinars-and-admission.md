@@ -1,6 +1,6 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–4, 5a–5b and open-entry lobby integration
+- **Status:** Accepted; Slices 1–4, 5a–5c and open-entry lobby integration
   implemented, later slices pending
 - **Date:** 2026-08-31
 
@@ -1227,9 +1227,10 @@ gates passed; it does not by itself authorise staging or production activation.
       token-expiry, lock, removal and ended-session behaviour with server-owned
       decisions and focused failure coverage. Implemented by
       [PR #70](https://github.com/code-studio-au/upskill/pull/70).
-- [ ] **Slice 5c — presenter media and moderation:** add the presenter publishing
+- [x] **Slice 5c — presenter media and moderation:** add the presenter publishing
       view and server-authorised participant moderation without changing attendee
-      eligibility or admission policy.
+      eligibility or admission policy. Implemented by
+      [PR #71](https://github.com/code-studio-au/upskill/pull/71).
 - [ ] **Slice 5d — media experience hardening:** complete responsive and keyboard
       behaviour, status announcements, permission failures, CSP and Permissions
       Policy verification, deterministic bundle coverage and supported-browser

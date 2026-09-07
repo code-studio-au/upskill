@@ -14,6 +14,10 @@ interface PresenterJoinDependencies {
   requestCredential: () => Promise<unknown>;
 }
 
+interface PresenterJoinPreparationOptions {
+  isCurrent?: () => boolean;
+}
+
 const MINIMUM_PRESENTER_JOIN_WINDOW_MS = 5_000;
 
 export function presenterCredentialCanStartConnection(
@@ -28,6 +32,7 @@ export function presenterCredentialCanStartConnection(
 
 export type PresenterJoinPreparationResult =
   | { status: "unsupported" }
+  | { status: "cancelled" }
   | {
       status: "credential-result";
       result: EventVirtualPresenterCredentialResult;
@@ -36,6 +41,7 @@ export type PresenterJoinPreparationResult =
 
 export async function prepareLiveKitPresenterJoin(
   input: { eventOccurrenceId: string; eventSessionId: string },
+  options: PresenterJoinPreparationOptions = {},
   dependencies: PresenterJoinDependencies = {
     createMediaSession: createLiveKitPresenterMediaSession,
     requestCredential: () =>
@@ -44,6 +50,10 @@ export async function prepareLiveKitPresenterJoin(
 ): Promise<PresenterJoinPreparationResult> {
   const media = await dependencies.createMediaSession();
   if (media.status === "unsupported") return media;
+  if (options.isCurrent && !options.isCurrent()) {
+    await media.session.dispose();
+    return { status: "cancelled" };
+  }
   try {
     const result = eventVirtualPresenterCredentialResultSchema.parse(
       await dependencies.requestCredential(),
