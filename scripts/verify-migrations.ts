@@ -80,6 +80,7 @@ try {
     "event_template_session_definition",
     "event_virtual_room",
     "event_virtual_room_operation",
+    "event_virtual_recording",
     "event_virtual_presenter_credential_reservation",
     "event_virtual_join_access",
     "event_virtual_lobby_entry",
@@ -236,6 +237,8 @@ try {
     "event_virtual_recovery_rate_idx",
     "event_virtual_recovery_delivery_pending_idx",
     "event_virtual_join_session_active_idx",
+    "event_virtual_recording_status_idx",
+    "event_virtual_recording_retention_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -676,6 +679,47 @@ try {
     8,
     "LiveKit room generations, lifecycle state and durable provider operations must be constrained",
   );
+  const liveKitRecordingConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_virtual_room_recording_scope_uq',
+          'event_virtual_recording_room_fk',
+          'event_virtual_recording_room_uq',
+          'event_virtual_recording_provider_ck',
+          'event_virtual_recording_generation_ck',
+          'event_virtual_recording_status_ck',
+          'event_virtual_recording_provider_id_ck',
+          'event_virtual_recording_storage_key_ck',
+          'event_virtual_recording_policy_ck',
+          'event_virtual_recording_actor_ck',
+          'event_virtual_recording_output_ck',
+          'event_virtual_recording_timeline_ck',
+          'event_virtual_recording_state_ck'
+        )`.execute(db);
+  assert.equal(
+    liveKitRecordingConstraints.rows.length,
+    13,
+    "LiveKit recording scope, immutable policy evidence and lifecycle state must be constrained",
+  );
+  const liveKitRecordingGuard = await sql<{
+    definition: string;
+  }>`select pg_get_triggerdef(oid) as definition
+      from pg_trigger
+      where tgname = 'event_virtual_recording_guard_trg'
+        and not tgisinternal`.execute(db);
+  assert.equal(
+    liveKitRecordingGuard.rows.length,
+    1,
+    "LiveKit recording evidence must have one insert/update/delete guard",
+  );
+  const recordingGuardDefinition =
+    liveKitRecordingGuard.rows[0]?.definition.toUpperCase() ?? "";
+  assert.match(recordingGuardDefinition, /BEFORE/u);
+  assert.match(recordingGuardDefinition, /INSERT/u);
+  assert.match(recordingGuardDefinition, /UPDATE/u);
+  assert.match(recordingGuardDefinition, /DELETE/u);
   const liveKitLobbyConstraints = await sql<{
     constraint_name: string;
   }>`select constraint_name from information_schema.table_constraints

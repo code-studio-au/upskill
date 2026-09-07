@@ -51,6 +51,7 @@ try {
        alter default privileges in schema public grant usage, select, update on sequences to ${role};
        revoke update, delete on table audit_event from ${role};
        grant select, insert on table audit_event to ${role};
+       revoke delete on table event_virtual_recording from ${role};
        revoke all on table kysely_migration, kysely_migration_lock from ${role};`,
     );
   }
