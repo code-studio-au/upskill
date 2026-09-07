@@ -4,7 +4,9 @@ import {
   EncodedFileType,
   FileOutput,
   Output,
+  S3Upload,
   StartEgressRequest,
+  StorageConfig,
   TemplateSource,
 } from "livekit-server-sdk";
 import { describe, expect, it, vi } from "vitest";
@@ -46,6 +48,58 @@ function uploadAuthorizer(
       expiresAt,
     }),
   };
+}
+
+function recordingRequest(
+  input: {
+    roomName?: string;
+    storageObjectKey?: string;
+    bucket?: string;
+    region?: string;
+    endpoint?: string;
+    forcePathStyle?: boolean;
+    includeStorage?: boolean;
+    outputStorage?: StorageConfig;
+  } = {},
+): StartEgressRequest {
+  const output = new Output({
+    config: {
+      case: "file",
+      value: new FileOutput({
+        fileType: EncodedFileType.MP4,
+        filepath: input.storageObjectKey ?? startInput.storageObjectKey,
+        disableManifest: true,
+      }),
+    },
+    ...(input.outputStorage ? { storage: input.outputStorage } : {}),
+  });
+  return new StartEgressRequest({
+    roomName: input.roomName ?? startInput.roomName,
+    source: {
+      case: "template",
+      value: new TemplateSource({ layout: "speaker" }),
+    },
+    outputs: [output],
+    ...(input.includeStorage === false
+      ? {}
+      : {
+          storage: new StorageConfig({
+            provider: {
+              case: "s3",
+              value: new S3Upload({
+                region: input.region ?? configuration.region,
+                bucket: input.bucket ?? configuration.bucket,
+                ...(input.endpoint === undefined
+                  ? {}
+                  : { endpoint: input.endpoint }),
+                ...(input.forcePathStyle === undefined
+                  ? {}
+                  : { forcePathStyle: input.forcePathStyle }),
+              }),
+            },
+          }),
+        }),
+  });
 }
 
 describe("LiveKit Cloud recording provider", () => {
@@ -123,6 +177,36 @@ describe("LiveKit Cloud recording provider", () => {
     });
   });
 
+  it("rejects a start response for a different valid output key", async () => {
+    const egress = {
+      startEgress: vi.fn().mockResolvedValue(
+        new EgressInfo({
+          egressId: "EG_recording_1",
+          roomName: startInput.roomName,
+          status: EgressStatus.EGRESS_STARTING,
+          request: {
+            case: "egress",
+            value: recordingRequest({
+              storageObjectKey: "recordings/other_room/other_recording.mp4",
+            }),
+          },
+        }),
+      ),
+      listEgress: vi.fn(),
+      stopEgress: vi.fn(),
+    };
+    const provider = new LiveKitCloudRecordingProvider(
+      configuration,
+      uploadAuthorizer(),
+      egress,
+      now,
+    );
+
+    await expect(
+      provider.startRoomCompositeRecording(startInput),
+    ).rejects.toBeInstanceOf(LiveKitRecordingProviderError);
+  });
+
   it("refuses upload authorization that expires before finalisation", async () => {
     const egress = {
       startEgress: vi.fn(),
@@ -171,25 +255,7 @@ describe("LiveKit Cloud recording provider", () => {
   it("normalises active, complete and bounded provider failure states", async () => {
     const startedAt = providerNanoseconds("2030-09-03T23:32:00.000Z");
     const endedAt = providerNanoseconds("2030-09-04T00:32:00.000Z");
-    const request = new StartEgressRequest({
-      roomName: startInput.roomName,
-      source: {
-        case: "template",
-        value: new TemplateSource({ layout: "speaker" }),
-      },
-      outputs: [
-        new Output({
-          config: {
-            case: "file",
-            value: new FileOutput({
-              fileType: EncodedFileType.MP4,
-              filepath: startInput.storageObjectKey,
-              disableManifest: true,
-            }),
-          },
-        }),
-      ],
-    });
+    const request = recordingRequest();
     const egress = {
       startEgress: vi.fn(),
       listEgress: vi.fn().mockResolvedValue([
@@ -269,18 +335,107 @@ describe("LiveKit Cloud recording provider", () => {
     ]);
   });
 
-  it("rejects cross-room stop responses without exposing provider details", async () => {
+  it.each([
+    ["missing request storage", recordingRequest({ includeStorage: false })],
+    [
+      "a different bucket",
+      recordingRequest({ bucket: "other-private-recordings" }),
+    ],
+    ["a different region", recordingRequest({ region: "us-east-1" })],
+    [
+      "a custom S3 endpoint",
+      recordingRequest({ endpoint: "https://storage.invalid" }),
+    ],
+    ["path-style S3 routing", recordingRequest({ forcePathStyle: true })],
+    [
+      "a malformed nonterminal filepath",
+      recordingRequest({ storageObjectKey: "other/recording.mp4" }),
+    ],
+    [
+      "an output-level storage override",
+      recordingRequest({
+        outputStorage: new StorageConfig({
+          provider: {
+            case: "s3",
+            value: new S3Upload({
+              region: configuration.region,
+              bucket: "other-private-recordings",
+            }),
+          },
+        }),
+      }),
+    ],
+  ])("rejects provider evidence with %s", async (_name, request) => {
     const egress = {
       startEgress: vi.fn(),
-      listEgress: vi.fn(),
-      stopEgress: vi.fn().mockResolvedValue(
+      listEgress: vi.fn().mockResolvedValue([
         new EgressInfo({
           egressId: "EG_recording_1",
-          roomName: "other_room",
-          status: EgressStatus.EGRESS_FAILED,
-          error: "secret provider detail",
+          roomName: startInput.roomName,
+          status: EgressStatus.EGRESS_STARTING,
+          request: { case: "egress", value: request },
         }),
-      ),
+      ]),
+      stopEgress: vi.fn(),
+    };
+    const provider = new LiveKitCloudRecordingProvider(
+      configuration,
+      uploadAuthorizer(),
+      egress,
+      now,
+    );
+
+    await expect(
+      provider.listRoomCompositeRecordings(startInput.roomName),
+    ).rejects.toBeInstanceOf(LiveKitRecordingProviderError);
+  });
+
+  it.each([
+    ["room", "other_room", "EG_recording_1"],
+    ["Egress identifier", startInput.roomName, "EG_other_recording"],
+  ])(
+    "verifies exact %s ownership before stopping an Egress",
+    async (_target, providerRoomName, providerEgressId) => {
+      const request = recordingRequest({ roomName: providerRoomName });
+      const egress = {
+        startEgress: vi.fn(),
+        listEgress: vi.fn().mockResolvedValue([
+          new EgressInfo({
+            egressId: providerEgressId,
+            roomName: providerRoomName,
+            status: EgressStatus.EGRESS_ACTIVE,
+            startedAt: providerNanoseconds("2030-09-03T23:32:00.000Z"),
+            request: { case: "egress", value: request },
+          }),
+        ]),
+        stopEgress: vi.fn(),
+      };
+      const provider = new LiveKitCloudRecordingProvider(
+        configuration,
+        uploadAuthorizer(),
+        egress,
+        now,
+      );
+
+      const failure = await provider
+        .stopRoomCompositeRecording({
+          roomName: startInput.roomName,
+          providerEgressId: "EG_recording_1",
+        })
+        .catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(LiveKitRecordingProviderError);
+      expect(egress.listEgress).toHaveBeenCalledWith({
+        egressId: "EG_recording_1",
+      });
+      expect(egress.stopEgress).not.toHaveBeenCalled();
+    },
+  );
+
+  it("requires one provider match before stopping an Egress", async () => {
+    const egress = {
+      startEgress: vi.fn(),
+      listEgress: vi.fn().mockResolvedValue([]),
+      stopEgress: vi.fn(),
     };
     const provider = new LiveKitCloudRecordingProvider(
       configuration,
@@ -296,6 +451,54 @@ describe("LiveKit Cloud recording provider", () => {
       })
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(LiveKitRecordingProviderError);
-    expect(String(failure)).not.toContain("secret provider detail");
+    expect(egress.listEgress).toHaveBeenCalledWith({
+      egressId: "EG_recording_1",
+    });
+    expect(egress.stopEgress).not.toHaveBeenCalled();
+  });
+
+  it("stops only the exact Egress resolved before the destructive call", async () => {
+    const request = recordingRequest();
+    const existing = new EgressInfo({
+      egressId: "EG_recording_1",
+      roomName: startInput.roomName,
+      status: EgressStatus.EGRESS_ACTIVE,
+      startedAt: providerNanoseconds("2030-09-03T23:32:00.000Z"),
+      request: { case: "egress", value: request },
+    });
+    const egress = {
+      startEgress: vi.fn(),
+      listEgress: vi.fn().mockResolvedValue([existing]),
+      stopEgress: vi.fn().mockResolvedValue(
+        new EgressInfo({
+          egressId: "EG_recording_1",
+          roomName: startInput.roomName,
+          status: EgressStatus.EGRESS_ENDING,
+          startedAt: providerNanoseconds("2030-09-03T23:32:00.000Z"),
+          request: { case: "egress", value: request },
+        }),
+      ),
+    };
+    const provider = new LiveKitCloudRecordingProvider(
+      configuration,
+      uploadAuthorizer(),
+      egress,
+      now,
+    );
+
+    await expect(
+      provider.stopRoomCompositeRecording({
+        roomName: startInput.roomName,
+        providerEgressId: "EG_recording_1",
+      }),
+    ).resolves.toMatchObject({
+      providerEgressId: "EG_recording_1",
+      roomName: startInput.roomName,
+      status: "stopping",
+    });
+    expect(egress.listEgress).toHaveBeenCalledWith({
+      egressId: "EG_recording_1",
+    });
+    expect(egress.stopEgress).toHaveBeenCalledWith("EG_recording_1");
   });
 });

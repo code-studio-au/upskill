@@ -140,6 +140,10 @@ export function parseLiveKitRecordingRoomName(input: unknown): string {
   return roomNameSchema.parse(input);
 }
 
+export function parseLiveKitRecordingStorageObjectKey(input: unknown): string {
+  return storageObjectKeySchema.parse(input);
+}
+
 export function parseLiveKitRecordingSnapshot(
   input: unknown,
 ): LiveKitRecordingSnapshot {

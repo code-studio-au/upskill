@@ -17,6 +17,7 @@ import {
   LiveKitRecordingProviderError,
   parseLiveKitRecordingRoomName,
   parseLiveKitRecordingSnapshot,
+  parseLiveKitRecordingStorageObjectKey,
   parseLiveKitRecordingTarget,
   parseStartLiveKitRoomCompositeRecordingInput,
   type LiveKitRecordingProvider,
@@ -77,7 +78,10 @@ export interface LiveKitCloudRecordingConfiguration {
 
 interface LiveKitEgressClient {
   startEgress(request: StartEgressRequest): Promise<EgressInfo>;
-  listEgress(options: { roomName: string }): Promise<EgressInfo[]>;
+  listEgress(options: {
+    roomName?: string;
+    egressId?: string;
+  }): Promise<EgressInfo[]>;
   stopEgress(egressId: string): Promise<EgressInfo>;
 }
 
@@ -92,36 +96,67 @@ function dateFromProviderNanoseconds(value: bigint): Date | null {
   return date;
 }
 
-function requestedFileOutput(info: EgressInfo): FileOutput {
+function validatedFileOutput(
+  info: EgressInfo,
+  expectedRoomName: string,
+  configuration: LiveKitCloudRecordingConfiguration,
+  expectedEgressId?: string,
+  expectedStorageObjectKey?: string,
+): FileOutput {
+  if (
+    info.roomName !== expectedRoomName ||
+    (expectedEgressId !== undefined && info.egressId !== expectedEgressId)
+  )
+    throw new TypeError("Provider recording target mismatch");
   if (info.request.case !== "egress")
     throw new TypeError("Provider recording did not use StartEgress");
   const request = info.request.value;
+  const output = request.outputs[0];
+  const storage = request.storage;
   if (
+    request.roomName !== expectedRoomName ||
     request.source.case !== "template" ||
     request.source.value.layout !== "speaker" ||
     request.source.value.audioOnly ||
     request.source.value.videoOnly ||
     request.source.value.customBaseUrl !== "" ||
     request.outputs.length !== 1 ||
-    request.outputs[0]?.config.case !== "file" ||
-    request.outputs[0].config.value.fileType !== EncodedFileType.MP4 ||
-    !request.outputs[0].config.value.disableManifest
+    output?.config.case !== "file" ||
+    output.config.value.fileType !== EncodedFileType.MP4 ||
+    !output.config.value.disableManifest ||
+    output.storage !== undefined ||
+    storage?.provider.case !== "s3" ||
+    storage.provider.value.bucket !== configuration.bucket ||
+    storage.provider.value.region !== configuration.region ||
+    storage.provider.value.endpoint !== "" ||
+    storage.provider.value.forcePathStyle
   )
     throw new TypeError("Provider recording does not match the fixed contract");
-  return request.outputs[0].config.value;
+  const storageObjectKey = parseLiveKitRecordingStorageObjectKey(
+    output.config.value.filepath,
+  );
+  if (
+    expectedStorageObjectKey !== undefined &&
+    storageObjectKey !== expectedStorageObjectKey
+  )
+    throw new TypeError("Provider recording output path mismatch");
+  return output.config.value;
 }
 
 function recordingSnapshot(
   info: EgressInfo,
   expectedRoomName: string,
+  configuration: LiveKitCloudRecordingConfiguration,
   expectedEgressId?: string,
+  expectedStorageObjectKey?: string,
 ): LiveKitRecordingSnapshot {
-  if (
-    info.roomName !== expectedRoomName ||
-    (expectedEgressId && info.egressId !== expectedEgressId)
-  )
-    throw new TypeError("Provider recording target mismatch");
-  const fileOutput = requestedFileOutput(info);
+  const fileOutput = validatedFileOutput(
+    info,
+    expectedRoomName,
+    configuration,
+    expectedEgressId,
+    expectedStorageObjectKey,
+  );
   const startedAt = dateFromProviderNanoseconds(info.startedAt);
   const endedAt = dateFromProviderNanoseconds(info.endedAt);
   let failureCode: string | null = null;
@@ -256,6 +291,9 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
       return recordingSnapshot(
         await this.egress.startEgress(request),
         parsed.roomName,
+        this.configuration,
+        undefined,
+        parsed.storageObjectKey,
       );
     } catch {
       throw new LiveKitRecordingProviderError("start_recording");
@@ -268,7 +306,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
     const parsedRoomName = parseLiveKitRecordingRoomName(roomName);
     try {
       return (await this.egress.listEgress({ roomName: parsedRoomName })).map(
-        (info) => recordingSnapshot(info, parsedRoomName),
+        (info) => recordingSnapshot(info, parsedRoomName, this.configuration),
       );
     } catch {
       throw new LiveKitRecordingProviderError("list_recordings");
@@ -280,10 +318,24 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
   ): Promise<LiveKitRecordingSnapshot> {
     const parsed = parseLiveKitRecordingTarget(target);
     try {
+      const matches = await this.egress.listEgress({
+        egressId: parsed.providerEgressId,
+      });
+      const [existing] = matches;
+      if (!existing || matches.length !== 1)
+        throw new TypeError("Provider recording lookup was not exact");
+      const fileOutput = validatedFileOutput(
+        existing,
+        parsed.roomName,
+        this.configuration,
+        parsed.providerEgressId,
+      );
       return recordingSnapshot(
         await this.egress.stopEgress(parsed.providerEgressId),
         parsed.roomName,
+        this.configuration,
         parsed.providerEgressId,
+        fileOutput.filepath,
       );
     } catch {
       throw new LiveKitRecordingProviderError("stop_recording");
