@@ -165,6 +165,7 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
         and "completedAt" is not null
         and "fileSizeBytes" is null
         and "retentionDeadline" is null
+        and "failureCode" is not null
         and "failureCode" ~ '^[a-z0-9_]{1,100}$'
         and "deletedAt" is null
         and "deletionReason" is null

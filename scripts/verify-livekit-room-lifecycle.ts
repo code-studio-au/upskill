@@ -792,6 +792,22 @@ try {
     .insertInto("event_virtual_recording")
     .values(recordingValues)
     .executeTakeFirstOrThrow();
+  const unclassifiedFailureAt = new Date("2030-09-03T23:31:45.000Z");
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("event_virtual_recording")
+        .set({
+          status: "failed",
+          completedAt: unclassifiedFailureAt,
+          failureCode: null,
+          updatedAt: unclassifiedFailureAt,
+        })
+        .where("id", "=", recordingId)
+        .executeTakeFirstOrThrow(),
+    "23514",
+    "event_virtual_recording_state_ck",
+  );
   await assert.rejects(
     database
       .updateTable("event_virtual_recording")
