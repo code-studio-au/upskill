@@ -2357,12 +2357,6 @@ test("platform administrators can inspect learner progress", async ({
     expect(
       webinarOperationsResponse?.headers()["permissions-policy"],
     ).toContain("display-capture=(self)");
-    await page.evaluate(() => {
-      document.addEventListener("securitypolicyviolation", (event) => {
-        document.documentElement.dataset.liveKitCspViolation =
-          event.violatedDirective;
-      });
-    });
     await expect(
       page.getByRole("heading", { name: "Webinar operations" }),
     ).toBeVisible();
@@ -2480,6 +2474,12 @@ test("platform administrators can inspect learner progress", async ({
       [occurrenceId, occurrenceSessionId, "l".repeat(43)],
     );
     await page.reload();
+    await page.evaluate(() => {
+      document.addEventListener("securitypolicyviolation", (event) => {
+        document.documentElement.dataset.liveKitCspViolation =
+          event.violatedDirective;
+      });
+    });
     await expect(
       page.getByRole("button", { name: "Show green room" }),
     ).toBeVisible();
