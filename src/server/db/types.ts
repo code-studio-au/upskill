@@ -16,6 +16,11 @@ type NullableJsonDocument<T> = ColumnType<
   string | null | undefined,
   string | null
 >;
+type NullableBigIntValue = ColumnType<
+  string | null,
+  bigint | number | string | null | undefined,
+  bigint | number | string | null
+>;
 
 interface UserTable {
   id: string;
@@ -792,6 +797,43 @@ interface EventVirtualRoomOperationTable {
   lastErrorCode: string | null;
   requestedByUserId: string | null;
   createdAt: Timestamp;
+}
+
+interface EventVirtualRecordingTable {
+  id: string;
+  roomId: string;
+  eventSessionId: string;
+  roomGeneration: number;
+  provider: "livekit";
+  recordingMode: "automatic";
+  status:
+    | "requested"
+    | "starting"
+    | "active"
+    | "stopping"
+    | "complete"
+    | "failed"
+    | "deleted";
+  providerEgressId: string | null;
+  storageObjectKey: string;
+  retentionDays: number;
+  attendeeNoticeDigest: string;
+  presenterNoticeDigest: string;
+  requestedByUserId: string;
+  requestedAt: Timestamp;
+  startedAt: Timestamp | null;
+  stopRequestedByUserId: string | null;
+  stopRequestedAt: Timestamp | null;
+  endedAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  fileSizeBytes: NullableBigIntValue;
+  durationNanoseconds: NullableBigIntValue;
+  retentionDeadline: Timestamp | null;
+  failureCode: string | null;
+  deletedByUserId: string | null;
+  deletedAt: Timestamp | null;
+  deletionReason: string | null;
+  updatedAt: Timestamp;
 }
 
 interface EventVirtualPresenterCredentialReservationTable {
@@ -1868,6 +1910,7 @@ export interface Database {
   event_template_version_section: EventTemplateVersionSectionTable;
   event_virtual_room: EventVirtualRoomTable;
   event_virtual_room_operation: EventVirtualRoomOperationTable;
+  event_virtual_recording: EventVirtualRecordingTable;
   event_virtual_presenter_credential_reservation: EventVirtualPresenterCredentialReservationTable;
   event_virtual_join_access: EventVirtualJoinAccessTable;
   event_virtual_lobby_entry: EventVirtualLobbyEntryTable;

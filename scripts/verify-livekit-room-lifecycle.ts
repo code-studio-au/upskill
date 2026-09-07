@@ -71,6 +71,22 @@ const expiredPlatformAdministrator = user(
 const startsAt = new Date("2030-09-04T00:00:00.000Z");
 const endsAt = new Date("2030-09-04T01:00:00.000Z");
 const preparationTime = new Date("2030-09-03T23:30:00.000Z");
+
+async function assertDatabaseConstraint(
+  operation: () => Promise<unknown>,
+  code: string,
+  constraint: string,
+): Promise<void> {
+  const failure = await operation().catch((error: unknown) => error);
+  assert.ok(failure instanceof Error);
+  const databaseFailure = failure as Error & {
+    code?: string;
+    constraint?: string;
+  };
+  assert.equal(databaseFailure.code, code);
+  assert.equal(databaseFailure.constraint, constraint);
+}
+
 class FailFirstEnsureProvider extends FakeLiveKitProvider {
   private failed = false;
   private deferredClose:
@@ -713,6 +729,169 @@ try {
   assert.equal(room.providerStatus, "ready");
   assert.equal(room.maxParticipants, 25);
   assert.equal(room.providerRoomName.includes(ids.session), false);
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
+    .where("id", "=", room.id)
+    .executeTakeFirstOrThrow();
+  const recordingRequestedAt = new Date("2030-09-03T23:31:30.000Z");
+  const recordingId = "verify_livekit_room_recording";
+  const recordingValues = {
+    id: recordingId,
+    roomId: room.id,
+    eventSessionId: ids.session,
+    roomGeneration: room.generation,
+    provider: "livekit" as const,
+    recordingMode: "automatic" as const,
+    status: "requested" as const,
+    providerEgressId: null,
+    storageObjectKey: "recordings/opaque_room/opaque_recording.mp4",
+    retentionDays: 30,
+    attendeeNoticeDigest: "a".repeat(43),
+    presenterNoticeDigest: "p".repeat(43),
+    requestedByUserId: administrator.id,
+    requestedAt: recordingRequestedAt,
+    startedAt: null,
+    stopRequestedByUserId: null,
+    stopRequestedAt: null,
+    endedAt: null,
+    completedAt: null,
+    fileSizeBytes: null,
+    durationNanoseconds: null,
+    retentionDeadline: null,
+    failureCode: null,
+    deletedByUserId: null,
+    deletedAt: null,
+    deletionReason: null,
+    updatedAt: recordingRequestedAt,
+  };
+  await database
+    .insertInto("event_virtual_recording")
+    .values(recordingValues)
+    .executeTakeFirstOrThrow();
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .insertInto("event_virtual_recording")
+        .values({
+          ...recordingValues,
+          id: "verify_livekit_room_recording_duplicate",
+          storageObjectKey:
+            "recordings/opaque_room/opaque_recording_duplicate.mp4",
+        })
+        .executeTakeFirstOrThrow(),
+    "23505",
+    "event_virtual_recording_room_uq",
+  );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("event_virtual_recording")
+        .set({ roomGeneration: room.generation + 1 })
+        .where("id", "=", recordingId)
+        .executeTakeFirstOrThrow(),
+    "23503",
+    "event_virtual_recording_room_fk",
+  );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("event_virtual_recording")
+        .set({ status: "active" })
+        .where("id", "=", recordingId)
+        .executeTakeFirstOrThrow(),
+    "23514",
+    "event_virtual_recording_state_ck",
+  );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("event_virtual_room")
+        .set({ recordingMode: "off", recordingRetentionDays: null })
+        .where("id", "=", room.id)
+        .executeTakeFirstOrThrow(),
+    "23503",
+    "event_virtual_recording_room_fk",
+  );
+  const recordingStartedAt = new Date("2030-09-03T23:32:00.000Z");
+  const recordingEndedAt = new Date("2030-09-04T00:32:00.000Z");
+  const recordingCompletedAt = new Date("2030-09-04T00:33:00.000Z");
+  const retentionDeadline = new Date("2030-10-04T00:33:00.000Z");
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "starting",
+      providerEgressId: "EG_VERIFY_1",
+      updatedAt: recordingStartedAt,
+    })
+    .where("id", "=", recordingId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "active",
+      startedAt: recordingStartedAt,
+      updatedAt: recordingStartedAt,
+    })
+    .where("id", "=", recordingId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "complete",
+      endedAt: recordingEndedAt,
+      completedAt: recordingCompletedAt,
+      fileSizeBytes: 1_048_576,
+      durationNanoseconds: 3_600_000_000_000n,
+      retentionDeadline,
+      updatedAt: recordingCompletedAt,
+    })
+    .where("id", "=", recordingId)
+    .executeTakeFirstOrThrow();
+  const recordingDeletedAt = new Date("2030-10-04T00:34:00.000Z");
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "deleted",
+      deletedByUserId: administrator.id,
+      deletedAt: recordingDeletedAt,
+      deletionReason: "retention_expired",
+      updatedAt: recordingDeletedAt,
+    })
+    .where("id", "=", recordingId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select([
+        "status",
+        "providerEgressId",
+        "storageObjectKey",
+        "retentionDays",
+        "deletedAt",
+        "deletionReason",
+      ])
+      .where("id", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "deleted",
+      providerEgressId: "EG_VERIFY_1",
+      storageObjectKey: "recordings/opaque_room/opaque_recording.mp4",
+      retentionDays: 30,
+      deletedAt: recordingDeletedAt,
+      deletionReason: "retention_expired",
+    },
+    "Recording completion and deletion must retain the logical evidence row",
+  );
+  await database
+    .deleteFrom("event_virtual_recording")
+    .where("id", "=", recordingId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "off", recordingRetentionDays: null })
+    .where("id", "=", room.id)
+    .executeTakeFirstOrThrow();
   assert.equal(
     fakeProvider.operations.filter(
       (operation) => operation.operation === "ensure_room",
@@ -2183,9 +2362,17 @@ try {
     ),
   );
   console.log(
-    "Verified LiveKit exact staff authorization, preparation timing, capacity, idempotent room creation, health, lifecycle, closure, replacement, worker processing and durable audit evidence",
+    "Verified LiveKit exact staff authorization, preparation timing, capacity, idempotent room creation, health, lifecycle, recording evidence, closure, replacement, worker processing and durable audit evidence",
   );
 } finally {
+  await database
+    .deleteFrom("event_virtual_recording")
+    .where("eventSessionId", "in", [
+      ids.session,
+      ids.raceSession,
+      ids.failureSession,
+    ])
+    .execute();
   await database
     .deleteFrom("event_virtual_presenter_credential_reservation")
     .where("roomId", "in", (builder) =>
