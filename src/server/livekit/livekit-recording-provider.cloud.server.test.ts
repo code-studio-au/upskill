@@ -144,6 +144,30 @@ describe("LiveKit Cloud recording provider", () => {
     expect(egress.startEgress).not.toHaveBeenCalled();
   });
 
+  it("rechecks upload authorization expiry after authorization completes", async () => {
+    const egress = {
+      startEgress: vi.fn(),
+      listEgress: vi.fn(),
+      stopEgress: vi.fn(),
+    };
+    const clock = vi
+      .fn<() => Date>()
+      .mockReturnValueOnce(new Date("2030-09-03T23:00:00.000Z"))
+      .mockReturnValueOnce(new Date("2030-09-04T02:00:00.000Z"));
+    const provider = new LiveKitCloudRecordingProvider(
+      configuration,
+      uploadAuthorizer(new Date("2030-09-04T02:00:00.000Z")),
+      egress,
+      clock,
+    );
+
+    await expect(
+      provider.startRoomCompositeRecording(startInput),
+    ).rejects.toBeInstanceOf(LiveKitRecordingProviderError);
+    expect(clock).toHaveBeenCalledTimes(2);
+    expect(egress.startEgress).not.toHaveBeenCalled();
+  });
+
   it("normalises active, complete and bounded provider failure states", async () => {
     const startedAt = providerNanoseconds("2030-09-03T23:32:00.000Z");
     const endedAt = providerNanoseconds("2030-09-04T00:32:00.000Z");

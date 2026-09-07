@@ -214,8 +214,9 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
           requiredUntil: parsed.uploadAuthorizationExpiresAt,
         }),
       );
+      const authorizationCheckedAt = this.now();
       if (
-        authorization.expiresAt <= now ||
+        authorization.expiresAt <= authorizationCheckedAt ||
         authorization.expiresAt < parsed.uploadAuthorizationExpiresAt
       )
         throw new RangeError(
