@@ -835,6 +835,28 @@ try {
     })
     .where("id", "=", recordingId)
     .executeTakeFirstOrThrow();
+  for (const invalidRetentionDeadline of [
+    new Date("2030-09-05T00:33:00.000Z"),
+    new Date("2030-10-05T00:33:00.000Z"),
+  ])
+    await assertDatabaseConstraint(
+      () =>
+        database
+          .updateTable("event_virtual_recording")
+          .set({
+            status: "complete",
+            endedAt: recordingEndedAt,
+            completedAt: recordingCompletedAt,
+            fileSizeBytes: 1_048_576,
+            durationNanoseconds: 3_600_000_000_000n,
+            retentionDeadline: invalidRetentionDeadline,
+            updatedAt: recordingCompletedAt,
+          })
+          .where("id", "=", recordingId)
+          .executeTakeFirstOrThrow(),
+      "23514",
+      "event_virtual_recording_timeline_ck",
+    );
   await database
     .updateTable("event_virtual_recording")
     .set({

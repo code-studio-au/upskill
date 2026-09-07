@@ -101,7 +101,11 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       )
       and (
         "retentionDeadline" is null
-        or "retentionDeadline" >= "completedAt"
+        or (
+          "completedAt" is not null
+          and "retentionDeadline" =
+            "completedAt" + "retentionDays" * interval '24 hours'
+        )
       )
       and (
         "deletedAt" is null
