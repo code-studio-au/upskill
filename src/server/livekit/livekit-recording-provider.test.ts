@@ -9,6 +9,7 @@ import {
 const startInput = {
   roomName: "room_generation_1",
   storageObjectKey: "recordings/opaque_room/opaque_recording.mp4",
+  uploadAuthorizationExpiresAt: new Date("2030-09-04T01:00:00.000Z"),
   layout: "speaker" as const,
   format: "mp4" as const,
 };

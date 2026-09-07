@@ -34,8 +34,40 @@ test("staging storage is private, disposable and provides a dead-letter queue", 
       RestrictPublicBuckets: true,
     }),
   });
-  template.resourceCountIs("AWS::S3::Bucket", 4);
-  template.resourceCountIs("Custom::S3AutoDeleteObjects", 4);
+  template.resourceCountIs("AWS::S3::Bucket", 5);
+  template.resourceCountIs("Custom::S3AutoDeleteObjects", 5);
+  const buckets = template.findResources("AWS::S3::Bucket") as Record<
+    string,
+    {
+      Properties?: {
+        LifecycleConfiguration?: { Rules?: unknown[] };
+      };
+    }
+  >;
+  const recordingBucket = Object.entries(buckets).find(([logicalId]) =>
+    logicalId.startsWith("RecordingBucket"),
+  )?.[1];
+  expect(recordingBucket).toBeDefined();
+  expect(recordingBucket?.Properties).toMatchObject({
+    BucketEncryption: {
+      ServerSideEncryptionConfiguration: [
+        { ServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } },
+      ],
+    },
+    PublicAccessBlockConfiguration: {
+      BlockPublicAcls: true,
+      BlockPublicPolicy: true,
+      IgnorePublicAcls: true,
+      RestrictPublicBuckets: true,
+    },
+    VersioningConfiguration: { Status: "Enabled" },
+  });
+  expect(recordingBucket?.Properties?.LifecycleConfiguration?.Rules).toEqual([
+    {
+      AbortIncompleteMultipartUpload: { DaysAfterInitiation: 1 },
+      Status: "Enabled",
+    },
+  ]);
   for (const bucket of Object.values(
     template.findResources("AWS::S3::Bucket"),
   )) {
@@ -73,6 +105,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     artifactBucket: storage.artifactBucket,
     learningBucket: storage.learningBucket,
     privateBucket: storage.privateBucket,
+    recordingBucket: storage.recordingBucket,
     quarantineBucket: storage.quarantineBucket,
     workQueue: storage.workQueue,
     deadLetterQueue: storage.deadLetterQueue,
@@ -122,6 +155,10 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(applicationJson).toContain("upskill-deploy.env");
   expect(applicationJson).toContain("livekit_json");
   expect(applicationJson).toContain("upskill/staging/livekit");
+  expect(applicationJson).toContain("S3_RECORDING_BUCKET");
+  expect(
+    JSON.stringify(applicationTemplate.findResources("AWS::IAM::Policy")),
+  ).not.toContain("RecordingBucket");
   expect(applicationJson).toContain(
     '.key == \\"LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS\\"',
   );
@@ -193,7 +230,7 @@ test("production storage alarms on durable work backlog and dead letters", () =>
     environmentConfig("production"),
   );
   const template = Template.fromStack(stack);
-  template.resourceCountIs("AWS::S3::Bucket", 4);
+  template.resourceCountIs("AWS::S3::Bucket", 5);
   template.resourceCountIs("Custom::S3AutoDeleteObjects", 0);
   for (const bucket of Object.values(
     template.findResources("AWS::S3::Bucket"),

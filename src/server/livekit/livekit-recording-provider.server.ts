@@ -21,6 +21,7 @@ const storageObjectKeySchema = z
 const startRoomCompositeRecordingInputSchema = z.object({
   roomName: roomNameSchema,
   storageObjectKey: storageObjectKeySchema,
+  uploadAuthorizationExpiresAt: z.date(),
   layout: z.literal("speaker"),
   format: z.literal("mp4"),
 });
@@ -137,6 +138,10 @@ export function parseLiveKitRecordingTarget(
 
 export function parseLiveKitRecordingRoomName(input: unknown): string {
   return roomNameSchema.parse(input);
+}
+
+export function parseLiveKitRecordingStorageObjectKey(input: unknown): string {
+  return storageObjectKeySchema.parse(input);
 }
 
 export function parseLiveKitRecordingSnapshot(
