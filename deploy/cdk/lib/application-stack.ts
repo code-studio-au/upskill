@@ -314,6 +314,7 @@ UPSKILL_ENV`,
         },
       ],
     });
+    instance.node.addDependency(recordingUploadRoleParameter);
     this.instanceId = instance.instanceId;
     Tags.of(instance).add("Application", "upskill");
     Tags.of(instance).add("Environment", props.config.name);

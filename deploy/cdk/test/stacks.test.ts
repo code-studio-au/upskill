@@ -197,6 +197,24 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     Type: "String",
     Value: { "Fn::GetAtt": [recordingRoleLogicalId, "Arn"] },
   });
+  const parameters = applicationTemplate.findResources(
+    "AWS::SSM::Parameter",
+  ) as Record<string, { Properties?: { Name?: string } }>;
+  const recordingRoleParameterLogicalId = Object.keys(parameters).find(
+    (logicalId) =>
+      parameters[logicalId]?.Properties?.Name ===
+      "/upskill/staging/livekit/recording-upload-role-arn",
+  );
+  expect(recordingRoleParameterLogicalId).toBeDefined();
+  if (!recordingRoleParameterLogicalId)
+    throw new Error("Expected the recording upload role parameter");
+  const instances = applicationTemplate.findResources(
+    "AWS::EC2::Instance",
+  ) as Record<string, { DependsOn?: string[] }>;
+  const applicationInstance = Object.values(instances)[0];
+  expect(applicationInstance?.DependsOn).toContain(
+    recordingRoleParameterLogicalId,
+  );
   const policies = applicationTemplate.findResources(
     "AWS::IAM::Policy",
   ) as Record<

@@ -375,6 +375,7 @@ for (const requiredRecordingUploadBoundary of [
   "maxSessionDuration: Duration.hours(1)",
   'actions: ["s3:PutObject"]',
   "recordingUploadRole.grantAssumeRole(role)",
+  "instance.node.addDependency(recordingUploadRoleParameter)",
   "new StringParameter(",
   '"RecordingUploadRoleParameter"',
   'actions: ["ssm:GetParameter"]',
