@@ -2183,9 +2183,10 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page).toHaveURL(
       `/event-operations/${occurrenceId}/survey-qr/${surveyQr.id}`,
     );
-    await expect
-      .poll(() => page.evaluate(() => performance.timeOrigin))
-      .not.toBe(surveyCatalogueDocument);
+    await page.waitForFunction(
+      (previousTimeOrigin) => performance.timeOrigin !== previousTimeOrigin,
+      surveyCatalogueDocument,
+    );
     await expect(
       page.getByRole("img", { name: `QR code for ${surveyTitles[0] ?? ""}` }),
     ).toBeVisible();
@@ -2202,9 +2203,10 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page).toHaveURL(
       `/event-operations/${occurrenceId}?view=survey_qr&q=&state=all`,
     );
-    await expect
-      .poll(() => page.evaluate(() => performance.timeOrigin))
-      .not.toBe(qrPresentationDocument);
+    await page.waitForFunction(
+      (previousTimeOrigin) => performance.timeOrigin !== previousTimeOrigin,
+      qrPresentationDocument,
+    );
     await page.goto(`/event-surveys/${surveyQr.publicReference}`);
     await expect(
       page.getByRole("heading", { name: "Survey unavailable" }),
@@ -2429,7 +2431,7 @@ test("platform administrators can inspect learner progress", async ({
     await page.getByRole("button", { name: "Enter green room" }).click();
     await expect(
       page.getByRole("status").filter({
-        hasText: "LiveKit is unavailable or not configured.",
+        hasText: "LiveKit unavailable.",
       }),
     ).toBeVisible();
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
@@ -2476,11 +2478,11 @@ test("platform administrators can inspect learner progress", async ({
       const initialLobbyTimeOrigin = await guestPage.evaluate(
         () => performance.timeOrigin,
       );
-      await expect
-        .poll(() => guestPage.evaluate(() => performance.timeOrigin), {
-          timeout: 7_000,
-        })
-        .not.toBe(initialLobbyTimeOrigin);
+      await guestPage.waitForFunction(
+        (previousTimeOrigin) => performance.timeOrigin !== previousTimeOrigin,
+        initialLobbyTimeOrigin,
+        { timeout: 7_000 },
+      );
       await expect(
         guestPage.getByRole("heading", {
           name: "The webinar has not started",

@@ -3,7 +3,12 @@ import type * as LiveKitClient from "livekit-client";
 
 type LiveKitClientModule = Pick<
   typeof LiveKitClient,
-  "ConnectionState" | "isBrowserSupported" | "Room" | "RoomEvent" | "Track"
+  | "ConnectionState"
+  | "DisconnectReason"
+  | "isBrowserSupported"
+  | "Room"
+  | "RoomEvent"
+  | "Track"
 >;
 
 export type LiveKitPresenterClientLoader = () => Promise<LiveKitClientModule>;
@@ -28,11 +33,12 @@ interface PresenterMediaParticipant {
 
 export interface PresenterMediaSnapshot {
   connectionState: "disconnected" | "connecting" | "connected" | "reconnecting";
+  duplicateIdentity: boolean;
   canPlaybackAudio: boolean;
   cameraEnabled: boolean;
   microphoneEnabled: boolean;
   screenShareEnabled: boolean;
-  cameraOffParticipants: Array<PresenterMediaParticipant>;
+  cameraOffPresenters: Array<PresenterMediaParticipant>;
   tracks: Array<PresenterMediaTrack>;
 }
 
@@ -70,6 +76,7 @@ export async function createLiveKitPresenterMediaSession(
   const room = new client.Room({ adaptiveStream: true });
   const listeners = new Set<(snapshot: PresenterMediaSnapshot) => void>();
   let disposed = false;
+  let duplicateIdentity = false;
 
   const snapshot = (): PresenterMediaSnapshot => {
     const localTracks: Array<PresenterMediaTrack> = [
@@ -97,8 +104,10 @@ export async function createLiveKitPresenterMediaSession(
       ];
     });
     const remoteTracks: Array<PresenterMediaTrack> = [];
-    const cameraOffParticipants: Array<PresenterMediaParticipant> = [];
+    const cameraOffPresenters: Array<PresenterMediaParticipant> = [];
     for (const participant of room.remoteParticipants.values()) {
+      // Attendee presence belongs in the operational roster, not the media grid.
+      if (!participant.identity.startsWith("staff_")) continue;
       const participantName = participant.name?.trim() || "Participant";
       const participantTracks = [
         ...participant.trackPublications.values(),
@@ -133,7 +142,7 @@ export async function createLiveKitPresenterMediaSession(
             !track.muted,
         )
       )
-        cameraOffParticipants.push({
+        cameraOffPresenters.push({
           id: participant.identity,
           participantName,
         });
@@ -153,13 +162,14 @@ export async function createLiveKitPresenterMediaSession(
             : "disconnected";
     return {
       connectionState,
+      duplicateIdentity,
       canPlaybackAudio: room.canPlaybackAudio,
       cameraEnabled: activeLocalSources.has(client.Track.Source.Camera),
       microphoneEnabled: activeLocalSources.has(client.Track.Source.Microphone),
       screenShareEnabled: activeLocalSources.has(
         client.Track.Source.ScreenShare,
       ),
-      cameraOffParticipants,
+      cameraOffPresenters,
       tracks: [...localTracks, ...remoteTracks],
     };
   };
@@ -169,14 +179,22 @@ export async function createLiveKitPresenterMediaSession(
     const value = snapshot();
     for (const listener of listeners) listener(value);
   };
+  const handleConnected = () => {
+    duplicateIdentity = false;
+    notify();
+  };
+  const handleDisconnected = (reason?: number) => {
+    duplicateIdentity = reason === client.DisconnectReason.DUPLICATE_IDENTITY;
+    notify();
+  };
 
-  const roomEvents = [
-    client.RoomEvent.Connected,
+  room.on(client.RoomEvent.Connected, handleConnected);
+  room.on(client.RoomEvent.Reconnected, handleConnected);
+  room.on(client.RoomEvent.Disconnected, handleDisconnected);
+  const projectionEvents = [
     client.RoomEvent.Reconnecting,
     client.RoomEvent.SignalReconnecting,
     client.RoomEvent.SignalConnected,
-    client.RoomEvent.Reconnected,
-    client.RoomEvent.Disconnected,
     client.RoomEvent.ParticipantConnected,
     client.RoomEvent.ParticipantDisconnected,
     client.RoomEvent.ParticipantNameChanged,
@@ -188,7 +206,7 @@ export async function createLiveKitPresenterMediaSession(
     client.RoomEvent.LocalTrackUnpublished,
     client.RoomEvent.AudioPlaybackStatusChanged,
   ] as const;
-  for (const event of roomEvents) room.on(event, notify);
+  for (const event of projectionEvents) room.on(event, notify);
 
   return {
     status: "ready",
@@ -198,13 +216,16 @@ export async function createLiveKitPresenterMediaSession(
         await room.connect(credential.websocketUrl, credential.token, {
           autoSubscribe: true,
         });
-        notify();
+        handleConnected();
       },
       async dispose() {
         if (disposed) return;
         disposed = true;
         listeners.clear();
-        for (const event of roomEvents) room.off(event, notify);
+        room.off(client.RoomEvent.Connected, handleConnected);
+        room.off(client.RoomEvent.Reconnected, handleConnected);
+        room.off(client.RoomEvent.Disconnected, handleDisconnected);
+        for (const event of projectionEvents) room.off(event, notify);
         await room.disconnect(true);
       },
       async enableAudio() {

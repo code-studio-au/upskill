@@ -67,7 +67,10 @@ class FakeLocalParticipant {
 
 class FakeRoom {
   static last: FakeRoom | null = null;
-  readonly listeners = new Map<string, Set<() => void>>();
+  readonly listeners = new Map<
+    string,
+    Set<(...arguments_: Array<unknown>) => void>
+  >();
   readonly localParticipant = new FakeLocalParticipant();
   readonly remoteParticipants = new Map<string, Record<string, unknown>>();
   readonly connect = vi.fn(() => {
@@ -90,20 +93,21 @@ class FakeRoom {
     FakeRoom.last = this;
   }
 
-  on(event: string, listener: () => void) {
+  on(event: string, listener: (...arguments_: Array<unknown>) => void) {
     const listeners = this.listeners.get(event) ?? new Set();
     listeners.add(listener);
     this.listeners.set(event, listeners);
     return this;
   }
 
-  off(event: string, listener: () => void) {
+  off(event: string, listener: (...arguments_: Array<unknown>) => void) {
     this.listeners.get(event)?.delete(listener);
     return this;
   }
 
-  emit(event: string) {
-    for (const listener of this.listeners.get(event) ?? []) listener();
+  emit(event: string, ...arguments_: Array<unknown>) {
+    for (const listener of this.listeners.get(event) ?? [])
+      listener(...arguments_);
   }
 }
 
@@ -116,6 +120,13 @@ function fakeClient(supported = true): LiveKitPresenterClientLoader {
         Disconnected: "disconnected",
         Reconnecting: "reconnecting",
         SignalReconnecting: "signalReconnecting",
+      },
+      DisconnectReason: {
+        CLIENT_INITIATED: 1,
+        DUPLICATE_IDENTITY: 2,
+        PARTICIPANT_REMOVED: 4,
+        ROOM_DELETED: 5,
+        ROOM_CLOSED: 10,
       },
       isBrowserSupported: () => supported,
       Room: FakeRoom,
@@ -164,6 +175,7 @@ describe("LiveKit presenter media session", () => {
     );
     expect(result.session.snapshot()).toMatchObject({
       connectionState: "connected",
+      duplicateIdentity: false,
       cameraEnabled: false,
       microphoneEnabled: false,
       screenShareEnabled: false,
@@ -189,8 +201,8 @@ describe("LiveKit presenter media session", () => {
     await result.session.setCameraEnabled(true);
     const subscribedVideo = mediaTrack();
     const subscribedAudio = mediaTrack();
-    room.remoteParticipants.set("staff:presenter-2", {
-      identity: "staff:presenter-2",
+    const remotePresenter = {
+      identity: "staff_presenter-2",
       name: "Presenter Two",
       trackPublications: new Map([
         [
@@ -227,9 +239,10 @@ describe("LiveKit presenter media session", () => {
           },
         ],
       ]),
-    });
+    };
+    room.remoteParticipants.set("staff_presenter-2", remotePresenter);
 
-    room.emit(events.TrackSubscribed);
+    room.emit(events.ParticipantConnected, remotePresenter);
     expect(result.session.snapshot().tracks).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ local: true, source: "camera" }),
@@ -251,12 +264,12 @@ describe("LiveKit presenter media session", () => {
         .tracks.some((track) => track.id.includes("unsubscribed")),
     ).toBe(false);
 
-    expect(result.session.snapshot().cameraOffParticipants).toEqual([]);
+    expect(result.session.snapshot().cameraOffPresenters).toEqual([]);
     expect(
       result.session
         .snapshot()
-        .cameraOffParticipants.some(
-          (participant) => participant.id === "staff:presenter-2",
+        .cameraOffPresenters.some(
+          (participant) => participant.id === "staff_presenter-2",
         ),
     ).toBe(false);
 
@@ -274,20 +287,59 @@ describe("LiveKit presenter media session", () => {
     if (result.status !== "ready") throw new Error("Expected a ready session");
     const room = FakeRoom.last;
     if (!room) throw new Error("Expected a fake LiveKit room");
-    room.remoteParticipants.set("staff:presenter-2", {
-      identity: "staff:presenter-2",
+    const remotePresenter = {
+      identity: "staff_presenter-2",
       name: "Presenter Two",
       trackPublications: new Map(),
-    });
+    };
+    room.remoteParticipants.set("staff_presenter-2", remotePresenter);
 
-    room.emit(events.ParticipantConnected);
+    room.emit(events.ParticipantConnected, remotePresenter);
 
-    expect(result.session.snapshot().cameraOffParticipants).toEqual([
+    expect(result.session.snapshot().cameraOffPresenters).toEqual([
       {
-        id: "staff:presenter-2",
+        id: "staff_presenter-2",
         participantName: "Presenter Two",
       },
     ]);
+  });
+
+  it("does not project attendee tiles or media into the presenter grid", async () => {
+    const result = await createLiveKitPresenterMediaSession(fakeClient());
+    if (result.status !== "ready") throw new Error("Expected a ready session");
+    const room = FakeRoom.last;
+    if (!room) throw new Error("Expected a fake LiveKit room");
+    for (let index = 0; index < 1_000; index += 1) {
+      const suffix = String(index);
+      room.remoteParticipants.set(`attendee:${suffix}`, {
+        identity: `attendee:${suffix}`,
+        name: `Attendee ${suffix}`,
+        trackPublications: new Map(
+          index === 0
+            ? [
+                [
+                  "unexpected-camera",
+                  {
+                    track: mediaTrack(),
+                    trackSid: "unexpected-camera",
+                    kind: "video",
+                    source: "camera",
+                    isMuted: false,
+                    isSubscribed: true,
+                  },
+                ],
+              ]
+            : [],
+        ),
+      });
+    }
+
+    room.emit(events.Connected);
+
+    expect(result.session.snapshot()).toMatchObject({
+      cameraOffPresenters: [],
+      tracks: [],
+    });
   });
 
   it("reports automatic reconnect progress until media recovery completes", async () => {
@@ -317,4 +369,57 @@ describe("LiveKit presenter media session", () => {
       connectionState: "connected",
     });
   });
+
+  it("clears a signal-only reconnect after signalling recovers", async () => {
+    const result = await createLiveKitPresenterMediaSession(fakeClient());
+    if (result.status !== "ready") throw new Error("Expected a ready session");
+    const room = FakeRoom.last;
+    if (!room) throw new Error("Expected a fake LiveKit room");
+    await result.session.connect({
+      token: "short-lived-presenter-token",
+      websocketUrl: "wss://tenant.livekit.cloud",
+      expiresAt: "2026-09-06T10:05:00.000Z",
+      generation: 1,
+    });
+
+    room.state = "signalReconnecting";
+    room.emit(events.SignalReconnecting);
+    expect(result.session.snapshot().connectionState).toBe("reconnecting");
+
+    room.state = "connected";
+    room.emit(events.SignalConnected);
+    expect(result.session.snapshot()).toMatchObject({
+      connectionState: "connected",
+      duplicateIdentity: false,
+    });
+  });
+
+  it.each([
+    [2, true],
+    [4, false],
+    [undefined, false],
+  ] as const)(
+    "identifies duplicate disconnect reason %s as %s",
+    async (reason, expected) => {
+      const result = await createLiveKitPresenterMediaSession(fakeClient());
+      if (result.status !== "ready")
+        throw new Error("Expected a ready session");
+      const room = FakeRoom.last;
+      if (!room) throw new Error("Expected a fake LiveKit room");
+      await result.session.connect({
+        token: "short-lived-presenter-token",
+        websocketUrl: "wss://tenant.livekit.cloud",
+        expiresAt: "2026-09-06T10:05:00.000Z",
+        generation: 1,
+      });
+
+      room.state = "disconnected";
+      room.emit(events.Disconnected, reason);
+
+      expect(result.session.snapshot()).toMatchObject({
+        connectionState: "disconnected",
+        duplicateIdentity: expected,
+      });
+    },
+  );
 });
