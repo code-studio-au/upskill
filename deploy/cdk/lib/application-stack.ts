@@ -49,6 +49,7 @@ export interface ApplicationStackProps extends StackProps {
   artifactBucket: Bucket;
   learningBucket: Bucket;
   privateBucket: Bucket;
+  recordingBucket: Bucket;
   quarantineBucket: Bucket;
   workQueue: Queue;
   deadLetterQueue: Queue;
@@ -92,6 +93,7 @@ export class ApplicationStack extends Stack {
           S3_QUARANTINE_BUCKET: props.quarantineBucket.bucketName,
           S3_LEARNING_CONTENT_BUCKET: props.learningBucket.bucketName,
           S3_PRIVATE_RESOURCES_BUCKET: props.privateBucket.bucketName,
+          S3_RECORDING_BUCKET: props.recordingBucket.bucketName,
           SQS_QUEUE_URL: props.workQueue.queueUrl,
           SQS_DEAD_LETTER_QUEUE_URL: props.deadLetterQueue.queueUrl,
           SQS_RECEIVE_WAIT_SECONDS: "20",

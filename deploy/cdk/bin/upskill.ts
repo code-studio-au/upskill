@@ -40,6 +40,7 @@ const application = new ApplicationStack(app, `${stackPrefix}-application`, {
   artifactBucket: storage.artifactBucket,
   learningBucket: storage.learningBucket,
   privateBucket: storage.privateBucket,
+  recordingBucket: storage.recordingBucket,
   quarantineBucket: storage.quarantineBucket,
   workQueue: storage.workQueue,
   deadLetterQueue: storage.deadLetterQueue,

@@ -71,6 +71,7 @@ const environmentSchema = z.object({
     .string()
     .min(3)
     .default("upskill-private-resources"),
+  S3_RECORDING_BUCKET: z.string().min(3).default("upskill-recordings"),
   SQS_ENDPOINT: z.url().optional(),
   SQS_QUEUE_URL: z
     .url()
@@ -205,6 +206,7 @@ export function parseServerEnvironment(
       "S3_QUARANTINE_BUCKET",
       "S3_LEARNING_CONTENT_BUCKET",
       "S3_PRIVATE_RESOURCES_BUCKET",
+      "S3_RECORDING_BUCKET",
       "SQS_QUEUE_URL",
       "SQS_DEAD_LETTER_QUEUE_URL",
       "SUPPORT_EMAIL",

@@ -27,6 +27,7 @@ export class StorageStack extends Stack {
   readonly quarantineBucket: Bucket;
   readonly learningBucket: Bucket;
   readonly privateBucket: Bucket;
+  readonly recordingBucket: Bucket;
   readonly artifactBucket: Bucket;
   readonly deadLetterQueue: Queue;
   readonly workQueue: Queue;
@@ -62,6 +63,13 @@ export class StorageStack extends Stack {
     this.privateBucket = new Bucket(this, "PrivateBucket", {
       ...bucketDefaults,
       versioned: true,
+    });
+    this.recordingBucket = new Bucket(this, "RecordingBucket", {
+      ...bucketDefaults,
+      versioned: true,
+      lifecycleRules: [
+        { abortIncompleteMultipartUploadAfter: Duration.days(1) },
+      ],
     });
     this.artifactBucket = new Bucket(this, "ArtifactBucket", {
       ...bucketDefaults,
@@ -128,6 +136,9 @@ export class StorageStack extends Stack {
       alarm.addAlarmAction(new SnsAction(this.alarmTopic));
     new CfnOutput(this, "ArtifactBucketName", {
       value: this.artifactBucket.bucketName,
+    });
+    new CfnOutput(this, "RecordingBucketName", {
+      value: this.recordingBucket.bucketName,
     });
   }
 }

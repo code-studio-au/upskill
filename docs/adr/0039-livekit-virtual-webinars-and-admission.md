@@ -1,7 +1,7 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–4, 5a–5d and open-entry lobby integration
-  implemented, later slices pending
+- **Status:** Accepted; Slices 1–4, 5a–5d, 6a and open-entry lobby
+  integration implemented, later slices pending
 - **Date:** 2026-08-31
 
 ## Context
@@ -1021,13 +1021,18 @@ recording, transcription, and AI summaries are outside the initial slice.
 
 The recording is written to an opaque, session-generation-specific prefix in a
 private Upskill S3 bucket. The preferred upload authorization is LiveKit Cloud
-AWS role assumption when enabled for the selected plan. Otherwise the server may
-supply dedicated short-lived STS credentials whose expiry covers the bounded
-session and final upload. The credentials allow only the required object writes
-to that exact recording prefix, are never persisted in the database or logs,
-and cannot list, read, or delete bucket objects. Recording object names are
-unique and replacement protection is enforced by the storage policy. Long-lived
-or general-purpose AWS credentials are not accepted.
+AWS role assumption when enabled for the selected plan. The exact authorization
+mechanism must be proven before activation: role assumption is a plan-dependent
+provider capability, while credentials obtained by chaining from the
+application EC2 role have a one-hour AWS session ceiling and therefore cannot
+cover the currently permitted multi-hour Event Sessions. The adapter accepts
+only temporary upload authorization whose expiry covers the bounded session and
+final upload, but credential issuance remains a separate delivery slice until
+that operational choice is confirmed. The authorization allows only the
+required object writes to that exact recording prefix, is never persisted in
+the database or logs, and cannot list, read, or delete bucket objects. Recording
+object names are unique and replacement protection is enforced by the storage
+policy. Long-lived or general-purpose AWS credentials are not accepted.
 
 Recording start, active, stopping, complete, failed, size, duration, provider
 Egress identifier, storage key, retention deadline, and deletion evidence are
@@ -1236,12 +1241,26 @@ gates passed; it does not by itself authorise staging or production activation.
       Policy verification, deterministic bundle coverage and supported-browser
       media smoke tests. Implemented by
       [PR #72](https://github.com/code-studio-au/upskill/pull/72).
-- [ ] **Slice 6a — dormant recording policy and evidence:** add versioned
+- [x] **Slice 6a — dormant recording policy and evidence:** add versioned
       recording policy, consent requirements, recording evidence persistence and
-      provider-operation contracts without activating Egress.
-- [ ] **Slice 6b — managed Egress execution:** add idempotent RoomComposite Egress,
-      dedicated private storage, narrowly scoped upload authorisation, provider
-      status ingestion and reconciliation.
+      provider-operation contracts without activating Egress. Implemented by
+      [PR #73](https://github.com/code-studio-au/upskill/pull/73).
+- [ ] **Slice 6b1 — dormant managed-Egress adapter and storage:** add the
+      LiveKit Cloud `StartEgress`/list/stop adapter, fixed speaker-layout MP4
+      request mapping, safe provider-state normalisation and a dedicated private
+      recording bucket. Keep automatic recording blocked and inject, but do not
+      yet implement, the exact-prefix upload-authorisation boundary.
+- [ ] **Slice 6b2 — recording upload authorisation:** implement and verify the
+      selected plan-compatible, narrowly scoped authorization for LiveKit Cloud
+      to write one exact opaque recording target. Never persist or log the
+      credential, and reject authorization that expires before final upload.
+- [ ] **Slice 6b3 — idempotent recording operations:** connect recording start
+      and stop to committed room transitions through stable outbox operations,
+      reconcile ambiguous provider outcomes and preserve one logical recording
+      per room generation.
+- [ ] **Slice 6b4 — recording status ingestion:** accept verified Egress webhook
+      states, reconcile delayed or missing status and output evidence, and expose
+      bounded operational failures without provider detail leakage.
 - [ ] **Slice 6c — recording consumption and retention:** add authorised private
       playback/download, retention and deletion evidence, administrator status and
       recoverable failure handling.
@@ -1342,9 +1361,10 @@ correction history.
 
 Configuration tests prove that each environment selects one validated LiveKit
 Cloud project URL, server-only credentials remain absent from client and build
-outputs, and staging/production credentials cannot be interchanged. Existing
-AWS verification covers Secrets Manager access and the private recording bucket,
-encryption, lifecycle, logging, and narrowly scoped recording upload role.
+outputs, and staging/production credentials cannot be interchanged. AWS
+verification covers Secrets Manager access and, as the recording slices land,
+the private recording bucket, encryption, lifecycle, logging, and narrowly
+scoped recording upload authorization.
 
 Staging readiness tests cover WebSocket signalling, direct media and restrictive
 network fallback, signed webhook delivery, provider interruption, room-generation

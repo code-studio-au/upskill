@@ -328,6 +328,10 @@ const applicationStack = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/application-stack.ts"),
   "utf8",
 );
+const storageStack = fs.readFileSync(
+  path.join(root, "deploy/cdk/lib/storage-stack.ts"),
+  "utf8",
+);
 if (!applicationStack.includes("SQS_QUEUE_URL: props.workQueue.queueUrl"))
   failures.push("The deployed worker must receive its CDK-managed queue URL");
 if (!applicationStack.includes('UPSKILL_TRUST_PROXY: "true"'))
@@ -352,6 +356,20 @@ for (const requiredLiveKitBoundary of [
       `The dormant LiveKit configuration boundary is missing: ${requiredLiveKitBoundary}`,
     );
 }
+for (const requiredRecordingStorageBoundary of [
+  'new Bucket(this, "RecordingBucket"',
+  "blockPublicAccess: BlockPublicAccess.BLOCK_ALL",
+  "enforceSSL: true",
+  "versioned: true",
+  "abortIncompleteMultipartUploadAfter: Duration.days(1)",
+]) {
+  if (!storageStack.includes(requiredRecordingStorageBoundary))
+    failures.push(
+      `The private recording storage boundary is missing: ${requiredRecordingStorageBoundary}`,
+    );
+}
+if (!applicationStack.includes("S3_RECORDING_BUCKET"))
+  failures.push("The deployed server must receive its recording bucket name");
 for (const relative of [
   ".env.example",
   "deploy/cdk/lib/application-stack.ts",
@@ -378,6 +396,22 @@ for (const boundary of [
 ])
   if (!liveKitProvider.includes(boundary))
     failures.push(`LiveKit provider boundary is missing: ${boundary}`);
+const liveKitRecordingProvider = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/livekit/livekit-recording-provider.cloud.server.ts",
+  ),
+  "utf8",
+);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "new StartEgressRequest",
+  "disableManifest: true",
+  "uploadAuthorizationExpiresAt",
+  "sessionToken: authorization.sessionToken",
+])
+  if (!liveKitRecordingProvider.includes(boundary))
+    failures.push(`LiveKit recording boundary is missing: ${boundary}`);
 const liveKitWebhook = fs.readFileSync(
   path.join(root, "src/server/livekit/livekit-webhook.server.ts"),
   "utf8",

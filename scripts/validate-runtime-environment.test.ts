@@ -31,6 +31,7 @@ function stagingEnvironment(
     S3_QUARANTINE_BUCKET: "upskill-staging-quarantine",
     S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning",
     S3_PRIVATE_RESOURCES_BUCKET: "upskill-staging-private",
+    S3_RECORDING_BUCKET: "upskill-staging-recordings",
     SQS_QUEUE_URL:
       "https://sqs.ap-southeast-2.amazonaws.com/123456789012/upskill-work",
     SQS_DEAD_LETTER_QUEUE_URL:
@@ -81,5 +82,13 @@ describe("deployed runtime environment", () => {
     expect(() => {
       validateDeployedRuntimeEnvironment(stagingEnvironment({ [key]: value }));
     }).toThrow(/deployment environment|must be/u);
+  });
+
+  it("requires the dedicated recording bucket outside local environments", () => {
+    expect(() => {
+      validateDeployedRuntimeEnvironment(
+        stagingEnvironment({ S3_RECORDING_BUCKET: undefined }),
+      );
+    }).toThrow("S3_RECORDING_BUCKET is required outside local environments");
   });
 });
