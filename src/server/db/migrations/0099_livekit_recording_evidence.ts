@@ -109,7 +109,13 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       )
       and (
         "deletedAt" is null
-        or "deletedAt" >= "completedAt"
+        or (
+          "deletedAt" >= "completedAt"
+          and (
+            "deletionReason" <> 'retention_expired'
+            or "deletedAt" >= "retentionDeadline"
+          )
+        )
       )
     ),
     constraint event_virtual_recording_state_ck check (
@@ -184,9 +190,131 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
   await sql`create index event_virtual_recording_retention_idx
     on event_virtual_recording ("retentionDeadline")
     where status = 'complete'`.execute(db);
+
+  await sql`create function guard_event_virtual_recording_evidence()
+    returns trigger
+    language plpgsql
+    as $$
+    begin
+      if tg_op = 'DELETE' then
+        if current_user in ('upskill_web', 'upskill_worker') then
+          raise exception 'Recording evidence cannot be physically deleted'
+            using errcode = '42501';
+        end if;
+        return old;
+      end if;
+
+      if row(
+        new.id, new."roomId", new."eventSessionId", new."roomGeneration",
+        new.provider, new."recordingMode", new."storageObjectKey",
+        new."retentionDays", new."attendeeNoticeDigest",
+        new."presenterNoticeDigest", new."requestedByUserId", new."requestedAt"
+      ) is distinct from row(
+        old.id, old."roomId", old."eventSessionId", old."roomGeneration",
+        old.provider, old."recordingMode", old."storageObjectKey",
+        old."retentionDays", old."attendeeNoticeDigest",
+        old."presenterNoticeDigest", old."requestedByUserId", old."requestedAt"
+      ) then
+        raise exception 'Recording contractual evidence is immutable'
+          using errcode = '23514';
+      end if;
+
+      if (
+        (old."providerEgressId" is not null
+          and new."providerEgressId" is distinct from old."providerEgressId")
+        or (old."startedAt" is not null
+          and new."startedAt" is distinct from old."startedAt")
+        or (old."stopRequestedByUserId" is not null
+          and new."stopRequestedByUserId" is distinct from old."stopRequestedByUserId")
+        or (old."stopRequestedAt" is not null
+          and new."stopRequestedAt" is distinct from old."stopRequestedAt")
+        or (old."endedAt" is not null
+          and new."endedAt" is distinct from old."endedAt")
+        or (old."completedAt" is not null
+          and new."completedAt" is distinct from old."completedAt")
+        or (old."fileSizeBytes" is not null
+          and new."fileSizeBytes" is distinct from old."fileSizeBytes")
+        or (old."durationNanoseconds" is not null
+          and new."durationNanoseconds" is distinct from old."durationNanoseconds")
+        or (old."retentionDeadline" is not null
+          and new."retentionDeadline" is distinct from old."retentionDeadline")
+        or (old."failureCode" is not null
+          and new."failureCode" is distinct from old."failureCode")
+        or (old."deletedByUserId" is not null
+          and new."deletedByUserId" is distinct from old."deletedByUserId")
+        or (old."deletedAt" is not null
+          and new."deletedAt" is distinct from old."deletedAt")
+        or (old."deletionReason" is not null
+          and new."deletionReason" is distinct from old."deletionReason")
+      ) then
+        raise exception 'Recorded lifecycle evidence is immutable'
+          using errcode = '23514';
+      end if;
+
+      if new."updatedAt" < old."updatedAt" then
+        raise exception 'Recording evidence update time cannot move backwards'
+          using errcode = '23514';
+      end if;
+
+      if new.status is distinct from old.status and not (
+        (old.status = 'requested' and new.status in ('starting', 'failed'))
+        or (old.status = 'starting'
+          and new.status in ('active', 'stopping', 'complete', 'failed'))
+        or (old.status = 'active'
+          and new.status in ('stopping', 'complete', 'failed'))
+        or (old.status = 'stopping' and new.status in ('complete', 'failed'))
+        or (old.status = 'complete' and new.status = 'deleted')
+      ) then
+        raise exception 'Recording lifecycle transition is not allowed'
+          using errcode = '23514';
+      end if;
+
+      if old.status in ('failed', 'deleted') and new is distinct from old then
+        raise exception 'Terminal recording evidence is immutable'
+          using errcode = '23514';
+      end if;
+      if old.status = 'complete' then
+        if new.status = 'complete' and new is distinct from old then
+          raise exception 'Completed recording evidence is immutable'
+            using errcode = '23514';
+        end if;
+        if new.status = 'deleted' and (
+          to_jsonb(new) - array[
+            'status', 'deletedByUserId', 'deletedAt', 'deletionReason', 'updatedAt'
+          ] is distinct from
+          to_jsonb(old) - array[
+            'status', 'deletedByUserId', 'deletedAt', 'deletionReason', 'updatedAt'
+          ]
+        ) then
+          raise exception 'Deletion cannot rewrite completed recording evidence'
+            using errcode = '23514';
+        end if;
+      end if;
+      return new;
+    end
+    $$`.execute(db);
+  await sql`create trigger event_virtual_recording_guard_trg
+    before update or delete on event_virtual_recording
+    for each row execute function guard_event_virtual_recording_evidence()`.execute(
+    db,
+  );
+
+  await sql`do $$
+    begin
+      if exists (select 1 from pg_roles where rolname = 'upskill_web') then
+        execute 'revoke delete on table event_virtual_recording from upskill_web';
+      end if;
+      if exists (select 1 from pg_roles where rolname = 'upskill_worker') then
+        execute 'revoke delete on table event_virtual_recording from upskill_worker';
+      end if;
+    end
+    $$`.execute(db);
 }
 
 export async function down<Database>(db: Kysely<Database>): Promise<void> {
+  await sql`drop trigger event_virtual_recording_guard_trg
+    on event_virtual_recording`.execute(db);
+  await sql`drop function guard_event_virtual_recording_evidence()`.execute(db);
   await sql`drop table event_virtual_recording`.execute(db);
   await sql`alter table event_virtual_room
     drop constraint event_virtual_room_recording_scope_uq`.execute(db);

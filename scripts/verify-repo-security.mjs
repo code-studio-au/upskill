@@ -502,6 +502,14 @@ if (!provisionRuntimeRoles.includes("$1::text"))
   failures.push(
     "Runtime database-role password formatting must type its bound parameter",
   );
+if (
+  !provisionRuntimeRoles.includes(
+    "revoke delete on table event_virtual_recording from ${role}",
+  )
+)
+  failures.push(
+    "Runtime database roles must not physically delete LiveKit recording evidence",
+  );
 if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
   failures.push(
     "Release installation must expose the verified commit identity",

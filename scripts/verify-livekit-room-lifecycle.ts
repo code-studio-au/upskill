@@ -769,6 +769,19 @@ try {
     .insertInto("event_virtual_recording")
     .values(recordingValues)
     .executeTakeFirstOrThrow();
+  await assert.rejects(
+    database
+      .updateTable("event_virtual_recording")
+      .set({
+        storageObjectKey: "recordings/other_room/other_recording.mp4",
+      })
+      .where("id", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      code: "23514",
+      message: /Recording contractual evidence is immutable/u,
+    },
+  );
   await assertDatabaseConstraint(
     () =>
       database
@@ -783,25 +796,27 @@ try {
     "23505",
     "event_virtual_recording_room_uq",
   );
-  await assertDatabaseConstraint(
-    () =>
-      database
-        .updateTable("event_virtual_recording")
-        .set({ roomGeneration: room.generation + 1 })
-        .where("id", "=", recordingId)
-        .executeTakeFirstOrThrow(),
-    "23503",
-    "event_virtual_recording_room_fk",
+  await assert.rejects(
+    database
+      .updateTable("event_virtual_recording")
+      .set({ roomGeneration: room.generation + 1 })
+      .where("id", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      code: "23514",
+      message: /Recording contractual evidence is immutable/u,
+    },
   );
-  await assertDatabaseConstraint(
-    () =>
-      database
-        .updateTable("event_virtual_recording")
-        .set({ status: "active" })
-        .where("id", "=", recordingId)
-        .executeTakeFirstOrThrow(),
-    "23514",
-    "event_virtual_recording_state_ck",
+  await assert.rejects(
+    database
+      .updateTable("event_virtual_recording")
+      .set({ status: "active" })
+      .where("id", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      code: "23514",
+      message: /Recording lifecycle transition is not allowed/u,
+    },
   );
   await assertDatabaseConstraint(
     () =>
@@ -835,6 +850,17 @@ try {
     })
     .where("id", "=", recordingId)
     .executeTakeFirstOrThrow();
+  await assert.rejects(
+    database
+      .updateTable("event_virtual_recording")
+      .set({ status: "requested" })
+      .where("id", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      code: "23514",
+      message: /Recording lifecycle transition is not allowed/u,
+    },
+  );
   for (const invalidRetentionDeadline of [
     new Date("2030-09-05T00:33:00.000Z"),
     new Date("2030-10-05T00:33:00.000Z"),
@@ -870,6 +896,33 @@ try {
     })
     .where("id", "=", recordingId)
     .executeTakeFirstOrThrow();
+  await assert.rejects(
+    database
+      .updateTable("event_virtual_recording")
+      .set({ updatedAt: new Date("2030-09-04T00:34:00.000Z") })
+      .where("id", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      code: "23514",
+      message: /Completed recording evidence is immutable/u,
+    },
+  );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("event_virtual_recording")
+        .set({
+          status: "deleted",
+          deletedByUserId: administrator.id,
+          deletedAt: new Date("2030-09-04T00:34:00.000Z"),
+          deletionReason: "retention_expired",
+          updatedAt: new Date("2030-09-04T00:34:00.000Z"),
+        })
+        .where("id", "=", recordingId)
+        .executeTakeFirstOrThrow(),
+    "23514",
+    "event_virtual_recording_timeline_ck",
+  );
   const recordingDeletedAt = new Date("2030-10-04T00:34:00.000Z");
   await database
     .updateTable("event_virtual_recording")
@@ -882,6 +935,17 @@ try {
     })
     .where("id", "=", recordingId)
     .executeTakeFirstOrThrow();
+  await assert.rejects(
+    database
+      .updateTable("event_virtual_recording")
+      .set({ updatedAt: new Date("2030-10-04T00:35:00.000Z") })
+      .where("id", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      code: "23514",
+      message: /Terminal recording evidence is immutable/u,
+    },
+  );
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_recording")

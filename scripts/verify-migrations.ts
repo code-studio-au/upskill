@@ -703,6 +703,22 @@ try {
     13,
     "LiveKit recording scope, immutable policy evidence and lifecycle state must be constrained",
   );
+  const liveKitRecordingGuard = await sql<{
+    definition: string;
+  }>`select pg_get_triggerdef(oid) as definition
+      from pg_trigger
+      where tgname = 'event_virtual_recording_guard_trg'
+        and not tgisinternal`.execute(db);
+  assert.equal(
+    liveKitRecordingGuard.rows.length,
+    1,
+    "LiveKit recording evidence must have one update/delete guard",
+  );
+  const recordingGuardDefinition =
+    liveKitRecordingGuard.rows[0]?.definition.toUpperCase() ?? "";
+  assert.match(recordingGuardDefinition, /BEFORE/u);
+  assert.match(recordingGuardDefinition, /UPDATE/u);
+  assert.match(recordingGuardDefinition, /DELETE/u);
   const liveKitLobbyConstraints = await sql<{
     constraint_name: string;
   }>`select constraint_name from information_schema.table_constraints
