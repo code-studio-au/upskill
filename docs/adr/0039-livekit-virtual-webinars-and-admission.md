@@ -1,6 +1,6 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–4, 5a–5d, 6a–6b1 and open-entry lobby
+- **Status:** Accepted; Slices 1–4, 5a–5e, 6a–6b2b and open-entry lobby
   integration implemented, later slices pending
 - **Date:** 2026-08-31
 
@@ -1035,13 +1035,35 @@ response that expires before that deadline is rejected. This supports short
 development recordings without introducing long-lived AWS credentials. It does
 not authorize automatic recording or multi-hour production recording.
 
-The production-duration path remains a separate decision and delivery slice.
-The preferred option is LiveKit Cloud AWS role assumption when enabled for the
-selected plan; otherwise Upskill must design a non-chained temporary credential
-issuer with equivalent rotation and operational controls. Long-lived or
-general-purpose AWS credentials are not accepted. Production recording cannot
-be activated until that path is proven for the maximum permitted Event Session
-duration.
+The production-duration path uses Amazon S3 Access Grants as a separately
+reviewed, non-chained temporary credential issuer. The application role requests
+`WRITE` access with `Minimal` privilege and `Object` target type for one exact
+opaque MP4 target. S3 Access Grants returns an STS credential whose matched
+target and expiry are revalidated before it is passed to LiveKit Cloud. The
+registered-location role permits only `s3:PutObject` under the dedicated
+recording prefix, so the vended credential receives neither the broader actions
+available to an Access Grants `WRITE` grant nor access to another object.
+
+S3 Access Grants credentials last at most twelve hours. Automatically recorded
+Event Sessions therefore have an eleven-hour scheduled-duration ceiling and
+reserve the final hour for recording finalisation and upload. This limit does
+not reduce the seven-day ceiling for sessions whose recording mode is off.
+Future recording start operations must calculate the required authorization
+deadline from the current start time, snapshotted scheduled duration and this
+fixed final-upload reserve; they must reject a deadline beyond twelve hours
+before calling AWS.
+
+S3 Access Grants permits one instance per AWS account and Region. An
+account-level Upskill foundation stack owns that singleton, while each
+environment application stack registers only its own recording prefix and
+grants only its own EC2 application role access. Before the foundation stack's
+first deployment, operators must confirm the target account and Region do not
+already contain an externally managed instance; an existing instance requires a
+reviewed CloudFormation import or ownership decision instead of creating a
+second resource. The location role trust binds the S3 Access Grants service to
+the exact account and instance ARN. Long-lived or general-purpose AWS
+credentials are not accepted. Provisioning or activating recording in staging
+or production remains a separate operational action.
 
 The upload-authorization impact delta is deliberately narrow:
 
@@ -1051,6 +1073,9 @@ The upload-authorization impact delta is deliberately narrow:
 | Foreign bucket, region, malformed key, expired or over-one-hour deadline | Reject before STS without issuing a credential                                                                                         | Parameterized negative unit tests                                                                |
 | STS error, incomplete result or insufficient expiry                      | Return one safe typed failure; expose no provider detail or credential                                                                 | Failure and post-call expiry tests                                                               |
 | Other application and LiveKit operations                                 | Receive no read, list, delete or general recording-bucket access; automatic recording and durable operations remain unreachable in 6b3 | Synthesized role attachment/action assertions and the existing dormant recording-operation guard |
+| Production-duration authorizer requests an exact recording object        | Ask S3 Access Grants for minimal object-targeted `WRITE` credentials lasting no longer than twelve hours                               | Authorizer request, exact matched-target and expiry regression tests                             |
+| Automatic recording exceeds the supported credential window              | Reject save and publication above eleven hours while leaving non-recorded session limits unchanged                                     | Server policy and publication-query regression coverage                                          |
+| S3 Access Grants vends broader, incomplete or short-lived credentials    | Reject the response and expose one safe typed failure without credentials or AWS detail                                                | Negative authorizer regression coverage                                                          |
 
 Recording start, active, stopping, complete, failed, size, duration, provider
 Egress identifier, storage key, retention deadline, and deletion evidence are
@@ -1259,12 +1284,13 @@ gates passed; it does not by itself authorise staging or production activation.
       Policy verification, deterministic bundle coverage and supported-browser
       media smoke tests. Implemented by
       [PR #72](https://github.com/code-studio-au/upskill/pull/72).
-- [ ] **Slice 5e — configured-provider publication activation:** remove the
+- [x] **Slice 5e — configured-provider publication activation:** remove the
       temporary publication guard now that attendee and presenter media journeys
       are complete, preserve environment and capacity gates, update operational
       guidance and prove the normal published-event path against a development
       LiveKit Cloud project. Staging and production activation remain separate
-      operational actions.
+      operational actions. Implemented by
+      [PR #76](https://github.com/code-studio-au/upskill/pull/76).
 - [x] **Slice 6a — dormant recording policy and evidence:** add versioned
       recording policy, consent requirements, recording evidence persistence and
       provider-operation contracts without activating Egress. Implemented by
@@ -1281,10 +1307,12 @@ gates passed; it does not by itself authorise staging or production activation.
       deadline is no more than one hour away. Never persist or log credentials,
       and reject foreign scope or insufficient expiry before Egress can start.
       Implemented by [PR #75](https://github.com/code-studio-au/upskill/pull/75).
-- [ ] **Slice 6b2b — production-duration recording upload authorisation:** prove
+- [x] **Slice 6b2b — production-duration recording upload authorisation:** prove
       and implement LiveKit Cloud role assumption for the selected plan, or a
       separately reviewed non-chained temporary credential issuer, so the
-      authorization safely covers the maximum Event Session plus final upload.
+      authorization safely covers the maximum automatically recorded Event
+      Session plus final upload. Implemented by
+      [PR #78](https://github.com/code-studio-au/upskill/pull/78).
 - [ ] **Slice 6b3 — idempotent recording operations:** connect recording start
       and stop to committed room transitions through stable outbox operations,
       reconcile ambiguous provider outcomes and preserve one logical recording

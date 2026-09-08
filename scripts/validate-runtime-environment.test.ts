@@ -29,6 +29,7 @@ function stagingEnvironment(
     LIVEKIT_PROJECT_ENVIRONMENT: "staging",
     LIVEKIT_RECORDING_UPLOAD_ROLE_ARN:
       "arn:aws:iam::123456789012:role/upskill-staging-recording-upload",
+    LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID: "123456789012",
     AWS_REGION: "ap-southeast-2",
     S3_QUARANTINE_BUCKET: "upskill-staging-quarantine",
     S3_LEARNING_CONTENT_BUCKET: "upskill-staging-learning",
@@ -99,6 +100,16 @@ describe("deployed runtime environment", () => {
       validateDeployedRuntimeEnvironment(
         stagingEnvironment({
           LIVEKIT_RECORDING_UPLOAD_ROLE_ARN: "arn:aws:s3:::recording-bucket",
+        }),
+      );
+    }).toThrow();
+  });
+
+  it("rejects a malformed recording Access Grants account ID", () => {
+    expect(() => {
+      validateDeployedRuntimeEnvironment(
+        stagingEnvironment({
+          LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID: "not-an-account",
         }),
       );
     }).toThrow();

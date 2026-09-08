@@ -36,6 +36,11 @@ if ! recording_upload_role_arn=$(aws ssm get-parameter --region "$refresh_region
   echo "LiveKit recording upload authorization is not provisioned; continuing with recording disabled" >&2
   recording_upload_role_arn=""
 fi
+recording_access_grants_account_id=""
+if ! recording_access_grants_account_id=$(aws ssm get-parameter --region "$refresh_region" --name "/${secret_prefix}/livekit/recording-access-grants-account-id" --query Parameter.Value --output text 2>/dev/null); then
+  echo "LiveKit production recording upload authorization is not provisioned; continuing without it" >&2
+  recording_access_grants_account_id=""
+fi
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)
@@ -45,6 +50,9 @@ jq -r 'to_entries[] | "\(.key)=\(.value|tostring|@json)"' <<< "$application_json
 jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS") | "\(.key)=\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
 if [[ -n "$recording_upload_role_arn" ]]; then
   jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\($value|@json)"' >> "$base_environment_tmp"
+fi
+if [[ -n "$recording_access_grants_account_id" ]]; then
+  jq -rn --arg value "$recording_access_grants_account_id" '"LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID=\($value|@json)"' >> "$base_environment_tmp"
 fi
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")

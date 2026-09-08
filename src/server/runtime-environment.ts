@@ -60,6 +60,10 @@ const environmentSchema = z.object({
     .max(2_048)
     .regex(/^arn:[a-z0-9-]+:iam::[0-9]{12}:role\/[A-Za-z0-9+=,.@_/-]+$/u)
     .optional(),
+  LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID: z
+    .string()
+    .regex(/^[0-9]{12}$/u)
+    .optional(),
   AWS_REGION: z.string().min(1).default("ap-southeast-2"),
   S3_ENDPOINT: z.url().optional(),
   S3_ACCESS_KEY_ID: z.string().min(1).optional(),

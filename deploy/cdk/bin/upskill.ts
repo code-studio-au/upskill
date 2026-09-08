@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { App, Tags } from "aws-cdk-lib";
+import { AccessGrantsStack } from "../lib/access-grants-stack.js";
 import { ApplicationStack } from "../lib/application-stack.js";
 import { environmentConfig } from "../lib/config.js";
 import { DataStack } from "../lib/data-stack.js";
@@ -13,6 +14,11 @@ const stackPrefix = `upskill-${config.name}`;
 const account = process.env.CDK_DEFAULT_ACCOUNT;
 const region = process.env.CDK_DEFAULT_REGION;
 const stackProps = account && region ? { env: { account, region } } : {};
+const accessGrants = new AccessGrantsStack(
+  app,
+  "upskill-shared-access-grants",
+  stackProps,
+);
 const network = new NetworkStack(
   app,
   `${stackPrefix}-network`,
@@ -46,6 +52,7 @@ const application = new ApplicationStack(app, `${stackPrefix}-application`, {
   deadLetterQueue: storage.deadLetterQueue,
   databaseSecretArn: data.database.secret?.secretArn ?? "missing",
   alarmTopic: storage.alarmTopic,
+  accessGrantsInstanceArn: accessGrants.instanceArn,
 });
 const deploymentIdentity = new DeploymentIdentityStack(
   app,
@@ -64,3 +71,4 @@ for (const stack of [network, storage, data, application, deploymentIdentity]) {
   Tags.of(stack).add("Application", "upskill");
   Tags.of(stack).add("Environment", config.name);
 }
+Tags.of(accessGrants).add("Application", "upskill");

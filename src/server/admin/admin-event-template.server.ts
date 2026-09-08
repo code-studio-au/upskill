@@ -26,6 +26,10 @@ import {
 import { normalizeEventCommunicationAudience } from "#/features/admin-email/communication-options";
 import { parseSurveyVersionContent } from "#/features/survey/survey.schema";
 import { registrationSurveySupportsEventRegions } from "#/features/registration/registration-questionnaire-domain";
+import {
+  MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES,
+  supportsAutomaticRecordingDurations,
+} from "#/server/livekit/livekit-recording-duration-policy.server";
 
 export async function createAdminEventTemplate(
   input: AdminEventTemplateCreateInput,
@@ -1053,6 +1057,7 @@ export async function saveAdminEventTemplateDraft(
   draft: AdminEventTemplateDraft,
   administrator: AuthenticatedUser,
 ): Promise<"saved" | "not-found" | "conflict"> {
+  if (!supportsAutomaticRecordingDurations(draft)) return "conflict";
   const result = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
@@ -1375,6 +1380,11 @@ export async function publishAdminEventTemplateVersion(
               "items.sectionId",
               "sections.id",
             )
+            .leftJoin(
+              "event_template_session_definition as sessions",
+              "sessions.id",
+              "items.sessionDefinitionId",
+            )
             .select([
               sql<number>`count(distinct sections.id)::integer`.as("sections"),
               sql<number>`count(items.id)::integer`.as("items"),
@@ -1384,6 +1394,11 @@ export async function publishAdminEventTemplateVersion(
               sql<number>`count(items.id) filter (where items.kind = 'session')::integer`.as(
                 "sessions",
               ),
+              sql<number>`count(items.id) filter (
+                where items.kind = 'session'
+                  and sessions."livekitRecordingMode" = 'automatic'
+                  and items."durationMinutes" > ${MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES}
+              )::integer`.as("unsupportedAutomaticRecordings"),
             ])
             .where(
               "sections.eventTemplateVersionId",
@@ -1397,6 +1412,7 @@ export async function publishAdminEventTemplateVersion(
         structure.items === 0 ||
         structure.emptySections > 0 ||
         structure.sessions === 0 ||
+        structure.unsupportedAutomaticRecordings > 0 ||
         administratorCoverage.configured === 0 ||
         administratorCoverage.configured !== administratorCoverage.active ||
         presenterCoverage.required !== presenterCoverage.covered
