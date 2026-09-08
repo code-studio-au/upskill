@@ -7,6 +7,18 @@ import { StorageStack } from "../lib/storage-stack.js";
 import { DataStack } from "../lib/data-stack.js";
 import { ApplicationStack } from "../lib/application-stack.js";
 import { DeploymentIdentityStack } from "../lib/deployment-identity-stack.js";
+import { AccessGrantsStack } from "../lib/access-grants-stack.js";
+
+test("shared S3 Access Grants foundation owns the account-region singleton", () => {
+  const stack = new AccessGrantsStack(new App(), "AccessGrants");
+  const template = Template.fromStack(stack);
+  template.resourceCountIs("AWS::S3::AccessGrantsInstance", 1);
+  const instances = template.findResources("AWS::S3::AccessGrantsInstance");
+  expect(Object.values(instances)[0]).toMatchObject({
+    DeletionPolicy: "Retain",
+    UpdateReplacePolicy: "Retain",
+  });
+});
 
 test("staging network has isolated data subnets", () => {
   const stack = new NetworkStack(
@@ -111,6 +123,8 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     deadLetterQueue: storage.deadLetterQueue,
     databaseSecretArn: data.database.secret?.secretArn ?? "missing",
     alarmTopic: storage.alarmTopic,
+    accessGrantsInstanceArn:
+      "arn:aws:s3:ap-southeast-2:123456789012:access-grants/default",
   });
   const deploymentIdentity = new DeploymentIdentityStack(
     app,
@@ -167,6 +181,10 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     applicationConfiguration?.Properties?.GenerateSecretString
       ?.SecretStringTemplate,
   ).not.toContain("LIVEKIT_RECORDING_UPLOAD_ROLE_ARN");
+  expect(
+    applicationConfiguration?.Properties?.GenerateSecretString
+      ?.SecretStringTemplate,
+  ).not.toContain("LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID");
   const applicationJson = JSON.stringify(applicationTemplate.toJSON());
   expect(applicationJson).toContain("sslmode=verify-full");
   expect(applicationJson).toContain("upskill-web.env");
@@ -176,6 +194,41 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(applicationJson).toContain("upskill/staging/livekit");
   expect(applicationJson).toContain("S3_RECORDING_BUCKET");
   expect(applicationJson).toContain("LIVEKIT_RECORDING_UPLOAD_ROLE_ARN");
+  expect(applicationJson).toContain(
+    "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
+  );
+  const accessGrantsLocations = applicationTemplate.findResources(
+    "AWS::S3::AccessGrantsLocation",
+  );
+  expect(Object.keys(accessGrantsLocations)).toHaveLength(1);
+  expect(JSON.stringify(accessGrantsLocations)).toContain("recordings/");
+  applicationTemplate.hasResourceProperties("AWS::S3::AccessGrant", {
+    Permission: "WRITE",
+    Grantee: {
+      GranteeType: "IAM",
+      GranteeIdentifier: Match.anyValue(),
+    },
+  });
+  applicationTemplate.hasResourceProperties("AWS::IAM::Role", {
+    Description:
+      "S3 Access Grants location role for scoped LiveKit recording uploads",
+    AssumeRolePolicyDocument: {
+      Statement: Match.arrayWith([
+        Match.objectLike({
+          Action: "sts:AssumeRole",
+          Condition: {
+            StringEquals: {
+              "aws:SourceAccount": { Ref: "AWS::AccountId" },
+              "aws:SourceArn":
+                "arn:aws:s3:ap-southeast-2:123456789012:access-grants/default",
+            },
+          },
+          Principal: { Service: "access-grants.s3.amazonaws.com" },
+        }),
+        Match.objectLike({ Action: "sts:SetSourceIdentity" }),
+      ]),
+    },
+  });
   applicationTemplate.hasResourceProperties("AWS::IAM::Role", {
     Description:
       "Dormant short-session role for exact-object LiveKit recording uploads",
@@ -188,14 +241,23 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   const recordingRoleLogicalId = Object.keys(roles).find((logicalId) =>
     logicalId.startsWith("RecordingUploadRole"),
   );
+  const recordingAccessGrantsLocationRoleLogicalId = Object.keys(roles).find(
+    (logicalId) => logicalId.startsWith("RecordingAccessGrantsLocationRole"),
+  );
   expect(instanceRoleLogicalId).toBeDefined();
   expect(recordingRoleLogicalId).toBeDefined();
+  expect(recordingAccessGrantsLocationRoleLogicalId).toBeDefined();
   if (!recordingRoleLogicalId)
     throw new Error("Expected the recording upload role in the template");
   applicationTemplate.hasResourceProperties("AWS::SSM::Parameter", {
     Name: "/upskill/staging/livekit/recording-upload-role-arn",
     Type: "String",
     Value: { "Fn::GetAtt": [recordingRoleLogicalId, "Arn"] },
+  });
+  applicationTemplate.hasResourceProperties("AWS::SSM::Parameter", {
+    Name: "/upskill/staging/livekit/recording-access-grants-account-id",
+    Type: "String",
+    Value: { Ref: "AWS::AccountId" },
   });
   const parameters = applicationTemplate.findResources(
     "AWS::SSM::Parameter",
@@ -214,6 +276,15 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   const applicationInstance = Object.values(instances)[0];
   expect(applicationInstance?.DependsOn).toContain(
     recordingRoleParameterLogicalId,
+  );
+  const recordingAccountParameterLogicalId = Object.keys(parameters).find(
+    (logicalId) =>
+      parameters[logicalId]?.Properties?.Name ===
+      "/upskill/staging/livekit/recording-access-grants-account-id",
+  );
+  expect(recordingAccountParameterLogicalId).toBeDefined();
+  expect(applicationInstance?.DependsOn).toContain(
+    recordingAccountParameterLogicalId,
   );
   const policies = applicationTemplate.findResources(
     "AWS::IAM::Policy",
@@ -250,6 +321,44 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(JSON.stringify(recordingWritePolicy)).not.toMatch(
     /s3:(?:GetObject|DeleteObject|ListBucket)/u,
   );
+  const accessGrantsLocationWritePolicy = Object.values(policies).find(
+    (policy) =>
+      policy.Properties.Roles.some(
+        (attachedRole) =>
+          JSON.stringify(attachedRole) ===
+          JSON.stringify({ Ref: recordingAccessGrantsLocationRoleLogicalId }),
+      ),
+  );
+  expect(
+    accessGrantsLocationWritePolicy?.Properties.PolicyDocument.Statement,
+  ).toEqual([
+    expect.objectContaining({
+      Action: "s3:PutObject",
+      Effect: "Allow",
+    }),
+  ]);
+  expect(JSON.stringify(accessGrantsLocationWritePolicy)).toContain(
+    "recordings/*",
+  );
+  expect(JSON.stringify(accessGrantsLocationWritePolicy)).not.toMatch(
+    /s3:(?:GetObject|DeleteObject|ListBucket)/u,
+  );
+  const getDataAccessPolicy = Object.values(policies).find((policy) =>
+    JSON.stringify(policy).includes("s3:GetDataAccess"),
+  );
+  expect(getDataAccessPolicy?.Properties.Roles).toEqual([
+    { Ref: instanceRoleLogicalId },
+  ]);
+  expect(getDataAccessPolicy?.Properties.PolicyDocument.Statement).toEqual(
+    expect.arrayContaining([
+      {
+        Action: "s3:GetDataAccess",
+        Effect: "Allow",
+        Resource:
+          "arn:aws:s3:ap-southeast-2:123456789012:access-grants/default",
+      },
+    ]),
+  );
   const recordingAssumePolicy = Object.values(policies).find((policy) => {
     const serialized = JSON.stringify(policy);
     return (
@@ -280,6 +389,9 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(recordingRoleParameterReadPolicy?.Properties.Roles).toEqual([
     { Ref: instanceRoleLogicalId },
   ]);
+  expect(JSON.stringify(recordingRoleParameterReadPolicy)).toContain(
+    "RecordingAccessGrantsAccountParameter",
+  );
   expect(
     recordingRoleParameterReadPolicy?.Properties.PolicyDocument.Statement,
   ).toEqual(

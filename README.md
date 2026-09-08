@@ -213,17 +213,24 @@ bootstrap and deploy the staging infrastructure from the pinned CDK workspace:
 ```sh
 aws login
 aws sts get-caller-identity
+aws s3control get-access-grants-instance --account-id <aws-account-id> --region ap-southeast-2
 pnpm --dir deploy/cdk exec cdk bootstrap aws://<aws-account-id>/ap-southeast-2
 pnpm --dir deploy/cdk exec cdk deploy --all --context environment=staging
 ```
 
+S3 Access Grants permits one instance per account and Region. Before the first
+`upskill-shared-access-grants` deployment, the inventory command above should
+return no existing instance. If an instance already exists, stop and make a
+reviewed ownership/import decision rather than attempting to create or replace
+the singleton.
+
 Use a named IAM Identity Center or administrative role for this bootstrap; the
 identity returned by `aws sts get-caller-identity` must not be the AWS account
 root. Upskill and Projex currently share the Code Studio AWS account, so retain
-the `upskill-<environment>-*` stack names, `Application=upskill` tags and
-dedicated least-privilege roles. Do not reuse Projex deploy users or policies;
-the only shared deployment identity resource is the existing account-wide
-GitHub OIDC provider.
+the `upskill-shared-access-grants` and `upskill-<environment>-*` stack names,
+`Application=upskill` tags and dedicated least-privilege roles. Do not reuse
+Projex deploy users or policies; the only shared deployment identity resource
+is the existing account-wide GitHub OIDC provider.
 Review the IAM/security-group changes when CDK prompts; do not suppress that
 approval for the first environment. The stack outputs identify the application
 configuration secret, Elastic IP, artifact bucket and GitHub deployment role.

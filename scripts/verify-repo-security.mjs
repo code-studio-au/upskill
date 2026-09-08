@@ -381,6 +381,9 @@ for (const requiredRecordingUploadBoundary of [
   'actions: ["ssm:GetParameter"]',
   "/livekit/recording-upload-role-arn",
   "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN",
+  '"RecordingAccessGrantsAccountParameter"',
+  "/livekit/recording-access-grants-account-id",
+  "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
 ]) {
   if (!applicationStack.includes(requiredRecordingUploadBoundary))
     failures.push(
@@ -394,6 +397,14 @@ if (
 )
   failures.push(
     "The recording upload role ARN must not mutate the generated application secret template",
+  );
+if (
+  applicationStack.includes(
+    "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID: this.account",
+  )
+)
+  failures.push(
+    "The Access Grants account ID must not mutate the generated application secret template",
   );
 const recordingUploadAuthorizer = fs.readFileSync(
   path.join(
@@ -416,6 +427,89 @@ for (const requiredRecordingAuthorizationBoundary of [
       `The exact-object recording authorization boundary is missing: ${requiredRecordingAuthorizationBoundary}`,
     );
 }
+const productionRecordingUploadAuthorizer = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/livekit/livekit-recording-upload-authorizer.access-grants.aws.server.ts",
+  ),
+  "utf8",
+);
+for (const requiredProductionRecordingAuthorizationBoundary of [
+  'import "@tanstack/react-start/server-only"',
+  "new GetDataAccessCommand",
+  "Permission: Permission.WRITE",
+  "Privilege: Privilege.Minimal",
+  "TargetType: S3PrefixType.Object",
+  "MAXIMUM_ACCESS_GRANTS_SESSION_SECONDS = 12 * 60 * 60",
+  "response.MatchedGrantTarget !== target",
+  "parseLiveKitRecordingStorageObjectKey",
+]) {
+  if (
+    !productionRecordingUploadAuthorizer.includes(
+      requiredProductionRecordingAuthorizationBoundary,
+    )
+  )
+    failures.push(
+      `The production recording authorization boundary is missing: ${requiredProductionRecordingAuthorizationBoundary}`,
+    );
+}
+const recordingDurationPolicy = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/livekit/livekit-recording-duration-policy.server.ts",
+  ),
+  "utf8",
+);
+for (const requiredRecordingDurationBoundary of [
+  'import "@tanstack/react-start/server-only"',
+  "MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES = 11 * 60",
+  "supportsAutomaticRecordingDurations",
+]) {
+  if (!recordingDurationPolicy.includes(requiredRecordingDurationBoundary))
+    failures.push(
+      `The automatic recording duration boundary is missing: ${requiredRecordingDurationBoundary}`,
+    );
+}
+const adminEventTemplateServer = fs.readFileSync(
+  path.join(root, "src/server/admin/admin-event-template.server.ts"),
+  "utf8",
+);
+for (const requiredRecordingDurationEnforcement of [
+  'if (!supportsAutomaticRecordingDurations(draft)) return "conflict"',
+  "sessions.\"livekitRecordingMode\" = 'automatic'",
+  "structure.unsupportedAutomaticRecordings > 0",
+]) {
+  if (!adminEventTemplateServer.includes(requiredRecordingDurationEnforcement))
+    failures.push(
+      `The automatic recording duration policy is not enforced: ${requiredRecordingDurationEnforcement}`,
+    );
+}
+const accessGrantsStack = fs.readFileSync(
+  path.join(root, "deploy/cdk/lib/access-grants-stack.ts"),
+  "utf8",
+);
+for (const requiredAccessGrantsInfrastructureBoundary of [
+  '"access-grants.s3.amazonaws.com"',
+  '"aws:SourceAccount": this.account',
+  '"aws:SourceArn": props.accessGrantsInstanceArn',
+  'actions: ["sts:SetSourceIdentity"]',
+  'actions: ["s3:GetDataAccess"]',
+  'permission: "WRITE"',
+  'granteeType: "IAM"',
+  "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
+  "instance.applyRemovalPolicy(RemovalPolicy.RETAIN)",
+]) {
+  if (
+    !`${applicationStack}\n${accessGrantsStack}`.includes(
+      requiredAccessGrantsInfrastructureBoundary,
+    )
+  )
+    failures.push(
+      `The S3 Access Grants recording boundary is missing: ${requiredAccessGrantsInfrastructureBoundary}`,
+    );
+}
+if (packageJson.dependencies["@aws-sdk/client-s3-control"] !== "3.1106.0")
+  failures.push("The S3 Control client must remain exact-pinned");
 for (const relative of [
   ".env.example",
   "deploy/cdk/lib/application-stack.ts",
@@ -770,6 +864,10 @@ for (const invariant of [
   'if [[ -n "$recording_upload_role_arn" ]]',
   "/livekit/recording-upload-role-arn",
   "LIVEKIT_RECORDING_UPLOAD_ROLE_ARN",
+  "if ! recording_access_grants_account_id=",
+  'if [[ -n "$recording_access_grants_account_id" ]]',
+  "/livekit/recording-access-grants-account-id",
+  "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
   "upskill-web.env",
   "upskill-worker.env",
@@ -784,6 +882,14 @@ if (
 )
   failures.push(
     "The dormant recording upload role lookup must not block application-only release rollout",
+  );
+if (
+  /^recording_access_grants_account_id=\$\(aws ssm get-parameter/mu.test(
+    environmentRefresh,
+  )
+)
+  failures.push(
+    "The Access Grants account lookup must not block application-only release rollout",
   );
 const deploymentIdentity = fs.readFileSync(
   path.join(root, "deploy/cdk/lib/deployment-identity-stack.ts"),
