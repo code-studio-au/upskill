@@ -316,7 +316,7 @@ export function LiveKitPresenterRoom({
           setPhase("idle");
         }}
       >
-        Show green room
+        Open presenter green room
       </Button>
     );
 
@@ -326,7 +326,8 @@ export function LiveKitPresenterRoom({
         <div>
           <h4 id={headingId}>Presenter green room</h4>
           <Text size="sm" c="dimmed">
-            Attendees need start and admission.
+            Check your camera, microphone and shared screen here. Attendees
+            cannot enter until the webinar starts and they are admitted.
           </Text>
           {statusMessage ? <p role="status">{statusMessage}</p> : null}
         </div>
@@ -391,7 +392,8 @@ export function LiveKitPresenterRoom({
             {videos.length === 0 &&
             snapshot.cameraOffPresenters.length === 0 ? (
               <div className={classes.placeholder}>
-                <p>Waiting for presenter media.</p>
+                <strong>No presenter video yet</strong>
+                <p>Turn on your camera or share a screen when ready.</p>
               </div>
             ) : null}
             {snapshot.cameraOffPresenters.map((participant) => (

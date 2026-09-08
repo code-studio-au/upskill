@@ -2366,76 +2366,7 @@ test("platform administrators can inspect learner progress", async ({
     ).toBeEnabled();
     await expect(
       page.getByRole("button", { name: "Test camera and microphone" }),
-    ).toBeVisible();
-    await page.evaluate(() => {
-      navigator.mediaDevices.getUserMedia = () =>
-        Promise.reject(
-          new DOMException(
-            "Permission denied for browser test",
-            "NotAllowedError",
-          ),
-        );
-    });
-    const devicePreviewButton = page.getByRole("button", {
-      name: "Test camera and microphone",
-    });
-    await devicePreviewButton.focus();
-    await page.keyboard.press("Enter");
-    await expect(
-      page.getByRole("alert").filter({
-        hasText: "Camera or microphone access was unavailable",
-      }),
-    ).toBeVisible();
-    await page.evaluate(() => {
-      const testWindow = window as Window & {
-        resolveDelayedPreview?: () => void;
-        stoppedDelayedPreviewTracks?: number;
-      };
-      testWindow.stoppedDelayedPreviewTracks = 0;
-      navigator.mediaDevices.getUserMedia = () =>
-        new Promise<MediaStream>((resolve) => {
-          testWindow.resolveDelayedPreview = () => {
-            resolve({
-              getTracks: () => [
-                {
-                  stop: () => {
-                    testWindow.stoppedDelayedPreviewTracks =
-                      (testWindow.stoppedDelayedPreviewTracks ?? 0) + 1;
-                  },
-                } as MediaStreamTrack,
-              ],
-            } as MediaStream);
-          };
-        });
-    });
-    await devicePreviewButton.click();
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            typeof (window as Window & { resolveDelayedPreview?: () => void })
-              .resolveDelayedPreview,
-        ),
-      )
-      .toBe("function");
-    await page.getByRole("button", { name: "Overview" }).click();
-    await expect(page.getByRole("heading", { name: "Schedule" })).toBeVisible();
-    await page.evaluate(() => {
-      const testWindow = window as Window & {
-        resolveDelayedPreview?: () => void;
-      };
-      testWindow.resolveDelayedPreview?.();
-    });
-    await expect
-      .poll(() =>
-        page.evaluate(
-          () =>
-            (window as Window & { stoppedDelayedPreviewTracks?: number })
-              .stoppedDelayedPreviewTracks ?? 0,
-        ),
-      )
-      .toBe(1);
-    await page.getByRole("button", { name: "Webinar operations" }).click();
+    ).toHaveCount(0);
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const webinarOperationsAccessibility = await new AxeBuilder({
       page,
@@ -2481,9 +2412,11 @@ test("platform administrators can inspect learner progress", async ({
       });
     });
     await expect(
-      page.getByRole("button", { name: "Show green room" }),
+      page.getByRole("button", { name: "Open presenter green room" }),
     ).toBeVisible();
-    const showGreenRoom = page.getByRole("button", { name: "Show green room" });
+    const showGreenRoom = page.getByRole("button", {
+      name: "Open presenter green room",
+    });
     await showGreenRoom.focus();
     await page.keyboard.press("Enter");
     await expect(
@@ -2513,7 +2446,7 @@ test("platform administrators can inspect learner progress", async ({
       ),
     ).toBeNull();
     await page.getByRole("button", { name: "Close green room panel" }).click();
-    await expect(page.getByText("No attendees.")).toBeVisible();
+    await expect(page.getByText("No attendees in the lobby")).toBeVisible();
     const openEntryGuest = await authoringDatabase.query<{
       id: string;
       name: string;
@@ -2669,6 +2602,22 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.locator("li").filter({ hasText: administratorUser.name }),
     ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole("button", { name: `Admit for ${administratorUser.name}` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", {
+        name: `Decline for ${administratorUser.name}`,
+      }),
+    ).toBeVisible();
+    const operationsViewport = page.viewportSize();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const mobileWebinarOperationsAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(mobileWebinarOperationsAccessibility.violations).toEqual([]);
+    if (operationsViewport) await page.setViewportSize(operationsViewport);
     const attendeeContext = await browser.newContext({
       baseURL: new URL(page.url()).origin,
     });

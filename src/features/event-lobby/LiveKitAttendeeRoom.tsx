@@ -321,7 +321,13 @@ export function LiveKitAttendeeRoom({
                           : message;
 
   return (
-    <section className={classes.room} aria-labelledby="webinar-media-heading">
+    <section
+      className={classes.room}
+      aria-labelledby="webinar-media-heading"
+      data-connection-active={
+        phase === "connected" || phase === "reconnecting" || undefined
+      }
+    >
       <div className={classes.roomHeader}>
         <div>
           <h2 id="webinar-media-heading">Webinar room</h2>
@@ -347,7 +353,8 @@ export function LiveKitAttendeeRoom({
               ))
             ) : (
               <div className={classes.mediaPlaceholder}>
-                <p>Connected. Waiting for presenter video or screen sharing.</p>
+                <strong>You’re connected</strong>
+                <p>Waiting for presenter video or screen sharing.</p>
               </div>
             )}
           </div>

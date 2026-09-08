@@ -15,10 +15,6 @@ import type { EventOperationsAction } from "./EventOperationsOverview";
 import type { EventOperationsWorkspace } from "./event-operations.schema";
 import classes from "./EventOperations.module.css";
 
-const EventOperationsDevicePreview = lazy(async () => {
-  const module = await import("./EventOperationsDevicePreview");
-  return { default: module.EventOperationsDevicePreview };
-});
 const EventOperationsLobbyQueue = lazy(async () => {
   const module = await import("./EventOperationsLobbyQueue");
   return { default: module.EventOperationsLobbyQueue };
@@ -117,6 +113,7 @@ export function EventOperationsVirtualSessions({
             (candidate) => candidate.id === virtualSession.eventSessionId,
           );
           const room = virtualSession.room;
+          const actionBusy = processingId !== null;
           return (
             <Paper
               withBorder
@@ -125,7 +122,11 @@ export function EventOperationsVirtualSessions({
               key={virtualSession.eventSessionId}
             >
               <Stack gap="md">
-                <Group justify="space-between" align="start">
+                <Group
+                  justify="space-between"
+                  align="start"
+                  className={classes.webinarSessionHeader}
+                >
                   <div>
                     <Title order={3}>
                       {session?.title ?? "Virtual session"}
@@ -173,7 +174,7 @@ export function EventOperationsVirtualSessions({
                       .
                     </Text>
                     <Button
-                      disabled={!virtualSession.canEnterGreenRoom}
+                      disabled={actionBusy || !virtualSession.canEnterGreenRoom}
                       loading={
                         processingId ===
                         `prepare-${virtualSession.eventSessionId}`
@@ -198,6 +199,7 @@ export function EventOperationsVirtualSessions({
                       {room.doorState === "scheduled" ? (
                         <Button
                           disabled={
+                            actionBusy ||
                             room.providerStatus !== "ready" ||
                             !virtualSession.canEnterGreenRoom
                           }
@@ -219,6 +221,7 @@ export function EventOperationsVirtualSessions({
                       {room.doorState === "open" ? (
                         <Button
                           variant="light"
+                          disabled={actionBusy}
                           loading={
                             processingId ===
                             `lock-${virtualSession.eventSessionId}`
@@ -233,6 +236,7 @@ export function EventOperationsVirtualSessions({
                       {room.doorState === "locked" ? (
                         <Button
                           variant="light"
+                          disabled={actionBusy}
                           loading={
                             processingId ===
                             `reopen-${virtualSession.eventSessionId}`
@@ -248,6 +252,7 @@ export function EventOperationsVirtualSessions({
                         <Button
                           color="red"
                           variant="light"
+                          disabled={actionBusy}
                           loading={
                             processingId ===
                             `end-${virtualSession.eventSessionId}`
@@ -269,6 +274,7 @@ export function EventOperationsVirtualSessions({
                         <Button
                           color="red"
                           variant="outline"
+                          disabled={actionBusy}
                           loading={
                             processingId ===
                             `replace-${virtualSession.eventSessionId}`
@@ -290,12 +296,13 @@ export function EventOperationsVirtualSessions({
                       ) : null}
                     </Group>
                     {room.doorState !== "ended" ? (
-                      <Group gap="sm">
+                      <Group gap="sm" className={classes.admissionModeControls}>
                         <Text size="sm" fw={700}>
                           Admission
                         </Text>
                         <Button
                           size="xs"
+                          aria-pressed={room.admissionMode === "manual"}
                           variant={
                             room.admissionMode === "manual"
                               ? "default"
@@ -305,6 +312,7 @@ export function EventOperationsVirtualSessions({
                             processingId ===
                             `admission_manual-${virtualSession.eventSessionId}`
                           }
+                          disabled={actionBusy}
                           onClick={() => {
                             operate(
                               virtualSession.eventSessionId,
@@ -316,6 +324,7 @@ export function EventOperationsVirtualSessions({
                         </Button>
                         <Button
                           size="xs"
+                          aria-pressed={room.admissionMode === "automatic"}
                           variant={
                             room.admissionMode === "automatic"
                               ? "default"
@@ -325,6 +334,7 @@ export function EventOperationsVirtualSessions({
                             processingId ===
                             `admission_automatic-${virtualSession.eventSessionId}`
                           }
+                          disabled={actionBusy}
                           onClick={() => {
                             operate(
                               virtualSession.eventSessionId,
@@ -359,6 +369,7 @@ export function EventOperationsVirtualSessions({
                 <Group gap="sm">
                   <Button
                     variant="subtle"
+                    disabled={actionBusy}
                     loading={
                       processingId === `health-${virtualSession.eventSessionId}`
                     }
@@ -369,6 +380,7 @@ export function EventOperationsVirtualSessions({
                     Check provider
                   </Button>
                 </Group>
+
                 {virtualSession.lobbyPath ? (
                   <EventOperationsLobbyQueue
                     eventOccurrenceId={occurrenceId}
@@ -379,7 +391,6 @@ export function EventOperationsVirtualSessions({
                     changeAdmission={changeAdmission}
                   />
                 ) : null}
-                <EventOperationsDevicePreview />
               </Stack>
             </Paper>
           );

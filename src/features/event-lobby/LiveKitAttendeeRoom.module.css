@@ -61,7 +61,8 @@
 .mediaPlaceholder {
   display: grid;
   min-height: 14rem;
-  place-items: center;
+  place-content: center;
+  gap: var(--mantine-spacing-xs);
   padding: var(--mantine-spacing-lg);
   text-align: center;
   background: var(--mantine-color-dark-8);

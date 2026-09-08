@@ -1,18 +1,21 @@
 .page {
   min-height: 100vh;
-  padding: var(--mantine-spacing-xl) var(--mantine-spacing-md);
-  background: var(--mantine-color-gray-0);
+  padding: clamp(1rem, 4vw, 3rem) var(--mantine-spacing-md);
+  background:
+    linear-gradient(180deg, var(--mantine-color-indigo-0), transparent 18rem),
+    var(--mantine-color-gray-0);
 }
 
 .card {
   display: grid;
-  width: min(100%, 40rem);
+  width: min(100%, 44rem);
   gap: var(--mantine-spacing-lg);
   padding: var(--mantine-spacing-xl);
   margin-inline: auto;
   background: white;
   border: 1px solid var(--mantine-color-gray-3);
   border-radius: var(--mantine-radius-lg);
+  box-shadow: 0 1rem 3rem rgb(26 27 30 / 8%);
 }
 
 .card[data-media-ready] {
@@ -28,6 +31,16 @@
 .card header {
   display: grid;
   gap: var(--mantine-spacing-xs);
+}
+
+.card header p:first-of-type {
+  color: var(--mantine-color-dark-6);
+  font-weight: 600;
+}
+
+.card header p:last-of-type {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
 }
 
 .card h1 {
@@ -67,6 +80,10 @@
   border-color: var(--mantine-color-red-2);
 }
 
+.card:has([data-connection-active]) > .alert {
+  display: none;
+}
+
 .card form {
   display: grid;
   gap: var(--mantine-spacing-sm);
@@ -91,7 +108,9 @@
   }
 
   .card {
-    padding: var(--mantine-spacing-lg);
+    gap: var(--mantine-spacing-md);
+    padding: var(--mantine-spacing-md);
+    border-radius: var(--mantine-radius-md);
   }
 
   .card form > div {
