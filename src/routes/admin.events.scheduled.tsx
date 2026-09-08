@@ -98,6 +98,15 @@ function ScheduledEventsPage() {
           );
           return;
         }
+        if (
+          outcome.status === "conflict" &&
+          outcome.reason === "livekit_policy_unavailable"
+        ) {
+          setError(
+            "Use manual attendance and turn recording off before publishing.",
+          );
+          return;
+        }
         setError(
           "The event cannot be published until schedule, location, domains and staff coverage are complete.",
         );

@@ -1087,6 +1087,7 @@ export type AdminEventMutationResult =
         | "event_too_short"
         | "livekit_unavailable"
         | "livekit_capacity_exceeded"
+        | "livekit_policy_unavailable"
         | "registration_questionnaire_requires_registration"
         | "occurrence_not_publishable";
       minimumDurationMinutes?: number;

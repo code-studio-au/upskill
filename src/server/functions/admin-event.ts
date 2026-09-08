@@ -470,6 +470,8 @@ export const publishAdminEventOccurrence = createServerFn({ method: "POST" })
       return { status: "conflict", reason: "livekit_unavailable" };
     if (outcome === "livekit-capacity-exceeded")
       return { status: "conflict", reason: "livekit_capacity_exceeded" };
+    if (outcome === "livekit-policy-unavailable")
+      return { status: "conflict", reason: "livekit_policy_unavailable" };
     if (outcome === "conflict")
       return { status: "conflict", reason: "occurrence_not_publishable" };
     return {

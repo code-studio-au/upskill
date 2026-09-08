@@ -569,6 +569,70 @@ try {
     ),
     "livekit-unavailable",
   );
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "automatic",
+      livekitRecordingRetentionDays: 30,
+      livekitAttendeeRecordingNotice: "This session will be recorded.",
+      livekitPresenterRecordingNotice: "This session will be recorded.",
+    })
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await publishAdminEventOccurrence(
+      created.eventOccurrenceId,
+      administrator,
+      { approvedMaxParticipants: 25 },
+    ),
+    "livekit-policy-unavailable",
+    "Automatic recording must remain dormant until recording operations are active",
+  );
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+      livekitAttendanceMode: "automatic_check_in",
+    })
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await publishAdminEventOccurrence(
+      created.eventOccurrenceId,
+      administrator,
+      { approvedMaxParticipants: 25 },
+    ),
+    "livekit-policy-unavailable",
+    "Automatic check-in must remain dormant until attendance ingestion is active",
+  );
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitAttendanceMode: "automatic_duration",
+      livekitAttendanceMinimumMinutes: 30,
+    })
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await publishAdminEventOccurrence(
+      created.eventOccurrenceId,
+      administrator,
+      { approvedMaxParticipants: 25 },
+    ),
+    "livekit-policy-unavailable",
+    "Automatic duration attendance must remain dormant until reconciliation is active",
+  );
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitAttendanceMode: "manual",
+      livekitAttendanceMinimumMinutes: null,
+    })
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
   assert.equal(
     await publishAdminEventOccurrence(
       created.eventOccurrenceId,
@@ -733,7 +797,7 @@ try {
   );
 
   console.log(
-    "Verified LiveKit provider backfill, legacy-writer and rollback-edit compatibility, serialized configured publication, versioned defaults, exact-session snapshots, disabled and capacity publication gates, reschedule gating, and database constraints",
+    "Verified LiveKit provider backfill, legacy-writer and rollback-edit compatibility, serialized configured publication, versioned defaults, exact-session snapshots, disabled, dormant automation and capacity publication gates, reschedule gating, and database constraints",
   );
 } finally {
   if (!migrationRestored)
