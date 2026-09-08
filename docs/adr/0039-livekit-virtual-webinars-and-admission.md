@@ -1,6 +1,6 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–4, 5a–5e, 6a–6b2a and open-entry lobby
+- **Status:** Accepted; Slices 1–4, 5a–5e, 6a–6b2b and open-entry lobby
   integration implemented, later slices pending
 - **Date:** 2026-08-31
 
@@ -1307,11 +1307,12 @@ gates passed; it does not by itself authorise staging or production activation.
       deadline is no more than one hour away. Never persist or log credentials,
       and reject foreign scope or insufficient expiry before Egress can start.
       Implemented by [PR #75](https://github.com/code-studio-au/upskill/pull/75).
-- [ ] **Slice 6b2b — production-duration recording upload authorisation:** prove
+- [x] **Slice 6b2b — production-duration recording upload authorisation:** prove
       and implement LiveKit Cloud role assumption for the selected plan, or a
       separately reviewed non-chained temporary credential issuer, so the
       authorization safely covers the maximum automatically recorded Event
-      Session plus final upload.
+      Session plus final upload. Implemented by
+      [PR #78](https://github.com/code-studio-au/upskill/pull/78).
 - [ ] **Slice 6b3 — idempotent recording operations:** connect recording start
       and stop to committed room transitions through stable outbox operations,
       reconcile ambiguous provider outcomes and preserve one logical recording
