@@ -108,7 +108,7 @@ The first complete slice includes:
 - an opaque attendee lobby link;
 - authenticated and passwordless attendee lobby access;
 - an explicit meeting-not-started state enforced by the token backend;
-- a presenter green room and device preview;
+- a presenter green room with device and media checks;
 - manual, bulk, and automatic attendee admission;
 - start, lock, reopen, and end controls;
 - subscribe-only attendee grants and publisher presenter grants;
@@ -1229,7 +1229,7 @@ gates passed; it does not by itself authorise staging or production activation.
       Implemented by [PR #65](https://github.com/code-studio-au/upskill/pull/65).
 - [x] **Slice 3 — room lifecycle and presenter green room:** add room-generation
       persistence, exact staff policy, idempotent outbox operations, lazy room
-      creation, presenter grants, device preview, provider health, and
+      creation, presenter grants, green-room device checks, provider health, and
       start/lock/reopen/end/replacement controls.
       Implemented by [PR #66](https://github.com/code-studio-au/upskill/pull/66).
 - [x] **Slice 4 — attendee lobby, admission and recovery:** add opaque join

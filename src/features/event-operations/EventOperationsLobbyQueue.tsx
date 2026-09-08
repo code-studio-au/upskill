@@ -29,7 +29,9 @@ export function EventOperationsLobbyQueue({
   ) => Promise<void>;
 }) {
   const [page, setPage] = useState(0);
-  const [queue, setQueue] = useState<EventVirtualLobbyQueueData | null>(null);
+  const [queue, setQueue] = useState<
+    EventVirtualLobbyQueueData | null | undefined
+  >();
   const revision = useRef<string | null>(null);
 
   useEffect(() => {
@@ -68,9 +70,11 @@ export function EventOperationsLobbyQueue({
 
   const entries = queue?.entries ?? [];
   const waiting = entries.some((entry) => entry.state === "waiting");
+  const admissionBusy = processingId !== null;
+
   return (
     <div className={classes.lobbyPanel}>
-      <section>
+      <section className={classes.lobbyLinkPanel}>
         <strong>Attendee lobby link</strong>
         <a
           className={classes.guestLink}
@@ -82,15 +86,22 @@ export function EventOperationsLobbyQueue({
         </a>
       </section>
       {showQueue ? (
-        <>
-          <header>
-            <h4>Waiting room</h4>
+        <section
+          className={classes.queuePanel}
+          aria-labelledby={`waiting-room-${session.eventSessionId}`}
+          aria-busy={admissionBusy || queue === undefined}
+        >
+          <header className={classes.queueHeader}>
+            <div>
+              <h4 id={`waiting-room-${session.eventSessionId}`}>
+                Attendee admission
+              </h4>
+              <p>Updates live.</p>
+            </div>
             {waiting ? (
               <button
                 type="button"
-                disabled={
-                  processingId === `admit_all-${session.eventSessionId}`
-                }
+                disabled={admissionBusy}
                 onClick={() => {
                   setPage(0);
                   void changeAdmission(
@@ -104,7 +115,16 @@ export function EventOperationsLobbyQueue({
               </button>
             ) : null}
           </header>
-          {entries.length ? (
+
+          {queue === undefined ? (
+            <p role="status">Checking the attendee lobby…</p>
+          ) : null}
+          {queue === null ? (
+            <p role="alert" className={classes.queueError}>
+              Attendee list unavailable. Retrying…
+            </p>
+          ) : null}
+          {queue && entries.length ? (
             <ul className={classes.lobbyQueue}>
               {entries.map((entry) => {
                 const actions =
@@ -118,42 +138,54 @@ export function EventOperationsLobbyQueue({
                 return (
                   <li className={classes.lobbyEntry} key={entry.id}>
                     <strong>{entry.name}</strong>
-                    <div>
+                    <div className={classes.attendeeActions}>
                       <span data-state={entry.state}>
                         {entry.state.replaceAll("_", " ")}
                       </span>
-                      {actions.map((operation) => (
-                        <button
-                          data-danger={operation !== "admit" || undefined}
-                          key={operation}
-                          type="button"
-                          disabled={processingId === `${operation}-${entry.id}`}
-                          onClick={() => {
-                            setPage(0);
-                            void changeAdmission(
-                              session.eventSessionId,
-                              entry.id,
-                              operation,
-                            );
-                          }}
-                        >
-                          {operation === "admit"
+                      {actions.map((operation) => {
+                        const label =
+                          operation === "admit"
                             ? "Admit"
                             : operation === "decline"
                               ? "Decline"
-                              : "Revoke"}
-                        </button>
-                      ))}
+                              : "Revoke access";
+                        return (
+                          <button
+                            data-danger={operation !== "admit" || undefined}
+                            key={operation}
+                            type="button"
+                            disabled={admissionBusy}
+                            aria-label={`${label} for ${entry.name}`}
+                            onClick={() => {
+                              setPage(0);
+                              void changeAdmission(
+                                session.eventSessionId,
+                                entry.id,
+                                operation,
+                              );
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </li>
                 );
               })}
             </ul>
-          ) : (
-            <p>No attendees.</p>
-          )}
+          ) : null}
+          {queue && entries.length === 0 ? (
+            <div className={classes.emptyQueue}>
+              <strong>No attendees in the lobby</strong>
+              <p>New arrivals will appear here automatically.</p>
+            </div>
+          ) : null}
           {queue && (page > 0 || queue.hasNextPage) ? (
-            <nav aria-label="Waiting room pages">
+            <nav
+              className={classes.queuePagination}
+              aria-label="Attendee list pages"
+            >
               <button
                 type="button"
                 disabled={page === 0}
@@ -174,7 +206,7 @@ export function EventOperationsLobbyQueue({
               </button>
             </nav>
           ) : null}
-        </>
+        </section>
       ) : null}
     </div>
   );

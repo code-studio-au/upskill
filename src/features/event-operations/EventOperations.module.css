@@ -27,6 +27,18 @@
   gap: 1rem;
 }
 
+.webinarSessionHeader > div:first-child {
+  min-width: min(100%, 16rem);
+}
+
+.webinarSessionHeader > div:last-child {
+  justify-content: flex-end;
+}
+
+.admissionModeControls {
+  align-items: stretch;
+}
+
 .lobbyQueue {
   display: grid;
   gap: 0.75rem;
@@ -36,26 +48,51 @@
 }
 
 .lobbyPanel,
-.lobbyPanel > section {
+.lobbyLinkPanel,
+.queuePanel {
   display: grid;
   gap: 0.75rem;
 }
 
-.lobbyPanel header,
-.lobbyPanel nav,
-.lobbyEntry > div {
+.lobbyLinkPanel {
+  padding: 1rem;
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
+}
+
+.queueHeader p,
+.queuePanel > p,
+.emptyQueue p {
+  margin: 0;
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-sm);
+}
+
+.queuePanel {
+  padding-top: 0.25rem;
+}
+
+.queueHeader,
+.queuePagination,
+.attendeeActions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
 }
 
-.lobbyPanel header,
-.lobbyPanel nav {
+.queueHeader,
+.queuePagination {
   justify-content: space-between;
 }
 
-.lobbyPanel h4,
+.queueHeader > div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.queueHeader h4,
 .guestLink {
   margin: 0;
 }
@@ -65,55 +102,62 @@
   outline-offset: 2px;
 }
 
-.lobbyPanel button {
+.queuePanel button {
   display: inline-flex;
   min-height: 2.5rem;
   align-items: center;
   justify-content: center;
   padding-inline: 0.75rem;
-  color: var(--mantine-color-indigo-7);
+  color: var(--mantine-color-indigo-9);
   font: inherit;
   font-size: var(--mantine-font-size-sm);
   font-weight: 600;
-  text-decoration: none;
   cursor: pointer;
   background: var(--mantine-color-indigo-0);
   border: 0;
   border-radius: var(--mantine-radius-sm);
 }
 
-.lobbyPanel button[data-danger] {
-  color: var(--mantine-color-red-7);
+.queuePanel button[data-danger] {
+  color: var(--mantine-color-red-9);
   background: var(--mantine-color-red-0);
 }
 
-.lobbyPanel button:disabled {
+.queuePanel button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
-.lobbyPanel button:focus-visible {
+.queuePanel button:focus-visible {
   outline: 2px solid var(--mantine-color-indigo-6);
   outline-offset: 2px;
 }
 
-.lobbyPanel span[data-state] {
+.queuePanel span[data-state] {
   padding: 0.2rem 0.55rem;
   color: var(--mantine-color-teal-9);
   font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
   background: var(--mantine-color-teal-0);
   border-radius: 999px;
 }
 
-.lobbyPanel span[data-state="waiting"] {
-  color: var(--mantine-color-yellow-9);
+.queuePanel span[data-state="waiting"] {
+  color: var(--mantine-color-dark-8);
   background: var(--mantine-color-yellow-0);
 }
 
-.lobbyPanel > p {
-  display: block;
-  color: var(--mantine-color-dimmed);
-  font-size: var(--mantine-font-size-sm);
+.queuePanel span[data-state="admitted"],
+.queuePanel span[data-state="token_issued"] {
+  color: var(--mantine-color-indigo-8);
+  background: var(--mantine-color-indigo-0);
+}
+
+.queueError {
+  padding: 0.75rem;
+  color: var(--mantine-color-dark-8) !important;
+  background: var(--mantine-color-orange-0);
+  border-radius: var(--mantine-radius-sm);
 }
 
 .lobbyEntry {
@@ -123,6 +167,27 @@
   justify-content: space-between;
   gap: 0.75rem;
   padding-top: 0.75rem;
+  border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.attendeeActions {
+  justify-content: flex-end;
+}
+
+.emptyQueue {
+  display: grid;
+  min-height: 7rem;
+  place-content: center;
+  gap: 0.25rem;
+  padding: 1rem;
+  text-align: center;
+  background: var(--mantine-color-gray-0);
+  border: 1px dashed var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+}
+
+.queuePagination {
+  padding-top: 0.25rem;
   border-top: 1px solid var(--mantine-color-gray-2);
 }
 
@@ -177,18 +242,37 @@
   .attendanceRow {
     grid-template-columns: 1fr;
   }
+
+  .queueHeader,
+  .queueHeader > button,
+  .attendeeActions {
+    width: 100%;
+  }
+
+  .attendeeActions {
+    justify-content: flex-start;
+  }
+
+  .webinarSessionHeader,
+  .webinarSessionHeader > div,
+  .admissionModeControls {
+    width: 100%;
+  }
+
+  .webinarSessionHeader > div:last-child {
+    justify-content: flex-start;
+  }
+
+  .admissionModeControls > * {
+    flex: 1 1 min(100%, 11rem);
+  }
+
+  .admissionModeControls > p {
+    flex-basis: 100%;
+  }
 }
 .guestLink {
   overflow-wrap: anywhere;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: var(--mantine-font-size-sm);
-}
-
-.devicePreview {
-  display: block;
-  width: min(100%, 36rem);
-  aspect-ratio: 16 / 9;
-  object-fit: cover;
-  border-radius: var(--mantine-radius-md);
-  background: var(--mantine-color-dark-9);
 }

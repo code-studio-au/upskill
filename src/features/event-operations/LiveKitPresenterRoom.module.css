@@ -62,7 +62,8 @@
 .placeholder {
   display: grid;
   min-height: 10rem;
-  place-items: center;
+  place-content: center;
+  gap: 0.25rem;
   text-align: center;
 }
 

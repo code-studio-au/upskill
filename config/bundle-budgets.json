@@ -25,7 +25,6 @@
     "EligibleStaffPicker": 1024,
     "EventOperationsLobbyQueue": 1280,
     "EventOperationsProgress": 2560,
-    "EventOperationsDevicePreview": 1280,
     "EventOperationsSurveyQrCatalogue": 1536,
     "EventOperationsVirtualSessions": 2048,
     "EventTimezoneAutocomplete": 1024,
