@@ -494,6 +494,7 @@ for (const requiredAccessGrantsInfrastructureBoundary of [
   '"aws:SourceArn": props.accessGrantsInstanceArn',
   'actions: ["sts:SetSourceIdentity"]',
   'actions: ["s3:GetDataAccess"]',
+  "maxSessionDuration: Duration.hours(12)",
   'permission: "WRITE"',
   'granteeType: "IAM"',
   "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",

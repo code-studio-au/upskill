@@ -106,6 +106,7 @@ export class ApplicationStack extends Stack {
         assumedBy: accessGrantsPrincipal,
         description:
           "S3 Access Grants location role for scoped LiveKit recording uploads",
+        maxSessionDuration: Duration.hours(12),
       },
     );
     recordingAccessGrantsLocationRole.assumeRolePolicy?.addStatements(

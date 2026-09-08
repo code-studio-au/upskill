@@ -212,6 +212,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   applicationTemplate.hasResourceProperties("AWS::IAM::Role", {
     Description:
       "S3 Access Grants location role for scoped LiveKit recording uploads",
+    MaxSessionDuration: 43_200,
     AssumeRolePolicyDocument: {
       Statement: Match.arrayWith([
         Match.objectLike({
