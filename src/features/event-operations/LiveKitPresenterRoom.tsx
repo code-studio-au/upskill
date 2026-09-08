@@ -58,6 +58,7 @@ function credentialErrorMessage(
 const phaseMessages: Partial<Record<ConnectionPhase, string>> = {
   requesting: "Requesting access…",
   connecting: "Connecting…",
+  connected: "Connected.",
   reconnecting: "Reconnecting…",
   disconnected: "Disconnected.",
   duplicate: "Open in another tab or device.",
@@ -303,8 +304,7 @@ export function LiveKitPresenterRoom({
       off: "Share",
     },
   ];
-  const statusMessage =
-    phase === "connected" ? null : (phaseMessages[phase] ?? message);
+  const statusMessage = phaseMessages[phase] ?? message;
   const roomActive = phase === "connected" || phase === "reconnecting";
 
   return (
@@ -312,7 +312,16 @@ export function LiveKitPresenterRoom({
       <div className={classes.header}>
         <div>
           <h4 id={headingId}>Presenter green room</h4>
-          {statusMessage ? <p role="status">{statusMessage}</p> : null}
+          {statusMessage ? (
+            <p
+              role="status"
+              className={
+                phase === "connected" ? classes.visuallyHidden : undefined
+              }
+            >
+              {statusMessage}
+            </p>
+          ) : null}
         </div>
         {["requesting", "connecting", "connected", "reconnecting"].includes(
           phase,
@@ -337,14 +346,15 @@ export function LiveKitPresenterRoom({
             {mediaControls.map(({ control, enabled, on, off }) => {
               const label = enabled ? on : off;
               return (
-                <button
+                <Button
                   key={control}
                   type="button"
+                  variant="subtle"
+                  color={enabled ? "indigo" : "red"}
                   className={classes.mediaControl}
-                  data-active={enabled || undefined}
                   aria-pressed={enabled}
                   aria-label={label}
-                  aria-busy={pendingControl === control}
+                  loading={pendingControl === control}
                   disabled={pendingControl !== null || phase === "reconnecting"}
                   onClick={() => void toggleMedia(control, !enabled)}
                 >
@@ -354,7 +364,7 @@ export function LiveKitPresenterRoom({
                     />
                   </svg>
                   <span>{label}</span>
-                </button>
+                </Button>
               );
             })}
           </div>
