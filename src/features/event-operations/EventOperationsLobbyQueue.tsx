@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { getEventVirtualLobbyQueue } from "#/server/functions/event-operations";
 import type {
   EventOperationsWorkspace,
@@ -85,22 +86,21 @@ export function EventOperationsLobbyQueue({
         </div>
         <div className={classes.queueControls}>
           {room.doorState !== "ended" ? (
-            <label className={classes.admissionModeControl}>
-              <span>Admission mode</span>
-              <select
-                value={room.admissionMode}
-                disabled={admissionBusy}
-                onChange={(event) => {
-                  changeAdmissionMode(
-                    sessionId,
-                    event.currentTarget.value as "manual" | "automatic",
-                  );
-                }}
-              >
-                <option value="manual">Manual</option>
-                <option value="automatic">Automatic</option>
-              </select>
-            </label>
+            <MantineNativeSelect
+              label="Admission mode"
+              value={room.admissionMode}
+              disabled={admissionBusy}
+              data={[
+                { value: "manual", label: "Manual" },
+                { value: "automatic", label: "Automatic" },
+              ]}
+              onChange={(event) => {
+                changeAdmissionMode(
+                  sessionId,
+                  event.currentTarget.value as "manual" | "automatic",
+                );
+              }}
+            />
           ) : null}
           {waiting ? (
             <button

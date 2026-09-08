@@ -388,7 +388,9 @@ export function LiveKitPresenterRoom({
         </Stack>
       ) : null}
 
-      {["idle", "left", "disconnected", "error"].includes(phase) ? (
+      {["idle", "left", "disconnected", "duplicate", "error"].includes(
+        phase,
+      ) ? (
         <Button type="button" onClick={() => void join()}>
           {phase === "idle" ? "Enter green room" : "Reconnect to green room"}
         </Button>
