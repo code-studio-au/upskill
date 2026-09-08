@@ -85,7 +85,7 @@ function ScheduledEventsPage() {
           outcome.reason === "livekit_unavailable"
         ) {
           setError(
-            "LiveKit delivery is not yet available. Keep this occurrence as a draft until the lobby and webinar workflow is ready.",
+            "LiveKit is not enabled and fully configured for this environment. Keep this occurrence as a draft.",
           );
           return;
         }
@@ -95,6 +95,15 @@ function ScheduledEventsPage() {
         ) {
           setError(
             "The event capacity plus staff headroom exceeds this environment's approved LiveKit participant limit.",
+          );
+          return;
+        }
+        if (
+          outcome.status === "conflict" &&
+          outcome.reason === "livekit_policy_unavailable"
+        ) {
+          setError(
+            "Use manual attendance and turn recording off before publishing.",
           );
           return;
         }

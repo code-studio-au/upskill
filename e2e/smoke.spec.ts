@@ -1884,7 +1884,7 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page
         .getByRole("alert")
-        .filter({ hasText: "LiveKit delivery is not yet available" }),
+        .filter({ hasText: "LiveKit delivery is unavailable" }),
     ).toBeVisible();
     await expect(
       page.getByLabel("Protected virtual meeting URL"),

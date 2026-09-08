@@ -1548,6 +1548,7 @@ export async function publishAdminEventOccurrence(
   | "conflict"
   | "livekit-unavailable"
   | "livekit-capacity-exceeded"
+  | "livekit-policy-unavailable"
   | "registration-questionnaire-requires-registration"
 > {
   return await getDatabase()
@@ -1619,6 +1620,13 @@ export async function publishAdminEventOccurrence(
               and not sessions."livekitOpenEntryGuestsAllowed")`.as(
             "liveKitGuestRestrictedSessions",
           ),
+          sql<number>`(select count(*)::integer from event_session sessions
+            where sessions."eventOccurrenceId" = ${eventOccurrenceId}
+              and sessions."virtualDeliveryProvider" = 'livekit'
+              and (
+                sessions."livekitAttendanceMode" is distinct from 'manual'
+                or sessions."livekitRecordingMode" is distinct from 'off'
+              ))`.as("liveKitAutomationSessions"),
           sql<number>`(select count(*)::integer from event_occurrence_domain
             where "eventOccurrenceId" = ${eventOccurrenceId})`.as("domains"),
         ])
@@ -1647,16 +1655,14 @@ export async function publishAdminEventOccurrence(
       )
         return "conflict" as const;
       if (occurrence.virtualDeliveryProvider === "livekit") {
+        if (coverage.liveKitAutomationSessions > 0)
+          return "livekit-policy-unavailable" as const;
         if (!liveKitConfiguration) return "livekit-unavailable" as const;
         if (
           occurrence.capacity + coverage.maximumLiveKitCapacityHeadroom >
           liveKitConfiguration.approvedMaxParticipants
         )
           return "livekit-capacity-exceeded" as const;
-        // ADR 0039 Slice 2 persists immutable provider policy only. Keep
-        // publication dormant until the attendee token and media delivery
-        // slices make every published LiveKit occurrence joinable.
-        return "livekit-unavailable" as const;
       }
       const now = new Date();
       await transaction

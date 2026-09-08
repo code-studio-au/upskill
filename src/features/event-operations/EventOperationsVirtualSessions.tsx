@@ -107,8 +107,8 @@ export function EventOperationsVirtualSessions({
       </div>
       {workspace.occurrence.status !== "published" ? (
         <Alert color="blue">
-          LiveKit rooms remain dormant until the event is published. Publication
-          stays disabled until the webinar media slice is complete.
+          Publish after checking LiveKit configuration, capacity and staff
+          coverage.
         </Alert>
       ) : null}
       <div className={classes.sessionList}>

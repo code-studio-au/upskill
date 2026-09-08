@@ -172,7 +172,7 @@ function EventInstanceOperationsPage() {
             account_already_active:
               "This learner has already completed account setup.",
             livekit_unavailable:
-              "LiveKit delivery is not yet available. Keep this occurrence as a draft until the lobby and webinar workflow is ready.",
+              "LiveKit is not enabled and fully configured for this environment. Keep this occurrence as a draft.",
             livekit_capacity_exceeded:
               "The event capacity plus staff headroom exceeds this environment's approved LiveKit participant limit.",
           };
