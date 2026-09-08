@@ -2636,6 +2636,23 @@ test("platform administrators can inspect learner progress", async ({
     } finally {
       await attendeeContext.close();
     }
+    await authoringDatabase.query(
+      `update event_virtual_join_access
+       set "revokedAt" = now(), "revokedByUserId" = $1
+       where id = 'e2e_livekit_join_access'`,
+      [administratorUser.id],
+    );
+    await expect(
+      page.getByRole("alert").filter({
+        hasText: "Attendee list unavailable. Retrying",
+      }),
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.locator("li").filter({ hasText: administratorUser.name }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: `Admit for ${administratorUser.name}` }),
+    ).toHaveCount(0);
   } finally {
     await cleanupCourseAuthoringFixture(authoringDatabase, authoringSlug);
     await cleanupEventAuthoringFixture(authoringDatabase, eventTemplateTitle);

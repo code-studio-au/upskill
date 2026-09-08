@@ -47,7 +47,7 @@ export function EventOperationsLobbyQueue({
       });
       if (stopped) return;
       if (result.status !== "ready") {
-        setQueue((current) => current ?? null);
+        setQueue(null);
         return;
       }
       const changed = revision.current && revision.current !== result.data.etag;
