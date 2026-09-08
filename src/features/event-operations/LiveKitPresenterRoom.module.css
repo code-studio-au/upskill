@@ -4,7 +4,7 @@
   padding: 1rem;
   border: 1px solid var(--mantine-color-gray-3);
   border-radius: var(--mantine-radius-md);
-  background: var(--mantine-color-gray-0);
+  background: var(--mantine-color-white);
 }
 
 .header {
@@ -22,11 +22,63 @@
 }
 
 .controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   align-items: stretch;
+  padding: 0.5rem;
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
 }
 
 .controls > * {
-  flex: 1 1 10rem;
+  flex: 1 1 6.5rem;
+}
+
+.mediaControl {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 4rem;
+  padding: 0.4rem 0.65rem;
+  color: var(--mantine-color-red-8);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: var(--mantine-radius-sm);
+}
+
+.mediaControl[data-active] {
+  color: var(--mantine-color-indigo-8);
+}
+
+.mediaControl:hover {
+  background: var(--mantine-color-gray-1);
+}
+
+.mediaControl:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.mediaControl:focus-visible {
+  outline: 2px solid var(--mantine-color-indigo-6);
+  outline-offset: 2px;
+}
+
+.mediaControl svg {
+  width: 1.45rem;
+  height: 1.45rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .videoGrid {
@@ -78,8 +130,7 @@
 @media (max-width: 36rem) {
   .header > *,
   .header button,
-  .controls,
-  .controls > * {
+  .controls {
     width: 100%;
   }
 

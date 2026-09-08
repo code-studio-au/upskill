@@ -9,11 +9,10 @@ import {
   type PresenterMediaSnapshot,
   type PresenterMediaTrack,
 } from "./livekit-presenter-media";
-import { Alert, Button, Group, Stack, Text } from "#/features/shared/mantine";
+import { Alert, Button, Stack } from "#/features/shared/mantine";
 import classes from "./LiveKitPresenterRoom.module.css";
 
 type ConnectionPhase =
-  | "closed"
   | "idle"
   | "requesting"
   | "connecting"
@@ -59,7 +58,6 @@ function credentialErrorMessage(
 const phaseMessages: Partial<Record<ConnectionPhase, string>> = {
   requesting: "Requesting access…",
   connecting: "Connecting…",
-  connected: "Connected.",
   reconnecting: "Reconnecting…",
   disconnected: "Disconnected.",
   duplicate: "Open in another tab or device.",
@@ -129,7 +127,7 @@ export function LiveKitPresenterRoom({
   eventSessionId: string;
 }) {
   const headingId = useId();
-  const [phase, setPhase] = useState<ConnectionPhase>("closed");
+  const [phase, setPhase] = useState<ConnectionPhase>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [snapshot, setSnapshot] =
     useState<PresenterMediaSnapshot>(emptySnapshot);
@@ -289,71 +287,42 @@ export function LiveKitPresenterRoom({
     {
       control: "camera" as const,
       enabled: snapshot.cameraEnabled,
-      enableLabel: "Turn camera on",
-      disableLabel: "Turn camera off",
+      on: "Stop video",
+      off: "Start video",
     },
     {
       control: "microphone" as const,
       enabled: snapshot.microphoneEnabled,
-      enableLabel: "Unmute microphone",
-      disableLabel: "Mute microphone",
+      on: "Mute",
+      off: "Unmute",
     },
     {
       control: "screen" as const,
       enabled: snapshot.screenShareEnabled,
-      enableLabel: "Share screen",
-      disableLabel: "Stop sharing",
+      on: "Stop share",
+      off: "Share",
     },
   ];
-  const statusMessage = phaseMessages[phase] ?? message;
+  const statusMessage =
+    phase === "connected" ? null : (phaseMessages[phase] ?? message);
   const roomActive = phase === "connected" || phase === "reconnecting";
-
-  if (phase === "closed")
-    return (
-      <Button
-        variant="light"
-        onClick={() => {
-          setPhase("idle");
-        }}
-      >
-        Open presenter green room
-      </Button>
-    );
 
   return (
     <section className={classes.room} aria-labelledby={headingId}>
       <div className={classes.header}>
         <div>
           <h4 id={headingId}>Presenter green room</h4>
-          <Text size="sm" c="dimmed">
-            Check your camera, microphone and shared screen here. Attendees
-            cannot enter until the webinar starts and they are admitted.
-          </Text>
           {statusMessage ? <p role="status">{statusMessage}</p> : null}
         </div>
-        {[
-          "requesting",
-          "connecting",
-          "connected",
-          "reconnecting",
-          "disconnected",
-        ].includes(phase) ? (
+        {["requesting", "connecting", "connected", "reconnecting"].includes(
+          phase,
+        ) ? (
           <Button type="button" variant="light" onClick={() => void leave()}>
             {phase === "requesting" || phase === "connecting"
               ? "Cancel joining"
               : "Leave green room"}
           </Button>
-        ) : (
-          <Button
-            type="button"
-            variant="light"
-            onClick={() => {
-              setPhase("closed");
-            }}
-          >
-            Close green room panel
-          </Button>
-        )}
+        ) : null}
       </div>
 
       {message && roomActive ? (
@@ -364,23 +333,31 @@ export function LiveKitPresenterRoom({
 
       {roomActive ? (
         <Stack gap="md">
-          <Group gap="sm" className={classes.controls}>
-            {mediaControls.map(
-              ({ control, enabled, enableLabel, disableLabel }) => (
-                <Button
+          <div className={classes.controls}>
+            {mediaControls.map(({ control, enabled, on, off }) => {
+              const label = enabled ? on : off;
+              return (
+                <button
                   key={control}
                   type="button"
-                  variant={enabled ? "default" : "light"}
+                  className={classes.mediaControl}
+                  data-active={enabled || undefined}
                   aria-pressed={enabled}
-                  loading={pendingControl === control}
+                  aria-label={label}
+                  aria-busy={pendingControl === control}
                   disabled={pendingControl !== null || phase === "reconnecting"}
                   onClick={() => void toggleMedia(control, !enabled)}
                 >
-                  {enabled ? disableLabel : enableLabel}
-                </Button>
-              ),
-            )}
-          </Group>
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <use
+                      href={`/brand/webinar-icons.svg#${control}${enabled ? "" : "-off"}`}
+                    />
+                  </svg>
+                  <span>{label}</span>
+                </button>
+              );
+            })}
+          </div>
 
           {audioBlocked || !snapshot.canPlaybackAudio ? (
             <Button type="button" onClick={() => void enableAudio()}>
