@@ -27,16 +27,90 @@
   gap: 1rem;
 }
 
+.webinarSessionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .webinarSessionHeader > div:first-child {
   min-width: min(100%, 16rem);
 }
 
-.webinarSessionHeader > div:last-child {
-  justify-content: flex-end;
+.webinarStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 700;
 }
 
-.admissionModeControls {
-  align-items: stretch;
+.webinarStatus > span {
+  width: 0.55rem;
+  height: 0.55rem;
+  flex: 0 0 auto;
+  background: var(--mantine-color-gray-5);
+  border-radius: 50%;
+}
+
+.webinarStatus[data-state="live"] {
+  color: var(--mantine-color-red-8);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.webinarStatus[data-state="live"] > span {
+  background: var(--mantine-color-red-6);
+  box-shadow: 0 0 0 0.25rem var(--mantine-color-red-1);
+}
+
+.webinarStatus[data-state="ready"] {
+  color: var(--mantine-color-teal-9);
+}
+
+.webinarStatus[data-state="ready"] > span {
+  background: var(--mantine-color-teal-6);
+}
+
+.webinarStatus[data-state="preparing"] {
+  color: var(--mantine-color-yellow-9);
+}
+
+.webinarStatus[data-state="preparing"] > span {
+  background: var(--mantine-color-yellow-6);
+}
+
+.webinarStatus[data-state="error"] {
+  color: var(--mantine-color-red-9);
+}
+
+.webinarStatus[data-state="error"] > span {
+  background: var(--mantine-color-red-6);
+}
+
+.webinarLifecyclePanel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
+}
+
+.webinarLifecycleCopy {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.webinarLifecycleActions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .lobbyQueue {
@@ -55,7 +129,7 @@
 }
 
 .lobbyLinkPanel {
-  padding: 1rem;
+  padding: 0.75rem 1rem;
   background: var(--mantine-color-gray-0);
   border: 1px solid var(--mantine-color-gray-2);
   border-radius: var(--mantine-radius-md);
@@ -70,10 +144,14 @@
 }
 
 .queuePanel {
-  padding-top: 0.25rem;
+  padding: 1rem;
+  background: var(--mantine-color-white);
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
 }
 
 .queueHeader,
+.queueControls,
 .queuePagination,
 .attendeeActions {
   display: flex;
@@ -87,7 +165,12 @@
   justify-content: space-between;
 }
 
-.queueHeader > div {
+.queueControls {
+  align-items: flex-end;
+  justify-content: flex-end;
+}
+
+.queueHeader > div:first-child {
   display: grid;
   gap: 0.25rem;
 }
@@ -95,6 +178,10 @@
 .queueHeader h4,
 .guestLink {
   margin: 0;
+}
+
+.connectionCount {
+  font-weight: 600;
 }
 
 .guestLink:focus-visible {
@@ -133,26 +220,6 @@
   outline-offset: 2px;
 }
 
-.queuePanel span[data-state] {
-  padding: 0.2rem 0.55rem;
-  color: var(--mantine-color-teal-9);
-  font-size: var(--mantine-font-size-xs);
-  font-weight: 700;
-  background: var(--mantine-color-teal-0);
-  border-radius: 999px;
-}
-
-.queuePanel span[data-state="waiting"] {
-  color: var(--mantine-color-dark-8);
-  background: var(--mantine-color-yellow-0);
-}
-
-.queuePanel span[data-state="admitted"],
-.queuePanel span[data-state="token_issued"] {
-  color: var(--mantine-color-indigo-8);
-  background: var(--mantine-color-indigo-0);
-}
-
 .queueError {
   padding: 0.75rem;
   color: var(--mantine-color-dark-8) !important;
@@ -168,6 +235,21 @@
   gap: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--mantine-color-gray-2);
+}
+
+.lobbyEntry:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.learnerIdentity {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.learnerIdentity > span {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
 }
 
 .attendeeActions {
@@ -244,7 +326,7 @@
   }
 
   .queueHeader,
-  .queueHeader > button,
+  .queueControls,
   .attendeeActions {
     width: 100%;
   }
@@ -255,20 +337,23 @@
 
   .webinarSessionHeader,
   .webinarSessionHeader > div,
-  .admissionModeControls {
+  .webinarLifecyclePanel,
+  .webinarLifecycleActions {
     width: 100%;
   }
 
-  .webinarSessionHeader > div:last-child {
+  .webinarSessionHeader,
+  .webinarLifecyclePanel {
+    flex-direction: column;
+  }
+
+  .webinarLifecycleActions {
     justify-content: flex-start;
   }
 
-  .admissionModeControls > * {
+  .webinarLifecycleActions > *,
+  .queueControls > button {
     flex: 1 1 min(100%, 11rem);
-  }
-
-  .admissionModeControls > p {
-    flex-basis: 100%;
   }
 }
 .guestLink {

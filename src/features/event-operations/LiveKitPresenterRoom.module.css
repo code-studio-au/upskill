@@ -4,7 +4,7 @@
   padding: 1rem;
   border: 1px solid var(--mantine-color-gray-3);
   border-radius: var(--mantine-radius-md);
-  background: var(--mantine-color-gray-0);
+  background: var(--mantine-color-white);
 }
 
 .header {
@@ -22,11 +22,38 @@
 }
 
 .controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
   align-items: stretch;
+  padding: 0.5rem;
+  background: var(--mantine-color-gray-0);
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
 }
 
 .controls > * {
-  flex: 1 1 10rem;
+  flex: 1 1 6.5rem;
+}
+
+.mediaControl {
+  min-height: 4rem;
+  padding: 0.4rem 0.65rem;
+}
+
+.mediaControl > span:last-child {
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.mediaControl svg {
+  width: 1.45rem;
+  height: 1.45rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
 }
 
 .videoGrid {
@@ -75,11 +102,22 @@
   clip-path: inset(50%);
 }
 
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  white-space: nowrap;
+  border: 0;
+  clip-path: inset(50%);
+}
+
 @media (max-width: 36rem) {
   .header > *,
   .header button,
-  .controls,
-  .controls > * {
+  .controls {
     width: 100%;
   }
 

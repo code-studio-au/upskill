@@ -2412,19 +2412,21 @@ test("platform administrators can inspect learner progress", async ({
       });
     });
     await expect(
-      page.getByRole("button", { name: "Open presenter green room" }),
-    ).toBeVisible();
-    const showGreenRoom = page.getByRole("button", {
-      name: "Open presenter green room",
-    });
-    await showGreenRoom.focus();
-    await page.keyboard.press("Enter");
-    await expect(
       page.getByRole("heading", { name: "Presenter green room" }),
     ).toBeVisible();
     await expect(
+      page.getByRole("button", { name: "Open presenter green room" }),
+    ).toHaveCount(0);
+    await expect(
       page.getByRole("button", { name: "Enter green room" }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("combobox", { name: "Admission mode" }),
+    ).toHaveValue("manual");
+    await expect(page.getByText("25 maximum connections")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Check provider" }),
+    ).toHaveCount(0);
     const enterGreenRoom = page.getByRole("button", {
       name: "Enter green room",
     });
@@ -2445,8 +2447,13 @@ test("platform administrators can inspect learner progress", async ({
         () => document.documentElement.dataset.liveKitCspViolation ?? null,
       ),
     ).toBeNull();
-    await page.getByRole("button", { name: "Close green room panel" }).click();
-    await expect(page.getByText("No attendees in the lobby")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Close green room panel" }),
+    ).toHaveCount(0);
+    await expect(
+      page.getByRole("heading", { name: "Presenter green room" }),
+    ).toBeVisible();
+    await expect(page.getByText("No learners in the lobby")).toBeVisible();
     const openEntryGuest = await authoringDatabase.query<{
       id: string;
       name: string;
@@ -2644,7 +2651,7 @@ test("platform administrators can inspect learner progress", async ({
     );
     await expect(
       page.getByRole("alert").filter({
-        hasText: "Attendee list unavailable. Retrying",
+        hasText: "Learner list unavailable. Retrying",
       }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(

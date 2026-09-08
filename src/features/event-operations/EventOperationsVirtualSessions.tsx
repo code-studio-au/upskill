@@ -1,10 +1,8 @@
 import { lazy, Suspense } from "react";
-import { Badge } from "#/features/shared/Badge";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import {
   Alert,
   Button,
-  Group,
   Paper,
   Stack,
   Text,
@@ -24,19 +22,23 @@ const LiveKitPresenterRoom = lazy(async () => {
   return { default: module.LiveKitPresenterRoom };
 });
 
-function statusColour(
-  status: "pending" | "ready" | "error" | "closed",
-): string {
-  return status === "ready"
-    ? "teal"
-    : status === "error"
-      ? "red"
-      : status === "closed"
-        ? "gray"
-        : "yellow";
-}
-
 type AdmissionAction = "admit" | "decline" | "revoke" | "admit_all";
+type Room = NonNullable<
+  EventOperationsWorkspace["virtualSessions"][number]["room"]
+>;
+
+function roomPresentation(room: Room | null) {
+  if (!room) return ["unprepared", "Not prepared"] as const;
+  if (room.providerStatus === "error")
+    return ["error", "Provider issue"] as const;
+  if (room.doorState === "ended") return ["ended", "Ended"] as const;
+  if (room.doorState === "open") return ["live", "Live · Doors open"] as const;
+  if (room.doorState === "locked")
+    return ["live", "Live · Doors locked"] as const;
+  return room.providerStatus === "ready"
+    ? (["ready", "Green room ready"] as const)
+    : (["preparing", "Preparing room"] as const);
+}
 
 export function EventOperationsVirtualSessions({
   workspace,
@@ -53,7 +55,6 @@ export function EventOperationsVirtualSessions({
     sessionId: string,
     operation:
       | "prepare"
-      | "health"
       | "start"
       | "lock"
       | "reopen"
@@ -96,10 +97,6 @@ export function EventOperationsVirtualSessions({
     <Stack gap="lg">
       <div>
         <Title order={2}>Webinar operations</Title>
-        <Text c="dimmed">
-          Prepare each LiveKit room and control the attendee door for the exact
-          assigned session.
-        </Text>
       </div>
       {workspace.occurrence.status !== "published" ? (
         <Alert color="blue">
@@ -113,6 +110,7 @@ export function EventOperationsVirtualSessions({
             (candidate) => candidate.id === virtualSession.eventSessionId,
           );
           const room = virtualSession.room;
+          const [roomState, roomLabel] = roomPresentation(room);
           const actionBusy = processingId !== null;
           return (
             <Paper
@@ -122,11 +120,7 @@ export function EventOperationsVirtualSessions({
               key={virtualSession.eventSessionId}
             >
               <Stack gap="md">
-                <Group
-                  justify="space-between"
-                  align="start"
-                  className={classes.webinarSessionHeader}
-                >
+                <header className={classes.webinarSessionHeader}>
                   <div>
                     <Title order={3}>
                       {session?.title ?? "Virtual session"}
@@ -139,40 +133,30 @@ export function EventOperationsVirtualSessions({
                       </Text>
                     ) : null}
                   </div>
-                  <Group gap="xs">
-                    {room ? (
-                      <>
-                        <Badge variant="light">
-                          Generation {room.generation}
-                        </Badge>
-                        <Badge variant="light">
-                          Capacity {room.maxParticipants}
-                        </Badge>
-                        <Badge
-                          color={statusColour(room.providerStatus)}
-                          variant="light"
-                        >
-                          Provider {room.providerStatus}
-                        </Badge>
-                        <Badge variant="light">Door {room.doorState}</Badge>
-                      </>
-                    ) : (
-                      <Badge color="gray" variant="light">
-                        Not prepared
-                      </Badge>
-                    )}
-                  </Group>
-                </Group>
+                </header>
 
                 {!room ? (
-                  <Stack gap="xs">
-                    <Text size="sm">
-                      Presenter preparation opens{" "}
-                      {formatLocalDateTime(virtualSession.preparationOpensAt, {
-                        timeZone: workspace.occurrence.timezone,
-                      })}
-                      .
-                    </Text>
+                  <section className={classes.webinarLifecyclePanel}>
+                    <div className={classes.webinarLifecycleCopy}>
+                      <span
+                        className={classes.webinarStatus}
+                        data-state={roomState}
+                        role="status"
+                      >
+                        <span aria-hidden="true" />
+                        {roomLabel}
+                      </span>
+                      <Text size="sm">
+                        Preparation opens{" "}
+                        {formatLocalDateTime(
+                          virtualSession.preparationOpensAt,
+                          {
+                            timeZone: workspace.occurrence.timezone,
+                          },
+                        )}
+                        .
+                      </Text>
+                    </div>
                     <Button
                       disabled={actionBusy || !virtualSession.canEnterGreenRoom}
                       loading={
@@ -185,7 +169,7 @@ export function EventOperationsVirtualSessions({
                     >
                       Prepare green room
                     </Button>
-                  </Stack>
+                  </section>
                 ) : (
                   <Stack gap="sm">
                     {room.providerStatus === "error" ? (
@@ -195,157 +179,121 @@ export function EventOperationsVirtualSessions({
                           : "The provider room needs attention. Check LiveKit and replace this generation only if retrying cannot recover it."}
                       </Alert>
                     ) : null}
-                    <Group gap="sm">
-                      {room.doorState === "scheduled" ? (
-                        <Button
-                          disabled={
-                            actionBusy ||
-                            room.providerStatus !== "ready" ||
-                            !virtualSession.canEnterGreenRoom
-                          }
-                          loading={
-                            processingId ===
-                            `start-${virtualSession.eventSessionId}`
-                          }
-                          onClick={() => {
-                            operate(
-                              virtualSession.eventSessionId,
-                              "start",
-                              "Start this webinar and open the attendee door?",
-                            );
-                          }}
+                    <section
+                      className={classes.webinarLifecyclePanel}
+                      aria-label="Webinar controls"
+                    >
+                      <div className={classes.webinarLifecycleCopy}>
+                        <span
+                          className={classes.webinarStatus}
+                          data-state={roomState}
+                          role="status"
                         >
-                          Start webinar
-                        </Button>
-                      ) : null}
-                      {room.doorState === "open" ? (
-                        <Button
-                          variant="light"
-                          disabled={actionBusy}
-                          loading={
-                            processingId ===
-                            `lock-${virtualSession.eventSessionId}`
-                          }
-                          onClick={() => {
-                            operate(virtualSession.eventSessionId, "lock");
-                          }}
-                        >
-                          Lock doors
-                        </Button>
-                      ) : null}
-                      {room.doorState === "locked" ? (
-                        <Button
-                          variant="light"
-                          disabled={actionBusy}
-                          loading={
-                            processingId ===
-                            `reopen-${virtualSession.eventSessionId}`
-                          }
-                          onClick={() => {
-                            operate(virtualSession.eventSessionId, "reopen");
-                          }}
-                        >
-                          Reopen doors
-                        </Button>
-                      ) : null}
-                      {room.doorState !== "ended" ? (
-                        <Button
-                          color="red"
-                          variant="light"
-                          disabled={actionBusy}
-                          loading={
-                            processingId ===
-                            `end-${virtualSession.eventSessionId}`
-                          }
-                          onClick={() => {
-                            operate(
-                              virtualSession.eventSessionId,
-                              "end",
-                              "End this webinar for everyone?",
-                            );
-                          }}
-                        >
-                          End webinar
-                        </Button>
-                      ) : null}
-                      {(room.providerStatus === "error" &&
-                        room.doorState !== "ended") ||
-                      (administrator && room.doorState === "ended") ? (
-                        <Button
-                          color="red"
-                          variant="outline"
-                          disabled={actionBusy}
-                          loading={
-                            processingId ===
-                            `replace-${virtualSession.eventSessionId}`
-                          }
-                          onClick={() => {
-                            operate(
-                              virtualSession.eventSessionId,
-                              "replace",
-                              room.doorState === "ended"
-                                ? "Recover this ended webinar with a new room generation?"
-                                : "Replace this room generation? Existing room credentials will no longer be used.",
-                            );
-                          }}
-                        >
-                          {room.doorState === "ended"
-                            ? "Recover with new generation"
-                            : "Replace generation"}
-                        </Button>
-                      ) : null}
-                    </Group>
-                    {room.doorState !== "ended" ? (
-                      <Group gap="sm" className={classes.admissionModeControls}>
-                        <Text size="sm" fw={700}>
-                          Admission
-                        </Text>
-                        <Button
-                          size="xs"
-                          aria-pressed={room.admissionMode === "manual"}
-                          variant={
-                            room.admissionMode === "manual"
-                              ? "default"
-                              : "light"
-                          }
-                          loading={
-                            processingId ===
-                            `admission_manual-${virtualSession.eventSessionId}`
-                          }
-                          disabled={actionBusy}
-                          onClick={() => {
-                            operate(
-                              virtualSession.eventSessionId,
-                              "admission_manual",
-                            );
-                          }}
-                        >
-                          Manual admit
-                        </Button>
-                        <Button
-                          size="xs"
-                          aria-pressed={room.admissionMode === "automatic"}
-                          variant={
-                            room.admissionMode === "automatic"
-                              ? "default"
-                              : "light"
-                          }
-                          loading={
-                            processingId ===
-                            `admission_automatic-${virtualSession.eventSessionId}`
-                          }
-                          disabled={actionBusy}
-                          onClick={() => {
-                            operate(
-                              virtualSession.eventSessionId,
-                              "admission_automatic",
-                            );
-                          }}
-                        >
-                          Auto-admit
-                        </Button>
-                      </Group>
-                    ) : null}
+                          <span aria-hidden="true" />
+                          {roomLabel}
+                        </span>
+                      </div>
+                      <div className={classes.webinarLifecycleActions}>
+                        {room.doorState === "scheduled" ? (
+                          <Button
+                            disabled={
+                              actionBusy ||
+                              room.providerStatus !== "ready" ||
+                              !virtualSession.canEnterGreenRoom
+                            }
+                            loading={
+                              processingId ===
+                              `start-${virtualSession.eventSessionId}`
+                            }
+                            onClick={() => {
+                              operate(
+                                virtualSession.eventSessionId,
+                                "start",
+                                "Start this webinar and open the attendee door?",
+                              );
+                            }}
+                          >
+                            Start webinar
+                          </Button>
+                        ) : null}
+                        {room.doorState === "open" ? (
+                          <Button
+                            variant="light"
+                            disabled={actionBusy}
+                            loading={
+                              processingId ===
+                              `lock-${virtualSession.eventSessionId}`
+                            }
+                            onClick={() => {
+                              operate(virtualSession.eventSessionId, "lock");
+                            }}
+                          >
+                            Lock doors
+                          </Button>
+                        ) : null}
+                        {room.doorState === "locked" ? (
+                          <Button
+                            variant="light"
+                            disabled={actionBusy}
+                            loading={
+                              processingId ===
+                              `reopen-${virtualSession.eventSessionId}`
+                            }
+                            onClick={() => {
+                              operate(virtualSession.eventSessionId, "reopen");
+                            }}
+                          >
+                            Reopen doors
+                          </Button>
+                        ) : null}
+                        {room.doorState !== "ended" ? (
+                          <Button
+                            color="red"
+                            variant="light"
+                            disabled={actionBusy}
+                            loading={
+                              processingId ===
+                              `end-${virtualSession.eventSessionId}`
+                            }
+                            onClick={() => {
+                              operate(
+                                virtualSession.eventSessionId,
+                                "end",
+                                "End this webinar for everyone?",
+                              );
+                            }}
+                          >
+                            End webinar
+                          </Button>
+                        ) : null}
+                        {(room.providerStatus === "error" &&
+                          room.doorState !== "ended") ||
+                        (administrator && room.doorState === "ended") ? (
+                          <Button
+                            color="red"
+                            variant="outline"
+                            disabled={actionBusy}
+                            loading={
+                              processingId ===
+                              `replace-${virtualSession.eventSessionId}`
+                            }
+                            onClick={() => {
+                              operate(
+                                virtualSession.eventSessionId,
+                                "replace",
+                                room.doorState === "ended"
+                                  ? "Recover this ended webinar with a new room generation?"
+                                  : "Replace this room generation? Existing room credentials will no longer be used.",
+                              );
+                            }}
+                          >
+                            {room.doorState === "ended"
+                              ? "Recover with new generation"
+                              : "Replace generation"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </section>
                   </Stack>
                 )}
 
@@ -366,30 +314,37 @@ export function EventOperationsVirtualSessions({
                   </Suspense>
                 ) : null}
 
-                <Group gap="sm">
-                  <Button
-                    variant="subtle"
-                    disabled={actionBusy}
-                    loading={
-                      processingId === `health-${virtualSession.eventSessionId}`
-                    }
-                    onClick={() => {
-                      operate(virtualSession.eventSessionId, "health");
-                    }}
-                  >
-                    Check provider
-                  </Button>
-                </Group>
-
                 {virtualSession.lobbyPath ? (
-                  <EventOperationsLobbyQueue
-                    eventOccurrenceId={occurrenceId}
-                    session={virtualSession}
-                    lobbyPath={virtualSession.lobbyPath}
-                    showQueue={Boolean(room)}
-                    processingId={processingId}
-                    changeAdmission={changeAdmission}
-                  />
+                  <div className={classes.lobbyPanel}>
+                    {room ? (
+                      <EventOperationsLobbyQueue
+                        eventOccurrenceId={occurrenceId}
+                        session={virtualSession}
+                        room={room}
+                        processingId={processingId}
+                        changeAdmission={changeAdmission}
+                        changeAdmissionMode={(sessionId, mode) => {
+                          operate(
+                            sessionId,
+                            mode === "manual"
+                              ? "admission_manual"
+                              : "admission_automatic",
+                          );
+                        }}
+                      />
+                    ) : null}
+                    <section className={classes.lobbyLinkPanel}>
+                      <strong>Attendee lobby link</strong>
+                      <a
+                        className={classes.guestLink}
+                        href={virtualSession.lobbyPath}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        {virtualSession.lobbyPath}
+                      </a>
+                    </section>
+                  </div>
                 ) : null}
               </Stack>
             </Paper>
