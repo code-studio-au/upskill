@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect } from "react";
 import { createFileRoute, notFound, useRouter } from "@tanstack/react-router";
 import { eventVirtualLobbyReferenceSchema } from "#/features/event-lobby/event-virtual-lobby.schema";
+import { AttendeeRecordingNotice } from "#/features/event-lobby/AttendeeRecordingNotice";
 import { LoadingSpinner } from "#/features/shared/LoadingSpinner";
 import { MantineTextInput } from "#/features/shared/MantineTextInput";
 import { Button } from "#/features/shared/mantine";
@@ -245,6 +246,13 @@ function EventVirtualLobbyPage() {
           <h2>{data.presentation.title}</h2>
           <p>{data.presentation.message}</p>
         </section>
+        <AttendeeRecordingNotice
+          notice={
+            data.recording.enabled && data.recording.acknowledged
+              ? data.recording.notice
+              : null
+          }
+        />
         {data.outcome === "authentication_required" ? (
           <>
             {recovery ? (

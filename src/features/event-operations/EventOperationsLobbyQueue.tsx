@@ -40,7 +40,7 @@ export function EventOperationsLobbyQueue({
   const revision = useRef<string | null>(null);
 
   useEffect(() => {
-    let stopped = false;
+    let stopped: boolean | undefined;
     const load = async () => {
       const result = await getEventVirtualLobbyQueue({
         data: {
@@ -63,26 +63,30 @@ export function EventOperationsLobbyQueue({
       setQueue(result.data);
     };
     void load();
-    const timer = window.setInterval(() => {
+    const timer = setInterval(() => {
       if (!document.hidden) void load();
     }, 4_000);
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      clearInterval(timer);
     };
   }, [eventOccurrenceId, page, sessionId]);
 
   const entries = queue?.entries ?? [];
+  const recordingWarning = (queue?.recording ?? session.recording)?.warning;
   const waiting = entries.some((entry) => entry.state === "waiting");
-  const admissionBusy = processingId !== null;
+  const admissionBusy = Boolean(processingId);
   return (
     <section className={classes.queuePanel} aria-label="Learner admission">
+      {recordingWarning ? (
+        <p className={classes.recordingPanel} role="alert">
+          {recordingWarning}
+        </p>
+      ) : null}
       <header className={classes.queueHeader}>
         <div>
           <h4>Learners</h4>
-          <p className={classes.connectionCount}>
-            {room.maxParticipants} maximum connections
-          </p>
+          <p>{room.maxParticipants} maximum connections</p>
         </div>
         <div className={classes.queueControls}>
           {room.doorState !== "ended" ? (
@@ -135,11 +139,7 @@ export function EventOperationsLobbyQueue({
             const actions =
               entry.state === "waiting"
                 ? (["admit", "decline"] as const)
-                : (
-                      ["admitted", "token_issued", "connected"] as string[]
-                    ).includes(entry.state)
-                  ? (["revoke"] as const)
-                  : [];
+                : (["revoke"] as const);
             return (
               <li className={classes.lobbyEntry} key={entry.id}>
                 <div className={classes.learnerIdentity}>
@@ -156,7 +156,7 @@ export function EventOperationsLobbyQueue({
                           : "Revoke access";
                     return (
                       <button
-                        data-danger={operation !== "admit" || undefined}
+                        data-danger={operation !== "admit"}
                         key={operation}
                         type="button"
                         disabled={admissionBusy}
@@ -176,10 +176,8 @@ export function EventOperationsLobbyQueue({
           })}
         </ul>
       ) : null}
-      {queue && entries.length === 0 ? (
-        <div className={classes.emptyQueue}>
-          <strong>No learners in the lobby</strong>
-        </div>
+      {queue && !entries.length ? (
+        <strong className={classes.emptyQueue}>No learners in the lobby</strong>
       ) : null}
       {queue && (page || queue.hasNextPage) ? (
         <nav
@@ -188,7 +186,7 @@ export function EventOperationsLobbyQueue({
         >
           <button
             type="button"
-            disabled={page === 0}
+            disabled={!page}
             onClick={() => {
               setPage((current) => Math.max(0, current - 1));
             }}

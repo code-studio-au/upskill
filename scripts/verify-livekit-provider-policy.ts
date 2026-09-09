@@ -7,6 +7,8 @@ import {
   updateAdminEventOccurrence,
 } from "#/server/admin/admin-event-occurrence.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
+import { LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY } from "#/server/livekit/livekit-recording-duration-policy.server";
 import {
   down as downProviderPolicy,
   up as upProviderPolicy,
@@ -67,6 +69,26 @@ import {
   down as downRecordingEvidence,
   up as upRecordingEvidence,
 } from "#/server/db/migrations/0099_livekit_recording_evidence";
+import {
+  down as downRecordingOperations,
+  up as upRecordingOperations,
+} from "#/server/db/migrations/0100_livekit_recording_operations";
+import {
+  down as downRecordingStartDispatch,
+  up as upRecordingStartDispatch,
+} from "#/server/db/migrations/0101_livekit_recording_start_dispatch";
+import {
+  down as downRecordingLifecycleAudit,
+  up as upRecordingLifecycleAudit,
+} from "#/server/db/migrations/0102_livekit_recording_lifecycle_audit";
+import {
+  down as downRecordingStopDispatch,
+  up as upRecordingStopDispatch,
+} from "#/server/db/migrations/0103_livekit_recording_stop_dispatch";
+import {
+  down as downRecordingStopOutcome,
+  up as upRecordingStopOutcome,
+} from "#/server/db/migrations/0104_livekit_recording_stop_outcome";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -88,11 +110,17 @@ const administrator: AuthenticatedUser = {
   email: "verify-livekit-policy@example.com",
   emailVerified: true,
 };
+
 const startsAt = new Date("2030-09-04T00:00:00.000Z");
 const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downRecordingStopOutcome(database);
+  await downRecordingStopDispatch(database);
+  await downRecordingLifecycleAudit(database);
+  await downRecordingStartDispatch(database);
+  await downRecordingOperations(database);
   await downRecordingEvidence(database);
   await downParticipantRemovalEnforcement(database);
   await downOpenEntryJoinSessions(database);
@@ -233,6 +261,11 @@ try {
   await upOpenEntryJoinSessions(database);
   await upParticipantRemovalEnforcement(database);
   await upRecordingEvidence(database);
+  await upRecordingOperations(database);
+  await upRecordingStartDispatch(database);
+  await upRecordingLifecycleAudit(database);
+  await upRecordingStopDispatch(database);
+  await upRecordingStopOutcome(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -579,22 +612,9 @@ try {
     })
     .where("eventOccurrenceId", "=", created.eventOccurrenceId)
     .executeTakeFirstOrThrow();
-  assert.equal(
-    await publishAdminEventOccurrence(
-      created.eventOccurrenceId,
-      administrator,
-      { approvedMaxParticipants: 25 },
-    ),
-    "livekit-policy-unavailable",
-    "Automatic recording must remain dormant until recording operations are active",
-  );
   await database
     .updateTable("event_session")
     .set({
-      livekitRecordingMode: "off",
-      livekitRecordingRetentionDays: null,
-      livekitAttendeeRecordingNotice: "",
-      livekitPresenterRecordingNotice: "",
       livekitAttendanceMode: "automatic_check_in",
     })
     .where("eventOccurrenceId", "=", created.eventOccurrenceId)
@@ -606,7 +626,7 @@ try {
       { approvedMaxParticipants: 25 },
     ),
     "livekit-policy-unavailable",
-    "Automatic check-in must remain dormant until attendance ingestion is active",
+    "Automatic check-in must remain dormant while automatic recording is publishable",
   );
   await database
     .updateTable("event_session")
@@ -637,9 +657,49 @@ try {
     await publishAdminEventOccurrence(
       created.eventOccurrenceId,
       administrator,
+      { approvedMaxParticipants: 25 },
+      null,
+    ),
+    "livekit-unavailable",
+    "Automatic recording must remain unpublished without an upload-authorized recording provider",
+  );
+  const recordingProvider = new FakeLiveKitRecordingProvider();
+  await database
+    .updateTable("event_session")
+    .set({
+      localEndsAt: "2030-09-04T12:01:00",
+      endsAt: new Date("2030-09-04T02:01:00.000Z"),
+    })
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await publishAdminEventOccurrence(
+      created.eventOccurrenceId,
+      administrator,
+      { approvedMaxParticipants: 25 },
+      new FakeLiveKitRecordingProvider(
+        LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+      ),
+    ),
+    "livekit-policy-unavailable",
+    "Even a short retained automatic recording must include its full presenter-preparation window in publication policy",
+  );
+  await database
+    .updateTable("event_session")
+    .set({
+      localEndsAt: occurrenceInput.localEndsAt,
+      endsAt: new Date(occurrenceInput.endsAt),
+    })
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await publishAdminEventOccurrence(
+      created.eventOccurrenceId,
+      administrator,
       {
         approvedMaxParticipants: 24,
       },
+      recordingProvider,
     ),
     "livekit-capacity-exceeded",
   );
@@ -650,8 +710,10 @@ try {
       {
         approvedMaxParticipants: 25,
       },
+      recordingProvider,
     ),
     "published",
+    "Automatic recording with manual attendance must publish",
   );
   const publishedOccurrence = await database
     .selectFrom("event_occurrence")
@@ -817,6 +879,11 @@ try {
       await upOpenEntryJoinSessions(database);
       await upParticipantRemovalEnforcement(database);
       await upRecordingEvidence(database);
+      await upRecordingOperations(database);
+      await upRecordingStartDispatch(database);
+      await upRecordingLifecycleAudit(database);
+      await upRecordingStopDispatch(database);
+      await upRecordingStopOutcome(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

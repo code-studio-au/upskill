@@ -44,6 +44,7 @@ describe("LiveKit recording provider contract", () => {
       parseLiveKitRecordingSnapshot({
         providerEgressId: "EG_1",
         roomName: "room_generation_1",
+        storageObjectKey: startInput.storageObjectKey,
         status: "failed",
         startedAt: null,
         endedAt: null,
@@ -103,6 +104,7 @@ describe("LiveKit recording provider contract", () => {
       parseLiveKitRecordingSnapshot({
         providerEgressId: "EG_1",
         roomName: "room_generation_1",
+        storageObjectKey: startInput.storageObjectKey,
         ...state,
       }),
     ).toThrow();
@@ -110,35 +112,67 @@ describe("LiveKit recording provider contract", () => {
 
   it("provides deterministic start, inspection and stop operations", async () => {
     const provider = new FakeLiveKitRecordingProvider();
-    const started = await provider.startRoomCompositeRecording(startInput);
+    const prepared = await provider.prepareRoomCompositeRecording(startInput);
+    expect(provider.operations).toEqual([]);
+    const started = await prepared.dispatch();
     expect(started).toMatchObject({
       providerEgressId: "EG_FAKE_1",
       roomName: startInput.roomName,
       status: "starting",
     });
     await expect(
-      provider.listRoomCompositeRecordings(startInput.roomName),
+      provider.listRoomCompositeRecordings(
+        startInput.roomName,
+        startInput.storageObjectKey,
+      ),
     ).resolves.toEqual([started]);
+    await expect(
+      provider.getRoomCompositeRecording({
+        roomName: startInput.roomName,
+        providerEgressId: started.providerEgressId,
+        storageObjectKey: startInput.storageObjectKey,
+      }),
+    ).resolves.toEqual(started);
     await expect(
       provider.stopRoomCompositeRecording({
         roomName: startInput.roomName,
         providerEgressId: started.providerEgressId,
+        storageObjectKey: startInput.storageObjectKey,
       }),
     ).resolves.toMatchObject({ status: "stopping" });
     expect(provider.operations.map(({ operation }) => operation)).toEqual([
       "start_recording",
       "list_recordings",
+      "get_recording",
       "stop_recording",
     ]);
   });
 
+  it("returns no exact recording for a mismatched target", async () => {
+    const provider = new FakeLiveKitRecordingProvider();
+    const started = await (
+      await provider.prepareRoomCompositeRecording(startInput)
+    ).dispatch();
+
+    await expect(
+      provider.getRoomCompositeRecording({
+        roomName: startInput.roomName,
+        providerEgressId: started.providerEgressId,
+        storageObjectKey: "recordings/opaque_room/other_recording.mp4",
+      }),
+    ).resolves.toBeNull();
+  });
+
   it("does not stop an Egress job outside the expected room", async () => {
     const provider = new FakeLiveKitRecordingProvider();
-    const started = await provider.startRoomCompositeRecording(startInput);
+    const started = await (
+      await provider.prepareRoomCompositeRecording(startInput)
+    ).dispatch();
     const failure = await provider
       .stopRoomCompositeRecording({
         roomName: "other_room_generation",
         providerEgressId: started.providerEgressId,
+        storageObjectKey: startInput.storageObjectKey,
       })
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(LiveKitRecordingProviderError);

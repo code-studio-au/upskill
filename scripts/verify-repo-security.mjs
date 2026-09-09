@@ -417,7 +417,7 @@ for (const requiredRecordingAuthorizationBoundary of [
   'import "@tanstack/react-start/server-only"',
   "new AssumeRoleCommand",
   'Action: "s3:PutObject"',
-  "MAXIMUM_CHAINED_STS_SESSION_SECONDS = 60 * 60",
+  "LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY",
   "parseLiveKitRecordingStorageObjectKey",
 ]) {
   if (
@@ -440,7 +440,7 @@ for (const requiredProductionRecordingAuthorizationBoundary of [
   "Permission: Permission.WRITE",
   "Privilege: Privilege.Minimal",
   "TargetType: S3PrefixType.Object",
-  "MAXIMUM_ACCESS_GRANTS_SESSION_SECONDS = 12 * 60 * 60",
+  "LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY",
   "response.MatchedGrantTarget !== target",
   "parseLiveKitRecordingStorageObjectKey",
 ]) {
@@ -462,12 +462,283 @@ const recordingDurationPolicy = fs.readFileSync(
 );
 for (const requiredRecordingDurationBoundary of [
   'import "@tanstack/react-start/server-only"',
-  "MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES = 11 * 60",
+  "maximumLifetimeMilliseconds: 60 * MINUTE_MILLISECONDS",
+  "finalizationReserveMilliseconds: 5 * MINUTE_MILLISECONDS",
+  "maximumLifetimeMilliseconds: 12 * 60 * MINUTE_MILLISECONDS",
+  "finalizationReserveMilliseconds: 60 * MINUTE_MILLISECONDS",
+  "recordingUploadAuthorizationPolicyForEnvironment",
+  "maximumAutomaticRecordingWindowMinutes",
+  "recordingUploadAuthorizationExpiresAt",
+  "scheduledEndsAt",
   "supportsAutomaticRecordingDurations",
+  "supportsAutomaticRecordingSessionWindow",
+  "presenterPreparationMilliseconds",
+  "item.liveKitPolicy.presenterPreparationMinutes",
 ]) {
   if (!recordingDurationPolicy.includes(requiredRecordingDurationBoundary))
     failures.push(
       `The automatic recording duration boundary is missing: ${requiredRecordingDurationBoundary}`,
+    );
+}
+const eventVirtualRoomServer = fs.readFileSync(
+  path.join(root, "src/server/events/event-virtual-room.server.ts"),
+  "utf8",
+);
+for (const requiredRecordingDeadlineEnforcement of [
+  "recordingUploadAuthorizationExpiresAt",
+  "policy: recordingProvider.uploadAuthorizationPolicy",
+  "prepareRoomCompositeRecording",
+  '"upload_authorization_window_unsupported"',
+]) {
+  if (!eventVirtualRoomServer.includes(requiredRecordingDeadlineEnforcement))
+    failures.push(
+      `The recording upload deadline policy is not enforced: ${requiredRecordingDeadlineEnforcement}`,
+    );
+}
+const recordingPreparationIndex = eventVirtualRoomServer.indexOf(
+  "await recordingProvider.prepareRoomCompositeRecording",
+);
+const recordingDispatchFenceIndex = eventVirtualRoomServer.indexOf(
+  "const dispatchDecision = await beginRecordingStartDispatch",
+);
+const recordingProviderDispatchIndex = eventVirtualRoomServer.indexOf(
+  "await preparedStart.dispatch()",
+);
+if (
+  recordingPreparationIndex < 0 ||
+  recordingDispatchFenceIndex <= recordingPreparationIndex ||
+  recordingProviderDispatchIndex <= recordingDispatchFenceIndex
+)
+  failures.push(
+    "Recording upload authorization must complete before the durable fence and LiveKit dispatch",
+  );
+const recordingDispatchBoundary = eventVirtualRoomServer.slice(
+  eventVirtualRoomServer.indexOf("async function beginRecordingStartDispatch"),
+  eventVirtualRoomServer.indexOf("async function failRecordingBeforeStart"),
+);
+for (const requiredDispatchRevalidation of [
+  'select(["doorState", "endedAt", "replacedAt"])',
+  '"eventSessionId"',
+  '"roomGeneration"',
+  ".forUpdate()",
+  'room.doorState === "ended" || room.replacedAt',
+  "const terminalAt = laterDate(",
+  'failureCode: "meeting_ended_before_recording_started"',
+]) {
+  if (!recordingDispatchBoundary.includes(requiredDispatchRevalidation))
+    failures.push(
+      `The recording dispatch fence is missing terminal-state revalidation: ${requiredDispatchRevalidation}`,
+    );
+}
+for (const requiredStopReconciliation of [
+  "await recordingProvider.getRoomCompositeRecording({",
+  'const stopRequired = ["starting", "active"].includes(',
+  "async function beginRecordingStopDispatch(",
+  "operation.recordingStopDispatchedAt",
+  "recordingStopOutcomeUnknownAt",
+  ".set({ recordingStopDispatchedAt: now })",
+  "async function retryAmbiguousRecordingStop(",
+  "recordingStopOutcomeUnknownAt: dispatchedAt",
+  "claimed.recordingStopOutcomeUnknownAt",
+  "claimed.recordingStopDispatchedAt",
+  '"recording_stop_dispatch_pending"',
+  "const stopSnapshot =",
+  "recording.stopRequestedAt === null ? stopDispatchedAt : null",
+  "stopSnapshot,\n      stopDispatchedAt,",
+  '"recording_stop_outcome_unknown"',
+  'lastErrorCode: "recording_stop_pending"',
+]) {
+  if (!eventVirtualRoomServer.includes(requiredStopReconciliation))
+    failures.push(
+      `Recording stop completion is not durably reconciled: ${requiredStopReconciliation}`,
+    );
+}
+for (const requiredTerminalStartReconciliation of [
+  "RECORDING_START_RECONCILIATION_MILLISECONDS",
+  "now.getTime() - claimed.recordingStartDispatchedAt.getTime()",
+  '"meeting_ended_before_recording_started"',
+  '.where("kind", "=", "stop_recording")',
+  '.where("recordingId", "=", claimed.recordingId)',
+]) {
+  if (!eventVirtualRoomServer.includes(requiredTerminalStartReconciliation))
+    failures.push(
+      `Terminal recording-start reconciliation is incomplete: ${requiredTerminalStartReconciliation}`,
+    );
+}
+for (const requiredRecordingAuditBoundary of [
+  'action: "event_virtual_recording.requested"',
+  'action: "event_virtual_recording.started"',
+  'action: "event_virtual_recording.stop_requested"',
+  'action: "event_virtual_recording.stop_started"',
+  'action: "event_virtual_recording.completed"',
+  'action: "event_virtual_recording.failed"',
+  'subjectType: "event_virtual_recording"',
+  "const status = snapshot.status",
+  'snapshot.status === "stopping"',
+  '"recording_start_pending"',
+]) {
+  if (!eventVirtualRoomServer.includes(requiredRecordingAuditBoundary))
+    failures.push(
+      `The recording lifecycle is missing durable state or audit handling: ${requiredRecordingAuditBoundary}`,
+    );
+}
+const virtualSessionOperationsBoundary = eventVirtualRoomServer.slice(
+  eventVirtualRoomServer.indexOf(
+    "export async function findEventVirtualSessionOperations",
+  ),
+  eventVirtualRoomServer.indexOf(
+    "export async function ensureEventVirtualRoomForStaff",
+  ),
+);
+for (const requiredPresenterNoticeBoundary of [
+  '"session.livekitRecordingMode"',
+  '"session.livekitPresenterRecordingNotice"',
+  "presenterRecordingNotice:",
+  'session.livekitRecordingMode === "automatic"',
+]) {
+  if (
+    !virtualSessionOperationsBoundary.includes(requiredPresenterNoticeBoundary)
+  )
+    failures.push(
+      `The operations workspace does not expose the immutable presenter recording notice: ${requiredPresenterNoticeBoundary}`,
+    );
+}
+for (const requiredRecordingOperationsBoundary of [
+  "findRecordingOperationsByRoom",
+  '"recording.status"',
+  '"operation.lastErrorCode"',
+  "recording: room ?",
+  "recording: recordingByRoom.get(access.roomId)",
+]) {
+  if (!eventVirtualRoomServer.includes(requiredRecordingOperationsBoundary))
+    failures.push(
+      `The staff workspace does not expose safe recording lifecycle and retry state: ${requiredRecordingOperationsBoundary}`,
+    );
+}
+const virtualSessionOperationsUi = fs.readFileSync(
+  path.join(
+    root,
+    "src/features/event-operations/EventOperationsVirtualSessions.tsx",
+  ),
+  "utf8",
+);
+const presenterRoomUi = fs.readFileSync(
+  path.join(root, "src/features/event-operations/LiveKitPresenterRoom.tsx"),
+  "utf8",
+);
+if (
+  !virtualSessionOperationsUi.includes("presenterRecordingNotice={") ||
+  !virtualSessionOperationsUi.includes(
+    "virtualSession.presenterRecordingNotice",
+  ) ||
+  !presenterRoomUi.includes('title="Recording notice"') ||
+  presenterRoomUi.indexOf('title="Recording notice"') >
+    presenterRoomUi.indexOf('phase === "idle" ? "Enter green room"')
+)
+  failures.push(
+    "The immutable presenter recording notice must remain visible before green-room credential issuance",
+  );
+const lobbyQueueUi = fs.readFileSync(
+  path.join(
+    root,
+    "src/features/event-operations/EventOperationsLobbyQueue.tsx",
+  ),
+  "utf8",
+);
+for (const requiredRecordingWarning of [
+  "queue?.recording ?? session.recording",
+  'role="alert"',
+  "recordingWarning",
+]) {
+  if (!lobbyQueueUi.includes(requiredRecordingWarning))
+    failures.push(
+      `The webinar operations UI does not surface recording failures and retries to staff: ${requiredRecordingWarning}`,
+    );
+}
+const attendeeLobbyUi = fs.readFileSync(
+  path.join(root, "src/routes/webinars.$publicReference.tsx"),
+  "utf8",
+);
+const attendeeRecordingNoticeUi = fs.readFileSync(
+  path.join(root, "src/features/event-lobby/AttendeeRecordingNotice.tsx"),
+  "utf8",
+);
+if (
+  !attendeeLobbyUi.includes("data.recording.enabled &&") ||
+  !attendeeLobbyUi.includes("data.recording.acknowledged") ||
+  !attendeeLobbyUi.includes("<AttendeeRecordingNotice") ||
+  attendeeLobbyUi.indexOf("<AttendeeRecordingNotice") >
+    attendeeLobbyUi.indexOf("<LiveKitAttendeeRoom") ||
+  !attendeeRecordingNoticeUi.includes('title="Recording notice"')
+)
+  failures.push(
+    "The acknowledged attendee recording notice must remain visible before and throughout the webinar connection",
+  );
+const scheduledEventsUi = fs.readFileSync(
+  path.join(root, "src/routes/admin.events.scheduled.tsx"),
+  "utf8",
+);
+for (const requiredPublicationGuidance of [
+  "Use manual attendance",
+  "shorten the presenter preparation window",
+  "shorten the session",
+  "disable automatic recording",
+]) {
+  if (!scheduledEventsUi.includes(requiredPublicationGuidance))
+    failures.push(
+      `LiveKit publication guidance is missing an applicable policy correction: ${requiredPublicationGuidance}`,
+    );
+}
+const cloudRecordingProvider = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/livekit/livekit-recording-provider.cloud.server.ts",
+  ),
+  "utf8",
+);
+const exactStartListingBoundary = cloudRecordingProvider.slice(
+  cloudRecordingProvider.indexOf("async listRoomCompositeRecordings"),
+  cloudRecordingProvider.indexOf("async getRoomCompositeRecording"),
+);
+for (const requiredExactStartReconciliationBoundary of [
+  "targetsStorageObjectKey",
+  ".flatMap(",
+  "parsedStorageObjectKey",
+  "recordingSnapshot(",
+]) {
+  if (
+    !exactStartListingBoundary.includes(
+      requiredExactStartReconciliationBoundary,
+    )
+  )
+    failures.push(
+      `Recording start reconciliation does not filter raw provider results by exact storage target: ${requiredExactStartReconciliationBoundary}`,
+    );
+}
+if (
+  exactStartListingBoundary.indexOf("targetsStorageObjectKey") >
+  exactStartListingBoundary.indexOf("recordingSnapshot(")
+)
+  failures.push(
+    "Recording start reconciliation must filter raw provider results before normalisation",
+  );
+const adminEventOccurrenceServer = fs.readFileSync(
+  path.join(root, "src/server/admin/admin-event-occurrence.server.ts"),
+  "utf8",
+);
+for (const requiredRecordingPublicationBoundary of [
+  "createConfiguredLiveKitRecordingProvider()",
+  "liveKitAutomaticRecordingSessions",
+  "!liveKitRecordingProvider",
+  "supportsAutomaticRecordingSessionWindow",
+  "livekitPresenterPreparationMinutes",
+  "liveKitRecordingProvider.uploadAuthorizationPolicy",
+]) {
+  if (
+    !adminEventOccurrenceServer.includes(requiredRecordingPublicationBoundary)
+  )
+    failures.push(
+      `Automatic recording publication is missing provider availability enforcement: ${requiredRecordingPublicationBoundary}`,
     );
 }
 const adminEventTemplateServer = fs.readFileSync(
@@ -475,8 +746,11 @@ const adminEventTemplateServer = fs.readFileSync(
   "utf8",
 );
 for (const requiredRecordingDurationEnforcement of [
-  'if (!supportsAutomaticRecordingDurations(draft)) return "conflict"',
+  "recordingUploadAuthorizationPolicyForEnvironment(getServerEnv().APP_ENV)",
+  "supportsAutomaticRecordingDurations(draft, recordingAuthorizationPolicy)",
+  "maximumAutomaticRecordingWindowMinutes",
   "sessions.\"livekitRecordingMode\" = 'automatic'",
+  '+ sessions."livekitPresenterPreparationMinutes"',
   "structure.unsupportedAutomaticRecordings > 0",
 ]) {
   if (!adminEventTemplateServer.includes(requiredRecordingDurationEnforcement))

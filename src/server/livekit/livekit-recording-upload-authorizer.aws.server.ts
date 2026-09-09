@@ -12,10 +12,13 @@ import {
   type LiveKitRecordingUploadAuthorizationRequest,
   type LiveKitRecordingUploadAuthorizer,
 } from "./livekit-recording-provider.cloud.server";
+import { LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY } from "./livekit-recording-duration-policy.server";
 import { parseLiveKitRecordingStorageObjectKey } from "./livekit-recording-provider.server";
 
 const MINIMUM_STS_SESSION_SECONDS = 15 * 60;
-const MAXIMUM_CHAINED_STS_SESSION_SECONDS = 60 * 60;
+const MAXIMUM_CHAINED_STS_SESSION_SECONDS =
+  LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY.maximumLifetimeMilliseconds /
+  1_000;
 
 const s3BucketSchema = z
   .string()
@@ -94,6 +97,8 @@ function uploadSessionPolicy(
 }
 
 export class AwsLiveKitRecordingUploadAuthorizer implements LiveKitRecordingUploadAuthorizer {
+  readonly uploadAuthorizationPolicy =
+    LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY;
   private readonly configuration: z.infer<typeof configurationSchema>;
   private readonly now: () => Date;
   private readonly sessionId: () => string;

@@ -90,7 +90,6 @@ export const eventVirtualPresenterCredentialResultSchema = z.discriminatedUnion(
         "preparation_not_open",
         "provider_pending",
         "provider_unavailable",
-        "recording_unavailable",
         "room_configuration_changed",
         "room_not_ready",
         "session_ended",
@@ -123,6 +122,18 @@ export type EventSectionProgressState =
   "locked" | "not_started" | "in_progress" | "completed";
 export type EventAttendanceState =
   "not_recorded" | "checked_in" | "attended" | "absent";
+
+interface EventVirtualRecordingOperationsState {
+  status:
+    | "requested"
+    | "starting"
+    | "active"
+    | "stopping"
+    | "complete"
+    | "failed"
+    | "deleted";
+  warning: string | null;
+}
 
 export interface EventParticipantProgress {
   eventParticipationId: string;
@@ -272,7 +283,9 @@ export interface EventOperationsWorkspace {
     eventSessionId: string;
     preparationOpensAt: string;
     canEnterGreenRoom: boolean;
+    presenterRecordingNotice: string | null;
     lobbyPath: string | null;
+    recording: EventVirtualRecordingOperationsState | null;
     room: {
       id: string;
       eventSessionId: string;
@@ -305,6 +318,7 @@ export interface EventVirtualLobbyQueueData {
     admittedAt: string | null;
   }>;
   hasNextPage: boolean;
+  recording: EventVirtualRecordingOperationsState | null;
 }
 
 export type EventVirtualLobbyQueueResult =
@@ -361,7 +375,6 @@ export type EventOperationsMutationResult =
         | "preparation_not_open"
         | "provider_pending"
         | "provider_unavailable"
-        | "recording_unavailable"
         | "region_locked"
         | "room_configuration_changed"
         | "room_not_ready"

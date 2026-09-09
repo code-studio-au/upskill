@@ -34,6 +34,9 @@ import {
   getEnabledLiveKitConfiguration,
   type EnabledLiveKitConfiguration,
 } from "#/server/livekit/livekit-provider.server";
+import { createConfiguredLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-runtime.server";
+import type { LiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.server";
+import { supportsAutomaticRecordingSessionWindow } from "#/server/livekit/livekit-recording-duration-policy.server";
 import {
   addElapsedDuration,
   addElapsedMilliseconds,
@@ -1542,6 +1545,7 @@ export async function publishAdminEventOccurrence(
   eventOccurrenceId: string,
   administrator: AuthenticatedUser,
   liveKitConfiguration: LiveKitCapacityConfiguration | null = getEnabledLiveKitConfiguration(),
+  liveKitRecordingProvider: LiveKitRecordingProvider | null = createConfiguredLiveKitRecordingProvider(),
 ): Promise<
   | "published"
   | "not-found"
@@ -1623,10 +1627,15 @@ export async function publishAdminEventOccurrence(
           sql<number>`(select count(*)::integer from event_session sessions
             where sessions."eventOccurrenceId" = ${eventOccurrenceId}
               and sessions."virtualDeliveryProvider" = 'livekit'
-              and (
-                sessions."livekitAttendanceMode" is distinct from 'manual'
-                or sessions."livekitRecordingMode" is distinct from 'off'
-              ))`.as("liveKitAutomationSessions"),
+              and sessions."livekitAttendanceMode" is distinct from 'manual')`.as(
+            "liveKitUnsupportedAttendanceSessions",
+          ),
+          sql<number>`(select count(*)::integer from event_session sessions
+            where sessions."eventOccurrenceId" = ${eventOccurrenceId}
+              and sessions."virtualDeliveryProvider" = 'livekit'
+              and sessions."livekitRecordingMode" = 'automatic')`.as(
+            "liveKitAutomaticRecordingSessions",
+          ),
           sql<number>`(select count(*)::integer from event_occurrence_domain
             where "eventOccurrenceId" = ${eventOccurrenceId})`.as("domains"),
         ])
@@ -1655,9 +1664,41 @@ export async function publishAdminEventOccurrence(
       )
         return "conflict" as const;
       if (occurrence.virtualDeliveryProvider === "livekit") {
-        if (coverage.liveKitAutomationSessions > 0)
+        if (coverage.liveKitUnsupportedAttendanceSessions > 0)
           return "livekit-policy-unavailable" as const;
         if (!liveKitConfiguration) return "livekit-unavailable" as const;
+        if (
+          coverage.liveKitAutomaticRecordingSessions > 0 &&
+          !liveKitRecordingProvider
+        )
+          return "livekit-unavailable" as const;
+        if (coverage.liveKitAutomaticRecordingSessions > 0) {
+          const automaticRecordingSessions = await transaction
+            .selectFrom("event_session")
+            .select([
+              "startsAt",
+              "endsAt",
+              "livekitPresenterPreparationMinutes",
+            ])
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .where("virtualDeliveryProvider", "=", "livekit")
+            .where("livekitRecordingMode", "=", "automatic")
+            .execute();
+          if (
+            !liveKitRecordingProvider ||
+            !automaticRecordingSessions.every(
+              (session) =>
+                typeof session.livekitPresenterPreparationMinutes ===
+                  "number" &&
+                supportsAutomaticRecordingSessionWindow(
+                  session.endsAt.getTime() - session.startsAt.getTime(),
+                  session.livekitPresenterPreparationMinutes * 60 * 1_000,
+                  liveKitRecordingProvider.uploadAuthorizationPolicy,
+                ),
+            )
+          )
+            return "livekit-policy-unavailable" as const;
+        }
         if (
           occurrence.capacity + coverage.maximumLiveKitCapacityHeadroom >
           liveKitConfiguration.approvedMaxParticipants

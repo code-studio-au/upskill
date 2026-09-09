@@ -1405,7 +1405,7 @@ try {
   );
   const tokenIssuedEntry = await database
     .selectFrom("event_virtual_lobby_entry")
-    .select(["id", "state", "admittedByUserId"])
+    .select(["id", "state", "admittedByUserId", "requestedAt"])
     .where("eventParticipationId", "=", ids.participation)
     .executeTakeFirstOrThrow();
   const latestCredentialExpiresAt = new Date(createdAt.getTime() + 20 * 60_000);
@@ -1725,6 +1725,27 @@ try {
       updatedAt: createdAt,
     },
     "Replayed acknowledgement must preserve the original consent evidence",
+  );
+  const acknowledgedReadyLobby = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.deepEqual(
+    acknowledgedReadyLobby.status === "ready"
+      ? {
+          outcome: acknowledgedReadyLobby.data.outcome,
+          recording: acknowledgedReadyLobby.data.recording,
+        }
+      : null,
+    {
+      outcome: "ready_to_join",
+      recording: {
+        enabled: true,
+        notice: "This webinar is recorded.",
+        acknowledged: true,
+      },
+    },
+    "The ready and connected learner view must retain the exact acknowledged recording notice",
   );
   await database
     .updateTable("event_virtual_room")
@@ -4079,7 +4100,9 @@ try {
     "Recovery outcome audits must not contain an identifier or submitted code",
   );
 
-  const smsInvalidatedAt = new Date();
+  const smsInvalidatedAt = new Date(
+    Math.max(Date.now(), tokenIssuedEntry.requestedAt.getTime() + 5_000),
+  );
   const smsChallengeId = "verify_livekit_lobby_sms_invalidation_challenge";
   const smsJoinSessionId = "verify_livekit_lobby_sms_invalidation_session";
   await database

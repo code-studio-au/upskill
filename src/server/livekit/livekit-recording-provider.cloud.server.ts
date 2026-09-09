@@ -13,6 +13,7 @@ import {
   type EgressInfo,
 } from "livekit-server-sdk";
 import { z } from "#/validation/zod.server";
+import type { LiveKitRecordingUploadAuthorizationPolicy } from "./livekit-recording-duration-policy.server";
 import {
   LiveKitRecordingProviderError,
   parseLiveKitRecordingRoomName,
@@ -23,6 +24,7 @@ import {
   type LiveKitRecordingProvider,
   type LiveKitRecordingSnapshot,
   type LiveKitRecordingTarget,
+  type PreparedLiveKitRoomCompositeRecording,
   type StartLiveKitRoomCompositeRecordingInput,
 } from "./livekit-recording-provider.server";
 
@@ -63,6 +65,7 @@ export interface LiveKitRecordingUploadAuthorization {
 }
 
 export interface LiveKitRecordingUploadAuthorizer {
+  readonly uploadAuthorizationPolicy: LiveKitRecordingUploadAuthorizationPolicy;
   authorizeUpload(
     request: LiveKitRecordingUploadAuthorizationRequest,
   ): Promise<LiveKitRecordingUploadAuthorization>;
@@ -203,6 +206,7 @@ function recordingSnapshot(
   return parseLiveKitRecordingSnapshot({
     providerEgressId: info.egressId,
     roomName: info.roomName,
+    storageObjectKey: fileOutput.filepath,
     status,
     startedAt,
     endedAt,
@@ -211,7 +215,20 @@ function recordingSnapshot(
   });
 }
 
+function targetsStorageObjectKey(
+  info: EgressInfo,
+  storageObjectKey: string,
+): boolean {
+  if (info.request.case !== "egress") return false;
+  return info.request.value.outputs.some(
+    (output) =>
+      output.config.case === "file" &&
+      output.config.value.filepath === storageObjectKey,
+  );
+}
+
 export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
+  readonly uploadAuthorizationPolicy: LiveKitRecordingUploadAuthorizationPolicy;
   private readonly configuration: LiveKitCloudRecordingConfiguration;
   private readonly egress: LiveKitEgressClient;
 
@@ -222,6 +239,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.configuration = recordingConfigurationSchema.parse(configuration);
+    this.uploadAuthorizationPolicy = uploadAuthorizer.uploadAuthorizationPolicy;
     this.egress =
       egress ??
       new LiveKitAPI({
@@ -231,10 +249,11 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
       }).egress;
   }
 
-  async startRoomCompositeRecording(
+  async prepareRoomCompositeRecording(
     input: StartLiveKitRoomCompositeRecordingInput,
-  ): Promise<LiveKitRecordingSnapshot> {
+  ): Promise<PreparedLiveKitRoomCompositeRecording> {
     const parsed = parseStartLiveKitRoomCompositeRecordingInput(input);
+    let request: StartEgressRequest;
     try {
       const now = this.now();
       if (parsed.uploadAuthorizationExpiresAt <= now)
@@ -257,7 +276,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
         throw new RangeError(
           "Recording upload authorization expires before the required time",
         );
-      const request = new StartEgressRequest({
+      request = new StartEgressRequest({
         roomName: parsed.roomName,
         source: {
           case: "template",
@@ -288,28 +307,79 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
           },
         }),
       });
-      return recordingSnapshot(
-        await this.egress.startEgress(request),
-        parsed.roomName,
-        this.configuration,
-        undefined,
-        parsed.storageObjectKey,
-      );
     } catch {
-      throw new LiveKitRecordingProviderError("start_recording");
+      throw new LiveKitRecordingProviderError("prepare_recording");
     }
+    let dispatched = false;
+    return {
+      dispatch: async () => {
+        if (dispatched)
+          throw new LiveKitRecordingProviderError("start_recording");
+        dispatched = true;
+        try {
+          return recordingSnapshot(
+            await this.egress.startEgress(request),
+            parsed.roomName,
+            this.configuration,
+            undefined,
+            parsed.storageObjectKey,
+          );
+        } catch {
+          throw new LiveKitRecordingProviderError("start_recording");
+        }
+      },
+    };
   }
 
   async listRoomCompositeRecordings(
     roomName: string,
+    storageObjectKey: string,
   ): Promise<LiveKitRecordingSnapshot[]> {
     const parsedRoomName = parseLiveKitRecordingRoomName(roomName);
+    const parsedStorageObjectKey =
+      parseLiveKitRecordingStorageObjectKey(storageObjectKey);
     try {
-      return (await this.egress.listEgress({ roomName: parsedRoomName })).map(
-        (info) => recordingSnapshot(info, parsedRoomName, this.configuration),
+      return (
+        await this.egress.listEgress({ roomName: parsedRoomName })
+      ).flatMap((info) =>
+        targetsStorageObjectKey(info, parsedStorageObjectKey)
+          ? [
+              recordingSnapshot(
+                info,
+                parsedRoomName,
+                this.configuration,
+                undefined,
+                parsedStorageObjectKey,
+              ),
+            ]
+          : [],
       );
     } catch {
       throw new LiveKitRecordingProviderError("list_recordings");
+    }
+  }
+
+  async getRoomCompositeRecording(
+    target: LiveKitRecordingTarget,
+  ): Promise<LiveKitRecordingSnapshot | null> {
+    const parsed = parseLiveKitRecordingTarget(target);
+    try {
+      const matches = await this.egress.listEgress({
+        egressId: parsed.providerEgressId,
+      });
+      if (matches.length === 0) return null;
+      const [existing] = matches;
+      if (!existing || matches.length !== 1)
+        throw new TypeError("Provider recording lookup was not exact");
+      return recordingSnapshot(
+        existing,
+        parsed.roomName,
+        this.configuration,
+        parsed.providerEgressId,
+        parsed.storageObjectKey,
+      );
+    } catch {
+      throw new LiveKitRecordingProviderError("get_recording");
     }
   }
 
@@ -329,6 +399,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
         parsed.roomName,
         this.configuration,
         parsed.providerEgressId,
+        parsed.storageObjectKey,
       );
       return recordingSnapshot(
         await this.egress.stopEgress(parsed.providerEgressId),

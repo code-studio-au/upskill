@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { z } from "#/validation/zod.server";
+import type { LiveKitRecordingUploadAuthorizationPolicy } from "./livekit-recording-duration-policy.server";
 
 const roomNameSchema = z
   .string()
@@ -29,6 +30,7 @@ const startRoomCompositeRecordingInputSchema = z.object({
 const recordingTargetSchema = z.object({
   roomName: roomNameSchema,
   providerEgressId: providerEgressIdSchema,
+  storageObjectKey: storageObjectKeySchema,
 });
 
 const recordingOutputSchema = z.object({
@@ -41,6 +43,7 @@ const liveKitRecordingSnapshotSchema = z
   .object({
     providerEgressId: providerEgressIdSchema,
     roomName: roomNameSchema,
+    storageObjectKey: storageObjectKeySchema,
     status: z.enum(["starting", "active", "stopping", "complete", "failed"]),
     startedAt: z.date().nullable(),
     endedAt: z.date().nullable(),
@@ -64,6 +67,11 @@ const liveKitRecordingSnapshotSchema = z
           issue("endedAt", "Completed recordings require an end time.");
         if (!snapshot.output)
           issue("output", "Completed recordings require output evidence.");
+        if (
+          snapshot.output &&
+          snapshot.output.storageObjectKey !== snapshot.storageObjectKey
+        )
+          issue("output", "Completed output must match the recording target.");
       } else if (snapshot.status !== "failed" && snapshot.output) {
         issue("output", "Output evidence is terminal recording state.");
       }
@@ -100,20 +108,33 @@ export type LiveKitRecordingSnapshot = z.infer<
   typeof liveKitRecordingSnapshotSchema
 >;
 
+export interface PreparedLiveKitRoomCompositeRecording {
+  dispatch(): Promise<LiveKitRecordingSnapshot>;
+}
+
 export interface LiveKitRecordingProvider {
-  startRoomCompositeRecording(
+  readonly uploadAuthorizationPolicy: LiveKitRecordingUploadAuthorizationPolicy;
+  prepareRoomCompositeRecording(
     input: StartLiveKitRoomCompositeRecordingInput,
-  ): Promise<LiveKitRecordingSnapshot>;
+  ): Promise<PreparedLiveKitRoomCompositeRecording>;
   listRoomCompositeRecordings(
     roomName: string,
+    storageObjectKey: string,
   ): Promise<LiveKitRecordingSnapshot[]>;
+  getRoomCompositeRecording(
+    target: LiveKitRecordingTarget,
+  ): Promise<LiveKitRecordingSnapshot | null>;
   stopRoomCompositeRecording(
     target: LiveKitRecordingTarget,
   ): Promise<LiveKitRecordingSnapshot>;
 }
 
 export type LiveKitRecordingProviderOperation =
-  "start_recording" | "list_recordings" | "stop_recording";
+  | "prepare_recording"
+  | "start_recording"
+  | "list_recordings"
+  | "get_recording"
+  | "stop_recording";
 
 export class LiveKitRecordingProviderError extends Error {
   readonly code = "LIVEKIT_RECORDING_PROVIDER_OPERATION_FAILED";

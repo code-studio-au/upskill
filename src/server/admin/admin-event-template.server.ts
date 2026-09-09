@@ -27,9 +27,11 @@ import { normalizeEventCommunicationAudience } from "#/features/admin-email/comm
 import { parseSurveyVersionContent } from "#/features/survey/survey.schema";
 import { registrationSurveySupportsEventRegions } from "#/features/registration/registration-questionnaire-domain";
 import {
-  MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES,
+  maximumAutomaticRecordingWindowMinutes,
+  recordingUploadAuthorizationPolicyForEnvironment,
   supportsAutomaticRecordingDurations,
 } from "#/server/livekit/livekit-recording-duration-policy.server";
+import { getServerEnv } from "#/server/env.server";
 
 export async function createAdminEventTemplate(
   input: AdminEventTemplateCreateInput,
@@ -1057,7 +1059,10 @@ export async function saveAdminEventTemplateDraft(
   draft: AdminEventTemplateDraft,
   administrator: AuthenticatedUser,
 ): Promise<"saved" | "not-found" | "conflict"> {
-  if (!supportsAutomaticRecordingDurations(draft)) return "conflict";
+  const recordingAuthorizationPolicy =
+    recordingUploadAuthorizationPolicyForEnvironment(getServerEnv().APP_ENV);
+  if (!supportsAutomaticRecordingDurations(draft, recordingAuthorizationPolicy))
+    return "conflict";
   const result = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
@@ -1301,6 +1306,10 @@ export async function publishAdminEventTemplateVersion(
   eventTemplateVersionId: string,
   administrator: AuthenticatedUser,
 ): Promise<"published" | "not-found" | "conflict"> {
+  const maximumAutomaticRecordingWindowDurationMinutes =
+    maximumAutomaticRecordingWindowMinutes(
+      recordingUploadAuthorizationPolicyForEnvironment(getServerEnv().APP_ENV),
+    );
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
@@ -1397,7 +1406,9 @@ export async function publishAdminEventTemplateVersion(
               sql<number>`count(items.id) filter (
                 where items.kind = 'session'
                   and sessions."livekitRecordingMode" = 'automatic'
-                  and items."durationMinutes" > ${MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES}
+                  and items."durationMinutes"
+                    + sessions."livekitPresenterPreparationMinutes"
+                    > ${maximumAutomaticRecordingWindowDurationMinutes}
               )::integer`.as("unsupportedAutomaticRecordings"),
             ])
             .where(

@@ -1018,6 +1018,9 @@ starts one managed RoomComposite Egress job idempotently. It records the webinar
 layout to MP4 and stops when the meeting ends. An authorised administrator has
 an audited emergency stop; pause, restart, multiple layouts, individual-track
 recording, transcription, and AI summaries are outside the initial slice.
+The durable stop-dispatch fence is one-shot: a reclaimed worker reconciles the
+exact Egress instead of issuing another provider stop or replacing the original
+dispatch time.
 
 The recording is written to an opaque, session-generation-specific prefix in a
 private Upskill S3 bucket. The plan-compatible development path has the
@@ -1031,9 +1034,14 @@ unvalidated key and never persists or logs credentials.
 AWS role chaining caps this path at one hour. The requested authorization
 deadline must already include recording finalisation and upload time; a deadline
 more than one hour from issuance is rejected before AWS is called, and an STS
-response that expires before that deadline is rejected. This supports short
+response that expires before that deadline is rejected. Automatically recorded
+development sessions therefore have a combined presenter-preparation and
+scheduled-duration ceiling of fifty-five minutes and reserve the final five
+minutes for recording finalisation and upload. A template using the default
+sixty-minute preparation window cannot enable automatic recording on this
+role-chained path until that window is shortened. This supports short
 development recordings without introducing long-lived AWS credentials. It does
-not authorize automatic recording or multi-hour production recording.
+not authorize longer production recordings.
 
 The production-duration path uses Amazon S3 Access Grants as a separately
 reviewed, non-chained temporary credential issuer. The application role requests
@@ -1045,13 +1053,14 @@ recording prefix, so the vended credential receives neither the broader actions
 available to an Access Grants `WRITE` grant nor access to another object.
 
 S3 Access Grants credentials last at most twelve hours. Automatically recorded
-Event Sessions therefore have an eleven-hour scheduled-duration ceiling and
-reserve the final hour for recording finalisation and upload. This limit does
-not reduce the seven-day ceiling for sessions whose recording mode is off.
-Future recording start operations must calculate the required authorization
-deadline from the current start time, snapshotted scheduled duration and this
-fixed final-upload reserve; they must reject a deadline beyond twelve hours
-before calling AWS.
+Event Sessions therefore have an eleven-hour combined presenter-preparation and
+scheduled-duration ceiling and reserve the final hour for recording finalisation
+and upload. This limit does not reduce the seven-day ceiling for sessions whose
+recording mode is off. Recording start operations calculate the required
+authorization deadline from the current start time, snapshotted scheduled
+duration, scheduled end and this fixed final-upload reserve; authoring and
+publication must reject a permitted preparation-to-finalisation window beyond
+the provider ceiling before calling AWS.
 
 S3 Access Grants permits one instance per AWS account and Region. An
 account-level Upskill foundation stack owns that singleton, while each
@@ -1067,15 +1076,15 @@ or production remains a separate operational action.
 
 The upload-authorization impact delta is deliberately narrow:
 
-| Caller or failure case                                                   | Server-owned decision                                                                                                                  | Proof                                                                                            |
-| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| Dormant recording adapter requests the configured bucket, region and key | Assume only the configured upload role; intersect its prefix policy with one exact-object `s3:PutObject` session policy                | Authorizer unit test and synthesized IAM assertions                                              |
-| Foreign bucket, region, malformed key, expired or over-one-hour deadline | Reject before STS without issuing a credential                                                                                         | Parameterized negative unit tests                                                                |
-| STS error, incomplete result or insufficient expiry                      | Return one safe typed failure; expose no provider detail or credential                                                                 | Failure and post-call expiry tests                                                               |
-| Other application and LiveKit operations                                 | Receive no read, list, delete or general recording-bucket access; automatic recording and durable operations remain unreachable in 6b3 | Synthesized role attachment/action assertions and the existing dormant recording-operation guard |
-| Production-duration authorizer requests an exact recording object        | Ask S3 Access Grants for minimal object-targeted `WRITE` credentials lasting no longer than twelve hours                               | Authorizer request, exact matched-target and expiry regression tests                             |
-| Automatic recording exceeds the supported credential window              | Reject save and publication above eleven hours while leaving non-recorded session limits unchanged                                     | Server policy and publication-query regression coverage                                          |
-| S3 Access Grants vends broader, incomplete or short-lived credentials    | Reject the response and expose one safe typed failure without credentials or AWS detail                                                | Negative authorizer regression coverage                                                          |
+| Caller or failure case                                                   | Server-owned decision                                                                                                   | Proof                                                                |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Dormant recording adapter requests the configured bucket, region and key | Assume only the configured upload role; intersect its prefix policy with one exact-object `s3:PutObject` session policy | Authorizer unit test and synthesized IAM assertions                  |
+| Foreign bucket, region, malformed key, expired or over-one-hour deadline | Reject before STS without issuing a credential                                                                          | Parameterized negative unit tests                                    |
+| STS error, incomplete result or insufficient expiry                      | Return one safe typed failure; expose no provider detail or credential                                                  | Failure and post-call expiry tests                                   |
+| Other application and LiveKit operations                                 | Receive no read, list, delete or general recording-bucket access                                                        | Synthesized role attachment/action assertions                        |
+| Production-duration authorizer requests an exact recording object        | Ask S3 Access Grants for minimal object-targeted `WRITE` credentials lasting no longer than twelve hours                | Authorizer request, exact matched-target and expiry regression tests |
+| Automatic recording exceeds the supported credential window              | Reject save and publication above eleven hours while leaving non-recorded session limits unchanged                      | Server policy and publication-query regression coverage              |
+| S3 Access Grants vends broader, incomplete or short-lived credentials    | Reject the response and expose one safe typed failure without credentials or AWS detail                                 | Negative authorizer regression coverage                              |
 
 Recording start, active, stopping, complete, failed, size, duration, provider
 Egress identifier, storage key, retention deadline, and deletion evidence are
@@ -1313,10 +1322,13 @@ gates passed; it does not by itself authorise staging or production activation.
       authorization safely covers the maximum automatically recorded Event
       Session plus final upload. Implemented by
       [PR #78](https://github.com/code-studio-au/upskill/pull/78).
-- [ ] **Slice 6b3 — idempotent recording operations:** connect recording start
+- [x] **Slice 6b3 — idempotent recording operations:** connect recording start
       and stop to committed room transitions through stable outbox operations,
       reconcile ambiguous provider outcomes and preserve one logical recording
-      per room generation.
+      per room generation. Implemented with the existing leased room-operation
+      queue and provider-specific upload authorization windows. The staff
+      workspace polls and surfaces the safe durable lifecycle plus retry/failure
+      state; provider status ingestion remains isolated in Slice 6b4.
 - [ ] **Slice 6b4 — recording status ingestion:** accept verified Egress webhook
       states, reconcile delayed or missing status and output evidence, and expose
       bounded operational failures without provider detail leakage.

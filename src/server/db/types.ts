@@ -781,12 +781,21 @@ interface EventVirtualRoomTable {
 interface EventVirtualRoomOperationTable {
   id: string;
   roomId: string;
-  kind: "ensure_room" | "close_room" | "remove_participant";
+  kind:
+    | "ensure_room"
+    | "close_room"
+    | "remove_participant"
+    | "start_recording"
+    | "stop_recording";
   targetKey: Generated<string>;
   lobbyEntryId: Generated<string | null>;
   presenterUserId: Generated<string | null>;
+  recordingId: Generated<string | null>;
   participantIdentity: Generated<string | null>;
   removalEnforcedUntil: OptionalTimestamp;
+  recordingStartDispatchedAt: OptionalTimestamp;
+  recordingStopDispatchedAt: OptionalTimestamp;
+  recordingStopOutcomeUnknownAt: OptionalTimestamp;
   deduplicationKey: string;
   status: "pending" | "processing" | "succeeded";
   attempts: Generated<number>;
@@ -1783,6 +1792,12 @@ export type AuditEventAction =
   | "event_template.draft_deleted"
   | "event_template.version_created"
   | "event_template.version_published"
+  | "event_virtual_recording.completed"
+  | "event_virtual_recording.failed"
+  | "event_virtual_recording.requested"
+  | "event_virtual_recording.started"
+  | "event_virtual_recording.stop_requested"
+  | "event_virtual_recording.stop_started"
   | "event_virtual_room.created"
   | "event_virtual_room.lifecycle_changed"
   | "event_virtual_room.presenter_token_denied"

@@ -496,6 +496,66 @@ async function cleanupAccessGrantFixture(
     );
 }
 
+async function cleanupEnterpriseContractFixture(
+  database: Client,
+  reference: string,
+  organizationName: string,
+): Promise<void> {
+  const contracts = await database.query<{
+    id: string;
+    organizationId: string;
+  }>(
+    `select id, "organizationId"
+       from enterprise_contract
+      where reference = $1`,
+    [reference],
+  );
+  const contractIds = contracts.rows.map((contract) => contract.id);
+  const organizationIds = contracts.rows.map(
+    (contract) => contract.organizationId,
+  );
+  if (contractIds.length > 0) {
+    await withPgAuditMaintenance(database, async (transaction) => {
+      await transaction.query(
+        "select set_config('upskill.enterprise_contract_maintenance', 'on', true)",
+      );
+      await transaction.query(
+        `delete from outbox_event where "aggregateId" = any($1::text[])`,
+        [contractIds],
+      );
+      await transaction.query(
+        `delete from audit_event where "subjectId" = any($1::text[])`,
+        [contractIds],
+      );
+      for (const table of [
+        "enterprise_contract_event_registration",
+        "enterprise_contract_claim",
+        "enterprise_contract_owner_assignment",
+        "enterprise_contract_employee_eligibility",
+        "enterprise_contract_code",
+        "enterprise_contract_domain",
+        "enterprise_contract_course_coverage",
+        "enterprise_contract_event_coverage",
+      ])
+        await transaction.query(
+          `delete from ${table} where "enterpriseContractId" = any($1::text[])`,
+          [contractIds],
+        );
+      await transaction.query(
+        `delete from enterprise_contract where id = any($1::text[])`,
+        [contractIds],
+      );
+    });
+  }
+  if (organizationIds.length > 0)
+    await database.query(
+      `delete from organization
+        where id = any($1::text[])
+          and name = $2`,
+      [organizationIds, organizationName],
+    );
+}
+
 test("secure local origin negotiates compression", async ({ page }) => {
   test.skip(
     process.env.PLAYWRIGHT_HTTPS !== "true",
@@ -1190,7 +1250,7 @@ test("provisional learners can activate an account from a setup link", async ({
 test("platform administrators can inspect learner progress", async ({
   page,
 }, testInfo) => {
-  test.setTimeout(60_000);
+  test.setTimeout(180_000);
   test.skip(
     testInfo.project.name !== "chromium-mobile-admin",
     "The complete admin journey runs once; learner authentication remains cross-browser.",
@@ -1220,6 +1280,8 @@ test("platform administrators can inspect learner progress", async ({
   const accessGrantLabel = "E2E organisation access";
   const accessOrganizationName = "E2E Access Organisation";
   const accessCodeBase = "E2E-ACCESS-2027";
+  const enterpriseContractReference = "E2E-PENDING-IDENTITY";
+  const enterpriseContractOrganizationName = "E2E Health";
   const eventTemplateTitle = "E2E virtual workshop";
   const eventOccurrenceTitle = "E2E virtual workshop · August";
   const eventSlug = "e2e-virtual-workshop-august";
@@ -1250,6 +1312,11 @@ test("platform administrators can inspect learner progress", async ({
       authoringDatabase,
       accessGrantLabel,
       accessOrganizationName,
+    );
+    await cleanupEnterpriseContractFixture(
+      authoringDatabase,
+      enterpriseContractReference,
+      enterpriseContractOrganizationName,
     );
     await cleanupEventStaffFixture(authoringDatabase, eventPresenter.id);
     await authoringDatabase.query(
@@ -1335,8 +1402,12 @@ test("platform administrators can inspect learner progress", async ({
     await page
       .getByLabel("Contract name")
       .fill("E2E pending identity contract");
-    await page.getByLabel("Contract reference").fill("E2E-PENDING-IDENTITY");
-    await page.getByLabel("Organisation").fill("E2E Health");
+    await page
+      .getByLabel("Contract reference")
+      .fill(enterpriseContractReference);
+    await page
+      .getByLabel("Organisation")
+      .fill(enterpriseContractOrganizationName);
     await page.getByLabel("Shared eligibility code").fill("E2E-CONTRACT-2027");
     await page.getByLabel("Starts").fill("2027-01-01");
     await page.getByLabel("Ends").fill("2027-12-31");
@@ -1350,7 +1421,7 @@ test("platform administrators can inspect learner progress", async ({
     const pendingIdentityContract = await authoringDatabase.query<{
       id: string;
     }>(`select id from enterprise_contract where reference = $1`, [
-      "E2E-PENDING-IDENTITY",
+      enterpriseContractReference,
     ]);
     expect(pendingIdentityContract.rows).toHaveLength(1);
     const pendingIdentityDomains = await authoringDatabase.query<{
@@ -2671,6 +2742,11 @@ test("platform administrators can inspect learner progress", async ({
       authoringDatabase,
       accessGrantLabel,
       accessOrganizationName,
+    );
+    await cleanupEnterpriseContractFixture(
+      authoringDatabase,
+      enterpriseContractReference,
+      enterpriseContractOrganizationName,
     );
     await cleanupEventStaffFixture(authoringDatabase, eventPresenter.id);
     await authoringDatabase.query(

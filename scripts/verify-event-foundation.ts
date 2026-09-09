@@ -823,6 +823,83 @@ try {
     ),
     "saved",
   );
+  const savedRecordingPolicyTemplate = await findAdminEventTemplate(
+    eventTemplateId,
+    eventTemplateVersionId,
+  );
+  assert.ok(savedRecordingPolicyTemplate);
+  const savedRecordingPolicySection =
+    savedRecordingPolicyTemplate.draft.sections[0];
+  const savedRecordingPolicySession = savedRecordingPolicySection?.items[0];
+  assert.ok(savedRecordingPolicySection);
+  assert.ok(savedRecordingPolicySession?.kind === "session");
+  assert.equal(
+    await saveAdminEventTemplateDraft(
+      {
+        ...savedRecordingPolicyTemplate.draft,
+        sections: [
+          {
+            ...savedRecordingPolicySection,
+            items: [
+              {
+                ...savedRecordingPolicySession,
+                durationMinutes: 56,
+                liveKitPolicy: {
+                  ...defaultLiveKitSessionPolicy,
+                  recordingMode: "automatic",
+                  recordingRetentionDays: 30,
+                  attendeeRecordingNotice: "This session will be recorded.",
+                  presenterRecordingNotice: "This session will be recorded.",
+                },
+              },
+            ],
+          },
+        ],
+      },
+      administrator,
+    ),
+    "conflict",
+    "Template authoring must reject automatic recordings beyond the active test role-chain ceiling",
+  );
+  await database
+    .updateTable("event_template_version_item")
+    .set({ durationMinutes: 56 })
+    .where("id", "=", `event_item_${suffix}`)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_template_session_definition")
+    .set({
+      livekitRecordingMode: "automatic",
+      livekitRecordingRetentionDays: 30,
+      livekitAttendeeRecordingNotice: "This session will be recorded.",
+      livekitPresenterRecordingNotice: "This session will be recorded.",
+    })
+    .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    await publishAdminEventTemplateVersion(
+      eventTemplateId,
+      eventTemplateVersionId,
+      administrator,
+    ),
+    "conflict",
+    "Template publication must reject automatic recordings beyond the active test role-chain ceiling",
+  );
+  await database
+    .updateTable("event_template_version_item")
+    .set({ durationMinutes: 120 })
+    .where("id", "=", `event_item_${suffix}`)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_template_session_definition")
+    .set({
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .where("eventTemplateVersionId", "=", eventTemplateVersionId)
+    .executeTakeFirstOrThrow();
   assert.equal(
     await database
       .insertInto("event_template_version_section")

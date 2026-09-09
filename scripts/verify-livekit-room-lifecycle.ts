@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { removePlatformAdministrator } from "#/server/admin/admin-account.server";
+import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
 import { transitionAdminEventOccurrence } from "#/server/admin/admin-event-operations.server";
 import {
   checkEventVirtualSessionProviderHealth,
   ensureEventVirtualRoomForStaff,
+  findEventVirtualLobbyQueue,
   findEventVirtualSessionOperations,
   issueEventVirtualPresenterCredential,
   processAvailableEventVirtualRoomOperations,
@@ -17,6 +19,7 @@ import {
   type VirtualRoomRuntime,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
+import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
 import { eventVirtualPresenterIdentity } from "#/server/events/event-virtual-participant-identity.server";
 import {
   type CreateLiveKitJoinTokenInput,
@@ -25,6 +28,13 @@ import {
   type EnsureLiveKitRoomInput,
   type LiveKitRoomSnapshot,
 } from "#/server/livekit/livekit-provider.server";
+import {
+  LiveKitRecordingProviderError,
+  parseLiveKitRecordingSnapshot,
+  type LiveKitRecordingSnapshot,
+  type PreparedLiveKitRoomCompositeRecording,
+  type StartLiveKitRoomCompositeRecordingInput,
+} from "#/server/livekit/livekit-recording-provider.server";
 
 const ids = {
   template: "verify_livekit_room_template",
@@ -71,6 +81,11 @@ const expiredPlatformAdministrator = user(
 const startsAt = new Date("2030-09-04T00:00:00.000Z");
 const endsAt = new Date("2030-09-04T01:00:00.000Z");
 const preparationTime = new Date("2030-09-03T23:30:00.000Z");
+const providerRecordingStartedAt = new Date("2030-09-04T00:00:30.000Z");
+const providerRecordingEndedAt = new Date("2030-09-04T00:02:00.000Z");
+const recoveredProviderRecordingStartedAt = new Date(
+  "2030-09-04T00:31:30.000Z",
+);
 
 async function assertDatabaseConstraint(
   operation: () => Promise<unknown>,
@@ -141,6 +156,142 @@ class FailFirstEnsureProvider extends FakeLiveKitProvider {
       await deferredClose.waitForRelease;
     }
     await super.closeRoom(roomName);
+  }
+}
+
+class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingProvider {
+  private failFirstPreparation = true;
+  private loseFirstStartResponse = true;
+  private loseFirstStopResponse = false;
+  private roomListingsRejected = false;
+  private deferredStart:
+    | {
+        started: Promise<void>;
+        waitForRelease: Promise<void>;
+        signalStarted: () => void;
+        release: () => void;
+      }
+    | undefined;
+
+  deferNextStart(): {
+    waitUntilStarted: () => Promise<void>;
+    release: () => void;
+  } {
+    assert.equal(this.deferredStart, undefined);
+    let signalStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const waitForRelease = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.deferredStart = {
+      started,
+      waitForRelease,
+      signalStarted,
+      release,
+    };
+    return { waitUntilStarted: () => started, release };
+  }
+
+  rejectRoomListings(): void {
+    this.roomListingsRejected = true;
+  }
+
+  loseNextStopResponse(): void {
+    this.loseFirstStopResponse = true;
+  }
+
+  override listRoomCompositeRecordings(
+    roomName: string,
+    storageObjectKey: string,
+  ): Promise<LiveKitRecordingSnapshot[]> {
+    if (this.roomListingsRejected)
+      return Promise.reject(
+        new LiveKitRecordingProviderError("list_recordings"),
+      );
+    return super.listRoomCompositeRecordings(roomName, storageObjectKey);
+  }
+
+  override async prepareRoomCompositeRecording(
+    input: StartLiveKitRoomCompositeRecordingInput,
+  ): Promise<PreparedLiveKitRoomCompositeRecording> {
+    if (this.failFirstPreparation) {
+      this.failFirstPreparation = false;
+      throw new LiveKitRecordingProviderError("prepare_recording");
+    }
+    const prepared = await super.prepareRoomCompositeRecording(input);
+    return {
+      dispatch: async (): Promise<LiveKitRecordingSnapshot> => {
+        const deferredStart = this.deferredStart;
+        if (deferredStart) {
+          this.deferredStart = undefined;
+          deferredStart.signalStarted();
+          await deferredStart.waitForRelease;
+        }
+        const snapshot = await prepared.dispatch();
+        if (this.loseFirstStartResponse) {
+          this.loseFirstStartResponse = false;
+          this.recordings.set(
+            snapshot.providerEgressId,
+            parseLiveKitRecordingSnapshot({
+              ...snapshot,
+              status: "stopping",
+              startedAt: providerRecordingStartedAt,
+            }),
+          );
+          throw new LiveKitRecordingProviderError("start_recording");
+        }
+        const active = parseLiveKitRecordingSnapshot({
+          ...snapshot,
+          status: "active",
+          startedAt: recoveredProviderRecordingStartedAt,
+        });
+        this.recordings.set(snapshot.providerEgressId, active);
+        return active;
+      },
+    };
+  }
+
+  override async stopRoomCompositeRecording(
+    target: Parameters<
+      FakeLiveKitRecordingProvider["stopRoomCompositeRecording"]
+    >[0],
+  ): Promise<LiveKitRecordingSnapshot> {
+    const snapshot = await super.stopRoomCompositeRecording(target);
+    if (this.loseFirstStopResponse) {
+      this.loseFirstStopResponse = false;
+      throw new LiveKitRecordingProviderError("stop_recording");
+    }
+    return snapshot;
+  }
+}
+
+class DeferredPreparationRecordingProvider extends FakeLiveKitRecordingProvider {
+  private releasePreparation!: () => void;
+  private signalPreparationStarted!: () => void;
+  private readonly preparationStarted = new Promise<void>((resolve) => {
+    this.signalPreparationStarted = resolve;
+  });
+  private readonly preparationRelease = new Promise<void>((resolve) => {
+    this.releasePreparation = resolve;
+  });
+
+  waitUntilPreparationStarts(): Promise<void> {
+    return this.preparationStarted;
+  }
+
+  release(): void {
+    this.releasePreparation();
+  }
+
+  override async prepareRoomCompositeRecording(
+    input: StartLiveKitRoomCompositeRecordingInput,
+  ): Promise<PreparedLiveKitRoomCompositeRecording> {
+    this.signalPreparationStarted();
+    await this.preparationRelease;
+    return super.prepareRoomCompositeRecording(input);
   }
 }
 
@@ -729,6 +880,16 @@ try {
   assert.equal(room.providerStatus, "ready");
   assert.equal(room.maxParticipants, 25);
   assert.equal(room.providerRoomName.includes(ids.session), false);
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "automatic",
+      livekitRecordingRetentionDays: 30,
+      livekitAttendeeRecordingNotice: "This webinar is recorded.",
+      livekitPresenterRecordingNotice: "This webinar is recorded.",
+    })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
   await database
     .updateTable("event_virtual_room")
     .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
@@ -1374,15 +1535,21 @@ try {
   );
   assert.ok(administratorAccess?.isAssignedAdministrator);
   assert.equal(administratorAccess.isPlatformAdministrator, true);
+  const administratorVirtualSessions = await findEventVirtualSessionOperations(
+    ids.occurrence,
+    administratorAccess,
+    preparationTime,
+  );
   assert.deepEqual(
-    (
-      await findEventVirtualSessionOperations(
-        ids.occurrence,
-        administratorAccess,
-        preparationTime,
-      )
-    ).map((session) => session.eventSessionId),
+    administratorVirtualSessions.map((session) => session.eventSessionId),
     [ids.session, ids.raceSession, ids.failureSession],
+  );
+  assert.equal(
+    administratorVirtualSessions.find(
+      (session) => session.eventSessionId === ids.session,
+    )?.presenterRecordingNotice,
+    "This webinar is recorded.",
+    "The operations workspace must expose the immutable presenter notice before green-room entry",
   );
   const coordinatorAccess = await getEventOperationsAccess(
     coordinator,
@@ -1890,26 +2057,15 @@ try {
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
-  assert.deepEqual(
-    await transitionEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      "start",
-      administrator,
-      { runtime, clock: () => startsAt },
-    ),
-    { status: "conflict", reason: "recording_unavailable" },
-  );
-  await database
-    .updateTable("event_virtual_room")
-    .set({ recordingMode: "off", recordingRetentionDays: null })
-    .where("eventSessionId", "=", ids.session)
-    .where("replacedAt", "is", null)
-    .executeTakeFirstOrThrow();
+  const recordingProvider = new LeaseCrossingLostResponseRecordingProvider();
+  const recordingRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    recordingProvider,
+  };
 
   const startRoom = await database
     .selectFrom("event_virtual_room")
-    .select("providerRoomName")
+    .select(["id", "providerRoomName"])
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
@@ -1924,7 +2080,7 @@ try {
       ids.session,
       "start",
       administrator,
-      { runtime, clock: () => startsAt },
+      { runtime: recordingRuntime, clock: () => startsAt },
     ),
     { status: "ready" },
   );
@@ -1939,6 +2095,258 @@ try {
     ).length,
     ensureCountBeforeStart + 1,
     "Start must reconcile provider state instead of trusting cached readiness",
+  );
+  const failedRecordingPreparation =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: startsAt,
+    });
+  assert.equal(failedRecordingPreparation.outcomes[0]?.kind, "start_recording");
+  assert.equal(failedRecordingPreparation.outcomes[0].status, "retry");
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["recordingStartDispatchedAt", "lastErrorCode"])
+      .where("roomId", "=", startRoom.id)
+      .where("kind", "=", "start_recording")
+      .executeTakeFirstOrThrow(),
+    {
+      recordingStartDispatchedAt: null,
+      lastErrorCode: "livekit_recording_prepare_recording",
+    },
+    "A retryable upload-authorization failure must not set the durable LiveKit dispatch fence",
+  );
+  assert.deepEqual(
+    (
+      await findEventVirtualSessionOperations(
+        ids.occurrence,
+        administratorAccess,
+        startsAt,
+      )
+    ).find((session) => session.eventSessionId === ids.session)?.recording,
+    {
+      status: "requested",
+      warning:
+        "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
+    },
+    "The operations workspace must expose a recording operation under retry without leaking its provider error",
+  );
+  const retryingRecordingQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    0,
+  );
+  assert.equal(retryingRecordingQueue.status, "ready");
+  assert.deepEqual(
+    retryingRecordingQueue.data.recording,
+    {
+      status: "requested",
+      warning:
+        "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
+    },
+    "The live learner-list poll must refresh recording retry status for staff",
+  );
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "start_recording",
+    ).length,
+    0,
+  );
+  const recordingDispatchAt = new Date(startsAt.getTime() + 30_001);
+  const deferredRecordingStart = recordingProvider.deferNextStart();
+  const firstRecordingAttempt = processAvailableEventVirtualRoomOperations(1, {
+    runtime: recordingRuntime,
+    now: recordingDispatchAt,
+  });
+  const firstRecordingProgress = await Promise.race([
+    deferredRecordingStart
+      .waitUntilStarted()
+      .then(() => ({ state: "started" as const })),
+    firstRecordingAttempt.then((batch) => ({
+      state: "completed" as const,
+      batch,
+    })),
+  ]);
+  assert.equal(
+    firstRecordingProgress.state,
+    "started",
+    firstRecordingProgress.state === "completed"
+      ? `Expected recording dispatch to start, received ${JSON.stringify(firstRecordingProgress.batch)}`
+      : "Expected recording dispatch to start",
+  );
+  const reclaimedRecordingAttempt =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: new Date(recordingDispatchAt.getTime() + 2 * 60_000 + 1),
+    });
+  assert.equal(reclaimedRecordingAttempt.outcomes[0]?.kind, "start_recording");
+  assert.equal(reclaimedRecordingAttempt.outcomes[0].status, "retry");
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "start_recording",
+    ).length,
+    0,
+    "A reclaimed operation must not dispatch a second start while the first provider request remains in flight",
+  );
+  deferredRecordingStart.release();
+  const staleRecordingAttempt = await firstRecordingAttempt;
+  assert.equal(staleRecordingAttempt.outcomes[0]?.kind, "start_recording");
+  assert.equal(staleRecordingAttempt.outcomes[0].status, "retry");
+  const recordingReconciledAt = new Date(
+    recordingDispatchAt.getTime() + 4 * 60_000 + 2,
+  );
+  const reconciledRecordingAttempt =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: recordingReconciledAt,
+    });
+  assert.equal(reconciledRecordingAttempt.outcomes[0]?.kind, "start_recording");
+  assert.equal(reconciledRecordingAttempt.outcomes[0].status, "retry");
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "start_recording",
+    ).length,
+    1,
+    "A lease-crossing lost response must reconcile the exact object instead of starting a second Egress",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "lastErrorCode"])
+      .where("roomId", "=", startRoom.id)
+      .where("kind", "=", "start_recording")
+      .executeTakeFirstOrThrow(),
+    { status: "pending", lastErrorCode: "recording_start_pending" },
+    "A stopping snapshot found after an ambiguous start must remain under reconciliation",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "providerEgressId"])
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow(),
+    { status: "requested", providerEgressId: null },
+    "A stopping provider snapshot must not be flattened into durable starting evidence",
+  );
+  const stoppingRecording = recordingProvider.recordings.get("EG_FAKE_1");
+  assert.ok(stoppingRecording);
+  const reconciledRecording = await database
+    .selectFrom("event_virtual_recording")
+    .select("id")
+    .where("eventSessionId", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  const queuedStopRequestedAt = new Date(
+    recordingReconciledAt.getTime() + 1_000,
+  );
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .insertInto("event_virtual_room_operation")
+      .values({
+        id: "verify_livekit_reconciled_terminal_stop_operation",
+        roomId: startRoom.id,
+        kind: "stop_recording",
+        targetKey: reconciledRecording.id,
+        recordingId: reconciledRecording.id,
+        deduplicationKey: `event_virtual_room:${startRoom.id}:stop_recording:${reconciledRecording.id}`,
+        status: "pending",
+        availableAt: new Date(recordingReconciledAt.getTime() + 4 * 60_000 + 2),
+        leasedUntil: null,
+        lastAttemptAt: null,
+        completedAt: null,
+        lastErrorCode: null,
+        requestedByUserId: administrator.id,
+        createdAt: queuedStopRequestedAt,
+      })
+      .executeTakeFirstOrThrow();
+    await recordDurableAuditEvent(transaction, {
+      actorUserId: administrator.id,
+      action: "event_virtual_recording.stop_requested",
+      subjectType: "event_virtual_recording",
+      subjectId: reconciledRecording.id,
+      aggregateId: startRoom.id,
+      metadata: {
+        roomId: startRoom.id,
+        eventSessionId: ids.session,
+        roomGeneration: 1,
+        status: "requested",
+      },
+      createdAt: queuedStopRequestedAt,
+    });
+  });
+  recordingProvider.recordings.set(
+    stoppingRecording.providerEgressId,
+    parseLiveKitRecordingSnapshot({
+      ...stoppingRecording,
+      status: "complete",
+      endedAt: providerRecordingEndedAt,
+      output: {
+        storageObjectKey: stoppingRecording.storageObjectKey,
+        fileSizeBytes: 2_048n,
+        durationNanoseconds: 90_000_000_000n,
+      },
+    }),
+  );
+  const recordingTerminalReconciledAt = new Date(
+    recordingReconciledAt.getTime() + 4 * 60_000 + 1,
+  );
+  const terminalStartRecordingAttempt =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: recordingTerminalReconciledAt,
+    });
+  assert.equal(
+    terminalStartRecordingAttempt.outcomes[0]?.kind,
+    "start_recording",
+  );
+  assert.equal(terminalStartRecordingAttempt.outcomes[0].status, "processed");
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select([
+        "status",
+        "providerEgressId",
+        "startedAt",
+        "endedAt",
+        "completedAt",
+        "fileSizeBytes",
+        "durationNanoseconds",
+        "retentionDeadline",
+        "failureCode",
+        "stopRequestedByUserId",
+        "stopRequestedAt",
+      ])
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "complete",
+      providerEgressId: "EG_FAKE_1",
+      startedAt: providerRecordingStartedAt,
+      endedAt: providerRecordingEndedAt,
+      completedAt: recordingTerminalReconciledAt,
+      fileSizeBytes: "2048",
+      durationNanoseconds: "90000000000",
+      retentionDeadline: new Date(
+        recordingTerminalReconciledAt.getTime() + 30 * 24 * 60 * 60_000,
+      ),
+      failureCode: null,
+      stopRequestedByUserId: administrator.id,
+      stopRequestedAt: queuedStopRequestedAt,
+    },
+    "A completed Egress found after a lost start response must retain its verified output and queued stop evidence",
+  );
+  const reconciledTerminalStop =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: new Date(recordingTerminalReconciledAt.getTime() + 1),
+    });
+  assert.deepEqual(
+    reconciledTerminalStop.outcomes.map((outcome) => ({
+      kind: outcome.kind,
+      status: outcome.status,
+    })),
+    [{ kind: "stop_recording", status: "processed" }],
+    "A queued stop may settle after terminal start reconciliation without losing its immutable request evidence",
   );
   const idempotentStartProvider = new FailFirstEnsureProvider();
   assert.deepEqual(
@@ -2013,11 +2421,22 @@ try {
   );
 
   const closeBatch = await processAvailableEventVirtualRoomOperations(10, {
-    runtime,
+    runtime: recordingRuntime,
     now: recoveryEndTime,
   });
-  assert.equal(closeBatch.outcomes.length, 1);
-  assert.equal(closeBatch.outcomes[0]?.kind, "close_room");
+  assert.deepEqual(
+    closeBatch.outcomes.map((outcome) => outcome.kind),
+    ["close_room"],
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select("status")
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow()
+      .then((recording) => recording.status),
+    "complete",
+  );
   assert.equal(fakeProvider.rooms.size, 0);
 
   const recoveryTime = new Date("2030-09-04T00:31:00.000Z");
@@ -2067,10 +2486,38 @@ try {
       ids.session,
       "start",
       administrator,
-      { runtime, clock: () => recoveryTime },
+      { runtime: recordingRuntime, clock: () => recoveryTime },
     ),
     { status: "ready" },
   );
+  const recoveredRecordingStartAt = new Date(recoveryTime.getTime() + 1);
+  const recoveredRecordingStart =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: recordingRuntime,
+      now: recoveredRecordingStartAt,
+    });
+  assert.deepEqual(
+    recoveredRecordingStart.outcomes.map((outcome) => outcome.kind),
+    ["start_recording"],
+  );
+  const recoveredRecording = await database
+    .selectFrom("event_virtual_recording")
+    .select(["id", "providerEgressId", "storageObjectKey", "status"])
+    .where("roomId", "=", recoveredRoom.id)
+    .executeTakeFirstOrThrow();
+  assert.equal(
+    recoveredRecording.status,
+    "active",
+    "An active StartEgress response must be persisted as active",
+  );
+  assert.ok(recoveredRecording.providerEgressId);
+  recordingProvider.rejectRoomListings();
+  recordingProvider.loseNextStopResponse();
+  const recoveredStopDispatchesBeforeEnd = recordingProvider.operations.filter(
+    (operation) =>
+      operation.operation === "stop_recording" &&
+      operation.target.providerEgressId === recoveredRecording.providerEgressId,
+  ).length;
   assert.deepEqual(
     await transitionEventVirtualRoom(
       ids.occurrence,
@@ -2085,7 +2532,7 @@ try {
   const recoveredCloseProcessing = processAvailableEventVirtualRoomOperations(
     10,
     {
-      runtime,
+      runtime: recordingRuntime,
       now: endsAt,
     },
   );
@@ -2140,8 +2587,136 @@ try {
   ]);
   assert.deepEqual(
     recoveredCloseBatch.outcomes.map((outcome) => outcome.kind),
-    ["close_room"],
+    ["stop_recording", "close_room"],
     "Close completion must retain room-first lock order when lifecycle work requeues the same close operation",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select([
+        "status",
+        "lastErrorCode",
+        "recordingStopDispatchedAt",
+        "recordingStopOutcomeUnknownAt",
+      ])
+      .where("roomId", "=", recoveredRoom.id)
+      .where("kind", "=", "stop_recording")
+      .executeTakeFirstOrThrow(),
+    {
+      status: "pending",
+      lastErrorCode: "recording_stop_outcome_unknown",
+      recordingStopDispatchedAt: endsAt,
+      recordingStopOutcomeUnknownAt: endsAt,
+    },
+    "A lost stop response must retain durable ambiguous dispatch evidence",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select("status")
+      .where("id", "=", recoveredRecording.id)
+      .executeTakeFirstOrThrow()
+      .then((recording) => recording.status),
+    "active",
+    "A lost stop response must not invent a durable provider outcome before exact reconciliation",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("audit_event")
+        .select("id")
+        .where("subjectType", "=", "event_virtual_recording")
+        .where("subjectId", "=", recoveredRecording.id)
+        .where("action", "=", "event_virtual_recording.stop_started")
+        .execute()
+    ).length,
+    0,
+    "An ambiguous stop dispatch must wait for exact provider reconciliation before audit emission",
+  );
+  const recoveredProviderRecording = recordingProvider.recordings.get(
+    recoveredRecording.providerEgressId,
+  );
+  assert.ok(recoveredProviderRecording);
+  const recoveredRecordingEndedAt = new Date(endsAt.getTime() + 10_000);
+  recordingProvider.recordings.set(
+    recoveredRecording.providerEgressId,
+    parseLiveKitRecordingSnapshot({
+      ...recoveredProviderRecording,
+      status: "complete",
+      startedAt: new Date(recoveryTime.getTime() + 30_000),
+      endedAt: recoveredRecordingEndedAt,
+      output: {
+        storageObjectKey: recoveredRecording.storageObjectKey,
+        fileSizeBytes: 4_096n,
+        durationNanoseconds: 1_800_000_000_000n,
+      },
+    }),
+  );
+  const recoveredRecordingReconciledAt = new Date(endsAt.getTime() + 30_001);
+  const recoveredRecordingReconciliation =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime: recordingRuntime,
+      now: recoveredRecordingReconciledAt,
+    });
+  assert.equal(
+    recoveredRecordingReconciliation.outcomes.some(
+      (outcome) =>
+        outcome.kind === "stop_recording" && outcome.status === "processed",
+    ),
+    true,
+    "A nonterminal stop response must be revisited until provider completion is durable",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select([
+        "status",
+        "endedAt",
+        "completedAt",
+        "fileSizeBytes",
+        "durationNanoseconds",
+      ])
+      .where("id", "=", recoveredRecording.id)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "complete",
+      endedAt: recoveredRecordingEndedAt,
+      completedAt: recoveredRecordingReconciledAt,
+      fileSizeBytes: "4096",
+      durationNanoseconds: "1800000000000",
+    },
+    "Stop reconciliation must preserve terminal provider evidence",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select("createdAt")
+      .where("subjectType", "=", "event_virtual_recording")
+      .where("subjectId", "=", recoveredRecording.id)
+      .where("action", "=", "event_virtual_recording.stop_started")
+      .execute(),
+    [{ createdAt: endsAt }],
+    "Reconciliation must emit the ambiguous provider stop dispatch exactly once at its durable dispatch time",
+  );
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) =>
+        operation.operation === "stop_recording" &&
+        operation.target.providerEgressId ===
+          recoveredRecording.providerEgressId,
+    ).length,
+    recoveredStopDispatchesBeforeEnd + 1,
+    "A reconciled stopping or terminal snapshot must not dispatch a second provider stop",
+  );
+  assert.equal(
+    recordingProvider.operations.some(
+      (operation) =>
+        operation.operation === "get_recording" &&
+        operation.target.providerEgressId ===
+          recoveredRecording.providerEgressId,
+    ),
+    true,
+    "A known recording must be reconciled by exact Egress identity rather than a room-wide listing",
   );
   assert.equal(fakeProvider.rooms.size, 0);
 
@@ -2283,7 +2858,7 @@ try {
   await failingProvider.waitUntilEnsureStarts();
   const failingRoom = await database
     .selectFrom("event_virtual_room")
-    .select(["id", "providerRoomName"])
+    .select(["id", "generation", "providerRoomName"])
     .where("eventSessionId", "=", ids.failureSession)
     .executeTakeFirstOrThrow();
   const failingEndTime = new Date("2030-09-03T23:45:00.000Z");
@@ -2345,11 +2920,361 @@ try {
 
   await database
     .updateTable("event_virtual_room")
+    .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
+    .where("id", "=", failingRoom.id)
+    .executeTakeFirstOrThrow();
+  const naturalRecordingId = "verify_livekit_natural_recording_completion";
+  const naturalProviderEgressId = "EG_NATURAL_COMPLETION";
+  const naturalStorageObjectKey =
+    "recordings/opaque_room/natural_completion.mp4";
+  const naturalRequestedAt = new Date("2030-09-03T23:44:00.000Z");
+  const naturalStartingAt = new Date("2030-09-03T23:44:30.000Z");
+  const naturalStartedAt = new Date("2030-09-03T23:45:00.000Z");
+  const naturalEndedAt = new Date("2030-09-03T23:46:00.000Z");
+  const naturalStopRequestedAt = new Date("2030-09-03T23:46:30.000Z");
+  const naturalReconciledAt = new Date("2030-09-03T23:47:00.000Z");
+  const naturalCompletedAt = new Date(naturalReconciledAt.getTime() + 60_001);
+  await database
+    .insertInto("event_virtual_recording")
+    .values({
+      ...recordingValues,
+      id: naturalRecordingId,
+      roomId: failingRoom.id,
+      eventSessionId: ids.failureSession,
+      roomGeneration: failingRoom.generation,
+      storageObjectKey: naturalStorageObjectKey,
+      requestedAt: naturalRequestedAt,
+      updatedAt: naturalRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "starting",
+      providerEgressId: naturalProviderEgressId,
+      updatedAt: naturalStartingAt,
+    })
+    .where("id", "=", naturalRecordingId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "active",
+      startedAt: naturalStartedAt,
+      updatedAt: naturalStartedAt,
+    })
+    .where("id", "=", naturalRecordingId)
+    .executeTakeFirstOrThrow();
+  recordingProvider.recordings.set(
+    naturalProviderEgressId,
+    parseLiveKitRecordingSnapshot({
+      providerEgressId: naturalProviderEgressId,
+      roomName: failingRoom.providerRoomName,
+      storageObjectKey: naturalStorageObjectKey,
+      status: "active",
+      startedAt: naturalStartedAt,
+      endedAt: null,
+      output: null,
+      failureCode: null,
+    }),
+  );
+  await database
+    .insertInto("event_virtual_room_operation")
+    .values({
+      id: "verify_livekit_natural_recording_stop_operation",
+      roomId: failingRoom.id,
+      kind: "stop_recording",
+      targetKey: naturalRecordingId,
+      recordingId: naturalRecordingId,
+      lobbyEntryId: null,
+      presenterUserId: null,
+      participantIdentity: null,
+      removalEnforcedUntil: null,
+      recordingStopDispatchedAt: naturalStopRequestedAt,
+      recordingStopOutcomeUnknownAt: null,
+      deduplicationKey: `event_virtual_room:${failingRoom.id}:stop_recording:${naturalRecordingId}`,
+      status: "processing",
+      availableAt: naturalStopRequestedAt,
+      leasedUntil: new Date(naturalReconciledAt.getTime() - 1),
+      lastAttemptAt: naturalStopRequestedAt,
+      completedAt: null,
+      lastErrorCode: null,
+      attempts: 1,
+      requestedByUserId: administrator.id,
+      createdAt: naturalStopRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  const stopDispatchesBeforeNaturalCompletion =
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "stop_recording",
+    ).length;
+  const naturalCompletionBatch =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: naturalReconciledAt,
+    });
+  assert.deepEqual(
+    naturalCompletionBatch.outcomes.map((outcome) => ({
+      kind: outcome.kind,
+      status: outcome.status,
+    })),
+    [{ kind: "stop_recording", status: "retry" }],
+  );
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "stop_recording",
+    ).length,
+    stopDispatchesBeforeNaturalCompletion,
+    "A lease-reclaimed stop with an existing dispatch fence must not issue a second provider command",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select([
+        "status",
+        "lastErrorCode",
+        "recordingStopDispatchedAt",
+        "recordingStopOutcomeUnknownAt",
+      ])
+      .where("roomId", "=", failingRoom.id)
+      .where("kind", "=", "stop_recording")
+      .executeTakeFirstOrThrow(),
+    {
+      status: "pending",
+      lastErrorCode: "recording_stop_dispatch_pending",
+      recordingStopDispatchedAt: naturalStopRequestedAt,
+      recordingStopOutcomeUnknownAt: null,
+    },
+    "A lease-reclaimed stop must retain its original one-shot dispatch fence while exact reconciliation remains pending",
+  );
+  recordingProvider.recordings.set(
+    naturalProviderEgressId,
+    parseLiveKitRecordingSnapshot({
+      providerEgressId: naturalProviderEgressId,
+      roomName: failingRoom.providerRoomName,
+      storageObjectKey: naturalStorageObjectKey,
+      status: "complete",
+      startedAt: naturalStartedAt,
+      endedAt: naturalEndedAt,
+      output: {
+        storageObjectKey: naturalStorageObjectKey,
+        fileSizeBytes: 1_024n,
+        durationNanoseconds: 60_000_000_000n,
+      },
+      failureCode: null,
+    }),
+  );
+  assert.deepEqual(
+    (
+      await processAvailableEventVirtualRoomOperations(1, {
+        runtime: recordingRuntime,
+        now: naturalCompletedAt,
+      })
+    ).outcomes.map((outcome) => ({
+      kind: outcome.kind,
+      status: outcome.status,
+    })),
+    [{ kind: "stop_recording", status: "processed" }],
+    "A fenced stop must settle once exact provider evidence becomes terminal",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("audit_event")
+        .select("id")
+        .where("subjectType", "=", "event_virtual_recording")
+        .where("subjectId", "=", naturalRecordingId)
+        .where("action", "=", "event_virtual_recording.stop_started")
+        .execute()
+    ).length,
+    0,
+    "A pre-call stop intent followed by natural completion must not claim that Upskill dispatched a stop",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "stopRequestedAt", "completedAt"])
+      .where("id", "=", naturalRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "complete",
+      stopRequestedAt: naturalStopRequestedAt,
+      completedAt: naturalCompletedAt,
+    },
+    "Natural provider completion must still settle exact terminal evidence",
+  );
+
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
+    .where("id", "=", deferredRoom.id)
+    .executeTakeFirstOrThrow();
+  const fencedTerminalRecordingId = "verify_livekit_fenced_terminal_recording";
+  const fencedTerminalRequestedAt = new Date(
+    deferredEndTime.getTime() - 3 * 60_000,
+  );
+  const fencedTerminalDispatchedAt = new Date(
+    deferredEndTime.getTime() - 60_000,
+  );
+  const fencedTerminalReconciledAt = new Date(
+    fencedTerminalDispatchedAt.getTime() + 2 * 60_000 + 1,
+  );
+  await database
+    .insertInto("event_virtual_recording")
+    .values({
+      ...recordingValues,
+      id: fencedTerminalRecordingId,
+      roomId: deferredRoom.id,
+      eventSessionId: ids.raceSession,
+      roomGeneration: deferredRoom.generation,
+      storageObjectKey: "recordings/opaque_room/fenced_terminal_recording.mp4",
+      requestedAt: fencedTerminalRequestedAt,
+      updatedAt: fencedTerminalRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("event_virtual_room_operation")
+    .values([
+      {
+        id: "verify_livekit_fenced_terminal_start_operation",
+        roomId: deferredRoom.id,
+        kind: "start_recording" as const,
+        targetKey: fencedTerminalRecordingId,
+        recordingId: fencedTerminalRecordingId,
+        deduplicationKey: `event_virtual_room:${deferredRoom.id}:start_recording:${fencedTerminalRecordingId}`,
+        status: "processing" as const,
+        attempts: 1,
+        availableAt: fencedTerminalDispatchedAt,
+        leasedUntil: new Date(
+          fencedTerminalDispatchedAt.getTime() + 2 * 60_000,
+        ),
+        lastAttemptAt: fencedTerminalDispatchedAt,
+        completedAt: null,
+        lastErrorCode: null,
+        recordingStartDispatchedAt: fencedTerminalDispatchedAt,
+        requestedByUserId: administrator.id,
+        createdAt: fencedTerminalRequestedAt,
+      },
+      {
+        id: "verify_livekit_fenced_terminal_stop_operation",
+        roomId: deferredRoom.id,
+        kind: "stop_recording" as const,
+        targetKey: fencedTerminalRecordingId,
+        recordingId: fencedTerminalRecordingId,
+        deduplicationKey: `event_virtual_room:${deferredRoom.id}:stop_recording:${fencedTerminalRecordingId}`,
+        status: "pending" as const,
+        availableAt: deferredEndTime,
+        leasedUntil: null,
+        lastAttemptAt: null,
+        completedAt: null,
+        lastErrorCode: null,
+        requestedByUserId: administrator.id,
+        createdAt: deferredEndTime,
+      },
+    ])
+    .execute();
+  const fencedTerminalRecordingProvider = new FakeLiveKitRecordingProvider();
+  const fencedTerminalRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    recordingProvider: fencedTerminalRecordingProvider,
+  };
+  const fencedTerminalBatch = await processAvailableEventVirtualRoomOperations(
+    2,
+    {
+      runtime: fencedTerminalRuntime,
+      now: fencedTerminalReconciledAt,
+    },
+  );
+  assert.deepEqual(
+    fencedTerminalBatch.outcomes.map((outcome) => ({
+      kind: outcome.kind,
+      status: outcome.status,
+    })),
+    [{ kind: "start_recording", status: "processed" }],
+    "A terminal room must settle a start fence with no exact Egress after its bounded reconciliation window",
+  );
+  assert.equal(
+    fencedTerminalRecordingProvider.operations.filter(
+      (operation) => operation.operation === "start_recording",
+    ).length,
+    0,
+    "A terminal fenced start with no exact Egress must not dispatch a replacement recording",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select([
+        "status",
+        "failureCode",
+        "completedAt",
+        "stopRequestedByUserId",
+        "stopRequestedAt",
+      ])
+      .where("id", "=", fencedTerminalRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "failed",
+      failureCode: "meeting_ended_before_recording_started",
+      completedAt: fencedTerminalReconciledAt,
+      stopRequestedByUserId: administrator.id,
+      stopRequestedAt: deferredEndTime,
+    },
+    "A terminal fenced start must retain its queued stop-request actor and time",
+  );
+  assert.deepEqual(
+    (
+      await findEventVirtualSessionOperations(
+        ids.occurrence,
+        administratorAccess,
+        fencedTerminalReconciledAt,
+      )
+    ).find((session) => session.eventSessionId === ids.raceSession)?.recording,
+    {
+      status: "failed",
+      warning:
+        "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",
+    },
+    "The operations workspace must expose a terminal automatic recording failure to staff",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["kind", "status", "completedAt"])
+      .where("recordingId", "=", fencedTerminalRecordingId)
+      .orderBy("kind")
+      .execute(),
+    [
+      {
+        kind: "start_recording",
+        status: "succeeded",
+        completedAt: fencedTerminalReconciledAt,
+      },
+      {
+        kind: "stop_recording",
+        status: "succeeded",
+        completedAt: fencedTerminalReconciledAt,
+      },
+    ],
+    "Terminal start reconciliation must settle both the fenced start and its queued stop",
+  );
+
+  await database
+    .updateTable("event_virtual_room")
     .set({
       replacedAt: reclaimedTime,
       replacedByUserId: administrator.id,
     })
     .where("id", "=", deferredRoom.id)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "automatic",
+      livekitRecordingRetentionDays: 30,
+      livekitAttendeeRecordingNotice: "This webinar is recorded.",
+      livekitPresenterRecordingNotice: "This webinar is recorded.",
+    })
+    .where("id", "=", ids.raceSession)
     .executeTakeFirstOrThrow();
   const terminalRoomPreparationTime = new Date("2030-09-03T23:50:00.000Z");
   assert.deepEqual(
@@ -2371,6 +3296,26 @@ try {
     ),
     { status: "ready" },
   );
+  const recordingRaceRoom = await database
+    .selectFrom("event_virtual_room")
+    .select("id")
+    .where("eventSessionId", "=", ids.raceSession)
+    .where("replacedAt", "is", null)
+    .executeTakeFirstOrThrow();
+  const deferredRecordingProvider = new DeferredPreparationRecordingProvider();
+  const deferredRecordingRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    recordingProvider: deferredRecordingProvider,
+  };
+  const terminalRecordingAttemptAt = new Date("2030-09-04T00:09:00.000Z");
+  const terminalRecordingAttempt = processAvailableEventVirtualRoomOperations(
+    1,
+    {
+      runtime: deferredRecordingRuntime,
+      now: terminalRecordingAttemptAt,
+    },
+  );
+  await deferredRecordingProvider.waitUntilPreparationStarts();
   const terminalTransitionTime = new Date("2030-09-04T00:10:00.000Z");
   let lifecycleClockTime = new Date("2030-09-04T00:09:00.000Z");
   let confirmLifecycleOccurrenceLock: (() => void) | undefined;
@@ -2421,6 +3366,59 @@ try {
     await blockingLifecycleTransaction;
   }
   assert.equal(await terminalTransition, "updated");
+  deferredRecordingProvider.release();
+  const terminalRecordingBatch = await terminalRecordingAttempt;
+  assert.deepEqual(
+    terminalRecordingBatch.outcomes.map((outcome) => ({
+      kind: outcome.kind,
+      status: outcome.status,
+    })),
+    [{ kind: "start_recording", status: "processed" }],
+  );
+  assert.equal(
+    deferredRecordingProvider.operations.some(
+      (operation) => operation.operation === "start_recording",
+    ),
+    false,
+    "A room ended during upload authorization must never dispatch Egress",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select([
+        "status",
+        "failureCode",
+        "completedAt",
+        "updatedAt",
+        "stopRequestedByUserId",
+        "stopRequestedAt",
+      ])
+      .where("roomId", "=", recordingRaceRoom.id)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "failed",
+      failureCode: "meeting_ended_before_recording_started",
+      completedAt: terminalTransitionTime,
+      updatedAt: terminalTransitionTime,
+      stopRequestedByUserId: administrator.id,
+      stopRequestedAt: terminalTransitionTime,
+    },
+    "A room ending during start authorization must retain its queued stop-request evidence",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "recordingStartDispatchedAt", "completedAt"])
+      .where("roomId", "=", recordingRaceRoom.id)
+      .where("kind", "=", "start_recording")
+      .executeTakeFirstOrThrow(),
+    {
+      status: "succeeded",
+      recordingStartDispatchedAt: null,
+      completedAt: terminalTransitionTime,
+    },
+    "Terminal room state must settle recording without committing the dispatch fence",
+  );
   assert.equal(
     await database
       .selectFrom("event_occurrence")
@@ -2452,7 +3450,7 @@ try {
   );
   const terminalCloseBatch = await processAvailableEventVirtualRoomOperations(
     10,
-    { runtime, now: terminalTransitionTime },
+    { runtime: deferredRecordingRuntime, now: terminalTransitionTime },
   );
   assert.deepEqual(
     terminalCloseBatch.outcomes.map((outcome) => ({
@@ -2460,6 +3458,7 @@ try {
       kind: outcome.kind,
     })),
     [{ roomId: terminalRoom.id, kind: "close_room" }],
+    "A recording that failed before provider start must settle its queued stop before room closure",
   );
   assert.equal(fakeProvider.rooms.size, 0);
 
@@ -2486,18 +3485,41 @@ try {
       (event) => event.action === "event_virtual_room.lifecycle_changed",
     ),
   );
+  const recordingAuditActions = await database
+    .selectFrom("audit_event")
+    .select(["action", "actorUserId", "reason"])
+    .where("subjectType", "=", "event_virtual_recording")
+    .execute();
+  assert.deepEqual(
+    [...new Set(recordingAuditActions.map((event) => event.action))].sort(),
+    [
+      "event_virtual_recording.completed",
+      "event_virtual_recording.failed",
+      "event_virtual_recording.requested",
+      "event_virtual_recording.started",
+      "event_virtual_recording.stop_requested",
+      "event_virtual_recording.stop_started",
+    ],
+    "Recording request, provider start, stop, completion and failure transitions must all emit durable audit evidence",
+  );
+  assert.equal(
+    recordingAuditActions.every((event) => event.actorUserId !== null),
+    true,
+    "Automatic recording audit evidence must retain its initiating staff actor",
+  );
+  assert.equal(
+    recordingAuditActions.some(
+      (event) =>
+        event.action === "event_virtual_recording.failed" &&
+        event.reason === "meeting_ended_before_recording_started",
+    ),
+    true,
+    "Recording failure audit evidence must retain the safe failure code",
+  );
   console.log(
     "Verified LiveKit exact staff authorization, preparation timing, capacity, idempotent room creation, health, lifecycle, recording evidence, closure, replacement, worker processing and durable audit evidence",
   );
 } finally {
-  await database
-    .deleteFrom("event_virtual_recording")
-    .where("eventSessionId", "in", [
-      ids.session,
-      ids.raceSession,
-      ids.failureSession,
-    ])
-    .execute();
   await database
     .deleteFrom("event_virtual_presenter_credential_reservation")
     .where("roomId", "in", (builder) =>
@@ -2525,6 +3547,27 @@ try {
     )
     .execute();
   await database
+    .deleteFrom("outbox_event")
+    .where("aggregateId", "in", (builder) =>
+      builder
+        .selectFrom("event_virtual_room")
+        .select("id")
+        .where("eventSessionId", "in", [
+          ids.session,
+          ids.raceSession,
+          ids.failureSession,
+        ]),
+    )
+    .execute();
+  await database
+    .deleteFrom("event_virtual_recording")
+    .where("eventSessionId", "in", [
+      ids.session,
+      ids.raceSession,
+      ids.failureSession,
+    ])
+    .execute();
+  await database
     .deleteFrom("event_virtual_room")
     .where("eventSessionId", "in", [
       ids.session,
@@ -2542,7 +3585,10 @@ try {
     );
     await transaction
       .deleteFrom("audit_event")
-      .where("subjectType", "=", "event_virtual_room")
+      .where("subjectType", "in", [
+        "event_virtual_room",
+        "event_virtual_recording",
+      ])
       .where("actorUserId", "in", [
         administrator.id,
         presenter.id,
