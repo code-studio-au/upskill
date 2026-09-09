@@ -24,6 +24,7 @@ import {
   type LiveKitRecordingProvider,
   type LiveKitRecordingSnapshot,
   type LiveKitRecordingTarget,
+  type PreparedLiveKitRoomCompositeRecording,
   type StartLiveKitRoomCompositeRecordingInput,
 } from "./livekit-recording-provider.server";
 
@@ -236,10 +237,11 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
       }).egress;
   }
 
-  async startRoomCompositeRecording(
+  async prepareRoomCompositeRecording(
     input: StartLiveKitRoomCompositeRecordingInput,
-  ): Promise<LiveKitRecordingSnapshot> {
+  ): Promise<PreparedLiveKitRoomCompositeRecording> {
     const parsed = parseStartLiveKitRoomCompositeRecordingInput(input);
+    let request: StartEgressRequest;
     try {
       const now = this.now();
       if (parsed.uploadAuthorizationExpiresAt <= now)
@@ -262,7 +264,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
         throw new RangeError(
           "Recording upload authorization expires before the required time",
         );
-      const request = new StartEgressRequest({
+      request = new StartEgressRequest({
         roomName: parsed.roomName,
         source: {
           case: "template",
@@ -293,16 +295,28 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
           },
         }),
       });
-      return recordingSnapshot(
-        await this.egress.startEgress(request),
-        parsed.roomName,
-        this.configuration,
-        undefined,
-        parsed.storageObjectKey,
-      );
     } catch {
-      throw new LiveKitRecordingProviderError("start_recording");
+      throw new LiveKitRecordingProviderError("prepare_recording");
     }
+    let dispatched = false;
+    return {
+      dispatch: async () => {
+        if (dispatched)
+          throw new LiveKitRecordingProviderError("start_recording");
+        dispatched = true;
+        try {
+          return recordingSnapshot(
+            await this.egress.startEgress(request),
+            parsed.roomName,
+            this.configuration,
+            undefined,
+            parsed.storageObjectKey,
+          );
+        } catch {
+          throw new LiveKitRecordingProviderError("start_recording");
+        }
+      },
+    };
   }
 
   async listRoomCompositeRecordings(

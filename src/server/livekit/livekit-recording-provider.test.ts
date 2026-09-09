@@ -112,7 +112,9 @@ describe("LiveKit recording provider contract", () => {
 
   it("provides deterministic start, inspection and stop operations", async () => {
     const provider = new FakeLiveKitRecordingProvider();
-    const started = await provider.startRoomCompositeRecording(startInput);
+    const prepared = await provider.prepareRoomCompositeRecording(startInput);
+    expect(provider.operations).toEqual([]);
+    const started = await prepared.dispatch();
     expect(started).toMatchObject({
       providerEgressId: "EG_FAKE_1",
       roomName: startInput.roomName,
@@ -137,7 +139,9 @@ describe("LiveKit recording provider contract", () => {
 
   it("does not stop an Egress job outside the expected room", async () => {
     const provider = new FakeLiveKitRecordingProvider();
-    const started = await provider.startRoomCompositeRecording(startInput);
+    const started = await (
+      await provider.prepareRoomCompositeRecording(startInput)
+    ).dispatch();
     const failure = await provider
       .stopRoomCompositeRecording({
         roomName: "other_room_generation",

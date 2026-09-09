@@ -144,9 +144,9 @@ describe("LiveKit Cloud recording provider", () => {
       now,
     );
 
-    await expect(
-      provider.startRoomCompositeRecording(startInput),
-    ).resolves.toMatchObject({
+    const prepared = await provider.prepareRoomCompositeRecording(startInput);
+    expect(egress.startEgress).not.toHaveBeenCalled();
+    await expect(prepared.dispatch()).resolves.toMatchObject({
       providerEgressId: "EG_recording_1",
       roomName: startInput.roomName,
       status: "starting",
@@ -207,9 +207,10 @@ describe("LiveKit Cloud recording provider", () => {
       now,
     );
 
-    await expect(
-      provider.startRoomCompositeRecording(startInput),
-    ).rejects.toBeInstanceOf(LiveKitRecordingProviderError);
+    const prepared = await provider.prepareRoomCompositeRecording(startInput);
+    await expect(prepared.dispatch()).rejects.toBeInstanceOf(
+      LiveKitRecordingProviderError,
+    );
   });
 
   it("refuses upload authorization that expires before finalisation", async () => {
@@ -226,7 +227,7 @@ describe("LiveKit Cloud recording provider", () => {
     );
 
     const failure = await provider
-      .startRoomCompositeRecording(startInput)
+      .prepareRoomCompositeRecording(startInput)
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(LiveKitRecordingProviderError);
     expect(String(failure)).not.toContain("temporary");
@@ -251,7 +252,7 @@ describe("LiveKit Cloud recording provider", () => {
     );
 
     await expect(
-      provider.startRoomCompositeRecording(startInput),
+      provider.prepareRoomCompositeRecording(startInput),
     ).rejects.toBeInstanceOf(LiveKitRecordingProviderError);
     expect(clock).toHaveBeenCalledTimes(2);
     expect(egress.startEgress).not.toHaveBeenCalled();

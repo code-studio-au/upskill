@@ -2622,6 +2622,15 @@ async function executeRecordingStart(
         kind: "start_recording",
       };
     }
+    const preparedStart = await recordingProvider.prepareRoomCompositeRecording(
+      {
+        roomName: target.providerRoomName,
+        storageObjectKey: target.storageObjectKey,
+        uploadAuthorizationExpiresAt,
+        layout: "speaker",
+        format: "mp4",
+      },
+    );
     dispatchStarted = await beginRecordingStartDispatch(claimed, now);
     if (!dispatchStarted)
       return {
@@ -2630,13 +2639,7 @@ async function executeRecordingStart(
         roomId,
         kind: "start_recording",
       };
-    const snapshot = await recordingProvider.startRoomCompositeRecording({
-      roomName: target.providerRoomName,
-      storageObjectKey: target.storageObjectKey,
-      uploadAuthorizationExpiresAt,
-      layout: "speaker",
-      format: "mp4",
-    });
+    const snapshot = await preparedStart.dispatch();
     if (
       snapshot.roomName !== target.providerRoomName ||
       snapshot.storageObjectKey !== target.storageObjectKey

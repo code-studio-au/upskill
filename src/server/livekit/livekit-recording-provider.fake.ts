@@ -10,6 +10,7 @@ import {
   type LiveKitRecordingProvider,
   type LiveKitRecordingSnapshot,
   type LiveKitRecordingTarget,
+  type PreparedLiveKitRoomCompositeRecording,
   type StartLiveKitRoomCompositeRecordingInput,
 } from "./livekit-recording-provider.server";
 
@@ -38,24 +39,34 @@ export class FakeLiveKitRecordingProvider implements LiveKitRecordingProvider {
   readonly operations: FakeLiveKitRecordingOperation[] = [];
   readonly recordings = new Map<string, LiveKitRecordingSnapshot>();
 
-  startRoomCompositeRecording(
+  prepareRoomCompositeRecording(
     input: StartLiveKitRoomCompositeRecordingInput,
-  ): Promise<LiveKitRecordingSnapshot> {
+  ): Promise<PreparedLiveKitRoomCompositeRecording> {
     const parsed = parseStartLiveKitRoomCompositeRecordingInput(input);
-    this.operations.push({ operation: "start_recording", input: parsed });
-    const providerEgressId = `EG_FAKE_${String(this.recordings.size + 1)}`;
-    const snapshot = parseLiveKitRecordingSnapshot({
-      providerEgressId,
-      roomName: parsed.roomName,
-      storageObjectKey: parsed.storageObjectKey,
-      status: "starting",
-      startedAt: null,
-      endedAt: null,
-      output: null,
-      failureCode: null,
+    let dispatched = false;
+    return Promise.resolve({
+      dispatch: () => {
+        if (dispatched)
+          return Promise.reject(
+            new LiveKitRecordingProviderError("start_recording"),
+          );
+        dispatched = true;
+        this.operations.push({ operation: "start_recording", input: parsed });
+        const providerEgressId = `EG_FAKE_${String(this.recordings.size + 1)}`;
+        const snapshot = parseLiveKitRecordingSnapshot({
+          providerEgressId,
+          roomName: parsed.roomName,
+          storageObjectKey: parsed.storageObjectKey,
+          status: "starting",
+          startedAt: null,
+          endedAt: null,
+          output: null,
+          failureCode: null,
+        });
+        this.recordings.set(providerEgressId, snapshot);
+        return Promise.resolve(cloneSnapshot(snapshot));
+      },
     });
-    this.recordings.set(providerEgressId, snapshot);
-    return Promise.resolve(cloneSnapshot(snapshot));
   }
 
   listRoomCompositeRecordings(

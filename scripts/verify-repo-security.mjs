@@ -484,6 +484,7 @@ const eventVirtualRoomServer = fs.readFileSync(
 for (const requiredRecordingDeadlineEnforcement of [
   "recordingUploadAuthorizationExpiresAt",
   "policy: recordingProvider.uploadAuthorizationPolicy",
+  "prepareRoomCompositeRecording",
   '"upload_authorization_window_unsupported"',
 ]) {
   if (!eventVirtualRoomServer.includes(requiredRecordingDeadlineEnforcement))
@@ -491,6 +492,23 @@ for (const requiredRecordingDeadlineEnforcement of [
       `The recording upload deadline policy is not enforced: ${requiredRecordingDeadlineEnforcement}`,
     );
 }
+const recordingPreparationIndex = eventVirtualRoomServer.indexOf(
+  "await recordingProvider.prepareRoomCompositeRecording",
+);
+const recordingDispatchFenceIndex = eventVirtualRoomServer.indexOf(
+  "dispatchStarted = await beginRecordingStartDispatch",
+);
+const recordingProviderDispatchIndex = eventVirtualRoomServer.indexOf(
+  "await preparedStart.dispatch()",
+);
+if (
+  recordingPreparationIndex < 0 ||
+  recordingDispatchFenceIndex <= recordingPreparationIndex ||
+  recordingProviderDispatchIndex <= recordingDispatchFenceIndex
+)
+  failures.push(
+    "Recording upload authorization must complete before the durable fence and LiveKit dispatch",
+  );
 const adminEventTemplateServer = fs.readFileSync(
   path.join(root, "src/server/admin/admin-event-template.server.ts"),
   "utf8",

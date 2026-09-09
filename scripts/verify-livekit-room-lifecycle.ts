@@ -30,6 +30,7 @@ import {
   LiveKitRecordingProviderError,
   parseLiveKitRecordingSnapshot,
   type LiveKitRecordingSnapshot,
+  type PreparedLiveKitRoomCompositeRecording,
   type StartLiveKitRoomCompositeRecordingInput,
 } from "#/server/livekit/livekit-recording-provider.server";
 
@@ -154,6 +155,7 @@ class FailFirstEnsureProvider extends FakeLiveKitProvider {
 }
 
 class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingProvider {
+  private failFirstPreparation = true;
   private loseFirstStartResponse = true;
   private deferredStart:
     | {
@@ -186,35 +188,44 @@ class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingPro
     return { waitUntilStarted: () => started, release };
   }
 
-  override async startRoomCompositeRecording(
+  override async prepareRoomCompositeRecording(
     input: StartLiveKitRoomCompositeRecordingInput,
-  ): Promise<LiveKitRecordingSnapshot> {
-    const deferredStart = this.deferredStart;
-    if (deferredStart) {
-      this.deferredStart = undefined;
-      deferredStart.signalStarted();
-      await deferredStart.waitForRelease;
+  ): Promise<PreparedLiveKitRoomCompositeRecording> {
+    if (this.failFirstPreparation) {
+      this.failFirstPreparation = false;
+      throw new LiveKitRecordingProviderError("prepare_recording");
     }
-    const snapshot = await super.startRoomCompositeRecording(input);
-    if (this.loseFirstStartResponse) {
-      this.loseFirstStartResponse = false;
-      this.recordings.set(
-        snapshot.providerEgressId,
-        parseLiveKitRecordingSnapshot({
-          ...snapshot,
-          status: "complete",
-          startedAt: providerRecordingStartedAt,
-          endedAt: providerRecordingEndedAt,
-          output: {
-            storageObjectKey: snapshot.storageObjectKey,
-            fileSizeBytes: 2_048n,
-            durationNanoseconds: 90_000_000_000n,
-          },
-        }),
-      );
-      throw new LiveKitRecordingProviderError("start_recording");
-    }
-    return snapshot;
+    const prepared = await super.prepareRoomCompositeRecording(input);
+    return {
+      dispatch: async (): Promise<LiveKitRecordingSnapshot> => {
+        const deferredStart = this.deferredStart;
+        if (deferredStart) {
+          this.deferredStart = undefined;
+          deferredStart.signalStarted();
+          await deferredStart.waitForRelease;
+        }
+        const snapshot = await prepared.dispatch();
+        if (this.loseFirstStartResponse) {
+          this.loseFirstStartResponse = false;
+          this.recordings.set(
+            snapshot.providerEgressId,
+            parseLiveKitRecordingSnapshot({
+              ...snapshot,
+              status: "complete",
+              startedAt: providerRecordingStartedAt,
+              endedAt: providerRecordingEndedAt,
+              output: {
+                storageObjectKey: snapshot.storageObjectKey,
+                fileSizeBytes: 2_048n,
+                durationNanoseconds: 90_000_000_000n,
+              },
+            }),
+          );
+          throw new LiveKitRecordingProviderError("start_recording");
+        }
+        return snapshot;
+      },
+    };
   }
 }
 
@@ -1982,7 +1993,7 @@ try {
 
   const startRoom = await database
     .selectFrom("event_virtual_room")
-    .select("providerRoomName")
+    .select(["id", "providerRoomName"])
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
@@ -2013,10 +2024,37 @@ try {
     ensureCountBeforeStart + 1,
     "Start must reconcile provider state instead of trusting cached readiness",
   );
+  const failedRecordingPreparation =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: startsAt,
+    });
+  assert.equal(failedRecordingPreparation.outcomes[0]?.kind, "start_recording");
+  assert.equal(failedRecordingPreparation.outcomes[0].status, "retry");
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["recordingStartDispatchedAt", "lastErrorCode"])
+      .where("roomId", "=", startRoom.id)
+      .where("kind", "=", "start_recording")
+      .executeTakeFirstOrThrow(),
+    {
+      recordingStartDispatchedAt: null,
+      lastErrorCode: "livekit_recording_prepare_recording",
+    },
+    "A retryable upload-authorization failure must not set the durable LiveKit dispatch fence",
+  );
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "start_recording",
+    ).length,
+    0,
+  );
+  const recordingDispatchAt = new Date(startsAt.getTime() + 30_001);
   const deferredRecordingStart = recordingProvider.deferNextStart();
   const firstRecordingAttempt = processAvailableEventVirtualRoomOperations(1, {
     runtime: recordingRuntime,
-    now: startsAt,
+    now: recordingDispatchAt,
   });
   const firstRecordingProgress = await Promise.race([
     deferredRecordingStart
@@ -2037,7 +2075,7 @@ try {
   const reclaimedRecordingAttempt =
     await processAvailableEventVirtualRoomOperations(1, {
       runtime: recordingRuntime,
-      now: new Date(startsAt.getTime() + 2 * 60_000 + 1),
+      now: new Date(recordingDispatchAt.getTime() + 2 * 60_000 + 1),
     });
   assert.equal(reclaimedRecordingAttempt.outcomes[0]?.kind, "start_recording");
   assert.equal(reclaimedRecordingAttempt.outcomes[0].status, "retry");
@@ -2052,7 +2090,9 @@ try {
   const staleRecordingAttempt = await firstRecordingAttempt;
   assert.equal(staleRecordingAttempt.outcomes[0]?.kind, "start_recording");
   assert.equal(staleRecordingAttempt.outcomes[0].status, "retry");
-  const recordingReconciledAt = new Date(startsAt.getTime() + 3 * 60_000 + 2);
+  const recordingReconciledAt = new Date(
+    recordingDispatchAt.getTime() + 4 * 60_000 + 2,
+  );
   const reconciledRecordingAttempt =
     await processAvailableEventVirtualRoomOperations(1, {
       runtime: recordingRuntime,

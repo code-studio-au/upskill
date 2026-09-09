@@ -108,11 +108,15 @@ export type LiveKitRecordingSnapshot = z.infer<
   typeof liveKitRecordingSnapshotSchema
 >;
 
+export interface PreparedLiveKitRoomCompositeRecording {
+  dispatch(): Promise<LiveKitRecordingSnapshot>;
+}
+
 export interface LiveKitRecordingProvider {
   readonly uploadAuthorizationPolicy: LiveKitRecordingUploadAuthorizationPolicy;
-  startRoomCompositeRecording(
+  prepareRoomCompositeRecording(
     input: StartLiveKitRoomCompositeRecordingInput,
-  ): Promise<LiveKitRecordingSnapshot>;
+  ): Promise<PreparedLiveKitRoomCompositeRecording>;
   listRoomCompositeRecordings(
     roomName: string,
   ): Promise<LiveKitRecordingSnapshot[]>;
@@ -122,7 +126,10 @@ export interface LiveKitRecordingProvider {
 }
 
 export type LiveKitRecordingProviderOperation =
-  "start_recording" | "list_recordings" | "stop_recording";
+  | "prepare_recording"
+  | "start_recording"
+  | "list_recordings"
+  | "stop_recording";
 
 export class LiveKitRecordingProviderError extends Error {
   readonly code = "LIVEKIT_RECORDING_PROVIDER_OPERATION_FAILED";
