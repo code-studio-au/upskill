@@ -2421,7 +2421,7 @@ async function beginRecordingStartDispatch(
     .execute(async (transaction) => {
       const room = await transaction
         .selectFrom("event_virtual_room")
-        .select(["doorState", "replacedAt"])
+        .select(["doorState", "endedAt", "replacedAt"])
         .where("id", "=", claimed.roomId)
         .forUpdate()
         .executeTakeFirst();
@@ -2461,13 +2461,19 @@ async function beginRecordingStartDispatch(
         return "settled";
       }
       if (room.doorState === "ended" || room.replacedAt) {
+        const terminalAt = laterDate(
+          recording.requestedAt,
+          room.endedAt,
+          room.replacedAt,
+          now,
+        );
         await transaction
           .updateTable("event_virtual_recording")
           .set({
             status: "failed",
-            completedAt: laterDate(recording.requestedAt, now),
+            completedAt: terminalAt,
             failureCode: "meeting_ended_before_recording_started",
-            updatedAt: laterDate(recording.requestedAt, now),
+            updatedAt: terminalAt,
           })
           .where("id", "=", recordingId)
           .executeTakeFirstOrThrow();
@@ -2476,7 +2482,7 @@ async function beginRecordingStartDispatch(
           .set({
             status: "succeeded",
             leasedUntil: null,
-            completedAt: now,
+            completedAt: terminalAt,
             lastErrorCode: null,
           })
           .where("id", "=", claimed.id)
@@ -2906,30 +2912,11 @@ async function executeRecordingStop(
     };
   }
   try {
-    const snapshots = await recordingProvider.listRoomCompositeRecordings(
-      target.providerRoomName,
-    );
-    const exact = snapshots.filter(
-      (snapshot) =>
-        snapshot.roomName === target.providerRoomName &&
-        snapshot.providerEgressId === target.providerEgressId &&
-        snapshot.storageObjectKey === target.storageObjectKey,
-    );
-    if (exact.length !== 1) {
-      await retryRoomOperation(
-        claimed,
-        "recording_target_unavailable",
-        now,
-        false,
-      );
-      return {
-        status: "retry",
-        operationId: claimed.id,
-        roomId,
-        kind: "stop_recording",
-      };
-    }
-    const exactSnapshot = exact[0];
+    const exactSnapshot = await recordingProvider.getRoomCompositeRecording({
+      roomName: target.providerRoomName,
+      providerEgressId: target.providerEgressId,
+      storageObjectKey: target.storageObjectKey,
+    });
     if (!exactSnapshot) {
       await retryRoomOperation(
         claimed,

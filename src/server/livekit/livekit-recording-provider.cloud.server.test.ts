@@ -399,6 +399,48 @@ describe("LiveKit Cloud recording provider", () => {
     ).rejects.toBeInstanceOf(LiveKitRecordingProviderError);
   });
 
+  it("looks up one known Egress without inspecting unrelated room jobs", async () => {
+    const request = recordingRequest();
+    const exact = new EgressInfo({
+      egressId: "EG_recording_1",
+      roomName: startInput.roomName,
+      status: EgressStatus.EGRESS_ACTIVE,
+      startedAt: providerNanoseconds("2030-09-03T23:32:00.000Z"),
+      request: { case: "egress", value: request },
+    });
+    const egress = {
+      startEgress: vi.fn(),
+      listEgress: vi.fn().mockImplementation((input: { egressId?: string }) => {
+        if (input.egressId === exact.egressId) return Promise.resolve([exact]);
+        throw new Error("Room-wide listing inspected unrelated Egress jobs");
+      }),
+      stopEgress: vi.fn(),
+    };
+    const provider = new LiveKitCloudRecordingProvider(
+      configuration,
+      uploadAuthorizer(),
+      egress,
+      now,
+    );
+
+    await expect(
+      provider.getRoomCompositeRecording({
+        roomName: startInput.roomName,
+        providerEgressId: exact.egressId,
+        storageObjectKey: startInput.storageObjectKey,
+      }),
+    ).resolves.toMatchObject({
+      providerEgressId: exact.egressId,
+      roomName: startInput.roomName,
+      storageObjectKey: startInput.storageObjectKey,
+      status: "active",
+    });
+    expect(egress.listEgress).toHaveBeenCalledTimes(1);
+    expect(egress.listEgress).toHaveBeenCalledWith({
+      egressId: exact.egressId,
+    });
+  });
+
   it.each([
     ["room", "other_room", "EG_recording_1", startInput.storageObjectKey],
     [

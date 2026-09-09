@@ -157,6 +157,7 @@ class FailFirstEnsureProvider extends FakeLiveKitProvider {
 class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingProvider {
   private failFirstPreparation = true;
   private loseFirstStartResponse = true;
+  private roomListingsRejected = false;
   private deferredStart:
     | {
         started: Promise<void>;
@@ -186,6 +187,20 @@ class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingPro
       release,
     };
     return { waitUntilStarted: () => started, release };
+  }
+
+  rejectRoomListings(): void {
+    this.roomListingsRejected = true;
+  }
+
+  override listRoomCompositeRecordings(
+    roomName: string,
+  ): Promise<LiveKitRecordingSnapshot[]> {
+    if (this.roomListingsRejected)
+      return Promise.reject(
+        new LiveKitRecordingProviderError("list_recordings"),
+      );
+    return super.listRoomCompositeRecordings(roomName);
   }
 
   override async prepareRoomCompositeRecording(
@@ -2324,6 +2339,7 @@ try {
     .executeTakeFirstOrThrow();
   assert.equal(recoveredRecording.status, "starting");
   assert.ok(recoveredRecording.providerEgressId);
+  recordingProvider.rejectRoomListings();
   assert.deepEqual(
     await transitionEventVirtualRoom(
       ids.occurrence,
@@ -2468,6 +2484,16 @@ try {
       durationNanoseconds: "1800000000000",
     },
     "Stop reconciliation must preserve terminal provider evidence",
+  );
+  assert.equal(
+    recordingProvider.operations.some(
+      (operation) =>
+        operation.operation === "get_recording" &&
+        operation.target.providerEgressId ===
+          recoveredRecording.providerEgressId,
+    ),
+    true,
+    "A known recording must be reconciled by exact Egress identity rather than a room-wide listing",
   );
   assert.equal(fakeProvider.rooms.size, 0);
 
@@ -2796,22 +2822,28 @@ try {
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_recording")
-      .select(["status", "failureCode"])
+      .select(["status", "failureCode", "completedAt", "updatedAt"])
       .where("roomId", "=", recordingRaceRoom.id)
       .executeTakeFirstOrThrow(),
     {
       status: "failed",
       failureCode: "meeting_ended_before_recording_started",
+      completedAt: terminalTransitionTime,
+      updatedAt: terminalTransitionTime,
     },
   );
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_room_operation")
-      .select(["status", "recordingStartDispatchedAt"])
+      .select(["status", "recordingStartDispatchedAt", "completedAt"])
       .where("roomId", "=", recordingRaceRoom.id)
       .where("kind", "=", "start_recording")
       .executeTakeFirstOrThrow(),
-    { status: "succeeded", recordingStartDispatchedAt: null },
+    {
+      status: "succeeded",
+      recordingStartDispatchedAt: null,
+      completedAt: terminalTransitionTime,
+    },
     "Terminal room state must settle recording without committing the dispatch fence",
   );
   assert.equal(

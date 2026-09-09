@@ -514,10 +514,11 @@ const recordingDispatchBoundary = eventVirtualRoomServer.slice(
   eventVirtualRoomServer.indexOf("async function failRecordingBeforeStart"),
 );
 for (const requiredDispatchRevalidation of [
-  'select(["doorState", "replacedAt"])',
+  'select(["doorState", "endedAt", "replacedAt"])',
   '.select(["status", "requestedAt"])',
   ".forUpdate()",
   'room.doorState === "ended" || room.replacedAt',
+  "const terminalAt = laterDate(",
   'failureCode: "meeting_ended_before_recording_started"',
 ]) {
   if (!recordingDispatchBoundary.includes(requiredDispatchRevalidation))
@@ -526,6 +527,7 @@ for (const requiredDispatchRevalidation of [
     );
 }
 for (const requiredStopReconciliation of [
+  "await recordingProvider.getRoomCompositeRecording({",
   "const stopSnapshot =",
   "await settleRecordingStop(claimed, stopSnapshot, now)",
   'lastErrorCode: "recording_stop_pending"',

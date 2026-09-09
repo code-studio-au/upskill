@@ -124,6 +124,13 @@ describe("LiveKit recording provider contract", () => {
       provider.listRoomCompositeRecordings(startInput.roomName),
     ).resolves.toEqual([started]);
     await expect(
+      provider.getRoomCompositeRecording({
+        roomName: startInput.roomName,
+        providerEgressId: started.providerEgressId,
+        storageObjectKey: startInput.storageObjectKey,
+      }),
+    ).resolves.toEqual(started);
+    await expect(
       provider.stopRoomCompositeRecording({
         roomName: startInput.roomName,
         providerEgressId: started.providerEgressId,
@@ -133,8 +140,24 @@ describe("LiveKit recording provider contract", () => {
     expect(provider.operations.map(({ operation }) => operation)).toEqual([
       "start_recording",
       "list_recordings",
+      "get_recording",
       "stop_recording",
     ]);
+  });
+
+  it("returns no exact recording for a mismatched target", async () => {
+    const provider = new FakeLiveKitRecordingProvider();
+    const started = await (
+      await provider.prepareRoomCompositeRecording(startInput)
+    ).dispatch();
+
+    await expect(
+      provider.getRoomCompositeRecording({
+        roomName: startInput.roomName,
+        providerEgressId: started.providerEgressId,
+        storageObjectKey: "recordings/opaque_room/other_recording.mp4",
+      }),
+    ).resolves.toBeNull();
   });
 
   it("does not stop an Egress job outside the expected room", async () => {

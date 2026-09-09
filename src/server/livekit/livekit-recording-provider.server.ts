@@ -120,6 +120,9 @@ export interface LiveKitRecordingProvider {
   listRoomCompositeRecordings(
     roomName: string,
   ): Promise<LiveKitRecordingSnapshot[]>;
+  getRoomCompositeRecording(
+    target: LiveKitRecordingTarget,
+  ): Promise<LiveKitRecordingSnapshot | null>;
   stopRoomCompositeRecording(
     target: LiveKitRecordingTarget,
   ): Promise<LiveKitRecordingSnapshot>;
@@ -129,6 +132,7 @@ export type LiveKitRecordingProviderOperation =
   | "prepare_recording"
   | "start_recording"
   | "list_recordings"
+  | "get_recording"
   | "stop_recording";
 
 export class LiveKitRecordingProviderError extends Error {

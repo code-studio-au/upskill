@@ -332,6 +332,30 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
     }
   }
 
+  async getRoomCompositeRecording(
+    target: LiveKitRecordingTarget,
+  ): Promise<LiveKitRecordingSnapshot | null> {
+    const parsed = parseLiveKitRecordingTarget(target);
+    try {
+      const matches = await this.egress.listEgress({
+        egressId: parsed.providerEgressId,
+      });
+      if (matches.length === 0) return null;
+      const [existing] = matches;
+      if (!existing || matches.length !== 1)
+        throw new TypeError("Provider recording lookup was not exact");
+      return recordingSnapshot(
+        existing,
+        parsed.roomName,
+        this.configuration,
+        parsed.providerEgressId,
+        parsed.storageObjectKey,
+      );
+    } catch {
+      throw new LiveKitRecordingProviderError("get_recording");
+    }
+  }
+
   async stopRoomCompositeRecording(
     target: LiveKitRecordingTarget,
   ): Promise<LiveKitRecordingSnapshot> {

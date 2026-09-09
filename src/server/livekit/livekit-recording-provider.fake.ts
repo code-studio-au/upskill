@@ -20,6 +20,7 @@ export type FakeLiveKitRecordingOperation =
       input: StartLiveKitRoomCompositeRecordingInput;
     }
   | { operation: "list_recordings"; roomName: string }
+  | { operation: "get_recording"; target: LiveKitRecordingTarget }
   | { operation: "stop_recording"; target: LiveKitRecordingTarget };
 
 function cloneSnapshot(
@@ -82,6 +83,21 @@ export class FakeLiveKitRecordingProvider implements LiveKitRecordingProvider {
         .filter((recording) => recording.roomName === parsedRoomName)
         .map(cloneSnapshot),
     );
+  }
+
+  getRoomCompositeRecording(
+    target: LiveKitRecordingTarget,
+  ): Promise<LiveKitRecordingSnapshot | null> {
+    const parsed = parseLiveKitRecordingTarget(target);
+    this.operations.push({ operation: "get_recording", target: parsed });
+    const current = this.recordings.get(parsed.providerEgressId);
+    if (
+      !current ||
+      current.roomName !== parsed.roomName ||
+      current.storageObjectKey !== parsed.storageObjectKey
+    )
+      return Promise.resolve(null);
+    return Promise.resolve(cloneSnapshot(current));
   }
 
   stopRoomCompositeRecording(
