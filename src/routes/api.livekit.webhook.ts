@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { logServerEvent } from "#/server/logging/server-logger";
+import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
 import {
   LiveKitWebhookError,
   verifyLiveKitWebhook,
@@ -41,18 +42,34 @@ export async function handleLiveKitWebhookRequest(
       payload,
       request.headers.get("authorization"),
     );
+    const outcome = await ingestVerifiedLiveKitRecordingWebhook(event);
+    if (outcome.status !== "unsupported") {
+      logServerEvent({
+        level: "info",
+        event: "livekit.recording_webhook_received",
+        fields: {
+          providerEventId: event.providerEventId,
+          providerEvent: event.event,
+          ingestionStatus: outcome.status,
+        },
+      });
+      return Response.json(
+        { received: true },
+        { status: 200, headers: responseHeaders },
+      );
+    }
     logServerEvent({
       level: "warn",
-      event: "livekit.webhook_persistence_not_ready",
+      event: "livekit.webhook_ingestion_not_ready",
       fields: {
         providerEventId: event.providerEventId,
         providerEvent: event.event,
       },
     });
-    // Until Slice 2 persists an idempotent receipt, ask LiveKit to retry rather
-    // than acknowledging and silently discarding valid lifecycle evidence.
+    // Participant evidence belongs to Slice 7a. Ask LiveKit to retry rather
+    // than acknowledging and silently discarding those valid lifecycle events.
     return Response.json(
-      { error: "webhook_persistence_not_ready" },
+      { error: "webhook_ingestion_not_ready" },
       {
         status: 503,
         headers: { ...responseHeaders, "Retry-After": "60" },
@@ -77,7 +94,7 @@ export async function handleLiveKitWebhookRequest(
       );
     logServerEvent({
       level: "error",
-      event: "livekit.webhook_verification_failed",
+      event: "livekit.webhook_processing_failed",
       error,
     });
     return Response.json(

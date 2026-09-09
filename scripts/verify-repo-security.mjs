@@ -704,7 +704,7 @@ for (const requiredExactStartReconciliationBoundary of [
   "targetsStorageObjectKey",
   ".flatMap(",
   "parsedStorageObjectKey",
-  "recordingSnapshot(",
+  "normalizeLiveKitRecordingEgressInfo(",
 ]) {
   if (
     !exactStartListingBoundary.includes(
@@ -717,7 +717,7 @@ for (const requiredExactStartReconciliationBoundary of [
 }
 if (
   exactStartListingBoundary.indexOf("targetsStorageObjectKey") >
-  exactStartListingBoundary.indexOf("recordingSnapshot(")
+  exactStartListingBoundary.indexOf("normalizeLiveKitRecordingEgressInfo(")
 )
   failures.push(
     "Recording start reconciliation must filter raw provider results before normalisation",
@@ -839,14 +839,36 @@ for (const boundary of [
   "new WebhookReceiver",
   ".receive(rawBody, authorization)",
   "liveKitWebhookPayloadSchema.parse",
+  'createHash("sha256").update(payload).digest("hex")',
+  "egressInfo: decoded.egressInfo",
 ])
   if (!liveKitWebhook.includes(boundary))
     failures.push(`LiveKit webhook verification is missing: ${boundary}`);
+const liveKitRecordingWebhook = fs.readFileSync(
+  path.join(root, "src/server/livekit/livekit-recording-webhook.server.ts"),
+  "utf8",
+);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'insertInto("livekit_webhook_receipt")',
+  '.columns(["providerEnvironment", "providerEventId"])',
+  "environment.LIVEKIT_PROJECT_ENVIRONMENT !== event.providerEnvironment",
+  'where("room.providerRoomName", "=", roomName)',
+  "normalizeLiveKitRecordingEgressInfo",
+  'processingState: "pending"',
+])
+  if (!liveKitRecordingWebhook.includes(boundary))
+    failures.push(`LiveKit recording receipt boundary is missing: ${boundary}`);
+if (liveKitRecordingWebhook.includes("rawBody"))
+  failures.push(
+    "LiveKit recording receipts must not retain raw webhook bodies",
+  );
 for (const boundary of [
   '"application/webhook+json"',
   "request.arrayBuffer()",
   "MAX_WEBHOOK_BYTES",
-  '"webhook_persistence_not_ready"',
+  "ingestVerifiedLiveKitRecordingWebhook(event)",
+  '"webhook_ingestion_not_ready"',
 ])
   if (!liveKitWebhookRoute.includes(boundary))
     failures.push(`LiveKit webhook route boundary is missing: ${boundary}`);

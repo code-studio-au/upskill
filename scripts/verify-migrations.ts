@@ -81,6 +81,7 @@ try {
     "event_virtual_room",
     "event_virtual_room_operation",
     "event_virtual_recording",
+    "livekit_webhook_receipt",
     "event_virtual_presenter_credential_reservation",
     "event_virtual_join_access",
     "event_virtual_lobby_entry",
@@ -239,6 +240,7 @@ try {
     "event_virtual_join_session_active_idx",
     "event_virtual_recording_status_idx",
     "event_virtual_recording_retention_idx",
+    "livekit_webhook_receipt_processing_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -704,6 +706,25 @@ try {
     liveKitRecordingConstraints.rows.length,
     14,
     "LiveKit recording scope, immutable policy evidence and lifecycle state must be constrained",
+  );
+  const liveKitWebhookReceiptConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'livekit_webhook_receipt_event_uq',
+          'livekit_webhook_receipt_recording_fk',
+          'livekit_webhook_receipt_provider_ck',
+          'livekit_webhook_receipt_identity_ck',
+          'livekit_webhook_receipt_match_ck',
+          'livekit_webhook_receipt_processing_ck',
+          'livekit_webhook_receipt_snapshot_ck',
+          'livekit_webhook_receipt_timeline_ck'
+        )`.execute(db);
+  assert.equal(
+    liveKitWebhookReceiptConstraints.rows.length,
+    8,
+    "LiveKit webhook identity, exact recording attachment and normalized evidence must be constrained",
   );
   const liveKitRecordingGuard = await sql<{
     definition: string;

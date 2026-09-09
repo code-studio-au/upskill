@@ -816,9 +816,14 @@ Successful recovery does not mutate durable account-verification fields.
 
 `livekit_webhook_receipt` records provider deployment, unique event identifier,
 event type, raw-body digest, provider creation time, receipt time, processing
-state, retry count, and normalised outcome. The raw webhook body is not retained
-after signature verification unless a later privacy review explicitly approves
-bounded encrypted retention.
+state, retry count, and normalised outcome. Recording receipts first match the
+exact application room and logical recording, validate the fixed Egress target,
+and retain only the normalised lifecycle/output fields needed by the domain
+consumer. The raw webhook body and embedded temporary upload credentials are not
+retained after signature verification unless a later privacy review explicitly
+approves bounded encrypted retention. Until participant evidence ingestion is
+available, verified non-Egress events receive a retryable response rather than
+being acknowledged and discarded.
 
 `event_virtual_presence_interval` records room generation, exact participation,
 provider participant SID/identity fingerprint, joined time, last-seen time, left
@@ -1328,10 +1333,18 @@ gates passed; it does not by itself authorise staging or production activation.
       per room generation. Implemented with the existing leased room-operation
       queue and provider-specific upload authorization windows. The staff
       workspace polls and surfaces the safe durable lifecycle plus retry/failure
-      state; provider status ingestion remains isolated in Slice 6b4.
-- [ ] **Slice 6b4 — recording status ingestion:** accept verified Egress webhook
-      states, reconcile delayed or missing status and output evidence, and expose
-      bounded operational failures without provider detail leakage.
+      state; provider status ingestion remains isolated in Slices 6b4a and 6b4b.
+- [x] **Slice 6b4a — verified recording webhook receipts:** accept signed Egress
+      events, deduplicate them by provider deployment and event identity, match
+      the exact room and logical recording, validate the fixed private output
+      contract, and persist only bounded normalised evidence for later processing.
+      Valid unmatched Egress events are acknowledged without attachment; malformed
+      exact-target events remain retryable. Non-Egress events remain retryable
+      until their dedicated consumer lands.
+- [ ] **Slice 6b4b — recording receipt application and reconciliation:** apply
+      pending receipt evidence to the recording lifecycle, reconcile delayed or
+      missing provider status/output, and expose bounded operational failures
+      without provider detail leakage.
 - [ ] **Slice 6c — recording consumption and retention:** add authorised private
       playback/download, retention and deletion evidence, administrator status and
       recoverable failure handling.

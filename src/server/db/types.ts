@@ -845,6 +845,34 @@ interface EventVirtualRecordingTable {
   updatedAt: Timestamp;
 }
 
+interface LiveKitWebhookReceiptTable {
+  id: string;
+  provider: "livekit";
+  providerEnvironment: "development" | "test" | "staging" | "production";
+  providerEventId: string;
+  eventType: "egress_started" | "egress_updated" | "egress_ended";
+  payloadDigest: string;
+  providerCreatedAt: Timestamp;
+  receivedAt: Timestamp;
+  processingState:
+    "processing" | "pending" | "processed" | "unmatched" | "failed";
+  processingAttempts: Generated<number>;
+  lastAttemptAt: Timestamp | null;
+  processedAt: Timestamp | null;
+  lastErrorCode: string | null;
+  matchedRecordingId: string | null;
+  matchedRoomId: string | null;
+  providerEgressId: string;
+  providerRoomName: string;
+  normalizedStatus:
+    "starting" | "active" | "stopping" | "complete" | "failed" | null;
+  startedAt: Timestamp | null;
+  endedAt: Timestamp | null;
+  fileSizeBytes: NullableBigIntValue;
+  durationNanoseconds: NullableBigIntValue;
+  failureCode: string | null;
+}
+
 interface EventVirtualPresenterCredentialReservationTable {
   roomId: string;
   userId: string;
@@ -1938,6 +1966,7 @@ export interface Database {
   learning_activity: LearningActivityTable;
   learning_activity_version: LearningActivityVersionTable;
   learning_progress_override: LearningProgressOverrideTable;
+  livekit_webhook_receipt: LiveKitWebhookReceiptTable;
   learning_resource_version: LearningResourceVersionTable;
   notification: NotificationTable;
   notification_delivery_attempt: NotificationDeliveryAttemptTable;

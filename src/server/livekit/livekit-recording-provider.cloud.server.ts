@@ -79,6 +79,11 @@ export interface LiveKitCloudRecordingConfiguration {
   bucket: string;
 }
 
+export type LiveKitRecordingStorageConfiguration = Pick<
+  LiveKitCloudRecordingConfiguration,
+  "region" | "bucket"
+>;
+
 interface LiveKitEgressClient {
   startEgress(request: StartEgressRequest): Promise<EgressInfo>;
   listEgress(options: {
@@ -102,7 +107,7 @@ function dateFromProviderNanoseconds(value: bigint): Date | null {
 function validatedFileOutput(
   info: EgressInfo,
   expectedRoomName: string,
-  configuration: LiveKitCloudRecordingConfiguration,
+  configuration: LiveKitRecordingStorageConfiguration,
   expectedEgressId?: string,
   expectedStorageObjectKey?: string,
 ): FileOutput {
@@ -146,10 +151,10 @@ function validatedFileOutput(
   return output.config.value;
 }
 
-function recordingSnapshot(
+export function normalizeLiveKitRecordingEgressInfo(
   info: EgressInfo,
   expectedRoomName: string,
-  configuration: LiveKitCloudRecordingConfiguration,
+  configuration: LiveKitRecordingStorageConfiguration,
   expectedEgressId?: string,
   expectedStorageObjectKey?: string,
 ): LiveKitRecordingSnapshot {
@@ -317,7 +322,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
           throw new LiveKitRecordingProviderError("start_recording");
         dispatched = true;
         try {
-          return recordingSnapshot(
+          return normalizeLiveKitRecordingEgressInfo(
             await this.egress.startEgress(request),
             parsed.roomName,
             this.configuration,
@@ -344,7 +349,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
       ).flatMap((info) =>
         targetsStorageObjectKey(info, parsedStorageObjectKey)
           ? [
-              recordingSnapshot(
+              normalizeLiveKitRecordingEgressInfo(
                 info,
                 parsedRoomName,
                 this.configuration,
@@ -371,7 +376,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
       const [existing] = matches;
       if (!existing || matches.length !== 1)
         throw new TypeError("Provider recording lookup was not exact");
-      return recordingSnapshot(
+      return normalizeLiveKitRecordingEgressInfo(
         existing,
         parsed.roomName,
         this.configuration,
@@ -401,7 +406,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
         parsed.providerEgressId,
         parsed.storageObjectKey,
       );
-      return recordingSnapshot(
+      return normalizeLiveKitRecordingEgressInfo(
         await this.egress.stopEgress(parsed.providerEgressId),
         parsed.roomName,
         this.configuration,

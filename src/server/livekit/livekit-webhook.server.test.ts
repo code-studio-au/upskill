@@ -1,5 +1,16 @@
 import { createHash } from "node:crypto";
-import { AccessToken } from "livekit-server-sdk";
+import {
+  AccessToken,
+  EgressInfo,
+  EgressStatus,
+  EncodedFileType,
+  FileOutput,
+  Output,
+  S3Upload,
+  StartEgressRequest,
+  StorageConfig,
+  TemplateSource,
+} from "livekit-server-sdk";
 import { describe, expect, it } from "vitest";
 import { parseServerEnvironment } from "#/server/runtime-environment";
 import {
@@ -40,6 +51,54 @@ function webhookPayload(event = "participant_joined"): Buffer {
   );
 }
 
+function egressWebhookPayload(): Buffer {
+  const roomName = "room_generation_1";
+  const egressInfo = new EgressInfo({
+    egressId: "EG_recording_1",
+    roomName,
+    status: EgressStatus.EGRESS_ACTIVE,
+    request: {
+      case: "egress",
+      value: new StartEgressRequest({
+        roomName,
+        source: {
+          case: "template",
+          value: new TemplateSource({ layout: "speaker" }),
+        },
+        outputs: [
+          new Output({
+            config: {
+              case: "file",
+              value: new FileOutput({
+                fileType: EncodedFileType.MP4,
+                filepath: "recordings/session_1/1/recording_1.mp4",
+                disableManifest: true,
+              }),
+            },
+          }),
+        ],
+        storage: new StorageConfig({
+          provider: {
+            case: "s3",
+            value: new S3Upload({
+              region: "ap-southeast-2",
+              bucket: "upskill-recordings",
+            }),
+          },
+        }),
+      }),
+    },
+  });
+  return Buffer.from(
+    JSON.stringify({
+      event: "egress_updated",
+      id: "EV_EgressUpdate1",
+      createdAt: "1788400800",
+      egressInfo: egressInfo.toJson(),
+    }),
+  );
+}
+
 async function sign(payload: Buffer): Promise<string> {
   const token = new AccessToken(apiKey, apiSecret);
   token.sha256 = createHash("sha256").update(payload).digest("base64");
@@ -52,13 +111,34 @@ describe("LiveKit webhook verification", () => {
     await expect(
       verifyLiveKitWebhook(payload, await sign(payload), enabledEnvironment),
     ).resolves.toEqual({
+      providerEnvironment: "development",
       providerEventId: "EV_GZDoCEnjEwhx",
       event: "participant_joined",
       createdAtSeconds: 1_788_400_800,
+      payloadDigest: createHash("sha256").update(payload).digest("hex"),
       roomSid: "RM_1",
       roomName: "room_generation_1",
       participantSid: "PA_1",
       participantIdentity: "attendee:opaque_1",
+    });
+  });
+
+  it("returns verified Egress information only after signature validation", async () => {
+    const payload = egressWebhookPayload();
+    await expect(
+      verifyLiveKitWebhook(payload, await sign(payload), enabledEnvironment),
+    ).resolves.toMatchObject({
+      providerEnvironment: "development",
+      providerEventId: "EV_EgressUpdate1",
+      event: "egress_updated",
+      payloadDigest: createHash("sha256").update(payload).digest("hex"),
+      roomName: "room_generation_1",
+      egressId: "EG_recording_1",
+      egressInfo: {
+        egressId: "EG_recording_1",
+        roomName: "room_generation_1",
+        status: EgressStatus.EGRESS_ACTIVE,
+      },
     });
   });
 
@@ -89,6 +169,14 @@ describe("LiveKit webhook verification", () => {
       verifyLiveKitWebhook(
         unsupported,
         await sign(unsupported),
+        enabledEnvironment,
+      ),
+    ).rejects.toMatchObject({ code: "LIVEKIT_WEBHOOK_INVALID" });
+    const missingEgressInfo = webhookPayload("egress_started");
+    await expect(
+      verifyLiveKitWebhook(
+        missingEgressInfo,
+        await sign(missingEgressInfo),
         enabledEnvironment,
       ),
     ).rejects.toMatchObject({ code: "LIVEKIT_WEBHOOK_INVALID" });
