@@ -102,9 +102,7 @@ function ScheduledEventsPage() {
           outcome.status === "conflict" &&
           outcome.reason === "livekit_policy_unavailable"
         ) {
-          setError(
-            "Use manual attendance and turn recording off before publishing.",
-          );
+          setError("Use manual attendance before publishing.");
           return;
         }
         setError(

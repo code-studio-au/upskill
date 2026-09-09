@@ -591,22 +591,9 @@ try {
     })
     .where("eventOccurrenceId", "=", created.eventOccurrenceId)
     .executeTakeFirstOrThrow();
-  assert.equal(
-    await publishAdminEventOccurrence(
-      created.eventOccurrenceId,
-      administrator,
-      { approvedMaxParticipants: 25 },
-    ),
-    "livekit-policy-unavailable",
-    "Automatic recording must remain dormant until recording operations are active",
-  );
   await database
     .updateTable("event_session")
     .set({
-      livekitRecordingMode: "off",
-      livekitRecordingRetentionDays: null,
-      livekitAttendeeRecordingNotice: "",
-      livekitPresenterRecordingNotice: "",
       livekitAttendanceMode: "automatic_check_in",
     })
     .where("eventOccurrenceId", "=", created.eventOccurrenceId)
@@ -618,7 +605,7 @@ try {
       { approvedMaxParticipants: 25 },
     ),
     "livekit-policy-unavailable",
-    "Automatic check-in must remain dormant until attendance ingestion is active",
+    "Automatic check-in must remain dormant while automatic recording is publishable",
   );
   await database
     .updateTable("event_session")
@@ -664,6 +651,7 @@ try {
       },
     ),
     "published",
+    "Automatic recording with manual attendance must publish",
   );
   const publishedOccurrence = await database
     .selectFrom("event_occurrence")
