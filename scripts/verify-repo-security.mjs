@@ -530,8 +530,10 @@ for (const requiredDispatchRevalidation of [
 }
 for (const requiredStopReconciliation of [
   "await recordingProvider.getRoomCompositeRecording({",
+  'const stopDispatched = ["starting", "active"].includes(',
   "const stopSnapshot =",
-  "await settleRecordingStop(claimed, stopSnapshot, now)",
+  "stopDispatched && recording.stopRequestedAt === null",
+  "stopSnapshot,\n      stopDispatched,",
   'lastErrorCode: "recording_stop_pending"',
 ]) {
   if (!eventVirtualRoomServer.includes(requiredStopReconciliation))

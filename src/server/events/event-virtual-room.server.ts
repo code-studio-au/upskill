@@ -2969,6 +2969,7 @@ async function executeRecordingStart(
 async function settleRecordingStop(
   claimed: ClaimedOperation,
   snapshot: LiveKitRecordingSnapshot,
+  stopDispatched: boolean,
   now: Date,
 ): Promise<"pending" | "settled" | "stale"> {
   return getDatabase()
@@ -3013,7 +3014,8 @@ async function settleRecordingStop(
           const stopRequestedAt =
             recording.stopRequestedAt ?? claimed.createdAt;
           if (!terminal) {
-            const stopStarted = recording.stopRequestedAt === null;
+            const stopStarted =
+              stopDispatched && recording.stopRequestedAt === null;
             if (snapshot.status === "complete") {
               const completion = completedRecordingEvidenceValues(
                 recording,
@@ -3234,7 +3236,10 @@ async function executeRecordingStop(
         kind: "stop_recording",
       };
     }
-    const stopSnapshot = ["starting", "active"].includes(exactSnapshot.status)
+    const stopDispatched = ["starting", "active"].includes(
+      exactSnapshot.status,
+    );
+    const stopSnapshot = stopDispatched
       ? await recordingProvider.stopRoomCompositeRecording({
           roomName: target.providerRoomName,
           providerEgressId: target.providerEgressId,
@@ -3247,7 +3252,12 @@ async function executeRecordingStop(
       stopSnapshot.storageObjectKey !== target.storageObjectKey
     )
       throw new LiveKitRecordingProviderError("stop_recording");
-    const settlement = await settleRecordingStop(claimed, stopSnapshot, now);
+    const settlement = await settleRecordingStop(
+      claimed,
+      stopSnapshot,
+      stopDispatched,
+      now,
+    );
     return {
       status: settlement === "settled" ? "processed" : "pending",
       operationId: claimed.id,

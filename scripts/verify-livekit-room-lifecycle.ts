@@ -2696,7 +2696,7 @@ try {
   await failingProvider.waitUntilEnsureStarts();
   const failingRoom = await database
     .selectFrom("event_virtual_room")
-    .select(["id", "providerRoomName"])
+    .select(["id", "generation", "providerRoomName"])
     .where("eventSessionId", "=", ids.failureSession)
     .executeTakeFirstOrThrow();
   const failingEndTime = new Date("2030-09-03T23:45:00.000Z");
@@ -2754,6 +2754,142 @@ try {
     failingProvider.rooms.has(failingRoom.providerRoomName),
     false,
     "A failed expired ensure on a terminal generation must force a fresh durable close",
+  );
+
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
+    .where("id", "=", failingRoom.id)
+    .executeTakeFirstOrThrow();
+  const naturalRecordingId = "verify_livekit_natural_recording_completion";
+  const naturalProviderEgressId = "EG_NATURAL_COMPLETION";
+  const naturalStorageObjectKey =
+    "recordings/opaque_room/natural_completion.mp4";
+  const naturalRequestedAt = new Date("2030-09-03T23:44:00.000Z");
+  const naturalStartingAt = new Date("2030-09-03T23:44:30.000Z");
+  const naturalStartedAt = new Date("2030-09-03T23:45:00.000Z");
+  const naturalEndedAt = new Date("2030-09-03T23:46:00.000Z");
+  const naturalStopRequestedAt = new Date("2030-09-03T23:46:30.000Z");
+  const naturalReconciledAt = new Date("2030-09-03T23:47:00.000Z");
+  await database
+    .insertInto("event_virtual_recording")
+    .values({
+      ...recordingValues,
+      id: naturalRecordingId,
+      roomId: failingRoom.id,
+      eventSessionId: ids.failureSession,
+      roomGeneration: failingRoom.generation,
+      storageObjectKey: naturalStorageObjectKey,
+      requestedAt: naturalRequestedAt,
+      updatedAt: naturalRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "starting",
+      providerEgressId: naturalProviderEgressId,
+      updatedAt: naturalStartingAt,
+    })
+    .where("id", "=", naturalRecordingId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "active",
+      startedAt: naturalStartedAt,
+      updatedAt: naturalStartedAt,
+    })
+    .where("id", "=", naturalRecordingId)
+    .executeTakeFirstOrThrow();
+  recordingProvider.recordings.set(
+    naturalProviderEgressId,
+    parseLiveKitRecordingSnapshot({
+      providerEgressId: naturalProviderEgressId,
+      roomName: failingRoom.providerRoomName,
+      storageObjectKey: naturalStorageObjectKey,
+      status: "complete",
+      startedAt: naturalStartedAt,
+      endedAt: naturalEndedAt,
+      output: {
+        storageObjectKey: naturalStorageObjectKey,
+        fileSizeBytes: 1_024n,
+        durationNanoseconds: 60_000_000_000n,
+      },
+      failureCode: null,
+    }),
+  );
+  await database
+    .insertInto("event_virtual_room_operation")
+    .values({
+      id: "verify_livekit_natural_recording_stop_operation",
+      roomId: failingRoom.id,
+      kind: "stop_recording",
+      targetKey: naturalRecordingId,
+      recordingId: naturalRecordingId,
+      lobbyEntryId: null,
+      presenterUserId: null,
+      participantIdentity: null,
+      removalEnforcedUntil: null,
+      deduplicationKey: `event_virtual_room:${failingRoom.id}:stop_recording:${naturalRecordingId}`,
+      status: "pending",
+      availableAt: naturalStopRequestedAt,
+      leasedUntil: null,
+      lastAttemptAt: null,
+      completedAt: null,
+      lastErrorCode: null,
+      requestedByUserId: administrator.id,
+      createdAt: naturalStopRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  const stopDispatchesBeforeNaturalCompletion =
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "stop_recording",
+    ).length;
+  const naturalCompletionBatch =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: naturalReconciledAt,
+    });
+  assert.deepEqual(
+    naturalCompletionBatch.outcomes.map((outcome) => ({
+      kind: outcome.kind,
+      status: outcome.status,
+    })),
+    [{ kind: "stop_recording", status: "processed" }],
+  );
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "stop_recording",
+    ).length,
+    stopDispatchesBeforeNaturalCompletion,
+    "A naturally completed Egress must not receive a redundant stop command",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("audit_event")
+        .select("id")
+        .where("subjectType", "=", "event_virtual_recording")
+        .where("subjectId", "=", naturalRecordingId)
+        .where("action", "=", "event_virtual_recording.stop_started")
+        .execute()
+    ).length,
+    0,
+    "Natural provider completion must not claim that Upskill dispatched a stop",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "stopRequestedAt", "completedAt"])
+      .where("id", "=", naturalRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "complete",
+      stopRequestedAt: naturalStopRequestedAt,
+      completedAt: naturalReconciledAt,
+    },
+    "Natural provider completion must still settle exact terminal evidence",
   );
 
   await database
