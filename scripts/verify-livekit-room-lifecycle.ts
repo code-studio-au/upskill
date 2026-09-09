@@ -81,6 +81,9 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 const preparationTime = new Date("2030-09-03T23:30:00.000Z");
 const providerRecordingStartedAt = new Date("2030-09-04T00:00:30.000Z");
 const providerRecordingEndedAt = new Date("2030-09-04T00:02:00.000Z");
+const recoveredProviderRecordingStartedAt = new Date(
+  "2030-09-04T00:31:30.000Z",
+);
 
 async function assertDatabaseConstraint(
   operation: () => Promise<unknown>,
@@ -238,7 +241,13 @@ class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingPro
           );
           throw new LiveKitRecordingProviderError("start_recording");
         }
-        return snapshot;
+        const active = parseLiveKitRecordingSnapshot({
+          ...snapshot,
+          status: "active",
+          startedAt: recoveredProviderRecordingStartedAt,
+        });
+        this.recordings.set(snapshot.providerEgressId, active);
+        return active;
       },
     };
   }
@@ -2337,7 +2346,11 @@ try {
     .select(["id", "providerEgressId", "storageObjectKey", "status"])
     .where("roomId", "=", recoveredRoom.id)
     .executeTakeFirstOrThrow();
-  assert.equal(recoveredRecording.status, "starting");
+  assert.equal(
+    recoveredRecording.status,
+    "active",
+    "An active StartEgress response must be persisted as active",
+  );
   assert.ok(recoveredRecording.providerEgressId);
   recordingProvider.rejectRoomListings();
   assert.deepEqual(
@@ -2914,6 +2927,37 @@ try {
       (event) => event.action === "event_virtual_room.lifecycle_changed",
     ),
   );
+  const recordingAuditActions = await database
+    .selectFrom("audit_event")
+    .select(["action", "actorUserId", "reason"])
+    .where("subjectType", "=", "event_virtual_recording")
+    .execute();
+  assert.deepEqual(
+    [...new Set(recordingAuditActions.map((event) => event.action))].sort(),
+    [
+      "event_virtual_recording.completed",
+      "event_virtual_recording.failed",
+      "event_virtual_recording.requested",
+      "event_virtual_recording.started",
+      "event_virtual_recording.stop_requested",
+      "event_virtual_recording.stop_started",
+    ],
+    "Recording request, provider start, stop, completion and failure transitions must all emit durable audit evidence",
+  );
+  assert.equal(
+    recordingAuditActions.every((event) => event.actorUserId !== null),
+    true,
+    "Automatic recording audit evidence must retain its initiating staff actor",
+  );
+  assert.equal(
+    recordingAuditActions.some(
+      (event) =>
+        event.action === "event_virtual_recording.failed" &&
+        event.reason === "meeting_ended_before_recording_started",
+    ),
+    true,
+    "Recording failure audit evidence must retain the safe failure code",
+  );
   console.log(
     "Verified LiveKit exact staff authorization, preparation timing, capacity, idempotent room creation, health, lifecycle, recording evidence, closure, replacement, worker processing and durable audit evidence",
   );
@@ -2934,6 +2978,19 @@ try {
   await database
     .deleteFrom("event_virtual_room_operation")
     .where("roomId", "in", (builder) =>
+      builder
+        .selectFrom("event_virtual_room")
+        .select("id")
+        .where("eventSessionId", "in", [
+          ids.session,
+          ids.raceSession,
+          ids.failureSession,
+        ]),
+    )
+    .execute();
+  await database
+    .deleteFrom("outbox_event")
+    .where("aggregateId", "in", (builder) =>
       builder
         .selectFrom("event_virtual_room")
         .select("id")
@@ -2970,7 +3027,10 @@ try {
     );
     await transaction
       .deleteFrom("audit_event")
-      .where("subjectType", "=", "event_virtual_room")
+      .where("subjectType", "in", [
+        "event_virtual_room",
+        "event_virtual_recording",
+      ])
       .where("actorUserId", "in", [
         administrator.id,
         presenter.id,

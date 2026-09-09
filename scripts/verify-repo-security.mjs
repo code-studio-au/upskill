@@ -515,7 +515,8 @@ const recordingDispatchBoundary = eventVirtualRoomServer.slice(
 );
 for (const requiredDispatchRevalidation of [
   'select(["doorState", "endedAt", "replacedAt"])',
-  '.select(["status", "requestedAt"])',
+  '"eventSessionId"',
+  '"roomGeneration"',
   ".forUpdate()",
   'room.doorState === "ended" || room.replacedAt',
   "const terminalAt = laterDate(",
@@ -535,6 +536,21 @@ for (const requiredStopReconciliation of [
   if (!eventVirtualRoomServer.includes(requiredStopReconciliation))
     failures.push(
       `Recording stop completion is not durably reconciled: ${requiredStopReconciliation}`,
+    );
+}
+for (const requiredRecordingAuditBoundary of [
+  'action: "event_virtual_recording.requested"',
+  'action: "event_virtual_recording.started"',
+  'action: "event_virtual_recording.stop_requested"',
+  'action: "event_virtual_recording.stop_started"',
+  'action: "event_virtual_recording.completed"',
+  'action: "event_virtual_recording.failed"',
+  'subjectType: "event_virtual_recording"',
+  'snapshot.status === "active" ? "active" : "starting"',
+]) {
+  if (!eventVirtualRoomServer.includes(requiredRecordingAuditBoundary))
+    failures.push(
+      `The recording lifecycle is missing durable state or audit handling: ${requiredRecordingAuditBoundary}`,
     );
 }
 const adminEventOccurrenceServer = fs.readFileSync(
