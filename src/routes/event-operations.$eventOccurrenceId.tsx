@@ -167,8 +167,6 @@ function EventOperationsPage() {
             "Another provider operation is still in progress. Try again shortly.",
           provider_unavailable:
             "LiveKit is unavailable or not configured. No room credentials were disclosed.",
-          recording_unavailable:
-            "Automatic recording is not available in this delivery slice, so the webinar was not started.",
           room_configuration_changed:
             "This webinar's capacity changed after its green room was prepared. Restore the prior capacity or replace the room generation.",
           room_not_ready:

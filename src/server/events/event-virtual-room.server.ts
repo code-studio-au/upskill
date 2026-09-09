@@ -1,6 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { sql, type Kysely, type Transaction } from "kysely";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
@@ -16,6 +16,12 @@ import {
   LiveKitProviderError,
   type LiveKitProvider,
 } from "#/server/livekit/livekit-provider.server";
+import { createConfiguredLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-runtime.server";
+import {
+  LiveKitRecordingProviderError,
+  type LiveKitRecordingProvider,
+  type LiveKitRecordingSnapshot,
+} from "#/server/livekit/livekit-recording-provider.server";
 import type { EventOperationsAccess } from "./event-operations-access.server";
 import { ensureEventVirtualJoinAccess } from "./event-virtual-join-access.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
@@ -51,7 +57,6 @@ type EventVirtualRoomConflictReason =
   | "preparation_not_open"
   | "provider_pending"
   | "provider_unavailable"
-  | "recording_unavailable"
   | "room_configuration_changed"
   | "room_not_ready"
   | "session_ended";
@@ -263,24 +268,37 @@ interface VirtualSessionContext {
   capacityHeadroom: number;
   recordingMode: "off" | "automatic";
   recordingRetentionDays: number | null;
+  attendeeRecordingNotice: string;
+  presenterRecordingNotice: string;
 }
 
 export interface VirtualRoomRuntime {
   provider: LiveKitProvider;
   websocketUrl: string;
   approvedMaxParticipants: number;
+  recordingProvider?: LiveKitRecordingProvider | null;
 }
+
+type RoomOperationKind =
+  | "ensure_room"
+  | "close_room"
+  | "remove_participant"
+  | "start_recording"
+  | "stop_recording";
 
 interface ClaimedOperation {
   id: string;
   roomId: string;
-  kind: "ensure_room" | "close_room" | "remove_participant";
+  kind: RoomOperationKind;
   targetKey: string;
   lobbyEntryId: string | null;
   presenterUserId: string | null;
+  recordingId: string | null;
   participantIdentity: string | null;
   removalEnforcedUntil: Date | null;
   attempts: number;
+  requestedByUserId: string | null;
+  createdAt: Date;
 }
 
 function roomState(row: {
@@ -316,6 +334,7 @@ function resolveConfiguredRuntime(): VirtualRoomRuntime | null {
         provider,
         websocketUrl: configuration.url,
         approvedMaxParticipants: configuration.approvedMaxParticipants,
+        recordingProvider: createConfiguredLiveKitRecordingProvider(),
       }
     : null;
 }
@@ -381,6 +400,8 @@ async function findVirtualSessionContext(
       "session.livekitCapacityHeadroom as capacityHeadroom",
       "session.livekitRecordingMode as recordingMode",
       "session.livekitRecordingRetentionDays as recordingRetentionDays",
+      "session.livekitAttendeeRecordingNotice as attendeeRecordingNotice",
+      "session.livekitPresenterRecordingNotice as presenterRecordingNotice",
       "occurrence.status as occurrenceStatus",
       "occurrence.virtualDeliveryProvider as occurrenceProvider",
       "occurrence.capacity as occurrenceCapacity",
@@ -413,6 +434,8 @@ async function findVirtualSessionContext(
     capacityHeadroom: row.capacityHeadroom,
     recordingMode: row.recordingMode,
     recordingRetentionDays: row.recordingRetentionDays,
+    attendeeRecordingNotice: row.attendeeRecordingNotice ?? "",
+    presenterRecordingNotice: row.presenterRecordingNotice ?? "",
   };
 }
 
@@ -459,6 +482,149 @@ async function insertRoomOperation(
       conflict.columns(["roomId", "kind", "targetKey"]).doNothing(),
     )
     .execute();
+}
+
+function recordingNoticeDigest(notice: string): string {
+  if (notice.trim().length < 2)
+    throw new TypeError("Automatic recording requires a snapshotted notice.");
+  return createHash("sha256").update(notice, "utf8").digest("base64url");
+}
+
+function recordingStorageObjectKey(
+  eventSessionId: string,
+  generation: number,
+): string {
+  return `recordings/${eventSessionId}/${String(generation)}/${randomUUID().replaceAll("-", "")}.mp4`;
+}
+
+async function insertRecordingOperation(
+  transaction: Transaction<Database>,
+  input: {
+    roomId: string;
+    recordingId: string;
+    kind: "start_recording" | "stop_recording";
+    requestedByUserId: string;
+    now: Date;
+  },
+): Promise<void> {
+  await transaction
+    .insertInto("event_virtual_room_operation")
+    .values({
+      id: `event_virtual_room_operation_${randomUUID()}`,
+      roomId: input.roomId,
+      kind: input.kind,
+      targetKey: input.recordingId,
+      recordingId: input.recordingId,
+      lobbyEntryId: null,
+      presenterUserId: null,
+      participantIdentity: null,
+      removalEnforcedUntil: null,
+      deduplicationKey: `event_virtual_room:${input.roomId}:${input.kind}:${input.recordingId}`,
+      status: "pending",
+      availableAt: input.now,
+      leasedUntil: null,
+      lastAttemptAt: null,
+      completedAt: null,
+      lastErrorCode: null,
+      requestedByUserId: input.requestedByUserId,
+      createdAt: input.now,
+    })
+    .onConflict((conflict) =>
+      conflict.columns(["roomId", "kind", "targetKey"]).doNothing(),
+    )
+    .execute();
+}
+
+async function ensureAutomaticRecordingRequested(
+  transaction: Transaction<Database>,
+  input: {
+    roomId: string;
+    eventSessionId: string;
+    roomGeneration: number;
+    retentionDays: number;
+    attendeeNotice: string;
+    presenterNotice: string;
+    requestedByUserId: string;
+    now: Date;
+  },
+): Promise<string> {
+  const existing = await transaction
+    .selectFrom("event_virtual_recording")
+    .select("id")
+    .where("roomId", "=", input.roomId)
+    .forUpdate()
+    .executeTakeFirst();
+  const recordingId = existing?.id ?? `event_virtual_recording_${randomUUID()}`;
+  if (!existing)
+    await transaction
+      .insertInto("event_virtual_recording")
+      .values({
+        id: recordingId,
+        roomId: input.roomId,
+        eventSessionId: input.eventSessionId,
+        roomGeneration: input.roomGeneration,
+        provider: "livekit",
+        recordingMode: "automatic",
+        status: "requested",
+        providerEgressId: null,
+        storageObjectKey: recordingStorageObjectKey(
+          input.eventSessionId,
+          input.roomGeneration,
+        ),
+        retentionDays: input.retentionDays,
+        attendeeNoticeDigest: recordingNoticeDigest(input.attendeeNotice),
+        presenterNoticeDigest: recordingNoticeDigest(input.presenterNotice),
+        requestedByUserId: input.requestedByUserId,
+        requestedAt: input.now,
+        startedAt: null,
+        stopRequestedByUserId: null,
+        stopRequestedAt: null,
+        endedAt: null,
+        completedAt: null,
+        fileSizeBytes: null,
+        durationNanoseconds: null,
+        retentionDeadline: null,
+        failureCode: null,
+        deletedByUserId: null,
+        deletedAt: null,
+        deletionReason: null,
+        updatedAt: input.now,
+      })
+      .executeTakeFirstOrThrow();
+  await insertRecordingOperation(transaction, {
+    roomId: input.roomId,
+    recordingId,
+    kind: "start_recording",
+    requestedByUserId: input.requestedByUserId,
+    now: input.now,
+  });
+  return recordingId;
+}
+
+async function queueAutomaticRecordingStop(
+  transaction: Transaction<Database>,
+  roomId: string,
+  requestedByUserId: string,
+  now: Date,
+): Promise<void> {
+  const recording = await transaction
+    .selectFrom("event_virtual_recording")
+    .select(["id", "status"])
+    .where("roomId", "=", roomId)
+    .forUpdate()
+    .executeTakeFirst();
+  if (
+    !recording ||
+    ["complete", "failed", "deleted"].includes(recording.status)
+  )
+    return;
+  await insertRecordingOperation(transaction, {
+    roomId,
+    recordingId: recording.id,
+    kind: "stop_recording",
+    requestedByUserId,
+    now,
+  });
 }
 
 async function currentRoom(
@@ -607,7 +773,7 @@ async function createRoomGeneration(
 
 async function claimRoomOperation(
   roomId: string,
-  kind: "ensure_room" | "close_room" | "remove_participant",
+  kind: RoomOperationKind,
   now: Date,
   targetKey = "room",
 ): Promise<ClaimedOperation | null> {
@@ -652,9 +818,12 @@ async function claimRoomOperation(
         targetKey: operation.targetKey,
         lobbyEntryId: operation.lobbyEntryId,
         presenterUserId: operation.presenterUserId,
+        recordingId: operation.recordingId,
         participantIdentity: operation.participantIdentity,
         removalEnforcedUntil: operation.removalEnforcedUntil,
         attempts,
+        requestedByUserId: operation.requestedByUserId,
+        createdAt: operation.createdAt,
       };
     });
 }
@@ -1472,6 +1641,7 @@ export async function endEventVirtualRoomsForOccurrence(
         createdAt: now,
       });
     }
+    await queueAutomaticRecordingStop(transaction, room.id, actorUserId, now);
     await insertRoomOperation(
       transaction,
       room.id,
@@ -1567,14 +1737,27 @@ export async function transitionEventVirtualRoom(
           } as const;
         const room = await transaction
           .selectFrom("event_virtual_room")
-          .select("doorState")
+          .selectAll()
           .where("eventSessionId", "=", eventSessionId)
           .where("replacedAt", "is", null)
           .forUpdate()
           .executeTakeFirst();
-        return room?.doorState === "open"
-          ? ({ status: "ready" } as const)
-          : null;
+        if (room?.doorState !== "open") return null;
+        if (
+          room.recordingMode === "automatic" &&
+          room.recordingRetentionDays !== null
+        )
+          await ensureAutomaticRecordingRequested(transaction, {
+            roomId: room.id,
+            eventSessionId,
+            roomGeneration: room.generation,
+            retentionDays: room.recordingRetentionDays,
+            attendeeNotice: context.attendeeRecordingNotice,
+            presenterNotice: context.presenterRecordingNotice,
+            requestedByUserId: room.startedByUserId ?? user.id,
+            now: room.startedAt ?? clock(),
+          });
+        return { status: "ready" } as const;
       });
     if (idempotentStart) return idempotentStart;
     let runtime: VirtualRoomRuntime | null;
@@ -1669,14 +1852,34 @@ export async function transitionEventVirtualRoom(
     if (action === "start") {
       if (room.providerStatus !== "ready")
         return { status: "conflict", reason: "room_not_ready" } as const;
-      if (room.recordingMode === "automatic")
-        return { status: "conflict", reason: "recording_unavailable" } as const;
     }
     await transaction
       .updateTable("event_virtual_room")
       .set(transitionValues(action, user.id, currentNow))
       .where("id", "=", room.id)
       .executeTakeFirstOrThrow();
+    if (
+      action === "start" &&
+      room.recordingMode === "automatic" &&
+      room.recordingRetentionDays !== null
+    )
+      await ensureAutomaticRecordingRequested(transaction, {
+        roomId: room.id,
+        eventSessionId,
+        roomGeneration: room.generation,
+        retentionDays: room.recordingRetentionDays,
+        attendeeNotice: context.attendeeRecordingNotice,
+        presenterNotice: context.presenterRecordingNotice,
+        requestedByUserId: user.id,
+        now: currentNow,
+      });
+    if (action === "end")
+      await queueAutomaticRecordingStop(
+        transaction,
+        room.id,
+        user.id,
+        currentNow,
+      );
     if (action === "end")
       await insertRoomOperation(
         transaction,
@@ -1924,6 +2127,12 @@ export async function replaceEventVirtualRoom(
       })
       .where("id", "=", room.id)
       .executeTakeFirstOrThrow();
+    await queueAutomaticRecordingStop(
+      transaction,
+      room.id,
+      user.id,
+      currentNow,
+    );
     await insertRoomOperation(
       transaction,
       room.id,
@@ -2018,12 +2227,501 @@ type VirtualRoomOperationOutcome =
       status: "pending" | "processed" | "retry";
       operationId: string;
       roomId: string;
-      kind: "ensure_room" | "close_room" | "remove_participant";
+      kind: RoomOperationKind;
     };
 
 export interface VirtualRoomOperationBatch {
   outcomes: Array<Exclude<VirtualRoomOperationOutcome, { status: "no-work" }>>;
   limitReached: boolean;
+}
+
+function recordingProviderFailureCode(error: unknown): string {
+  if (error instanceof LiveKitRecordingProviderError)
+    return `livekit_recording_${error.operation}`.slice(0, 120);
+  return "livekit_recording_unavailable";
+}
+
+function laterDate(...dates: Array<Date | null>): Date {
+  return new Date(
+    Math.max(
+      ...dates.filter((date): date is Date => Boolean(date)).map(Number),
+    ),
+  );
+}
+
+async function settleRecordingStart(
+  claimed: ClaimedOperation,
+  snapshot: LiveKitRecordingSnapshot,
+  now: Date,
+): Promise<boolean> {
+  const recordingId = claimed.recordingId;
+  return getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const operation = await transaction
+        .selectFrom("event_virtual_room_operation")
+        .select(["status", "attempts"])
+        .where("id", "=", claimed.id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        operation?.status !== "processing" ||
+        operation.attempts !== claimed.attempts
+      )
+        return false;
+      const recording = recordingId
+        ? await transaction
+            .selectFrom("event_virtual_recording")
+            .select(["status", "requestedAt"])
+            .where("id", "=", recordingId)
+            .where("roomId", "=", claimed.roomId)
+            .forUpdate()
+            .executeTakeFirst()
+        : undefined;
+      if (recording?.status === "requested") {
+        if (snapshot.status === "complete" || snapshot.status === "failed")
+          await transaction
+            .updateTable("event_virtual_recording")
+            .set({
+              status: "failed",
+              providerEgressId: snapshot.providerEgressId,
+              startedAt: snapshot.startedAt,
+              endedAt: snapshot.endedAt,
+              completedAt: laterDate(
+                recording.requestedAt,
+                snapshot.startedAt,
+                snapshot.endedAt,
+                now,
+              ),
+              failureCode:
+                snapshot.failureCode ??
+                "provider_recording_completed_before_reconciliation",
+              updatedAt: laterDate(recording.requestedAt, now),
+            })
+            .where("id", "=", recordingId)
+            .executeTakeFirstOrThrow();
+        else
+          await transaction
+            .updateTable("event_virtual_recording")
+            .set({
+              status: "starting",
+              providerEgressId: snapshot.providerEgressId,
+              startedAt: snapshot.startedAt,
+              updatedAt: laterDate(
+                recording.requestedAt,
+                snapshot.startedAt,
+                now,
+              ),
+            })
+            .where("id", "=", recordingId)
+            .executeTakeFirstOrThrow();
+      }
+      await transaction
+        .updateTable("event_virtual_room_operation")
+        .set({
+          status: "succeeded",
+          leasedUntil: null,
+          completedAt: now,
+          lastErrorCode: null,
+        })
+        .where("id", "=", claimed.id)
+        .executeTakeFirstOrThrow();
+      return true;
+    });
+}
+
+async function failRecordingBeforeStart(
+  claimed: ClaimedOperation,
+  failureCode: string,
+  now: Date,
+): Promise<void> {
+  await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const operation = await transaction
+        .selectFrom("event_virtual_room_operation")
+        .select(["status", "attempts"])
+        .where("id", "=", claimed.id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        operation?.status !== "processing" ||
+        operation.attempts !== claimed.attempts
+      )
+        return;
+      if (claimed.recordingId) {
+        const recording = await transaction
+          .selectFrom("event_virtual_recording")
+          .select(["status", "requestedAt"])
+          .where("id", "=", claimed.recordingId)
+          .where("roomId", "=", claimed.roomId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (recording?.status === "requested")
+          await transaction
+            .updateTable("event_virtual_recording")
+            .set({
+              status: "failed",
+              completedAt: laterDate(recording.requestedAt, now),
+              failureCode,
+              updatedAt: laterDate(recording.requestedAt, now),
+            })
+            .where("id", "=", claimed.recordingId)
+            .executeTakeFirstOrThrow();
+      }
+      await transaction
+        .updateTable("event_virtual_room_operation")
+        .set({
+          status: "succeeded",
+          leasedUntil: null,
+          completedAt: now,
+          lastErrorCode: null,
+        })
+        .where("id", "=", claimed.id)
+        .executeTakeFirstOrThrow();
+    });
+}
+
+async function executeRecordingStart(
+  roomId: string,
+  targetKey: string,
+  runtime: VirtualRoomRuntime,
+  now: Date,
+): Promise<VirtualRoomOperationOutcome> {
+  const claimed = await claimRoomOperation(
+    roomId,
+    "start_recording",
+    now,
+    targetKey,
+  );
+  if (!claimed) return { status: "no-work" };
+  const target = claimed.recordingId
+    ? await getDatabase()
+        .selectFrom("event_virtual_recording as recording")
+        .innerJoin("event_virtual_room as room", "room.id", "recording.roomId")
+        .innerJoin(
+          "event_session as session",
+          "session.id",
+          "room.eventSessionId",
+        )
+        .select([
+          "recording.status",
+          "recording.storageObjectKey",
+          "room.providerRoomName",
+          "room.doorState",
+          "room.replacedAt",
+          "room.startedAt",
+          "session.startsAt as scheduledStartsAt",
+          "session.endsAt as scheduledEndsAt",
+        ])
+        .where("recording.id", "=", claimed.recordingId)
+        .where("recording.roomId", "=", roomId)
+        .executeTakeFirst()
+    : undefined;
+  if (!target || target.status !== "requested") {
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "start_recording",
+    };
+  }
+  const recordingProvider = runtime.recordingProvider;
+  if (!recordingProvider) {
+    await retryRoomOperation(
+      claimed,
+      "livekit_recording_unavailable",
+      now,
+      false,
+    );
+    return {
+      status: "retry",
+      operationId: claimed.id,
+      roomId,
+      kind: "start_recording",
+    };
+  }
+  try {
+    const snapshots = await recordingProvider.listRoomCompositeRecordings(
+      target.providerRoomName,
+    );
+    const exact = snapshots.filter(
+      (snapshot) =>
+        snapshot.roomName === target.providerRoomName &&
+        snapshot.storageObjectKey === target.storageObjectKey,
+    );
+    const exactSnapshot = exact[0];
+    if (exact.length === 1 && exactSnapshot) {
+      await settleRecordingStart(claimed, exactSnapshot, now);
+      return {
+        status: "processed",
+        operationId: claimed.id,
+        roomId,
+        kind: "start_recording",
+      };
+    }
+    if (exact.length > 1 || snapshots.length > 0) {
+      await retryRoomOperation(
+        claimed,
+        "unexpected_room_recording",
+        now,
+        false,
+      );
+      return {
+        status: "retry",
+        operationId: claimed.id,
+        roomId,
+        kind: "start_recording",
+      };
+    }
+    if (target.doorState === "ended" || target.replacedAt) {
+      await failRecordingBeforeStart(
+        claimed,
+        "meeting_ended_before_recording_started",
+        now,
+      );
+      return {
+        status: "processed",
+        operationId: claimed.id,
+        roomId,
+        kind: "start_recording",
+      };
+    }
+    const scheduledDuration =
+      target.scheduledEndsAt.getTime() - target.scheduledStartsAt.getTime();
+    const uploadAuthorizationExpiresAt = new Date(
+      (target.startedAt ?? now).getTime() + scheduledDuration + 60 * 60_000,
+    );
+    if (scheduledDuration <= 0 || uploadAuthorizationExpiresAt <= now) {
+      await failRecordingBeforeStart(
+        claimed,
+        "upload_authorization_window_elapsed",
+        now,
+      );
+      return {
+        status: "processed",
+        operationId: claimed.id,
+        roomId,
+        kind: "start_recording",
+      };
+    }
+    const snapshot = await recordingProvider.startRoomCompositeRecording({
+      roomName: target.providerRoomName,
+      storageObjectKey: target.storageObjectKey,
+      uploadAuthorizationExpiresAt,
+      layout: "speaker",
+      format: "mp4",
+    });
+    if (
+      snapshot.roomName !== target.providerRoomName ||
+      snapshot.storageObjectKey !== target.storageObjectKey
+    )
+      throw new LiveKitRecordingProviderError("start_recording");
+    await settleRecordingStart(claimed, snapshot, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "start_recording",
+    };
+  } catch (error) {
+    await retryRoomOperation(
+      claimed,
+      recordingProviderFailureCode(error),
+      now,
+      false,
+    );
+    return {
+      status: "retry",
+      operationId: claimed.id,
+      roomId,
+      kind: "start_recording",
+    };
+  }
+}
+
+async function settleRecordingStop(
+  claimed: ClaimedOperation,
+  now: Date,
+): Promise<void> {
+  await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const operation = await transaction
+        .selectFrom("event_virtual_room_operation")
+        .select(["status", "attempts"])
+        .where("id", "=", claimed.id)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        operation?.status !== "processing" ||
+        operation.attempts !== claimed.attempts
+      )
+        return;
+      if (claimed.recordingId && claimed.requestedByUserId) {
+        const recording = await transaction
+          .selectFrom("event_virtual_recording")
+          .select(["status", "requestedAt"])
+          .where("id", "=", claimed.recordingId)
+          .where("roomId", "=", claimed.roomId)
+          .forUpdate()
+          .executeTakeFirst();
+        if (recording && ["starting", "active"].includes(recording.status))
+          await transaction
+            .updateTable("event_virtual_recording")
+            .set({
+              status: "stopping",
+              stopRequestedByUserId: claimed.requestedByUserId,
+              stopRequestedAt: claimed.createdAt,
+              updatedAt: laterDate(
+                recording.requestedAt,
+                claimed.createdAt,
+                now,
+              ),
+            })
+            .where("id", "=", claimed.recordingId)
+            .executeTakeFirstOrThrow();
+      }
+      await transaction
+        .updateTable("event_virtual_room_operation")
+        .set({
+          status: "succeeded",
+          leasedUntil: null,
+          completedAt: now,
+          lastErrorCode: null,
+        })
+        .where("id", "=", claimed.id)
+        .executeTakeFirstOrThrow();
+    });
+}
+
+async function executeRecordingStop(
+  roomId: string,
+  targetKey: string,
+  runtime: VirtualRoomRuntime,
+  now: Date,
+): Promise<VirtualRoomOperationOutcome> {
+  const claimed = await claimRoomOperation(
+    roomId,
+    "stop_recording",
+    now,
+    targetKey,
+  );
+  if (!claimed) return { status: "no-work" };
+  const target = claimed.recordingId
+    ? await getDatabase()
+        .selectFrom("event_virtual_recording as recording")
+        .innerJoin("event_virtual_room as room", "room.id", "recording.roomId")
+        .select([
+          "recording.status",
+          "recording.providerEgressId",
+          "recording.storageObjectKey",
+          "room.providerRoomName",
+        ])
+        .where("recording.id", "=", claimed.recordingId)
+        .where("recording.roomId", "=", roomId)
+        .executeTakeFirst()
+    : undefined;
+  if (!target || ["complete", "failed", "deleted"].includes(target.status)) {
+    await completeRoomOperation(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "stop_recording",
+    };
+  }
+  if (!target.providerEgressId) {
+    await retryRoomOperation(claimed, "recording_start_pending", now, false);
+    return {
+      status: "retry",
+      operationId: claimed.id,
+      roomId,
+      kind: "stop_recording",
+    };
+  }
+  const recordingProvider = runtime.recordingProvider;
+  if (!recordingProvider) {
+    await retryRoomOperation(
+      claimed,
+      "livekit_recording_unavailable",
+      now,
+      false,
+    );
+    return {
+      status: "retry",
+      operationId: claimed.id,
+      roomId,
+      kind: "stop_recording",
+    };
+  }
+  try {
+    const snapshots = await recordingProvider.listRoomCompositeRecordings(
+      target.providerRoomName,
+    );
+    const exact = snapshots.filter(
+      (snapshot) =>
+        snapshot.roomName === target.providerRoomName &&
+        snapshot.providerEgressId === target.providerEgressId &&
+        snapshot.storageObjectKey === target.storageObjectKey,
+    );
+    if (exact.length !== 1) {
+      await retryRoomOperation(
+        claimed,
+        "recording_target_unavailable",
+        now,
+        false,
+      );
+      return {
+        status: "retry",
+        operationId: claimed.id,
+        roomId,
+        kind: "stop_recording",
+      };
+    }
+    const exactSnapshot = exact[0];
+    if (!exactSnapshot) {
+      await retryRoomOperation(
+        claimed,
+        "recording_target_unavailable",
+        now,
+        false,
+      );
+      return {
+        status: "retry",
+        operationId: claimed.id,
+        roomId,
+        kind: "stop_recording",
+      };
+    }
+    if (["starting", "active"].includes(exactSnapshot.status))
+      await recordingProvider.stopRoomCompositeRecording({
+        roomName: target.providerRoomName,
+        providerEgressId: target.providerEgressId,
+        storageObjectKey: target.storageObjectKey,
+      });
+    await settleRecordingStop(claimed, now);
+    return {
+      status: "processed",
+      operationId: claimed.id,
+      roomId,
+      kind: "stop_recording",
+    };
+  } catch (error) {
+    await retryRoomOperation(
+      claimed,
+      recordingProviderFailureCode(error),
+      now,
+      false,
+    );
+    return {
+      status: "retry",
+      operationId: claimed.id,
+      roomId,
+      kind: "stop_recording",
+    };
+  }
 }
 
 async function executeCloseRoom(
@@ -2379,6 +3077,15 @@ async function processNextEventVirtualRoomOperation(
       ]),
     )
     .orderBy("availableAt")
+    .orderBy(
+      sql<number>`case "kind"
+        when 'ensure_room' then 0
+        when 'start_recording' then 1
+        when 'stop_recording' then 2
+        when 'remove_participant' then 3
+        when 'close_room' then 4
+        else 5 end`,
+    )
     .orderBy("createdAt")
     .executeTakeFirst();
   if (!candidate) return { status: "no-work" };
@@ -2400,7 +3107,9 @@ async function processNextEventVirtualRoomOperation(
       claimed,
       "livekit_unavailable",
       now,
-      candidate.kind !== "remove_participant",
+      !["remove_participant", "start_recording", "stop_recording"].includes(
+        candidate.kind,
+      ),
     );
     return {
       status: "retry",
@@ -2411,6 +3120,20 @@ async function processNextEventVirtualRoomOperation(
   }
   if (candidate.kind === "remove_participant")
     return executeParticipantRemoval(
+      candidate.roomId,
+      candidate.targetKey,
+      runtime,
+      now,
+    );
+  if (candidate.kind === "start_recording")
+    return executeRecordingStart(
+      candidate.roomId,
+      candidate.targetKey,
+      runtime,
+      now,
+    );
+  if (candidate.kind === "stop_recording")
+    return executeRecordingStop(
       candidate.roomId,
       candidate.targetKey,
       runtime,

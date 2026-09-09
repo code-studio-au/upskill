@@ -304,6 +304,7 @@ describe("LiveKit Cloud recording provider", () => {
       {
         providerEgressId: "EG_active",
         roomName: startInput.roomName,
+        storageObjectKey: startInput.storageObjectKey,
         status: "active",
         startedAt: new Date("2030-09-03T23:32:00.000Z"),
         endedAt: null,
@@ -313,6 +314,7 @@ describe("LiveKit Cloud recording provider", () => {
       {
         providerEgressId: "EG_complete",
         roomName: startInput.roomName,
+        storageObjectKey: startInput.storageObjectKey,
         status: "complete",
         startedAt: new Date("2030-09-03T23:32:00.000Z"),
         endedAt: new Date("2030-09-04T00:32:00.000Z"),
@@ -326,6 +328,7 @@ describe("LiveKit Cloud recording provider", () => {
       {
         providerEgressId: "EG_failed",
         roomName: startInput.roomName,
+        storageObjectKey: startInput.storageObjectKey,
         status: "failed",
         startedAt: null,
         endedAt: null,
@@ -391,12 +394,31 @@ describe("LiveKit Cloud recording provider", () => {
   });
 
   it.each([
-    ["room", "other_room", "EG_recording_1"],
-    ["Egress identifier", startInput.roomName, "EG_other_recording"],
+    ["room", "other_room", "EG_recording_1", startInput.storageObjectKey],
+    [
+      "Egress identifier",
+      startInput.roomName,
+      "EG_other_recording",
+      startInput.storageObjectKey,
+    ],
+    [
+      "storage object",
+      startInput.roomName,
+      "EG_recording_1",
+      "recordings/opaque_room/other_recording.mp4",
+    ],
   ])(
     "verifies exact %s ownership before stopping an Egress",
-    async (_target, providerRoomName, providerEgressId) => {
-      const request = recordingRequest({ roomName: providerRoomName });
+    async (
+      _target,
+      providerRoomName,
+      providerEgressId,
+      providerStorageObjectKey,
+    ) => {
+      const request = recordingRequest({
+        roomName: providerRoomName,
+        storageObjectKey: providerStorageObjectKey,
+      });
       const egress = {
         startEgress: vi.fn(),
         listEgress: vi.fn().mockResolvedValue([
@@ -421,6 +443,7 @@ describe("LiveKit Cloud recording provider", () => {
         .stopRoomCompositeRecording({
           roomName: startInput.roomName,
           providerEgressId: "EG_recording_1",
+          storageObjectKey: startInput.storageObjectKey,
         })
         .catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(LiveKitRecordingProviderError);
@@ -448,6 +471,7 @@ describe("LiveKit Cloud recording provider", () => {
       .stopRoomCompositeRecording({
         roomName: startInput.roomName,
         providerEgressId: "EG_recording_1",
+        storageObjectKey: startInput.storageObjectKey,
       })
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(LiveKitRecordingProviderError);
@@ -490,6 +514,7 @@ describe("LiveKit Cloud recording provider", () => {
       provider.stopRoomCompositeRecording({
         roomName: startInput.roomName,
         providerEgressId: "EG_recording_1",
+        storageObjectKey: startInput.storageObjectKey,
       }),
     ).resolves.toMatchObject({
       providerEgressId: "EG_recording_1",

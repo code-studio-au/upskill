@@ -17,6 +17,7 @@ import {
   type VirtualRoomRuntime,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
+import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
 import { eventVirtualPresenterIdentity } from "#/server/events/event-virtual-participant-identity.server";
 import {
   type CreateLiveKitJoinTokenInput,
@@ -25,6 +26,11 @@ import {
   type EnsureLiveKitRoomInput,
   type LiveKitRoomSnapshot,
 } from "#/server/livekit/livekit-provider.server";
+import {
+  LiveKitRecordingProviderError,
+  type LiveKitRecordingSnapshot,
+  type StartLiveKitRoomCompositeRecordingInput,
+} from "#/server/livekit/livekit-recording-provider.server";
 
 const ids = {
   template: "verify_livekit_room_template",
@@ -141,6 +147,21 @@ class FailFirstEnsureProvider extends FakeLiveKitProvider {
       await deferredClose.waitForRelease;
     }
     await super.closeRoom(roomName);
+  }
+}
+
+class LostResponseRecordingProvider extends FakeLiveKitRecordingProvider {
+  private loseFirstStartResponse = true;
+
+  override async startRoomCompositeRecording(
+    input: StartLiveKitRoomCompositeRecordingInput,
+  ): Promise<LiveKitRecordingSnapshot> {
+    const snapshot = await super.startRoomCompositeRecording(input);
+    if (this.loseFirstStartResponse) {
+      this.loseFirstStartResponse = false;
+      throw new LiveKitRecordingProviderError("start_recording");
+    }
+    return snapshot;
   }
 }
 
@@ -729,6 +750,16 @@ try {
   assert.equal(room.providerStatus, "ready");
   assert.equal(room.maxParticipants, 25);
   assert.equal(room.providerRoomName.includes(ids.session), false);
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "automatic",
+      livekitRecordingRetentionDays: 30,
+      livekitAttendeeRecordingNotice: "This webinar is recorded.",
+      livekitPresenterRecordingNotice: "This webinar is recorded.",
+    })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
   await database
     .updateTable("event_virtual_room")
     .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
@@ -1890,22 +1921,11 @@ try {
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
-  assert.deepEqual(
-    await transitionEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      "start",
-      administrator,
-      { runtime, clock: () => startsAt },
-    ),
-    { status: "conflict", reason: "recording_unavailable" },
-  );
-  await database
-    .updateTable("event_virtual_room")
-    .set({ recordingMode: "off", recordingRetentionDays: null })
-    .where("eventSessionId", "=", ids.session)
-    .where("replacedAt", "is", null)
-    .executeTakeFirstOrThrow();
+  const recordingProvider = new LostResponseRecordingProvider();
+  const recordingRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    recordingProvider,
+  };
 
   const startRoom = await database
     .selectFrom("event_virtual_room")
@@ -1924,7 +1944,7 @@ try {
       ids.session,
       "start",
       administrator,
-      { runtime, clock: () => startsAt },
+      { runtime: recordingRuntime, clock: () => startsAt },
     ),
     { status: "ready" },
   );
@@ -1939,6 +1959,36 @@ try {
     ).length,
     ensureCountBeforeStart + 1,
     "Start must reconcile provider state instead of trusting cached readiness",
+  );
+  const firstRecordingAttempt =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: startsAt,
+    });
+  assert.equal(firstRecordingAttempt.outcomes[0]?.kind, "start_recording");
+  assert.equal(firstRecordingAttempt.outcomes[0].status, "retry");
+  const reconciledRecordingAttempt =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: new Date(startsAt.getTime() + 31_000),
+    });
+  assert.equal(reconciledRecordingAttempt.outcomes[0]?.kind, "start_recording");
+  assert.equal(reconciledRecordingAttempt.outcomes[0].status, "processed");
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "start_recording",
+    ).length,
+    1,
+    "A lost provider response must reconcile the exact object instead of starting a second Egress",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select("status")
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow()
+      .then((recording) => recording.status),
+    "starting",
   );
   const idempotentStartProvider = new FailFirstEnsureProvider();
   assert.deepEqual(
@@ -2013,11 +2063,22 @@ try {
   );
 
   const closeBatch = await processAvailableEventVirtualRoomOperations(10, {
-    runtime,
+    runtime: recordingRuntime,
     now: recoveryEndTime,
   });
-  assert.equal(closeBatch.outcomes.length, 1);
-  assert.equal(closeBatch.outcomes[0]?.kind, "close_room");
+  assert.deepEqual(
+    closeBatch.outcomes.map((outcome) => outcome.kind),
+    ["stop_recording", "close_room"],
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select("status")
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow()
+      .then((recording) => recording.status),
+    "stopping",
+  );
   assert.equal(fakeProvider.rooms.size, 0);
 
   const recoveryTime = new Date("2030-09-04T00:31:00.000Z");
@@ -2061,6 +2122,21 @@ try {
       providerStatus: "ready",
     },
   );
+  await database
+    .updateTable("event_session")
+    .set({
+      livekitRecordingMode: "off",
+      livekitRecordingRetentionDays: null,
+      livekitAttendeeRecordingNotice: "",
+      livekitPresenterRecordingNotice: "",
+    })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "off", recordingRetentionDays: null })
+    .where("id", "=", recoveredRoom.id)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await transitionEventVirtualRoom(
       ids.occurrence,
@@ -2491,14 +2567,6 @@ try {
   );
 } finally {
   await database
-    .deleteFrom("event_virtual_recording")
-    .where("eventSessionId", "in", [
-      ids.session,
-      ids.raceSession,
-      ids.failureSession,
-    ])
-    .execute();
-  await database
     .deleteFrom("event_virtual_presenter_credential_reservation")
     .where("roomId", "in", (builder) =>
       builder
@@ -2523,6 +2591,14 @@ try {
           ids.failureSession,
         ]),
     )
+    .execute();
+  await database
+    .deleteFrom("event_virtual_recording")
+    .where("eventSessionId", "in", [
+      ids.session,
+      ids.raceSession,
+      ids.failureSession,
+    ])
     .execute();
   await database
     .deleteFrom("event_virtual_room")

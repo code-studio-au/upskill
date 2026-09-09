@@ -781,10 +781,16 @@ interface EventVirtualRoomTable {
 interface EventVirtualRoomOperationTable {
   id: string;
   roomId: string;
-  kind: "ensure_room" | "close_room" | "remove_participant";
+  kind:
+    | "ensure_room"
+    | "close_room"
+    | "remove_participant"
+    | "start_recording"
+    | "stop_recording";
   targetKey: Generated<string>;
   lobbyEntryId: Generated<string | null>;
   presenterUserId: Generated<string | null>;
+  recordingId: Generated<string | null>;
   participantIdentity: Generated<string | null>;
   removalEnforcedUntil: OptionalTimestamp;
   deduplicationKey: string;

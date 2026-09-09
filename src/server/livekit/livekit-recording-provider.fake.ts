@@ -44,6 +44,7 @@ export class FakeLiveKitRecordingProvider implements LiveKitRecordingProvider {
     const snapshot = parseLiveKitRecordingSnapshot({
       providerEgressId,
       roomName: parsed.roomName,
+      storageObjectKey: parsed.storageObjectKey,
       status: "starting",
       startedAt: null,
       endedAt: null,
@@ -75,7 +76,11 @@ export class FakeLiveKitRecordingProvider implements LiveKitRecordingProvider {
     const parsed = parseLiveKitRecordingTarget(target);
     this.operations.push({ operation: "stop_recording", target: parsed });
     const current = this.recordings.get(parsed.providerEgressId);
-    if (!current || current.roomName !== parsed.roomName)
+    if (
+      !current ||
+      current.roomName !== parsed.roomName ||
+      current.storageObjectKey !== parsed.storageObjectKey
+    )
       return Promise.reject(
         new LiveKitRecordingProviderError("stop_recording"),
       );

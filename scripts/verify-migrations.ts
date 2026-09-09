@@ -672,11 +672,12 @@ try {
           'event_virtual_room_operation_target_uq',
           'event_virtual_room_operation_target_ck',
           'event_virtual_room_operation_state_ck',
-          'event_virtual_room_operation_removal_enforcement_ck'
+          'event_virtual_room_operation_removal_enforcement_ck',
+          'event_virtual_room_operation_recording_fk'
         )`.execute(db);
   assert.equal(
     liveKitRoomConstraints.rows.length,
-    8,
+    9,
     "LiveKit room generations, lifecycle state and durable provider operations must be constrained",
   );
   const liveKitRecordingConstraints = await sql<{
@@ -685,6 +686,7 @@ try {
       where table_schema = 'public'
         and constraint_name in (
           'event_virtual_room_recording_scope_uq',
+          'event_virtual_recording_id_room_uq',
           'event_virtual_recording_room_fk',
           'event_virtual_recording_room_uq',
           'event_virtual_recording_provider_ck',
@@ -700,7 +702,7 @@ try {
         )`.execute(db);
   assert.equal(
     liveKitRecordingConstraints.rows.length,
-    13,
+    14,
     "LiveKit recording scope, immutable policy evidence and lifecycle state must be constrained",
   );
   const liveKitRecordingGuard = await sql<{

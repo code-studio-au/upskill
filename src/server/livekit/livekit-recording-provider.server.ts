@@ -29,6 +29,7 @@ const startRoomCompositeRecordingInputSchema = z.object({
 const recordingTargetSchema = z.object({
   roomName: roomNameSchema,
   providerEgressId: providerEgressIdSchema,
+  storageObjectKey: storageObjectKeySchema,
 });
 
 const recordingOutputSchema = z.object({
@@ -41,6 +42,7 @@ const liveKitRecordingSnapshotSchema = z
   .object({
     providerEgressId: providerEgressIdSchema,
     roomName: roomNameSchema,
+    storageObjectKey: storageObjectKeySchema,
     status: z.enum(["starting", "active", "stopping", "complete", "failed"]),
     startedAt: z.date().nullable(),
     endedAt: z.date().nullable(),
@@ -64,6 +66,11 @@ const liveKitRecordingSnapshotSchema = z
           issue("endedAt", "Completed recordings require an end time.");
         if (!snapshot.output)
           issue("output", "Completed recordings require output evidence.");
+        if (
+          snapshot.output &&
+          snapshot.output.storageObjectKey !== snapshot.storageObjectKey
+        )
+          issue("output", "Completed output must match the recording target.");
       } else if (snapshot.status !== "failed" && snapshot.output) {
         issue("output", "Output evidence is terminal recording state.");
       }

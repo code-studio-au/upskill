@@ -1313,10 +1313,11 @@ gates passed; it does not by itself authorise staging or production activation.
       authorization safely covers the maximum automatically recorded Event
       Session plus final upload. Implemented by
       [PR #78](https://github.com/code-studio-au/upskill/pull/78).
-- [ ] **Slice 6b3 — idempotent recording operations:** connect recording start
+- [x] **Slice 6b3 — idempotent recording operations:** connect recording start
       and stop to committed room transitions through stable outbox operations,
       reconcile ambiguous provider outcomes and preserve one logical recording
-      per room generation.
+      per room generation. Implemented with the existing leased room-operation
+      queue; recording status ingestion remains isolated in Slice 6b4.
 - [ ] **Slice 6b4 — recording status ingestion:** accept verified Egress webhook
       states, reconcile delayed or missing status and output evidence, and expose
       bounded operational failures without provider detail leakage.

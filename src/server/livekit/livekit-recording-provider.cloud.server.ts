@@ -203,6 +203,7 @@ function recordingSnapshot(
   return parseLiveKitRecordingSnapshot({
     providerEgressId: info.egressId,
     roomName: info.roomName,
+    storageObjectKey: fileOutput.filepath,
     status,
     startedAt,
     endedAt,
@@ -329,6 +330,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
         parsed.roomName,
         this.configuration,
         parsed.providerEgressId,
+        parsed.storageObjectKey,
       );
       return recordingSnapshot(
         await this.egress.stopEgress(parsed.providerEgressId),

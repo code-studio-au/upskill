@@ -44,6 +44,7 @@ describe("LiveKit recording provider contract", () => {
       parseLiveKitRecordingSnapshot({
         providerEgressId: "EG_1",
         roomName: "room_generation_1",
+        storageObjectKey: startInput.storageObjectKey,
         status: "failed",
         startedAt: null,
         endedAt: null,
@@ -103,6 +104,7 @@ describe("LiveKit recording provider contract", () => {
       parseLiveKitRecordingSnapshot({
         providerEgressId: "EG_1",
         roomName: "room_generation_1",
+        storageObjectKey: startInput.storageObjectKey,
         ...state,
       }),
     ).toThrow();
@@ -123,6 +125,7 @@ describe("LiveKit recording provider contract", () => {
       provider.stopRoomCompositeRecording({
         roomName: startInput.roomName,
         providerEgressId: started.providerEgressId,
+        storageObjectKey: startInput.storageObjectKey,
       }),
     ).resolves.toMatchObject({ status: "stopping" });
     expect(provider.operations.map(({ operation }) => operation)).toEqual([
@@ -139,6 +142,7 @@ describe("LiveKit recording provider contract", () => {
       .stopRoomCompositeRecording({
         roomName: "other_room_generation",
         providerEgressId: started.providerEgressId,
+        storageObjectKey: startInput.storageObjectKey,
       })
       .catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(LiveKitRecordingProviderError);

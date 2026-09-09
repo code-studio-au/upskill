@@ -90,7 +90,6 @@ export const eventVirtualPresenterCredentialResultSchema = z.discriminatedUnion(
         "preparation_not_open",
         "provider_pending",
         "provider_unavailable",
-        "recording_unavailable",
         "room_configuration_changed",
         "room_not_ready",
         "session_ended",
@@ -361,7 +360,6 @@ export type EventOperationsMutationResult =
         | "preparation_not_open"
         | "provider_pending"
         | "provider_unavailable"
-        | "recording_unavailable"
         | "region_locked"
         | "room_configuration_changed"
         | "room_not_ready"
