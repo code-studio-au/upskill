@@ -163,6 +163,20 @@ interface EventVirtualRoomState {
   endedAt: string | null;
 }
 
+type EventVirtualRecordingStatus =
+  | "requested"
+  | "starting"
+  | "active"
+  | "stopping"
+  | "complete"
+  | "failed"
+  | "deleted";
+
+interface EventVirtualRecordingOperationsState {
+  status: EventVirtualRecordingStatus;
+  warning: string | null;
+}
+
 export interface EventVirtualSessionOperations {
   eventSessionId: string;
   preparationOpensAt: string;
@@ -170,9 +184,48 @@ export interface EventVirtualSessionOperations {
   presenterRecordingNotice: string | null;
   lobbyPath: string | null;
   room: EventVirtualRoomState | null;
+  recording: EventVirtualRecordingOperationsState | null;
 }
 
 const LOBBY_QUEUE_PAGE_SIZE = 50;
+
+async function findRecordingOperationsByRoom(
+  database: DatabaseConnection,
+  roomIds: string[],
+): Promise<Map<string, EventVirtualRecordingOperationsState>> {
+  if (!roomIds.length) return new Map();
+  const rows = await database
+    .selectFrom("event_virtual_recording as recording")
+    .leftJoin("event_virtual_room_operation as operation", (join) =>
+      join
+        .onRef("operation.recordingId", "=", "recording.id")
+        .on("operation.status", "in", ["pending", "processing"])
+        .on("operation.lastErrorCode", "is not", null),
+    )
+    .select([
+      "recording.roomId",
+      "recording.status",
+      "operation.id as retryingOperationId",
+    ])
+    .where("recording.roomId", "in", roomIds)
+    .execute();
+  const states = new Map<string, EventVirtualRecordingOperationsState>();
+  for (const row of rows) {
+    const current = states.get(row.roomId);
+    const retrying =
+      Boolean(row.retryingOperationId) || Boolean(current?.warning);
+    states.set(row.roomId, {
+      status: row.status,
+      warning:
+        row.status === "failed"
+          ? "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session."
+          : retrying
+            ? "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists."
+            : null,
+    });
+  }
+  return states;
+}
 
 export async function findEventVirtualLobbyQueue(
   eventOccurrenceId: string,
@@ -191,13 +244,21 @@ export async function findEventVirtualLobbyQueue(
   )
     return { status: "forbidden" } as const;
   const access = await database
-    .selectFrom("event_virtual_join_access")
-    .select("id")
-    .where("eventOccurrenceId", "=", eventOccurrenceId)
-    .where("eventSessionId", "=", eventSessionId)
-    .where("revokedAt", "is", null)
+    .selectFrom("event_virtual_join_access as access")
+    .innerJoin("event_virtual_room as room", (join) =>
+      join
+        .onRef("room.eventSessionId", "=", "access.eventSessionId")
+        .onRef("room.generation", "=", "access.roomGeneration"),
+    )
+    .select(["access.id", "room.id as roomId"])
+    .where("access.eventOccurrenceId", "=", eventOccurrenceId)
+    .where("access.eventSessionId", "=", eventSessionId)
+    .where("access.revokedAt", "is", null)
     .executeTakeFirst();
   if (!access) return { status: "not-found" } as const;
+  const recordingByRoom = await findRecordingOperationsByRoom(database, [
+    access.roomId,
+  ]);
   const rows = await database
     .selectFrom("event_virtual_lobby_entry as lobby")
     .innerJoin(
@@ -253,6 +314,7 @@ export async function findEventVirtualLobbyQueue(
         admittedAt: entry.admittedAt?.toISOString() ?? null,
       })),
       hasNextPage: rows.length > LOBBY_QUEUE_PAGE_SIZE,
+      recording: recordingByRoom.get(access.roomId) ?? null,
     },
   } as const;
 }
@@ -1242,6 +1304,10 @@ export async function findEventVirtualSessionOperations(
   const roomBySession = new Map(
     rooms.map((room) => [room.eventSessionId, room]),
   );
+  const recordingByRoom = await findRecordingOperationsByRoom(
+    database,
+    rooms.map((room) => room.id),
+  );
   const joinAccess = await database
     .selectFrom("event_virtual_join_access")
     .select(["id", "eventSessionId", "publicReference"])
@@ -1278,6 +1344,7 @@ export async function findEventVirtualSessionOperations(
         ? `/webinars/${accessRecord.publicReference}`
         : null,
       room: room ? roomState(room) : null,
+      recording: room ? (recordingByRoom.get(room.id) ?? null) : null,
     };
   });
 }
@@ -2353,6 +2420,35 @@ function laterDate(...dates: Array<Date | null>): Date {
   );
 }
 
+async function recordingStopRequestEvidence(
+  transaction: Transaction<Database>,
+  input: {
+    roomId: string;
+    recordingId: string;
+    stopRequestedByUserId: string | null;
+    stopRequestedAt: Date | null;
+  },
+) {
+  if (input.stopRequestedByUserId && input.stopRequestedAt)
+    return {
+      stopRequestedByUserId: input.stopRequestedByUserId,
+      stopRequestedAt: input.stopRequestedAt,
+    };
+  const operation = await transaction
+    .selectFrom("event_virtual_room_operation")
+    .select(["requestedByUserId", "createdAt"])
+    .where("roomId", "=", input.roomId)
+    .where("kind", "=", "stop_recording")
+    .where("recordingId", "=", input.recordingId)
+    .executeTakeFirst();
+  return operation?.requestedByUserId
+    ? {
+        stopRequestedByUserId: operation.requestedByUserId,
+        stopRequestedAt: operation.createdAt,
+      }
+    : {};
+}
+
 function recordingRetentionDeadline(
   completedAt: Date,
   retentionDays: number,
@@ -2453,6 +2549,8 @@ async function settleRecordingStart(
               "retentionDays",
               "eventSessionId",
               "roomGeneration",
+              "stopRequestedByUserId",
+              "stopRequestedAt",
             ])
             .select(["providerEgressId", "startedAt"])
             .where("id", "=", recordingId)
@@ -2461,6 +2559,16 @@ async function settleRecordingStart(
             .executeTakeFirst()
         : undefined;
       if (recordingId && recording?.status === "requested") {
+        const stopRequestEvidence = ["complete", "failed"].includes(
+          snapshot.status,
+        )
+          ? await recordingStopRequestEvidence(transaction, {
+              roomId: claimed.roomId,
+              recordingId,
+              stopRequestedByUserId: recording.stopRequestedByUserId,
+              stopRequestedAt: recording.stopRequestedAt,
+            })
+          : {};
         if (snapshot.status === "complete") {
           const completion = completedRecordingEvidenceValues(
             recording,
@@ -2491,7 +2599,7 @@ async function settleRecordingStart(
           });
           await transaction
             .updateTable("event_virtual_recording")
-            .set(completion)
+            .set({ ...completion, ...stopRequestEvidence })
             .where("id", "=", recordingId)
             .executeTakeFirstOrThrow();
           await recordRecordingLifecycleAudit(transaction, {
@@ -2538,7 +2646,7 @@ async function settleRecordingStart(
           }
           await transaction
             .updateTable("event_virtual_recording")
-            .set(failure)
+            .set({ ...failure, ...stopRequestEvidence })
             .where("id", "=", recordingId)
             .executeTakeFirstOrThrow();
           await recordRecordingLifecycleAudit(transaction, {
@@ -2645,6 +2753,8 @@ async function beginRecordingStartDispatch(
               "requestedAt",
               "eventSessionId",
               "roomGeneration",
+              "stopRequestedByUserId",
+              "stopRequestedAt",
             ])
             .where("id", "=", recordingId)
             .where("roomId", "=", claimed.roomId)
@@ -2689,6 +2799,15 @@ async function beginRecordingStartDispatch(
           room.replacedAt,
           now,
         );
+        const stopRequestEvidence = await recordingStopRequestEvidence(
+          transaction,
+          {
+            roomId: claimed.roomId,
+            recordingId,
+            stopRequestedByUserId: recording.stopRequestedByUserId,
+            stopRequestedAt: recording.stopRequestedAt,
+          },
+        );
         await transaction
           .updateTable("event_virtual_recording")
           .set({
@@ -2696,6 +2815,7 @@ async function beginRecordingStartDispatch(
             completedAt: terminalAt,
             failureCode: "meeting_ended_before_recording_started",
             updatedAt: terminalAt,
+            ...stopRequestEvidence,
           })
           .where("id", "=", recordingId)
           .executeTakeFirstOrThrow();
@@ -2767,13 +2887,29 @@ async function failRecordingBeforeStart(
       if (claimed.recordingId) {
         const recording = await transaction
           .selectFrom("event_virtual_recording")
-          .select(["status", "requestedAt", "eventSessionId", "roomGeneration"])
+          .select([
+            "status",
+            "requestedAt",
+            "eventSessionId",
+            "roomGeneration",
+            "stopRequestedByUserId",
+            "stopRequestedAt",
+          ])
           .where("id", "=", claimed.recordingId)
           .where("roomId", "=", claimed.roomId)
           .forUpdate()
           .executeTakeFirst();
         if (recording?.status === "requested") {
           const completedAt = laterDate(recording.requestedAt, now);
+          const stopRequestEvidence = await recordingStopRequestEvidence(
+            transaction,
+            {
+              roomId: claimed.roomId,
+              recordingId: claimed.recordingId,
+              stopRequestedByUserId: recording.stopRequestedByUserId,
+              stopRequestedAt: recording.stopRequestedAt,
+            },
+          );
           await transaction
             .updateTable("event_virtual_recording")
             .set({
@@ -2781,6 +2917,7 @@ async function failRecordingBeforeStart(
               completedAt,
               failureCode,
               updatedAt: completedAt,
+              ...stopRequestEvidence,
             })
             .where("id", "=", claimed.recordingId)
             .executeTakeFirstOrThrow();

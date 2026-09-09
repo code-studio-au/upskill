@@ -600,6 +600,18 @@ for (const requiredPresenterNoticeBoundary of [
       `The operations workspace does not expose the immutable presenter recording notice: ${requiredPresenterNoticeBoundary}`,
     );
 }
+for (const requiredRecordingOperationsBoundary of [
+  "findRecordingOperationsByRoom",
+  '"recording.status"',
+  '"operation.lastErrorCode"',
+  "recording: room ?",
+  "recording: recordingByRoom.get(access.roomId)",
+]) {
+  if (!eventVirtualRoomServer.includes(requiredRecordingOperationsBoundary))
+    failures.push(
+      `The staff workspace does not expose safe recording lifecycle and retry state: ${requiredRecordingOperationsBoundary}`,
+    );
+}
 const virtualSessionOperationsUi = fs.readFileSync(
   path.join(
     root,
@@ -623,6 +635,23 @@ if (
   failures.push(
     "The immutable presenter recording notice must remain visible before green-room credential issuance",
   );
+const lobbyQueueUi = fs.readFileSync(
+  path.join(
+    root,
+    "src/features/event-operations/EventOperationsLobbyQueue.tsx",
+  ),
+  "utf8",
+);
+for (const requiredRecordingWarning of [
+  "queue?.recording ?? session.recording",
+  'role="alert"',
+  "recordingWarning",
+]) {
+  if (!lobbyQueueUi.includes(requiredRecordingWarning))
+    failures.push(
+      `The webinar operations UI does not surface recording failures and retries to staff: ${requiredRecordingWarning}`,
+    );
+}
 const attendeeLobbyUi = fs.readFileSync(
   path.join(root, "src/routes/webinars.$publicReference.tsx"),
   "utf8",

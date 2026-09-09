@@ -123,6 +123,18 @@ export type EventSectionProgressState =
 export type EventAttendanceState =
   "not_recorded" | "checked_in" | "attended" | "absent";
 
+interface EventVirtualRecordingOperationsState {
+  status:
+    | "requested"
+    | "starting"
+    | "active"
+    | "stopping"
+    | "complete"
+    | "failed"
+    | "deleted";
+  warning: string | null;
+}
+
 export interface EventParticipantProgress {
   eventParticipationId: string;
   name: string;
@@ -273,6 +285,7 @@ export interface EventOperationsWorkspace {
     canEnterGreenRoom: boolean;
     presenterRecordingNotice: string | null;
     lobbyPath: string | null;
+    recording: EventVirtualRecordingOperationsState | null;
     room: {
       id: string;
       eventSessionId: string;
@@ -305,6 +318,7 @@ export interface EventVirtualLobbyQueueData {
     admittedAt: string | null;
   }>;
   hasNextPage: boolean;
+  recording: EventVirtualRecordingOperationsState | null;
 }
 
 export type EventVirtualLobbyQueueResult =
