@@ -103,7 +103,7 @@ function ScheduledEventsPage() {
           outcome.reason === "livekit_policy_unavailable"
         ) {
           setError(
-            "The active LiveKit policy cannot support this session. Use manual attendance, shorten the session, or disable automatic recording before publishing, as applicable.",
+            "LiveKit cannot support this session. Use manual attendance, shorten the presenter preparation window, shorten the session, or disable automatic recording.",
           );
           return;
         }

@@ -467,11 +467,13 @@ for (const requiredRecordingDurationBoundary of [
   "maximumLifetimeMilliseconds: 12 * 60 * MINUTE_MILLISECONDS",
   "finalizationReserveMilliseconds: 60 * MINUTE_MILLISECONDS",
   "recordingUploadAuthorizationPolicyForEnvironment",
-  "maximumAutomaticRecordingSessionMinutes",
+  "maximumAutomaticRecordingWindowMinutes",
   "recordingUploadAuthorizationExpiresAt",
   "scheduledEndsAt",
   "supportsAutomaticRecordingDurations",
-  "supportsAutomaticRecordingSessionDuration",
+  "supportsAutomaticRecordingSessionWindow",
+  "presenterPreparationMilliseconds",
+  "item.liveKitPolicy.presenterPreparationMinutes",
 ]) {
   if (!recordingDurationPolicy.includes(requiredRecordingDurationBoundary))
     failures.push(
@@ -532,8 +534,11 @@ for (const requiredStopReconciliation of [
   "await recordingProvider.getRoomCompositeRecording({",
   'const stopRequired = ["starting", "active"].includes(',
   "async function beginRecordingStopDispatch(",
-  'select(["status", "attempts", "recordingStopDispatchedAt"])',
-  ".set({ recordingStopDispatchedAt: dispatchedAt })",
+  "recordingStopOutcomeUnknownAt",
+  ".set({ recordingStopDispatchedAt: now })",
+  "async function retryAmbiguousRecordingStop(",
+  "recordingStopOutcomeUnknownAt: dispatchedAt",
+  "claimed.recordingStopOutcomeUnknownAt",
   "const stopSnapshot =",
   "recording.stopRequestedAt === null ? stopDispatchedAt : null",
   "stopSnapshot,\n      stopDispatchedAt,",
@@ -543,6 +548,18 @@ for (const requiredStopReconciliation of [
   if (!eventVirtualRoomServer.includes(requiredStopReconciliation))
     failures.push(
       `Recording stop completion is not durably reconciled: ${requiredStopReconciliation}`,
+    );
+}
+for (const requiredTerminalStartReconciliation of [
+  "RECORDING_START_RECONCILIATION_MILLISECONDS",
+  "now.getTime() - claimed.recordingStartDispatchedAt.getTime()",
+  '"meeting_ended_before_recording_started"',
+  '.where("kind", "=", "stop_recording")',
+  '.where("recordingId", "=", claimed.recordingId)',
+]) {
+  if (!eventVirtualRoomServer.includes(requiredTerminalStartReconciliation))
+    failures.push(
+      `Terminal recording-start reconciliation is incomplete: ${requiredTerminalStartReconciliation}`,
     );
 }
 for (const requiredRecordingAuditBoundary of [
@@ -631,6 +648,7 @@ const scheduledEventsUi = fs.readFileSync(
 );
 for (const requiredPublicationGuidance of [
   "Use manual attendance",
+  "shorten the presenter preparation window",
   "shorten the session",
   "disable automatic recording",
 ]) {
@@ -680,7 +698,8 @@ for (const requiredRecordingPublicationBoundary of [
   "createConfiguredLiveKitRecordingProvider()",
   "liveKitAutomaticRecordingSessions",
   "!liveKitRecordingProvider",
-  "supportsAutomaticRecordingSessionDuration",
+  "supportsAutomaticRecordingSessionWindow",
+  "livekitPresenterPreparationMinutes",
   "liveKitRecordingProvider.uploadAuthorizationPolicy",
 ]) {
   if (
@@ -697,8 +716,9 @@ const adminEventTemplateServer = fs.readFileSync(
 for (const requiredRecordingDurationEnforcement of [
   "recordingUploadAuthorizationPolicyForEnvironment(getServerEnv().APP_ENV)",
   "supportsAutomaticRecordingDurations(draft, recordingAuthorizationPolicy)",
-  "maximumAutomaticRecordingSessionMinutes",
+  "maximumAutomaticRecordingWindowMinutes",
   "sessions.\"livekitRecordingMode\" = 'automatic'",
+  '+ sessions."livekitPresenterPreparationMinutes"',
   "structure.unsupportedAutomaticRecordings > 0",
 ]) {
   if (!adminEventTemplateServer.includes(requiredRecordingDurationEnforcement))

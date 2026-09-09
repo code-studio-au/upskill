@@ -85,6 +85,10 @@ import {
   down as downRecordingStopDispatch,
   up as upRecordingStopDispatch,
 } from "#/server/db/migrations/0103_livekit_recording_stop_dispatch";
+import {
+  down as downRecordingStopOutcome,
+  up as upRecordingStopOutcome,
+} from "#/server/db/migrations/0104_livekit_recording_stop_outcome";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -112,6 +116,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downRecordingStopOutcome(database);
   await downRecordingStopDispatch(database);
   await downRecordingLifecycleAudit(database);
   await downRecordingStartDispatch(database);
@@ -260,6 +265,7 @@ try {
   await upRecordingStartDispatch(database);
   await upRecordingLifecycleAudit(database);
   await upRecordingStopDispatch(database);
+  await upRecordingStopOutcome(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -658,6 +664,14 @@ try {
     "Automatic recording must remain unpublished without an upload-authorized recording provider",
   );
   const recordingProvider = new FakeLiveKitRecordingProvider();
+  await database
+    .updateTable("event_session")
+    .set({
+      localEndsAt: "2030-09-04T12:01:00",
+      endsAt: new Date("2030-09-04T02:01:00.000Z"),
+    })
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
   assert.equal(
     await publishAdminEventOccurrence(
       created.eventOccurrenceId,
@@ -668,8 +682,16 @@ try {
       ),
     ),
     "livekit-policy-unavailable",
-    "Retained automatic-recording sessions must satisfy the supplied provider duration policy",
+    "Even a short retained automatic recording must include its full presenter-preparation window in publication policy",
   );
+  await database
+    .updateTable("event_session")
+    .set({
+      localEndsAt: occurrenceInput.localEndsAt,
+      endsAt: new Date(occurrenceInput.endsAt),
+    })
+    .where("eventOccurrenceId", "=", created.eventOccurrenceId)
+    .executeTakeFirstOrThrow();
   assert.equal(
     await publishAdminEventOccurrence(
       created.eventOccurrenceId,
@@ -861,6 +883,7 @@ try {
       await upRecordingStartDispatch(database);
       await upRecordingLifecycleAudit(database);
       await upRecordingStopDispatch(database);
+      await upRecordingStopOutcome(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

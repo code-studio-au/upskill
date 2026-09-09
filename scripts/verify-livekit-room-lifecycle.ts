@@ -2500,7 +2500,12 @@ try {
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_room_operation")
-      .select(["status", "lastErrorCode", "recordingStopDispatchedAt"])
+      .select([
+        "status",
+        "lastErrorCode",
+        "recordingStopDispatchedAt",
+        "recordingStopOutcomeUnknownAt",
+      ])
       .where("roomId", "=", recoveredRoom.id)
       .where("kind", "=", "stop_recording")
       .executeTakeFirstOrThrow(),
@@ -2508,6 +2513,7 @@ try {
       status: "pending",
       lastErrorCode: "recording_stop_outcome_unknown",
       recordingStopDispatchedAt: endsAt,
+      recordingStopOutcomeUnknownAt: endsAt,
     },
     "A lost stop response must retain durable ambiguous dispatch evidence",
   );
@@ -2894,6 +2900,8 @@ try {
       presenterUserId: null,
       participantIdentity: null,
       removalEnforcedUntil: null,
+      recordingStopDispatchedAt: naturalStopRequestedAt,
+      recordingStopOutcomeUnknownAt: null,
       deduplicationKey: `event_virtual_room:${failingRoom.id}:stop_recording:${naturalRecordingId}`,
       status: "pending",
       availableAt: naturalStopRequestedAt,
@@ -2939,7 +2947,7 @@ try {
         .execute()
     ).length,
     0,
-    "Natural provider completion must not claim that Upskill dispatched a stop",
+    "A pre-call stop intent followed by natural completion must not claim that Upskill dispatched a stop",
   );
   assert.deepEqual(
     await database
@@ -2953,6 +2961,136 @@ try {
       completedAt: naturalReconciledAt,
     },
     "Natural provider completion must still settle exact terminal evidence",
+  );
+
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
+    .where("id", "=", deferredRoom.id)
+    .executeTakeFirstOrThrow();
+  const fencedTerminalRecordingId = "verify_livekit_fenced_terminal_recording";
+  const fencedTerminalRequestedAt = new Date(
+    deferredEndTime.getTime() - 3 * 60_000,
+  );
+  const fencedTerminalDispatchedAt = new Date(
+    deferredEndTime.getTime() - 60_000,
+  );
+  const fencedTerminalReconciledAt = new Date(
+    fencedTerminalDispatchedAt.getTime() + 2 * 60_000 + 1,
+  );
+  await database
+    .insertInto("event_virtual_recording")
+    .values({
+      ...recordingValues,
+      id: fencedTerminalRecordingId,
+      roomId: deferredRoom.id,
+      eventSessionId: ids.raceSession,
+      roomGeneration: deferredRoom.generation,
+      storageObjectKey: "recordings/opaque_room/fenced_terminal_recording.mp4",
+      requestedAt: fencedTerminalRequestedAt,
+      updatedAt: fencedTerminalRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("event_virtual_room_operation")
+    .values([
+      {
+        id: "verify_livekit_fenced_terminal_start_operation",
+        roomId: deferredRoom.id,
+        kind: "start_recording" as const,
+        targetKey: fencedTerminalRecordingId,
+        recordingId: fencedTerminalRecordingId,
+        deduplicationKey: `event_virtual_room:${deferredRoom.id}:start_recording:${fencedTerminalRecordingId}`,
+        status: "processing" as const,
+        attempts: 1,
+        availableAt: fencedTerminalDispatchedAt,
+        leasedUntil: new Date(
+          fencedTerminalDispatchedAt.getTime() + 2 * 60_000,
+        ),
+        lastAttemptAt: fencedTerminalDispatchedAt,
+        completedAt: null,
+        lastErrorCode: null,
+        recordingStartDispatchedAt: fencedTerminalDispatchedAt,
+        requestedByUserId: administrator.id,
+        createdAt: fencedTerminalRequestedAt,
+      },
+      {
+        id: "verify_livekit_fenced_terminal_stop_operation",
+        roomId: deferredRoom.id,
+        kind: "stop_recording" as const,
+        targetKey: fencedTerminalRecordingId,
+        recordingId: fencedTerminalRecordingId,
+        deduplicationKey: `event_virtual_room:${deferredRoom.id}:stop_recording:${fencedTerminalRecordingId}`,
+        status: "pending" as const,
+        availableAt: deferredEndTime,
+        leasedUntil: null,
+        lastAttemptAt: null,
+        completedAt: null,
+        lastErrorCode: null,
+        requestedByUserId: administrator.id,
+        createdAt: deferredEndTime,
+      },
+    ])
+    .execute();
+  const fencedTerminalRecordingProvider = new FakeLiveKitRecordingProvider();
+  const fencedTerminalRuntime: VirtualRoomRuntime = {
+    ...runtime,
+    recordingProvider: fencedTerminalRecordingProvider,
+  };
+  const fencedTerminalBatch = await processAvailableEventVirtualRoomOperations(
+    2,
+    {
+      runtime: fencedTerminalRuntime,
+      now: fencedTerminalReconciledAt,
+    },
+  );
+  assert.deepEqual(
+    fencedTerminalBatch.outcomes.map((outcome) => ({
+      kind: outcome.kind,
+      status: outcome.status,
+    })),
+    [{ kind: "start_recording", status: "processed" }],
+    "A terminal room must settle a start fence with no exact Egress after its bounded reconciliation window",
+  );
+  assert.equal(
+    fencedTerminalRecordingProvider.operations.filter(
+      (operation) => operation.operation === "start_recording",
+    ).length,
+    0,
+    "A terminal fenced start with no exact Egress must not dispatch a replacement recording",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "failureCode", "completedAt"])
+      .where("id", "=", fencedTerminalRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "failed",
+      failureCode: "meeting_ended_before_recording_started",
+      completedAt: fencedTerminalReconciledAt,
+    },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["kind", "status", "completedAt"])
+      .where("recordingId", "=", fencedTerminalRecordingId)
+      .orderBy("kind")
+      .execute(),
+    [
+      {
+        kind: "start_recording",
+        status: "succeeded",
+        completedAt: fencedTerminalReconciledAt,
+      },
+      {
+        kind: "stop_recording",
+        status: "succeeded",
+        completedAt: fencedTerminalReconciledAt,
+      },
+    ],
+    "Terminal start reconciliation must settle both the fenced start and its queued stop",
   );
 
   await database
@@ -3144,10 +3282,8 @@ try {
       roomId: outcome.roomId,
       kind: outcome.kind,
     })),
-    [
-      { roomId: terminalRoom.id, kind: "stop_recording" },
-      { roomId: terminalRoom.id, kind: "close_room" },
-    ],
+    [{ roomId: terminalRoom.id, kind: "close_room" }],
+    "A recording that failed before provider start must settle its queued stop before room closure",
   );
   assert.equal(fakeProvider.rooms.size, 0);
 

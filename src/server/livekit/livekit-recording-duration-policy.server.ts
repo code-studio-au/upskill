@@ -33,7 +33,7 @@ export function recordingUploadAuthorizationPolicyForEnvironment(
     : LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY;
 }
 
-export function maximumAutomaticRecordingSessionMinutes(
+export function maximumAutomaticRecordingWindowMinutes(
   policy: LiveKitRecordingUploadAuthorizationPolicy,
 ): number {
   return (
@@ -43,13 +43,15 @@ export function maximumAutomaticRecordingSessionMinutes(
   );
 }
 
-export function supportsAutomaticRecordingSessionDuration(
+export function supportsAutomaticRecordingSessionWindow(
   durationMilliseconds: number,
+  presenterPreparationMilliseconds: number,
   policy: LiveKitRecordingUploadAuthorizationPolicy,
 ): boolean {
   return (
     durationMilliseconds > 0 &&
-    durationMilliseconds <=
+    presenterPreparationMilliseconds >= 0 &&
+    durationMilliseconds + presenterPreparationMilliseconds <=
       policy.maximumLifetimeMilliseconds -
         policy.finalizationReserveMilliseconds
   );
@@ -86,7 +88,10 @@ type RecordingDurationPolicyDraft = {
     items: Array<{
       kind: string;
       durationMinutes?: number | null;
-      liveKitPolicy?: { recordingMode?: string };
+      liveKitPolicy?: {
+        recordingMode?: string;
+        presenterPreparationMinutes?: number;
+      };
     }>;
   }>;
 };
@@ -101,8 +106,11 @@ export function supportsAutomaticRecordingDurations(
         item.kind !== "session" ||
         item.liveKitPolicy?.recordingMode !== "automatic" ||
         (typeof item.durationMinutes === "number" &&
-          supportsAutomaticRecordingSessionDuration(
+          typeof item.liveKitPolicy.presenterPreparationMinutes === "number" &&
+          supportsAutomaticRecordingSessionWindow(
             item.durationMinutes * MINUTE_MILLISECONDS,
+            item.liveKitPolicy.presenterPreparationMinutes *
+              MINUTE_MILLISECONDS,
             policy,
           )),
     ),

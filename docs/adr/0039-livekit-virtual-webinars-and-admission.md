@@ -1032,10 +1032,13 @@ AWS role chaining caps this path at one hour. The requested authorization
 deadline must already include recording finalisation and upload time; a deadline
 more than one hour from issuance is rejected before AWS is called, and an STS
 response that expires before that deadline is rejected. Automatically recorded
-development sessions therefore have a fifty-five-minute scheduled-duration
-ceiling and reserve the final five minutes for recording finalisation and upload.
-This supports short development recordings without introducing long-lived AWS
-credentials. It does not authorize longer production recordings.
+development sessions therefore have a combined presenter-preparation and
+scheduled-duration ceiling of fifty-five minutes and reserve the final five
+minutes for recording finalisation and upload. A template using the default
+sixty-minute preparation window cannot enable automatic recording on this
+role-chained path until that window is shortened. This supports short
+development recordings without introducing long-lived AWS credentials. It does
+not authorize longer production recordings.
 
 The production-duration path uses Amazon S3 Access Grants as a separately
 reviewed, non-chained temporary credential issuer. The application role requests
@@ -1047,13 +1050,14 @@ recording prefix, so the vended credential receives neither the broader actions
 available to an Access Grants `WRITE` grant nor access to another object.
 
 S3 Access Grants credentials last at most twelve hours. Automatically recorded
-Event Sessions therefore have an eleven-hour scheduled-duration ceiling and
-reserve the final hour for recording finalisation and upload. This limit does
-not reduce the seven-day ceiling for sessions whose recording mode is off.
-Future recording start operations must calculate the required authorization
-deadline from the current start time, snapshotted scheduled duration and this
-fixed final-upload reserve; they must reject a deadline beyond twelve hours
-before calling AWS.
+Event Sessions therefore have an eleven-hour combined presenter-preparation and
+scheduled-duration ceiling and reserve the final hour for recording finalisation
+and upload. This limit does not reduce the seven-day ceiling for sessions whose
+recording mode is off. Recording start operations calculate the required
+authorization deadline from the current start time, snapshotted scheduled
+duration, scheduled end and this fixed final-upload reserve; authoring and
+publication must reject a permitted preparation-to-finalisation window beyond
+the provider ceiling before calling AWS.
 
 S3 Access Grants permits one instance per AWS account and Region. An
 account-level Upskill foundation stack owns that singleton, while each

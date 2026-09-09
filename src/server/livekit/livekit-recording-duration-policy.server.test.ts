@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
   LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
-  maximumAutomaticRecordingSessionMinutes,
+  maximumAutomaticRecordingWindowMinutes,
   recordingUploadAuthorizationPolicyForEnvironment,
   recordingUploadAuthorizationExpiresAt,
   supportsAutomaticRecordingDurations,
-  supportsAutomaticRecordingSessionDuration,
+  supportsAutomaticRecordingSessionWindow,
 } from "./livekit-recording-duration-policy.server";
 
 const NOW = new Date("2030-09-03T23:30:00.000Z");
@@ -14,6 +14,7 @@ const NOW = new Date("2030-09-03T23:30:00.000Z");
 function draftWithSession(
   durationMinutes: number,
   recordingMode: "automatic" | "off",
+  presenterPreparationMinutes = 0,
 ) {
   return {
     sections: [
@@ -22,7 +23,7 @@ function draftWithSession(
           {
             kind: "session",
             durationMinutes,
-            liveKitPolicy: { recordingMode },
+            liveKitPolicy: { recordingMode, presenterPreparationMinutes },
           },
         ],
       },
@@ -36,31 +37,43 @@ describe("LiveKit recording duration policy", () => {
       recordingUploadAuthorizationPolicyForEnvironment("test");
     const accessGrantsPolicy =
       recordingUploadAuthorizationPolicyForEnvironment("production");
-    expect(maximumAutomaticRecordingSessionMinutes(roleChainedPolicy)).toBe(55);
-    expect(maximumAutomaticRecordingSessionMinutes(accessGrantsPolicy)).toBe(
+    expect(maximumAutomaticRecordingWindowMinutes(roleChainedPolicy)).toBe(55);
+    expect(maximumAutomaticRecordingWindowMinutes(accessGrantsPolicy)).toBe(
       660,
     );
     expect(
       supportsAutomaticRecordingDurations(
-        draftWithSession(55, "automatic"),
+        draftWithSession(55, "automatic", 0),
         roleChainedPolicy,
       ),
     ).toBe(true);
     expect(
       supportsAutomaticRecordingDurations(
-        draftWithSession(56, "automatic"),
+        draftWithSession(54, "automatic", 1),
+        roleChainedPolicy,
+      ),
+    ).toBe(true);
+    expect(
+      supportsAutomaticRecordingDurations(
+        draftWithSession(55, "automatic", 1),
         roleChainedPolicy,
       ),
     ).toBe(false);
     expect(
       supportsAutomaticRecordingDurations(
-        draftWithSession(660, "automatic"),
+        draftWithSession(1, "automatic", 60),
+        roleChainedPolicy,
+      ),
+    ).toBe(false);
+    expect(
+      supportsAutomaticRecordingDurations(
+        draftWithSession(600, "automatic", 60),
         accessGrantsPolicy,
       ),
     ).toBe(true);
     expect(
       supportsAutomaticRecordingDurations(
-        draftWithSession(661, "automatic"),
+        draftWithSession(601, "automatic", 60),
         accessGrantsPolicy,
       ),
     ).toBe(false);
@@ -77,14 +90,16 @@ describe("LiveKit recording duration policy", () => {
 
   it("checks retained session instants against the provider reserve", () => {
     expect(
-      supportsAutomaticRecordingSessionDuration(
+      supportsAutomaticRecordingSessionWindow(
         55 * 60 * 1_000,
+        0,
         LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
       ),
     ).toBe(true);
     expect(
-      supportsAutomaticRecordingSessionDuration(
-        55 * 60 * 1_000 + 1,
+      supportsAutomaticRecordingSessionWindow(
+        54 * 60 * 1_000 + 1,
+        60 * 1_000,
         LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
       ),
     ).toBe(false);
@@ -145,7 +160,7 @@ describe("LiveKit recording duration policy", () => {
   });
 
   it("reserves one hour within the twelve-hour Access Grants ceiling", () => {
-    const maximumSessionMinutes = maximumAutomaticRecordingSessionMinutes(
+    const maximumSessionMinutes = maximumAutomaticRecordingWindowMinutes(
       LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
     );
     expect(

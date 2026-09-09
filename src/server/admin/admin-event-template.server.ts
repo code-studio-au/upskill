@@ -27,7 +27,7 @@ import { normalizeEventCommunicationAudience } from "#/features/admin-email/comm
 import { parseSurveyVersionContent } from "#/features/survey/survey.schema";
 import { registrationSurveySupportsEventRegions } from "#/features/registration/registration-questionnaire-domain";
 import {
-  maximumAutomaticRecordingSessionMinutes,
+  maximumAutomaticRecordingWindowMinutes,
   recordingUploadAuthorizationPolicyForEnvironment,
   supportsAutomaticRecordingDurations,
 } from "#/server/livekit/livekit-recording-duration-policy.server";
@@ -1306,8 +1306,8 @@ export async function publishAdminEventTemplateVersion(
   eventTemplateVersionId: string,
   administrator: AuthenticatedUser,
 ): Promise<"published" | "not-found" | "conflict"> {
-  const maximumAutomaticRecordingMinutes =
-    maximumAutomaticRecordingSessionMinutes(
+  const maximumAutomaticRecordingWindowDurationMinutes =
+    maximumAutomaticRecordingWindowMinutes(
       recordingUploadAuthorizationPolicyForEnvironment(getServerEnv().APP_ENV),
     );
   return await getDatabase()
@@ -1406,7 +1406,9 @@ export async function publishAdminEventTemplateVersion(
               sql<number>`count(items.id) filter (
                 where items.kind = 'session'
                   and sessions."livekitRecordingMode" = 'automatic'
-                  and items."durationMinutes" > ${maximumAutomaticRecordingMinutes}
+                  and items."durationMinutes"
+                    + sessions."livekitPresenterPreparationMinutes"
+                    > ${maximumAutomaticRecordingWindowDurationMinutes}
               )::integer`.as("unsupportedAutomaticRecordings"),
             ])
             .where(

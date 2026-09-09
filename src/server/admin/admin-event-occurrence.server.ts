@@ -36,7 +36,7 @@ import {
 } from "#/server/livekit/livekit-provider.server";
 import { createConfiguredLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-runtime.server";
 import type { LiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.server";
-import { supportsAutomaticRecordingSessionDuration } from "#/server/livekit/livekit-recording-duration-policy.server";
+import { supportsAutomaticRecordingSessionWindow } from "#/server/livekit/livekit-recording-duration-policy.server";
 import {
   addElapsedDuration,
   addElapsedMilliseconds,
@@ -1675,18 +1675,26 @@ export async function publishAdminEventOccurrence(
         if (coverage.liveKitAutomaticRecordingSessions > 0) {
           const automaticRecordingSessions = await transaction
             .selectFrom("event_session")
-            .select(["startsAt", "endsAt"])
+            .select([
+              "startsAt",
+              "endsAt",
+              "livekitPresenterPreparationMinutes",
+            ])
             .where("eventOccurrenceId", "=", eventOccurrenceId)
             .where("virtualDeliveryProvider", "=", "livekit")
             .where("livekitRecordingMode", "=", "automatic")
             .execute();
           if (
             !liveKitRecordingProvider ||
-            !automaticRecordingSessions.every((session) =>
-              supportsAutomaticRecordingSessionDuration(
-                session.endsAt.getTime() - session.startsAt.getTime(),
-                liveKitRecordingProvider.uploadAuthorizationPolicy,
-              ),
+            !automaticRecordingSessions.every(
+              (session) =>
+                typeof session.livekitPresenterPreparationMinutes ===
+                  "number" &&
+                supportsAutomaticRecordingSessionWindow(
+                  session.endsAt.getTime() - session.startsAt.getTime(),
+                  session.livekitPresenterPreparationMinutes * 60 * 1_000,
+                  liveKitRecordingProvider.uploadAuthorizationPolicy,
+                ),
             )
           )
             return "livekit-policy-unavailable" as const;

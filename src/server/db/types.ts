@@ -795,6 +795,7 @@ interface EventVirtualRoomOperationTable {
   removalEnforcedUntil: OptionalTimestamp;
   recordingStartDispatchedAt: OptionalTimestamp;
   recordingStopDispatchedAt: OptionalTimestamp;
+  recordingStopOutcomeUnknownAt: OptionalTimestamp;
   deduplicationKey: string;
   status: "pending" | "processing" | "succeeded";
   attempts: Generated<number>;

@@ -34,6 +34,8 @@ import {
 } from "./event-virtual-staff-access.server";
 
 const PROVIDER_OPERATION_LEASE_MILLISECONDS = 2 * 60 * 1_000;
+const RECORDING_START_RECONCILIATION_MILLISECONDS =
+  PROVIDER_OPERATION_LEASE_MILLISECONDS;
 const PROVIDER_RETRY_MAX_SECONDS = 15 * 60;
 const PARTICIPANT_REVOCATION_RECHECK_MILLISECONDS = 5 * 1_000;
 const TERMINAL_ROOM_RECHECK_MILLISECONDS = 5 * 1_000;
@@ -300,6 +302,7 @@ interface ClaimedOperation {
   removalEnforcedUntil: Date | null;
   recordingStartDispatchedAt: Date | null;
   recordingStopDispatchedAt: Date | null;
+  recordingStopOutcomeUnknownAt: Date | null;
   attempts: number;
   requestedByUserId: string | null;
   createdAt: Date;
@@ -894,6 +897,7 @@ async function claimRoomOperation(
         removalEnforcedUntil: operation.removalEnforcedUntil,
         recordingStartDispatchedAt: operation.recordingStartDispatchedAt,
         recordingStopDispatchedAt: operation.recordingStopDispatchedAt,
+        recordingStopOutcomeUnknownAt: operation.recordingStopOutcomeUnknownAt,
         attempts,
         requestedByUserId: operation.requestedByUserId,
         createdAt: operation.createdAt,
@@ -955,6 +959,27 @@ async function retryRoomOperation(
           .where("id", "=", claimed.roomId)
           .execute();
     });
+}
+
+async function retryAmbiguousRecordingStop(
+  claimed: ClaimedOperation,
+  dispatchedAt: Date,
+  now: Date,
+): Promise<void> {
+  await getDatabase()
+    .updateTable("event_virtual_room_operation")
+    .set({
+      status: "pending",
+      leasedUntil: null,
+      completedAt: null,
+      lastErrorCode: "recording_stop_outcome_unknown",
+      availableAt: retryAt(claimed.attempts, now),
+      recordingStopOutcomeUnknownAt: dispatchedAt,
+    })
+    .where("id", "=", claimed.id)
+    .where("status", "=", "processing")
+    .where("attempts", "=", claimed.attempts)
+    .execute();
 }
 
 async function requeueRoomCloseOperation(
@@ -2696,6 +2721,19 @@ async function beginRecordingStartDispatch(
           })
           .where("id", "=", claimed.id)
           .executeTakeFirstOrThrow();
+        await transaction
+          .updateTable("event_virtual_room_operation")
+          .set({
+            status: "succeeded",
+            leasedUntil: null,
+            completedAt: terminalAt,
+            lastErrorCode: null,
+          })
+          .where("roomId", "=", claimed.roomId)
+          .where("kind", "=", "stop_recording")
+          .where("recordingId", "=", recordingId)
+          .where("status", "=", "pending")
+          .execute();
         return "settled";
       }
       await transaction
@@ -2758,6 +2796,19 @@ async function failRecordingBeforeStart(
             reasonCode: failureCode,
             createdAt: completedAt,
           });
+          await transaction
+            .updateTable("event_virtual_room_operation")
+            .set({
+              status: "succeeded",
+              leasedUntil: null,
+              completedAt,
+              lastErrorCode: null,
+            })
+            .where("roomId", "=", claimed.roomId)
+            .where("kind", "=", "stop_recording")
+            .where("recordingId", "=", claimed.recordingId)
+            .where("status", "=", "pending")
+            .execute();
         }
       }
       await transaction
@@ -2866,6 +2917,24 @@ async function executeRecordingStart(
       );
       return {
         status: "retry",
+        operationId: claimed.id,
+        roomId,
+        kind: "start_recording",
+      };
+    }
+    if (
+      claimed.recordingStartDispatchedAt &&
+      (target.doorState === "ended" || target.replacedAt) &&
+      now.getTime() - claimed.recordingStartDispatchedAt.getTime() >=
+        RECORDING_START_RECONCILIATION_MILLISECONDS
+    ) {
+      await failRecordingBeforeStart(
+        claimed,
+        "meeting_ended_before_recording_started",
+        now,
+      );
+      return {
+        status: "processed",
         operationId: claimed.id,
         roomId,
         kind: "start_recording",
@@ -3167,24 +3236,23 @@ async function beginRecordingStopDispatch(
     .execute(async (transaction) => {
       const operation = await transaction
         .selectFrom("event_virtual_room_operation")
-        .select(["status", "attempts", "recordingStopDispatchedAt"])
+        .select(["status", "attempts", "recordingStopOutcomeUnknownAt"])
         .where("id", "=", claimed.id)
         .where("kind", "=", "stop_recording")
         .forUpdate()
         .executeTakeFirst();
       if (
         operation?.status !== "processing" ||
-        operation.attempts !== claimed.attempts
+        operation.attempts !== claimed.attempts ||
+        operation.recordingStopOutcomeUnknownAt
       )
         return null;
-      const dispatchedAt = operation.recordingStopDispatchedAt ?? now;
-      if (!operation.recordingStopDispatchedAt)
-        await transaction
-          .updateTable("event_virtual_room_operation")
-          .set({ recordingStopDispatchedAt: dispatchedAt })
-          .where("id", "=", claimed.id)
-          .executeTakeFirstOrThrow();
-      return dispatchedAt;
+      await transaction
+        .updateTable("event_virtual_room_operation")
+        .set({ recordingStopDispatchedAt: now })
+        .where("id", "=", claimed.id)
+        .executeTakeFirstOrThrow();
+      return now;
     });
 }
 
@@ -3248,7 +3316,7 @@ async function executeRecordingStop(
       kind: "stop_recording",
     };
   }
-  let stopDispatchInitiated = false;
+  let stopDispatchStartedAt: Date | null = null;
   try {
     const exactSnapshot = await recordingProvider.getRoomCompositeRecording({
       roomName: target.providerRoomName,
@@ -3270,8 +3338,24 @@ async function executeRecordingStop(
       };
     }
     const stopRequired = ["starting", "active"].includes(exactSnapshot.status);
-    let stopDispatchedAt = claimed.recordingStopDispatchedAt;
+    let stopDispatchedAt = claimed.recordingStopOutcomeUnknownAt
+      ? claimed.recordingStopDispatchedAt
+      : null;
     if (stopRequired) {
+      if (claimed.recordingStopOutcomeUnknownAt) {
+        await retryRoomOperation(
+          claimed,
+          "recording_stop_outcome_unknown",
+          now,
+          false,
+        );
+        return {
+          status: "retry",
+          operationId: claimed.id,
+          roomId,
+          kind: "stop_recording",
+        };
+      }
       stopDispatchedAt = await beginRecordingStopDispatch(claimed, now);
       if (!stopDispatchedAt)
         return {
@@ -3280,7 +3364,7 @@ async function executeRecordingStop(
           roomId,
           kind: "stop_recording",
         };
-      stopDispatchInitiated = true;
+      stopDispatchStartedAt = stopDispatchedAt;
     }
     const stopSnapshot = stopRequired
       ? await recordingProvider.stopRoomCompositeRecording({
@@ -3308,14 +3392,15 @@ async function executeRecordingStop(
       kind: "stop_recording",
     };
   } catch (error) {
-    await retryRoomOperation(
-      claimed,
-      stopDispatchInitiated
-        ? "recording_stop_outcome_unknown"
-        : recordingProviderFailureCode(error),
-      now,
-      false,
-    );
+    if (stopDispatchStartedAt)
+      await retryAmbiguousRecordingStop(claimed, stopDispatchStartedAt, now);
+    else
+      await retryRoomOperation(
+        claimed,
+        recordingProviderFailureCode(error),
+        now,
+        false,
+      );
     return {
       status: "retry",
       operationId: claimed.id,
