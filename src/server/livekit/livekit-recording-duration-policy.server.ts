@@ -43,6 +43,18 @@ export function maximumAutomaticRecordingSessionMinutes(
   );
 }
 
+export function supportsAutomaticRecordingSessionDuration(
+  durationMilliseconds: number,
+  policy: LiveKitRecordingUploadAuthorizationPolicy,
+): boolean {
+  return (
+    durationMilliseconds > 0 &&
+    durationMilliseconds <=
+      policy.maximumLifetimeMilliseconds -
+        policy.finalizationReserveMilliseconds
+  );
+}
+
 export function recordingUploadAuthorizationExpiresAt(input: {
   authorizationStartsAt: Date;
   scheduledDurationMilliseconds: number;
@@ -83,14 +95,16 @@ export function supportsAutomaticRecordingDurations(
   draft: RecordingDurationPolicyDraft,
   policy: LiveKitRecordingUploadAuthorizationPolicy,
 ): boolean {
-  const maximumSessionMinutes = maximumAutomaticRecordingSessionMinutes(policy);
   return draft.sections.every((section) =>
     section.items.every(
       (item) =>
         item.kind !== "session" ||
         item.liveKitPolicy?.recordingMode !== "automatic" ||
         (typeof item.durationMinutes === "number" &&
-          item.durationMinutes <= maximumSessionMinutes),
+          supportsAutomaticRecordingSessionDuration(
+            item.durationMinutes * MINUTE_MILLISECONDS,
+            policy,
+          )),
     ),
   );
 }

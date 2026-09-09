@@ -36,6 +36,7 @@ import {
 } from "#/server/livekit/livekit-provider.server";
 import { createConfiguredLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-runtime.server";
 import type { LiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.server";
+import { supportsAutomaticRecordingSessionDuration } from "#/server/livekit/livekit-recording-duration-policy.server";
 import {
   addElapsedDuration,
   addElapsedMilliseconds,
@@ -1671,6 +1672,25 @@ export async function publishAdminEventOccurrence(
           !liveKitRecordingProvider
         )
           return "livekit-unavailable" as const;
+        if (coverage.liveKitAutomaticRecordingSessions > 0) {
+          const automaticRecordingSessions = await transaction
+            .selectFrom("event_session")
+            .select(["startsAt", "endsAt"])
+            .where("eventOccurrenceId", "=", eventOccurrenceId)
+            .where("virtualDeliveryProvider", "=", "livekit")
+            .where("livekitRecordingMode", "=", "automatic")
+            .execute();
+          if (
+            !liveKitRecordingProvider ||
+            !automaticRecordingSessions.every((session) =>
+              supportsAutomaticRecordingSessionDuration(
+                session.endsAt.getTime() - session.startsAt.getTime(),
+                liveKitRecordingProvider.uploadAuthorizationPolicy,
+              ),
+            )
+          )
+            return "livekit-policy-unavailable" as const;
+        }
         if (
           occurrence.capacity + coverage.maximumLiveKitCapacityHeadroom >
           liveKitConfiguration.approvedMaxParticipants

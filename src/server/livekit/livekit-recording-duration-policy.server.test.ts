@@ -6,6 +6,7 @@ import {
   recordingUploadAuthorizationPolicyForEnvironment,
   recordingUploadAuthorizationExpiresAt,
   supportsAutomaticRecordingDurations,
+  supportsAutomaticRecordingSessionDuration,
 } from "./livekit-recording-duration-policy.server";
 
 const NOW = new Date("2030-09-03T23:30:00.000Z");
@@ -72,6 +73,21 @@ describe("LiveKit recording duration policy", () => {
         LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
       ),
     ).toBe(true);
+  });
+
+  it("checks retained session instants against the provider reserve", () => {
+    expect(
+      supportsAutomaticRecordingSessionDuration(
+        55 * 60 * 1_000,
+        LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+      ),
+    ).toBe(true);
+    expect(
+      supportsAutomaticRecordingSessionDuration(
+        55 * 60 * 1_000 + 1,
+        LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+      ),
+    ).toBe(false);
   });
 
   it("reserves five minutes within the one-hour role-chain ceiling", () => {

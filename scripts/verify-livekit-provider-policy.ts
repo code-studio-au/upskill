@@ -8,6 +8,7 @@ import {
 } from "#/server/admin/admin-event-occurrence.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
+import { LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY } from "#/server/livekit/livekit-recording-duration-policy.server";
 import {
   down as downProviderPolicy,
   up as upProviderPolicy,
@@ -101,6 +102,7 @@ const administrator: AuthenticatedUser = {
   email: "verify-livekit-policy@example.com",
   emailVerified: true,
 };
+
 const startsAt = new Date("2030-09-04T00:00:00.000Z");
 const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
@@ -650,6 +652,18 @@ try {
     "Automatic recording must remain unpublished without an upload-authorized recording provider",
   );
   const recordingProvider = new FakeLiveKitRecordingProvider();
+  assert.equal(
+    await publishAdminEventOccurrence(
+      created.eventOccurrenceId,
+      administrator,
+      { approvedMaxParticipants: 25 },
+      new FakeLiveKitRecordingProvider(
+        LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+      ),
+    ),
+    "livekit-policy-unavailable",
+    "Retained automatic-recording sessions must satisfy the supplied provider duration policy",
+  );
   assert.equal(
     await publishAdminEventOccurrence(
       created.eventOccurrenceId,

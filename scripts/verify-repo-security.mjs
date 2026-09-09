@@ -471,6 +471,7 @@ for (const requiredRecordingDurationBoundary of [
   "recordingUploadAuthorizationExpiresAt",
   "scheduledEndsAt",
   "supportsAutomaticRecordingDurations",
+  "supportsAutomaticRecordingSessionDuration",
 ]) {
   if (!recordingDurationPolicy.includes(requiredRecordingDurationBoundary))
     failures.push(
@@ -561,6 +562,8 @@ for (const requiredRecordingPublicationBoundary of [
   "createConfiguredLiveKitRecordingProvider()",
   "liveKitAutomaticRecordingSessions",
   "!liveKitRecordingProvider",
+  "supportsAutomaticRecordingSessionDuration",
+  "liveKitRecordingProvider.uploadAuthorizationPolicy",
 ]) {
   if (
     !adminEventOccurrenceServer.includes(requiredRecordingPublicationBoundary)
