@@ -2521,6 +2521,8 @@ async function settleRecordingStart(
             createdAt: failure.completedAt,
           });
         } else {
+          if (snapshot.status === "stopping")
+            throw new LiveKitRecordingProviderError("list_recordings");
           if (snapshot.status === "active" && !snapshot.startedAt)
             throw new LiveKitRecordingProviderError("list_recordings");
           const updatedAt = laterDate(
@@ -2538,7 +2540,7 @@ async function settleRecordingStart(
             })
             .where("id", "=", recordingId)
             .executeTakeFirstOrThrow();
-          const status = snapshot.status === "active" ? "active" : "starting";
+          const status = snapshot.status;
           if (status === "active")
             await transaction
               .updateTable("event_virtual_recording")
@@ -2571,6 +2573,20 @@ async function settleRecordingStart(
         .executeTakeFirstOrThrow();
       return true;
     });
+}
+
+async function reconcileRecordingStartSnapshot(
+  claimed: ClaimedOperation,
+  snapshot: LiveKitRecordingSnapshot,
+  now: Date,
+): Promise<"pending" | "processed" | "retry"> {
+  if (snapshot.status === "stopping") {
+    await retryRoomOperation(claimed, "recording_start_pending", now, false);
+    return "retry";
+  }
+  return (await settleRecordingStart(claimed, snapshot, now))
+    ? "processed"
+    : "pending";
 }
 
 async function beginRecordingStartDispatch(
@@ -2812,6 +2828,7 @@ async function executeRecordingStart(
   try {
     const snapshots = await recordingProvider.listRoomCompositeRecordings(
       target.providerRoomName,
+      target.storageObjectKey,
     );
     const exact = snapshots.filter(
       (snapshot) =>
@@ -2820,9 +2837,12 @@ async function executeRecordingStart(
     );
     const exactSnapshot = exact[0];
     if (exact.length === 1 && exactSnapshot) {
-      await settleRecordingStart(claimed, exactSnapshot, now);
       return {
-        status: "processed",
+        status: await reconcileRecordingStartSnapshot(
+          claimed,
+          exactSnapshot,
+          now,
+        ),
         operationId: claimed.id,
         roomId,
         kind: "start_recording",
@@ -2915,9 +2935,8 @@ async function executeRecordingStart(
       snapshot.storageObjectKey !== target.storageObjectKey
     )
       throw new LiveKitRecordingProviderError("start_recording");
-    const settled = await settleRecordingStart(claimed, snapshot, now);
     return {
-      status: settled ? "processed" : "pending",
+      status: await reconcileRecordingStartSnapshot(claimed, snapshot, now),
       operationId: claimed.id,
       roomId,
       kind: "start_recording",

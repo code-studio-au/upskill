@@ -215,6 +215,18 @@ function recordingSnapshot(
   });
 }
 
+function targetsStorageObjectKey(
+  info: EgressInfo,
+  storageObjectKey: string,
+): boolean {
+  if (info.request.case !== "egress") return false;
+  return info.request.value.outputs.some(
+    (output) =>
+      output.config.case === "file" &&
+      output.config.value.filepath === storageObjectKey,
+  );
+}
+
 export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
   readonly uploadAuthorizationPolicy: LiveKitRecordingUploadAuthorizationPolicy;
   private readonly configuration: LiveKitCloudRecordingConfiguration;
@@ -321,11 +333,26 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
 
   async listRoomCompositeRecordings(
     roomName: string,
+    storageObjectKey: string,
   ): Promise<LiveKitRecordingSnapshot[]> {
     const parsedRoomName = parseLiveKitRecordingRoomName(roomName);
+    const parsedStorageObjectKey =
+      parseLiveKitRecordingStorageObjectKey(storageObjectKey);
     try {
-      return (await this.egress.listEgress({ roomName: parsedRoomName })).map(
-        (info) => recordingSnapshot(info, parsedRoomName, this.configuration),
+      return (
+        await this.egress.listEgress({ roomName: parsedRoomName })
+      ).flatMap((info) =>
+        targetsStorageObjectKey(info, parsedStorageObjectKey)
+          ? [
+              recordingSnapshot(
+                info,
+                parsedRoomName,
+                this.configuration,
+                undefined,
+                parsedStorageObjectKey,
+              ),
+            ]
+          : [],
       );
     } catch {
       throw new LiveKitRecordingProviderError("list_recordings");

@@ -547,13 +547,48 @@ for (const requiredRecordingAuditBoundary of [
   'action: "event_virtual_recording.completed"',
   'action: "event_virtual_recording.failed"',
   'subjectType: "event_virtual_recording"',
-  'snapshot.status === "active" ? "active" : "starting"',
+  "const status = snapshot.status",
+  'snapshot.status === "stopping"',
+  '"recording_start_pending"',
 ]) {
   if (!eventVirtualRoomServer.includes(requiredRecordingAuditBoundary))
     failures.push(
       `The recording lifecycle is missing durable state or audit handling: ${requiredRecordingAuditBoundary}`,
     );
 }
+const cloudRecordingProvider = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/livekit/livekit-recording-provider.cloud.server.ts",
+  ),
+  "utf8",
+);
+const exactStartListingBoundary = cloudRecordingProvider.slice(
+  cloudRecordingProvider.indexOf("async listRoomCompositeRecordings"),
+  cloudRecordingProvider.indexOf("async getRoomCompositeRecording"),
+);
+for (const requiredExactStartReconciliationBoundary of [
+  "targetsStorageObjectKey",
+  ".flatMap(",
+  "parsedStorageObjectKey",
+  "recordingSnapshot(",
+]) {
+  if (
+    !exactStartListingBoundary.includes(
+      requiredExactStartReconciliationBoundary,
+    )
+  )
+    failures.push(
+      `Recording start reconciliation does not filter raw provider results by exact storage target: ${requiredExactStartReconciliationBoundary}`,
+    );
+}
+if (
+  exactStartListingBoundary.indexOf("targetsStorageObjectKey") >
+  exactStartListingBoundary.indexOf("recordingSnapshot(")
+)
+  failures.push(
+    "Recording start reconciliation must filter raw provider results before normalisation",
+  );
 const adminEventOccurrenceServer = fs.readFileSync(
   path.join(root, "src/server/admin/admin-event-occurrence.server.ts"),
   "utf8",

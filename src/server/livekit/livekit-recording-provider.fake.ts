@@ -8,6 +8,7 @@ import {
   LiveKitRecordingProviderError,
   parseLiveKitRecordingRoomName,
   parseLiveKitRecordingSnapshot,
+  parseLiveKitRecordingStorageObjectKey,
   parseLiveKitRecordingTarget,
   parseStartLiveKitRoomCompositeRecordingInput,
   type LiveKitRecordingProvider,
@@ -22,7 +23,11 @@ export type FakeLiveKitRecordingOperation =
       operation: "start_recording";
       input: StartLiveKitRoomCompositeRecordingInput;
     }
-  | { operation: "list_recordings"; roomName: string }
+  | {
+      operation: "list_recordings";
+      roomName: string;
+      storageObjectKey: string;
+    }
   | { operation: "get_recording"; target: LiveKitRecordingTarget }
   | { operation: "stop_recording"; target: LiveKitRecordingTarget };
 
@@ -77,15 +82,23 @@ export class FakeLiveKitRecordingProvider implements LiveKitRecordingProvider {
 
   listRoomCompositeRecordings(
     roomName: string,
+    storageObjectKey: string,
   ): Promise<LiveKitRecordingSnapshot[]> {
     const parsedRoomName = parseLiveKitRecordingRoomName(roomName);
+    const parsedStorageObjectKey =
+      parseLiveKitRecordingStorageObjectKey(storageObjectKey);
     this.operations.push({
       operation: "list_recordings",
       roomName: parsedRoomName,
+      storageObjectKey: parsedStorageObjectKey,
     });
     return Promise.resolve(
       [...this.recordings.values()]
-        .filter((recording) => recording.roomName === parsedRoomName)
+        .filter(
+          (recording) =>
+            recording.roomName === parsedRoomName &&
+            recording.storageObjectKey === parsedStorageObjectKey,
+        )
         .map(cloneSnapshot),
     );
   }

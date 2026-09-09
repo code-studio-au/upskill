@@ -198,12 +198,13 @@ class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingPro
 
   override listRoomCompositeRecordings(
     roomName: string,
+    storageObjectKey: string,
   ): Promise<LiveKitRecordingSnapshot[]> {
     if (this.roomListingsRejected)
       return Promise.reject(
         new LiveKitRecordingProviderError("list_recordings"),
       );
-    return super.listRoomCompositeRecordings(roomName);
+    return super.listRoomCompositeRecordings(roomName, storageObjectKey);
   }
 
   override async prepareRoomCompositeRecording(
@@ -229,14 +230,8 @@ class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingPro
             snapshot.providerEgressId,
             parseLiveKitRecordingSnapshot({
               ...snapshot,
-              status: "complete",
+              status: "stopping",
               startedAt: providerRecordingStartedAt,
-              endedAt: providerRecordingEndedAt,
-              output: {
-                storageObjectKey: snapshot.storageObjectKey,
-                fileSizeBytes: 2_048n,
-                durationNanoseconds: 90_000_000_000n,
-              },
             }),
           );
           throw new LiveKitRecordingProviderError("start_recording");
@@ -2150,7 +2145,7 @@ try {
       now: recordingReconciledAt,
     });
   assert.equal(reconciledRecordingAttempt.outcomes[0]?.kind, "start_recording");
-  assert.equal(reconciledRecordingAttempt.outcomes[0].status, "processed");
+  assert.equal(reconciledRecordingAttempt.outcomes[0].status, "retry");
   assert.equal(
     recordingProvider.operations.filter(
       (operation) => operation.operation === "start_recording",
@@ -2158,6 +2153,53 @@ try {
     1,
     "A lease-crossing lost response must reconcile the exact object instead of starting a second Egress",
   );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["status", "lastErrorCode"])
+      .where("roomId", "=", startRoom.id)
+      .where("kind", "=", "start_recording")
+      .executeTakeFirstOrThrow(),
+    { status: "pending", lastErrorCode: "recording_start_pending" },
+    "A stopping snapshot found after an ambiguous start must remain under reconciliation",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "providerEgressId"])
+      .where("eventSessionId", "=", ids.session)
+      .executeTakeFirstOrThrow(),
+    { status: "requested", providerEgressId: null },
+    "A stopping provider snapshot must not be flattened into durable starting evidence",
+  );
+  const stoppingRecording = recordingProvider.recordings.get("EG_FAKE_1");
+  assert.ok(stoppingRecording);
+  recordingProvider.recordings.set(
+    stoppingRecording.providerEgressId,
+    parseLiveKitRecordingSnapshot({
+      ...stoppingRecording,
+      status: "complete",
+      endedAt: providerRecordingEndedAt,
+      output: {
+        storageObjectKey: stoppingRecording.storageObjectKey,
+        fileSizeBytes: 2_048n,
+        durationNanoseconds: 90_000_000_000n,
+      },
+    }),
+  );
+  const recordingTerminalReconciledAt = new Date(
+    recordingReconciledAt.getTime() + 4 * 60_000 + 1,
+  );
+  const terminalStartRecordingAttempt =
+    await processAvailableEventVirtualRoomOperations(1, {
+      runtime: recordingRuntime,
+      now: recordingTerminalReconciledAt,
+    });
+  assert.equal(
+    terminalStartRecordingAttempt.outcomes[0]?.kind,
+    "start_recording",
+  );
+  assert.equal(terminalStartRecordingAttempt.outcomes[0].status, "processed");
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_recording")
@@ -2179,11 +2221,11 @@ try {
       providerEgressId: "EG_FAKE_1",
       startedAt: providerRecordingStartedAt,
       endedAt: providerRecordingEndedAt,
-      completedAt: recordingReconciledAt,
+      completedAt: recordingTerminalReconciledAt,
       fileSizeBytes: "2048",
       durationNanoseconds: "90000000000",
       retentionDeadline: new Date(
-        recordingReconciledAt.getTime() + 30 * 24 * 60 * 60_000,
+        recordingTerminalReconciledAt.getTime() + 30 * 24 * 60 * 60_000,
       ),
       failureCode: null,
     },

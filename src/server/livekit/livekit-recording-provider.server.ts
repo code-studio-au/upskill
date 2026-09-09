@@ -119,6 +119,7 @@ export interface LiveKitRecordingProvider {
   ): Promise<PreparedLiveKitRoomCompositeRecording>;
   listRoomCompositeRecordings(
     roomName: string,
+    storageObjectKey: string,
   ): Promise<LiveKitRecordingSnapshot[]>;
   getRoomCompositeRecording(
     target: LiveKitRecordingTarget,

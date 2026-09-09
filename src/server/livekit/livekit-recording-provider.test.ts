@@ -121,7 +121,10 @@ describe("LiveKit recording provider contract", () => {
       status: "starting",
     });
     await expect(
-      provider.listRoomCompositeRecordings(startInput.roomName),
+      provider.listRoomCompositeRecordings(
+        startInput.roomName,
+        startInput.storageObjectKey,
+      ),
     ).resolves.toEqual([started]);
     await expect(
       provider.getRoomCompositeRecording({
