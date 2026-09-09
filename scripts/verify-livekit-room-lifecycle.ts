@@ -28,6 +28,7 @@ import {
 } from "#/server/livekit/livekit-provider.server";
 import {
   LiveKitRecordingProviderError,
+  parseLiveKitRecordingSnapshot,
   type LiveKitRecordingSnapshot,
   type StartLiveKitRoomCompositeRecordingInput,
 } from "#/server/livekit/livekit-recording-provider.server";
@@ -77,6 +78,8 @@ const expiredPlatformAdministrator = user(
 const startsAt = new Date("2030-09-04T00:00:00.000Z");
 const endsAt = new Date("2030-09-04T01:00:00.000Z");
 const preparationTime = new Date("2030-09-03T23:30:00.000Z");
+const providerRecordingStartedAt = new Date("2030-09-04T00:00:30.000Z");
+const providerRecordingEndedAt = new Date("2030-09-04T00:02:00.000Z");
 
 async function assertDatabaseConstraint(
   operation: () => Promise<unknown>,
@@ -195,6 +198,20 @@ class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingPro
     const snapshot = await super.startRoomCompositeRecording(input);
     if (this.loseFirstStartResponse) {
       this.loseFirstStartResponse = false;
+      this.recordings.set(
+        snapshot.providerEgressId,
+        parseLiveKitRecordingSnapshot({
+          ...snapshot,
+          status: "complete",
+          startedAt: providerRecordingStartedAt,
+          endedAt: providerRecordingEndedAt,
+          output: {
+            storageObjectKey: snapshot.storageObjectKey,
+            fileSizeBytes: 2_048n,
+            durationNanoseconds: 90_000_000_000n,
+          },
+        }),
+      );
       throw new LiveKitRecordingProviderError("start_recording");
     }
     return snapshot;
@@ -2035,10 +2052,11 @@ try {
   const staleRecordingAttempt = await firstRecordingAttempt;
   assert.equal(staleRecordingAttempt.outcomes[0]?.kind, "start_recording");
   assert.equal(staleRecordingAttempt.outcomes[0].status, "retry");
+  const recordingReconciledAt = new Date(startsAt.getTime() + 3 * 60_000 + 2);
   const reconciledRecordingAttempt =
     await processAvailableEventVirtualRoomOperations(1, {
       runtime: recordingRuntime,
-      now: new Date(startsAt.getTime() + 3 * 60_000 + 2),
+      now: recordingReconciledAt,
     });
   assert.equal(reconciledRecordingAttempt.outcomes[0]?.kind, "start_recording");
   assert.equal(reconciledRecordingAttempt.outcomes[0].status, "processed");
@@ -2049,14 +2067,36 @@ try {
     1,
     "A lease-crossing lost response must reconcile the exact object instead of starting a second Egress",
   );
-  assert.equal(
+  assert.deepEqual(
     await database
       .selectFrom("event_virtual_recording")
-      .select("status")
+      .select([
+        "status",
+        "providerEgressId",
+        "startedAt",
+        "endedAt",
+        "completedAt",
+        "fileSizeBytes",
+        "durationNanoseconds",
+        "retentionDeadline",
+        "failureCode",
+      ])
       .where("eventSessionId", "=", ids.session)
-      .executeTakeFirstOrThrow()
-      .then((recording) => recording.status),
-    "starting",
+      .executeTakeFirstOrThrow(),
+    {
+      status: "complete",
+      providerEgressId: "EG_FAKE_1",
+      startedAt: providerRecordingStartedAt,
+      endedAt: providerRecordingEndedAt,
+      completedAt: recordingReconciledAt,
+      fileSizeBytes: "2048",
+      durationNanoseconds: "90000000000",
+      retentionDeadline: new Date(
+        recordingReconciledAt.getTime() + 30 * 24 * 60 * 60_000,
+      ),
+      failureCode: null,
+    },
+    "A completed Egress found after a lost start response must retain its verified output evidence",
   );
   const idempotentStartProvider = new FailFirstEnsureProvider();
   assert.deepEqual(
@@ -2136,7 +2176,7 @@ try {
   });
   assert.deepEqual(
     closeBatch.outcomes.map((outcome) => outcome.kind),
-    ["stop_recording", "close_room"],
+    ["close_room"],
   );
   assert.equal(
     await database
@@ -2145,7 +2185,7 @@ try {
       .where("eventSessionId", "=", ids.session)
       .executeTakeFirstOrThrow()
       .then((recording) => recording.status),
-    "stopping",
+    "complete",
   );
   assert.equal(fakeProvider.rooms.size, 0);
 
