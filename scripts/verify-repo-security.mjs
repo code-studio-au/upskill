@@ -606,6 +606,25 @@ if (
   failures.push(
     "The immutable presenter recording notice must remain visible before green-room credential issuance",
   );
+const attendeeLobbyUi = fs.readFileSync(
+  path.join(root, "src/routes/webinars.$publicReference.tsx"),
+  "utf8",
+);
+const attendeeRecordingNoticeUi = fs.readFileSync(
+  path.join(root, "src/features/event-lobby/AttendeeRecordingNotice.tsx"),
+  "utf8",
+);
+if (
+  !attendeeLobbyUi.includes("data.recording.enabled &&") ||
+  !attendeeLobbyUi.includes("data.recording.acknowledged") ||
+  !attendeeLobbyUi.includes("<AttendeeRecordingNotice") ||
+  attendeeLobbyUi.indexOf("<AttendeeRecordingNotice") >
+    attendeeLobbyUi.indexOf("<LiveKitAttendeeRoom") ||
+  !attendeeRecordingNoticeUi.includes('title="Recording notice"')
+)
+  failures.push(
+    "The acknowledged attendee recording notice must remain visible before and throughout the webinar connection",
+  );
 const scheduledEventsUi = fs.readFileSync(
   path.join(root, "src/routes/admin.events.scheduled.tsx"),
   "utf8",

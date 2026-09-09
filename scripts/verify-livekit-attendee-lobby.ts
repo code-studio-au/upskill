@@ -1726,6 +1726,27 @@ try {
     },
     "Replayed acknowledgement must preserve the original consent evidence",
   );
+  const acknowledgedReadyLobby = await resolveEventVirtualLobby(
+    access.publicReference,
+    learner,
+  );
+  assert.deepEqual(
+    acknowledgedReadyLobby.status === "ready"
+      ? {
+          outcome: acknowledgedReadyLobby.data.outcome,
+          recording: acknowledgedReadyLobby.data.recording,
+        }
+      : null,
+    {
+      outcome: "ready_to_join",
+      recording: {
+        enabled: true,
+        notice: "This webinar is recorded.",
+        acknowledged: true,
+      },
+    },
+    "The ready and connected learner view must retain the exact acknowledged recording notice",
+  );
   await database
     .updateTable("event_virtual_room")
     .set({ recordingMode: "off", recordingRetentionDays: null })
