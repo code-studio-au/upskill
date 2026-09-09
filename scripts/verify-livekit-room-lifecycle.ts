@@ -150,12 +150,48 @@ class FailFirstEnsureProvider extends FakeLiveKitProvider {
   }
 }
 
-class LostResponseRecordingProvider extends FakeLiveKitRecordingProvider {
+class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingProvider {
   private loseFirstStartResponse = true;
+  private deferredStart:
+    | {
+        started: Promise<void>;
+        waitForRelease: Promise<void>;
+        signalStarted: () => void;
+        release: () => void;
+      }
+    | undefined;
+
+  deferNextStart(): {
+    waitUntilStarted: () => Promise<void>;
+    release: () => void;
+  } {
+    assert.equal(this.deferredStart, undefined);
+    let signalStarted!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const waitForRelease = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.deferredStart = {
+      started,
+      waitForRelease,
+      signalStarted,
+      release,
+    };
+    return { waitUntilStarted: () => started, release };
+  }
 
   override async startRoomCompositeRecording(
     input: StartLiveKitRoomCompositeRecordingInput,
   ): Promise<LiveKitRecordingSnapshot> {
+    const deferredStart = this.deferredStart;
+    if (deferredStart) {
+      this.deferredStart = undefined;
+      deferredStart.signalStarted();
+      await deferredStart.waitForRelease;
+    }
     const snapshot = await super.startRoomCompositeRecording(input);
     if (this.loseFirstStartResponse) {
       this.loseFirstStartResponse = false;
@@ -1921,7 +1957,7 @@ try {
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
-  const recordingProvider = new LostResponseRecordingProvider();
+  const recordingProvider = new LeaseCrossingLostResponseRecordingProvider();
   const recordingRuntime: VirtualRoomRuntime = {
     ...runtime,
     recordingProvider,
@@ -1960,17 +1996,49 @@ try {
     ensureCountBeforeStart + 1,
     "Start must reconcile provider state instead of trusting cached readiness",
   );
-  const firstRecordingAttempt =
+  const deferredRecordingStart = recordingProvider.deferNextStart();
+  const firstRecordingAttempt = processAvailableEventVirtualRoomOperations(1, {
+    runtime: recordingRuntime,
+    now: startsAt,
+  });
+  const firstRecordingProgress = await Promise.race([
+    deferredRecordingStart
+      .waitUntilStarted()
+      .then(() => ({ state: "started" as const })),
+    firstRecordingAttempt.then((batch) => ({
+      state: "completed" as const,
+      batch,
+    })),
+  ]);
+  assert.equal(
+    firstRecordingProgress.state,
+    "started",
+    firstRecordingProgress.state === "completed"
+      ? `Expected recording dispatch to start, received ${JSON.stringify(firstRecordingProgress.batch)}`
+      : "Expected recording dispatch to start",
+  );
+  const reclaimedRecordingAttempt =
     await processAvailableEventVirtualRoomOperations(1, {
       runtime: recordingRuntime,
-      now: startsAt,
+      now: new Date(startsAt.getTime() + 2 * 60_000 + 1),
     });
-  assert.equal(firstRecordingAttempt.outcomes[0]?.kind, "start_recording");
-  assert.equal(firstRecordingAttempt.outcomes[0].status, "retry");
+  assert.equal(reclaimedRecordingAttempt.outcomes[0]?.kind, "start_recording");
+  assert.equal(reclaimedRecordingAttempt.outcomes[0].status, "retry");
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) => operation.operation === "start_recording",
+    ).length,
+    0,
+    "A reclaimed operation must not dispatch a second start while the first provider request remains in flight",
+  );
+  deferredRecordingStart.release();
+  const staleRecordingAttempt = await firstRecordingAttempt;
+  assert.equal(staleRecordingAttempt.outcomes[0]?.kind, "start_recording");
+  assert.equal(staleRecordingAttempt.outcomes[0].status, "retry");
   const reconciledRecordingAttempt =
     await processAvailableEventVirtualRoomOperations(1, {
       runtime: recordingRuntime,
-      now: new Date(startsAt.getTime() + 31_000),
+      now: new Date(startsAt.getTime() + 3 * 60_000 + 2),
     });
   assert.equal(reconciledRecordingAttempt.outcomes[0]?.kind, "start_recording");
   assert.equal(reconciledRecordingAttempt.outcomes[0].status, "processed");
@@ -1979,7 +2047,7 @@ try {
       (operation) => operation.operation === "start_recording",
     ).length,
     1,
-    "A lost provider response must reconcile the exact object instead of starting a second Egress",
+    "A lease-crossing lost response must reconcile the exact object instead of starting a second Egress",
   );
   assert.equal(
     await database

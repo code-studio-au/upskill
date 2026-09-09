@@ -296,6 +296,7 @@ interface ClaimedOperation {
   recordingId: string | null;
   participantIdentity: string | null;
   removalEnforcedUntil: Date | null;
+  recordingStartDispatchedAt: Date | null;
   attempts: number;
   requestedByUserId: string | null;
   createdAt: Date;
@@ -821,6 +822,7 @@ async function claimRoomOperation(
         recordingId: operation.recordingId,
         participantIdentity: operation.participantIdentity,
         removalEnforcedUntil: operation.removalEnforcedUntil,
+        recordingStartDispatchedAt: operation.recordingStartDispatchedAt,
         attempts,
         requestedByUserId: operation.requestedByUserId,
         createdAt: operation.createdAt,
@@ -2330,6 +2332,22 @@ async function settleRecordingStart(
     });
 }
 
+async function beginRecordingStartDispatch(
+  claimed: ClaimedOperation,
+  now: Date,
+): Promise<boolean> {
+  const result = await getDatabase()
+    .updateTable("event_virtual_room_operation")
+    .set({ recordingStartDispatchedAt: now })
+    .where("id", "=", claimed.id)
+    .where("kind", "=", "start_recording")
+    .where("status", "=", "processing")
+    .where("attempts", "=", claimed.attempts)
+    .where("recordingStartDispatchedAt", "is", null)
+    .executeTakeFirst();
+  return result.numUpdatedRows === 1n;
+}
+
 async function failRecordingBeforeStart(
   claimed: ClaimedOperation,
   failureCode: string,
@@ -2442,6 +2460,7 @@ async function executeRecordingStart(
       kind: "start_recording",
     };
   }
+  let dispatchStarted = false;
   try {
     const snapshots = await recordingProvider.listRoomCompositeRecordings(
       target.providerRoomName,
@@ -2465,6 +2484,20 @@ async function executeRecordingStart(
       await retryRoomOperation(
         claimed,
         "unexpected_room_recording",
+        now,
+        false,
+      );
+      return {
+        status: "retry",
+        operationId: claimed.id,
+        roomId,
+        kind: "start_recording",
+      };
+    }
+    if (claimed.recordingStartDispatchedAt) {
+      await retryRoomOperation(
+        claimed,
+        "recording_start_outcome_unknown",
         now,
         false,
       );
@@ -2506,6 +2539,14 @@ async function executeRecordingStart(
         kind: "start_recording",
       };
     }
+    dispatchStarted = await beginRecordingStartDispatch(claimed, now);
+    if (!dispatchStarted)
+      return {
+        status: "pending",
+        operationId: claimed.id,
+        roomId,
+        kind: "start_recording",
+      };
     const snapshot = await recordingProvider.startRoomCompositeRecording({
       roomName: target.providerRoomName,
       storageObjectKey: target.storageObjectKey,
@@ -2518,9 +2559,9 @@ async function executeRecordingStart(
       snapshot.storageObjectKey !== target.storageObjectKey
     )
       throw new LiveKitRecordingProviderError("start_recording");
-    await settleRecordingStart(claimed, snapshot, now);
+    const settled = await settleRecordingStart(claimed, snapshot, now);
     return {
-      status: "processed",
+      status: settled ? "processed" : "pending",
       operationId: claimed.id,
       roomId,
       kind: "start_recording",
@@ -2528,7 +2569,9 @@ async function executeRecordingStart(
   } catch (error) {
     await retryRoomOperation(
       claimed,
-      recordingProviderFailureCode(error),
+      dispatchStarted
+        ? "recording_start_outcome_unknown"
+        : recordingProviderFailureCode(error),
       now,
       false,
     );

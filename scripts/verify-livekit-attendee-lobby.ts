@@ -1405,7 +1405,7 @@ try {
   );
   const tokenIssuedEntry = await database
     .selectFrom("event_virtual_lobby_entry")
-    .select(["id", "state", "admittedByUserId"])
+    .select(["id", "state", "admittedByUserId", "requestedAt"])
     .where("eventParticipationId", "=", ids.participation)
     .executeTakeFirstOrThrow();
   const latestCredentialExpiresAt = new Date(createdAt.getTime() + 20 * 60_000);
@@ -4079,7 +4079,9 @@ try {
     "Recovery outcome audits must not contain an identifier or submitted code",
   );
 
-  const smsInvalidatedAt = new Date();
+  const smsInvalidatedAt = new Date(
+    Math.max(Date.now(), tokenIssuedEntry.requestedAt.getTime() + 5_000),
+  );
   const smsChallengeId = "verify_livekit_lobby_sms_invalidation_challenge";
   const smsJoinSessionId = "verify_livekit_lobby_sms_invalidation_session";
   await database
