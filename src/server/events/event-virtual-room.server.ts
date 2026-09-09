@@ -299,6 +299,7 @@ interface ClaimedOperation {
   participantIdentity: string | null;
   removalEnforcedUntil: Date | null;
   recordingStartDispatchedAt: Date | null;
+  recordingStopDispatchedAt: Date | null;
   attempts: number;
   requestedByUserId: string | null;
   createdAt: Date;
@@ -892,6 +893,7 @@ async function claimRoomOperation(
         participantIdentity: operation.participantIdentity,
         removalEnforcedUntil: operation.removalEnforcedUntil,
         recordingStartDispatchedAt: operation.recordingStartDispatchedAt,
+        recordingStopDispatchedAt: operation.recordingStopDispatchedAt,
         attempts,
         requestedByUserId: operation.requestedByUserId,
         createdAt: operation.createdAt,
@@ -2969,7 +2971,7 @@ async function executeRecordingStart(
 async function settleRecordingStop(
   claimed: ClaimedOperation,
   snapshot: LiveKitRecordingSnapshot,
-  stopDispatched: boolean,
+  stopDispatchedAt: Date | null,
   now: Date,
 ): Promise<"pending" | "settled" | "stale"> {
   return getDatabase()
@@ -3014,8 +3016,8 @@ async function settleRecordingStop(
           const stopRequestedAt =
             recording.stopRequestedAt ?? claimed.createdAt;
           if (!terminal) {
-            const stopStarted =
-              stopDispatched && recording.stopRequestedAt === null;
+            const stopStartedAt =
+              recording.stopRequestedAt === null ? stopDispatchedAt : null;
             if (snapshot.status === "complete") {
               const completion = completedRecordingEvidenceValues(
                 recording,
@@ -3031,7 +3033,7 @@ async function settleRecordingStop(
                 })
                 .where("id", "=", claimed.recordingId)
                 .executeTakeFirstOrThrow();
-              if (stopStarted)
+              if (stopStartedAt)
                 await recordRecordingLifecycleAudit(transaction, {
                   action: "event_virtual_recording.stop_started",
                   actorUserId: claimed.requestedByUserId,
@@ -3042,7 +3044,7 @@ async function settleRecordingStop(
                   status: completion.status,
                   previousStatus: recording.status,
                   providerStatus: snapshot.status,
-                  createdAt: now,
+                  createdAt: stopStartedAt,
                 });
               await recordRecordingLifecycleAudit(transaction, {
                 action: "event_virtual_recording.completed",
@@ -3071,7 +3073,7 @@ async function settleRecordingStop(
                 })
                 .where("id", "=", claimed.recordingId)
                 .executeTakeFirstOrThrow();
-              if (stopStarted)
+              if (stopStartedAt)
                 await recordRecordingLifecycleAudit(transaction, {
                   action: "event_virtual_recording.stop_started",
                   actorUserId: claimed.requestedByUserId,
@@ -3082,7 +3084,7 @@ async function settleRecordingStop(
                   status: failure.status,
                   previousStatus: recording.status,
                   providerStatus: snapshot.status,
-                  createdAt: now,
+                  createdAt: stopStartedAt,
                 });
               await recordRecordingLifecycleAudit(transaction, {
                 action: "event_virtual_recording.failed",
@@ -3114,7 +3116,7 @@ async function settleRecordingStop(
                 })
                 .where("id", "=", claimed.recordingId)
                 .executeTakeFirstOrThrow();
-              if (stopStarted)
+              if (stopStartedAt)
                 await recordRecordingLifecycleAudit(transaction, {
                   action: "event_virtual_recording.stop_started",
                   actorUserId: claimed.requestedByUserId,
@@ -3125,7 +3127,7 @@ async function settleRecordingStop(
                   status: "stopping",
                   previousStatus: recording.status,
                   providerStatus: snapshot.status,
-                  createdAt: updatedAt,
+                  createdAt: stopStartedAt,
                 });
             }
             terminal = ["complete", "failed"].includes(snapshot.status);
@@ -3153,6 +3155,36 @@ async function settleRecordingStop(
         .where("id", "=", claimed.id)
         .executeTakeFirstOrThrow();
       return terminal ? "settled" : "pending";
+    });
+}
+
+async function beginRecordingStopDispatch(
+  claimed: ClaimedOperation,
+  now: Date,
+): Promise<Date | null> {
+  return getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const operation = await transaction
+        .selectFrom("event_virtual_room_operation")
+        .select(["status", "attempts", "recordingStopDispatchedAt"])
+        .where("id", "=", claimed.id)
+        .where("kind", "=", "stop_recording")
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        operation?.status !== "processing" ||
+        operation.attempts !== claimed.attempts
+      )
+        return null;
+      const dispatchedAt = operation.recordingStopDispatchedAt ?? now;
+      if (!operation.recordingStopDispatchedAt)
+        await transaction
+          .updateTable("event_virtual_room_operation")
+          .set({ recordingStopDispatchedAt: dispatchedAt })
+          .where("id", "=", claimed.id)
+          .executeTakeFirstOrThrow();
+      return dispatchedAt;
     });
 }
 
@@ -3216,6 +3248,7 @@ async function executeRecordingStop(
       kind: "stop_recording",
     };
   }
+  let stopDispatchInitiated = false;
   try {
     const exactSnapshot = await recordingProvider.getRoomCompositeRecording({
       roomName: target.providerRoomName,
@@ -3236,10 +3269,20 @@ async function executeRecordingStop(
         kind: "stop_recording",
       };
     }
-    const stopDispatched = ["starting", "active"].includes(
-      exactSnapshot.status,
-    );
-    const stopSnapshot = stopDispatched
+    const stopRequired = ["starting", "active"].includes(exactSnapshot.status);
+    let stopDispatchedAt = claimed.recordingStopDispatchedAt;
+    if (stopRequired) {
+      stopDispatchedAt = await beginRecordingStopDispatch(claimed, now);
+      if (!stopDispatchedAt)
+        return {
+          status: "pending",
+          operationId: claimed.id,
+          roomId,
+          kind: "stop_recording",
+        };
+      stopDispatchInitiated = true;
+    }
+    const stopSnapshot = stopRequired
       ? await recordingProvider.stopRoomCompositeRecording({
           roomName: target.providerRoomName,
           providerEgressId: target.providerEgressId,
@@ -3255,7 +3298,7 @@ async function executeRecordingStop(
     const settlement = await settleRecordingStop(
       claimed,
       stopSnapshot,
-      stopDispatched,
+      stopDispatchedAt,
       now,
     );
     return {
@@ -3267,7 +3310,9 @@ async function executeRecordingStop(
   } catch (error) {
     await retryRoomOperation(
       claimed,
-      recordingProviderFailureCode(error),
+      stopDispatchInitiated
+        ? "recording_stop_outcome_unknown"
+        : recordingProviderFailureCode(error),
       now,
       false,
     );

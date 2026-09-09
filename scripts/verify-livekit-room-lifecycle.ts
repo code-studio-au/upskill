@@ -160,6 +160,7 @@ class FailFirstEnsureProvider extends FakeLiveKitProvider {
 class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingProvider {
   private failFirstPreparation = true;
   private loseFirstStartResponse = true;
+  private loseFirstStopResponse = false;
   private roomListingsRejected = false;
   private deferredStart:
     | {
@@ -194,6 +195,10 @@ class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingPro
 
   rejectRoomListings(): void {
     this.roomListingsRejected = true;
+  }
+
+  loseNextStopResponse(): void {
+    this.loseFirstStopResponse = true;
   }
 
   override listRoomCompositeRecordings(
@@ -245,6 +250,19 @@ class LeaseCrossingLostResponseRecordingProvider extends FakeLiveKitRecordingPro
         return active;
       },
     };
+  }
+
+  override async stopRoomCompositeRecording(
+    target: Parameters<
+      FakeLiveKitRecordingProvider["stopRoomCompositeRecording"]
+    >[0],
+  ): Promise<LiveKitRecordingSnapshot> {
+    const snapshot = await super.stopRoomCompositeRecording(target);
+    if (this.loseFirstStopResponse) {
+      this.loseFirstStopResponse = false;
+      throw new LiveKitRecordingProviderError("stop_recording");
+    }
+    return snapshot;
   }
 }
 
@@ -2401,6 +2419,12 @@ try {
   );
   assert.ok(recoveredRecording.providerEgressId);
   recordingProvider.rejectRoomListings();
+  recordingProvider.loseNextStopResponse();
+  const recoveredStopDispatchesBeforeEnd = recordingProvider.operations.filter(
+    (operation) =>
+      operation.operation === "stop_recording" &&
+      operation.target.providerEgressId === recoveredRecording.providerEgressId,
+  ).length;
   assert.deepEqual(
     await transitionEventVirtualRoom(
       ids.occurrence,
@@ -2476,12 +2500,16 @@ try {
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_room_operation")
-      .select(["status", "lastErrorCode"])
+      .select(["status", "lastErrorCode", "recordingStopDispatchedAt"])
       .where("roomId", "=", recoveredRoom.id)
       .where("kind", "=", "stop_recording")
       .executeTakeFirstOrThrow(),
-    { status: "pending", lastErrorCode: "recording_stop_pending" },
-    "A nonterminal stop response must remain durably retryable",
+    {
+      status: "pending",
+      lastErrorCode: "recording_stop_outcome_unknown",
+      recordingStopDispatchedAt: endsAt,
+    },
+    "A lost stop response must retain durable ambiguous dispatch evidence",
   );
   assert.equal(
     await database
@@ -2490,7 +2518,21 @@ try {
       .where("id", "=", recoveredRecording.id)
       .executeTakeFirstOrThrow()
       .then((recording) => recording.status),
-    "stopping",
+    "active",
+    "A lost stop response must not invent a durable provider outcome before exact reconciliation",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("audit_event")
+        .select("id")
+        .where("subjectType", "=", "event_virtual_recording")
+        .where("subjectId", "=", recoveredRecording.id)
+        .where("action", "=", "event_virtual_recording.stop_started")
+        .execute()
+    ).length,
+    0,
+    "An ambiguous stop dispatch must wait for exact provider reconciliation before audit emission",
   );
   const recoveredProviderRecording = recordingProvider.recordings.get(
     recoveredRecording.providerEgressId,
@@ -2545,6 +2587,27 @@ try {
       durationNanoseconds: "1800000000000",
     },
     "Stop reconciliation must preserve terminal provider evidence",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select("createdAt")
+      .where("subjectType", "=", "event_virtual_recording")
+      .where("subjectId", "=", recoveredRecording.id)
+      .where("action", "=", "event_virtual_recording.stop_started")
+      .execute(),
+    [{ createdAt: endsAt }],
+    "Reconciliation must emit the ambiguous provider stop dispatch exactly once at its durable dispatch time",
+  );
+  assert.equal(
+    recordingProvider.operations.filter(
+      (operation) =>
+        operation.operation === "stop_recording" &&
+        operation.target.providerEgressId ===
+          recoveredRecording.providerEgressId,
+    ).length,
+    recoveredStopDispatchesBeforeEnd + 1,
+    "A reconciled stopping or terminal snapshot must not dispatch a second provider stop",
   );
   assert.equal(
     recordingProvider.operations.some(
