@@ -165,6 +165,7 @@ export interface EventVirtualSessionOperations {
   eventSessionId: string;
   preparationOpensAt: string;
   canEnterGreenRoom: boolean;
+  presenterRecordingNotice: string | null;
   lobbyPath: string | null;
   room: EventVirtualRoomState | null;
 }
@@ -1171,6 +1172,8 @@ export async function findEventVirtualSessionOperations(
       "session.startsAt",
       "session.endsAt",
       "session.livekitPresenterPreparationMinutes",
+      "session.livekitRecordingMode",
+      "session.livekitPresenterRecordingNotice",
       "occurrence.status as occurrenceStatus",
     ])
     .where("session.eventOccurrenceId", "=", eventOccurrenceId)
@@ -1240,6 +1243,10 @@ export async function findEventVirtualSessionOperations(
         now >= opensAt &&
         now < session.endsAt &&
         room?.doorState !== "ended",
+      presenterRecordingNotice:
+        session.livekitRecordingMode === "automatic"
+          ? session.livekitPresenterRecordingNotice
+          : null,
       lobbyPath: accessRecord
         ? `/webinars/${accessRecord.publicReference}`
         : null,

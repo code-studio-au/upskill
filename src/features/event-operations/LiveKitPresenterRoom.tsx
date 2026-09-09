@@ -123,9 +123,11 @@ function PresenterVideo({ track }: { track: PresenterMediaTrack }) {
 export function LiveKitPresenterRoom({
   eventOccurrenceId,
   eventSessionId,
+  presenterRecordingNotice,
 }: {
   eventOccurrenceId: string;
   eventSessionId: string;
+  presenterRecordingNotice: string | null;
 }) {
   const headingId = useId();
   const [phase, setPhase] = useState<ConnectionPhase>("idle");
@@ -333,6 +335,12 @@ export function LiveKitPresenterRoom({
           </Button>
         ) : null}
       </div>
+
+      {presenterRecordingNotice ? (
+        <Alert color="blue" title="Recording notice">
+          {presenterRecordingNotice}
+        </Alert>
+      ) : null}
 
       {message && roomActive ? (
         <Alert color="red" role="alert">

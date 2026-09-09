@@ -310,6 +310,9 @@ export function EventOperationsVirtualSessions({
                     <LiveKitPresenterRoom
                       eventOccurrenceId={occurrenceId}
                       eventSessionId={virtualSession.eventSessionId}
+                      presenterRecordingNotice={
+                        virtualSession.presenterRecordingNotice
+                      }
                     />
                   </Suspense>
                 ) : null}

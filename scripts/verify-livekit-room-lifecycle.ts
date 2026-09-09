@@ -1515,15 +1515,21 @@ try {
   );
   assert.ok(administratorAccess?.isAssignedAdministrator);
   assert.equal(administratorAccess.isPlatformAdministrator, true);
+  const administratorVirtualSessions = await findEventVirtualSessionOperations(
+    ids.occurrence,
+    administratorAccess,
+    preparationTime,
+  );
   assert.deepEqual(
-    (
-      await findEventVirtualSessionOperations(
-        ids.occurrence,
-        administratorAccess,
-        preparationTime,
-      )
-    ).map((session) => session.eventSessionId),
+    administratorVirtualSessions.map((session) => session.eventSessionId),
     [ids.session, ids.raceSession, ids.failureSession],
+  );
+  assert.equal(
+    administratorVirtualSessions.find(
+      (session) => session.eventSessionId === ids.session,
+    )?.presenterRecordingNotice,
+    "This webinar is recorded.",
+    "The operations workspace must expose the immutable presenter notice before green-room entry",
   );
   const coordinatorAccess = await getEventOperationsAccess(
     coordinator,

@@ -102,7 +102,9 @@ function ScheduledEventsPage() {
           outcome.status === "conflict" &&
           outcome.reason === "livekit_policy_unavailable"
         ) {
-          setError("Use manual attendance before publishing.");
+          setError(
+            "The active LiveKit policy cannot support this session. Use manual attendance, shorten the session, or disable automatic recording before publishing, as applicable.",
+          );
           return;
         }
         setError(

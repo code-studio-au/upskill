@@ -556,6 +556,64 @@ for (const requiredRecordingAuditBoundary of [
       `The recording lifecycle is missing durable state or audit handling: ${requiredRecordingAuditBoundary}`,
     );
 }
+const virtualSessionOperationsBoundary = eventVirtualRoomServer.slice(
+  eventVirtualRoomServer.indexOf(
+    "export async function findEventVirtualSessionOperations",
+  ),
+  eventVirtualRoomServer.indexOf(
+    "export async function ensureEventVirtualRoomForStaff",
+  ),
+);
+for (const requiredPresenterNoticeBoundary of [
+  '"session.livekitRecordingMode"',
+  '"session.livekitPresenterRecordingNotice"',
+  "presenterRecordingNotice:",
+  'session.livekitRecordingMode === "automatic"',
+]) {
+  if (
+    !virtualSessionOperationsBoundary.includes(requiredPresenterNoticeBoundary)
+  )
+    failures.push(
+      `The operations workspace does not expose the immutable presenter recording notice: ${requiredPresenterNoticeBoundary}`,
+    );
+}
+const virtualSessionOperationsUi = fs.readFileSync(
+  path.join(
+    root,
+    "src/features/event-operations/EventOperationsVirtualSessions.tsx",
+  ),
+  "utf8",
+);
+const presenterRoomUi = fs.readFileSync(
+  path.join(root, "src/features/event-operations/LiveKitPresenterRoom.tsx"),
+  "utf8",
+);
+if (
+  !virtualSessionOperationsUi.includes("presenterRecordingNotice={") ||
+  !virtualSessionOperationsUi.includes(
+    "virtualSession.presenterRecordingNotice",
+  ) ||
+  !presenterRoomUi.includes('title="Recording notice"') ||
+  presenterRoomUi.indexOf('title="Recording notice"') >
+    presenterRoomUi.indexOf('phase === "idle" ? "Enter green room"')
+)
+  failures.push(
+    "The immutable presenter recording notice must remain visible before green-room credential issuance",
+  );
+const scheduledEventsUi = fs.readFileSync(
+  path.join(root, "src/routes/admin.events.scheduled.tsx"),
+  "utf8",
+);
+for (const requiredPublicationGuidance of [
+  "Use manual attendance",
+  "shorten the session",
+  "disable automatic recording",
+]) {
+  if (!scheduledEventsUi.includes(requiredPublicationGuidance))
+    failures.push(
+      `LiveKit publication guidance is missing an applicable policy correction: ${requiredPublicationGuidance}`,
+    );
+}
 const cloudRecordingProvider = fs.readFileSync(
   path.join(
     root,

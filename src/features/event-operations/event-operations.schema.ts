@@ -271,6 +271,7 @@ export interface EventOperationsWorkspace {
     eventSessionId: string;
     preparationOpensAt: string;
     canEnterGreenRoom: boolean;
+    presenterRecordingNotice: string | null;
     lobbyPath: string | null;
     room: {
       id: string;
