@@ -7,6 +7,7 @@ import {
   updateAdminEventOccurrence,
 } from "#/server/admin/admin-event-occurrence.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
 import {
   down as downProviderPolicy,
   up as upProviderPolicy,
@@ -636,9 +637,21 @@ try {
     await publishAdminEventOccurrence(
       created.eventOccurrenceId,
       administrator,
+      { approvedMaxParticipants: 25 },
+      null,
+    ),
+    "livekit-unavailable",
+    "Automatic recording must remain unpublished without an upload-authorized recording provider",
+  );
+  const recordingProvider = new FakeLiveKitRecordingProvider();
+  assert.equal(
+    await publishAdminEventOccurrence(
+      created.eventOccurrenceId,
+      administrator,
       {
         approvedMaxParticipants: 24,
       },
+      recordingProvider,
     ),
     "livekit-capacity-exceeded",
   );
@@ -649,6 +662,7 @@ try {
       {
         approvedMaxParticipants: 25,
       },
+      recordingProvider,
     ),
     "published",
     "Automatic recording with manual attendance must publish",

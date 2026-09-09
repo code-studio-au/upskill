@@ -34,6 +34,8 @@ import {
   getEnabledLiveKitConfiguration,
   type EnabledLiveKitConfiguration,
 } from "#/server/livekit/livekit-provider.server";
+import { createConfiguredLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-runtime.server";
+import type { LiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.server";
 import {
   addElapsedDuration,
   addElapsedMilliseconds,
@@ -1542,6 +1544,7 @@ export async function publishAdminEventOccurrence(
   eventOccurrenceId: string,
   administrator: AuthenticatedUser,
   liveKitConfiguration: LiveKitCapacityConfiguration | null = getEnabledLiveKitConfiguration(),
+  liveKitRecordingProvider: LiveKitRecordingProvider | null = createConfiguredLiveKitRecordingProvider(),
 ): Promise<
   | "published"
   | "not-found"
@@ -1626,6 +1629,12 @@ export async function publishAdminEventOccurrence(
               and sessions."livekitAttendanceMode" is distinct from 'manual')`.as(
             "liveKitUnsupportedAttendanceSessions",
           ),
+          sql<number>`(select count(*)::integer from event_session sessions
+            where sessions."eventOccurrenceId" = ${eventOccurrenceId}
+              and sessions."virtualDeliveryProvider" = 'livekit'
+              and sessions."livekitRecordingMode" = 'automatic')`.as(
+            "liveKitAutomaticRecordingSessions",
+          ),
           sql<number>`(select count(*)::integer from event_occurrence_domain
             where "eventOccurrenceId" = ${eventOccurrenceId})`.as("domains"),
         ])
@@ -1657,6 +1666,11 @@ export async function publishAdminEventOccurrence(
         if (coverage.liveKitUnsupportedAttendanceSessions > 0)
           return "livekit-policy-unavailable" as const;
         if (!liveKitConfiguration) return "livekit-unavailable" as const;
+        if (
+          coverage.liveKitAutomaticRecordingSessions > 0 &&
+          !liveKitRecordingProvider
+        )
+          return "livekit-unavailable" as const;
         if (
           occurrence.capacity + coverage.maximumLiveKitCapacityHeadroom >
           liveKitConfiguration.approvedMaxParticipants

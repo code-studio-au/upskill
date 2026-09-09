@@ -496,7 +496,7 @@ const recordingPreparationIndex = eventVirtualRoomServer.indexOf(
   "await recordingProvider.prepareRoomCompositeRecording",
 );
 const recordingDispatchFenceIndex = eventVirtualRoomServer.indexOf(
-  "dispatchStarted = await beginRecordingStartDispatch",
+  "const dispatchDecision = await beginRecordingStartDispatch",
 );
 const recordingProviderDispatchIndex = eventVirtualRoomServer.indexOf(
   "await preparedStart.dispatch()",
@@ -509,6 +509,48 @@ if (
   failures.push(
     "Recording upload authorization must complete before the durable fence and LiveKit dispatch",
   );
+const recordingDispatchBoundary = eventVirtualRoomServer.slice(
+  eventVirtualRoomServer.indexOf("async function beginRecordingStartDispatch"),
+  eventVirtualRoomServer.indexOf("async function failRecordingBeforeStart"),
+);
+for (const requiredDispatchRevalidation of [
+  'select(["doorState", "replacedAt"])',
+  '.select(["status", "requestedAt"])',
+  ".forUpdate()",
+  'room.doorState === "ended" || room.replacedAt',
+  'failureCode: "meeting_ended_before_recording_started"',
+]) {
+  if (!recordingDispatchBoundary.includes(requiredDispatchRevalidation))
+    failures.push(
+      `The recording dispatch fence is missing terminal-state revalidation: ${requiredDispatchRevalidation}`,
+    );
+}
+for (const requiredStopReconciliation of [
+  "const stopSnapshot =",
+  "await settleRecordingStop(claimed, stopSnapshot, now)",
+  'lastErrorCode: "recording_stop_pending"',
+]) {
+  if (!eventVirtualRoomServer.includes(requiredStopReconciliation))
+    failures.push(
+      `Recording stop completion is not durably reconciled: ${requiredStopReconciliation}`,
+    );
+}
+const adminEventOccurrenceServer = fs.readFileSync(
+  path.join(root, "src/server/admin/admin-event-occurrence.server.ts"),
+  "utf8",
+);
+for (const requiredRecordingPublicationBoundary of [
+  "createConfiguredLiveKitRecordingProvider()",
+  "liveKitAutomaticRecordingSessions",
+  "!liveKitRecordingProvider",
+]) {
+  if (
+    !adminEventOccurrenceServer.includes(requiredRecordingPublicationBoundary)
+  )
+    failures.push(
+      `Automatic recording publication is missing provider availability enforcement: ${requiredRecordingPublicationBoundary}`,
+    );
+}
 const adminEventTemplateServer = fs.readFileSync(
   path.join(root, "src/server/admin/admin-event-template.server.ts"),
   "utf8",

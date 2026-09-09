@@ -2414,17 +2414,82 @@ async function settleRecordingStart(
 async function beginRecordingStartDispatch(
   claimed: ClaimedOperation,
   now: Date,
-): Promise<boolean> {
-  const result = await getDatabase()
-    .updateTable("event_virtual_room_operation")
-    .set({ recordingStartDispatchedAt: now })
-    .where("id", "=", claimed.id)
-    .where("kind", "=", "start_recording")
-    .where("status", "=", "processing")
-    .where("attempts", "=", claimed.attempts)
-    .where("recordingStartDispatchedAt", "is", null)
-    .executeTakeFirst();
-  return result.numUpdatedRows === 1n;
+): Promise<"dispatch" | "settled" | "stale"> {
+  const recordingId = claimed.recordingId;
+  return getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const room = await transaction
+        .selectFrom("event_virtual_room")
+        .select(["doorState", "replacedAt"])
+        .where("id", "=", claimed.roomId)
+        .forUpdate()
+        .executeTakeFirst();
+      const recording = recordingId
+        ? await transaction
+            .selectFrom("event_virtual_recording")
+            .select(["status", "requestedAt"])
+            .where("id", "=", recordingId)
+            .where("roomId", "=", claimed.roomId)
+            .forUpdate()
+            .executeTakeFirst()
+        : undefined;
+      const operation = await transaction
+        .selectFrom("event_virtual_room_operation")
+        .select(["status", "attempts", "recordingStartDispatchedAt"])
+        .where("id", "=", claimed.id)
+        .where("kind", "=", "start_recording")
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        operation?.status !== "processing" ||
+        operation.attempts !== claimed.attempts ||
+        operation.recordingStartDispatchedAt
+      )
+        return "stale";
+      if (!room || !recording || recording.status !== "requested") {
+        await transaction
+          .updateTable("event_virtual_room_operation")
+          .set({
+            status: "succeeded",
+            leasedUntil: null,
+            completedAt: now,
+            lastErrorCode: null,
+          })
+          .where("id", "=", claimed.id)
+          .executeTakeFirstOrThrow();
+        return "settled";
+      }
+      if (room.doorState === "ended" || room.replacedAt) {
+        await transaction
+          .updateTable("event_virtual_recording")
+          .set({
+            status: "failed",
+            completedAt: laterDate(recording.requestedAt, now),
+            failureCode: "meeting_ended_before_recording_started",
+            updatedAt: laterDate(recording.requestedAt, now),
+          })
+          .where("id", "=", recordingId)
+          .executeTakeFirstOrThrow();
+        await transaction
+          .updateTable("event_virtual_room_operation")
+          .set({
+            status: "succeeded",
+            leasedUntil: null,
+            completedAt: now,
+            lastErrorCode: null,
+          })
+          .where("id", "=", claimed.id)
+          .executeTakeFirstOrThrow();
+        return "settled";
+      }
+      await transaction
+        .updateTable("event_virtual_room_operation")
+        .set({ recordingStartDispatchedAt: now })
+        .where("id", "=", claimed.id)
+        .executeTakeFirstOrThrow();
+      return "dispatch";
+    });
 }
 
 async function failRecordingBeforeStart(
@@ -2631,14 +2696,15 @@ async function executeRecordingStart(
         format: "mp4",
       },
     );
-    dispatchStarted = await beginRecordingStartDispatch(claimed, now);
-    if (!dispatchStarted)
+    const dispatchDecision = await beginRecordingStartDispatch(claimed, now);
+    if (dispatchDecision !== "dispatch")
       return {
-        status: "pending",
+        status: dispatchDecision === "settled" ? "processed" : "pending",
         operationId: claimed.id,
         roomId,
         kind: "start_recording",
       };
+    dispatchStarted = true;
     const snapshot = await preparedStart.dispatch();
     if (
       snapshot.roomName !== target.providerRoomName ||
@@ -2674,8 +2740,8 @@ async function settleRecordingStop(
   claimed: ClaimedOperation,
   snapshot: LiveKitRecordingSnapshot,
   now: Date,
-): Promise<void> {
-  await getDatabase()
+): Promise<"pending" | "settled" | "stale"> {
+  return getDatabase()
     .transaction()
     .execute(async (transaction) => {
       const operation = await transaction
@@ -2688,7 +2754,8 @@ async function settleRecordingStop(
         operation?.status !== "processing" ||
         operation.attempts !== claimed.attempts
       )
-        return;
+        return "stale";
+      let terminal = true;
       if (claimed.recordingId && claimed.requestedByUserId) {
         const recording = await transaction
           .selectFrom("event_virtual_recording")
@@ -2706,57 +2773,75 @@ async function settleRecordingStop(
           .forUpdate()
           .executeTakeFirst();
         if (recording) {
+          terminal = ["complete", "failed", "deleted"].includes(
+            recording.status,
+          );
           const stopRequestedByUserId =
             recording.stopRequestedByUserId ?? claimed.requestedByUserId;
           const stopRequestedAt =
             recording.stopRequestedAt ?? claimed.createdAt;
-          if (snapshot.status === "complete")
-            await transaction
-              .updateTable("event_virtual_recording")
-              .set({
-                ...completedRecordingEvidenceValues(recording, snapshot, now),
-                stopRequestedByUserId,
-                stopRequestedAt,
-              })
-              .where("id", "=", claimed.recordingId)
-              .executeTakeFirstOrThrow();
-          else if (snapshot.status === "failed")
-            await transaction
-              .updateTable("event_virtual_recording")
-              .set({
-                ...failedRecordingEvidenceValues(recording, snapshot, now),
-                stopRequestedByUserId,
-                stopRequestedAt,
-              })
-              .where("id", "=", claimed.recordingId)
-              .executeTakeFirstOrThrow();
-          else if (["starting", "active"].includes(recording.status))
-            await transaction
-              .updateTable("event_virtual_recording")
-              .set({
-                status: "stopping",
-                stopRequestedByUserId,
-                stopRequestedAt,
-                updatedAt: laterDate(
-                  recording.requestedAt,
-                  claimed.createdAt,
-                  now,
-                ),
-              })
-              .where("id", "=", claimed.recordingId)
-              .executeTakeFirstOrThrow();
+          if (!terminal) {
+            if (snapshot.status === "complete")
+              await transaction
+                .updateTable("event_virtual_recording")
+                .set({
+                  ...completedRecordingEvidenceValues(recording, snapshot, now),
+                  stopRequestedByUserId,
+                  stopRequestedAt,
+                })
+                .where("id", "=", claimed.recordingId)
+                .executeTakeFirstOrThrow();
+            else if (snapshot.status === "failed")
+              await transaction
+                .updateTable("event_virtual_recording")
+                .set({
+                  ...failedRecordingEvidenceValues(recording, snapshot, now),
+                  stopRequestedByUserId,
+                  stopRequestedAt,
+                })
+                .where("id", "=", claimed.recordingId)
+                .executeTakeFirstOrThrow();
+            else
+              await transaction
+                .updateTable("event_virtual_recording")
+                .set({
+                  status: "stopping",
+                  startedAt: recording.startedAt ?? snapshot.startedAt,
+                  stopRequestedByUserId,
+                  stopRequestedAt,
+                  updatedAt: laterDate(
+                    recording.requestedAt,
+                    claimed.createdAt,
+                    now,
+                  ),
+                })
+                .where("id", "=", claimed.recordingId)
+                .executeTakeFirstOrThrow();
+            terminal = ["complete", "failed"].includes(snapshot.status);
+          }
         }
       }
       await transaction
         .updateTable("event_virtual_room_operation")
-        .set({
-          status: "succeeded",
-          leasedUntil: null,
-          completedAt: now,
-          lastErrorCode: null,
-        })
+        .set(
+          terminal
+            ? {
+                status: "succeeded",
+                leasedUntil: null,
+                completedAt: now,
+                lastErrorCode: null,
+              }
+            : {
+                status: "pending",
+                availableAt: retryAt(claimed.attempts, now),
+                leasedUntil: null,
+                completedAt: null,
+                lastErrorCode: "recording_stop_pending",
+              },
+        )
         .where("id", "=", claimed.id)
         .executeTakeFirstOrThrow();
+      return terminal ? "settled" : "pending";
     });
 }
 
@@ -2859,15 +2944,22 @@ async function executeRecordingStop(
         kind: "stop_recording",
       };
     }
-    if (["starting", "active"].includes(exactSnapshot.status))
-      await recordingProvider.stopRoomCompositeRecording({
-        roomName: target.providerRoomName,
-        providerEgressId: target.providerEgressId,
-        storageObjectKey: target.storageObjectKey,
-      });
-    await settleRecordingStop(claimed, exactSnapshot, now);
+    const stopSnapshot = ["starting", "active"].includes(exactSnapshot.status)
+      ? await recordingProvider.stopRoomCompositeRecording({
+          roomName: target.providerRoomName,
+          providerEgressId: target.providerEgressId,
+          storageObjectKey: target.storageObjectKey,
+        })
+      : exactSnapshot;
+    if (
+      stopSnapshot.roomName !== target.providerRoomName ||
+      stopSnapshot.providerEgressId !== target.providerEgressId ||
+      stopSnapshot.storageObjectKey !== target.storageObjectKey
+    )
+      throw new LiveKitRecordingProviderError("stop_recording");
+    const settlement = await settleRecordingStop(claimed, stopSnapshot, now);
     return {
-      status: "processed",
+      status: settlement === "settled" ? "processed" : "pending",
       operationId: claimed.id,
       roomId,
       kind: "stop_recording",
