@@ -89,6 +89,10 @@ import {
   down as downRecordingStopOutcome,
   up as upRecordingStopOutcome,
 } from "#/server/db/migrations/0104_livekit_recording_stop_outcome";
+import {
+  down as downRecordingWebhookReceipts,
+  up as upRecordingWebhookReceipts,
+} from "#/server/db/migrations/0105_livekit_recording_webhook_receipts";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -116,6 +120,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downRecordingWebhookReceipts(database);
   await downRecordingStopOutcome(database);
   await downRecordingStopDispatch(database);
   await downRecordingLifecycleAudit(database);
@@ -266,6 +271,7 @@ try {
   await upRecordingLifecycleAudit(database);
   await upRecordingStopDispatch(database);
   await upRecordingStopOutcome(database);
+  await upRecordingWebhookReceipts(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -884,6 +890,7 @@ try {
       await upRecordingLifecycleAudit(database);
       await upRecordingStopDispatch(database);
       await upRecordingStopOutcome(database);
+      await upRecordingWebhookReceipts(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

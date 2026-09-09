@@ -81,6 +81,7 @@ try {
     "event_virtual_room",
     "event_virtual_room_operation",
     "event_virtual_recording",
+    "livekit_webhook_receipt",
     "event_virtual_presenter_credential_reservation",
     "event_virtual_join_access",
     "event_virtual_lobby_entry",
@@ -239,6 +240,7 @@ try {
     "event_virtual_join_session_active_idx",
     "event_virtual_recording_status_idx",
     "event_virtual_recording_retention_idx",
+    "livekit_webhook_receipt_processing_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -705,6 +707,42 @@ try {
     14,
     "LiveKit recording scope, immutable policy evidence and lifecycle state must be constrained",
   );
+  const liveKitWebhookReceiptConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'livekit_webhook_receipt_event_uq',
+          'livekit_webhook_receipt_recording_fk',
+          'livekit_webhook_receipt_provider_ck',
+          'livekit_webhook_receipt_identity_ck',
+          'livekit_webhook_receipt_match_ck',
+          'livekit_webhook_receipt_processing_ck',
+          'livekit_webhook_receipt_snapshot_ck',
+          'livekit_webhook_receipt_timeline_ck'
+        )`.execute(db);
+  assert.equal(
+    liveKitWebhookReceiptConstraints.rows.length,
+    8,
+    "LiveKit webhook identity, exact recording attachment and normalized evidence must be constrained",
+  );
+  const liveKitWebhookReceiptGuard = await sql<{
+    definition: string;
+  }>`select pg_get_triggerdef(oid) as definition
+      from pg_trigger
+      where tgname = 'livekit_webhook_receipt_guard_trg'
+        and not tgisinternal`.execute(db);
+  assert.equal(
+    liveKitWebhookReceiptGuard.rows.length,
+    1,
+    "LiveKit webhook receipt evidence must have one insert/update/delete guard",
+  );
+  const webhookReceiptGuardDefinition =
+    liveKitWebhookReceiptGuard.rows[0]?.definition.toUpperCase() ?? "";
+  assert.match(webhookReceiptGuardDefinition, /BEFORE/u);
+  assert.match(webhookReceiptGuardDefinition, /INSERT/u);
+  assert.match(webhookReceiptGuardDefinition, /UPDATE/u);
+  assert.match(webhookReceiptGuardDefinition, /DELETE/u);
   const liveKitRecordingGuard = await sql<{
     definition: string;
   }>`select pg_get_triggerdef(oid) as definition

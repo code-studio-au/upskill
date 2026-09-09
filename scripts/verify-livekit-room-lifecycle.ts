@@ -1,9 +1,21 @@
 import assert from "node:assert/strict";
 import { sql } from "kysely";
+import {
+  EgressInfo,
+  EgressStatus,
+  EncodedFileType,
+  FileOutput,
+  Output,
+  S3Upload,
+  StartEgressRequest,
+  StorageConfig,
+  TemplateSource,
+} from "livekit-server-sdk";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { removePlatformAdministrator } from "#/server/admin/admin-account.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { getServerEnv } from "#/server/env.server";
 import { getEventOperationsAccess } from "#/server/events/event-operations-access.server";
 import { transitionAdminEventOccurrence } from "#/server/admin/admin-event-operations.server";
 import {
@@ -19,6 +31,7 @@ import {
   type VirtualRoomRuntime,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
+import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
 import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
 import { eventVirtualPresenterIdentity } from "#/server/events/event-virtual-participant-identity.server";
 import {
@@ -86,6 +99,52 @@ const providerRecordingEndedAt = new Date("2030-09-04T00:02:00.000Z");
 const recoveredProviderRecordingStartedAt = new Date(
   "2030-09-04T00:31:30.000Z",
 );
+
+function recordingWebhookEgress(input: {
+  egressId: string;
+  roomName: string;
+  storageObjectKey: string;
+  bucket?: string;
+}): EgressInfo {
+  return new EgressInfo({
+    egressId: input.egressId,
+    roomName: input.roomName,
+    status: EgressStatus.EGRESS_ACTIVE,
+    startedAt:
+      BigInt(recoveredProviderRecordingStartedAt.getTime()) * 1_000_000n,
+    request: {
+      case: "egress",
+      value: new StartEgressRequest({
+        roomName: input.roomName,
+        source: {
+          case: "template",
+          value: new TemplateSource({ layout: "speaker" }),
+        },
+        outputs: [
+          new Output({
+            config: {
+              case: "file",
+              value: new FileOutput({
+                fileType: EncodedFileType.MP4,
+                filepath: input.storageObjectKey,
+                disableManifest: true,
+              }),
+            },
+          }),
+        ],
+        storage: new StorageConfig({
+          provider: {
+            case: "s3",
+            value: new S3Upload({
+              region: "ap-southeast-2",
+              bucket: input.bucket ?? "upskill-recordings",
+            }),
+          },
+        }),
+      }),
+    },
+  });
+}
 
 async function assertDatabaseConstraint(
   operation: () => Promise<unknown>,
@@ -2464,7 +2523,13 @@ try {
   );
   const recoveredRoom = await database
     .selectFrom("event_virtual_room")
-    .select(["id", "generation", "doorState", "providerStatus"])
+    .select([
+      "id",
+      "generation",
+      "doorState",
+      "providerStatus",
+      "providerRoomName",
+    ])
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
@@ -2511,6 +2576,176 @@ try {
     "An active StartEgress response must be persisted as active",
   );
   assert.ok(recoveredRecording.providerEgressId);
+  const recordingWebhookEvent = {
+    providerEnvironment: "test" as const,
+    providerEventId: "EV_VerifyRecordingUpdate1",
+    event: "egress_updated" as const,
+    createdAtSeconds: Math.floor(recoveredRecordingStartAt.getTime() / 1_000),
+    payloadDigest: "a".repeat(64),
+    roomName: recoveredRoom.providerRoomName,
+    egressId: recoveredRecording.providerEgressId,
+    egressInfo: recordingWebhookEgress({
+      egressId: recoveredRecording.providerEgressId,
+      roomName: recoveredRoom.providerRoomName,
+      storageObjectKey: recoveredRecording.storageObjectKey,
+    }),
+  };
+  const recordingWebhookReceivedAt = new Date(
+    recoveredRecordingStartAt.getTime() + 1,
+  );
+  const recordingWebhookEnvironment = {
+    ...getServerEnv(),
+    LIVEKIT_PROJECT_ENVIRONMENT: "test" as const,
+    AWS_REGION: "ap-southeast-2",
+    S3_RECORDING_BUCKET: "upskill-recordings",
+  };
+  const firstRecordingWebhook = await ingestVerifiedLiveKitRecordingWebhook(
+    recordingWebhookEvent,
+    database,
+    recordingWebhookEnvironment,
+    () => recordingWebhookReceivedAt,
+  );
+  assert.equal(firstRecordingWebhook.status, "pending");
+  assert.deepEqual(
+    await database
+      .selectFrom("livekit_webhook_receipt")
+      .select([
+        "processingState",
+        "matchedRecordingId",
+        "matchedRoomId",
+        "normalizedStatus",
+        "startedAt",
+        "endedAt",
+        "fileSizeBytes",
+        "durationNanoseconds",
+        "failureCode",
+      ])
+      .where("providerEnvironment", "=", "test")
+      .where("providerEventId", "=", recordingWebhookEvent.providerEventId)
+      .executeTakeFirstOrThrow(),
+    {
+      processingState: "pending",
+      matchedRecordingId: recoveredRecording.id,
+      matchedRoomId: recoveredRoom.id,
+      normalizedStatus: "active",
+      startedAt: recoveredProviderRecordingStartedAt,
+      endedAt: null,
+      fileSizeBytes: null,
+      durationNanoseconds: null,
+      failureCode: null,
+    },
+    "A signed Egress update must retain only normalized evidence for the exact recording target",
+  );
+  await assert.rejects(
+    database
+      .updateTable("livekit_webhook_receipt")
+      .set({ payloadDigest: "e".repeat(64) })
+      .where("providerEventId", "=", recordingWebhookEvent.providerEventId)
+      .execute(),
+    /Webhook receipt identity evidence is immutable/u,
+    "A valid replacement digest must not rewrite original receipt identity evidence",
+  );
+  await assert.rejects(
+    database
+      .updateTable("livekit_webhook_receipt")
+      .set({
+        startedAt: new Date(recoveredProviderRecordingStartedAt.getTime() + 1),
+      })
+      .where("providerEventId", "=", recordingWebhookEvent.providerEventId)
+      .execute(),
+    /Webhook receipt normalized evidence is immutable/u,
+    "A valid replacement snapshot must not rewrite normalized provider evidence",
+  );
+  await assert.rejects(
+    database
+      .updateTable("livekit_webhook_receipt")
+      .set({
+        processingState: "processed",
+        processingAttempts: 1,
+        lastAttemptAt: recordingWebhookReceivedAt,
+        processedAt: recordingWebhookReceivedAt,
+      })
+      .where("providerEventId", "=", recordingWebhookEvent.providerEventId)
+      .execute(),
+    /Webhook receipt claim transition is not allowed/u,
+    "Receipt processing must follow the constrained claim transition",
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRecordingWebhook(
+        recordingWebhookEvent,
+        database,
+        recordingWebhookEnvironment,
+        () => new Date(recordingWebhookReceivedAt.getTime() + 1),
+      )
+    ).status,
+    "duplicate",
+    "Provider redelivery must resolve through the stable event identity",
+  );
+  await assert.rejects(
+    ingestVerifiedLiveKitRecordingWebhook(
+      { ...recordingWebhookEvent, payloadDigest: "b".repeat(64) },
+      database,
+      recordingWebhookEnvironment,
+      () => new Date(recordingWebhookReceivedAt.getTime() + 2),
+    ),
+    /Webhook event identity was reused/u,
+    "A reused provider event identity must not hide different signed bytes",
+  );
+  const unmatchedWebhookEvent = {
+    ...recordingWebhookEvent,
+    providerEventId: "EV_VerifyRecordingUnmatched1",
+    payloadDigest: "c".repeat(64),
+    roomName: "external.room",
+    egressId: "EG_FOREIGN_1",
+    egressInfo: recordingWebhookEgress({
+      egressId: "EG_FOREIGN_1",
+      roomName: "external.room",
+      storageObjectKey: "recordings/foreign_session/1/foreign_recording.mp4",
+    }),
+  };
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRecordingWebhook(
+        unmatchedWebhookEvent,
+        database,
+        recordingWebhookEnvironment,
+        () => new Date(recordingWebhookReceivedAt.getTime() + 3),
+      )
+    ).status,
+    "unmatched",
+    "A valid foreign Egress receipt must be acknowledged without attaching it to application evidence",
+  );
+  const invalidTargetWebhookEvent = {
+    ...recordingWebhookEvent,
+    providerEventId: "EV_VerifyRecordingInvalidTarget1",
+    payloadDigest: "d".repeat(64),
+    egressInfo: recordingWebhookEgress({
+      egressId: recoveredRecording.providerEgressId,
+      roomName: recoveredRoom.providerRoomName,
+      storageObjectKey: recoveredRecording.storageObjectKey,
+      bucket: "foreign-recording-bucket",
+    }),
+  };
+  await assert.rejects(
+    ingestVerifiedLiveKitRecordingWebhook(
+      invalidTargetWebhookEvent,
+      database,
+      recordingWebhookEnvironment,
+      () => new Date(recordingWebhookReceivedAt.getTime() + 4),
+    ),
+    /fixed contract/u,
+    "A malformed exact-target receipt must roll back so LiveKit can retry it",
+  );
+  assert.equal(
+    await database
+      .selectFrom("livekit_webhook_receipt")
+      .select(({ fn }) => fn.countAll<string>().as("count"))
+      .where("providerEventId", "=", invalidTargetWebhookEvent.providerEventId)
+      .executeTakeFirstOrThrow()
+      .then((result) => Number(result.count)),
+    0,
+  );
   recordingProvider.rejectRoomListings();
   recordingProvider.loseNextStopResponse();
   const recoveredStopDispatchesBeforeEnd = recordingProvider.operations.filter(
@@ -3558,6 +3793,14 @@ try {
           ids.failureSession,
         ]),
     )
+    .execute();
+  await database
+    .deleteFrom("livekit_webhook_receipt")
+    .where("providerEventId", "in", [
+      "EV_VerifyRecordingUpdate1",
+      "EV_VerifyRecordingUnmatched1",
+      "EV_VerifyRecordingInvalidTarget1",
+    ])
     .execute();
   await database
     .deleteFrom("event_virtual_recording")
