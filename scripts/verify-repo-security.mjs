@@ -417,7 +417,7 @@ for (const requiredRecordingAuthorizationBoundary of [
   'import "@tanstack/react-start/server-only"',
   "new AssumeRoleCommand",
   'Action: "s3:PutObject"',
-  "MAXIMUM_CHAINED_STS_SESSION_SECONDS = 60 * 60",
+  "LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY",
   "parseLiveKitRecordingStorageObjectKey",
 ]) {
   if (
@@ -440,7 +440,7 @@ for (const requiredProductionRecordingAuthorizationBoundary of [
   "Permission: Permission.WRITE",
   "Privilege: Privilege.Minimal",
   "TargetType: S3PrefixType.Object",
-  "MAXIMUM_ACCESS_GRANTS_SESSION_SECONDS = 12 * 60 * 60",
+  "LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY",
   "response.MatchedGrantTarget !== target",
   "parseLiveKitRecordingStorageObjectKey",
 ]) {
@@ -462,12 +462,30 @@ const recordingDurationPolicy = fs.readFileSync(
 );
 for (const requiredRecordingDurationBoundary of [
   'import "@tanstack/react-start/server-only"',
-  "MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES = 11 * 60",
+  "maximumLifetimeMilliseconds: 60 * MINUTE_MILLISECONDS",
+  "finalizationReserveMilliseconds: 5 * MINUTE_MILLISECONDS",
+  "maximumLifetimeMilliseconds: 12 * 60 * MINUTE_MILLISECONDS",
+  "finalizationReserveMilliseconds: 60 * MINUTE_MILLISECONDS",
+  "recordingUploadAuthorizationExpiresAt",
   "supportsAutomaticRecordingDurations",
 ]) {
   if (!recordingDurationPolicy.includes(requiredRecordingDurationBoundary))
     failures.push(
       `The automatic recording duration boundary is missing: ${requiredRecordingDurationBoundary}`,
+    );
+}
+const eventVirtualRoomServer = fs.readFileSync(
+  path.join(root, "src/server/events/event-virtual-room.server.ts"),
+  "utf8",
+);
+for (const requiredRecordingDeadlineEnforcement of [
+  "recordingUploadAuthorizationExpiresAt",
+  "policy: recordingProvider.uploadAuthorizationPolicy",
+  '"upload_authorization_window_unsupported"',
+]) {
+  if (!eventVirtualRoomServer.includes(requiredRecordingDeadlineEnforcement))
+    failures.push(
+      `The recording upload deadline policy is not enforced: ${requiredRecordingDeadlineEnforcement}`,
     );
 }
 const adminEventTemplateServer = fs.readFileSync(

@@ -1,5 +1,6 @@
 import "@tanstack/react-start/server-only";
 
+import { LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY } from "./livekit-recording-duration-policy.server";
 import {
   LiveKitRecordingProviderError,
   parseLiveKitRecordingRoomName,
@@ -32,6 +33,8 @@ function cloneSnapshot(
 }
 
 export class FakeLiveKitRecordingProvider implements LiveKitRecordingProvider {
+  readonly uploadAuthorizationPolicy =
+    LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY;
   readonly operations: FakeLiveKitRecordingOperation[] = [];
   readonly recordings = new Map<string, LiveKitRecordingSnapshot>();
 

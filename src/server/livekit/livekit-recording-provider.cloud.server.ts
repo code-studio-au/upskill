@@ -13,6 +13,7 @@ import {
   type EgressInfo,
 } from "livekit-server-sdk";
 import { z } from "#/validation/zod.server";
+import type { LiveKitRecordingUploadAuthorizationPolicy } from "./livekit-recording-duration-policy.server";
 import {
   LiveKitRecordingProviderError,
   parseLiveKitRecordingRoomName,
@@ -63,6 +64,7 @@ export interface LiveKitRecordingUploadAuthorization {
 }
 
 export interface LiveKitRecordingUploadAuthorizer {
+  readonly uploadAuthorizationPolicy: LiveKitRecordingUploadAuthorizationPolicy;
   authorizeUpload(
     request: LiveKitRecordingUploadAuthorizationRequest,
   ): Promise<LiveKitRecordingUploadAuthorization>;
@@ -213,6 +215,7 @@ function recordingSnapshot(
 }
 
 export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
+  readonly uploadAuthorizationPolicy: LiveKitRecordingUploadAuthorizationPolicy;
   private readonly configuration: LiveKitCloudRecordingConfiguration;
   private readonly egress: LiveKitEgressClient;
 
@@ -223,6 +226,7 @@ export class LiveKitCloudRecordingProvider implements LiveKitRecordingProvider {
     private readonly now: () => Date = () => new Date(),
   ) {
     this.configuration = recordingConfigurationSchema.parse(configuration);
+    this.uploadAuthorizationPolicy = uploadAuthorizer.uploadAuthorizationPolicy;
     this.egress =
       egress ??
       new LiveKitAPI({

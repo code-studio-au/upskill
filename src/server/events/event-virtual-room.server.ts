@@ -17,6 +17,7 @@ import {
   type LiveKitProvider,
 } from "#/server/livekit/livekit-provider.server";
 import { createConfiguredLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-runtime.server";
+import { recordingUploadAuthorizationExpiresAt } from "#/server/livekit/livekit-recording-duration-policy.server";
 import {
   LiveKitRecordingProviderError,
   type LiveKitRecordingProvider,
@@ -2523,13 +2524,16 @@ async function executeRecordingStart(
     }
     const scheduledDuration =
       target.scheduledEndsAt.getTime() - target.scheduledStartsAt.getTime();
-    const uploadAuthorizationExpiresAt = new Date(
-      (target.startedAt ?? now).getTime() + scheduledDuration + 60 * 60_000,
-    );
-    if (scheduledDuration <= 0 || uploadAuthorizationExpiresAt <= now) {
+    const uploadAuthorizationExpiresAt = recordingUploadAuthorizationExpiresAt({
+      authorizationStartsAt: target.startedAt ?? now,
+      scheduledDurationMilliseconds: scheduledDuration,
+      checkedAt: now,
+      policy: recordingProvider.uploadAuthorizationPolicy,
+    });
+    if (!uploadAuthorizationExpiresAt) {
       await failRecordingBeforeStart(
         claimed,
-        "upload_authorization_window_elapsed",
+        "upload_authorization_window_unsupported",
         now,
       );
       return {

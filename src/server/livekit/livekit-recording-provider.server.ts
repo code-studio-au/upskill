@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { z } from "#/validation/zod.server";
+import type { LiveKitRecordingUploadAuthorizationPolicy } from "./livekit-recording-duration-policy.server";
 
 const roomNameSchema = z
   .string()
@@ -108,6 +109,7 @@ export type LiveKitRecordingSnapshot = z.infer<
 >;
 
 export interface LiveKitRecordingProvider {
+  readonly uploadAuthorizationPolicy: LiveKitRecordingUploadAuthorizationPolicy;
   startRoomCompositeRecording(
     input: StartLiveKitRoomCompositeRecordingInput,
   ): Promise<LiveKitRecordingSnapshot>;

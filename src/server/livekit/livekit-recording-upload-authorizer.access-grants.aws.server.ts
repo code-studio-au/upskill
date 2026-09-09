@@ -14,11 +14,14 @@ import {
   type LiveKitRecordingUploadAuthorizationRequest,
   type LiveKitRecordingUploadAuthorizer,
 } from "./livekit-recording-provider.cloud.server";
+import { LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY } from "./livekit-recording-duration-policy.server";
 import { parseLiveKitRecordingStorageObjectKey } from "./livekit-recording-provider.server";
 import { LiveKitRecordingUploadAuthorizationError } from "./livekit-recording-upload-authorizer.aws.server";
 
 const MINIMUM_ACCESS_GRANTS_SESSION_SECONDS = 15 * 60;
-export const MAXIMUM_ACCESS_GRANTS_SESSION_SECONDS = 12 * 60 * 60;
+export const MAXIMUM_ACCESS_GRANTS_SESSION_SECONDS =
+  LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY.maximumLifetimeMilliseconds /
+  1_000;
 
 const s3BucketSchema = z
   .string()
@@ -60,6 +63,8 @@ export interface S3AccessGrantsLiveKitRecordingUploadAuthorizerDependencies {
 }
 
 export class S3AccessGrantsLiveKitRecordingUploadAuthorizer implements LiveKitRecordingUploadAuthorizer {
+  readonly uploadAuthorizationPolicy =
+    LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY;
   private readonly configuration: z.infer<typeof configurationSchema>;
   private readonly now: () => Date;
   private readonly s3Control: LiveKitRecordingS3ControlClient;

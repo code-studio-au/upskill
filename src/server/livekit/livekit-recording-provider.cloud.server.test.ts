@@ -10,6 +10,7 @@ import {
   TemplateSource,
 } from "livekit-server-sdk";
 import { describe, expect, it, vi } from "vitest";
+import { LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY } from "./livekit-recording-duration-policy.server";
 import {
   LiveKitCloudRecordingProvider,
   type LiveKitRecordingUploadAuthorizer,
@@ -41,6 +42,8 @@ function uploadAuthorizer(
   expiresAt = new Date("2030-09-04T02:00:00.000Z"),
 ): LiveKitRecordingUploadAuthorizer {
   return {
+    uploadAuthorizationPolicy:
+      LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
     authorizeUpload: vi.fn().mockResolvedValue({
       accessKeyId: "temporary-access-key",
       secretAccessKey: "temporary-secret-key",
@@ -107,6 +110,8 @@ describe("LiveKit Cloud recording provider", () => {
     let request: StartEgressRequest | undefined;
     let authorizationRequest: unknown;
     const authorizer: LiveKitRecordingUploadAuthorizer = {
+      uploadAuthorizationPolicy:
+        LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
       authorizeUpload: (candidate) => {
         authorizationRequest = candidate;
         return Promise.resolve({

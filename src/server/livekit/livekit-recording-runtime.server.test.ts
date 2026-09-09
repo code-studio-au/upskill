@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ServerEnv } from "#/server/env.server";
+import {
+  LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
+  LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+} from "./livekit-recording-duration-policy.server";
 import { LiveKitCloudRecordingProvider } from "./livekit-recording-provider.cloud.server";
 import { createConfiguredLiveKitRecordingProvider } from "./livekit-recording-runtime.server";
 
@@ -38,22 +42,26 @@ describe("configured LiveKit recording runtime", () => {
   });
 
   it("selects role chaining locally and S3 Access Grants outside local environments", () => {
-    expect(
-      createConfiguredLiveKitRecordingProvider(
-        environment("development", {
-          LIVEKIT_RECORDING_UPLOAD_ROLE_ARN:
-            "arn:aws:iam::123456789012:role/upskill-development-recording-upload",
-        }),
-      ),
-    ).toBeInstanceOf(LiveKitCloudRecordingProvider);
-    expect(
-      createConfiguredLiveKitRecordingProvider(
-        environment("production", {
-          LIVEKIT_RECORDING_UPLOAD_ROLE_ARN:
-            "arn:aws:iam::123456789012:role/ignored-production-role",
-          LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID: "123456789012",
-        }),
-      ),
-    ).toBeInstanceOf(LiveKitCloudRecordingProvider);
+    const developmentProvider = createConfiguredLiveKitRecordingProvider(
+      environment("development", {
+        LIVEKIT_RECORDING_UPLOAD_ROLE_ARN:
+          "arn:aws:iam::123456789012:role/upskill-development-recording-upload",
+      }),
+    );
+    expect(developmentProvider).toBeInstanceOf(LiveKitCloudRecordingProvider);
+    expect(developmentProvider?.uploadAuthorizationPolicy).toEqual(
+      LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+    );
+    const productionProvider = createConfiguredLiveKitRecordingProvider(
+      environment("production", {
+        LIVEKIT_RECORDING_UPLOAD_ROLE_ARN:
+          "arn:aws:iam::123456789012:role/ignored-production-role",
+        LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID: "123456789012",
+      }),
+    );
+    expect(productionProvider).toBeInstanceOf(LiveKitCloudRecordingProvider);
+    expect(productionProvider?.uploadAuthorizationPolicy).toEqual(
+      LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
+    );
   });
 });
