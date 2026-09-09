@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
   LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
-  MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES,
+  maximumAutomaticRecordingSessionMinutes,
+  recordingUploadAuthorizationPolicyForEnvironment,
   recordingUploadAuthorizationExpiresAt,
   supportsAutomaticRecordingDurations,
 } from "./livekit-recording-duration-policy.server";
@@ -29,28 +30,47 @@ function draftWithSession(
 }
 
 describe("LiveKit recording duration policy", () => {
-  it("reserves one hour of the 12-hour credential lifetime for finalization", () => {
+  it("applies the active environment's authorization ceiling while authoring", () => {
+    const roleChainedPolicy =
+      recordingUploadAuthorizationPolicyForEnvironment("test");
+    const accessGrantsPolicy =
+      recordingUploadAuthorizationPolicyForEnvironment("production");
+    expect(maximumAutomaticRecordingSessionMinutes(roleChainedPolicy)).toBe(55);
+    expect(maximumAutomaticRecordingSessionMinutes(accessGrantsPolicy)).toBe(
+      660,
+    );
     expect(
       supportsAutomaticRecordingDurations(
-        draftWithSession(
-          MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES,
-          "automatic",
-        ),
+        draftWithSession(55, "automatic"),
+        roleChainedPolicy,
       ),
     ).toBe(true);
     expect(
       supportsAutomaticRecordingDurations(
-        draftWithSession(
-          MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES + 1,
-          "automatic",
-        ),
+        draftWithSession(56, "automatic"),
+        roleChainedPolicy,
+      ),
+    ).toBe(false);
+    expect(
+      supportsAutomaticRecordingDurations(
+        draftWithSession(660, "automatic"),
+        accessGrantsPolicy,
+      ),
+    ).toBe(true);
+    expect(
+      supportsAutomaticRecordingDurations(
+        draftWithSession(661, "automatic"),
+        accessGrantsPolicy,
       ),
     ).toBe(false);
   });
 
   it("does not reduce the duration limit for sessions that are not recorded", () => {
     expect(
-      supportsAutomaticRecordingDurations(draftWithSession(7 * 24 * 60, "off")),
+      supportsAutomaticRecordingDurations(
+        draftWithSession(7 * 24 * 60, "off"),
+        LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+      ),
     ).toBe(true);
   });
 
@@ -59,6 +79,7 @@ describe("LiveKit recording duration policy", () => {
       recordingUploadAuthorizationExpiresAt({
         authorizationStartsAt: NOW,
         scheduledDurationMilliseconds: 55 * 60 * 1_000,
+        scheduledEndsAt: new Date("2030-09-04T00:25:00.000Z"),
         checkedAt: NOW,
         policy: LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
       }),
@@ -67,18 +88,55 @@ describe("LiveKit recording duration policy", () => {
       recordingUploadAuthorizationExpiresAt({
         authorizationStartsAt: NOW,
         scheduledDurationMilliseconds: 55 * 60 * 1_000 + 1,
+        scheduledEndsAt: new Date("2030-09-04T00:25:00.000Z"),
         checkedAt: NOW,
         policy: LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
       }),
     ).toBeNull();
   });
 
-  it("reserves one hour within the twelve-hour Access Grants ceiling", () => {
+  it("covers an early start through the scheduled end and provider reserve", () => {
     expect(
       recordingUploadAuthorizationExpiresAt({
         authorizationStartsAt: NOW,
-        scheduledDurationMilliseconds:
-          MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES * 60 * 1_000,
+        scheduledDurationMilliseconds: 25 * 60 * 1_000,
+        scheduledEndsAt: new Date("2030-09-04T00:25:00.000Z"),
+        checkedAt: NOW,
+        policy: LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+      }),
+    ).toEqual(new Date("2030-09-04T00:30:00.000Z"));
+    expect(
+      recordingUploadAuthorizationExpiresAt({
+        authorizationStartsAt: NOW,
+        scheduledDurationMilliseconds: 55 * 60 * 1_000,
+        scheduledEndsAt: new Date("2030-09-04T00:55:00.000Z"),
+        checkedAt: NOW,
+        policy: LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+      }),
+    ).toBeNull();
+  });
+
+  it("extends a late start for the full scheduled duration and reserve", () => {
+    expect(
+      recordingUploadAuthorizationExpiresAt({
+        authorizationStartsAt: new Date("2030-09-04T00:05:00.000Z"),
+        scheduledDurationMilliseconds: 25 * 60 * 1_000,
+        scheduledEndsAt: new Date("2030-09-04T00:25:00.000Z"),
+        checkedAt: new Date("2030-09-04T00:05:00.000Z"),
+        policy: LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY,
+      }),
+    ).toEqual(new Date("2030-09-04T00:35:00.000Z"));
+  });
+
+  it("reserves one hour within the twelve-hour Access Grants ceiling", () => {
+    const maximumSessionMinutes = maximumAutomaticRecordingSessionMinutes(
+      LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
+    );
+    expect(
+      recordingUploadAuthorizationExpiresAt({
+        authorizationStartsAt: NOW,
+        scheduledDurationMilliseconds: maximumSessionMinutes * 60 * 1_000,
+        scheduledEndsAt: new Date("2030-09-04T10:30:00.000Z"),
         checkedAt: NOW,
         policy: LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY,
       }),

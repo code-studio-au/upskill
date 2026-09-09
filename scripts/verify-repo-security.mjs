@@ -466,7 +466,10 @@ for (const requiredRecordingDurationBoundary of [
   "finalizationReserveMilliseconds: 5 * MINUTE_MILLISECONDS",
   "maximumLifetimeMilliseconds: 12 * 60 * MINUTE_MILLISECONDS",
   "finalizationReserveMilliseconds: 60 * MINUTE_MILLISECONDS",
+  "recordingUploadAuthorizationPolicyForEnvironment",
+  "maximumAutomaticRecordingSessionMinutes",
   "recordingUploadAuthorizationExpiresAt",
+  "scheduledEndsAt",
   "supportsAutomaticRecordingDurations",
 ]) {
   if (!recordingDurationPolicy.includes(requiredRecordingDurationBoundary))
@@ -493,7 +496,9 @@ const adminEventTemplateServer = fs.readFileSync(
   "utf8",
 );
 for (const requiredRecordingDurationEnforcement of [
-  'if (!supportsAutomaticRecordingDurations(draft)) return "conflict"',
+  "recordingUploadAuthorizationPolicyForEnvironment(getServerEnv().APP_ENV)",
+  "supportsAutomaticRecordingDurations(draft, recordingAuthorizationPolicy)",
+  "maximumAutomaticRecordingSessionMinutes",
   "sessions.\"livekitRecordingMode\" = 'automatic'",
   "structure.unsupportedAutomaticRecordings > 0",
 ]) {

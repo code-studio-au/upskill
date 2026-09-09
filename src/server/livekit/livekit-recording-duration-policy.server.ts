@@ -1,5 +1,7 @@
 import "@tanstack/react-start/server-only";
 
+import type { ServerEnv } from "#/server/env.server";
+
 const MINUTE_MILLISECONDS = 60 * 1_000;
 
 export interface LiveKitRecordingUploadAuthorizationPolicy {
@@ -17,22 +19,47 @@ export const LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY = {
   finalizationReserveMilliseconds: 60 * MINUTE_MILLISECONDS,
 } as const satisfies LiveKitRecordingUploadAuthorizationPolicy;
 
-export const MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES =
-  (LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY.maximumLifetimeMilliseconds -
-    LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY.finalizationReserveMilliseconds) /
-  MINUTE_MILLISECONDS;
+export function usesRoleChainedRecordingUploadAuthorization(
+  appEnvironment: ServerEnv["APP_ENV"],
+): boolean {
+  return appEnvironment === "development" || appEnvironment === "test";
+}
+
+export function recordingUploadAuthorizationPolicyForEnvironment(
+  appEnvironment: ServerEnv["APP_ENV"],
+): LiveKitRecordingUploadAuthorizationPolicy {
+  return usesRoleChainedRecordingUploadAuthorization(appEnvironment)
+    ? LIVEKIT_ROLE_CHAINED_RECORDING_AUTHORIZATION_POLICY
+    : LIVEKIT_ACCESS_GRANTS_RECORDING_AUTHORIZATION_POLICY;
+}
+
+export function maximumAutomaticRecordingSessionMinutes(
+  policy: LiveKitRecordingUploadAuthorizationPolicy,
+): number {
+  return (
+    (policy.maximumLifetimeMilliseconds -
+      policy.finalizationReserveMilliseconds) /
+    MINUTE_MILLISECONDS
+  );
+}
 
 export function recordingUploadAuthorizationExpiresAt(input: {
   authorizationStartsAt: Date;
   scheduledDurationMilliseconds: number;
+  scheduledEndsAt: Date;
   checkedAt: Date;
   policy: LiveKitRecordingUploadAuthorizationPolicy;
 }): Date | null {
   if (input.scheduledDurationMilliseconds <= 0) return null;
-  const expiresAt = new Date(
+  const actualDurationExpiresAt =
     input.authorizationStartsAt.getTime() +
-      input.scheduledDurationMilliseconds +
-      input.policy.finalizationReserveMilliseconds,
+    input.scheduledDurationMilliseconds +
+    input.policy.finalizationReserveMilliseconds;
+  const scheduledCoverageExpiresAt =
+    input.scheduledEndsAt.getTime() +
+    input.policy.finalizationReserveMilliseconds;
+  const expiresAt = new Date(
+    Math.max(actualDurationExpiresAt, scheduledCoverageExpiresAt),
   );
   const requiredLifetimeMilliseconds =
     expiresAt.getTime() - input.checkedAt.getTime();
@@ -54,14 +81,16 @@ type RecordingDurationPolicyDraft = {
 
 export function supportsAutomaticRecordingDurations(
   draft: RecordingDurationPolicyDraft,
+  policy: LiveKitRecordingUploadAuthorizationPolicy,
 ): boolean {
+  const maximumSessionMinutes = maximumAutomaticRecordingSessionMinutes(policy);
   return draft.sections.every((section) =>
     section.items.every(
       (item) =>
         item.kind !== "session" ||
         item.liveKitPolicy?.recordingMode !== "automatic" ||
         (typeof item.durationMinutes === "number" &&
-          item.durationMinutes <= MAXIMUM_AUTOMATIC_RECORDING_SESSION_MINUTES),
+          item.durationMinutes <= maximumSessionMinutes),
     ),
   );
 }

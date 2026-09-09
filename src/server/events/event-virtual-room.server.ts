@@ -2605,6 +2605,7 @@ async function executeRecordingStart(
     const uploadAuthorizationExpiresAt = recordingUploadAuthorizationExpiresAt({
       authorizationStartsAt: target.startedAt ?? now,
       scheduledDurationMilliseconds: scheduledDuration,
+      scheduledEndsAt: target.scheduledEndsAt,
       checkedAt: now,
       policy: recordingProvider.uploadAuthorizationPolicy,
     });

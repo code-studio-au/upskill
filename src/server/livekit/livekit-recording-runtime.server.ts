@@ -13,6 +13,7 @@ import {
 import type { LiveKitRecordingProvider } from "./livekit-recording-provider.server";
 import { S3AccessGrantsLiveKitRecordingUploadAuthorizer } from "./livekit-recording-upload-authorizer.access-grants.aws.server";
 import { AwsLiveKitRecordingUploadAuthorizer } from "./livekit-recording-upload-authorizer.aws.server";
+import { usesRoleChainedRecordingUploadAuthorization } from "./livekit-recording-duration-policy.server";
 
 function recordingConfiguration(
   environment: ServerEnv,
@@ -30,7 +31,7 @@ function recordingConfiguration(
 function uploadAuthorizer(
   environment: ServerEnv,
 ): LiveKitRecordingUploadAuthorizer | null {
-  if (environment.APP_ENV === "development" || environment.APP_ENV === "test") {
+  if (usesRoleChainedRecordingUploadAuthorization(environment.APP_ENV)) {
     if (!environment.LIVEKIT_RECORDING_UPLOAD_ROLE_ARN) return null;
     return new AwsLiveKitRecordingUploadAuthorizer({
       bucket: environment.S3_RECORDING_BUCKET,
