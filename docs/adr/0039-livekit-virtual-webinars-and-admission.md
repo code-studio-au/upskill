@@ -1018,6 +1018,9 @@ starts one managed RoomComposite Egress job idempotently. It records the webinar
 layout to MP4 and stops when the meeting ends. An authorised administrator has
 an audited emergency stop; pause, restart, multiple layouts, individual-track
 recording, transcription, and AI summaries are outside the initial slice.
+The durable stop-dispatch fence is one-shot: a reclaimed worker reconciles the
+exact Egress instead of issuing another provider stop or replacing the original
+dispatch time.
 
 The recording is written to an opaque, session-generation-specific prefix in a
 private Upskill S3 bucket. The plan-compatible development path has the

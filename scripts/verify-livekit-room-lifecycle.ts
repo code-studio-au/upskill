@@ -2933,6 +2933,7 @@ try {
   const naturalEndedAt = new Date("2030-09-03T23:46:00.000Z");
   const naturalStopRequestedAt = new Date("2030-09-03T23:46:30.000Z");
   const naturalReconciledAt = new Date("2030-09-03T23:47:00.000Z");
+  const naturalCompletedAt = new Date(naturalReconciledAt.getTime() + 60_001);
   await database
     .insertInto("event_virtual_recording")
     .values({
@@ -2970,14 +2971,10 @@ try {
       providerEgressId: naturalProviderEgressId,
       roomName: failingRoom.providerRoomName,
       storageObjectKey: naturalStorageObjectKey,
-      status: "complete",
+      status: "active",
       startedAt: naturalStartedAt,
-      endedAt: naturalEndedAt,
-      output: {
-        storageObjectKey: naturalStorageObjectKey,
-        fileSizeBytes: 1_024n,
-        durationNanoseconds: 60_000_000_000n,
-      },
+      endedAt: null,
+      output: null,
       failureCode: null,
     }),
   );
@@ -2996,12 +2993,13 @@ try {
       recordingStopDispatchedAt: naturalStopRequestedAt,
       recordingStopOutcomeUnknownAt: null,
       deduplicationKey: `event_virtual_room:${failingRoom.id}:stop_recording:${naturalRecordingId}`,
-      status: "pending",
+      status: "processing",
       availableAt: naturalStopRequestedAt,
-      leasedUntil: null,
-      lastAttemptAt: null,
+      leasedUntil: new Date(naturalReconciledAt.getTime() - 1),
+      lastAttemptAt: naturalStopRequestedAt,
       completedAt: null,
       lastErrorCode: null,
+      attempts: 1,
       requestedByUserId: administrator.id,
       createdAt: naturalStopRequestedAt,
     })
@@ -3020,14 +3018,64 @@ try {
       kind: outcome.kind,
       status: outcome.status,
     })),
-    [{ kind: "stop_recording", status: "processed" }],
+    [{ kind: "stop_recording", status: "retry" }],
   );
   assert.equal(
     recordingProvider.operations.filter(
       (operation) => operation.operation === "stop_recording",
     ).length,
     stopDispatchesBeforeNaturalCompletion,
-    "A naturally completed Egress must not receive a redundant stop command",
+    "A lease-reclaimed stop with an existing dispatch fence must not issue a second provider command",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select([
+        "status",
+        "lastErrorCode",
+        "recordingStopDispatchedAt",
+        "recordingStopOutcomeUnknownAt",
+      ])
+      .where("roomId", "=", failingRoom.id)
+      .where("kind", "=", "stop_recording")
+      .executeTakeFirstOrThrow(),
+    {
+      status: "pending",
+      lastErrorCode: "recording_stop_dispatch_pending",
+      recordingStopDispatchedAt: naturalStopRequestedAt,
+      recordingStopOutcomeUnknownAt: null,
+    },
+    "A lease-reclaimed stop must retain its original one-shot dispatch fence while exact reconciliation remains pending",
+  );
+  recordingProvider.recordings.set(
+    naturalProviderEgressId,
+    parseLiveKitRecordingSnapshot({
+      providerEgressId: naturalProviderEgressId,
+      roomName: failingRoom.providerRoomName,
+      storageObjectKey: naturalStorageObjectKey,
+      status: "complete",
+      startedAt: naturalStartedAt,
+      endedAt: naturalEndedAt,
+      output: {
+        storageObjectKey: naturalStorageObjectKey,
+        fileSizeBytes: 1_024n,
+        durationNanoseconds: 60_000_000_000n,
+      },
+      failureCode: null,
+    }),
+  );
+  assert.deepEqual(
+    (
+      await processAvailableEventVirtualRoomOperations(1, {
+        runtime: recordingRuntime,
+        now: naturalCompletedAt,
+      })
+    ).outcomes.map((outcome) => ({
+      kind: outcome.kind,
+      status: outcome.status,
+    })),
+    [{ kind: "stop_recording", status: "processed" }],
+    "A fenced stop must settle once exact provider evidence becomes terminal",
   );
   assert.equal(
     (
@@ -3051,7 +3099,7 @@ try {
     {
       status: "complete",
       stopRequestedAt: naturalStopRequestedAt,
-      completedAt: naturalReconciledAt,
+      completedAt: naturalCompletedAt,
     },
     "Natural provider completion must still settle exact terminal evidence",
   );

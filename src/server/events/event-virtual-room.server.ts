@@ -3373,7 +3373,12 @@ async function beginRecordingStopDispatch(
     .execute(async (transaction) => {
       const operation = await transaction
         .selectFrom("event_virtual_room_operation")
-        .select(["status", "attempts", "recordingStopOutcomeUnknownAt"])
+        .select([
+          "status",
+          "attempts",
+          "recordingStopDispatchedAt",
+          "recordingStopOutcomeUnknownAt",
+        ])
         .where("id", "=", claimed.id)
         .where("kind", "=", "stop_recording")
         .forUpdate()
@@ -3381,6 +3386,7 @@ async function beginRecordingStopDispatch(
       if (
         operation?.status !== "processing" ||
         operation.attempts !== claimed.attempts ||
+        operation.recordingStopDispatchedAt ||
         operation.recordingStopOutcomeUnknownAt
       )
         return null;
@@ -3479,10 +3485,12 @@ async function executeRecordingStop(
       ? claimed.recordingStopDispatchedAt
       : null;
     if (stopRequired) {
-      if (claimed.recordingStopOutcomeUnknownAt) {
+      if (claimed.recordingStopDispatchedAt) {
         await retryRoomOperation(
           claimed,
-          "recording_stop_outcome_unknown",
+          claimed.recordingStopOutcomeUnknownAt
+            ? "recording_stop_outcome_unknown"
+            : "recording_stop_dispatch_pending",
           now,
           false,
         );
