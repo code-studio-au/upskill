@@ -726,6 +726,23 @@ try {
     8,
     "LiveKit webhook identity, exact recording attachment and normalized evidence must be constrained",
   );
+  const liveKitWebhookReceiptGuard = await sql<{
+    definition: string;
+  }>`select pg_get_triggerdef(oid) as definition
+      from pg_trigger
+      where tgname = 'livekit_webhook_receipt_guard_trg'
+        and not tgisinternal`.execute(db);
+  assert.equal(
+    liveKitWebhookReceiptGuard.rows.length,
+    1,
+    "LiveKit webhook receipt evidence must have one insert/update/delete guard",
+  );
+  const webhookReceiptGuardDefinition =
+    liveKitWebhookReceiptGuard.rows[0]?.definition.toUpperCase() ?? "";
+  assert.match(webhookReceiptGuardDefinition, /BEFORE/u);
+  assert.match(webhookReceiptGuardDefinition, /INSERT/u);
+  assert.match(webhookReceiptGuardDefinition, /UPDATE/u);
+  assert.match(webhookReceiptGuardDefinition, /DELETE/u);
   const liveKitRecordingGuard = await sql<{
     definition: string;
   }>`select pg_get_triggerdef(oid) as definition

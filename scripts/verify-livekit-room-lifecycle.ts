@@ -2636,6 +2636,40 @@ try {
     },
     "A signed Egress update must retain only normalized evidence for the exact recording target",
   );
+  await assert.rejects(
+    database
+      .updateTable("livekit_webhook_receipt")
+      .set({ payloadDigest: "e".repeat(64) })
+      .where("providerEventId", "=", recordingWebhookEvent.providerEventId)
+      .execute(),
+    /Webhook receipt identity evidence is immutable/u,
+    "A valid replacement digest must not rewrite original receipt identity evidence",
+  );
+  await assert.rejects(
+    database
+      .updateTable("livekit_webhook_receipt")
+      .set({
+        startedAt: new Date(recoveredProviderRecordingStartedAt.getTime() + 1),
+      })
+      .where("providerEventId", "=", recordingWebhookEvent.providerEventId)
+      .execute(),
+    /Webhook receipt normalized evidence is immutable/u,
+    "A valid replacement snapshot must not rewrite normalized provider evidence",
+  );
+  await assert.rejects(
+    database
+      .updateTable("livekit_webhook_receipt")
+      .set({
+        processingState: "processed",
+        processingAttempts: 1,
+        lastAttemptAt: recordingWebhookReceivedAt,
+        processedAt: recordingWebhookReceivedAt,
+      })
+      .where("providerEventId", "=", recordingWebhookEvent.providerEventId)
+      .execute(),
+    /Webhook receipt claim transition is not allowed/u,
+    "Receipt processing must follow the constrained claim transition",
+  );
   assert.equal(
     (
       await ingestVerifiedLiveKitRecordingWebhook(
@@ -2662,11 +2696,11 @@ try {
     ...recordingWebhookEvent,
     providerEventId: "EV_VerifyRecordingUnmatched1",
     payloadDigest: "c".repeat(64),
-    roomName: "foreign_room_generation_1",
+    roomName: "external.room",
     egressId: "EG_FOREIGN_1",
     egressInfo: recordingWebhookEgress({
       egressId: "EG_FOREIGN_1",
-      roomName: "foreign_room_generation_1",
+      roomName: "external.room",
       storageObjectKey: "recordings/foreign_session/1/foreign_recording.mp4",
     }),
   };

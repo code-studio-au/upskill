@@ -52,6 +52,7 @@ try {
        revoke update, delete on table audit_event from ${role};
        grant select, insert on table audit_event to ${role};
        revoke delete on table event_virtual_recording from ${role};
+       revoke delete on table livekit_webhook_receipt from ${role};
        revoke all on table kysely_migration, kysely_migration_lock from ${role};`,
     );
   }

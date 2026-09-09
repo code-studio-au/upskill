@@ -848,6 +848,13 @@ const liveKitRecordingWebhook = fs.readFileSync(
   path.join(root, "src/server/livekit/livekit-recording-webhook.server.ts"),
   "utf8",
 );
+const liveKitRecordingWebhookMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0105_livekit_recording_webhook_receipts.ts",
+  ),
+  "utf8",
+);
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
   'insertInto("livekit_webhook_receipt")',
@@ -863,6 +870,15 @@ if (liveKitRecordingWebhook.includes("rawBody"))
   failures.push(
     "LiveKit recording receipts must not retain raw webhook bodies",
   );
+for (const boundary of [
+  "guard_livekit_webhook_receipt_evidence",
+  "Webhook receipt identity evidence is immutable",
+  "Webhook receipt normalized evidence is immutable",
+  "livekit_webhook_receipt_guard_trg",
+  "revoke delete on table livekit_webhook_receipt",
+])
+  if (!liveKitRecordingWebhookMigration.includes(boundary))
+    failures.push(`LiveKit receipt evidence guard is missing: ${boundary}`);
 for (const boundary of [
   '"application/webhook+json"',
   "request.arrayBuffer()",
@@ -980,6 +996,14 @@ if (
 )
   failures.push(
     "Runtime database roles must not physically delete LiveKit recording evidence",
+  );
+if (
+  !provisionRuntimeRoles.includes(
+    "revoke delete on table livekit_webhook_receipt from ${role}",
+  )
+)
+  failures.push(
+    "Runtime database roles must not physically delete LiveKit webhook receipts",
   );
 if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
   failures.push(

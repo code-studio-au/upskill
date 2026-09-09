@@ -51,8 +51,7 @@ function webhookPayload(event = "participant_joined"): Buffer {
   );
 }
 
-function egressWebhookPayload(): Buffer {
-  const roomName = "room_generation_1";
+function egressWebhookPayload(roomName = "room_generation_1"): Buffer {
   const egressInfo = new EgressInfo({
     egressId: "EG_recording_1",
     roomName,
@@ -124,7 +123,7 @@ describe("LiveKit webhook verification", () => {
   });
 
   it("returns verified Egress information only after signature validation", async () => {
-    const payload = egressWebhookPayload();
+    const payload = egressWebhookPayload("external.room");
     await expect(
       verifyLiveKitWebhook(payload, await sign(payload), enabledEnvironment),
     ).resolves.toMatchObject({
@@ -132,11 +131,11 @@ describe("LiveKit webhook verification", () => {
       providerEventId: "EV_EgressUpdate1",
       event: "egress_updated",
       payloadDigest: createHash("sha256").update(payload).digest("hex"),
-      roomName: "room_generation_1",
+      roomName: "external.room",
       egressId: "EG_recording_1",
       egressInfo: {
         egressId: "EG_recording_1",
-        roomName: "room_generation_1",
+        roomName: "external.room",
         status: EgressStatus.EGRESS_ACTIVE,
       },
     });
