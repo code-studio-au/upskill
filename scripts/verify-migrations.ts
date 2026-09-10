@@ -241,6 +241,7 @@ try {
     "event_virtual_recording_status_idx",
     "event_virtual_recording_retention_idx",
     "livekit_webhook_receipt_processing_idx",
+    "livekit_webhook_receipt_recording_attention_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;

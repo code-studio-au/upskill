@@ -7,6 +7,7 @@ import { consumeNextWorkMessage } from "#/server/scorm/scorm-ingestion-consumer.
 import { processAvailableEventVirtualRoomOperations } from "#/server/events/event-virtual-room.server";
 import { processAvailableEventVirtualRecoveryDeliveries } from "#/server/events/event-virtual-recovery-delivery.server";
 import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
+import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
@@ -25,6 +26,7 @@ try {
     const {
       schedules,
       virtualRooms,
+      liveKitRecordingReceipts,
       virtualLobbyEligibilityRevocations,
       virtualRecoveryDeliveries,
       dispatch,
@@ -32,6 +34,7 @@ try {
     } = await runScormWorkerIteration({
       processAvailableEventCommunicationSchedules,
       processAvailableEventVirtualRoomOperations,
+      processAvailableLiveKitRecordingReceipts,
       processAvailableEventVirtualLobbyEligibilityRevocations,
       processAvailableEventVirtualRecoveryDeliveries,
       dispatchAvailableOutboxEvents,
@@ -75,6 +78,19 @@ try {
           kind: outcome.kind,
         },
       });
+    for (const outcome of liveKitRecordingReceipts.outcomes)
+      logServerEvent({
+        level: outcome.status === "failed" ? "warn" : "info",
+        event: "worker.livekit_recording_receipt_processed",
+        fields: {
+          status: outcome.status,
+          receiptId: outcome.receiptId,
+          recordingId: outcome.recordingId,
+          ...(outcome.status === "failed"
+            ? { reasonCode: outcome.reasonCode }
+            : {}),
+        },
+      });
     for (const outcome of virtualLobbyEligibilityRevocations.outcomes)
       logServerEvent({
         level: "info",
@@ -116,6 +132,7 @@ try {
     if (
       schedules.outcomes.length === 0 &&
       virtualRooms.outcomes.length === 0 &&
+      liveKitRecordingReceipts.outcomes.length === 0 &&
       virtualLobbyEligibilityRevocations.outcomes.length === 0 &&
       virtualRecoveryDeliveries.outcomes.length === 0 &&
       dispatch.outcomes.length === 0 &&

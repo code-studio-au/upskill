@@ -192,6 +192,7 @@ const LOBBY_QUEUE_PAGE_SIZE = 50;
 async function findRecordingOperationsByRoom(
   database: DatabaseConnection,
   roomIds: string[],
+  observedAt = new Date(),
 ): Promise<Map<string, EventVirtualRecordingOperationsState>> {
   if (!roomIds.length) return new Map();
   const rows = await database
@@ -207,21 +208,50 @@ async function findRecordingOperationsByRoom(
       "recording.status",
       "operation.id as retryingOperationId",
     ])
+    .select((expression) => [
+      expression
+        .exists(
+          expression
+            .selectFrom("livekit_webhook_receipt as receipt")
+            .select("receipt.id")
+            .whereRef("receipt.matchedRecordingId", "=", "recording.id")
+            .where("receipt.processingState", "=", "failed"),
+        )
+        .as("hasFailedReceipt"),
+      expression
+        .exists(
+          expression
+            .selectFrom("livekit_webhook_receipt as receipt")
+            .select("receipt.id")
+            .whereRef("receipt.matchedRecordingId", "=", "recording.id")
+            .where("receipt.processingState", "in", ["pending", "processing"])
+            .where(
+              "receipt.receivedAt",
+              "<",
+              new Date(observedAt.getTime() - 2 * 60_000),
+            ),
+        )
+        .as("hasDelayedReceipt"),
+    ])
     .where("recording.roomId", "in", roomIds)
     .execute();
   const states = new Map<string, EventVirtualRecordingOperationsState>();
   for (const row of rows) {
     const current = states.get(row.roomId);
     const retrying =
-      Boolean(row.retryingOperationId) || Boolean(current?.warning);
+      Boolean(row.retryingOperationId) ||
+      row.hasDelayedReceipt ||
+      Boolean(current?.warning);
     states.set(row.roomId, {
       status: row.status,
       warning:
         row.status === "failed"
           ? "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session."
-          : retrying
-            ? "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists."
-            : null,
+          : row.hasFailedReceipt
+            ? "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session."
+            : retrying
+              ? "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists."
+              : null,
     });
   }
   return states;
@@ -1307,6 +1337,7 @@ export async function findEventVirtualSessionOperations(
   const recordingByRoom = await findRecordingOperationsByRoom(
     database,
     rooms.map((room) => room.id),
+    now,
   );
   const joinAccess = await database
     .selectFrom("event_virtual_join_access")

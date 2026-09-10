@@ -16,6 +16,10 @@ describe("runScormWorkerIteration", () => {
         outcomes: [],
         limitReached: false,
       }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
       processAvailableEventVirtualLobbyEligibilityRevocations: vi
         .fn()
         .mockResolvedValue({ outcomes: [], limitReached: false }),
@@ -46,6 +50,10 @@ describe("runScormWorkerIteration", () => {
         limitReached: false,
       }),
       processAvailableEventVirtualRoomOperations: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
       }),
@@ -82,6 +90,10 @@ describe("runScormWorkerIteration", () => {
         limitReached: false,
       }),
       processAvailableEventVirtualRoomOperations: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
       }),
@@ -122,6 +134,10 @@ describe("runScormWorkerIteration", () => {
         ],
         limitReached: false,
       }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
       processAvailableEventVirtualLobbyEligibilityRevocations: vi
         .fn()
         .mockResolvedValue({ outcomes: [], limitReached: false }),
@@ -149,6 +165,10 @@ describe("runScormWorkerIteration", () => {
         limitReached: false,
       }),
       processAvailableEventVirtualRoomOperations: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
       }),
@@ -185,6 +205,10 @@ describe("runScormWorkerIteration", () => {
         outcomes: [],
         limitReached: false,
       }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
       processAvailableEventVirtualLobbyEligibilityRevocations: vi
         .fn()
         .mockResolvedValue({ outcomes: [], limitReached: false }),
@@ -201,6 +225,96 @@ describe("runScormWorkerIteration", () => {
       consumeNextWorkMessage,
     });
 
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
+  });
+
+  it("applies recording receipts before provider reconciliation and keeps queue polling non-blocking", async () => {
+    const order: string[] = [];
+    const consumeNextWorkMessage = vi
+      .fn()
+      .mockResolvedValue({ status: "no-work" });
+
+    await runScormWorkerIteration({
+      processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableLiveKitRecordingReceipts: vi.fn(() => {
+        order.push("receipt");
+        return Promise.resolve({
+          outcomes: [
+            {
+              status: "processed" as const,
+              receiptId: "receipt_1",
+              recordingId: "recording_1",
+            },
+          ],
+          limitReached: false,
+        });
+      }),
+      processAvailableEventVirtualRoomOperations: vi.fn(() => {
+        order.push("provider");
+        return Promise.resolve({ outcomes: [], limitReached: false });
+      }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      consumeNextWorkMessage,
+    });
+
+    expect(order).toEqual(["receipt", "provider"]);
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
+  });
+
+  it("defers provider reconciliation while the recording receipt batch is full", async () => {
+    const processAvailableEventVirtualRoomOperations = vi
+      .fn()
+      .mockResolvedValue({ outcomes: [], limitReached: false });
+    const consumeNextWorkMessage = vi
+      .fn()
+      .mockResolvedValue({ status: "no-work" });
+
+    const outcome = await runScormWorkerIteration({
+      processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
+        outcomes: [
+          {
+            status: "processed" as const,
+            receiptId: "receipt_1",
+            recordingId: "recording_1",
+          },
+        ],
+        limitReached: true,
+      }),
+      processAvailableEventVirtualRoomOperations,
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      consumeNextWorkMessage,
+    });
+
+    expect(processAvailableEventVirtualRoomOperations).not.toHaveBeenCalled();
+    expect(outcome.virtualRooms).toEqual({
+      outcomes: [],
+      limitReached: false,
+    });
     expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
   });
 });
