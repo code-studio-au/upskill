@@ -107,18 +107,23 @@ function recordingWebhookEgress(input: {
   storageObjectKey: string;
   bucket?: string;
   status?: EgressStatus;
-  startedAt?: Date;
+  startedAt?: Date | null;
   endedAt?: Date;
   fileSizeBytes?: bigint;
   durationNanoseconds?: bigint;
 }): EgressInfo {
   const status = input.status ?? EgressStatus.EGRESS_ACTIVE;
-  const startedAt = input.startedAt ?? recoveredProviderRecordingStartedAt;
+  const startedAt =
+    input.startedAt === null
+      ? null
+      : (input.startedAt ?? recoveredProviderRecordingStartedAt);
   return new EgressInfo({
     egressId: input.egressId,
     roomName: input.roomName,
     status,
-    startedAt: BigInt(startedAt.getTime()) * 1_000_000n,
+    ...(startedAt
+      ? { startedAt: BigInt(startedAt.getTime()) * 1_000_000n }
+      : {}),
     ...(input.endedAt
       ? { endedAt: BigInt(input.endedAt.getTime()) * 1_000_000n }
       : {}),
@@ -1646,6 +1651,264 @@ try {
   await database
     .deleteFrom("event_virtual_recording")
     .where("id", "=", receiptRecordingId)
+    .executeTakeFirstOrThrow();
+  const invalidTimelineRecordingId =
+    "verify_livekit_receipt_invalid_timeline_recording";
+  const invalidTimelineProviderEgressId = "EG_RECEIPT_INVALID_TIMELINE";
+  const invalidTimelineRequestedAt = new Date("2030-10-04T00:50:00.000Z");
+  const invalidTimelineStartedAt = new Date("2030-10-04T00:51:00.000Z");
+  const invalidTimelineEndedAt = new Date("2030-10-04T00:50:30.000Z");
+  const invalidTimelineReceivedAt = new Date("2030-10-04T00:52:00.000Z");
+  await database
+    .insertInto("event_virtual_recording")
+    .values({
+      ...recordingValues,
+      id: invalidTimelineRecordingId,
+      storageObjectKey: "recordings/opaque_room/receipt_invalid_timeline.mp4",
+      requestedAt: invalidTimelineRequestedAt,
+      updatedAt: invalidTimelineRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "starting",
+      providerEgressId: invalidTimelineProviderEgressId,
+      updatedAt: new Date(invalidTimelineRequestedAt.getTime() + 1),
+    })
+    .where("id", "=", invalidTimelineRecordingId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "active",
+      startedAt: invalidTimelineStartedAt,
+      updatedAt: invalidTimelineStartedAt,
+    })
+    .where("id", "=", invalidTimelineRecordingId)
+    .executeTakeFirstOrThrow();
+  const invalidTimelineReceipt = await ingestVerifiedLiveKitRecordingWebhook(
+    {
+      providerEnvironment: "test",
+      providerEventId: "EV_VerifyRecordingReceiptInvalidTimeline1",
+      event: "egress_ended",
+      createdAtSeconds: Math.floor(invalidTimelineEndedAt.getTime() / 1_000),
+      payloadDigest: "d".repeat(64),
+      roomName: room.providerRoomName,
+      egressId: invalidTimelineProviderEgressId,
+      egressInfo: recordingWebhookEgress({
+        egressId: invalidTimelineProviderEgressId,
+        roomName: room.providerRoomName,
+        storageObjectKey: "recordings/opaque_room/receipt_invalid_timeline.mp4",
+        status: EgressStatus.EGRESS_FAILED,
+        startedAt: null,
+        endedAt: invalidTimelineEndedAt,
+      }),
+    },
+    database,
+    receiptApplicationEnvironment,
+    () => invalidTimelineReceivedAt,
+  );
+  assert.equal(invalidTimelineReceipt.status, "pending");
+  assert.deepEqual(
+    await processAvailableLiveKitRecordingReceipts(10, {
+      now: new Date(invalidTimelineReceivedAt.getTime() + 1),
+    }),
+    {
+      outcomes: [
+        {
+          status: "failed",
+          receiptId: invalidTimelineReceipt.receiptId,
+          recordingId: invalidTimelineRecordingId,
+          reasonCode: "recording_receipt_timeline_invalid",
+        },
+      ],
+      limitReached: false,
+    },
+    "A failed receipt ending before durable start evidence must become a bounded conflict instead of aborting the worker",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "startedAt", "endedAt", "failureCode"])
+      .where("id", "=", invalidTimelineRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "active",
+      startedAt: invalidTimelineStartedAt,
+      endedAt: null,
+      failureCode: null,
+    },
+    "Invalid cross-source receipt timing must not mutate recording evidence",
+  );
+  await database
+    .deleteFrom("livekit_webhook_receipt")
+    .where("matchedRecordingId", "=", invalidTimelineRecordingId)
+    .execute();
+  await database
+    .deleteFrom("event_virtual_recording")
+    .where("id", "=", invalidTimelineRecordingId)
+    .executeTakeFirstOrThrow();
+
+  const concurrentStopRecordingId =
+    "verify_livekit_receipt_concurrent_stop_recording";
+  const concurrentStopProviderEgressId = "EG_RECEIPT_CONCURRENT_STOP";
+  const concurrentStopStorageObjectKey =
+    "recordings/opaque_room/receipt_concurrent_stop.mp4";
+  const concurrentStopRequestedAt = new Date("2030-10-04T01:00:00.000Z");
+  const concurrentStopStartedAt = new Date("2030-10-04T01:01:00.000Z");
+  const concurrentStopOperationAt = new Date("2030-10-04T01:02:00.000Z");
+  const concurrentStopEndedAt = new Date("2030-10-04T01:03:00.000Z");
+  const concurrentStopReceivedAt = new Date("2030-10-04T01:04:00.000Z");
+  await database
+    .insertInto("event_virtual_recording")
+    .values({
+      ...recordingValues,
+      id: concurrentStopRecordingId,
+      storageObjectKey: concurrentStopStorageObjectKey,
+      requestedAt: concurrentStopRequestedAt,
+      updatedAt: concurrentStopRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  const concurrentStopReceipt = await ingestVerifiedLiveKitRecordingWebhook(
+    {
+      providerEnvironment: "test",
+      providerEventId: "EV_VerifyRecordingReceiptConcurrentStop1",
+      event: "egress_ended",
+      createdAtSeconds: Math.floor(concurrentStopEndedAt.getTime() / 1_000),
+      payloadDigest: "9".repeat(64),
+      roomName: room.providerRoomName,
+      egressId: concurrentStopProviderEgressId,
+      egressInfo: recordingWebhookEgress({
+        egressId: concurrentStopProviderEgressId,
+        roomName: room.providerRoomName,
+        storageObjectKey: concurrentStopStorageObjectKey,
+        status: EgressStatus.EGRESS_COMPLETE,
+        startedAt: concurrentStopStartedAt,
+        endedAt: concurrentStopEndedAt,
+        fileSizeBytes: 4_096n,
+        durationNanoseconds: 120_000_000_000n,
+      }),
+    },
+    database,
+    receiptApplicationEnvironment,
+    () => concurrentStopReceivedAt,
+  );
+  assert.equal(concurrentStopReceipt.status, "pending");
+  let signalStopInserted!: () => void;
+  const stopInserted = new Promise<void>((resolve) => {
+    signalStopInserted = resolve;
+  });
+  let releaseStopTransaction!: () => void;
+  const stopTransactionReleased = new Promise<void>((resolve) => {
+    releaseStopTransaction = resolve;
+  });
+  const concurrentStopTransaction = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_virtual_recording")
+        .select("id")
+        .where("id", "=", concurrentStopRecordingId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      await transaction
+        .insertInto("event_virtual_room_operation")
+        .values({
+          id: "verify_livekit_receipt_concurrent_stop_operation",
+          roomId: room.id,
+          kind: "stop_recording",
+          targetKey: concurrentStopRecordingId,
+          recordingId: concurrentStopRecordingId,
+          lobbyEntryId: null,
+          presenterUserId: null,
+          participantIdentity: null,
+          removalEnforcedUntil: null,
+          recordingStartDispatchedAt: null,
+          recordingStopDispatchedAt: null,
+          recordingStopOutcomeUnknownAt: null,
+          deduplicationKey: `event_virtual_room:${room.id}:stop_recording:${concurrentStopRecordingId}`,
+          status: "pending",
+          attempts: 0,
+          availableAt: concurrentStopOperationAt,
+          leasedUntil: null,
+          lastAttemptAt: null,
+          completedAt: null,
+          lastErrorCode: null,
+          requestedByUserId: administrator.id,
+          createdAt: concurrentStopOperationAt,
+        })
+        .executeTakeFirstOrThrow();
+      signalStopInserted();
+      await stopTransactionReleased;
+    });
+  await stopInserted;
+  const concurrentReceiptProcessing = processAvailableLiveKitRecordingReceipts(
+    10,
+    {
+      now: new Date(concurrentStopReceivedAt.getTime() + 1),
+    },
+  );
+  let receiptConsumerWaitedForRecording = false;
+  try {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const waiting = await sql<{ blocked: boolean }>`select exists (
+        select 1
+        from pg_stat_activity
+        where datname = current_database()
+          and pid <> pg_backend_pid()
+          and "wait_event_type" = 'Lock'
+          and query like '%event_virtual_recording%'
+      ) as blocked`.execute(database);
+      if (waiting.rows[0]?.blocked) {
+        receiptConsumerWaitedForRecording = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  } finally {
+    releaseStopTransaction();
+  }
+  await concurrentStopTransaction;
+  assert.equal(
+    receiptConsumerWaitedForRecording,
+    true,
+    "The receipt consumer must observe the concurrent stop transaction after its initial operation snapshot",
+  );
+  assert.deepEqual(await concurrentReceiptProcessing, {
+    outcomes: [
+      {
+        status: "processed",
+        receiptId: concurrentStopReceipt.receiptId,
+        recordingId: concurrentStopRecordingId,
+      },
+    ],
+    limitReached: false,
+  });
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "stopRequestedByUserId", "stopRequestedAt"])
+      .where("id", "=", concurrentStopRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "complete",
+      stopRequestedByUserId: administrator.id,
+      stopRequestedAt: concurrentStopOperationAt,
+    },
+    "A stop operation committed while the receipt waits on the recording lock must retain its actor and time",
+  );
+  await database
+    .deleteFrom("event_virtual_room_operation")
+    .where("recordingId", "=", concurrentStopRecordingId)
+    .execute();
+  await database
+    .deleteFrom("livekit_webhook_receipt")
+    .where("matchedRecordingId", "=", concurrentStopRecordingId)
+    .execute();
+  await database
+    .deleteFrom("event_virtual_recording")
+    .where("id", "=", concurrentStopRecordingId)
     .executeTakeFirstOrThrow();
   await database
     .updateTable("event_virtual_room")

@@ -183,6 +183,7 @@ function receiptConflict(
   recording: Recording,
   receipt: RecordingReceipt,
 ): string | null {
+  const effectiveStartedAt = recording.startedAt ?? receipt.startedAt;
   if (isTerminalRecording(recording.status) && !recording.providerEgressId)
     return "recording_receipt_identity_conflict";
   if (
@@ -198,7 +199,10 @@ function receiptConflict(
     return "recording_receipt_evidence_conflict";
   if (
     (receipt.startedAt && receipt.startedAt < recording.requestedAt) ||
-    (receipt.endedAt && receipt.endedAt < recording.requestedAt)
+    (receipt.endedAt && receipt.endedAt < recording.requestedAt) ||
+    (receipt.endedAt &&
+      effectiveStartedAt &&
+      receipt.endedAt < effectiveStartedAt)
   )
     return "recording_receipt_timeline_invalid";
   return terminalReceiptConflict(recording, receipt);
@@ -552,9 +556,19 @@ async function processNextLiveKitRecordingReceipt(
         });
       const terminal = isTerminalRecording(recording.status);
       if (!terminal) {
-        const stopOperation = operations.find(
-          (operation) => operation.kind === "stop_recording",
-        );
+        const stopOperation = await transaction
+          .selectFrom("event_virtual_room_operation")
+          .select([
+            "id",
+            "kind",
+            "requestedByUserId",
+            "createdAt",
+            "recordingStopDispatchedAt",
+          ])
+          .where("roomId", "=", receipt.matchedRoomId)
+          .where("recordingId", "=", receipt.matchedRecordingId)
+          .where("kind", "=", "stop_recording")
+          .executeTakeFirst();
         if (
           receipt.normalizedStatus === "complete" ||
           receipt.normalizedStatus === "failed"
