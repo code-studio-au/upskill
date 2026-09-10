@@ -44,8 +44,9 @@ export async function runScormWorkerIteration(
     dependencies.processAvailableEventVirtualLobbyEligibilityRevocations(),
     dependencies.processAvailableEventVirtualRecoveryDeliveries(),
   ]);
-  const virtualRooms =
-    await dependencies.processAvailableEventVirtualRoomOperations();
+  const virtualRooms = liveKitRecordingReceipts.limitReached
+    ? { outcomes: [], limitReached: false }
+    : await dependencies.processAvailableEventVirtualRoomOperations();
   const dispatch = await dependencies.dispatchAvailableOutboxEvents();
   const consumption = await dependencies.consumeNextWorkMessage(
     schedules.outcomes.length > 0 ||

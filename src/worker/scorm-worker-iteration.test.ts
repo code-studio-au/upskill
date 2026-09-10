@@ -272,4 +272,49 @@ describe("runScormWorkerIteration", () => {
     expect(order).toEqual(["receipt", "provider"]);
     expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
   });
+
+  it("defers provider reconciliation while the recording receipt batch is full", async () => {
+    const processAvailableEventVirtualRoomOperations = vi
+      .fn()
+      .mockResolvedValue({ outcomes: [], limitReached: false });
+    const consumeNextWorkMessage = vi
+      .fn()
+      .mockResolvedValue({ status: "no-work" });
+
+    const outcome = await runScormWorkerIteration({
+      processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
+        outcomes: [
+          {
+            status: "processed" as const,
+            receiptId: "receipt_1",
+            recordingId: "recording_1",
+          },
+        ],
+        limitReached: true,
+      }),
+      processAvailableEventVirtualRoomOperations,
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      consumeNextWorkMessage,
+    });
+
+    expect(processAvailableEventVirtualRoomOperations).not.toHaveBeenCalled();
+    expect(outcome.virtualRooms).toEqual({
+      outcomes: [],
+      limitReached: false,
+    });
+    expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
+  });
 });

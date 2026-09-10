@@ -894,6 +894,9 @@ for (const boundary of [
   'processingState: "processed"',
   'processingState: "failed"',
   "recording_receipt_identity_conflict",
+  "terminalReceiptConflict",
+  "recording.fileSizeBytes !== receipt.fileSizeBytes",
+  "recording.durationNanoseconds !== receipt.durationNanoseconds",
   'evidenceSource: "livekit_webhook"',
   "RECEIPT_MAXIMUM_ATTEMPTS",
 ])
@@ -909,6 +912,14 @@ for (const relative of [
       .includes("processAvailableLiveKitRecordingReceipts")
   )
     failures.push(`LiveKit receipt processing is not scheduled by ${relative}`);
+const workerIteration = fs.readFileSync(
+  path.join(root, "src/worker/scorm-worker-iteration.ts"),
+  "utf8",
+);
+if (!workerIteration.includes("liveKitRecordingReceipts.limitReached"))
+  failures.push(
+    "LiveKit provider reconciliation must wait while the receipt batch is full",
+  );
 for (const boundary of [
   '"application/webhook+json"',
   "request.arrayBuffer()",

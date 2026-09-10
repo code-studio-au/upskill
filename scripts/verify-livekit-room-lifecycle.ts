@@ -1500,6 +1500,119 @@ try {
     ],
     "Terminal webhook evidence must settle redundant provider reconciliation work",
   );
+  const repeatedReceiptReceivedAt = new Date(receiptReceivedAt.getTime() + 2);
+  const conflictingOutputReceiptReceivedAt = new Date(
+    receiptReceivedAt.getTime() + 3,
+  );
+  const conflictingStatusReceiptReceivedAt = new Date(
+    receiptReceivedAt.getTime() + 4,
+  );
+  const repeatedReceipt = await ingestVerifiedLiveKitRecordingWebhook(
+    {
+      ...completedReceiptEvent,
+      providerEventId: "EV_VerifyRecordingReceiptRepeat1",
+      payloadDigest: "a".repeat(64),
+    },
+    database,
+    receiptApplicationEnvironment,
+    () => repeatedReceiptReceivedAt,
+  );
+  assert.equal(repeatedReceipt.status, "pending");
+  const conflictingOutputReceipt = await ingestVerifiedLiveKitRecordingWebhook(
+    {
+      ...completedReceiptEvent,
+      providerEventId: "EV_VerifyRecordingReceiptOutputConflict1",
+      payloadDigest: "b".repeat(64),
+      egressInfo: recordingWebhookEgress({
+        egressId: receiptProviderEgressId,
+        roomName: room.providerRoomName,
+        storageObjectKey: receiptStorageObjectKey,
+        status: EgressStatus.EGRESS_COMPLETE,
+        startedAt: receiptStartedAt,
+        endedAt: new Date(receiptEndedAt.getTime() + 1_000),
+        fileSizeBytes: 8_193n,
+        durationNanoseconds: 241_000_000_000n,
+      }),
+    },
+    database,
+    receiptApplicationEnvironment,
+    () => conflictingOutputReceiptReceivedAt,
+  );
+  assert.equal(conflictingOutputReceipt.status, "pending");
+  const conflictingStatusReceipt = await ingestVerifiedLiveKitRecordingWebhook(
+    {
+      ...completedReceiptEvent,
+      providerEventId: "EV_VerifyRecordingReceiptStatusConflict1",
+      payloadDigest: "c".repeat(64),
+      egressInfo: recordingWebhookEgress({
+        egressId: receiptProviderEgressId,
+        roomName: room.providerRoomName,
+        storageObjectKey: receiptStorageObjectKey,
+        status: EgressStatus.EGRESS_FAILED,
+        startedAt: receiptStartedAt,
+        endedAt: receiptEndedAt,
+      }),
+    },
+    database,
+    receiptApplicationEnvironment,
+    () => conflictingStatusReceiptReceivedAt,
+  );
+  assert.equal(conflictingStatusReceipt.status, "pending");
+  const terminalReceiptReviewAt = new Date(
+    conflictingStatusReceiptReceivedAt.getTime() + 1,
+  );
+  assert.deepEqual(
+    (
+      await processAvailableLiveKitRecordingReceipts(10, {
+        now: terminalReceiptReviewAt,
+      })
+    ).outcomes,
+    [
+      {
+        status: "processed",
+        receiptId: repeatedReceipt.receiptId,
+        recordingId: receiptRecordingId,
+      },
+      {
+        status: "failed",
+        receiptId: conflictingOutputReceipt.receiptId,
+        recordingId: receiptRecordingId,
+        reasonCode: "recording_receipt_evidence_conflict",
+      },
+      {
+        status: "failed",
+        receiptId: conflictingStatusReceipt.receiptId,
+        recordingId: receiptRecordingId,
+        reasonCode: "recording_receipt_evidence_conflict",
+      },
+    ],
+    "Repeated terminal evidence must be idempotent while contradictory status or output is retained for review",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select([
+        "status",
+        "providerEgressId",
+        "startedAt",
+        "endedAt",
+        "fileSizeBytes",
+        "durationNanoseconds",
+        "failureCode",
+      ])
+      .where("id", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "complete",
+      providerEgressId: receiptProviderEgressId,
+      startedAt: receiptStartedAt,
+      endedAt: receiptEndedAt,
+      fileSizeBytes: "8192",
+      durationNanoseconds: "240000000000",
+      failureCode: null,
+    },
+    "Contradictory terminal receipts must not rewrite durable recording evidence",
+  );
   assert.deepEqual(
     (
       await findEventVirtualSessionOperations(

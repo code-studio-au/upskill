@@ -54,6 +54,41 @@ function isTerminalRecording(status: Recording["status"]): boolean {
   return status === "complete" || status === "failed" || status === "deleted";
 }
 
+function datesMatch(left: Date | null, right: Date | null): boolean {
+  return left?.getTime() === right?.getTime();
+}
+
+function terminalReceiptConflict(
+  recording: Recording,
+  receipt: RecordingReceipt,
+): string | null {
+  if (!isTerminalRecording(recording.status)) return null;
+  if (
+    receipt.normalizedStatus !== "complete" &&
+    receipt.normalizedStatus !== "failed"
+  )
+    return null;
+  if (recording.status === "complete" || recording.status === "deleted") {
+    if (
+      receipt.normalizedStatus !== "complete" ||
+      !datesMatch(recording.startedAt, receipt.startedAt) ||
+      !datesMatch(recording.endedAt, receipt.endedAt) ||
+      recording.fileSizeBytes !== receipt.fileSizeBytes ||
+      recording.durationNanoseconds !== receipt.durationNanoseconds
+    )
+      return "recording_receipt_evidence_conflict";
+    return null;
+  }
+  if (
+    receipt.normalizedStatus !== "failed" ||
+    !datesMatch(recording.startedAt, receipt.startedAt) ||
+    !datesMatch(recording.endedAt, receipt.endedAt) ||
+    recording.failureCode !== receipt.failureCode
+  )
+    return "recording_receipt_evidence_conflict";
+  return null;
+}
+
 function claimTime(receipt: RecordingReceipt, now: Date): Date {
   return new Date(
     Math.max(
@@ -166,7 +201,7 @@ function receiptConflict(
     (receipt.endedAt && receipt.endedAt < recording.requestedAt)
   )
     return "recording_receipt_timeline_invalid";
-  return null;
+  return terminalReceiptConflict(recording, receipt);
 }
 
 function stopEvidence(
