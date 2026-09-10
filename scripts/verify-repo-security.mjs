@@ -895,6 +895,7 @@ for (const boundary of [
   'processingState: "failed"',
   "recording_receipt_identity_conflict",
   "effectiveStartedAt",
+  "datesContradict",
   "terminalReceiptConflict",
   "const stopOperation = await transaction",
   "recording.fileSizeBytes !== receipt.fileSizeBytes",

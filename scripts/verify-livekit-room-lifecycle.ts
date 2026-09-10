@@ -1745,6 +1745,96 @@ try {
     .deleteFrom("livekit_webhook_receipt")
     .where("matchedRecordingId", "=", invalidTimelineRecordingId)
     .execute();
+  const partialFailureEndedAt = new Date("2030-10-04T00:51:30.000Z");
+  const partialFailureReceivedAt = new Date("2030-10-04T00:53:00.000Z");
+  const partialFailureEvent = {
+    providerEnvironment: "test" as const,
+    providerEventId: "EV_VerifyRecordingReceiptPartialFailure1",
+    event: "egress_ended" as const,
+    createdAtSeconds: Math.floor(partialFailureEndedAt.getTime() / 1_000),
+    payloadDigest: "7".repeat(64),
+    roomName: room.providerRoomName,
+    egressId: invalidTimelineProviderEgressId,
+    egressInfo: recordingWebhookEgress({
+      egressId: invalidTimelineProviderEgressId,
+      roomName: room.providerRoomName,
+      storageObjectKey: "recordings/opaque_room/receipt_invalid_timeline.mp4",
+      status: EgressStatus.EGRESS_FAILED,
+      startedAt: null,
+      endedAt: partialFailureEndedAt,
+    }),
+  };
+  const partialFailureReceipt = await ingestVerifiedLiveKitRecordingWebhook(
+    partialFailureEvent,
+    database,
+    receiptApplicationEnvironment,
+    () => partialFailureReceivedAt,
+  );
+  assert.equal(partialFailureReceipt.status, "pending");
+  assert.deepEqual(
+    await processAvailableLiveKitRecordingReceipts(10, {
+      now: new Date(partialFailureReceivedAt.getTime() + 1),
+    }),
+    {
+      outcomes: [
+        {
+          status: "processed",
+          receiptId: partialFailureReceipt.receiptId,
+          recordingId: invalidTimelineRecordingId,
+        },
+      ],
+      limitReached: false,
+    },
+    "A partial failed receipt must preserve previously recorded start evidence",
+  );
+  const partialFailureReplayReceivedAt = new Date(
+    partialFailureReceivedAt.getTime() + 2,
+  );
+  const partialFailureReplay = await ingestVerifiedLiveKitRecordingWebhook(
+    {
+      ...partialFailureEvent,
+      providerEventId: "EV_VerifyRecordingReceiptPartialFailureReplay1",
+      payloadDigest: "8".repeat(64),
+    },
+    database,
+    receiptApplicationEnvironment,
+    () => partialFailureReplayReceivedAt,
+  );
+  assert.equal(partialFailureReplay.status, "pending");
+  assert.deepEqual(
+    await processAvailableLiveKitRecordingReceipts(10, {
+      now: new Date(partialFailureReplayReceivedAt.getTime() + 1),
+    }),
+    {
+      outcomes: [
+        {
+          status: "processed",
+          receiptId: partialFailureReplay.receiptId,
+          recordingId: invalidTimelineRecordingId,
+        },
+      ],
+      limitReached: false,
+    },
+    "A terminal replay that omits optional start evidence must remain idempotent",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "startedAt", "endedAt", "failureCode"])
+      .where("id", "=", invalidTimelineRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "failed",
+      startedAt: invalidTimelineStartedAt,
+      endedAt: partialFailureEndedAt,
+      failureCode: "provider_failed",
+    },
+    "Partial terminal replays must neither erase durable timestamps nor create a false conflict",
+  );
+  await database
+    .deleteFrom("livekit_webhook_receipt")
+    .where("matchedRecordingId", "=", invalidTimelineRecordingId)
+    .execute();
   await database
     .deleteFrom("event_virtual_recording")
     .where("id", "=", invalidTimelineRecordingId)

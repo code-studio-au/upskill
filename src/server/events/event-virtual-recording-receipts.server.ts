@@ -58,6 +58,10 @@ function datesMatch(left: Date | null, right: Date | null): boolean {
   return left?.getTime() === right?.getTime();
 }
 
+function datesContradict(left: Date | null, right: Date | null): boolean {
+  return Boolean(left && right && !datesMatch(left, right));
+}
+
 function terminalReceiptConflict(
   recording: Recording,
   receipt: RecordingReceipt,
@@ -81,8 +85,7 @@ function terminalReceiptConflict(
   }
   if (
     receipt.normalizedStatus !== "failed" ||
-    !datesMatch(recording.startedAt, receipt.startedAt) ||
-    !datesMatch(recording.endedAt, receipt.endedAt) ||
+    datesContradict(recording.endedAt, receipt.endedAt) ||
     recording.failureCode !== receipt.failureCode
   )
     return "recording_receipt_evidence_conflict";
@@ -191,11 +194,7 @@ function receiptConflict(
     recording.providerEgressId !== receipt.providerEgressId
   )
     return "recording_receipt_identity_conflict";
-  if (
-    recording.startedAt &&
-    receipt.startedAt &&
-    recording.startedAt.getTime() !== receipt.startedAt.getTime()
-  )
+  if (datesContradict(recording.startedAt, receipt.startedAt))
     return "recording_receipt_evidence_conflict";
   if (
     (receipt.startedAt && receipt.startedAt < recording.requestedAt) ||
