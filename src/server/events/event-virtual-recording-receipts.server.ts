@@ -252,6 +252,7 @@ async function transitionRequestedRecording(
   recording: Recording,
   receipt: RecordingReceipt,
   transitionAt: Date,
+  targetStatus: "starting" | "active" = "starting",
 ): Promise<void> {
   await transaction
     .updateTable("event_virtual_recording")
@@ -263,12 +264,18 @@ async function transitionRequestedRecording(
     })
     .where("id", "=", recording.id)
     .executeTakeFirstOrThrow();
+  if (targetStatus === "active")
+    await transaction
+      .updateTable("event_virtual_recording")
+      .set({ status: "active", updatedAt: transitionAt })
+      .where("id", "=", recording.id)
+      .executeTakeFirstOrThrow();
   await recordLifecycleAudit(transaction, {
     action: "event_virtual_recording.started",
     actorUserId: recording.requestedByUserId,
     recording,
     receipt,
-    status: "starting",
+    status: targetStatus,
     previousStatus: "requested",
     createdAt: transitionAt,
   });
@@ -413,13 +420,16 @@ async function applyNonterminalReceipt(
     receipt.receivedAt,
     receipt.startedAt,
   );
-  if (recording.status === "requested")
+  if (recording.status === "requested") {
     await transitionRequestedRecording(
       transaction,
       recording,
       receipt,
       transitionAt,
+      normalizedStatus === "active" ? "active" : "starting",
     );
+    if (normalizedStatus === "active") return null;
+  }
   if (normalizedStatus === "starting") {
     if (
       recording.status === "starting" &&
