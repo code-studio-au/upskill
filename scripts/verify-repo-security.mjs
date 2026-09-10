@@ -855,6 +855,13 @@ const liveKitRecordingWebhookMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitRecordingReceiptConsumer = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-receipts.server.ts",
+  ),
+  "utf8",
+);
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
   'insertInto("livekit_webhook_receipt")',
@@ -879,6 +886,29 @@ for (const boundary of [
 ])
   if (!liveKitRecordingWebhookMigration.includes(boundary))
     failures.push(`LiveKit receipt evidence guard is missing: ${boundary}`);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  ".forUpdate()",
+  ".skipLocked()",
+  'processingState: "processing"',
+  'processingState: "processed"',
+  'processingState: "failed"',
+  "recording_receipt_identity_conflict",
+  'evidenceSource: "livekit_webhook"',
+  "RECEIPT_MAXIMUM_ATTEMPTS",
+])
+  if (!liveKitRecordingReceiptConsumer.includes(boundary))
+    failures.push(`LiveKit receipt consumer is missing: ${boundary}`);
+for (const relative of [
+  "src/worker/scorm-worker.ts",
+  "src/worker/scorm-worker-iteration.ts",
+])
+  if (
+    !fs
+      .readFileSync(path.join(root, relative), "utf8")
+      .includes("processAvailableLiveKitRecordingReceipts")
+  )
+    failures.push(`LiveKit receipt processing is not scheduled by ${relative}`);
 for (const boundary of [
   '"application/webhook+json"',
   "request.arrayBuffer()",

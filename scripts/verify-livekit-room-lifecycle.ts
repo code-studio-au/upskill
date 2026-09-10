@@ -30,6 +30,7 @@ import {
   transitionEventVirtualRoom,
   type VirtualRoomRuntime,
 } from "#/server/events/event-virtual-room.server";
+import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
 import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
@@ -105,13 +106,22 @@ function recordingWebhookEgress(input: {
   roomName: string;
   storageObjectKey: string;
   bucket?: string;
+  status?: EgressStatus;
+  startedAt?: Date;
+  endedAt?: Date;
+  fileSizeBytes?: bigint;
+  durationNanoseconds?: bigint;
 }): EgressInfo {
+  const status = input.status ?? EgressStatus.EGRESS_ACTIVE;
+  const startedAt = input.startedAt ?? recoveredProviderRecordingStartedAt;
   return new EgressInfo({
     egressId: input.egressId,
     roomName: input.roomName,
-    status: EgressStatus.EGRESS_ACTIVE,
-    startedAt:
-      BigInt(recoveredProviderRecordingStartedAt.getTime()) * 1_000_000n,
+    status,
+    startedAt: BigInt(startedAt.getTime()) * 1_000_000n,
+    ...(input.endedAt
+      ? { endedAt: BigInt(input.endedAt.getTime()) * 1_000_000n }
+      : {}),
     request: {
       case: "egress",
       value: new StartEgressRequest({
@@ -143,6 +153,17 @@ function recordingWebhookEgress(input: {
         }),
       }),
     },
+    ...(status === EgressStatus.EGRESS_COMPLETE
+      ? {
+          fileResults: [
+            {
+              filename: input.storageObjectKey,
+              size: input.fileSizeBytes ?? 0n,
+              duration: input.durationNanoseconds ?? 0n,
+            },
+          ],
+        }
+      : {}),
   });
 }
 
@@ -1231,6 +1252,287 @@ try {
   await database
     .deleteFrom("event_virtual_recording")
     .where("id", "=", recordingId)
+    .executeTakeFirstOrThrow();
+  const receiptRecordingId = "verify_livekit_receipt_applied_recording";
+  const receiptProviderEgressId = "EG_RECEIPT_APPLICATION";
+  const conflictingReceiptProviderEgressId = "EG_RECEIPT_CONFLICT";
+  const receiptStorageObjectKey =
+    "recordings/opaque_room/receipt_application.mp4";
+  const receiptRequestedAt = new Date("2030-10-04T00:40:00.000Z");
+  const receiptStartedAt = new Date("2030-10-04T00:41:00.000Z");
+  const receiptStopRequestedAt = new Date("2030-10-04T00:44:00.000Z");
+  const receiptEndedAt = new Date("2030-10-04T00:45:00.000Z");
+  const receiptReceivedAt = new Date("2030-10-04T00:46:00.000Z");
+  const conflictingReceiptReceivedAt = new Date(
+    receiptReceivedAt.getTime() + 1,
+  );
+  await database
+    .insertInto("event_virtual_recording")
+    .values({
+      ...recordingValues,
+      id: receiptRecordingId,
+      storageObjectKey: receiptStorageObjectKey,
+      requestedAt: receiptRequestedAt,
+      updatedAt: receiptRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("event_virtual_room_operation")
+    .values([
+      {
+        id: "verify_livekit_receipt_start_operation",
+        roomId: room.id,
+        kind: "start_recording" as const,
+        targetKey: receiptRecordingId,
+        recordingId: receiptRecordingId,
+        lobbyEntryId: null,
+        presenterUserId: null,
+        participantIdentity: null,
+        removalEnforcedUntil: null,
+        recordingStartDispatchedAt: receiptRequestedAt,
+        recordingStopDispatchedAt: null,
+        recordingStopOutcomeUnknownAt: null,
+        deduplicationKey: `event_virtual_room:${room.id}:start_recording:${receiptRecordingId}`,
+        status: "pending" as const,
+        attempts: 0,
+        availableAt: receiptRequestedAt,
+        leasedUntil: null,
+        lastAttemptAt: null,
+        completedAt: null,
+        lastErrorCode: "recording_start_outcome_unknown",
+        requestedByUserId: administrator.id,
+        createdAt: receiptRequestedAt,
+      },
+      {
+        id: "verify_livekit_receipt_stop_operation",
+        roomId: room.id,
+        kind: "stop_recording" as const,
+        targetKey: receiptRecordingId,
+        recordingId: receiptRecordingId,
+        lobbyEntryId: null,
+        presenterUserId: null,
+        participantIdentity: null,
+        removalEnforcedUntil: null,
+        recordingStartDispatchedAt: null,
+        recordingStopDispatchedAt: null,
+        recordingStopOutcomeUnknownAt: null,
+        deduplicationKey: `event_virtual_room:${room.id}:stop_recording:${receiptRecordingId}`,
+        status: "pending" as const,
+        attempts: 0,
+        availableAt: receiptStopRequestedAt,
+        leasedUntil: null,
+        lastAttemptAt: null,
+        completedAt: null,
+        lastErrorCode: "recording_stop_pending",
+        requestedByUserId: administrator.id,
+        createdAt: receiptStopRequestedAt,
+      },
+    ])
+    .execute();
+  const receiptApplicationEnvironment = {
+    ...getServerEnv(),
+    LIVEKIT_PROJECT_ENVIRONMENT: "test" as const,
+    AWS_REGION: "ap-southeast-2",
+    S3_RECORDING_BUCKET: "upskill-recordings",
+  };
+  const completedReceiptEvent = {
+    providerEnvironment: "test" as const,
+    providerEventId: "EV_VerifyRecordingReceiptComplete1",
+    event: "egress_ended" as const,
+    createdAtSeconds: Math.floor(receiptEndedAt.getTime() / 1_000),
+    payloadDigest: "e".repeat(64),
+    roomName: room.providerRoomName,
+    egressId: receiptProviderEgressId,
+    egressInfo: recordingWebhookEgress({
+      egressId: receiptProviderEgressId,
+      roomName: room.providerRoomName,
+      storageObjectKey: receiptStorageObjectKey,
+      status: EgressStatus.EGRESS_COMPLETE,
+      startedAt: receiptStartedAt,
+      endedAt: receiptEndedAt,
+      fileSizeBytes: 8_192n,
+      durationNanoseconds: 240_000_000_000n,
+    }),
+  };
+  const conflictingReceiptEvent = {
+    ...completedReceiptEvent,
+    providerEventId: "EV_VerifyRecordingReceiptConflict1",
+    event: "egress_updated" as const,
+    payloadDigest: "f".repeat(64),
+    egressId: conflictingReceiptProviderEgressId,
+    egressInfo: recordingWebhookEgress({
+      egressId: conflictingReceiptProviderEgressId,
+      roomName: room.providerRoomName,
+      storageObjectKey: receiptStorageObjectKey,
+      startedAt: receiptStartedAt,
+    }),
+  };
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRecordingWebhook(
+        completedReceiptEvent,
+        database,
+        receiptApplicationEnvironment,
+        () => receiptReceivedAt,
+      )
+    ).status,
+    "pending",
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRecordingWebhook(
+        conflictingReceiptEvent,
+        database,
+        receiptApplicationEnvironment,
+        () => conflictingReceiptReceivedAt,
+      )
+    ).status,
+    "pending",
+    "Concurrent pre-attachment receipts must remain attributable for processing",
+  );
+  const receiptApplicationAccess = await getEventOperationsAccess(
+    administrator,
+    ids.occurrence,
+  );
+  assert.ok(receiptApplicationAccess);
+  assert.deepEqual(
+    (
+      await findEventVirtualSessionOperations(
+        ids.occurrence,
+        receiptApplicationAccess,
+        new Date(conflictingReceiptReceivedAt.getTime() + 2 * 60_000 + 1),
+      )
+    ).find((session) => session.eventSessionId === ids.session)?.recording,
+    {
+      status: "requested",
+      warning:
+        "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
+    },
+    "Staff must see a bounded warning when receipt processing is delayed",
+  );
+  const receiptApplicationAt = new Date(
+    conflictingReceiptReceivedAt.getTime() + 1,
+  );
+  assert.deepEqual(
+    (
+      await processAvailableLiveKitRecordingReceipts(10, {
+        now: receiptApplicationAt,
+      })
+    ).outcomes,
+    [
+      {
+        status: "processed",
+        receiptId: (
+          await database
+            .selectFrom("livekit_webhook_receipt")
+            .select("id")
+            .where(
+              "providerEventId",
+              "=",
+              completedReceiptEvent.providerEventId,
+            )
+            .executeTakeFirstOrThrow()
+        ).id,
+        recordingId: receiptRecordingId,
+      },
+      {
+        status: "failed",
+        receiptId: (
+          await database
+            .selectFrom("livekit_webhook_receipt")
+            .select("id")
+            .where(
+              "providerEventId",
+              "=",
+              conflictingReceiptEvent.providerEventId,
+            )
+            .executeTakeFirstOrThrow()
+        ).id,
+        recordingId: receiptRecordingId,
+        reasonCode: "recording_receipt_identity_conflict",
+      },
+    ],
+    "Receipt application must commit terminal evidence once and retain a safe conflict for review",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select([
+        "status",
+        "providerEgressId",
+        "startedAt",
+        "stopRequestedByUserId",
+        "stopRequestedAt",
+        "endedAt",
+        "completedAt",
+        "fileSizeBytes",
+        "durationNanoseconds",
+        "retentionDeadline",
+      ])
+      .where("id", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "complete",
+      providerEgressId: receiptProviderEgressId,
+      startedAt: receiptStartedAt,
+      stopRequestedByUserId: administrator.id,
+      stopRequestedAt: receiptStopRequestedAt,
+      endedAt: receiptEndedAt,
+      completedAt: receiptReceivedAt,
+      fileSizeBytes: "8192",
+      durationNanoseconds: "240000000000",
+      retentionDeadline: new Date(
+        receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000,
+      ),
+    },
+    "A complete receipt must atomically apply exact output, retention and stop-request evidence",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room_operation")
+      .select(["kind", "status", "lastErrorCode"])
+      .where("recordingId", "=", receiptRecordingId)
+      .orderBy("kind")
+      .execute(),
+    [
+      { kind: "start_recording", status: "succeeded", lastErrorCode: null },
+      { kind: "stop_recording", status: "succeeded", lastErrorCode: null },
+    ],
+    "Terminal webhook evidence must settle redundant provider reconciliation work",
+  );
+  assert.deepEqual(
+    (
+      await findEventVirtualSessionOperations(
+        ids.occurrence,
+        receiptApplicationAccess,
+        receiptApplicationAt,
+      )
+    ).find((session) => session.eventSessionId === ids.session)?.recording,
+    {
+      status: "complete",
+      warning:
+        "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session.",
+    },
+    "Staff must receive a bounded review warning without provider details",
+  );
+  assert.deepEqual(
+    await processAvailableLiveKitRecordingReceipts(10, {
+      now: receiptApplicationAt,
+    }),
+    { outcomes: [], limitReached: false },
+    "Failed receipt retries must observe the bounded backoff",
+  );
+  await database
+    .deleteFrom("event_virtual_room_operation")
+    .where("recordingId", "=", receiptRecordingId)
+    .execute();
+  await database
+    .deleteFrom("livekit_webhook_receipt")
+    .where("matchedRecordingId", "=", receiptRecordingId)
+    .execute();
+  await database
+    .deleteFrom("event_virtual_recording")
+    .where("id", "=", receiptRecordingId)
     .executeTakeFirstOrThrow();
   await database
     .updateTable("event_virtual_room")
@@ -3800,6 +4102,8 @@ try {
       "EV_VerifyRecordingUpdate1",
       "EV_VerifyRecordingUnmatched1",
       "EV_VerifyRecordingInvalidTarget1",
+      "EV_VerifyRecordingReceiptComplete1",
+      "EV_VerifyRecordingReceiptConflict1",
     ])
     .execute();
   await database
