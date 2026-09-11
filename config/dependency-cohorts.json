@@ -1,6 +1,11 @@
 {
   "sameVersion": [
-    ["@aws-sdk/client-s3", "@aws-sdk/client-sqs", "@aws-sdk/client-sts"],
+    [
+      "@aws-sdk/client-s3",
+      "@aws-sdk/client-sqs",
+      "@aws-sdk/client-sts",
+      "@aws-sdk/s3-request-presigner"
+    ],
     ["@mantine/core", "@mantine/hooks"],
     ["better-auth", "@better-auth/stripe"],
     ["react", "react-dom"]

@@ -178,6 +178,8 @@ function EventOperationsPage() {
             "Confirm the region change for this finalized registration.",
           region_mismatch_resolved:
             "The learner's profile region now matches this registration.",
+          recording_unavailable:
+            "This recording is not ready or its retention window has ended.",
         };
         setError(
           outcome.status === "forbidden"

@@ -301,6 +301,11 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   const recordingWritePolicy = Object.values(policies).find((policy) => {
     const serialized = JSON.stringify(policy);
     return (
+      policy.Properties.Roles.some(
+        (role) =>
+          JSON.stringify(role) ===
+          JSON.stringify({ Ref: recordingRoleLogicalId }),
+      ) &&
       serialized.includes("s3:PutObject") &&
       serialized.includes("RecordingBucket")
     );
@@ -321,6 +326,35 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(JSON.stringify(recordingWritePolicy)).toContain("recordings/*");
   expect(JSON.stringify(recordingWritePolicy)).not.toMatch(
     /s3:(?:GetObject|DeleteObject|ListBucket)/u,
+  );
+  const recordingReadPolicy = Object.values(policies).find((policy) => {
+    const serialized = JSON.stringify(policy);
+    return (
+      policy.Properties.Roles.some(
+        (role) =>
+          JSON.stringify(role) ===
+          JSON.stringify({ Ref: instanceRoleLogicalId }),
+      ) &&
+      serialized.includes("s3:GetObject") &&
+      serialized.includes("RecordingBucket")
+    );
+  });
+  expect(recordingReadPolicy?.Properties.Roles).toEqual([
+    { Ref: instanceRoleLogicalId },
+  ]);
+  const recordingReadStatement =
+    recordingReadPolicy?.Properties.PolicyDocument.Statement.find(
+      (statement) =>
+        JSON.stringify(statement).includes("s3:GetObject") &&
+        JSON.stringify(statement).includes("RecordingBucket"),
+    );
+  expect(recordingReadStatement).toMatchObject({
+    Action: "s3:GetObject",
+    Effect: "Allow",
+  });
+  expect(JSON.stringify(recordingReadStatement)).toContain("recordings/*");
+  expect(JSON.stringify(recordingReadStatement)).not.toMatch(
+    /s3:(?:DeleteObject|ListBucket)/u,
   );
   const accessGrantsLocationWritePolicy = Object.values(policies).find(
     (policy) =>

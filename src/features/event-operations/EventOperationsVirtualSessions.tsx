@@ -17,6 +17,9 @@ const EventOperationsLobbyQueue = lazy(async () => {
   const module = await import("./EventOperationsLobbyQueue");
   return { default: module.EventOperationsLobbyQueue };
 });
+const EventOperationsRecordingPanel = lazy(
+  () => import("./EventOperationsRecordingPanel"),
+);
 const LiveKitPresenterRoom = lazy(async () => {
   const module = await import("./LiveKitPresenterRoom");
   return { default: module.LiveKitPresenterRoom };
@@ -296,6 +299,18 @@ export function EventOperationsVirtualSessions({
                     </section>
                   </Stack>
                 )}
+
+                {administrator && virtualSession.recording ? (
+                  <Suspense fallback={null}>
+                    <EventOperationsRecordingPanel
+                      eventOccurrenceId={occurrenceId}
+                      timezone={workspace.occurrence.timezone}
+                      recording={virtualSession.recording}
+                      processingId={processingId}
+                      action={action}
+                    />
+                  </Suspense>
+                ) : null}
 
                 {room?.providerStatus === "ready" &&
                 room.doorState !== "ended" &&

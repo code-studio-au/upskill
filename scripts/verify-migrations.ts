@@ -420,6 +420,10 @@ try {
   );
   assert.match(
     auditActionDefinition.definition,
+    /event_virtual_recording\.download_issued/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
     /event_virtual_lobby\.recovery_request_outcome/u,
   );
   assert.match(

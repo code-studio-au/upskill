@@ -11,6 +11,8 @@ allowBuilds:
   lightningcss: true
 
 overrides:
+  "@aws-sdk/s3-request-presigner>@smithy/core": 3.31.1
+  "@aws-sdk/s3-request-presigner>@smithy/types": 4.16.1
   "fast-uri@<3.1.6": 3.1.6
   "js-yaml@<4.3.2": 4.3.2
   "nanoid@<3.3.18": 3.3.18

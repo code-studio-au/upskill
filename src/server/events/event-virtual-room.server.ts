@@ -175,6 +175,14 @@ type EventVirtualRecordingStatus =
 interface EventVirtualRecordingOperationsState {
   status: EventVirtualRecordingStatus;
   warning: string | null;
+  details?: {
+    recordingId: string;
+    completedAt: string;
+    fileSizeBytes: string;
+    durationNanoseconds: string;
+    retentionDeadline: string;
+    downloadAvailable: boolean;
+  } | null;
 }
 
 export interface EventVirtualSessionOperations {
@@ -193,6 +201,7 @@ async function findRecordingOperationsByRoom(
   database: DatabaseConnection,
   roomIds: string[],
   observedAt = new Date(),
+  includeAdministratorDetails = false,
 ): Promise<Map<string, EventVirtualRecordingOperationsState>> {
   if (!roomIds.length) return new Map();
   const rows = await database
@@ -205,7 +214,12 @@ async function findRecordingOperationsByRoom(
     )
     .select([
       "recording.roomId",
+      "recording.id",
       "recording.status",
+      "recording.completedAt",
+      "recording.fileSizeBytes",
+      "recording.durationNanoseconds",
+      "recording.retentionDeadline",
       "operation.id as retryingOperationId",
     ])
     .select((expression) => [
@@ -252,6 +266,23 @@ async function findRecordingOperationsByRoom(
             : retrying
               ? "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists."
               : null,
+      ...(includeAdministratorDetails &&
+      row.completedAt &&
+      row.fileSizeBytes !== null &&
+      row.durationNanoseconds !== null &&
+      row.retentionDeadline
+        ? {
+            details: {
+              recordingId: row.id,
+              completedAt: row.completedAt.toISOString(),
+              fileSizeBytes: row.fileSizeBytes,
+              durationNanoseconds: row.durationNanoseconds,
+              retentionDeadline: row.retentionDeadline.toISOString(),
+              downloadAvailable:
+                row.status === "complete" && row.retentionDeadline > observedAt,
+            },
+          }
+        : {}),
     });
   }
   return states;
@@ -1338,6 +1369,7 @@ export async function findEventVirtualSessionOperations(
     database,
     rooms.map((room) => room.id),
     now,
+    access.isPlatformAdministrator || access.isAssignedAdministrator,
   );
   const joinAccess = await database
     .selectFrom("event_virtual_join_access")

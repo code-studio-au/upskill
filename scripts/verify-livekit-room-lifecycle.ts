@@ -31,6 +31,7 @@ import {
   type VirtualRoomRuntime,
 } from "#/server/events/event-virtual-room.server";
 import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
+import { issueEventVirtualRecordingDownload } from "#/server/events/event-virtual-recording-download.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
 import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
@@ -1505,6 +1506,117 @@ try {
     ],
     "Terminal webhook evidence must settle redundant provider reconciliation work",
   );
+  const signedDownloads: Array<{
+    bucket: string;
+    key: string;
+    expiresInSeconds: number;
+  }> = [];
+  const downloadIssuedAt = new Date(receiptApplicationAt.getTime() + 1);
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      {
+        now: downloadIssuedAt,
+        signDownload: (input) => {
+          signedDownloads.push(input);
+          return Promise.resolve("https://private-download.example/recording");
+        },
+      },
+    ),
+    {
+      status: "ready",
+      url: "https://private-download.example/recording",
+      expiresAt: new Date(downloadIssuedAt.getTime() + 60_000).toISOString(),
+    },
+    "A platform administrator may request one short-lived exact-object recording download",
+  );
+  assert.deepEqual(signedDownloads, [
+    {
+      bucket: "upskill-recordings",
+      key: receiptStorageObjectKey,
+      expiresInSeconds: 60,
+    },
+  ]);
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: "verify_livekit_room_other_occurrence",
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      {
+        now: downloadIssuedAt,
+        signDownload: () => {
+          throw new Error(
+            "Cross-occurrence access must not reach object signing",
+          );
+        },
+      },
+    ),
+    { status: "not-found" },
+    "Recording downloads must be bound to the exact requested occurrence",
+  );
+  for (const [role, staff] of [
+    ["Presenter", presenter],
+    ["Coordinator", coordinator],
+  ] as const)
+    assert.deepEqual(
+      await issueEventVirtualRecordingDownload(
+        {
+          eventOccurrenceId: ids.occurrence,
+          recordingId: receiptRecordingId,
+        },
+        staff,
+        {
+          now: downloadIssuedAt,
+          signDownload: () => {
+            throw new Error(`${role} must not reach object signing`);
+          },
+        },
+      ),
+      { status: "forbidden" },
+      `${role} assignment must not grant recording-download access`,
+    );
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      {
+        now: new Date(receiptReceivedAt.getTime() + 31 * 24 * 60 * 60_000),
+        signDownload: () => {
+          throw new Error("Expired evidence must not reach object signing");
+        },
+      },
+    ),
+    { status: "conflict", reason: "recording_unavailable" },
+    "An elapsed retention deadline must close recording-download access",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select(["actorUserId", "metadata"])
+      .where("action", "=", "event_virtual_recording.download_issued")
+      .where("subjectId", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      actorUserId: administrator.id,
+      metadata: {
+        roomId: room.id,
+        eventSessionId: ids.session,
+        roomGeneration: room.generation,
+        accessMode: "download",
+        expiresAt: new Date(downloadIssuedAt.getTime() + 60_000).toISOString(),
+      },
+    },
+    "Recording download issuance must retain bounded actor and access evidence without the object key or URL",
+  );
   const repeatedReceiptReceivedAt = new Date(receiptReceivedAt.getTime() + 2);
   const conflictingOutputReceiptReceivedAt = new Date(
     receiptReceivedAt.getTime() + 3,
@@ -1630,6 +1742,16 @@ try {
       status: "complete",
       warning:
         "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session.",
+      details: {
+        recordingId: receiptRecordingId,
+        completedAt: receiptReceivedAt.toISOString(),
+        fileSizeBytes: "8192",
+        durationNanoseconds: "240000000000",
+        retentionDeadline: new Date(
+          receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000,
+        ).toISOString(),
+        downloadAvailable: true,
+      },
     },
     "Staff must receive a bounded review warning without provider details",
   );
@@ -4592,13 +4714,14 @@ try {
     [...new Set(recordingAuditActions.map((event) => event.action))].sort(),
     [
       "event_virtual_recording.completed",
+      "event_virtual_recording.download_issued",
       "event_virtual_recording.failed",
       "event_virtual_recording.requested",
       "event_virtual_recording.started",
       "event_virtual_recording.stop_requested",
       "event_virtual_recording.stop_started",
     ],
-    "Recording request, provider start, stop, completion and failure transitions must all emit durable audit evidence",
+    "Recording request, provider start, stop, completion, download and failure transitions must all emit durable audit evidence",
   );
   assert.equal(
     recordingAuditActions.every((event) => event.actorUserId !== null),

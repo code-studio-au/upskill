@@ -88,6 +88,13 @@ export class ApplicationStack extends Stack {
       }),
     );
     recordingUploadRole.grantAssumeRole(role);
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["s3:GetObject"],
+        resources: [props.recordingBucket.arnForObjects("recordings/*")],
+      }),
+    );
     const accessGrantsPrincipal = new ServicePrincipal(
       "access-grants.s3.amazonaws.com",
       {
