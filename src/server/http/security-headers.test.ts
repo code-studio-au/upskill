@@ -110,6 +110,33 @@ describe("content security policy", () => {
     vi.unstubAllEnvs();
   });
 
+  it("preserves a route-owned no-referrer policy on application responses", () => {
+    vi.stubEnv("APP_ORIGIN", "https://app.example.test");
+    vi.stubEnv("LEARNING_ORIGIN", "https://learn.example.test");
+    const playbackHeaders = new Headers({
+      "Referrer-Policy": "no-referrer",
+    });
+    applySecurityHeaders(
+      playbackHeaders,
+      "nonce",
+      new Request(
+        "https://app.example.test/api/play/recording_1?occurrence=occurrence_1",
+      ),
+    );
+    expect(playbackHeaders.get("referrer-policy")).toBe("no-referrer");
+
+    const ordinaryHeaders = new Headers({ "Referrer-Policy": "origin" });
+    applySecurityHeaders(
+      ordinaryHeaders,
+      "nonce",
+      new Request("https://app.example.test/dashboard"),
+    );
+    expect(ordinaryHeaders.get("referrer-policy")).toBe(
+      "strict-origin-when-cross-origin",
+    );
+    vi.unstubAllEnvs();
+  });
+
   it("isolates the explicit SCORM compatibility policy to the learning origin", () => {
     const policy = buildLearningContentSecurityPolicy(
       "https://app.example.test",

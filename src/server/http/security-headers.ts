@@ -111,9 +111,12 @@ export function applySecurityHeaders(
         ? "camera=(self), display-capture=(self), geolocation=(), microphone=(self), payment=(self)"
         : "camera=(), display-capture=(), geolocation=(), microphone=(), payment=(self)",
   );
+  const responseReferrerPolicy = headers.get("Referrer-Policy");
   headers.set(
     "Referrer-Policy",
-    isLearningResponse ? "no-referrer" : "strict-origin-when-cross-origin",
+    isLearningResponse || responseReferrerPolicy === "no-referrer"
+      ? "no-referrer"
+      : "strict-origin-when-cross-origin",
   );
   headers.set("X-Content-Type-Options", "nosniff");
   if (isLearningResponse) headers.delete("X-Frame-Options");
