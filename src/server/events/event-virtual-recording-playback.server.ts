@@ -8,7 +8,10 @@ import { findEventVirtualRecordingAccess } from "./event-virtual-recording-acces
 const PLAYBACK_IDLE_EXPIRY_MILLISECONDS = 10 * 60_000;
 
 export type EventVirtualRecordingPlaybackAccessResult =
-  | { status: "ready"; target: { storageObjectKey: string } }
+  | {
+      status: "ready";
+      target: { storageObjectKey: string; expiresAt: Date };
+    }
   | { status: "forbidden" | "not-found" }
   | { status: "conflict"; reason: "recording_unavailable" };
 
@@ -88,7 +91,7 @@ export async function accessEventVirtualRecordingPlayback(
       });
     return {
       status: "ready",
-      target: { storageObjectKey: recording.storageObjectKey },
+      target: { storageObjectKey: recording.storageObjectKey, expiresAt },
     };
   });
 }

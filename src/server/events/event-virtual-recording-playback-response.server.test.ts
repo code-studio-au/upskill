@@ -92,7 +92,10 @@ describe("recording playback response", () => {
   it("streams the exact private object with seek and hardening headers", async () => {
     mocks.accessPlayback.mockResolvedValueOnce({
       status: "ready",
-      target: { storageObjectKey: "recordings/private.mp4" },
+      target: {
+        storageObjectKey: "recordings/private.mp4",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
     });
     mocks.getObjectStream.mockResolvedValueOnce({
       body: new ReadableStream({
@@ -129,13 +132,92 @@ describe("recording playback response", () => {
     expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
+  it("bounds open ranges so continued playback reauthorizes", async () => {
+    mocks.accessPlayback.mockResolvedValueOnce({
+      status: "ready",
+      target: {
+        storageObjectKey: "recordings/private.mp4",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    mocks.getObjectStream.mockResolvedValueOnce({
+      body: new ReadableStream({
+        start(controller) {
+          controller.close();
+        },
+      }),
+      contentLength: 8 * 1024 * 1024,
+      contentRange: "bytes 0-8388607/20000000",
+    });
+
+    const response = await handleEventVirtualRecordingPlaybackRequest(
+      "recording_1",
+      request("bytes=0-"),
+    );
+
+    expect(mocks.getObjectStream).toHaveBeenCalledWith(
+      "recording-bucket",
+      "recordings/private.mp4",
+      "bytes=0-8388607",
+    );
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe(
+      "bytes 0-8388607/20000000",
+    );
+    await response.body?.cancel();
+  });
+
+  it("cancels a no-range stream when its authorized session expires", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-11T00:00:00.000Z"));
+    const cancel = vi.fn();
+    mocks.accessPlayback.mockResolvedValueOnce({
+      status: "ready",
+      target: {
+        storageObjectKey: "recordings/private.mp4",
+        expiresAt: new Date(Date.now() + 1_000),
+      },
+    });
+    mocks.getObjectStream.mockResolvedValueOnce({
+      body: new ReadableStream({ cancel }),
+      contentLength: 20_000_000,
+    });
+
+    try {
+      const response = await handleEventVirtualRecordingPlaybackRequest(
+        "recording_1",
+        request(),
+      );
+      const responseBody = response.body;
+      if (!responseBody) throw new Error("Playback response body is missing");
+      const pendingRead = responseBody.getReader().read();
+      const expiryRejection = expect(pendingRead).rejects.toThrow(
+        "Playback authorization expired",
+      );
+      await vi.advanceTimersByTimeAsync(1_000);
+
+      await expiryRejection;
+      expect(cancel).toHaveBeenCalledWith("Playback authorization expired");
+      expect(mocks.getObjectStream).toHaveBeenCalledWith(
+        "recording-bucket",
+        "recordings/private.mp4",
+        undefined,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     ["NoSuchKey", 404],
     ["RequestedRangeNotSatisfiable", 416],
   ])("maps private object error %s to %i", async (name, status) => {
     mocks.accessPlayback.mockResolvedValueOnce({
       status: "ready",
-      target: { storageObjectKey: "recordings/private.mp4" },
+      target: {
+        storageObjectKey: "recordings/private.mp4",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
     });
     mocks.getObjectStream.mockRejectedValueOnce({ name });
     expect(

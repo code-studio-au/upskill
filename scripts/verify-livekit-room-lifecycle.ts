@@ -1559,7 +1559,10 @@ try {
     ),
     {
       status: "ready",
-      target: { storageObjectKey: receiptStorageObjectKey },
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: new Date(playbackIssuedAt.getTime() + 10 * 60_000),
+      },
     },
     "A platform administrator may start an application-controlled private playback session",
   );
@@ -1607,7 +1610,13 @@ try {
       administrator,
       playbackRefreshedAt,
     ),
-    { status: "ready", target: { storageObjectKey: receiptStorageObjectKey } },
+    {
+      status: "ready",
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: new Date(playbackRefreshedAt.getTime() + 10 * 60_000),
+      },
+    },
     "An active private playback session must refresh its short idle window for long recordings",
   );
   assert.deepEqual(
@@ -1646,7 +1655,13 @@ try {
       administrator,
       playbackRestartedAt,
     ),
-    { status: "ready", target: { storageObjectKey: receiptStorageObjectKey } },
+    {
+      status: "ready",
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: new Date(playbackRestartedAt.getTime() + 10 * 60_000),
+      },
+    },
     "Access after the idle boundary must start a fresh playback session",
   );
   assert.deepEqual(
@@ -1733,7 +1748,10 @@ try {
     ),
     {
       status: "ready",
-      target: { storageObjectKey: receiptStorageObjectKey },
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: playbackRetentionDeadline,
+      },
     },
     "A playback session must expire no later than the snapshotted retention deadline",
   );
