@@ -1346,13 +1346,16 @@ gates passed; it does not by itself authorise staging or production activation.
       missing provider status/output, and expose bounded operational failures
       without provider detail leakage. Implemented by
       [PR #82](https://github.com/code-studio-au/upskill/pull/82).
-- [ ] **Slice 6c1 — private recording download:** expose completed recording
+- [x] **Slice 6c1 — private recording download:** expose completed recording
       metadata only to administrators, issue audited 60-second exact-object S3
       downloads, and grant the application role read-only access to the recording
-      prefix. Keep playback, deletion and recovery out of this slice.
-- [ ] **Slice 6c2 — private recording playback:** add an application-controlled
+      prefix. Keep playback, deletion and recovery out of this slice. Implemented
+      by [PR #83](https://github.com/code-studio-au/upskill/pull/83).
+- [x] **Slice 6c2 — private recording playback:** add an application-controlled
       playback session that safely refreshes object access for long recordings
-      without creating a public URL.
+      without creating a public URL. Implemented with authenticated
+      administrator-bound sessions, ten-minute sliding idle expiry capped by retention, and a
+      same-origin range-streaming endpoint that reauthorises every request.
 - [ ] **Slice 6c3 — recording retention and recovery:** enforce deletion after
       the snapshotted deadline, retain immutable deletion evidence, and add
       administrator failure/recovery controls without rewriting recording history.

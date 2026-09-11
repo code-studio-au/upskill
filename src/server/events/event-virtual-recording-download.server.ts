@@ -5,6 +5,7 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { createPresignedObjectDownload } from "#/server/storage/object-storage.server";
+import { findEventVirtualRecordingAccess } from "./event-virtual-recording-access.server";
 
 const RECORDING_DOWNLOAD_EXPIRY_SECONDS = 60;
 
@@ -29,40 +30,15 @@ export async function issueEventVirtualRecordingDownload(
   const signDownload = options.signDownload ?? createPresignedObjectDownload;
   const database = getDatabase();
   return database.transaction().execute(async (transaction) => {
-    const administrator = await transaction
-      .selectFrom("platform_admin")
-      .select("userId")
-      .where("userId", "=", user.id)
-      .forShare()
-      .executeTakeFirst();
-    if (!administrator) return { status: "forbidden" };
-    const recording = await transaction
-      .selectFrom("event_virtual_recording as recording")
-      .innerJoin(
-        "event_session as session",
-        "session.id",
-        "recording.eventSessionId",
-      )
-      .select([
-        "recording.id",
-        "recording.roomId",
-        "recording.eventSessionId",
-        "recording.roomGeneration",
-        "recording.status",
-        "recording.storageObjectKey",
-        "recording.retentionDeadline",
-      ])
-      .where("recording.id", "=", input.recordingId)
-      .where("session.eventOccurrenceId", "=", input.eventOccurrenceId)
-      .forShare("recording")
-      .executeTakeFirst();
-    if (!recording) return { status: "not-found" };
-    if (
-      recording.status !== "complete" ||
-      !recording.retentionDeadline ||
-      recording.retentionDeadline <= now
-    )
-      return { status: "conflict", reason: "recording_unavailable" };
+    const access = await findEventVirtualRecordingAccess(
+      transaction,
+      input,
+      user.id,
+      now,
+      "share",
+    );
+    if (access.status !== "ready") return access;
+    const recording = access.target;
     const remainingRetentionSeconds = Math.floor(
       (recording.retentionDeadline.getTime() - now.getTime()) / 1_000,
     );
