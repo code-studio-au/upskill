@@ -138,6 +138,7 @@ export async function createPresignedObjectDownload(input: {
   bucket: string;
   key: string;
   expiresInSeconds: number;
+  signingDate: Date;
 }): Promise<string> {
   return getSignedUrl(
     getObjectStorageClient(),
@@ -148,7 +149,10 @@ export async function createPresignedObjectDownload(input: {
         'attachment; filename="webinar-recording.mp4"',
       ResponseContentType: "video/mp4",
     }),
-    { expiresIn: input.expiresInSeconds },
+    {
+      expiresIn: input.expiresInSeconds,
+      signingDate: input.signingDate,
+    },
   );
 }
 

@@ -129,6 +129,7 @@ export type EventAttendanceState =
   "not_recorded" | "checked_in" | "attended" | "absent";
 
 interface EventVirtualRecordingOperationsState {
+  roomGeneration: number;
   status:
     | "requested"
     | "starting"
@@ -304,6 +305,7 @@ export interface EventOperationsWorkspace {
     presenterRecordingNotice: string | null;
     lobbyPath: string | null;
     recording: EventVirtualRecordingOperationsState | null;
+    recordings: EventVirtualRecordingOperationsState[];
     room: {
       id: string;
       eventSessionId: string;

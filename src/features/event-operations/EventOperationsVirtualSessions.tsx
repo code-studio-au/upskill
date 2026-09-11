@@ -300,12 +300,12 @@ export function EventOperationsVirtualSessions({
                   </Stack>
                 )}
 
-                {administrator && virtualSession.recording ? (
+                {administrator && virtualSession.recordings.length > 0 ? (
                   <Suspense fallback={null}>
                     <EventOperationsRecordingPanel
                       eventOccurrenceId={occurrenceId}
                       timezone={workspace.occurrence.timezone}
-                      recording={virtualSession.recording}
+                      recordings={virtualSession.recordings}
                       processingId={processingId}
                       action={action}
                     />

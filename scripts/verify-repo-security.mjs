@@ -609,7 +609,7 @@ for (const requiredRecordingOperationsBoundary of [
   "findRecordingOperationsByRoom",
   '"recording.status"',
   '"operation.lastErrorCode"',
-  "recording: room ?",
+  "recordings: recordingsBySession.get(session.id)",
   "recording: recordingByRoom.get(access.roomId)",
 ]) {
   if (!eventVirtualRoomServer.includes(requiredRecordingOperationsBoundary))

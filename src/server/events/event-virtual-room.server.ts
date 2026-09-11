@@ -173,6 +173,7 @@ type EventVirtualRecordingStatus =
   | "deleted";
 
 interface EventVirtualRecordingOperationsState {
+  roomGeneration: number;
   status: EventVirtualRecordingStatus;
   warning: string | null;
   details?: {
@@ -193,6 +194,7 @@ export interface EventVirtualSessionOperations {
   lobbyPath: string | null;
   room: EventVirtualRoomState | null;
   recording: EventVirtualRecordingOperationsState | null;
+  recordings: EventVirtualRecordingOperationsState[];
 }
 
 const LOBBY_QUEUE_PAGE_SIZE = 50;
@@ -214,6 +216,7 @@ async function findRecordingOperationsByRoom(
     )
     .select([
       "recording.roomId",
+      "recording.roomGeneration",
       "recording.id",
       "recording.status",
       "recording.completedAt",
@@ -257,6 +260,7 @@ async function findRecordingOperationsByRoom(
       row.hasDelayedReceipt ||
       Boolean(current?.warning);
     states.set(row.roomId, {
+      roomGeneration: row.roomGeneration,
       status: row.status,
       warning:
         row.status === "failed"
@@ -1354,16 +1358,20 @@ export async function findEventVirtualSessionOperations(
       "lockedAt",
       "reopenedAt",
       "endedAt",
+      "replacedAt",
     ])
     .where(
       "eventSessionId",
       "in",
       authorised.map((session) => session.id),
     )
-    .where("replacedAt", "is", null)
+    .orderBy("eventSessionId")
+    .orderBy("generation", "desc")
     .execute();
   const roomBySession = new Map(
-    rooms.map((room) => [room.eventSessionId, room]),
+    rooms
+      .filter((room) => !room.replacedAt)
+      .map((room) => [room.eventSessionId, room]),
   );
   const recordingByRoom = await findRecordingOperationsByRoom(
     database,
@@ -1371,6 +1379,17 @@ export async function findEventVirtualSessionOperations(
     now,
     access.isPlatformAdministrator || access.isAssignedAdministrator,
   );
+  const recordingsBySession = new Map<
+    string,
+    EventVirtualRecordingOperationsState[]
+  >();
+  for (const room of rooms) {
+    const recording = recordingByRoom.get(room.id);
+    if (!recording) continue;
+    const recordings = recordingsBySession.get(room.eventSessionId) ?? [];
+    recordings.push(recording);
+    recordingsBySession.set(room.eventSessionId, recordings);
+  }
   const joinAccess = await database
     .selectFrom("event_virtual_join_access")
     .select(["id", "eventSessionId", "publicReference"])
@@ -1408,6 +1427,7 @@ export async function findEventVirtualSessionOperations(
         : null,
       room: room ? roomState(room) : null,
       recording: room ? (recordingByRoom.get(room.id) ?? null) : null,
+      recordings: recordingsBySession.get(session.id) ?? [],
     };
   });
 }

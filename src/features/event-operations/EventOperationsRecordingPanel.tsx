@@ -10,7 +10,7 @@ import {
 import classes from "./EventOperations.module.css";
 
 type Recording = NonNullable<
-  EventOperationsWorkspace["virtualSessions"][number]["recording"]
+  EventOperationsWorkspace["virtualSessions"][number]["recordings"][number]
 >;
 
 function recordingStatusLabel(status: Recording["status"]): string {
@@ -28,85 +28,100 @@ function recordingStatusLabel(status: Recording["status"]): string {
 function EventOperationsRecordingPanel({
   eventOccurrenceId,
   timezone,
-  recording,
+  recordings,
   processingId,
   action,
 }: {
   eventOccurrenceId: string;
   timezone: string;
-  recording: Recording;
+  recordings: Recording[];
   processingId: string | null;
   action: EventOperationsAction;
 }) {
-  const details = recording.details;
-  const operationId = details
-    ? `download-recording-${details.recordingId}`
-    : null;
   return (
-    <section className={classes.recordingSummary} aria-label="Recording">
-      <header>
-        <div>
-          <Text fw={700}>Recording</Text>
-          <Text c="dimmed" size="sm">
-            {recordingStatusLabel(recording.status)}
-          </Text>
-        </div>
-        {details?.downloadAvailable ? (
-          <Button
-            variant="light"
-            disabled={processingId !== null}
-            loading={processingId === operationId}
-            onClick={() => {
-              void action(operationId ?? "download-recording", async () => {
-                const result = await getEventVirtualRecordingDownload({
-                  data: {
-                    eventOccurrenceId,
-                    recordingId: details.recordingId,
-                  },
-                });
-                if (result.status === "ready")
-                  window.location.assign(result.url);
-                return result;
-              });
-            }}
+    <section className={classes.recordingSummary} aria-label="Recordings">
+      <Text fw={700}>Recordings</Text>
+      {recordings.map((recording) => {
+        const details = recording.details;
+        const operationId = details
+          ? `download-recording-${details.recordingId}`
+          : null;
+        return (
+          <article
+            className={classes.recordingItem}
+            key={recording.roomGeneration}
           >
-            Download recording
-          </Button>
-        ) : null}
-      </header>
-      {details ? (
-        <dl className={classes.recordingDetails}>
-          <div>
-            <dt>Completed</dt>
-            <dd>
-              {formatLocalDateTime(details.completedAt, {
-                timeZone: timezone,
-              })}
-            </dd>
-          </div>
-          <div>
-            <dt>Duration</dt>
-            <dd>{formatRecordingDuration(details.durationNanoseconds)}</dd>
-          </div>
-          <div>
-            <dt>File size</dt>
-            <dd>{formatRecordingSize(details.fileSizeBytes)}</dd>
-          </div>
-          <div>
-            <dt>Available until</dt>
-            <dd>
-              {formatLocalDateTime(details.retentionDeadline, {
-                timeZone: timezone,
-              })}
-            </dd>
-          </div>
-        </dl>
-      ) : null}
-      {details && !details.downloadAvailable ? (
-        <Text c="dimmed" size="sm">
-          This recording is no longer available to download.
-        </Text>
-      ) : null}
+            <header>
+              <div>
+                <Text fw={600}>Generation {recording.roomGeneration}</Text>
+                <Text c="dimmed" size="sm">
+                  {recordingStatusLabel(recording.status)}
+                </Text>
+              </div>
+              {details?.downloadAvailable ? (
+                <Button
+                  variant="light"
+                  disabled={processingId !== null}
+                  loading={processingId === operationId}
+                  onClick={() => {
+                    void action(
+                      operationId ?? "download-recording",
+                      async () => {
+                        const result = await getEventVirtualRecordingDownload({
+                          data: {
+                            eventOccurrenceId,
+                            recordingId: details.recordingId,
+                          },
+                        });
+                        if (result.status === "ready")
+                          window.location.assign(result.url);
+                        return result;
+                      },
+                    );
+                  }}
+                >
+                  Download recording
+                </Button>
+              ) : null}
+            </header>
+            {details ? (
+              <dl className={classes.recordingDetails}>
+                <div>
+                  <dt>Completed</dt>
+                  <dd>
+                    {formatLocalDateTime(details.completedAt, {
+                      timeZone: timezone,
+                    })}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Duration</dt>
+                  <dd>
+                    {formatRecordingDuration(details.durationNanoseconds)}
+                  </dd>
+                </div>
+                <div>
+                  <dt>File size</dt>
+                  <dd>{formatRecordingSize(details.fileSizeBytes)}</dd>
+                </div>
+                <div>
+                  <dt>Available until</dt>
+                  <dd>
+                    {formatLocalDateTime(details.retentionDeadline, {
+                      timeZone: timezone,
+                    })}
+                  </dd>
+                </div>
+              </dl>
+            ) : null}
+            {details && !details.downloadAvailable ? (
+              <Text c="dimmed" size="sm">
+                This recording is no longer available to download.
+              </Text>
+            ) : null}
+          </article>
+        );
+      })}
     </section>
   );
 }

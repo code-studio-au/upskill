@@ -240,7 +240,14 @@
   border-radius: var(--mantine-radius-md);
 }
 
-.recordingSummary > header {
+.recordingItem {
+  display: grid;
+  gap: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--mantine-color-indigo-2);
+}
+
+.recordingItem > header {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

@@ -27,9 +27,6 @@ export async function issueEventVirtualRecordingDownload(
   if (Number.isNaN(now.getTime()))
     throw new RangeError("Recording download time is invalid");
   const signDownload = options.signDownload ?? createPresignedObjectDownload;
-  const expiresAt = new Date(
-    now.getTime() + RECORDING_DOWNLOAD_EXPIRY_SECONDS * 1_000,
-  );
   const database = getDatabase();
   return database.transaction().execute(async (transaction) => {
     const administrator = await transaction
@@ -66,10 +63,21 @@ export async function issueEventVirtualRecordingDownload(
       recording.retentionDeadline <= now
     )
       return { status: "conflict", reason: "recording_unavailable" };
+    const remainingRetentionSeconds = Math.floor(
+      (recording.retentionDeadline.getTime() - now.getTime()) / 1_000,
+    );
+    if (remainingRetentionSeconds < 1)
+      return { status: "conflict", reason: "recording_unavailable" };
+    const expiresInSeconds = Math.min(
+      RECORDING_DOWNLOAD_EXPIRY_SECONDS,
+      remainingRetentionSeconds,
+    );
+    const expiresAt = new Date(now.getTime() + expiresInSeconds * 1_000);
     const url = await signDownload({
       bucket: getServerEnv().S3_RECORDING_BUCKET,
       key: recording.storageObjectKey,
-      expiresInSeconds: RECORDING_DOWNLOAD_EXPIRY_SECONDS,
+      expiresInSeconds,
+      signingDate: now,
     });
     await recordDurableAuditEvent(transaction, {
       actorUserId: user.id,
