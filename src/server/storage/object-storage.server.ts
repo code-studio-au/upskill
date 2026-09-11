@@ -6,6 +6,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   PutObjectCommand,
   S3Client,
   type PutObjectCommandInput,
@@ -160,6 +161,48 @@ export async function deleteObject(bucket: string, key: string): Promise<void> {
   await getObjectStorageClient().send(
     new DeleteObjectCommand({ Bucket: bucket, Key: key }),
   );
+}
+
+export async function deleteVersionedObject(
+  bucket: string,
+  key: string,
+): Promise<void> {
+  // Delete the current object first. In a versioned bucket this creates a
+  // marker which is removed with every older version below; in an unversioned
+  // local store it removes the object directly.
+  await deleteObject(bucket, key);
+  let keyMarker: string | undefined;
+  let versionIdMarker: string | undefined;
+  do {
+    const page = await getObjectStorageClient().send(
+      new ListObjectVersionsCommand({
+        Bucket: bucket,
+        Prefix: key,
+        KeyMarker: keyMarker,
+        VersionIdMarker: versionIdMarker,
+      }),
+    );
+    const objects = [...(page.Versions ?? []), ...(page.DeleteMarkers ?? [])]
+      .filter(({ Key, VersionId }) => Key === key && Boolean(VersionId))
+      .map(({ Key, VersionId }) => ({
+        Key: Key ?? key,
+        VersionId: VersionId ?? "",
+      }));
+    if (objects.length > 0) {
+      const deletion = await getObjectStorageClient().send(
+        new DeleteObjectsCommand({
+          Bucket: bucket,
+          Delete: { Objects: objects, Quiet: true },
+        }),
+      );
+      if (deletion.Errors?.length)
+        throw new Error("Stored recording versions could not be deleted");
+    }
+    keyMarker = page.IsTruncated ? page.NextKeyMarker : undefined;
+    versionIdMarker = page.IsTruncated ? page.NextVersionIdMarker : undefined;
+    if (page.IsTruncated && !keyMarker)
+      throw new Error("Stored recording version listing was incomplete");
+  } while (keyMarker);
 }
 
 export async function deleteObjectPrefix(

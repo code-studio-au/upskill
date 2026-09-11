@@ -5,6 +5,7 @@ import type { VirtualRoomOperationBatch } from "#/server/events/event-virtual-ro
 import type { EventVirtualRecoveryDeliveryBatch } from "#/server/events/event-virtual-recovery-delivery.server";
 import type { EventVirtualLobbyEligibilityRevocationBatch } from "#/server/events/event-virtual-lobby-reconciliation.server";
 import type { LiveKitRecordingReceiptBatch } from "#/server/events/event-virtual-recording-receipts.server";
+import type { EventVirtualRecordingDeletionBatch } from "#/server/events/event-virtual-recording-retention.server";
 
 const ELIGIBILITY_RECONCILIATION_MAX_QUEUE_WAIT_SECONDS = 1;
 
@@ -12,6 +13,7 @@ export interface ScormWorkerIterationDependencies {
   processAvailableEventCommunicationSchedules: () => Promise<EventCommunicationScheduleBatch>;
   processAvailableEventVirtualRoomOperations: () => Promise<VirtualRoomOperationBatch>;
   processAvailableLiveKitRecordingReceipts: () => Promise<LiveKitRecordingReceiptBatch>;
+  processAvailableEventVirtualRecordingDeletions: () => Promise<EventVirtualRecordingDeletionBatch>;
   processAvailableEventVirtualLobbyEligibilityRevocations: () => Promise<EventVirtualLobbyEligibilityRevocationBatch>;
   processAvailableEventVirtualRecoveryDeliveries: () => Promise<EventVirtualRecoveryDeliveryBatch>;
   dispatchAvailableOutboxEvents: () => Promise<OutboxDispatchBatch>;
@@ -24,6 +26,7 @@ export interface ScormWorkerIterationOutcome {
   schedules: EventCommunicationScheduleBatch;
   virtualRooms: VirtualRoomOperationBatch;
   liveKitRecordingReceipts: LiveKitRecordingReceiptBatch;
+  virtualRecordingDeletions: EventVirtualRecordingDeletionBatch;
   virtualLobbyEligibilityRevocations: EventVirtualLobbyEligibilityRevocationBatch;
   virtualRecoveryDeliveries: EventVirtualRecoveryDeliveryBatch;
   dispatch: OutboxDispatchBatch;
@@ -47,11 +50,14 @@ export async function runScormWorkerIteration(
   const virtualRooms = liveKitRecordingReceipts.limitReached
     ? { outcomes: [], limitReached: false }
     : await dependencies.processAvailableEventVirtualRoomOperations();
+  const virtualRecordingDeletions =
+    await dependencies.processAvailableEventVirtualRecordingDeletions();
   const dispatch = await dependencies.dispatchAvailableOutboxEvents();
   const consumption = await dependencies.consumeNextWorkMessage(
     schedules.outcomes.length > 0 ||
       virtualRooms.outcomes.length > 0 ||
       liveKitRecordingReceipts.outcomes.length > 0 ||
+      virtualRecordingDeletions.outcomes.length > 0 ||
       virtualLobbyEligibilityRevocations.outcomes.length > 0 ||
       virtualRecoveryDeliveries.outcomes.length > 0 ||
       dispatch.outcomes.length > 0
@@ -62,6 +68,7 @@ export async function runScormWorkerIteration(
     schedules,
     virtualRooms,
     liveKitRecordingReceipts,
+    virtualRecordingDeletions,
     virtualLobbyEligibilityRevocations,
     virtualRecoveryDeliveries,
     dispatch,

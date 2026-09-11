@@ -105,6 +105,10 @@ import {
   down as downRecordingPlaybackAudit,
   up as upRecordingPlaybackAudit,
 } from "#/server/db/migrations/0108_livekit_recording_playback_audit";
+import {
+  down as downRecordingRetention,
+  up as upRecordingRetention,
+} from "#/server/db/migrations/0109_livekit_recording_retention";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -132,6 +136,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downRecordingRetention(database);
   await downRecordingPlaybackAudit(database);
   await downRecordingAccessAudit(database);
   await downRecordingReceiptAttention(database);
@@ -290,6 +295,7 @@ try {
   await upRecordingReceiptAttention(database);
   await upRecordingAccessAudit(database);
   await upRecordingPlaybackAudit(database);
+  await upRecordingRetention(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -912,6 +918,7 @@ try {
       await upRecordingReceiptAttention(database);
       await upRecordingAccessAudit(database);
       await upRecordingPlaybackAudit(database);
+      await upRecordingRetention(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

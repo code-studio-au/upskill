@@ -75,6 +75,12 @@ export const eventVirtualRecordingDownloadSchema = z.object({
   recordingId: identifier,
 });
 
+export const eventVirtualRecordingMutationSchema = z.object({
+  eventOccurrenceId: identifier,
+  recordingId: identifier,
+  action: z.enum(["download", "request", "retry"]),
+});
+
 export const eventVirtualPresenterCredentialResultSchema = z.discriminatedUnion(
   "status",
   [
@@ -129,7 +135,9 @@ export type EventAttendanceState =
   "not_recorded" | "checked_in" | "attended" | "absent";
 
 interface EventVirtualRecordingOperationsState {
+  recordingId: string;
   roomGeneration: number;
+  statusLabel: string;
   status:
     | "requested"
     | "starting"
@@ -139,6 +147,9 @@ interface EventVirtualRecordingOperationsState {
     | "failed"
     | "deleted";
   warning: string | null;
+  deletion?: {
+    status: "pending" | "processing" | "failed" | "succeeded";
+  } | null;
   details?: {
     recordingId: string;
     completedAt: string;

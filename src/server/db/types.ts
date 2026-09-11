@@ -853,6 +853,21 @@ interface EventVirtualRecordingPlaybackSessionTable {
   createdAt: Timestamp;
 }
 
+interface EventVirtualRecordingDeletionTable {
+  recordingId: string;
+  reason: "administrator_requested" | "retention_expired";
+  requestedByUserId: string | null;
+  status: "pending" | "processing" | "failed" | "succeeded";
+  attempts: Generated<number>;
+  availableAt: Timestamp;
+  leasedUntil: Timestamp | null;
+  lastAttemptAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  lastErrorCode: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 interface LiveKitWebhookReceiptTable {
   id: string;
   provider: "livekit";
@@ -1829,6 +1844,9 @@ export type AuditEventAction =
   | "event_template.version_created"
   | "event_template.version_published"
   | "event_virtual_recording.completed"
+  | "event_virtual_recording.deleted"
+  | "event_virtual_recording.deletion_requested"
+  | "event_virtual_recording.deletion_retried"
   | "event_virtual_recording.download_issued"
   | "event_virtual_recording.playback_issued"
   | "event_virtual_recording.failed"
@@ -1964,6 +1982,7 @@ export interface Database {
   event_virtual_room: EventVirtualRoomTable;
   event_virtual_room_operation: EventVirtualRoomOperationTable;
   event_virtual_recording: EventVirtualRecordingTable;
+  event_virtual_recording_deletion: EventVirtualRecordingDeletionTable;
   event_virtual_recording_playback_session: EventVirtualRecordingPlaybackSessionTable;
   event_virtual_presenter_credential_reservation: EventVirtualPresenterCredentialReservationTable;
   event_virtual_join_access: EventVirtualJoinAccessTable;

@@ -56,10 +56,16 @@ export async function findEventVirtualRecordingAccess(
   if (lock === "update") recordingQuery = recordingQuery.forUpdate("recording");
   const recording = await recordingQuery.executeTakeFirst();
   if (!recording) return { status: "not-found" };
+  const deletion = await database
+    .selectFrom("event_virtual_recording_deletion")
+    .select("recordingId")
+    .where("recordingId", "=", recording.id)
+    .executeTakeFirst();
   if (
     recording.status !== "complete" ||
     !recording.retentionDeadline ||
-    recording.retentionDeadline <= now
+    recording.retentionDeadline <= now ||
+    deletion
   )
     return { status: "conflict", reason: "recording_unavailable" };
   return {

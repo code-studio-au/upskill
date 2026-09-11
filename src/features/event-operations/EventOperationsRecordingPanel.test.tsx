@@ -17,7 +17,9 @@ const details = {
 
 function recording(roomGeneration: number, accessAvailable: boolean) {
   return {
+    recordingId: `${details.recordingId}_${String(roomGeneration)}`,
     roomGeneration,
+    statusLabel: "Ready",
     status: "complete" as const,
     warning: null,
     details: {
@@ -76,11 +78,99 @@ describe("event operations recording download", () => {
   });
 
   it("removes the download action after the retention window", () => {
-    const html = render(false);
+    const html = renderToStaticMarkup(
+      <EventOperationsRecordingPanel
+        eventOccurrenceId="event_occurrence_1"
+        timezone="Australia/Sydney"
+        recordings={[{ ...recording(1, false), statusLabel: "Expired" }]}
+        processingId={null}
+        action={() => Promise.resolve()}
+      />,
+    );
 
     expect(html).not.toContain(">Download<");
     expect(html).not.toContain(">Play<");
-    expect(html).toContain("Playback and download have expired");
+    expect(html).toContain("Expired");
+  });
+
+  it("offers confirmed deletion and exposes retryable storage failure", () => {
+    const readyHtml = render(true);
+    expect(readyHtml).toContain("Delete recording");
+
+    const failedHtml = renderToStaticMarkup(
+      <EventOperationsRecordingPanel
+        eventOccurrenceId="event_occurrence_1"
+        timezone="Australia/Sydney"
+        recordings={[
+          {
+            ...recording(1, false),
+            deletion: {
+              status: "failed",
+            },
+            warning:
+              "Recording storage deletion failed after 2 attempts. An automatic retry is scheduled, or retry now.",
+          },
+        ]}
+        processingId={null}
+        action={() => Promise.resolve()}
+      />,
+    );
+
+    expect(failedHtml).not.toContain(">Play<");
+    expect(failedHtml).not.toContain(">Download<");
+    expect(failedHtml).toContain("Retry deletion");
+    expect(failedHtml).toContain("Retry deletion");
+  });
+
+  it("keeps deleted recording evidence visible after storage removal", () => {
+    const html = renderToStaticMarkup(
+      <EventOperationsRecordingPanel
+        eventOccurrenceId="event_occurrence_1"
+        timezone="Australia/Sydney"
+        recordings={[
+          {
+            ...recording(1, false),
+            status: "deleted",
+            statusLabel: "Deleted",
+            warning:
+              "Deleted from private storage. Recording history has been retained.",
+            deletion: {
+              status: "succeeded",
+            },
+          },
+        ]}
+        processingId={null}
+        action={() => Promise.resolve()}
+      />,
+    );
+
+    expect(html).toContain("Deleted");
+    expect(html).toContain("Deleted");
+    expect(html).not.toContain("Delete recording");
+  });
+
+  it("keeps a failed recording visible and offers private-storage cleanup", () => {
+    const html = renderToStaticMarkup(
+      <EventOperationsRecordingPanel
+        eventOccurrenceId="event_occurrence_1"
+        timezone="Australia/Sydney"
+        recordings={[
+          {
+            recordingId: "failed_recording_1",
+            roomGeneration: 3,
+            statusLabel: "Failed",
+            status: "failed",
+            warning: "Automatic recording failed. Arrange a manual follow-up.",
+          },
+        ]}
+        processingId={null}
+        action={() => Promise.resolve()}
+      />,
+    );
+
+    expect(html).toContain("Generation 3");
+    expect(html).toContain("Failed");
+    expect(html).toContain("Delete recording");
   });
 
   it("formats longer durations and rejects malformed evidence safely", () => {

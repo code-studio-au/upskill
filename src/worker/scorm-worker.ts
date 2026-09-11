@@ -8,6 +8,7 @@ import { processAvailableEventVirtualRoomOperations } from "#/server/events/even
 import { processAvailableEventVirtualRecoveryDeliveries } from "#/server/events/event-virtual-recovery-delivery.server";
 import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
 import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
+import { processAvailableEventVirtualRecordingDeletions } from "#/server/events/event-virtual-recording-retention.server";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
@@ -27,6 +28,7 @@ try {
       schedules,
       virtualRooms,
       liveKitRecordingReceipts,
+      virtualRecordingDeletions,
       virtualLobbyEligibilityRevocations,
       virtualRecoveryDeliveries,
       dispatch,
@@ -35,6 +37,7 @@ try {
       processAvailableEventCommunicationSchedules,
       processAvailableEventVirtualRoomOperations,
       processAvailableLiveKitRecordingReceipts,
+      processAvailableEventVirtualRecordingDeletions,
       processAvailableEventVirtualLobbyEligibilityRevocations,
       processAvailableEventVirtualRecoveryDeliveries,
       dispatchAvailableOutboxEvents,
@@ -91,6 +94,17 @@ try {
             : {}),
         },
       });
+    for (const outcome of virtualRecordingDeletions.outcomes)
+      logServerEvent({
+        level: outcome.status === "failed" ? "warn" : "info",
+        event: "worker.event_virtual_recording_deletion_processed",
+        fields: {
+          status: outcome.status,
+          recordingId: outcome.recordingId,
+          attempt: outcome.attempt,
+          reason: outcome.reason,
+        },
+      });
     for (const outcome of virtualLobbyEligibilityRevocations.outcomes)
       logServerEvent({
         level: "info",
@@ -133,6 +147,7 @@ try {
       schedules.outcomes.length === 0 &&
       virtualRooms.outcomes.length === 0 &&
       liveKitRecordingReceipts.outcomes.length === 0 &&
+      virtualRecordingDeletions.outcomes.length === 0 &&
       virtualLobbyEligibilityRevocations.outcomes.length === 0 &&
       virtualRecoveryDeliveries.outcomes.length === 0 &&
       dispatch.outcomes.length === 0 &&

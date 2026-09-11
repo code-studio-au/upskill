@@ -370,8 +370,16 @@ for (const requiredRecordingStorageBoundary of [
 }
 if (!applicationStack.includes("S3_RECORDING_BUCKET"))
   failures.push("The deployed server must receive its recording bucket name");
-if (!applicationStack.includes('actions: ["s3:GetObject"]'))
-  failures.push("The application role must have scoped recording read access");
+if (
+  !applicationStack.includes(
+    'actions: ["s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"]',
+  ) ||
+  !applicationStack.includes('actions: ["s3:ListBucketVersions"]') ||
+  !applicationStack.includes('StringLike: { "s3:prefix": ["recordings/*"] }')
+)
+  failures.push(
+    "The application role must have scoped recording read and retention access",
+  );
 for (const requiredRecordingUploadBoundary of [
   'new Role(this, "RecordingUploadRole"',
   "maxSessionDuration: Duration.hours(1)",
@@ -900,6 +908,20 @@ const liveKitRecordingPlaybackMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitRecordingRetention = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-retention.server.ts",
+  ),
+  "utf8",
+);
+const liveKitRecordingRetentionMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0109_livekit_recording_retention.ts",
+  ),
+  "utf8",
+);
 const objectStorage = fs.readFileSync(
   path.join(root, "src/server/storage/object-storage.server.ts"),
   "utf8",
@@ -980,6 +1002,41 @@ for (const boundary of [
   if (!liveKitRecordingPlayback.includes(boundary))
     failures.push(
       `LiveKit recording playback boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'selectFrom("platform_admin")',
+  '.where("session.eventOccurrenceId", "=", input.eventOccurrenceId)',
+  'insertInto("event_virtual_recording_deletion")',
+  'deleteFrom("event_virtual_recording_playback_session")',
+  "DELETION_MAXIMUM_AUTOMATIC_ATTEMPTS",
+  "deleteVersionedObject",
+  'action: "event_virtual_recording.deletion_requested"',
+  'action: "event_virtual_recording.deleted"',
+])
+  if (!liveKitRecordingRetention.includes(boundary))
+    failures.push(
+      `LiveKit recording retention boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "guard_event_virtual_recording_deletion",
+  "Recording deletion request evidence is immutable",
+  "Completed recording deletion evidence is immutable",
+  "event_virtual_recording_deletion_guard_trg",
+  "revoke delete on table event_virtual_recording_deletion",
+])
+  if (!liveKitRecordingRetentionMigration.includes(boundary))
+    failures.push(
+      `LiveKit recording deletion evidence guard is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "ListObjectVersionsCommand",
+  ".filter(({ Key, VersionId }) => Key === key && Boolean(VersionId))",
+  "deletion.Errors?.length",
+])
+  if (!objectStorage.includes(boundary))
+    failures.push(
+      `Recording version deletion boundary is missing: ${boundary}`,
     );
 for (const boundary of [
   "handleEventVirtualRecordingPlaybackRequest",
@@ -1163,6 +1220,14 @@ if (
 )
   failures.push(
     "Runtime database roles must not physically delete LiveKit recording evidence",
+  );
+if (
+  !provisionRuntimeRoles.includes(
+    "revoke delete on table event_virtual_recording_deletion from ${role}",
+  )
+)
+  failures.push(
+    "Runtime database roles must not physically delete LiveKit recording deletion evidence",
   );
 if (
   !provisionRuntimeRoles.includes(

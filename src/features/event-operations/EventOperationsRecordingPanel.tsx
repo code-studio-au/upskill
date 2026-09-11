@@ -1,6 +1,6 @@
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import { Button, Text } from "#/features/shared/mantine";
-import { getEventVirtualRecordingDownload } from "#/server/functions/event-operations";
+import { mutateEventVirtualRecording } from "#/server/functions/event-operations";
 import type { EventOperationsAction } from "./EventOperationsOverview";
 import type { EventOperationsWorkspace } from "./event-operations.schema";
 import {
@@ -12,19 +12,6 @@ import classes from "./EventOperations.module.css";
 type Recording = NonNullable<
   EventOperationsWorkspace["virtualSessions"][number]["recordings"][number]
 >;
-
-const recordingStatusLabels: Partial<Record<Recording["status"], string>> = {
-  active: "Recording",
-  stopping: "Finalising",
-  complete: "Ready",
-};
-
-function recordingStatusLabel(status: Recording["status"]): string {
-  return (
-    recordingStatusLabels[status] ??
-    status.charAt(0).toUpperCase() + status.slice(1)
-  );
-}
 
 function EventOperationsRecordingPanel({
   eventOccurrenceId,
@@ -44,8 +31,16 @@ function EventOperationsRecordingPanel({
       <Text fw={700}>Recordings</Text>
       {recordings.map((recording) => {
         const details = recording.details;
-        const downloadOperationId =
-          details && `download-recording-${details.recordingId}`;
+        const recordingId = recording.recordingId;
+        const deletion = recording.deletion;
+        const deletionAction =
+          deletion?.status === "failed"
+            ? "retry"
+            : !deletion &&
+                (recording.status === "complete" ||
+                  recording.status === "failed")
+              ? "request"
+              : null;
         return (
           <article
             className={classes.recordingItem}
@@ -55,7 +50,7 @@ function EventOperationsRecordingPanel({
               <div>
                 <Text fw={600}>Generation {recording.roomGeneration}</Text>
                 <Text c="dimmed" size="sm">
-                  {recordingStatusLabel(recording.status)}
+                  {recording.statusLabel}
                 </Text>
               </div>
               {details?.downloadAvailable ? (
@@ -70,65 +65,81 @@ function EventOperationsRecordingPanel({
                   <Button
                     variant="light"
                     disabled={processingId !== null}
-                    loading={processingId === downloadOperationId}
+                    loading={processingId === `d${recordingId}`}
                     onClick={() => {
-                      void action(
-                        downloadOperationId ?? "download-recording",
-                        async () => {
-                          const result = await getEventVirtualRecordingDownload(
-                            {
-                              data: {
-                                eventOccurrenceId,
-                                recordingId: details.recordingId,
-                              },
-                            },
-                          );
-                          if (result.status === "ready")
-                            window.location.assign(result.url);
-                          return result;
-                        },
-                      );
+                      void action(`d${recordingId}`, async () => {
+                        const result = await mutateEventVirtualRecording({
+                          data: {
+                            eventOccurrenceId,
+                            recordingId: details.recordingId,
+                            action: "download",
+                          },
+                        });
+                        if (result.status === "ready" && "url" in result)
+                          window.location.assign(result.url);
+                        return result;
+                      });
                     }}
                   >
                     Download
                   </Button>
                 </>
               ) : null}
+              {deletionAction ? (
+                <Button
+                  variant="light"
+                  disabled={processingId !== null}
+                  loading={processingId === `${deletionAction}-${recordingId}`}
+                  onClick={() => {
+                    if (
+                      deletionAction === "request" &&
+                      !window.confirm("Delete recording?")
+                    )
+                      return;
+                    void action(`${deletionAction}-${recordingId}`, () =>
+                      mutateEventVirtualRecording({
+                        data: {
+                          eventOccurrenceId,
+                          recordingId,
+                          action: deletionAction,
+                        },
+                      }),
+                    );
+                  }}
+                >
+                  {deletionAction === "retry"
+                    ? "Retry deletion"
+                    : "Delete recording"}
+                </Button>
+              ) : null}
             </header>
             {details ? (
               <dl className={classes.recordingDetails}>
-                <div>
-                  <dt>Completed</dt>
-                  <dd>
-                    {formatLocalDateTime(details.completedAt, {
+                {[
+                  [
+                    "Completed",
+                    formatLocalDateTime(details.completedAt, {
                       timeZone: timezone,
-                    })}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Duration</dt>
-                  <dd>
-                    {formatRecordingDuration(details.durationNanoseconds)}
-                  </dd>
-                </div>
-                <div>
-                  <dt>File size</dt>
-                  <dd>{formatRecordingSize(details.fileSizeBytes)}</dd>
-                </div>
-                <div>
-                  <dt>Available until</dt>
-                  <dd>
-                    {formatLocalDateTime(details.retentionDeadline, {
+                    }),
+                  ],
+                  [
+                    "Duration",
+                    formatRecordingDuration(details.durationNanoseconds),
+                  ],
+                  ["File size", formatRecordingSize(details.fileSizeBytes)],
+                  [
+                    "Available until",
+                    formatLocalDateTime(details.retentionDeadline, {
                       timeZone: timezone,
-                    })}
-                  </dd>
-                </div>
+                    }),
+                  ],
+                ].map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
               </dl>
-            ) : null}
-            {details && !details.downloadAvailable ? (
-              <Text c="dimmed" size="sm">
-                Playback and download have expired.
-              </Text>
             ) : null}
           </article>
         );

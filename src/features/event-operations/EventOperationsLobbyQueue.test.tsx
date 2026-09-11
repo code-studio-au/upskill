@@ -49,7 +49,9 @@ function renderRecording(
 describe("LiveKit operations recording status", () => {
   it("warns staff while an automatic recording operation is retrying", () => {
     const html = renderRecording({
+      recordingId: "recording_1",
       roomGeneration: room.generation,
+      statusLabel: "Requested",
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -62,7 +64,9 @@ describe("LiveKit operations recording status", () => {
 
   it("shows an actionable warning when automatic recording fails", () => {
     const html = renderRecording({
+      recordingId: "recording_1",
       roomGeneration: room.generation,
+      statusLabel: "Failed",
       status: "failed",
       warning:
         "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",

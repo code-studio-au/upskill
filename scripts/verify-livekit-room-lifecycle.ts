@@ -33,6 +33,11 @@ import {
 import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
 import { issueEventVirtualRecordingDownload } from "#/server/events/event-virtual-recording-download.server";
 import { accessEventVirtualRecordingPlayback } from "#/server/events/event-virtual-recording-playback.server";
+import {
+  processAvailableEventVirtualRecordingDeletions,
+  requestEventVirtualRecordingDeletion,
+  retryEventVirtualRecordingDeletion,
+} from "#/server/events/event-virtual-recording-retention.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
 import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
@@ -1211,17 +1216,44 @@ try {
     "event_virtual_recording_timeline_ck",
   );
   const recordingDeletedAt = new Date("2030-10-04T00:34:00.000Z");
-  await database
-    .updateTable("event_virtual_recording")
-    .set({
-      status: "deleted",
-      deletedByUserId: administrator.id,
-      deletedAt: recordingDeletedAt,
-      deletionReason: "retention_expired",
-      updatedAt: recordingDeletedAt,
-    })
-    .where("id", "=", recordingId)
-    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await processAvailableEventVirtualRecordingDeletions(1, {
+      now: new Date(retentionDeadline.getTime() - 1),
+      deleteStoredRecording: () => {
+        throw new Error("A retained recording must not reach storage deletion");
+      },
+    }),
+    { outcomes: [], limitReached: false },
+    "Recording retention must use the immutable snapshotted deadline",
+  );
+  const retainedObjectsDeleted: Array<{ bucket: string; key: string }> = [];
+  assert.deepEqual(
+    await processAvailableEventVirtualRecordingDeletions(1, {
+      now: recordingDeletedAt,
+      deleteStoredRecording: (bucket, key) => {
+        retainedObjectsDeleted.push({ bucket, key });
+        return Promise.resolve();
+      },
+    }),
+    {
+      outcomes: [
+        {
+          status: "deleted",
+          recordingId,
+          attempt: 1,
+          reason: "retention_expired",
+        },
+      ],
+      limitReached: true,
+    },
+    "The worker must delete expired recording storage and retain lifecycle evidence",
+  );
+  assert.deepEqual(retainedObjectsDeleted, [
+    {
+      bucket: "upskill-recordings",
+      key: "recordings/opaque_room/opaque_recording.mp4",
+    },
+  ]);
   await assert.rejects(
     database
       .updateTable("event_virtual_recording")
@@ -1241,6 +1273,7 @@ try {
         "providerEgressId",
         "storageObjectKey",
         "retentionDays",
+        "deletedByUserId",
         "deletedAt",
         "deletionReason",
       ])
@@ -1251,11 +1284,50 @@ try {
       providerEgressId: "EG_VERIFY_1",
       storageObjectKey: "recordings/opaque_room/opaque_recording.mp4",
       retentionDays: 30,
+      deletedByUserId: null,
       deletedAt: recordingDeletedAt,
       deletionReason: "retention_expired",
     },
     "Recording completion and deletion must retain the logical evidence row",
   );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording_deletion")
+      .select([
+        "reason",
+        "requestedByUserId",
+        "status",
+        "attempts",
+        "completedAt",
+        "lastErrorCode",
+      ])
+      .where("recordingId", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      reason: "retention_expired",
+      requestedByUserId: null,
+      status: "succeeded",
+      attempts: 1,
+      completedAt: recordingDeletedAt,
+      lastErrorCode: null,
+    },
+    "Automatic deletion must retain immutable system-owned deletion evidence",
+  );
+  await assert.rejects(
+    database
+      .updateTable("event_virtual_recording_deletion")
+      .set({ updatedAt: new Date(recordingDeletedAt.getTime() + 1) })
+      .where("recordingId", "=", recordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      code: "23514",
+      message: /Completed recording deletion evidence is immutable/u,
+    },
+  );
+  await database
+    .deleteFrom("event_virtual_recording_deletion")
+    .where("recordingId", "=", recordingId)
+    .executeTakeFirstOrThrow();
   await database
     .deleteFrom("event_virtual_recording")
     .where("id", "=", recordingId)
@@ -1412,7 +1484,9 @@ try {
     ).find((session) => session.eventSessionId === ids.session)?.recordings,
     [
       {
+        recordingId: receiptRecordingId,
         roomGeneration: room.generation,
+        statusLabel: "Requested",
         status: "requested",
         warning:
           "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -2029,7 +2103,9 @@ try {
     ).find((session) => session.eventSessionId === ids.session)?.recordings,
     [
       {
+        recordingId: receiptRecordingId,
         roomGeneration: room.generation,
+        statusLabel: "Ready",
         status: "complete",
         warning:
           "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session.",
@@ -2054,6 +2130,213 @@ try {
     { outcomes: [], limitReached: false },
     "Failed receipt retries must observe the bounded backoff",
   );
+  const deletionRequestedAt = new Date(terminalReceiptReviewAt.getTime() + 1);
+  assert.deepEqual(
+    await requestEventVirtualRecordingDeletion(
+      { eventOccurrenceId: ids.occurrence, recordingId: receiptRecordingId },
+      presenter,
+      deletionRequestedAt,
+    ),
+    { status: "forbidden" },
+    "Presenter assignment must not grant recording-deletion access",
+  );
+  assert.deepEqual(
+    await requestEventVirtualRecordingDeletion(
+      {
+        eventOccurrenceId: "verify_livekit_room_other_occurrence",
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      deletionRequestedAt,
+    ),
+    { status: "not-found" },
+    "Recording deletion must be bound to the exact occurrence",
+  );
+  assert.deepEqual(
+    await requestEventVirtualRecordingDeletion(
+      { eventOccurrenceId: ids.occurrence, recordingId: receiptRecordingId },
+      administrator,
+      deletionRequestedAt,
+    ),
+    { status: "ready" },
+    "A platform administrator may request confirmed recording deletion",
+  );
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      { eventOccurrenceId: ids.occurrence, recordingId: receiptRecordingId },
+      administrator,
+      {
+        now: deletionRequestedAt,
+        signDownload: () => {
+          throw new Error("Requested deletion must revoke recording access");
+        },
+      },
+    ),
+    { status: "conflict", reason: "recording_unavailable" },
+    "Deletion request must revoke playback and download before storage work runs",
+  );
+  const deletionFailedAt = new Date(deletionRequestedAt.getTime() + 1);
+  assert.deepEqual(
+    await processAvailableEventVirtualRecordingDeletions(1, {
+      now: deletionFailedAt,
+      deleteStoredRecording: () =>
+        Promise.reject(new Error("simulated private storage failure")),
+    }),
+    {
+      outcomes: [
+        {
+          status: "failed",
+          recordingId: receiptRecordingId,
+          attempt: 1,
+          reason: "administrator_requested",
+        },
+      ],
+      limitReached: true,
+    },
+    "Storage failure must retain a bounded retryable deletion outcome",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording_deletion")
+      .select(["status", "attempts", "lastErrorCode"])
+      .where("recordingId", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "failed",
+      attempts: 1,
+      lastErrorCode: "recording_storage_delete_failed",
+    },
+    "Deletion failure evidence must not retain provider or storage error detail",
+  );
+  assert.deepEqual(
+    (
+      await findEventVirtualSessionOperations(
+        ids.occurrence,
+        receiptApplicationAccess,
+        deletionFailedAt,
+      )
+    ).find((session) => session.eventSessionId === ids.session)?.recordings,
+    [
+      {
+        recordingId: receiptRecordingId,
+        roomGeneration: room.generation,
+        statusLabel: "Deletion needs attention",
+        status: "complete",
+        warning:
+          "Recording storage deletion failed after 1 attempt. Playback and download remain unavailable. An automatic retry is scheduled, or retry now.",
+        details: {
+          recordingId: receiptRecordingId,
+          completedAt: receiptReceivedAt.toISOString(),
+          fileSizeBytes: "8192",
+          durationNanoseconds: "240000000000",
+          retentionDeadline: new Date(
+            receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000,
+          ).toISOString(),
+          downloadAvailable: false,
+        },
+        deletion: {
+          status: "failed",
+        },
+      },
+    ],
+    "Administrators must see bounded deletion failure and retry state",
+  );
+  const deletionRetriedAt = new Date(deletionFailedAt.getTime() + 1);
+  assert.deepEqual(
+    await retryEventVirtualRecordingDeletion(
+      { eventOccurrenceId: ids.occurrence, recordingId: receiptRecordingId },
+      administrator,
+      deletionRetriedAt,
+    ),
+    { status: "ready" },
+    "An administrator may explicitly retry failed storage deletion",
+  );
+  const deletedObjects: Array<{ bucket: string; key: string }> = [];
+  const deletionCompletedAt = new Date(deletionRetriedAt.getTime() + 1);
+  assert.deepEqual(
+    await processAvailableEventVirtualRecordingDeletions(1, {
+      now: deletionCompletedAt,
+      deleteStoredRecording: (bucket, key) => {
+        deletedObjects.push({ bucket, key });
+        return Promise.resolve();
+      },
+    }),
+    {
+      outcomes: [
+        {
+          status: "deleted",
+          recordingId: receiptRecordingId,
+          attempt: 2,
+          reason: "administrator_requested",
+        },
+      ],
+      limitReached: true,
+    },
+    "An explicit retry must finish the same immutable deletion request",
+  );
+  assert.deepEqual(deletedObjects, [
+    { bucket: "upskill-recordings", key: receiptStorageObjectKey },
+  ]);
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select([
+        "status",
+        "providerEgressId",
+        "storageObjectKey",
+        "fileSizeBytes",
+        "retentionDeadline",
+        "deletedByUserId",
+        "deletedAt",
+        "deletionReason",
+      ])
+      .where("id", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "deleted",
+      providerEgressId: receiptProviderEgressId,
+      storageObjectKey: receiptStorageObjectKey,
+      fileSizeBytes: "8192",
+      retentionDeadline: new Date(
+        receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000,
+      ),
+      deletedByUserId: administrator.id,
+      deletedAt: deletionCompletedAt,
+      deletionReason: "administrator_requested",
+    },
+    "Deletion completion must preserve recording history and append actor evidence",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select(["action", "actorUserId", "reason"])
+      .where("subjectId", "=", receiptRecordingId)
+      .where("action", "in", [
+        "event_virtual_recording.deletion_requested",
+        "event_virtual_recording.deletion_retried",
+        "event_virtual_recording.deleted",
+      ])
+      .orderBy("createdAt")
+      .execute(),
+    [
+      {
+        action: "event_virtual_recording.deletion_requested",
+        actorUserId: administrator.id,
+        reason: "administrator_requested",
+      },
+      {
+        action: "event_virtual_recording.deletion_retried",
+        actorUserId: administrator.id,
+        reason: "administrator_requested",
+      },
+      {
+        action: "event_virtual_recording.deleted",
+        actorUserId: administrator.id,
+        reason: "administrator_requested",
+      },
+    ],
+    "Recording deletion and recovery must retain bounded durable audit history",
+  );
   await database
     .deleteFrom("event_virtual_room_operation")
     .where("recordingId", "=", receiptRecordingId)
@@ -2066,6 +2349,10 @@ try {
     .deleteFrom("event_virtual_recording_playback_session")
     .where("recordingId", "=", receiptRecordingId)
     .execute();
+  await database
+    .deleteFrom("event_virtual_recording_deletion")
+    .where("recordingId", "=", receiptRecordingId)
+    .executeTakeFirstOrThrow();
   await database
     .deleteFrom("event_virtual_recording")
     .where("id", "=", receiptRecordingId)
@@ -3534,6 +3821,11 @@ try {
     },
     "A retryable upload-authorization failure must not set the durable LiveKit dispatch fence",
   );
+  const retryingRecording = await database
+    .selectFrom("event_virtual_recording")
+    .select("id")
+    .where("roomId", "=", startRoom.id)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     (
       await findEventVirtualSessionOperations(
@@ -3547,7 +3839,9 @@ try {
         (recording) => recording.roomGeneration === startRoom.generation,
       ),
     {
+      recordingId: retryingRecording.id,
       roomGeneration: startRoom.generation,
+      statusLabel: "Requested",
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -3564,7 +3858,9 @@ try {
   assert.deepEqual(
     retryingRecordingQueue.data.recording,
     {
+      recordingId: retryingRecording.id,
       roomGeneration: startRoom.generation,
+      statusLabel: "Requested",
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -4835,7 +5131,9 @@ try {
     ).find((session) => session.eventSessionId === ids.raceSession)?.recordings,
     [
       {
+        recordingId: fencedTerminalRecordingId,
         roomGeneration: deferredRoom.generation,
+        statusLabel: "Failed",
         status: "failed",
         warning:
           "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",
@@ -5101,6 +5399,9 @@ try {
     [...new Set(recordingAuditActions.map((event) => event.action))].sort(),
     [
       "event_virtual_recording.completed",
+      "event_virtual_recording.deleted",
+      "event_virtual_recording.deletion_requested",
+      "event_virtual_recording.deletion_retried",
       "event_virtual_recording.download_issued",
       "event_virtual_recording.failed",
       "event_virtual_recording.playback_issued",
@@ -5112,9 +5413,15 @@ try {
     "Recording request, provider start, stop, completion, access and failure transitions must all emit durable audit evidence",
   );
   assert.equal(
-    recordingAuditActions.every((event) => event.actorUserId !== null),
+    recordingAuditActions.every(
+      (event) =>
+        event.actorUserId !== null ||
+        (event.reason === "retention_expired" &&
+          (event.action === "event_virtual_recording.deletion_requested" ||
+            event.action === "event_virtual_recording.deleted")),
+    ),
     true,
-    "Automatic recording audit evidence must retain its initiating staff actor",
+    "Only system retention deletion may omit an initiating staff actor",
   );
   assert.equal(
     recordingAuditActions.some(
@@ -5179,6 +5486,19 @@ try {
     ])
     .execute();
   await database
+    .deleteFrom("event_virtual_recording_deletion")
+    .where("recordingId", "in", (builder) =>
+      builder
+        .selectFrom("event_virtual_recording")
+        .select("id")
+        .where("eventSessionId", "in", [
+          ids.session,
+          ids.raceSession,
+          ids.failureSession,
+        ]),
+    )
+    .execute();
+  await database
     .deleteFrom("event_virtual_recording")
     .where("eventSessionId", "in", [
       ids.session,
@@ -5208,11 +5528,16 @@ try {
         "event_virtual_room",
         "event_virtual_recording",
       ])
-      .where("actorUserId", "in", [
-        administrator.id,
-        presenter.id,
-        wholePresenter.id,
-      ])
+      .where((expression) =>
+        expression.or([
+          expression("actorUserId", "in", [
+            administrator.id,
+            presenter.id,
+            wholePresenter.id,
+          ]),
+          expression("subjectId", "like", "verify_livekit_%"),
+        ]),
+      )
       .execute();
   });
   await database

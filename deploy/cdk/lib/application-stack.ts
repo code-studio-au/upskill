@@ -91,8 +91,18 @@ export class ApplicationStack extends Stack {
     role.addToPolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
-        actions: ["s3:GetObject"],
+        actions: ["s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
         resources: [props.recordingBucket.arnForObjects("recordings/*")],
+      }),
+    );
+    role.addToPolicy(
+      new PolicyStatement({
+        effect: Effect.ALLOW,
+        actions: ["s3:ListBucketVersions"],
+        resources: [props.recordingBucket.bucketArn],
+        conditions: {
+          StringLike: { "s3:prefix": ["recordings/*"] },
+        },
       }),
     );
     const accessGrantsPrincipal = new ServicePrincipal(
