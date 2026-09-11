@@ -871,6 +871,35 @@ const liveKitRecordingDownload = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitRecordingAccess = fs.readFileSync(
+  path.join(root, "src/server/events/event-virtual-recording-access.server.ts"),
+  "utf8",
+);
+const liveKitRecordingPlayback = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-playback.server.ts",
+  ),
+  "utf8",
+);
+const liveKitRecordingPlaybackRoute = fs.readFileSync(
+  path.join(root, "src/routes/api.play.$recordingId.ts"),
+  "utf8",
+);
+const liveKitRecordingPlaybackResponse = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-playback-response.server.ts",
+  ),
+  "utf8",
+);
+const liveKitRecordingPlaybackMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0108_livekit_recording_playback_audit.ts",
+  ),
+  "utf8",
+);
 const objectStorage = fs.readFileSync(
   path.join(root, "src/server/storage/object-storage.server.ts"),
   "utf8",
@@ -923,12 +952,74 @@ for (const boundary of [
   'selectFrom("platform_admin")',
   'recording.status !== "complete"',
   "recording.retentionDeadline <= now",
+  '.where("session.eventOccurrenceId", "=", input.eventOccurrenceId)',
+])
+  if (!liveKitRecordingAccess.includes(boundary))
+    failures.push(`LiveKit recording access boundary is missing: ${boundary}`);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "findEventVirtualRecordingAccess",
   "RECORDING_DOWNLOAD_EXPIRY_SECONDS = 60",
   'action: "event_virtual_recording.download_issued"',
 ])
   if (!liveKitRecordingDownload.includes(boundary))
     failures.push(
       `LiveKit recording download boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'insertInto("event_virtual_recording_playback_session")',
+  'action: "event_virtual_recording.playback_issued"',
+  'where("recordingId", "=", recording.id)',
+  'where("userId", "=", user.id)',
+  ".forUpdate()",
+  "session.expiresAt <= now",
+  "findEventVirtualRecordingAccess",
+  '"update"',
+])
+  if (!liveKitRecordingPlayback.includes(boundary))
+    failures.push(
+      `LiveKit recording playback boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "handleEventVirtualRecordingPlaybackRequest",
+  "params.recordingId",
+])
+  if (!liveKitRecordingPlaybackRoute.includes(boundary))
+    failures.push(
+      `LiveKit recording playback route boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "eventVirtualRecordingDownloadSchema.safeParse({",
+  "searchParams.get(",
+  "getRequestUser()",
+  "accessEventVirtualRecordingPlayback",
+  "parseByteRange",
+  "boundByteRange",
+  "MAXIMUM_PLAYBACK_RANGE_BYTES",
+  "limitPlaybackStreamToDeadline",
+  "access.target.expiresAt",
+  "getObjectStream",
+  'headers.set("Content-Range", object.contentRange)',
+  '"Cache-Control": "private, no-store"',
+  '"Referrer-Policy": "no-referrer"',
+])
+  if (!liveKitRecordingPlaybackResponse.includes(boundary))
+    failures.push(
+      `LiveKit recording playback response boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "create table event_virtual_recording_playback_session",
+  'primary key ("recordingId", "userId")',
+  "references event_virtual_recording(id) on delete restrict",
+  'references "user"(id) on delete restrict',
+  "event_virtual_recording_playback_timeline_ck",
+  "event_virtual_recording_playback_expiry_idx",
+])
+  if (!liveKitRecordingPlaybackMigration.includes(boundary))
+    failures.push(
+      `LiveKit recording playback migration boundary is missing: ${boundary}`,
     );
 for (const boundary of [
   'from "@aws-sdk/s3-request-presigner"',

@@ -15,7 +15,7 @@ const details = {
   downloadAvailable: true,
 };
 
-function recording(roomGeneration: number, downloadAvailable: boolean) {
+function recording(roomGeneration: number, accessAvailable: boolean) {
   return {
     roomGeneration,
     status: "complete" as const,
@@ -23,7 +23,7 @@ function recording(roomGeneration: number, downloadAvailable: boolean) {
     details: {
       ...details,
       recordingId: `${details.recordingId}_${String(roomGeneration)}`,
-      downloadAvailable,
+      downloadAvailable: accessAvailable,
     },
   };
 }
@@ -51,7 +51,11 @@ describe("event operations recording download", () => {
     expect(html).toContain("4 min");
     expect(html).toContain("8 MB");
     expect(html).toContain("Available until");
-    expect(html).toContain("Download recording");
+    expect(html).toContain(">Play<");
+    expect(html).toContain(">Download<");
+    expect(html).toContain(
+      "/api/play/event_virtual_recording_1_1?occurrence=event_occurrence_1",
+    );
   });
 
   it("keeps retained recordings from every room generation visible", () => {
@@ -67,14 +71,16 @@ describe("event operations recording download", () => {
 
     expect(html).toContain("Generation 2");
     expect(html).toContain("Generation 1");
-    expect(html.match(/Download recording/gu)).toHaveLength(2);
+    expect(html.match(/>Download</gu)).toHaveLength(2);
+    expect(html.match(/>Play</gu)).toHaveLength(2);
   });
 
   it("removes the download action after the retention window", () => {
     const html = render(false);
 
-    expect(html).not.toContain("Download recording");
-    expect(html).toContain("no longer available to download");
+    expect(html).not.toContain(">Download<");
+    expect(html).not.toContain(">Play<");
+    expect(html).toContain("Playback and download have expired");
   });
 
   it("formats longer durations and rejects malformed evidence safely", () => {

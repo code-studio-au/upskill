@@ -87,6 +87,7 @@ describe("audit event boundary", () => {
       "event_template.version_published",
       "event_virtual_recording.completed",
       "event_virtual_recording.download_issued",
+      "event_virtual_recording.playback_issued",
       "event_virtual_recording.failed",
       "event_virtual_recording.requested",
       "event_virtual_recording.started",

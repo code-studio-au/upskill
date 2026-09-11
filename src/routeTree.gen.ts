@@ -60,6 +60,7 @@ import { Route as ApiAdminResourcesRouteImport } from './routes/api.admin.resour
 import { Route as ApiAdminScormPackagesRouteImport } from './routes/api.admin.scorm-packages'
 import { Route as ApiAuthSplatRouteImport } from './routes/api.auth.$'
 import { Route as ApiLivekitWebhookRouteImport } from './routes/api.livekit.webhook'
+import { Route as ApiPlayRecordingIdRouteImport } from './routes/api.play.$recordingId'
 import { Route as ApiScormLaunchRouteImport } from './routes/api.scorm.launch'
 import { Route as ApiScormLaunchesRouteImport } from './routes/api.scorm.launches'
 import { Route as ApiScormPreviewRouteImport } from './routes/api.scorm.preview'
@@ -356,6 +357,11 @@ const ApiLivekitWebhookRoute = ApiLivekitWebhookRouteImport.update({
   path: '/api/livekit/webhook',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPlayRecordingIdRoute = ApiPlayRecordingIdRouteImport.update({
+  id: '/api/play/$recordingId',
+  path: '/api/play/$recordingId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiScormLaunchRoute = ApiScormLaunchRouteImport.update({
   id: '/api/scorm/launch',
   path: '/api/scorm/launch',
@@ -598,6 +604,7 @@ export interface FileRoutesByFullPath {
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/livekit/webhook': typeof ApiLivekitWebhookRoute
+  '/api/play/$recordingId': typeof ApiPlayRecordingIdRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/scorm/preview': typeof ApiScormPreviewRoute
@@ -682,6 +689,7 @@ export interface FileRoutesByTo {
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/livekit/webhook': typeof ApiLivekitWebhookRoute
+  '/api/play/$recordingId': typeof ApiPlayRecordingIdRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/scorm/preview': typeof ApiScormPreviewRoute
@@ -769,6 +777,7 @@ export interface FileRoutesById {
   '/api/admin/scorm-packages': typeof ApiAdminScormPackagesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/livekit/webhook': typeof ApiLivekitWebhookRoute
+  '/api/play/$recordingId': typeof ApiPlayRecordingIdRoute
   '/api/scorm/launch': typeof ApiScormLaunchRoute
   '/api/scorm/launches': typeof ApiScormLaunchesRoute
   '/api/scorm/preview': typeof ApiScormPreviewRoute
@@ -857,6 +866,7 @@ export interface FileRouteTypes {
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/livekit/webhook'
+    | '/api/play/$recordingId'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/scorm/preview'
@@ -941,6 +951,7 @@ export interface FileRouteTypes {
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/livekit/webhook'
+    | '/api/play/$recordingId'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/scorm/preview'
@@ -1027,6 +1038,7 @@ export interface FileRouteTypes {
     | '/api/admin/scorm-packages'
     | '/api/auth/$'
     | '/api/livekit/webhook'
+    | '/api/play/$recordingId'
     | '/api/scorm/launch'
     | '/api/scorm/launches'
     | '/api/scorm/preview'
@@ -1095,6 +1107,7 @@ export interface RootRouteChildren {
   ApiAdminScormPackagesRoute: typeof ApiAdminScormPackagesRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiLivekitWebhookRoute: typeof ApiLivekitWebhookRoute
+  ApiPlayRecordingIdRoute: typeof ApiPlayRecordingIdRoute
   ApiScormLaunchRoute: typeof ApiScormLaunchRoute
   ApiScormLaunchesRoute: typeof ApiScormLaunchesRoute
   ApiScormPreviewRoute: typeof ApiScormPreviewRoute
@@ -1478,6 +1491,13 @@ declare module '@tanstack/react-router' {
       path: '/api/livekit/webhook'
       fullPath: '/api/livekit/webhook'
       preLoaderRoute: typeof ApiLivekitWebhookRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/play/$recordingId': {
+      id: '/api/play/$recordingId'
+      path: '/api/play/$recordingId'
+      fullPath: '/api/play/$recordingId'
+      preLoaderRoute: typeof ApiPlayRecordingIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/scorm/launch': {
@@ -1880,6 +1900,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAdminScormPackagesRoute: ApiAdminScormPackagesRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiLivekitWebhookRoute: ApiLivekitWebhookRoute,
+  ApiPlayRecordingIdRoute: ApiPlayRecordingIdRoute,
   ApiScormLaunchRoute: ApiScormLaunchRoute,
   ApiScormLaunchesRoute: ApiScormLaunchesRoute,
   ApiScormPreviewRoute: ApiScormPreviewRoute,

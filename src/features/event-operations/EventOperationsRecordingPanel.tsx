@@ -13,16 +13,17 @@ type Recording = NonNullable<
   EventOperationsWorkspace["virtualSessions"][number]["recordings"][number]
 >;
 
+const recordingStatusLabels: Partial<Record<Recording["status"], string>> = {
+  active: "Recording",
+  stopping: "Finalising",
+  complete: "Ready",
+};
+
 function recordingStatusLabel(status: Recording["status"]): string {
-  return {
-    requested: "Requested",
-    starting: "Starting",
-    active: "Recording",
-    stopping: "Finalising",
-    complete: "Ready",
-    failed: "Failed",
-    deleted: "Deleted",
-  }[status];
+  return (
+    recordingStatusLabels[status] ??
+    status.charAt(0).toUpperCase() + status.slice(1)
+  );
 }
 
 function EventOperationsRecordingPanel({
@@ -43,9 +44,8 @@ function EventOperationsRecordingPanel({
       <Text fw={700}>Recordings</Text>
       {recordings.map((recording) => {
         const details = recording.details;
-        const operationId = details
-          ? `download-recording-${details.recordingId}`
-          : null;
+        const downloadOperationId =
+          details && `download-recording-${details.recordingId}`;
         return (
           <article
             className={classes.recordingItem}
@@ -59,29 +59,40 @@ function EventOperationsRecordingPanel({
                 </Text>
               </div>
               {details?.downloadAvailable ? (
-                <Button
-                  variant="light"
-                  disabled={processingId !== null}
-                  loading={processingId === operationId}
-                  onClick={() => {
-                    void action(
-                      operationId ?? "download-recording",
-                      async () => {
-                        const result = await getEventVirtualRecordingDownload({
-                          data: {
-                            eventOccurrenceId,
-                            recordingId: details.recordingId,
-                          },
-                        });
-                        if (result.status === "ready")
-                          window.location.assign(result.url);
-                        return result;
-                      },
-                    );
-                  }}
-                >
-                  Download recording
-                </Button>
+                <>
+                  <Button
+                    component="a"
+                    href={`/api/play/${encodeURIComponent(details.recordingId)}?occurrence=${encodeURIComponent(eventOccurrenceId)}`}
+                    variant="light"
+                  >
+                    Play
+                  </Button>
+                  <Button
+                    variant="light"
+                    disabled={processingId !== null}
+                    loading={processingId === downloadOperationId}
+                    onClick={() => {
+                      void action(
+                        downloadOperationId ?? "download-recording",
+                        async () => {
+                          const result = await getEventVirtualRecordingDownload(
+                            {
+                              data: {
+                                eventOccurrenceId,
+                                recordingId: details.recordingId,
+                              },
+                            },
+                          );
+                          if (result.status === "ready")
+                            window.location.assign(result.url);
+                          return result;
+                        },
+                      );
+                    }}
+                  >
+                    Download
+                  </Button>
+                </>
               ) : null}
             </header>
             {details ? (
@@ -116,7 +127,7 @@ function EventOperationsRecordingPanel({
             ) : null}
             {details && !details.downloadAvailable ? (
               <Text c="dimmed" size="sm">
-                This recording is no longer available to download.
+                Playback and download have expired.
               </Text>
             ) : null}
           </article>

@@ -32,6 +32,7 @@ import {
 } from "#/server/events/event-virtual-room.server";
 import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
 import { issueEventVirtualRecordingDownload } from "#/server/events/event-virtual-recording-download.server";
+import { accessEventVirtualRecordingPlayback } from "#/server/events/event-virtual-recording-playback.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
 import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
@@ -1546,6 +1547,225 @@ try {
       signingDate: downloadIssuedAt,
     },
   ]);
+  const playbackIssuedAt = new Date(receiptApplicationAt.getTime() + 2);
+  assert.deepEqual(
+    await accessEventVirtualRecordingPlayback(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      playbackIssuedAt,
+    ),
+    {
+      status: "ready",
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: new Date(playbackIssuedAt.getTime() + 10 * 60_000),
+      },
+    },
+    "A platform administrator may start an application-controlled private playback session",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording_playback_session")
+      .select(["expiresAt", "lastUsedAt", "createdAt"])
+      .where("recordingId", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      expiresAt: new Date(playbackIssuedAt.getTime() + 10 * 60_000),
+      lastUsedAt: playbackIssuedAt,
+      createdAt: playbackIssuedAt,
+    },
+    "Playback access must create only short-lived server-owned session state",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select(["actorUserId", "metadata"])
+      .where("action", "=", "event_virtual_recording.playback_issued")
+      .where("subjectId", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      actorUserId: administrator.id,
+      metadata: {
+        roomId: room.id,
+        eventSessionId: ids.session,
+        roomGeneration: room.generation,
+        accessMode: "application_playback",
+        idleExpiresAt: new Date(
+          playbackIssuedAt.getTime() + 10 * 60_000,
+        ).toISOString(),
+      },
+    },
+    "Recording playback issuance must retain bounded actor and access evidence without the object key or URL",
+  );
+  const playbackRefreshedAt = new Date(playbackIssuedAt.getTime() + 9 * 60_000);
+  assert.deepEqual(
+    await accessEventVirtualRecordingPlayback(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      playbackRefreshedAt,
+    ),
+    {
+      status: "ready",
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: new Date(playbackRefreshedAt.getTime() + 10 * 60_000),
+      },
+    },
+    "An active private playback session must refresh its short idle window for long recordings",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording_playback_session")
+      .select(["expiresAt", "lastUsedAt"])
+      .where("recordingId", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      expiresAt: new Date(playbackRefreshedAt.getTime() + 10 * 60_000),
+      lastUsedAt: playbackRefreshedAt,
+    },
+    "Playback refresh must remain server-owned",
+  );
+  assert.deepEqual(
+    await accessEventVirtualRecordingPlayback(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      presenter,
+      playbackRefreshedAt,
+    ),
+    { status: "forbidden" },
+    "A playback session must remain bound to an authorised administrator",
+  );
+  const playbackRestartedAt = new Date(
+    playbackRefreshedAt.getTime() + 10 * 60_000,
+  );
+  assert.deepEqual(
+    await accessEventVirtualRecordingPlayback(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      playbackRestartedAt,
+    ),
+    {
+      status: "ready",
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: new Date(playbackRestartedAt.getTime() + 10 * 60_000),
+      },
+    },
+    "Access after the idle boundary must start a fresh playback session",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording_playback_session")
+      .select(["expiresAt", "lastUsedAt", "createdAt"])
+      .where("recordingId", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      expiresAt: new Date(playbackRestartedAt.getTime() + 10 * 60_000),
+      lastUsedAt: playbackRestartedAt,
+      createdAt: playbackRestartedAt,
+    },
+    "A restarted session must replace expired operational state without rewriting audit history",
+  );
+  assert.equal(
+    Number(
+      (
+        await database
+          .selectFrom("audit_event")
+          .select(({ fn }) => fn.countAll<string>().as("count"))
+          .where("action", "=", "event_virtual_recording.playback_issued")
+          .where("subjectId", "=", receiptRecordingId)
+          .executeTakeFirstOrThrow()
+      ).count,
+    ),
+    2,
+    "Playback access must audit issuance and idle-expiry restart without auditing an active refresh",
+  );
+  assert.deepEqual(
+    await accessEventVirtualRecordingPlayback(
+      {
+        eventOccurrenceId: "verify_livekit_room_other_occurrence",
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      playbackIssuedAt,
+    ),
+    { status: "not-found" },
+    "Recording playback must be bound to the exact requested occurrence",
+  );
+  for (const [role, staff] of [
+    ["Presenter", presenter],
+    ["Coordinator", coordinator],
+  ] as const)
+    assert.deepEqual(
+      await accessEventVirtualRecordingPlayback(
+        {
+          eventOccurrenceId: ids.occurrence,
+          recordingId: receiptRecordingId,
+        },
+        staff,
+        playbackIssuedAt,
+      ),
+      { status: "forbidden" },
+      `${role} assignment must not grant recording-playback access`,
+    );
+  assert.deepEqual(
+    await accessEventVirtualRecordingPlayback(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      new Date(receiptReceivedAt.getTime() + 31 * 24 * 60 * 60_000),
+    ),
+    { status: "conflict", reason: "recording_unavailable" },
+    "An elapsed retention deadline must close recording-playback access",
+  );
+  const playbackRetentionDeadline = new Date(
+    receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000,
+  );
+  const nearRetentionPlaybackAt = new Date(
+    playbackRetentionDeadline.getTime() - 30_500,
+  );
+  assert.deepEqual(
+    await accessEventVirtualRecordingPlayback(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      nearRetentionPlaybackAt,
+    ),
+    {
+      status: "ready",
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: playbackRetentionDeadline,
+      },
+    },
+    "A playback session must expire no later than the snapshotted retention deadline",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_virtual_recording_playback_session")
+        .select("expiresAt")
+        .where("recordingId", "=", receiptRecordingId)
+        .executeTakeFirstOrThrow()
+    ).expiresAt.getTime(),
+    playbackRetentionDeadline.getTime(),
+    "The persisted playback expiry must be capped by recording retention",
+  );
   assert.deepEqual(
     await issueEventVirtualRecordingDownload(
       {
@@ -1841,6 +2061,10 @@ try {
   await database
     .deleteFrom("livekit_webhook_receipt")
     .where("matchedRecordingId", "=", receiptRecordingId)
+    .execute();
+  await database
+    .deleteFrom("event_virtual_recording_playback_session")
+    .where("recordingId", "=", receiptRecordingId)
     .execute();
   await database
     .deleteFrom("event_virtual_recording")
@@ -4879,12 +5103,13 @@ try {
       "event_virtual_recording.completed",
       "event_virtual_recording.download_issued",
       "event_virtual_recording.failed",
+      "event_virtual_recording.playback_issued",
       "event_virtual_recording.requested",
       "event_virtual_recording.started",
       "event_virtual_recording.stop_requested",
       "event_virtual_recording.stop_started",
     ],
-    "Recording request, provider start, stop, completion, download and failure transitions must all emit durable audit evidence",
+    "Recording request, provider start, stop, completion, access and failure transitions must all emit durable audit evidence",
   );
   assert.equal(
     recordingAuditActions.every((event) => event.actorUserId !== null),

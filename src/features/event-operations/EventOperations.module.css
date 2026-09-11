@@ -255,6 +255,10 @@
   gap: 0.75rem;
 }
 
+.recordingItem > header > a {
+  margin-left: auto;
+}
+
 .recordingDetails {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -415,9 +419,15 @@
   }
 
   .webinarLifecycleActions > *,
-  .recordingSummary > header > button,
+  .recordingItem > header > a,
+  .recordingItem > header > button,
   .queueControls > button {
     flex: 1 1 min(100%, 11rem);
+  }
+
+  .recordingItem > header > a {
+    margin-left: 0;
+    width: 100%;
   }
 }
 .guestLink {

@@ -845,6 +845,14 @@ interface EventVirtualRecordingTable {
   updatedAt: Timestamp;
 }
 
+interface EventVirtualRecordingPlaybackSessionTable {
+  recordingId: string;
+  userId: string;
+  expiresAt: Timestamp;
+  lastUsedAt: Timestamp;
+  createdAt: Timestamp;
+}
+
 interface LiveKitWebhookReceiptTable {
   id: string;
   provider: "livekit";
@@ -1822,6 +1830,7 @@ export type AuditEventAction =
   | "event_template.version_published"
   | "event_virtual_recording.completed"
   | "event_virtual_recording.download_issued"
+  | "event_virtual_recording.playback_issued"
   | "event_virtual_recording.failed"
   | "event_virtual_recording.requested"
   | "event_virtual_recording.started"
@@ -1955,6 +1964,7 @@ export interface Database {
   event_virtual_room: EventVirtualRoomTable;
   event_virtual_room_operation: EventVirtualRoomOperationTable;
   event_virtual_recording: EventVirtualRecordingTable;
+  event_virtual_recording_playback_session: EventVirtualRecordingPlaybackSessionTable;
   event_virtual_presenter_credential_reservation: EventVirtualPresenterCredentialReservationTable;
   event_virtual_join_access: EventVirtualJoinAccessTable;
   event_virtual_lobby_entry: EventVirtualLobbyEntryTable;
