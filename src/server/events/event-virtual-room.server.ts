@@ -173,8 +173,17 @@ type EventVirtualRecordingStatus =
   | "deleted";
 
 interface EventVirtualRecordingOperationsState {
+  roomGeneration: number;
   status: EventVirtualRecordingStatus;
   warning: string | null;
+  details?: {
+    recordingId: string;
+    completedAt: string;
+    fileSizeBytes: string;
+    durationNanoseconds: string;
+    retentionDeadline: string;
+    downloadAvailable: boolean;
+  } | null;
 }
 
 export interface EventVirtualSessionOperations {
@@ -185,6 +194,7 @@ export interface EventVirtualSessionOperations {
   lobbyPath: string | null;
   room: EventVirtualRoomState | null;
   recording: EventVirtualRecordingOperationsState | null;
+  recordings: EventVirtualRecordingOperationsState[];
 }
 
 const LOBBY_QUEUE_PAGE_SIZE = 50;
@@ -193,6 +203,7 @@ async function findRecordingOperationsByRoom(
   database: DatabaseConnection,
   roomIds: string[],
   observedAt = new Date(),
+  includeAdministratorDetails = false,
 ): Promise<Map<string, EventVirtualRecordingOperationsState>> {
   if (!roomIds.length) return new Map();
   const rows = await database
@@ -205,7 +216,13 @@ async function findRecordingOperationsByRoom(
     )
     .select([
       "recording.roomId",
+      "recording.roomGeneration",
+      "recording.id",
       "recording.status",
+      "recording.completedAt",
+      "recording.fileSizeBytes",
+      "recording.durationNanoseconds",
+      "recording.retentionDeadline",
       "operation.id as retryingOperationId",
     ])
     .select((expression) => [
@@ -243,6 +260,7 @@ async function findRecordingOperationsByRoom(
       row.hasDelayedReceipt ||
       Boolean(current?.warning);
     states.set(row.roomId, {
+      roomGeneration: row.roomGeneration,
       status: row.status,
       warning:
         row.status === "failed"
@@ -252,6 +270,23 @@ async function findRecordingOperationsByRoom(
             : retrying
               ? "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists."
               : null,
+      ...(includeAdministratorDetails &&
+      row.completedAt &&
+      row.fileSizeBytes !== null &&
+      row.durationNanoseconds !== null &&
+      row.retentionDeadline
+        ? {
+            details: {
+              recordingId: row.id,
+              completedAt: row.completedAt.toISOString(),
+              fileSizeBytes: row.fileSizeBytes,
+              durationNanoseconds: row.durationNanoseconds,
+              retentionDeadline: row.retentionDeadline.toISOString(),
+              downloadAvailable:
+                row.status === "complete" && row.retentionDeadline > observedAt,
+            },
+          }
+        : {}),
     });
   }
   return states;
@@ -1323,22 +1358,38 @@ export async function findEventVirtualSessionOperations(
       "lockedAt",
       "reopenedAt",
       "endedAt",
+      "replacedAt",
     ])
     .where(
       "eventSessionId",
       "in",
       authorised.map((session) => session.id),
     )
-    .where("replacedAt", "is", null)
+    .orderBy("eventSessionId")
+    .orderBy("generation", "desc")
     .execute();
   const roomBySession = new Map(
-    rooms.map((room) => [room.eventSessionId, room]),
+    rooms
+      .filter((room) => !room.replacedAt)
+      .map((room) => [room.eventSessionId, room]),
   );
   const recordingByRoom = await findRecordingOperationsByRoom(
     database,
     rooms.map((room) => room.id),
     now,
+    access.isPlatformAdministrator || access.isAssignedAdministrator,
   );
+  const recordingsBySession = new Map<
+    string,
+    EventVirtualRecordingOperationsState[]
+  >();
+  for (const room of rooms) {
+    const recording = recordingByRoom.get(room.id);
+    if (!recording) continue;
+    const recordings = recordingsBySession.get(room.eventSessionId) ?? [];
+    recordings.push(recording);
+    recordingsBySession.set(room.eventSessionId, recordings);
+  }
   const joinAccess = await database
     .selectFrom("event_virtual_join_access")
     .select(["id", "eventSessionId", "publicReference"])
@@ -1376,6 +1427,7 @@ export async function findEventVirtualSessionOperations(
         : null,
       room: room ? roomState(room) : null,
       recording: room ? (recordingByRoom.get(room.id) ?? null) : null,
+      recordings: recordingsBySession.get(session.id) ?? [],
     };
   });
 }

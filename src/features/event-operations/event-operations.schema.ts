@@ -70,6 +70,11 @@ export const eventVirtualPresenterCredentialSchema = z.object({
   eventSessionId: identifier,
 });
 
+export const eventVirtualRecordingDownloadSchema = z.object({
+  eventOccurrenceId: identifier,
+  recordingId: identifier,
+});
+
 export const eventVirtualPresenterCredentialResultSchema = z.discriminatedUnion(
   "status",
   [
@@ -124,6 +129,7 @@ export type EventAttendanceState =
   "not_recorded" | "checked_in" | "attended" | "absent";
 
 interface EventVirtualRecordingOperationsState {
+  roomGeneration: number;
   status:
     | "requested"
     | "starting"
@@ -133,7 +139,20 @@ interface EventVirtualRecordingOperationsState {
     | "failed"
     | "deleted";
   warning: string | null;
+  details?: {
+    recordingId: string;
+    completedAt: string;
+    fileSizeBytes: string;
+    durationNanoseconds: string;
+    retentionDeadline: string;
+    downloadAvailable: boolean;
+  } | null;
 }
+
+export type EventVirtualRecordingDownloadResult =
+  | { status: "ready"; url: string; expiresAt: string }
+  | { status: "unauthenticated" | "forbidden" | "not-found" }
+  | { status: "conflict"; reason: "recording_unavailable" };
 
 export interface EventParticipantProgress {
   eventParticipationId: string;
@@ -286,6 +305,7 @@ export interface EventOperationsWorkspace {
     presenterRecordingNotice: string | null;
     lobbyPath: string | null;
     recording: EventVirtualRecordingOperationsState | null;
+    recordings: EventVirtualRecordingOperationsState[];
     room: {
       id: string;
       eventSessionId: string;

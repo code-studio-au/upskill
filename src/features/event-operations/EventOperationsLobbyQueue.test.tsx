@@ -21,7 +21,9 @@ const room: NonNullable<VirtualSession["room"]> = {
   endedAt: null,
 };
 
-function renderRecording(recording: VirtualSession["recording"]): string {
+function renderRecording(
+  recording: VirtualSession["recordings"][number],
+): string {
   const session: VirtualSession = {
     eventSessionId: room.eventSessionId,
     preparationOpensAt: "2030-09-03T23:00:00.000Z",
@@ -30,6 +32,7 @@ function renderRecording(recording: VirtualSession["recording"]): string {
     lobbyPath: "/webinars/reference",
     room,
     recording,
+    recordings: [recording],
   };
   return renderToStaticMarkup(
     <EventOperationsLobbyQueue
@@ -46,6 +49,7 @@ function renderRecording(recording: VirtualSession["recording"]): string {
 describe("LiveKit operations recording status", () => {
   it("warns staff while an automatic recording operation is retrying", () => {
     const html = renderRecording({
+      roomGeneration: room.generation,
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -58,6 +62,7 @@ describe("LiveKit operations recording status", () => {
 
   it("shows an actionable warning when automatic recording fails", () => {
     const html = renderRecording({
+      roomGeneration: room.generation,
       status: "failed",
       warning:
         "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",

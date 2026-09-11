@@ -6,6 +6,7 @@ import {
   eventOperationsRegionLockSchema,
   eventVirtualLobbyQueueSchema,
   eventVirtualPresenterCredentialSchema,
+  eventVirtualRecordingDownloadSchema,
   eventVirtualRoomMutationSchema,
   eventSurveyQrPresentationParamsSchema,
   type AssignedEventOperationsResult,
@@ -13,6 +14,7 @@ import {
   type EventOperationsResult,
   type EventVirtualLobbyQueueResult,
   type EventVirtualPresenterCredentialResult,
+  type EventVirtualRecordingDownloadResult,
   type EventSurveyQrPresentationResult,
 } from "#/features/event-operations/event-operations.schema";
 export const getAssignedEventOperations = createServerFn({
@@ -268,4 +270,32 @@ export const getEventVirtualPresenterCredential = createServerFn({
       data.eventSessionId,
       request.access.user,
     );
+  });
+
+export const getEventVirtualRecordingDownload = createServerFn({
+  method: "POST",
+})
+  .validator(eventVirtualRecordingDownloadSchema)
+  .handler(async ({ data }): Promise<EventVirtualRecordingDownloadResult> => {
+    const { getRequestUser } = await import("#/server/auth/session.server");
+    const user = await getRequestUser();
+    if (!user) return { status: "unauthenticated" };
+    try {
+      const { issueEventVirtualRecordingDownload } =
+        await import("#/server/events/event-virtual-recording-download.server");
+      return await issueEventVirtualRecordingDownload(data, user);
+    } catch (error) {
+      const { logServerEvent } = await import("#/server/logging/server-logger");
+      logServerEvent({
+        level: "error",
+        event: "event_virtual_recording.download_failed",
+        error,
+        fields: {
+          actorUserId: user.id,
+          entityType: "event_virtual_recording",
+          entityId: data.recordingId,
+        },
+      });
+      return { status: "conflict", reason: "recording_unavailable" };
+    }
   });

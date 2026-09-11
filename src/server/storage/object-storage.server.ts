@@ -10,6 +10,7 @@ import {
   S3Client,
   type PutObjectCommandInput,
 } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { getServerEnv } from "#/server/env.server";
 
 let client: S3Client | undefined;
@@ -131,6 +132,28 @@ export async function getObjectStream(
     contentType: response.ContentType,
     etag: response.ETag,
   };
+}
+
+export async function createPresignedObjectDownload(input: {
+  bucket: string;
+  key: string;
+  expiresInSeconds: number;
+  signingDate: Date;
+}): Promise<string> {
+  return getSignedUrl(
+    getObjectStorageClient(),
+    new GetObjectCommand({
+      Bucket: input.bucket,
+      Key: input.key,
+      ResponseContentDisposition:
+        'attachment; filename="webinar-recording.mp4"',
+      ResponseContentType: "video/mp4",
+    }),
+    {
+      expiresIn: input.expiresInSeconds,
+      signingDate: input.signingDate,
+    },
+  );
 }
 
 export async function deleteObject(bucket: string, key: string): Promise<void> {

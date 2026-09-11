@@ -231,6 +231,54 @@
   outline-offset: 2px;
 }
 
+.recordingSummary {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  background: var(--mantine-color-indigo-0);
+  border: 1px solid var(--mantine-color-indigo-2);
+  border-radius: var(--mantine-radius-md);
+}
+
+.recordingItem {
+  display: grid;
+  gap: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--mantine-color-indigo-2);
+}
+
+.recordingItem > header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.recordingDetails {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.recordingDetails > div {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.recordingDetails dt {
+  color: var(--mantine-color-dimmed);
+  font-size: var(--mantine-font-size-xs);
+  font-weight: 700;
+}
+
+.recordingDetails dd {
+  margin: 0;
+  font-size: var(--mantine-font-size-sm);
+  font-weight: 600;
+}
+
 .queueError {
   padding: 0.75rem;
   color: var(--mantine-color-dark-8) !important;
@@ -336,6 +384,10 @@
     grid-template-columns: 1fr;
   }
 
+  .recordingDetails {
+    grid-template-columns: 1fr;
+  }
+
   .queueHeader,
   .queueControls,
   .attendeeActions {
@@ -363,6 +415,7 @@
   }
 
   .webinarLifecycleActions > *,
+  .recordingSummary > header > button,
   .queueControls > button {
     flex: 1 1 min(100%, 11rem);
   }

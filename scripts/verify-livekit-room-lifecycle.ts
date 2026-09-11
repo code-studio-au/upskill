@@ -31,6 +31,7 @@ import {
   type VirtualRoomRuntime,
 } from "#/server/events/event-virtual-room.server";
 import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
+import { issueEventVirtualRecordingDownload } from "#/server/events/event-virtual-recording-download.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
 import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
@@ -1407,12 +1408,15 @@ try {
         receiptApplicationAccess,
         new Date(conflictingReceiptReceivedAt.getTime() + 2 * 60_000 + 1),
       )
-    ).find((session) => session.eventSessionId === ids.session)?.recording,
-    {
-      status: "requested",
-      warning:
-        "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
-    },
+    ).find((session) => session.eventSessionId === ids.session)?.recordings,
+    [
+      {
+        roomGeneration: room.generation,
+        status: "requested",
+        warning:
+          "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
+      },
+    ],
     "Staff must see a bounded warning when receipt processing is delayed",
   );
   const receiptApplicationAt = new Date(
@@ -1504,6 +1508,183 @@ try {
       { kind: "stop_recording", status: "succeeded", lastErrorCode: null },
     ],
     "Terminal webhook evidence must settle redundant provider reconciliation work",
+  );
+  const signedDownloads: Array<{
+    bucket: string;
+    key: string;
+    expiresInSeconds: number;
+    signingDate: Date;
+  }> = [];
+  const downloadIssuedAt = new Date(receiptApplicationAt.getTime() + 1);
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      {
+        now: downloadIssuedAt,
+        signDownload: (input) => {
+          signedDownloads.push(input);
+          return Promise.resolve("https://private-download.example/recording");
+        },
+      },
+    ),
+    {
+      status: "ready",
+      url: "https://private-download.example/recording",
+      expiresAt: new Date(downloadIssuedAt.getTime() + 60_000).toISOString(),
+    },
+    "A platform administrator may request one short-lived exact-object recording download",
+  );
+  assert.deepEqual(signedDownloads, [
+    {
+      bucket: "upskill-recordings",
+      key: receiptStorageObjectKey,
+      expiresInSeconds: 60,
+      signingDate: downloadIssuedAt,
+    },
+  ]);
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: "verify_livekit_room_other_occurrence",
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      {
+        now: downloadIssuedAt,
+        signDownload: () => {
+          throw new Error(
+            "Cross-occurrence access must not reach object signing",
+          );
+        },
+      },
+    ),
+    { status: "not-found" },
+    "Recording downloads must be bound to the exact requested occurrence",
+  );
+  for (const [role, staff] of [
+    ["Presenter", presenter],
+    ["Coordinator", coordinator],
+  ] as const)
+    assert.deepEqual(
+      await issueEventVirtualRecordingDownload(
+        {
+          eventOccurrenceId: ids.occurrence,
+          recordingId: receiptRecordingId,
+        },
+        staff,
+        {
+          now: downloadIssuedAt,
+          signDownload: () => {
+            throw new Error(`${role} must not reach object signing`);
+          },
+        },
+      ),
+      { status: "forbidden" },
+      `${role} assignment must not grant recording-download access`,
+    );
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      {
+        now: new Date(receiptReceivedAt.getTime() + 31 * 24 * 60 * 60_000),
+        signDownload: () => {
+          throw new Error("Expired evidence must not reach object signing");
+        },
+      },
+    ),
+    { status: "conflict", reason: "recording_unavailable" },
+    "An elapsed retention deadline must close recording-download access",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select(["actorUserId", "metadata"])
+      .where("action", "=", "event_virtual_recording.download_issued")
+      .where("subjectId", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      actorUserId: administrator.id,
+      metadata: {
+        roomId: room.id,
+        eventSessionId: ids.session,
+        roomGeneration: room.generation,
+        accessMode: "download",
+        expiresAt: new Date(downloadIssuedAt.getTime() + 60_000).toISOString(),
+      },
+    },
+    "Recording download issuance must retain bounded actor and access evidence without the object key or URL",
+  );
+  const nearRetentionDeadline = new Date(
+    receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000 - 30_500,
+  );
+  const retentionBoundDownloads: Array<{
+    bucket: string;
+    key: string;
+    expiresInSeconds: number;
+    signingDate: Date;
+  }> = [];
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      {
+        now: nearRetentionDeadline,
+        signDownload: (input) => {
+          retentionBoundDownloads.push(input);
+          return Promise.resolve(
+            "https://private-download.example/retention-bound-recording",
+          );
+        },
+      },
+    ),
+    {
+      status: "ready",
+      url: "https://private-download.example/retention-bound-recording",
+      expiresAt: new Date(
+        nearRetentionDeadline.getTime() + 30_000,
+      ).toISOString(),
+    },
+    "A recording URL must expire no later than its snapshotted retention deadline",
+  );
+  assert.deepEqual(retentionBoundDownloads, [
+    {
+      bucket: "upskill-recordings",
+      key: receiptStorageObjectKey,
+      expiresInSeconds: 30,
+      signingDate: nearRetentionDeadline,
+    },
+  ]);
+  assert.deepEqual(
+    await issueEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator,
+      {
+        now: new Date(
+          receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000 - 500,
+        ),
+        signDownload: () => {
+          throw new Error(
+            "A sub-second retention window must not reach object signing",
+          );
+        },
+      },
+    ),
+    { status: "conflict", reason: "recording_unavailable" },
+    "A sub-second retention remainder must close download access rather than exceed the deadline",
   );
   const repeatedReceiptReceivedAt = new Date(receiptReceivedAt.getTime() + 2);
   const conflictingOutputReceiptReceivedAt = new Date(
@@ -1625,12 +1806,25 @@ try {
         receiptApplicationAccess,
         receiptApplicationAt,
       )
-    ).find((session) => session.eventSessionId === ids.session)?.recording,
-    {
-      status: "complete",
-      warning:
-        "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session.",
-    },
+    ).find((session) => session.eventSessionId === ids.session)?.recordings,
+    [
+      {
+        roomGeneration: room.generation,
+        status: "complete",
+        warning:
+          "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session.",
+        details: {
+          recordingId: receiptRecordingId,
+          completedAt: receiptReceivedAt.toISOString(),
+          fileSizeBytes: "8192",
+          durationNanoseconds: "240000000000",
+          retentionDeadline: new Date(
+            receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000,
+          ).toISOString(),
+          downloadAvailable: true,
+        },
+      },
+    ],
     "Staff must receive a bounded review warning without provider details",
   );
   assert.deepEqual(
@@ -2800,6 +2994,69 @@ try {
     .where("revokedAt", "is", null)
     .executeTakeFirstOrThrow();
   assert.equal(originalJoinAccess.roomGeneration, 1);
+  await database
+    .updateTable("event_virtual_room")
+    .set({ recordingMode: "automatic", recordingRetentionDays: 30 })
+    .where("id", "=", room.id)
+    .executeTakeFirstOrThrow();
+  const replacementRetainedRecordingId =
+    "verify_livekit_replacement_retained_recording";
+  const replacementRecordingRequestedAt = new Date(
+    replacementTime.getTime() - 5 * 60_000,
+  );
+  const replacementRecordingStartedAt = new Date(
+    replacementTime.getTime() - 4 * 60_000,
+  );
+  const replacementRecordingEndedAt = new Date(
+    replacementTime.getTime() - 2 * 60_000,
+  );
+  const replacementRecordingCompletedAt = new Date(
+    replacementTime.getTime() - 60_000,
+  );
+  await database
+    .insertInto("event_virtual_recording")
+    .values({
+      ...recordingValues,
+      id: replacementRetainedRecordingId,
+      storageObjectKey:
+        "recordings/opaque_room/replacement_retained_recording.mp4",
+      requestedAt: replacementRecordingRequestedAt,
+      updatedAt: replacementRecordingRequestedAt,
+    })
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "starting",
+      providerEgressId: "EG_REPLACEMENT_RETAINED",
+      updatedAt: replacementRecordingStartedAt,
+    })
+    .where("id", "=", replacementRetainedRecordingId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "active",
+      startedAt: replacementRecordingStartedAt,
+      updatedAt: replacementRecordingStartedAt,
+    })
+    .where("id", "=", replacementRetainedRecordingId)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "complete",
+      endedAt: replacementRecordingEndedAt,
+      completedAt: replacementRecordingCompletedAt,
+      fileSizeBytes: 2048,
+      durationNanoseconds: 120_000_000_000n,
+      retentionDeadline: new Date(
+        replacementRecordingCompletedAt.getTime() + 30 * 24 * 60 * 60_000,
+      ),
+      updatedAt: replacementRecordingCompletedAt,
+    })
+    .where("id", "=", replacementRetainedRecordingId)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(
     await replaceEventVirtualRoom(ids.occurrence, ids.session, administrator, {
       clock: () => replacementTime,
@@ -2845,6 +3102,21 @@ try {
   assert.equal(generations.length, 2);
   assert.ok(generations[0]?.replacedAt);
   assert.equal(generations[1]?.providerStatus, "ready");
+  const replacementRecordingHistory = (
+    await findEventVirtualSessionOperations(
+      ids.occurrence,
+      administratorAccess,
+      replacementTime,
+    )
+  ).find((session) => session.eventSessionId === ids.session)?.recordings;
+  assert.ok(
+    replacementRecordingHistory?.some(
+      (recording) =>
+        recording.roomGeneration === room.generation &&
+        recording.details?.recordingId === replacementRetainedRecordingId,
+    ),
+    "Replacing a room must retain completed recording access from prior generations",
+  );
   assert.deepEqual(
     await replaceEventVirtualRoom(ids.occurrence, ids.session, administrator, {
       clock: () => new Date("2030-09-03T23:41:00.000Z"),
@@ -2987,7 +3259,7 @@ try {
 
   const startRoom = await database
     .selectFrom("event_virtual_room")
-    .select(["id", "providerRoomName"])
+    .select(["id", "providerRoomName", "generation"])
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
@@ -3045,8 +3317,13 @@ try {
         administratorAccess,
         startsAt,
       )
-    ).find((session) => session.eventSessionId === ids.session)?.recording,
+    )
+      .find((session) => session.eventSessionId === ids.session)
+      ?.recordings.find(
+        (recording) => recording.roomGeneration === startRoom.generation,
+      ),
     {
+      roomGeneration: startRoom.generation,
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -3063,6 +3340,7 @@ try {
   assert.deepEqual(
     retryingRecordingQueue.data.recording,
     {
+      roomGeneration: startRoom.generation,
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -3147,6 +3425,7 @@ try {
       .selectFrom("event_virtual_recording")
       .select(["status", "providerEgressId"])
       .where("eventSessionId", "=", ids.session)
+      .where("roomId", "=", startRoom.id)
       .executeTakeFirstOrThrow(),
     { status: "requested", providerEgressId: null },
     "A stopping provider snapshot must not be flattened into durable starting evidence",
@@ -3157,6 +3436,7 @@ try {
     .selectFrom("event_virtual_recording")
     .select("id")
     .where("eventSessionId", "=", ids.session)
+    .where("roomId", "=", startRoom.id)
     .executeTakeFirstOrThrow();
   const queuedStopRequestedAt = new Date(
     recordingReconciledAt.getTime() + 1_000,
@@ -3239,6 +3519,7 @@ try {
         "stopRequestedAt",
       ])
       .where("eventSessionId", "=", ids.session)
+      .where("roomId", "=", startRoom.id)
       .executeTakeFirstOrThrow(),
     {
       status: "complete",
@@ -3355,6 +3636,7 @@ try {
       .selectFrom("event_virtual_recording")
       .select("status")
       .where("eventSessionId", "=", ids.session)
+      .where("roomId", "=", startRoom.id)
       .executeTakeFirstOrThrow()
       .then((recording) => recording.status),
     "complete",
@@ -4326,12 +4608,15 @@ try {
         administratorAccess,
         fencedTerminalReconciledAt,
       )
-    ).find((session) => session.eventSessionId === ids.raceSession)?.recording,
-    {
-      status: "failed",
-      warning:
-        "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",
-    },
+    ).find((session) => session.eventSessionId === ids.raceSession)?.recordings,
+    [
+      {
+        roomGeneration: deferredRoom.generation,
+        status: "failed",
+        warning:
+          "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",
+      },
+    ],
     "The operations workspace must expose a terminal automatic recording failure to staff",
   );
   assert.deepEqual(
@@ -4592,13 +4877,14 @@ try {
     [...new Set(recordingAuditActions.map((event) => event.action))].sort(),
     [
       "event_virtual_recording.completed",
+      "event_virtual_recording.download_issued",
       "event_virtual_recording.failed",
       "event_virtual_recording.requested",
       "event_virtual_recording.started",
       "event_virtual_recording.stop_requested",
       "event_virtual_recording.stop_started",
     ],
-    "Recording request, provider start, stop, completion and failure transitions must all emit durable audit evidence",
+    "Recording request, provider start, stop, completion, download and failure transitions must all emit durable audit evidence",
   );
   assert.equal(
     recordingAuditActions.every((event) => event.actorUserId !== null),

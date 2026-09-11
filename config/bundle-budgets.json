@@ -1,5 +1,5 @@
 {
-  "clientJavaScriptBytes": 1610000,
+  "clientJavaScriptBytes": 1613000,
   "clientCssBytes": 255000,
   "clientJavaScriptBrotliBytes": 425000,
   "clientCssBrotliBytes": 36000,
@@ -25,8 +25,9 @@
     "EligibleStaffPicker": 1024,
     "EventOperationsLobbyQueue": 1280,
     "EventOperationsProgress": 2560,
+    "EventOperationsRecordingPanel": 1280,
     "EventOperationsSurveyQrCatalogue": 1536,
-    "EventOperationsVirtualSessions": 2048,
+    "EventOperationsVirtualSessions": 2176,
     "EventTimezoneAutocomplete": 1024,
     "FullscreenScormLauncher": 2048,
     "LiveKitAttendeeRoom": 4096,

@@ -93,6 +93,14 @@ import {
   down as downRecordingWebhookReceipts,
   up as upRecordingWebhookReceipts,
 } from "#/server/db/migrations/0105_livekit_recording_webhook_receipts";
+import {
+  down as downRecordingReceiptAttention,
+  up as upRecordingReceiptAttention,
+} from "#/server/db/migrations/0106_livekit_recording_receipt_attention";
+import {
+  down as downRecordingAccessAudit,
+  up as upRecordingAccessAudit,
+} from "#/server/db/migrations/0107_livekit_recording_access_audit";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -120,6 +128,8 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downRecordingAccessAudit(database);
+  await downRecordingReceiptAttention(database);
   await downRecordingWebhookReceipts(database);
   await downRecordingStopOutcome(database);
   await downRecordingStopDispatch(database);
@@ -272,6 +282,8 @@ try {
   await upRecordingStopDispatch(database);
   await upRecordingStopOutcome(database);
   await upRecordingWebhookReceipts(database);
+  await upRecordingReceiptAttention(database);
+  await upRecordingAccessAudit(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -891,6 +903,8 @@ try {
       await upRecordingStopDispatch(database);
       await upRecordingStopOutcome(database);
       await upRecordingWebhookReceipts(database);
+      await upRecordingReceiptAttention(database);
+      await upRecordingAccessAudit(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

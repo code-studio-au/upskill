@@ -1,6 +1,6 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–4, 5a–5e, 6a–6b2b and open-entry lobby
+- **Status:** Accepted; Slices 1–4, 5a–5e, 6a–6b4b and open-entry lobby
   integration implemented, later slices pending
 - **Date:** 2026-08-31
 
@@ -1341,13 +1341,21 @@ gates passed; it does not by itself authorise staging or production activation.
       Valid unmatched Egress events are acknowledged without attachment; malformed
       exact-target events remain retryable. Non-Egress events remain retryable
       until their dedicated consumer lands.
-- [ ] **Slice 6b4b — recording receipt application and reconciliation:** apply
+- [x] **Slice 6b4b — recording receipt application and reconciliation:** apply
       pending receipt evidence to the recording lifecycle, reconcile delayed or
       missing provider status/output, and expose bounded operational failures
-      without provider detail leakage.
-- [ ] **Slice 6c — recording consumption and retention:** add authorised private
-      playback/download, retention and deletion evidence, administrator status and
-      recoverable failure handling.
+      without provider detail leakage. Implemented by
+      [PR #82](https://github.com/code-studio-au/upskill/pull/82).
+- [ ] **Slice 6c1 — private recording download:** expose completed recording
+      metadata only to administrators, issue audited 60-second exact-object S3
+      downloads, and grant the application role read-only access to the recording
+      prefix. Keep playback, deletion and recovery out of this slice.
+- [ ] **Slice 6c2 — private recording playback:** add an application-controlled
+      playback session that safely refreshes object access for long recordings
+      without creating a public URL.
+- [ ] **Slice 6c3 — recording retention and recovery:** enforce deletion after
+      the snapshotted deadline, retain immutable deletion evidence, and add
+      administrator failure/recovery controls without rewriting recording history.
 - [ ] **Slice 7a — connection evidence ingestion:** add signed LiveKit webhook
       receipts, exact room/generation/participant validation and append-only
       connection intervals that tolerate duplicate, delayed and out-of-order

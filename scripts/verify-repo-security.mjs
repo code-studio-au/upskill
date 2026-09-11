@@ -370,6 +370,8 @@ for (const requiredRecordingStorageBoundary of [
 }
 if (!applicationStack.includes("S3_RECORDING_BUCKET"))
   failures.push("The deployed server must receive its recording bucket name");
+if (!applicationStack.includes('actions: ["s3:GetObject"]'))
+  failures.push("The application role must have scoped recording read access");
 for (const requiredRecordingUploadBoundary of [
   'new Role(this, "RecordingUploadRole"',
   "maxSessionDuration: Duration.hours(1)",
@@ -607,7 +609,7 @@ for (const requiredRecordingOperationsBoundary of [
   "findRecordingOperationsByRoom",
   '"recording.status"',
   '"operation.lastErrorCode"',
-  "recording: room ?",
+  "recordings: recordingsBySession.get(session.id)",
   "recording: recordingByRoom.get(access.roomId)",
 ]) {
   if (!eventVirtualRoomServer.includes(requiredRecordingOperationsBoundary))
@@ -862,6 +864,17 @@ const liveKitRecordingReceiptConsumer = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitRecordingDownload = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-download.server.ts",
+  ),
+  "utf8",
+);
+const objectStorage = fs.readFileSync(
+  path.join(root, "src/server/storage/object-storage.server.ts"),
+  "utf8",
+);
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
   'insertInto("livekit_webhook_receipt")',
@@ -905,6 +918,25 @@ for (const boundary of [
 ])
   if (!liveKitRecordingReceiptConsumer.includes(boundary))
     failures.push(`LiveKit receipt consumer is missing: ${boundary}`);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'selectFrom("platform_admin")',
+  'recording.status !== "complete"',
+  "recording.retentionDeadline <= now",
+  "RECORDING_DOWNLOAD_EXPIRY_SECONDS = 60",
+  'action: "event_virtual_recording.download_issued"',
+])
+  if (!liveKitRecordingDownload.includes(boundary))
+    failures.push(
+      `LiveKit recording download boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'from "@aws-sdk/s3-request-presigner"',
+  "ResponseContentDisposition",
+  'ResponseContentType: "video/mp4"',
+])
+  if (!objectStorage.includes(boundary))
+    failures.push(`Private object download signing is missing: ${boundary}`);
 for (const relative of [
   "src/worker/scorm-worker.ts",
   "src/worker/scorm-worker-iteration.ts",
