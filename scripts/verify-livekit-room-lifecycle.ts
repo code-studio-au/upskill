@@ -1296,7 +1296,7 @@ try {
       storageObjectKey: "recordings/opaque_room/opaque_recording.mp4",
       retentionDays: 30,
       deletedByUserId: null,
-      deletedAt: recordingStorageDeletedAt,
+      deletedAt: recordingDeletedAt,
       deletionReason: "retention_expired",
     },
     "Recording completion and deletion must retain the logical evidence row",
@@ -2233,6 +2233,20 @@ try {
     "A platform administrator may request confirmed recording deletion",
   );
   assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording")
+      .select(["status", "deletedByUserId", "deletedAt", "deletionReason"])
+      .where("id", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "deleted",
+      deletedByUserId: administrator.id,
+      deletedAt: deletionRequestedAt,
+      deletionReason: "administrator_requested",
+    },
+    "The deletion transaction must durably revoke access for rollback application binaries before storage work begins",
+  );
+  assert.deepEqual(
     await accessEventVirtualRecordingDownload(
       {
         eventOccurrenceId: ids.occurrence,
@@ -2352,7 +2366,7 @@ try {
         recordingId: receiptRecordingId,
         roomGeneration: room.generation,
         statusLabel: "Deletion needs attention",
-        status: "complete",
+        status: "deleted",
         warning:
           "Recording storage deletion failed after 2 attempts. Playback and download remain unavailable. An automatic retry is scheduled, or retry now.",
         details: {
@@ -2401,7 +2415,7 @@ try {
           .updateTable("event_virtual_recording_deletion")
           .set({
             status: "processing",
-            attempts: 4,
+            attempts: 5,
             lastAttemptAt: deletionReclaimedAt,
             leasedUntil: new Date(deletionReclaimedAt.getTime() + 5 * 60_000),
             updatedAt: deletionReclaimedAt,
@@ -2421,22 +2435,81 @@ try {
     .where("recordingId", "=", receiptRecordingId)
     .executeTakeFirstOrThrow();
   assert.equal(reclaimedDeletion.status, "processing");
-  assert.equal(reclaimedDeletion.attempts, 4);
+  assert.equal(reclaimedDeletion.attempts, 5);
   assert.ok(reclaimedDeletion.leasedUntil);
-  const successorCompletedAt = new Date(
+  const exhaustedLeaseObservedAt = new Date(
     reclaimedDeletion.leasedUntil.getTime() + 1,
   );
+  assert.deepEqual(
+    await processAvailableEventVirtualRecordingDeletions(1, {
+      now: exhaustedLeaseObservedAt,
+      getCurrentTime: () => exhaustedLeaseObservedAt,
+      deleteStoredRecording: () => {
+        throw new Error(
+          "An expired fifth automatic lease must require manual recovery",
+        );
+      },
+    }),
+    {
+      outcomes: [
+        {
+          status: "failed",
+          recordingId: receiptRecordingId,
+          attempt: 5,
+          reason: "administrator_requested",
+        },
+      ],
+      limitReached: true,
+    },
+    "An expired fifth automatic lease must stop without another storage call",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_recording_deletion")
+      .select([
+        "status",
+        "attempts",
+        "availableAt",
+        "leasedUntil",
+        "lastErrorCode",
+        "updatedAt",
+      ])
+      .where("recordingId", "=", receiptRecordingId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "failed",
+      attempts: 5,
+      availableAt: exhaustedLeaseObservedAt,
+      leasedUntil: null,
+      lastErrorCode: "recording_deletion_lease_expired",
+      updatedAt: exhaustedLeaseObservedAt,
+    },
+    "Lease exhaustion must retain bounded failure evidence for manual recovery",
+  );
+  const exhaustedDeletionRetriedAt = new Date(
+    exhaustedLeaseObservedAt.getTime() + 1,
+  );
+  assert.deepEqual(
+    await retryEventVirtualRecordingDeletion(
+      { eventOccurrenceId: ids.occurrence, recordingId: receiptRecordingId },
+      administrator,
+      exhaustedDeletionRetriedAt,
+    ),
+    { status: "ready" },
+    "An administrator may explicitly recover deletion after automatic lease exhaustion",
+  );
+  const successorClaimedAt = new Date(exhaustedDeletionRetriedAt.getTime() + 1);
   const successorStorageCompletedAt = new Date(
-    successorCompletedAt.getTime() + 10_000,
+    successorClaimedAt.getTime() + 10_000,
   );
   const successorDeletionTimes = [
-    successorCompletedAt,
+    successorClaimedAt,
     successorStorageCompletedAt,
   ];
   let successorDeletionTimeIndex = 0;
   assert.deepEqual(
     await processAvailableEventVirtualRecordingDeletions(1, {
-      now: successorCompletedAt,
+      now: successorClaimedAt,
       getCurrentTime: () =>
         successorDeletionTimes[successorDeletionTimeIndex++] ??
         successorStorageCompletedAt,
@@ -2450,13 +2523,13 @@ try {
         {
           status: "deleted",
           recordingId: receiptRecordingId,
-          attempt: 5,
+          attempt: 6,
           reason: "administrator_requested",
         },
       ],
       limitReached: true,
     },
-    "The successor must finish the same immutable deletion request after the stale worker yields",
+    "A manual retry must finish the immutable deletion request after automatic lease exhaustion",
   );
   assert.deepEqual(deletedObjects, [
     { bucket: "upskill-recordings", key: receiptStorageObjectKey },
@@ -2486,7 +2559,7 @@ try {
         receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000,
       ),
       deletedByUserId: administrator.id,
-      deletedAt: successorStorageCompletedAt,
+      deletedAt: deletionRequestedAt,
       deletionReason: "administrator_requested",
     },
     "Deletion completion must preserve recording history and append actor evidence",
@@ -2506,6 +2579,11 @@ try {
     [
       {
         action: "event_virtual_recording.deletion_requested",
+        actorUserId: administrator.id,
+        reason: "administrator_requested",
+      },
+      {
+        action: "event_virtual_recording.deletion_retried",
         actorUserId: administrator.id,
         reason: "administrator_requested",
       },

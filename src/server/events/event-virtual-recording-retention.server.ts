@@ -119,6 +119,33 @@ async function recordDeletionRequestAudit(
   });
 }
 
+async function revokeCompletedRecordingAccess(
+  transaction: Transaction<Database>,
+  recording: {
+    id: string;
+    status: string;
+  },
+  input: {
+    actorUserId: string | null;
+    reason: RecordingDeletion["reason"];
+    revokedAt: Date;
+  },
+): Promise<void> {
+  if (recording.status !== "complete") return;
+  await transaction
+    .updateTable("event_virtual_recording")
+    .set({
+      status: "deleted",
+      deletedByUserId: input.actorUserId,
+      deletedAt: input.revokedAt,
+      deletionReason: input.reason,
+      updatedAt: input.revokedAt,
+    })
+    .where("id", "=", recording.id)
+    .where("status", "=", "complete")
+    .executeTakeFirstOrThrow();
+}
+
 export async function requestEventVirtualRecordingDeletion(
   input: { eventOccurrenceId: string; recordingId: string },
   user: AuthenticatedUser,
@@ -170,6 +197,11 @@ export async function requestEventVirtualRecordingDeletion(
           updatedAt: now,
         })
         .execute();
+      await revokeCompletedRecordingAccess(transaction, recording, {
+        actorUserId: user.id,
+        reason: "administrator_requested",
+        revokedAt: now,
+      });
       await transaction
         .deleteFrom("event_virtual_recording_playback_session")
         .where("recordingId", "=", recording.id)
@@ -297,6 +329,11 @@ async function scheduleExpiredRecordingDeletions(
         .returning("recordingId")
         .executeTakeFirst();
       if (!inserted) return;
+      await revokeCompletedRecordingAccess(transaction, recording, {
+        actorUserId: null,
+        reason: "retention_expired",
+        revokedAt: now,
+      });
       await transaction
         .deleteFrom("event_virtual_recording_playback_session")
         .where("recordingId", "=", recording.id)
@@ -367,6 +404,31 @@ async function processNextRecordingDeletion(options: {
       .skipLocked()
       .executeTakeFirst();
     if (!deletion) return null;
+    if (
+      deletion.status === "processing" &&
+      deletion.attempts >= DELETION_MAXIMUM_AUTOMATIC_ATTEMPTS
+    ) {
+      await transaction
+        .updateTable("event_virtual_recording_deletion")
+        .set({
+          status: "failed",
+          availableAt: options.now,
+          leasedUntil: null,
+          completedAt: null,
+          lastErrorCode: "recording_deletion_lease_expired",
+          updatedAt: options.now,
+        })
+        .where("recordingId", "=", deletion.recordingId)
+        .where("status", "=", "processing")
+        .where("attempts", "=", deletion.attempts)
+        .executeTakeFirstOrThrow();
+      return {
+        kind: "automatic-attempts-exhausted" as const,
+        recordingId: deletion.recordingId,
+        reason: deletion.reason,
+        attempt: deletion.attempts,
+      };
+    }
     const attempt = deletion.attempts + 1;
     await transaction
       .updateTable("event_virtual_recording_deletion")
@@ -383,9 +445,16 @@ async function processNextRecordingDeletion(options: {
       })
       .where("recordingId", "=", deletion.recordingId)
       .executeTakeFirstOrThrow();
-    return { ...deletion, attempt };
+    return { kind: "claimed" as const, ...deletion, attempt };
   });
   if (!claimed) return { status: "no-work" };
+  if (claimed.kind === "automatic-attempts-exhausted")
+    return {
+      status: "failed",
+      recordingId: claimed.recordingId,
+      attempt: claimed.attempt,
+      reason: claimed.reason,
+    };
 
   try {
     await options.deleteStoredRecording(

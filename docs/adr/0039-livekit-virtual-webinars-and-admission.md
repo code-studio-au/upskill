@@ -1365,8 +1365,10 @@ gates passed; it does not by itself authorise staging or production activation.
       administrator failure/recovery controls without rewriting recording history.
       Implemented with leased retention work, complete version purging,
       immediate access revocation, per-chunk termination of active application
-      streams, confirmed administrator deletion, bounded automatic retries and
-      an audited manual retry control.
+      streams, rollback-safe logical deletion in the existing recording state,
+      confirmed administrator deletion, a hard five-attempt automatic ceiling
+      including expired leases, and an audited manual retry control. Physical
+      storage completion remains separately evidenced by the deletion record.
 - [ ] **Slice 7a — connection evidence ingestion:** add signed LiveKit webhook
       receipts, exact room/generation/participant validation and append-only
       connection intervals that tolerate duplicate, delayed and out-of-order
