@@ -22,17 +22,20 @@ export type EventVirtualRecordingDeletionMutationResult =
   | { status: "forbidden" | "not-found" }
   | { status: "conflict"; reason: "invalid_transition" };
 
+type CompletedRecordingDeletionOutcome = {
+  status: "deleted" | "failed";
+  recordingId: string;
+  attempt: number;
+  reason: RecordingDeletion["reason"];
+};
+
 type RecordingDeletionOutcome =
-  | {
-      status: "deleted" | "failed";
-      recordingId: string;
-      attempt: number;
-      reason: RecordingDeletion["reason"];
-    }
-  | { status: "no-work" };
+  | CompletedRecordingDeletionOutcome
+  | { status: "no-work" }
+  | { status: "stale" };
 
 export interface EventVirtualRecordingDeletionBatch {
-  outcomes: Array<Exclude<RecordingDeletionOutcome, { status: "no-work" }>>;
+  outcomes: Array<CompletedRecordingDeletionOutcome>;
   limitReached: boolean;
 }
 
@@ -400,7 +403,7 @@ async function processNextRecordingDeletion(options: {
         reason: claimed.reason,
       },
     });
-    await database
+    const failed = await database
       .updateTable("event_virtual_recording_deletion")
       .set({
         status: "failed",
@@ -413,7 +416,9 @@ async function processNextRecordingDeletion(options: {
       .where("recordingId", "=", claimed.recordingId)
       .where("status", "=", "processing")
       .where("attempts", "=", claimed.attempt)
-      .executeTakeFirstOrThrow();
+      .returning("recordingId")
+      .executeTakeFirst();
+    if (!failed) return { status: "stale" };
     return {
       status: "failed",
       recordingId: claimed.recordingId,
@@ -422,74 +427,78 @@ async function processNextRecordingDeletion(options: {
     };
   }
 
-  await database.transaction().execute(async (transaction) => {
-    const deletion = await transaction
-      .selectFrom("event_virtual_recording_deletion")
-      .select(["status", "attempts", "requestedByUserId", "reason"])
-      .where("recordingId", "=", claimed.recordingId)
-      .forUpdate()
-      .executeTakeFirstOrThrow();
-    if (
-      deletion.status !== "processing" ||
-      deletion.attempts !== claimed.attempt
-    )
-      throw new Error("Recording deletion lease changed before completion");
-    const recording = await transaction
-      .selectFrom("event_virtual_recording")
-      .selectAll()
-      .where("id", "=", claimed.recordingId)
-      .forUpdate()
-      .executeTakeFirstOrThrow();
-    if (recording.status === "complete")
+  const completed = await database
+    .transaction()
+    .execute(async (transaction) => {
+      const recording = await transaction
+        .selectFrom("event_virtual_recording")
+        .selectAll()
+        .where("id", "=", claimed.recordingId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const deletion = await transaction
+        .selectFrom("event_virtual_recording_deletion")
+        .select(["status", "attempts", "requestedByUserId", "reason"])
+        .where("recordingId", "=", claimed.recordingId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (
+        deletion.status !== "processing" ||
+        deletion.attempts !== claimed.attempt
+      )
+        return false;
+      if (recording.status === "complete")
+        await transaction
+          .updateTable("event_virtual_recording")
+          .set({
+            status: "deleted",
+            deletedByUserId: deletion.requestedByUserId,
+            deletedAt: options.now,
+            deletionReason: deletion.reason,
+            updatedAt: options.now,
+          })
+          .where("id", "=", recording.id)
+          .where("status", "=", "complete")
+          .executeTakeFirstOrThrow();
+      else if (recording.status !== "failed" && recording.status !== "deleted")
+        throw new Error("Recording is no longer eligible for deletion");
       await transaction
-        .updateTable("event_virtual_recording")
+        .deleteFrom("event_virtual_recording_playback_session")
+        .where("recordingId", "=", recording.id)
+        .execute();
+      await transaction
+        .updateTable("event_virtual_recording_deletion")
         .set({
-          status: "deleted",
-          deletedByUserId: deletion.requestedByUserId,
-          deletedAt: options.now,
-          deletionReason: deletion.reason,
+          status: "succeeded",
+          leasedUntil: null,
+          completedAt: options.now,
+          lastErrorCode: null,
           updatedAt: options.now,
         })
-        .where("id", "=", recording.id)
-        .where("status", "=", "complete")
+        .where("recordingId", "=", recording.id)
+        .where("status", "=", "processing")
+        .where("attempts", "=", claimed.attempt)
         .executeTakeFirstOrThrow();
-    else if (recording.status !== "failed" && recording.status !== "deleted")
-      throw new Error("Recording is no longer eligible for deletion");
-    await transaction
-      .deleteFrom("event_virtual_recording_playback_session")
-      .where("recordingId", "=", recording.id)
-      .execute();
-    await transaction
-      .updateTable("event_virtual_recording_deletion")
-      .set({
-        status: "succeeded",
-        leasedUntil: null,
-        completedAt: options.now,
-        lastErrorCode: null,
-        updatedAt: options.now,
-      })
-      .where("recordingId", "=", recording.id)
-      .where("status", "=", "processing")
-      .where("attempts", "=", claimed.attempt)
-      .executeTakeFirstOrThrow();
-    await recordDurableAuditEvent(transaction, {
-      actorUserId: deletion.requestedByUserId,
-      action: "event_virtual_recording.deleted",
-      subjectType: "event_virtual_recording",
-      subjectId: recording.id,
-      aggregateId: recording.roomId,
-      reasonCode: deletion.reason,
-      metadata: {
-        roomId: recording.roomId,
-        eventSessionId: recording.eventSessionId,
-        roomGeneration: recording.roomGeneration,
-        deletionReason: deletion.reason,
-        originalRecordingStatus: recording.status,
-        attempt: claimed.attempt,
-      },
-      createdAt: options.now,
+      await recordDurableAuditEvent(transaction, {
+        actorUserId: deletion.requestedByUserId,
+        action: "event_virtual_recording.deleted",
+        subjectType: "event_virtual_recording",
+        subjectId: recording.id,
+        aggregateId: recording.roomId,
+        reasonCode: deletion.reason,
+        metadata: {
+          roomId: recording.roomId,
+          eventSessionId: recording.eventSessionId,
+          roomGeneration: recording.roomGeneration,
+          deletionReason: deletion.reason,
+          originalRecordingStatus: recording.status,
+          attempt: claimed.attempt,
+        },
+        createdAt: options.now,
+      });
+      return true;
     });
-  });
+  if (!completed) return { status: "stale" };
   return {
     status: "deleted",
     recordingId: claimed.recordingId,
@@ -518,6 +527,7 @@ export async function processAvailableEventVirtualRecordingDeletions(
         options.deleteStoredRecording ?? deleteVersionedObject,
     });
     if (outcome.status === "no-work") break;
+    if (outcome.status === "stale") continue;
     outcomes.push(outcome);
   }
   return { outcomes, limitReached: outcomes.length === limit };

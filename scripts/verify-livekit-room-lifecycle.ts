@@ -2256,6 +2256,43 @@ try {
   assert.deepEqual(
     await processAvailableEventVirtualRecordingDeletions(1, {
       now: deletionCompletedAt,
+      deleteStoredRecording: async (bucket, key) => {
+        deletedObjects.push({ bucket, key });
+        const reclaimedAt = new Date(
+          deletionCompletedAt.getTime() + 5 * 60_000 + 1,
+        );
+        await database
+          .updateTable("event_virtual_recording_deletion")
+          .set({
+            status: "processing",
+            attempts: 3,
+            lastAttemptAt: reclaimedAt,
+            leasedUntil: new Date(reclaimedAt.getTime() + 5 * 60_000),
+            updatedAt: reclaimedAt,
+          })
+          .where("recordingId", "=", receiptRecordingId)
+          .where("status", "=", "processing")
+          .where("attempts", "=", 2)
+          .executeTakeFirstOrThrow();
+      },
+    }),
+    { outcomes: [], limitReached: false },
+    "A worker whose lease was reclaimed during storage deletion must discard its stale completion",
+  );
+  const reclaimedDeletion = await database
+    .selectFrom("event_virtual_recording_deletion")
+    .select(["status", "attempts", "leasedUntil"])
+    .where("recordingId", "=", receiptRecordingId)
+    .executeTakeFirstOrThrow();
+  assert.equal(reclaimedDeletion.status, "processing");
+  assert.equal(reclaimedDeletion.attempts, 3);
+  assert.ok(reclaimedDeletion.leasedUntil);
+  const successorCompletedAt = new Date(
+    reclaimedDeletion.leasedUntil.getTime() + 1,
+  );
+  assert.deepEqual(
+    await processAvailableEventVirtualRecordingDeletions(1, {
+      now: successorCompletedAt,
       deleteStoredRecording: (bucket, key) => {
         deletedObjects.push({ bucket, key });
         return Promise.resolve();
@@ -2266,15 +2303,16 @@ try {
         {
           status: "deleted",
           recordingId: receiptRecordingId,
-          attempt: 2,
+          attempt: 4,
           reason: "administrator_requested",
         },
       ],
       limitReached: true,
     },
-    "An explicit retry must finish the same immutable deletion request",
+    "The successor must finish the same immutable deletion request after the stale worker yields",
   );
   assert.deepEqual(deletedObjects, [
+    { bucket: "upskill-recordings", key: receiptStorageObjectKey },
     { bucket: "upskill-recordings", key: receiptStorageObjectKey },
   ]);
   assert.deepEqual(
@@ -2301,7 +2339,7 @@ try {
         receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000,
       ),
       deletedByUserId: administrator.id,
-      deletedAt: deletionCompletedAt,
+      deletedAt: successorCompletedAt,
       deletionReason: "administrator_requested",
     },
     "Deletion completion must preserve recording history and append actor evidence",
