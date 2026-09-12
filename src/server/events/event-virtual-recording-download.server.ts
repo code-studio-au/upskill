@@ -29,7 +29,7 @@ export type EventVirtualRecordingDownloadResult =
 export type EventVirtualRecordingDownloadAccessResult =
   | {
       status: "ready";
-      target: { storageObjectKey: string; expiresAt: Date };
+      target: { storageObjectKey: string; transferExpiresAt: Date };
     }
   | { status: "forbidden" | "not-found" }
   | { status: "conflict"; reason: "recording_unavailable" };
@@ -189,7 +189,7 @@ export async function accessEventVirtualRecordingDownload(
     status: "ready",
     target: {
       storageObjectKey: access.target.storageObjectKey,
-      expiresAt: new Date(claims.expiresAt),
+      transferExpiresAt: access.target.retentionDeadline,
     },
   };
 }
@@ -197,11 +197,11 @@ export async function accessEventVirtualRecordingDownload(
 export async function isEventVirtualRecordingDownloadActive(
   input: { eventOccurrenceId: string; recordingId: string },
   userId: string,
-  expiresAt: Date,
+  transferExpiresAt: Date,
   now = new Date(),
 ): Promise<boolean> {
   assertValidTime(now);
-  if (expiresAt <= now) return false;
+  if (transferExpiresAt <= now) return false;
   return (
     (await findEventVirtualRecordingAccess(getDatabase(), input, userId, now))
       .status === "ready"

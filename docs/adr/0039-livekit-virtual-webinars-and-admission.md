@@ -1348,10 +1348,11 @@ gates passed; it does not by itself authorise staging or production activation.
       without provider detail leakage. Implemented by
       [PR #82](https://github.com/code-studio-au/upskill/pull/82).
 - [x] **Slice 6c1 — private recording download:** expose completed recording
-      metadata only to administrators and issue audited 60-second downloads.
-      Downloads are delivered through a signed, administrator-bound same-origin
-      route so every request remains subject to current application authorization;
-      the application role alone receives read access to the recording prefix.
+      metadata only to administrators and issue audited 60-second initiation
+      links. Admitted transfers may continue until the recording retention
+      deadline while rechecking current authorization throughout delivery.
+      Downloads use a signed, administrator-bound same-origin route; the
+      application role alone receives read access to the recording prefix.
       Keep playback, deletion and recovery out of this slice. Implemented by
       [PR #83](https://github.com/code-studio-au/upskill/pull/83), with revocable
       application delivery added by Slice 6c3.

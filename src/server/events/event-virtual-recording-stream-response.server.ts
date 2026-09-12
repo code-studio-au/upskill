@@ -1,5 +1,7 @@
 import "@tanstack/react-start/server-only";
 
+const MAXIMUM_TIMER_DELAY_MILLISECONDS = 2_147_000_000;
+
 export function limitRecordingStreamToAuthorization(
   source: ReadableStream<Uint8Array>,
   expiresAt: Date,
@@ -22,17 +24,27 @@ export function limitRecordingStreamToAuthorization(
     void reader.cancel(reason).catch(() => {});
     controller.error(new Error(reason));
   };
+  const scheduleDeadline = (
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ) => {
+    const remainingMilliseconds = expiresAt.getTime() - Date.now();
+    if (remainingMilliseconds <= 0) {
+      terminate(controller, "Recording authorization expired");
+      return;
+    }
+    timeout = setTimeout(
+      () => {
+        scheduleDeadline(controller);
+      },
+      Math.min(remainingMilliseconds, MAXIMUM_TIMER_DELAY_MILLISECONDS),
+    );
+    (timeout as { unref?: () => void }).unref?.();
+  };
 
   return new ReadableStream<Uint8Array>({
     start(controller) {
       reader = source.getReader();
-      timeout = setTimeout(
-        () => {
-          terminate(controller, "Recording authorization expired");
-        },
-        Math.max(0, expiresAt.getTime() - Date.now()),
-      );
-      (timeout as { unref?: () => void }).unref?.();
+      scheduleDeadline(controller);
     },
     async pull(controller) {
       if (terminated) return;

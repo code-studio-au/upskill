@@ -83,12 +83,12 @@ export async function handleEventVirtualRecordingDownloadRequest(
     return new Response(
       limitRecordingStreamToAuthorization(
         object.body,
-        access.target.expiresAt,
+        access.target.transferExpiresAt,
         () =>
           isEventVirtualRecordingDownloadActive(
             input.data,
             user.id,
-            access.target.expiresAt,
+            access.target.transferExpiresAt,
           ),
       ),
       {

@@ -2183,10 +2183,10 @@ try {
       status: "ready",
       target: {
         storageObjectKey: receiptStorageObjectKey,
-        expiresAt: new Date(revocableDownloadClaims.expiresAt),
+        transferExpiresAt: playbackRetentionDeadline,
       },
     },
-    "A currently valid signed application download must pass live authorization",
+    "A currently valid initiation link must admit a transfer through the recording retention deadline",
   );
   assert.equal(
     (

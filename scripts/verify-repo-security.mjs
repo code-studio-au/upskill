@@ -1002,6 +1002,7 @@ for (const boundary of [
   "url = `/api/play/",
   "accessEventVirtualRecordingDownload",
   "isEventVirtualRecordingDownloadActive",
+  "transferExpiresAt: access.target.retentionDeadline",
   'action: "event_virtual_recording.download_issued"',
 ])
   if (!liveKitRecordingDownload.includes(boundary))
@@ -1102,6 +1103,7 @@ for (const boundary of [
   "accessEventVirtualRecordingDownload",
   "isEventVirtualRecordingDownloadActive",
   "limitRecordingStreamToAuthorization",
+  "access.target.transferExpiresAt",
   "getObjectStream",
   'headers.set("Content-Range", object.contentRange)',
   'attachment; filename="webinar-recording.mp4"',

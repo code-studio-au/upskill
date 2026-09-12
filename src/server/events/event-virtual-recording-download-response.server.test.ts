@@ -108,12 +108,12 @@ describe("recording download response", () => {
   );
 
   it("streams the exact private object as an attachment", async () => {
-    const expiresAt = new Date(Date.now() + 60_000);
+    const transferExpiresAt = new Date(Date.now() + 60 * 60_000);
     mocks.accessDownload.mockResolvedValueOnce({
       status: "ready",
       target: {
         storageObjectKey: "recordings/private.mp4",
-        expiresAt,
+        transferExpiresAt,
       },
     });
     mocks.getObjectStream.mockResolvedValueOnce({
@@ -153,8 +153,64 @@ describe("recording download response", () => {
         token: "signed-token",
       },
       user.id,
-      expiresAt,
+      transferExpiresAt,
     );
+  });
+
+  it("lets an admitted download continue after its initiation link expires", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"));
+    const cancel = vi.fn();
+    let sourceController:
+      ReadableStreamDefaultController<Uint8Array> | undefined;
+    const transferExpiresAt = new Date(Date.now() + 24 * 60 * 60_000);
+    mocks.accessDownload.mockResolvedValueOnce({
+      status: "ready",
+      target: {
+        storageObjectKey: "recordings/private.mp4",
+        transferExpiresAt,
+      },
+    });
+    mocks.getObjectStream.mockResolvedValueOnce({
+      body: new ReadableStream({
+        start(controller) {
+          sourceController = controller;
+        },
+        cancel,
+      }),
+      contentLength: 1,
+    });
+
+    try {
+      const response = await handleEventVirtualRecordingDownloadRequest(
+        "recording_1",
+        request(),
+      );
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("Download response body is missing");
+      const pendingRead = reader.read();
+      await vi.advanceTimersByTimeAsync(60_001);
+      sourceController?.enqueue(new Uint8Array([1]));
+      sourceController?.close();
+
+      await expect(pendingRead).resolves.toEqual({
+        done: false,
+        value: new Uint8Array([1]),
+      });
+      expect(cancel).not.toHaveBeenCalled();
+      expect(mocks.isDownloadActive).toHaveBeenCalledWith(
+        {
+          eventOccurrenceId: "occurrence_1",
+          recordingId: "recording_1",
+          token: "signed-token",
+        },
+        user.id,
+        transferExpiresAt,
+      );
+      await reader.cancel();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("cancels an issued download when deletion revokes access", async () => {
@@ -164,7 +220,7 @@ describe("recording download response", () => {
       status: "ready",
       target: {
         storageObjectKey: "recordings/private.mp4",
-        expiresAt: new Date(Date.now() + 60_000),
+        transferExpiresAt: new Date(Date.now() + 24 * 60 * 60_000),
       },
     });
     mocks.isDownloadActive
