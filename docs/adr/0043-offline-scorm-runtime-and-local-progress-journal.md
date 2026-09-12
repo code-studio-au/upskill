@@ -28,7 +28,7 @@ packages. It keeps the current bounded working snapshot in memory and uses the
 two-stage local durability boundary described below; package code does not call
 the network directly.
 
-On the exact-attempt package origin, cache package files under a
+On the exact-attempt, cookie-isolated package site, cache package files under a
 content-addressed namespace containing the exact package-version identifier and
 SHA-256 digest. That origin also caches the minimal API proxy, separately by
 runtime version, and owns only its attempt's bounded checkpoint spool. The
@@ -62,7 +62,8 @@ self-contained bounded checkpoint and appends it with one synchronous
 `localStorage.setItem` on the exact-attempt package origin. A successful call is
 the SCORM acknowledgement that the checkpoint is durably recoverable on this
 device. Each spool entry contains only the package-visible snapshot, reason,
-session delta, diagnostic client instant and a local ordinal; it contains no
+session delta, diagnostic client instant, a stable random spool-entry identifier
+and a local ordinal; it contains no
 entitlement, device key, signature or identity beyond the SCORM values already
 exposed to that package. The per-attempt spool has strict byte and record
 limits. Serialization, quota or storage failure returns an appropriate SCORM
@@ -71,15 +72,23 @@ progress was saved.
 
 After each spool write, the package proxy asynchronously notifies the trusted
 learning-origin runtime over its launch-specific channel. The trusted runtime
-imports entries in order, validates and normalizes every field, enforces bounded
-and monotonic state, assigns the entitlement-bound commit identifier and client
-sequence, signs the record with the device key, and commits it to the IndexedDB
-journal. Only that trusted record is eligible for server reconciliation. A
-durable import acknowledgement permits the package host to delete the matching
-spool entry. If the bridge or learning frame closes first, the spool remains;
-the trusted runtime drains and validates it before the next package launch.
-Package-origin state is therefore a recoverable staging queue, not trusted
-evidence or the canonical journal.
+imports entries in order, validates and normalizes every field, and computes a
+canonical fingerprint over the spool identifier, ordinal and normalized
+checkpoint. In one IndexedDB transaction it first looks up the attempt-bound
+spool identifier. A new identifier stores its fingerprint, assigns the
+entitlement-bound commit identifier and client sequence, signs the record with
+the device key, and appends it to the journal. An existing identifier with the
+same fingerprint returns the original durable import acknowledgement and does
+not assign another commit or sequence; reuse with a different fingerprint fails
+closed as spool corruption. Only that trusted record is eligible for server
+reconciliation.
+
+A durable import acknowledgement permits the package host to delete the
+matching spool entry. If the bridge or learning frame closes after the IndexedDB
+transaction but before acknowledgement, the spool remains; the next drain
+recovers the same acknowledgement through the stable identifier rather than
+creating another journal record. Package-origin state is therefore a recoverable
+staging queue, not trusted evidence or the canonical journal.
 
 The runtime also requests checkpoints of dirty state while visible and on
 `pagehide` where possible. These use the same synchronous spool write; their
@@ -95,14 +104,14 @@ overrides remain server-side overlays and never rewrite local or server SCORM
 evidence.
 
 The learning-origin player frames a sandboxed package host from the distinct
-exact-attempt package origin. The package host and nested vendor content share
-only that uncredentialed origin so vendor code can locate the SCORM API in its
+exact-attempt package site. The package host and nested vendor content share
+only that uncredentialed, cookie-isolated context so vendor code can locate the SCORM API in its
 parent as it does today. Package code can inspect or damage only the working
 state and spool for its own attempt, which it can already influence through the
 SCORM API; it cannot reach another attempt or trusted evidence. The host exposes
 no entitlement or attempt selector. For each authorised launch, trusted code
 binds a fresh channel to the already resolved entitlement and attempt using the
-exact package origin. Calls use a fixed discriminated schema, bounded values,
+exact package site. Calls use a fixed discriminated schema, bounded values,
 request identifiers and response matching; neither wildcard origins nor bearer
 credentials cross the channel. Sandbox permissions remain limited to the
 supported package behaviours and deny top-level navigation and access to the
@@ -124,7 +133,7 @@ An append-only local journal survives crashes and makes retry behaviour
 observable. Full bounded snapshots match the current server contract and avoid
 replaying arbitrary SCORM API calls. Content-addressed storage aligns with
 immutable package versions and makes corruption and partial downloads
-detectable. A per-attempt package origin preserves synchronous parent API
+detectable. A per-attempt, cookie-isolated package site preserves synchronous parent API
 discovery and the browser's only broadly supported synchronous local write
 without giving vendor scripts the origin that owns entitlements, keys, trusted
 progress or another attempt.
@@ -155,10 +164,11 @@ server-sync failures without logging SCORM state.
 The package API proxy and trusted runtime form a versioned protocol that must be
 compatibility-tested with supported Rise packages. Spool capacity, crash
 recovery, tamper rejection, import acknowledgement and cleanup require browser
-coverage across the supported offline matrix. Per-attempt package origins must
-be provisioned on a dedicated cookie-free site, deployed without application or
-learning credentials, and use their own least-privilege CSP, framing and
-service-worker scope.
+coverage across the supported offline matrix. Per-attempt package contexts must
+be provisioned with distinct registrable-site/cookie boundaries, deployed
+without application or learning credentials, and use their own least-privilege
+CSP, framing and service-worker scope. Sibling origins beneath one registrable
+domain do not meet this boundary.
 
 Browser storage corruption or eviction can still remove unsynchronised work.
 The application must surface that risk, detect missing objects and never derive
@@ -169,6 +179,10 @@ server completion merely from a locally displayed state.
 - `LMSCommit` and `LMSFinish` do not return success before a complete bounded
   checkpoint is durably appended to the exact-attempt spool.
 - Journal records are append-only until acknowledged and safely compacted.
+- Importing the same spool identifier and fingerprint more than once returns the
+  original acknowledgement and never assigns another commit identifier,
+  sequence or session delta; identifier reuse with different content fails
+  closed.
 - Spool entries are not trusted evidence; only validated, normalized and
   device-signed learning-origin journal records may be reconciled.
 - Every record is bounded by the existing validated progress limits.
@@ -178,7 +192,8 @@ server completion merely from a locally displayed state.
 - Package cache keys include the exact immutable version and digest.
 - Partial or digest-invalid packages never launch offline.
 - SCORM package code cannot read offline credentials, device keys, the trusted
-  journal, another attempt's spool or a credentialed origin's storage.
+  journal, another attempt's cookies or spool, or a credentialed origin's
+  storage.
 - Every package bridge is a fresh exact-origin channel bound by trusted code to
   one already-authorised entitlement and attempt; package input cannot select
   that binding.

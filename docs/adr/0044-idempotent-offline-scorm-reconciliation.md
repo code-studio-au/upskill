@@ -57,7 +57,11 @@ Only a new commit proceeds to the state-changing transaction. Reconciliation
 then locks the entitlement and attempt, enforces the current lifecycle,
 commit-acceptance deadline, hard-revocation state and contiguous sequence, and
 processes records in client-sequence order. A missing sequence produces a
-retryable gap response rather than skipping evidence.
+retryable gap response rather than skipping evidence. A gap response is not a
+durable idempotency receipt and does not reserve or consume the commit
+identifier. After the missing sequence is accepted, an exact retry is evaluated
+again and may proceed normally. Optional gap diagnostics are operational and
+must not participate in receipt lookup or client compaction.
 
 Because ADR 0042 permits only one offline writer, a base-revision mismatch is
 not silently merged. The server returns the authoritative snapshot and an
@@ -94,9 +98,11 @@ acceptance deadline. Ordinary access removal after issuance does not invalidate
 the still-bounded delegated acceptance authority. The local runtime separately
 refuses launches after intended launch expiry, and new evidence for a
 hard-revoked entitlement is rejected. An exact retry may still recover the
-durable receipt for its previously accepted effect. Rejected or conflicted
-evidence is retained as a bounded receipt and reason, without copying learner
-SCORM values into global audit logs.
+durable receipt for its previously accepted effect. Accepted effects and
+terminal rejections or conflicts are retained as bounded receipts and reasons,
+without copying learner SCORM values into global audit logs. Retryable
+conditions, including sequence gaps and transient server failures, do not
+create terminal receipts.
 
 The client deletes or compacts journal entries only after it receives durable
 receipts through a successfully authenticated response. Losing the response is
@@ -153,6 +159,8 @@ sessions see completion after reconciliation without any special refresh path.
 - An authenticated, validly signed exact retry recovers its existing receipt
   before current deadline and revocation gates; it cannot apply another effect.
 - Records are applied in contiguous client-sequence order.
+- A retryable sequence gap creates no terminal idempotency receipt; the same
+  commit is re-evaluated after its predecessor is accepted.
 - Incomplete or stale evidence cannot regress a completed attempt.
 - Course and Event completion, audit and outbox transitions occur in the same
   transaction as the accepted attempt change.

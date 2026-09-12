@@ -35,23 +35,33 @@ launch inside the installed application may require online authentication even
 when the browser already has an application session.
 
 Preserve separate application and trusted learning-runtime origins, plus an
-uncredentialed package-execution origin unique to each offline attempt:
+uncredentialed package-execution site unique to each offline attempt:
 
 - an application-origin service worker provides the installable shell, offline
   navigation and an offline-course index;
 - a learning-origin service worker provides the trusted attempt player, verifies
   entitlements, owns the device key and SCORM journal, and never executes
   package scripts;
-- each exact-attempt package origin has a service worker that stores only its
+- each exact-attempt package site has a service worker that stores only its
   immutable package bytes and minimal versioned SCORM API proxy, plus a bounded
-  synchronous checkpoint spool for that attempt; it runs on a dedicated
-  cookie-free site without application or learning cookies, bearer material or
-  device keys; and
+  synchronous checkpoint spool for that attempt; it is isolated at both the
+  origin and registrable-site/cookie boundary and has no application or learning
+  cookies, bearer material or device keys; and
 - the origins exchange only versioned, schema-validated messages over explicit
   fixed-origin channels. A launch-specific `MessageChannel` binds the package
   proxy to an already-authorised exact entitlement and attempt on the trusted
   learning origin; package code cannot select or discover another learner
   context.
+
+Origin isolation alone is insufficient because sibling origins can set and
+receive parent-domain cookies. The package-site provisioning design must provide
+a browser-enforced cookie boundary between attempts. Acceptable implementations
+include a separately registrable site per active attempt or an opaque-origin
+sandbox with an explicitly proven durable SCORM bridge. Header filtering,
+host-only application cookies, JavaScript shims and sibling hosts beneath one
+registrable domain are not sufficient controls. No package-execution topology
+may ship until Chromium and WebKit tests prove that one package cannot set or
+read cookies, storage or service-worker state visible to another attempt.
 
 The first supported offline matrix is installed Chrome or Edge on supported
 desktop and Android platforms and installed Safari web apps on supported iPhone
@@ -77,8 +87,8 @@ facilities may improve timeliness but cannot be required for correctness.
 
 This retains one React/TanStack Start product and one learner experience while
 using standard browser capabilities. Separating the two trusted origins from a
-unique origin for each offline attempt keeps third-party package scripts away
-from application identity, the trusted journal and every other attempt. Explicit
+unique cookie-isolated site for each offline attempt keeps third-party package
+scripts away from application identity, the trusted journal and every other attempt. Explicit
 download and verification make offline availability understandable and
 testable; relying on opportunistic runtime caching would produce incomplete
 modules.
@@ -103,7 +113,7 @@ modules.
 
 Upskill gains a consistent install-and-download journey without losing normal
 web access. The repository must build and version the application, learning and
-package-worker variants, provision cookie-free per-attempt package origins, and
+package-worker variants, provision cookie-isolated per-attempt package sites, and
 test their upgrade, cleanup and message compatibility. Offline browser support
 becomes an explicit compatibility contract rather than an assumption.
 
@@ -114,8 +124,9 @@ must show download health and never promise permanent availability.
 
 ## Invariants / Guardrails
 
-- SCORM package code executes only on an uncredentialed origin unique to its
-  exact attempt; the trusted learning origin never executes it.
+- SCORM package code executes only in an uncredentialed context unique to its
+  exact attempt and isolated at both origin and cookie-site boundaries; the
+  trusted learning origin never executes it.
 - A service worker controls only its own origin and scoped routes.
 - Third-party SCORM code receives no Better Auth cookies, offline credentials,
   device keys, direct access to the trusted journal database or storage shared
