@@ -320,6 +320,7 @@ function retryAt(now: Date, attempts: number): Date {
 
 async function processNextRecordingDeletion(options: {
   now: Date;
+  getCurrentTime: () => Date;
   deleteStoredRecording: DeleteStoredRecording;
 }): Promise<RecordingDeletionOutcome> {
   const database = getDatabase();
@@ -392,6 +393,8 @@ async function processNextRecordingDeletion(options: {
       claimed.storageObjectKey,
     );
   } catch (error) {
+    const failedAt = options.getCurrentTime();
+    assertValidTime(failedAt);
     logServerEvent({
       level: "error",
       event: "event_virtual_recording.deletion_failed",
@@ -407,11 +410,11 @@ async function processNextRecordingDeletion(options: {
       .updateTable("event_virtual_recording_deletion")
       .set({
         status: "failed",
-        availableAt: retryAt(options.now, claimed.attempt),
+        availableAt: retryAt(failedAt, claimed.attempt),
         leasedUntil: null,
         completedAt: null,
         lastErrorCode: "recording_storage_delete_failed",
-        updatedAt: options.now,
+        updatedAt: failedAt,
       })
       .where("recordingId", "=", claimed.recordingId)
       .where("status", "=", "processing")
@@ -427,6 +430,8 @@ async function processNextRecordingDeletion(options: {
     };
   }
 
+  const completedAt = options.getCurrentTime();
+  assertValidTime(completedAt);
   const completed = await database
     .transaction()
     .execute(async (transaction) => {
@@ -453,9 +458,9 @@ async function processNextRecordingDeletion(options: {
           .set({
             status: "deleted",
             deletedByUserId: deletion.requestedByUserId,
-            deletedAt: options.now,
+            deletedAt: completedAt,
             deletionReason: deletion.reason,
-            updatedAt: options.now,
+            updatedAt: completedAt,
           })
           .where("id", "=", recording.id)
           .where("status", "=", "complete")
@@ -471,9 +476,9 @@ async function processNextRecordingDeletion(options: {
         .set({
           status: "succeeded",
           leasedUntil: null,
-          completedAt: options.now,
+          completedAt,
           lastErrorCode: null,
-          updatedAt: options.now,
+          updatedAt: completedAt,
         })
         .where("recordingId", "=", recording.id)
         .where("status", "=", "processing")
@@ -494,7 +499,7 @@ async function processNextRecordingDeletion(options: {
           originalRecordingStatus: recording.status,
           attempt: claimed.attempt,
         },
-        createdAt: options.now,
+        createdAt: completedAt,
       });
       return true;
     });
@@ -511,10 +516,12 @@ export async function processAvailableEventVirtualRecordingDeletions(
   limit = 10,
   options: {
     now?: Date;
+    getCurrentTime?: () => Date;
     deleteStoredRecording?: DeleteStoredRecording;
   } = {},
 ): Promise<EventVirtualRecordingDeletionBatch> {
   const now = options.now ?? new Date();
+  const getCurrentTime = options.getCurrentTime ?? (() => new Date());
   assertValidTime(now);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100)
     throw new RangeError("Recording deletion batch limit is invalid");
@@ -523,6 +530,7 @@ export async function processAvailableEventVirtualRecordingDeletions(
   for (let index = 0; index < limit; index += 1) {
     const outcome = await processNextRecordingDeletion({
       now,
+      getCurrentTime,
       deleteStoredRecording:
         options.deleteStoredRecording ?? deleteVersionedObject,
     });
