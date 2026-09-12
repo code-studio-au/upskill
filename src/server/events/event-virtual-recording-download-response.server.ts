@@ -1,22 +1,27 @@
 import "@tanstack/react-start/server-only";
 
-import { eventVirtualRecordingDownloadSchema } from "#/features/event-operations/event-operations.schema";
 import { getRequestUser } from "#/server/auth/session.server";
 import { getServerEnv } from "#/server/env.server";
-import { boundByteRange, parseByteRange } from "#/server/http/byte-range";
+import { parseByteRange } from "#/server/http/byte-range";
 import { getObjectStream } from "#/server/storage/object-storage.server";
+import { z } from "#/validation/zod";
 import {
-  accessEventVirtualRecordingPlayback,
-  isEventVirtualRecordingPlaybackActive,
-} from "./event-virtual-recording-playback.server";
+  accessEventVirtualRecordingDownload,
+  isEventVirtualRecordingDownloadActive,
+} from "./event-virtual-recording-download.server";
 import { limitRecordingStreamToAuthorization } from "./event-virtual-recording-stream-response.server";
 
-const MAXIMUM_PLAYBACK_RANGE_BYTES = 8 * 1024 * 1024;
 const noStoreHeaders = {
   "Cache-Control": "private, no-store",
   "Referrer-Policy": "no-referrer",
   "X-Content-Type-Options": "nosniff",
 };
+const identifier = z.string().check(z.trim(), z.minLength(1), z.maxLength(255));
+const eventVirtualRecordingDownloadAccessSchema = z.object({
+  eventOccurrenceId: identifier,
+  recordingId: identifier,
+  token: z.string().check(z.minLength(1), z.maxLength(2_048)),
+});
 
 function objectErrorStatus(error: unknown): number {
   if (typeof error !== "object" || error === null || !("name" in error))
@@ -30,13 +35,15 @@ function objectErrorStatus(error: unknown): number {
   return 500;
 }
 
-export async function handleEventVirtualRecordingPlaybackRequest(
+export async function handleEventVirtualRecordingDownloadRequest(
   recordingId: string,
   request: Request,
 ): Promise<Response> {
-  const input = eventVirtualRecordingDownloadSchema.safeParse({
-    eventOccurrenceId: new URL(request.url).searchParams.get("occurrence"),
+  const url = new URL(request.url);
+  const input = eventVirtualRecordingDownloadAccessSchema.safeParse({
+    eventOccurrenceId: url.searchParams.get("occurrence"),
     recordingId,
+    token: url.searchParams.get("download"),
   });
   if (!input.success)
     return new Response(null, { status: 404, headers: noStoreHeaders });
@@ -46,7 +53,7 @@ export async function handleEventVirtualRecordingPlaybackRequest(
   const user = await getRequestUser();
   if (!user)
     return new Response(null, { status: 401, headers: noStoreHeaders });
-  const access = await accessEventVirtualRecordingPlayback(input.data, user);
+  const access = await accessEventVirtualRecordingDownload(input.data, user);
   if (access.status !== "ready") {
     const status =
       access.status === "forbidden"
@@ -57,20 +64,16 @@ export async function handleEventVirtualRecordingPlaybackRequest(
     return new Response(null, { status, headers: noStoreHeaders });
   }
   try {
-    const storageRange =
-      range.status === "valid"
-        ? boundByteRange(range.value, MAXIMUM_PLAYBACK_RANGE_BYTES)
-        : undefined;
     const object = await getObjectStream(
       getServerEnv().S3_RECORDING_BUCKET,
       access.target.storageObjectKey,
-      storageRange,
+      range.status === "valid" ? range.value : undefined,
     );
     const headers = new Headers(noStoreHeaders);
     headers.set("Content-Type", "video/mp4");
     headers.set(
       "Content-Disposition",
-      'inline; filename="webinar-recording.mp4"',
+      'attachment; filename="webinar-recording.mp4"',
     );
     headers.set("Accept-Ranges", "bytes");
     if (object.contentLength !== undefined)
@@ -81,7 +84,12 @@ export async function handleEventVirtualRecordingPlaybackRequest(
       limitRecordingStreamToAuthorization(
         object.body,
         access.target.expiresAt,
-        () => isEventVirtualRecordingPlaybackActive(input.data, user.id),
+        () =>
+          isEventVirtualRecordingDownloadActive(
+            input.data,
+            user.id,
+            access.target.expiresAt,
+          ),
       ),
       {
         status: object.contentRange ? 206 : 200,

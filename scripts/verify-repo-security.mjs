@@ -901,6 +901,20 @@ const liveKitRecordingPlaybackResponse = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitRecordingDownloadResponse = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-download-response.server.ts",
+  ),
+  "utf8",
+);
+const liveKitRecordingStreamResponse = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-stream-response.server.ts",
+  ),
+  "utf8",
+);
 const liveKitRecordingPlaybackMigration = fs.readFileSync(
   path.join(
     root,
@@ -982,6 +996,12 @@ for (const boundary of [
   'import "@tanstack/react-start/server-only"',
   "findEventVirtualRecordingAccess",
   "RECORDING_DOWNLOAD_EXPIRY_SECONDS = 60",
+  'createHmac("sha256", getServerEnv().BETTER_AUTH_SECRET)',
+  "timingSafeEqual",
+  'accessMode: "application_download"',
+  "url = `/api/play/",
+  "accessEventVirtualRecordingDownload",
+  "isEventVirtualRecordingDownloadActive",
   'action: "event_virtual_recording.download_issued"',
 ])
   if (!liveKitRecordingDownload.includes(boundary))
@@ -997,6 +1017,7 @@ for (const boundary of [
   ".forUpdate()",
   "session.expiresAt <= now",
   "findEventVirtualRecordingAccess",
+  "isEventVirtualRecordingPlaybackActive",
   '"update"',
 ])
   if (!liveKitRecordingPlayback.includes(boundary))
@@ -1040,6 +1061,8 @@ for (const boundary of [
     );
 for (const boundary of [
   "handleEventVirtualRecordingPlaybackRequest",
+  "handleEventVirtualRecordingDownloadRequest",
+  'searchParams.has("download")',
   "params.recordingId",
 ])
   if (!liveKitRecordingPlaybackRoute.includes(boundary))
@@ -1055,7 +1078,8 @@ for (const boundary of [
   "parseByteRange",
   "boundByteRange",
   "MAXIMUM_PLAYBACK_RANGE_BYTES",
-  "limitPlaybackStreamToDeadline",
+  "limitRecordingStreamToAuthorization",
+  "isEventVirtualRecordingPlaybackActive",
   "access.target.expiresAt",
   "getObjectStream",
   'headers.set("Content-Range", object.contentRange)',
@@ -1065,6 +1089,35 @@ for (const boundary of [
   if (!liveKitRecordingPlaybackResponse.includes(boundary))
     failures.push(
       `LiveKit recording playback response boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "eventVirtualRecordingDownloadAccessSchema.safeParse({",
+  'searchParams.get("download")',
+  "getRequestUser()",
+  "accessEventVirtualRecordingDownload",
+  "isEventVirtualRecordingDownloadActive",
+  "limitRecordingStreamToAuthorization",
+  "getObjectStream",
+  'headers.set("Content-Range", object.contentRange)',
+  'attachment; filename="webinar-recording.mp4"',
+  '"Cache-Control": "private, no-store"',
+  '"Referrer-Policy": "no-referrer"',
+])
+  if (!liveKitRecordingDownloadResponse.includes(boundary))
+    failures.push(
+      `LiveKit recording download response boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "isAuthorized()",
+  "void reader.cancel(reason)",
+  "Recording authorization revoked",
+  "Recording authorization expired",
+])
+  if (!liveKitRecordingStreamResponse.includes(boundary))
+    failures.push(
+      `LiveKit recording stream revocation boundary is missing: ${boundary}`,
     );
 for (const boundary of [
   "create table event_virtual_recording_playback_session",
@@ -1078,13 +1131,6 @@ for (const boundary of [
     failures.push(
       `LiveKit recording playback migration boundary is missing: ${boundary}`,
     );
-for (const boundary of [
-  'from "@aws-sdk/s3-request-presigner"',
-  "ResponseContentDisposition",
-  'ResponseContentType: "video/mp4"',
-])
-  if (!objectStorage.includes(boundary))
-    failures.push(`Private object download signing is missing: ${boundary}`);
 for (const relative of [
   "src/worker/scorm-worker.ts",
   "src/worker/scorm-worker-iteration.ts",

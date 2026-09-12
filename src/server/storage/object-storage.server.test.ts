@@ -30,10 +30,6 @@ vi.mock("@aws-sdk/client-s3", () => {
   };
 });
 
-vi.mock("@aws-sdk/s3-request-presigner", () => ({
-  getSignedUrl: vi.fn(),
-}));
-
 import { deleteVersionedObject } from "./object-storage.server";
 
 function sentCommandInputs(): unknown[] {

@@ -1348,10 +1348,13 @@ gates passed; it does not by itself authorise staging or production activation.
       without provider detail leakage. Implemented by
       [PR #82](https://github.com/code-studio-au/upskill/pull/82).
 - [x] **Slice 6c1 — private recording download:** expose completed recording
-      metadata only to administrators, issue audited 60-second exact-object S3
-      downloads, and grant the application role read-only access to the recording
-      prefix. Keep playback, deletion and recovery out of this slice. Implemented
-      by [PR #83](https://github.com/code-studio-au/upskill/pull/83).
+      metadata only to administrators and issue audited 60-second downloads.
+      Downloads are delivered through a signed, administrator-bound same-origin
+      route so every request remains subject to current application authorization;
+      the application role alone receives read access to the recording prefix.
+      Keep playback, deletion and recovery out of this slice. Implemented by
+      [PR #83](https://github.com/code-studio-au/upskill/pull/83), with revocable
+      application delivery added by Slice 6c3.
 - [x] **Slice 6c2 — private recording playback:** add an application-controlled
       playback session that safely refreshes object access for long recordings
       without creating a public URL. Implemented with authenticated
@@ -1361,8 +1364,9 @@ gates passed; it does not by itself authorise staging or production activation.
       the snapshotted deadline, retain immutable deletion evidence, and add
       administrator failure/recovery controls without rewriting recording history.
       Implemented with leased retention work, complete version purging,
-      immediate access revocation, confirmed administrator deletion, bounded
-      automatic retries and an audited manual retry control.
+      immediate access revocation, per-chunk termination of active application
+      streams, confirmed administrator deletion, bounded automatic retries and
+      an audited manual retry control.
 - [ ] **Slice 7a — connection evidence ingestion:** add signed LiveKit webhook
       receipts, exact room/generation/participant validation and append-only
       connection intervals that tolerate duplicate, delayed and out-of-order

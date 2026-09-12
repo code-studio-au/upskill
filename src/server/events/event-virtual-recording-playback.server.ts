@@ -95,3 +95,29 @@ export async function accessEventVirtualRecordingPlayback(
     };
   });
 }
+
+export async function isEventVirtualRecordingPlaybackActive(
+  input: { eventOccurrenceId: string; recordingId: string },
+  userId: string,
+  now = new Date(),
+): Promise<boolean> {
+  if (Number.isNaN(now.getTime()))
+    throw new RangeError("Recording playback time is invalid");
+  const database = getDatabase();
+  const access = await findEventVirtualRecordingAccess(
+    database,
+    input,
+    userId,
+    now,
+  );
+  if (access.status !== "ready") return false;
+  return Boolean(
+    await database
+      .selectFrom("event_virtual_recording_playback_session")
+      .select("recordingId")
+      .where("recordingId", "=", input.recordingId)
+      .where("userId", "=", userId)
+      .where("expiresAt", ">", now)
+      .executeTakeFirst(),
+  );
+}

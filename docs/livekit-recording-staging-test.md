@@ -95,11 +95,13 @@ Use approved staging-only accounts and avoid real learner data.
    recording reaches **Ready** with completion time, duration, size and
    retention deadline.
 6. Select **Play** and confirm authenticated playback starts. Select
-   **Download** and confirm the private MP4 is delivered. Do not copy either
-   short-lived URL into the evidence report.
-7. Request deletion. Confirm Play and Download disappear immediately, the
-   recording remains visible as immutable history, and storage deletion reaches
-   **Deleted**. A second access attempt must fail.
+   **Download** and confirm the private MP4 is delivered through the application.
+   Do not copy either short-lived URL into the evidence report.
+7. Start a second playback or download, then request deletion from another
+   administrator tab. Confirm the active response is cancelled, Play and
+   Download disappear immediately, the recording remains visible as immutable
+   history, and storage deletion reaches **Deleted**. Reusing the already-issued
+   download URL and starting another playback must both fail.
 
 Capture the release SHA, test occurrence title, browsers, timestamps and visible
 status transitions. Capture no tokens, signed URLs, secret values or personal

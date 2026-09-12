@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUser: vi.fn(),
   getServerEnv: vi.fn(),
   accessPlayback: vi.fn(),
+  isPlaybackActive: vi.fn(),
   getObjectStream: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock("#/server/env.server", () => ({
 }));
 vi.mock("./event-virtual-recording-playback.server", () => ({
   accessEventVirtualRecordingPlayback: mocks.accessPlayback,
+  isEventVirtualRecordingPlaybackActive: mocks.isPlaybackActive,
 }));
 vi.mock("#/server/storage/object-storage.server", () => ({
   getObjectStream: mocks.getObjectStream,
@@ -41,11 +43,13 @@ describe("recording playback response", () => {
     mocks.getRequestUser.mockReset();
     mocks.getServerEnv.mockReset();
     mocks.accessPlayback.mockReset();
+    mocks.isPlaybackActive.mockReset();
     mocks.getObjectStream.mockReset();
     mocks.getRequestUser.mockResolvedValue(user);
     mocks.getServerEnv.mockReturnValue({
       S3_RECORDING_BUCKET: "recording-bucket",
     });
+    mocks.isPlaybackActive.mockResolvedValue(true);
   });
 
   it("rejects malformed ranges and unauthenticated requests before access", async () => {
@@ -192,12 +196,12 @@ describe("recording playback response", () => {
       if (!responseBody) throw new Error("Playback response body is missing");
       const pendingRead = responseBody.getReader().read();
       const expiryRejection = expect(pendingRead).rejects.toThrow(
-        "Playback authorization expired",
+        "Recording authorization expired",
       );
       await vi.advanceTimersByTimeAsync(1_000);
 
       await expiryRejection;
-      expect(cancel).toHaveBeenCalledWith("Playback authorization expired");
+      expect(cancel).toHaveBeenCalledWith("Recording authorization expired");
       expect(mocks.getObjectStream).toHaveBeenCalledWith(
         "recording-bucket",
         "recordings/private.mp4",
@@ -206,6 +210,48 @@ describe("recording playback response", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("cancels an active response when deletion revokes its session", async () => {
+    const cancel = vi.fn();
+    let chunk = 0;
+    mocks.accessPlayback.mockResolvedValueOnce({
+      status: "ready",
+      target: {
+        storageObjectKey: "recordings/private.mp4",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    mocks.isPlaybackActive
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    mocks.getObjectStream.mockResolvedValueOnce({
+      body: new ReadableStream({
+        pull(controller) {
+          chunk += 1;
+          controller.enqueue(new Uint8Array([chunk]));
+        },
+        cancel,
+      }),
+      contentLength: 2,
+    });
+
+    const response = await handleEventVirtualRecordingPlaybackRequest(
+      "recording_1",
+      request(),
+    );
+
+    await expect(response.arrayBuffer()).rejects.toThrow(
+      "Recording authorization revoked",
+    );
+    expect(cancel).toHaveBeenCalledWith("Recording authorization revoked");
+    expect(mocks.isPlaybackActive).toHaveBeenCalledWith(
+      {
+        eventOccurrenceId: "occurrence_1",
+        recordingId: "recording_1",
+      },
+      user.id,
+    );
   });
 
   it.each([

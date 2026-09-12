@@ -31,8 +31,15 @@ import {
   type VirtualRoomRuntime,
 } from "#/server/events/event-virtual-room.server";
 import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
-import { issueEventVirtualRecordingDownload } from "#/server/events/event-virtual-recording-download.server";
-import { accessEventVirtualRecordingPlayback } from "#/server/events/event-virtual-recording-playback.server";
+import {
+  accessEventVirtualRecordingDownload,
+  issueEventVirtualRecordingDownload,
+  issueEventVirtualRecordingDownloadToken,
+} from "#/server/events/event-virtual-recording-download.server";
+import {
+  accessEventVirtualRecordingPlayback,
+  isEventVirtualRecordingPlaybackActive,
+} from "#/server/events/event-virtual-recording-playback.server";
 import {
   processAvailableEventVirtualRecordingDeletions,
   requestEventVirtualRecordingDeletion,
@@ -1588,11 +1595,11 @@ try {
     ],
     "Terminal webhook evidence must settle redundant provider reconciliation work",
   );
-  const signedDownloads: Array<{
-    bucket: string;
-    key: string;
-    expiresInSeconds: number;
-    signingDate: Date;
+  const issuedDownloadClaims: Array<{
+    eventOccurrenceId: string;
+    recordingId: string;
+    userId: string;
+    expiresAt: number;
   }> = [];
   const downloadIssuedAt = new Date(receiptApplicationAt.getTime() + 1);
   assert.deepEqual(
@@ -1604,25 +1611,25 @@ try {
       administrator,
       {
         now: downloadIssuedAt,
-        signDownload: (input) => {
-          signedDownloads.push(input);
-          return Promise.resolve("https://private-download.example/recording");
+        issueToken: (claims) => {
+          issuedDownloadClaims.push(claims);
+          return "signed-download-token";
         },
       },
     ),
     {
       status: "ready",
-      url: "https://private-download.example/recording",
+      url: `/api/play/${receiptRecordingId}?occurrence=${ids.occurrence}&download=signed-download-token`,
       expiresAt: new Date(downloadIssuedAt.getTime() + 60_000).toISOString(),
     },
     "A platform administrator may request one short-lived exact-object recording download",
   );
-  assert.deepEqual(signedDownloads, [
+  assert.deepEqual(issuedDownloadClaims, [
     {
-      bucket: "upskill-recordings",
-      key: receiptStorageObjectKey,
-      expiresInSeconds: 60,
-      signingDate: downloadIssuedAt,
+      eventOccurrenceId: ids.occurrence,
+      recordingId: receiptRecordingId,
+      userId: administrator.id,
+      expiresAt: downloadIssuedAt.getTime() + 60_000,
     },
   ]);
   const playbackIssuedAt = new Date(receiptApplicationAt.getTime() + 2);
@@ -1853,9 +1860,9 @@ try {
       administrator,
       {
         now: downloadIssuedAt,
-        signDownload: () => {
+        issueToken: () => {
           throw new Error(
-            "Cross-occurrence access must not reach object signing",
+            "Cross-occurrence access must not reach token issuance",
           );
         },
       },
@@ -1876,8 +1883,8 @@ try {
         staff,
         {
           now: downloadIssuedAt,
-          signDownload: () => {
-            throw new Error(`${role} must not reach object signing`);
+          issueToken: () => {
+            throw new Error(`${role} must not reach token issuance`);
           },
         },
       ),
@@ -1893,8 +1900,8 @@ try {
       administrator,
       {
         now: new Date(receiptReceivedAt.getTime() + 31 * 24 * 60 * 60_000),
-        signDownload: () => {
-          throw new Error("Expired evidence must not reach object signing");
+        issueToken: () => {
+          throw new Error("Expired evidence must not reach token issuance");
         },
       },
     ),
@@ -1914,7 +1921,7 @@ try {
         roomId: room.id,
         eventSessionId: ids.session,
         roomGeneration: room.generation,
-        accessMode: "download",
+        accessMode: "application_download",
         expiresAt: new Date(downloadIssuedAt.getTime() + 60_000).toISOString(),
       },
     },
@@ -1923,11 +1930,11 @@ try {
   const nearRetentionDeadline = new Date(
     receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000 - 30_500,
   );
-  const retentionBoundDownloads: Array<{
-    bucket: string;
-    key: string;
-    expiresInSeconds: number;
-    signingDate: Date;
+  const retentionBoundDownloadClaims: Array<{
+    eventOccurrenceId: string;
+    recordingId: string;
+    userId: string;
+    expiresAt: number;
   }> = [];
   assert.deepEqual(
     await issueEventVirtualRecordingDownload(
@@ -1938,29 +1945,27 @@ try {
       administrator,
       {
         now: nearRetentionDeadline,
-        signDownload: (input) => {
-          retentionBoundDownloads.push(input);
-          return Promise.resolve(
-            "https://private-download.example/retention-bound-recording",
-          );
+        issueToken: (claims) => {
+          retentionBoundDownloadClaims.push(claims);
+          return "retention-bound-token";
         },
       },
     ),
     {
       status: "ready",
-      url: "https://private-download.example/retention-bound-recording",
+      url: `/api/play/${receiptRecordingId}?occurrence=${ids.occurrence}&download=retention-bound-token`,
       expiresAt: new Date(
         nearRetentionDeadline.getTime() + 30_000,
       ).toISOString(),
     },
     "A recording URL must expire no later than its snapshotted retention deadline",
   );
-  assert.deepEqual(retentionBoundDownloads, [
+  assert.deepEqual(retentionBoundDownloadClaims, [
     {
-      bucket: "upskill-recordings",
-      key: receiptStorageObjectKey,
-      expiresInSeconds: 30,
-      signingDate: nearRetentionDeadline,
+      eventOccurrenceId: ids.occurrence,
+      recordingId: receiptRecordingId,
+      userId: administrator.id,
+      expiresAt: nearRetentionDeadline.getTime() + 30_000,
     },
   ]);
   assert.deepEqual(
@@ -1974,9 +1979,9 @@ try {
         now: new Date(
           receiptReceivedAt.getTime() + 30 * 24 * 60 * 60_000 - 500,
         ),
-        signDownload: () => {
+        issueToken: () => {
           throw new Error(
-            "A sub-second retention window must not reach object signing",
+            "A sub-second retention window must not reach token issuance",
           );
         },
       },
@@ -2134,7 +2139,69 @@ try {
     { outcomes: [], limitReached: false },
     "Failed receipt retries must observe the bounded backoff",
   );
-  const deletionRequestedAt = new Date(terminalReceiptReviewAt.getTime() + 1);
+  const deletionRequestedAt = new Date(
+    playbackRetentionDeadline.getTime() - 20_000,
+  );
+  const revocableAccessIssuedAt = new Date(deletionRequestedAt.getTime() - 1);
+  const revocableDownloadClaims = {
+    eventOccurrenceId: ids.occurrence,
+    recordingId: receiptRecordingId,
+    userId: administrator.id,
+    expiresAt: playbackRetentionDeadline.getTime() - 1,
+  };
+  const revocableDownloadToken = issueEventVirtualRecordingDownloadToken(
+    revocableDownloadClaims,
+  );
+  assert.equal(
+    (
+      await issueEventVirtualRecordingDownload(
+        {
+          eventOccurrenceId: ids.occurrence,
+          recordingId: receiptRecordingId,
+        },
+        administrator,
+        {
+          now: revocableAccessIssuedAt,
+          issueToken: () => revocableDownloadToken,
+        },
+      )
+    ).status,
+    "ready",
+    "The revocation proof must begin with a currently valid download",
+  );
+  assert.deepEqual(
+    await accessEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+        token: revocableDownloadToken,
+      },
+      administrator,
+      revocableAccessIssuedAt,
+    ),
+    {
+      status: "ready",
+      target: {
+        storageObjectKey: receiptStorageObjectKey,
+        expiresAt: new Date(revocableDownloadClaims.expiresAt),
+      },
+    },
+    "A currently valid signed application download must pass live authorization",
+  );
+  assert.equal(
+    (
+      await accessEventVirtualRecordingPlayback(
+        {
+          eventOccurrenceId: ids.occurrence,
+          recordingId: receiptRecordingId,
+        },
+        administrator,
+        revocableAccessIssuedAt,
+      )
+    ).status,
+    "ready",
+    "The revocation proof must begin with a currently active playback session",
+  );
   assert.deepEqual(
     await requestEventVirtualRecordingDeletion(
       { eventOccurrenceId: ids.occurrence, recordingId: receiptRecordingId },
@@ -2166,12 +2233,37 @@ try {
     "A platform administrator may request confirmed recording deletion",
   );
   assert.deepEqual(
+    await accessEventVirtualRecordingDownload(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+        token: revocableDownloadToken,
+      },
+      administrator,
+      deletionRequestedAt,
+    ),
+    { status: "conflict", reason: "recording_unavailable" },
+    "A previously issued application download must be revoked by its deletion request",
+  );
+  assert.equal(
+    await isEventVirtualRecordingPlaybackActive(
+      {
+        eventOccurrenceId: ids.occurrence,
+        recordingId: receiptRecordingId,
+      },
+      administrator.id,
+      deletionRequestedAt,
+    ),
+    false,
+    "A deletion request must terminate an already active playback session",
+  );
+  assert.deepEqual(
     await issueEventVirtualRecordingDownload(
       { eventOccurrenceId: ids.occurrence, recordingId: receiptRecordingId },
       administrator,
       {
         now: deletionRequestedAt,
-        signDownload: () => {
+        issueToken: () => {
           throw new Error("Requested deletion must revoke recording access");
         },
       },
@@ -5535,13 +5627,20 @@ try {
     .execute();
   await database
     .deleteFrom("livekit_webhook_receipt")
-    .where("providerEventId", "in", [
-      "EV_VerifyRecordingUpdate1",
-      "EV_VerifyRecordingUnmatched1",
-      "EV_VerifyRecordingInvalidTarget1",
-      "EV_VerifyRecordingReceiptComplete1",
-      "EV_VerifyRecordingReceiptConflict1",
-    ])
+    .where("providerEventId", "like", "EV_VerifyRecording%")
+    .execute();
+  await database
+    .deleteFrom("event_virtual_recording_playback_session")
+    .where("recordingId", "in", (builder) =>
+      builder
+        .selectFrom("event_virtual_recording")
+        .select("id")
+        .where("eventSessionId", "in", [
+          ids.session,
+          ids.raceSession,
+          ids.failureSession,
+        ]),
+    )
     .execute();
   await database
     .deleteFrom("event_virtual_recording_deletion")
