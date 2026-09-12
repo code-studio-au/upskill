@@ -36,22 +36,28 @@ Persist server reconciliation state with:
 - the highest contiguous accepted client sequence; and
 - a sanitized outcome and server receipt instant.
 
-In one transaction, reconciliation locks the entitlement and attempt, verifies
-the entitlement, device signature, exact package and offering-item bindings,
-sequence, payload bounds and hard-revocation state, then processes records in
-client-sequence order. Before applying any domain effect, the server computes a
-SHA-256 fingerprint over a versioned canonical encoding of every signed
-semantic request field, including entitlement and attempt identifiers, commit
+Reconciliation first parses the record, resolves the retained entitlement and
+device public key, verifies the signature and immutable package and
+offering-item bindings, validates the payload bounds, and computes a SHA-256
+fingerprint over a versioned canonical encoding of every signed semantic
+request field. Those fields include entitlement and attempt identifiers, commit
 identifier, client sequence, base revision, runtime version, reason, normalized
 bounded snapshot, validated session delta and diagnostic client instant. The
 signature bytes are excluded from the fingerprint.
 
 When `(entitlementId, commitId)` already exists, an equal fingerprint returns
-the existing receipt without reapplying state. A different fingerprint returns
-a terminal `commit_id_reused` conflict, applies no state, and explicitly tells
-the client that the local entry is not acknowledged or eligible for compaction.
-A missing sequence produces a retryable gap response rather than skipping
-evidence.
+the existing receipt without reapplying state, even when the current time is
+past the acceptance deadline or the entitlement was subsequently hard-revoked.
+This is receipt recovery for an already-applied effect, not acceptance of new
+evidence. A different fingerprint returns a terminal `commit_id_reused`
+conflict, applies no state, and explicitly tells the client that the local entry
+is not acknowledged or eligible for compaction.
+
+Only a new commit proceeds to the state-changing transaction. Reconciliation
+then locks the entitlement and attempt, enforces the current lifecycle,
+commit-acceptance deadline, hard-revocation state and contiguous sequence, and
+processes records in client-sequence order. A missing sequence produces a
+retryable gap response rather than skipping evidence.
 
 Because ADR 0042 permits only one offline writer, a base-revision mismatch is
 not silently merged. The server returns the authoritative snapshot and an
@@ -86,9 +92,11 @@ was authored before intended launch expiry. The server therefore uses its
 receipt instant as the hard boundary and rejects a commit received after the
 acceptance deadline. Ordinary access removal after issuance does not invalidate
 the still-bounded delegated acceptance authority. The local runtime separately
-refuses launches after intended launch expiry, and a hard-revoked entitlement
-is rejected. Rejected or conflicted evidence is retained as a bounded receipt
-and reason, without copying learner SCORM values into global audit logs.
+refuses launches after intended launch expiry, and new evidence for a
+hard-revoked entitlement is rejected. An exact retry may still recover the
+durable receipt for its previously accepted effect. Rejected or conflicted
+evidence is retained as a bounded receipt and reason, without copying learner
+SCORM values into global audit logs.
 
 The client deletes or compacts journal entries only after it receives durable
 receipts through a successfully authenticated response. Losing the response is
@@ -142,6 +150,8 @@ sessions see completion after reconciliation without any special refresh path.
 - Commit identity is idempotent only when its canonical request fingerprint
   matches; reuse with different semantics is a terminal non-acknowledging
   conflict.
+- An authenticated, validly signed exact retry recovers its existing receipt
+  before current deadline and revocation gates; it cannot apply another effect.
 - Records are applied in contiguous client-sequence order.
 - Incomplete or stale evidence cannot regress a completed attempt.
 - Course and Event completion, audit and outbox transitions occur in the same

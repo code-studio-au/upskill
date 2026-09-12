@@ -69,7 +69,9 @@ does not pretend to erase content already stored on a disconnected device. The
 issued entitlement remains the record of the authority delegated for its
 bounded lifetime. An administrator may hard-revoke server acceptance of a
 specific entitlement for a security incident; this cannot make an already
-offline copy inaccessible, and the administrative interface must say so.
+offline copy inaccessible, and the administrative interface must say so. Hard
+revocation rejects new evidence but does not hide a durable receipt for an exact
+retry of a commit accepted before revocation.
 
 The entitlement also delegates server acceptance of its correctly signed,
 ordered commits until an immutable commit-acceptance deadline no more than 30
@@ -150,6 +152,8 @@ that accepted work occurred before access expired.
 - Local browser protection is not described as DRM or equivalent to native
   secure storage.
 - Hard revocation changes server acceptance; it cannot promise remote deletion.
+- Receipt recovery for a previously accepted exact commit remains available
+  after expiry or revocation and never reapplies the domain effect.
 - Research questionnaires and other non-SCORM evidence are not added to offline
   scope without a separate privacy and architecture decision.
 
