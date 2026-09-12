@@ -520,16 +520,18 @@ export async function processAvailableEventVirtualRecordingDeletions(
     deleteStoredRecording?: DeleteStoredRecording;
   } = {},
 ): Promise<EventVirtualRecordingDeletionBatch> {
-  const now = options.now ?? new Date();
   const getCurrentTime = options.getCurrentTime ?? (() => new Date());
-  assertValidTime(now);
+  const schedulingTime = options.now ?? getCurrentTime();
+  assertValidTime(schedulingTime);
   if (!Number.isInteger(limit) || limit < 1 || limit > 100)
     throw new RangeError("Recording deletion batch limit is invalid");
-  await scheduleExpiredRecordingDeletions(now, limit);
+  await scheduleExpiredRecordingDeletions(schedulingTime, limit);
   const outcomes: EventVirtualRecordingDeletionBatch["outcomes"] = [];
   for (let index = 0; index < limit; index += 1) {
+    const claimTime = getCurrentTime();
+    assertValidTime(claimTime);
     const outcome = await processNextRecordingDeletion({
-      now,
+      now: claimTime,
       getCurrentTime,
       deleteStoredRecording:
         options.deleteStoredRecording ?? deleteVersionedObject,

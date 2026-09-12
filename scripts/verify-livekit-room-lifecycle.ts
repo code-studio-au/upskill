@@ -2271,12 +2271,29 @@ try {
     { status: "conflict", reason: "recording_unavailable" },
     "Deletion request must revoke playback and download before storage work runs",
   );
-  const deletionFailedAt = new Date(deletionRequestedAt.getTime() + 1);
-  const deletionStorageFailedAt = new Date(deletionFailedAt.getTime() + 10_000);
+  const deletionBatchStartedAt = new Date(deletionRequestedAt.getTime() + 1);
+  const firstDeletionClaimedAt = new Date(deletionBatchStartedAt.getTime() + 1);
+  const firstDeletionFailedAt = new Date(
+    firstDeletionClaimedAt.getTime() + 5 * 60_000 + 1,
+  );
+  const secondDeletionClaimedAt = new Date(
+    firstDeletionFailedAt.getTime() + 30_001,
+  );
+  const secondDeletionFailedAt = new Date(
+    secondDeletionClaimedAt.getTime() + 10_000,
+  );
+  const deletionBatchTimes = [
+    firstDeletionClaimedAt,
+    firstDeletionFailedAt,
+    secondDeletionClaimedAt,
+    secondDeletionFailedAt,
+  ];
+  let deletionBatchTimeIndex = 0;
   assert.deepEqual(
-    await processAvailableEventVirtualRecordingDeletions(1, {
-      now: deletionFailedAt,
-      getCurrentTime: () => deletionStorageFailedAt,
+    await processAvailableEventVirtualRecordingDeletions(2, {
+      now: deletionBatchStartedAt,
+      getCurrentTime: () =>
+        deletionBatchTimes[deletionBatchTimeIndex++] ?? secondDeletionFailedAt,
       deleteStoredRecording: () =>
         Promise.reject(new Error("simulated private storage failure")),
     }),
@@ -2288,10 +2305,16 @@ try {
           attempt: 1,
           reason: "administrator_requested",
         },
+        {
+          status: "failed",
+          recordingId: receiptRecordingId,
+          attempt: 2,
+          reason: "administrator_requested",
+        },
       ],
       limitReached: true,
     },
-    "Storage failure must retain a bounded retryable deletion outcome",
+    "Each deletion claim in a slow batch must receive a fresh lease and retain a bounded retryable outcome",
   );
   assert.deepEqual(
     await database
@@ -2300,6 +2323,7 @@ try {
         "status",
         "attempts",
         "availableAt",
+        "lastAttemptAt",
         "lastErrorCode",
         "updatedAt",
       ])
@@ -2307,19 +2331,20 @@ try {
       .executeTakeFirstOrThrow(),
     {
       status: "failed",
-      attempts: 1,
-      availableAt: new Date(deletionStorageFailedAt.getTime() + 30_000),
+      attempts: 2,
+      availableAt: new Date(secondDeletionFailedAt.getTime() + 60_000),
+      lastAttemptAt: secondDeletionClaimedAt,
       lastErrorCode: "recording_storage_delete_failed",
-      updatedAt: deletionStorageFailedAt,
+      updatedAt: secondDeletionFailedAt,
     },
-    "Deletion failure evidence must not retain provider or storage error detail",
+    "Later work must lease from its own claim time and failure evidence must not retain provider or storage error detail",
   );
   assert.deepEqual(
     (
       await findEventVirtualSessionOperations(
         ids.occurrence,
         receiptApplicationAccess,
-        deletionFailedAt,
+        secondDeletionFailedAt,
       )
     ).find((session) => session.eventSessionId === ids.session)?.recordings,
     [
@@ -2329,7 +2354,7 @@ try {
         statusLabel: "Deletion needs attention",
         status: "complete",
         warning:
-          "Recording storage deletion failed after 1 attempt. Playback and download remain unavailable. An automatic retry is scheduled, or retry now.",
+          "Recording storage deletion failed after 2 attempts. Playback and download remain unavailable. An automatic retry is scheduled, or retry now.",
         details: {
           recordingId: receiptRecordingId,
           completedAt: receiptReceivedAt.toISOString(),
@@ -2347,7 +2372,7 @@ try {
     ],
     "Administrators must see bounded deletion failure and retry state",
   );
-  const deletionRetriedAt = new Date(deletionStorageFailedAt.getTime() + 1);
+  const deletionRetriedAt = new Date(secondDeletionFailedAt.getTime() + 1);
   assert.deepEqual(
     await retryEventVirtualRecordingDeletion(
       { eventOccurrenceId: ids.occurrence, recordingId: receiptRecordingId },
@@ -2363,24 +2388,27 @@ try {
     deletionCompletedAt.getTime() + 5 * 60_000 + 1,
   );
   const staleStorageCompletedAt = new Date(deletionReclaimedAt.getTime() + 1);
+  const staleDeletionTimes = [deletionCompletedAt, staleStorageCompletedAt];
+  let staleDeletionTimeIndex = 0;
   assert.deepEqual(
     await processAvailableEventVirtualRecordingDeletions(1, {
       now: deletionCompletedAt,
-      getCurrentTime: () => staleStorageCompletedAt,
+      getCurrentTime: () =>
+        staleDeletionTimes[staleDeletionTimeIndex++] ?? staleStorageCompletedAt,
       deleteStoredRecording: async (bucket, key) => {
         deletedObjects.push({ bucket, key });
         await database
           .updateTable("event_virtual_recording_deletion")
           .set({
             status: "processing",
-            attempts: 3,
+            attempts: 4,
             lastAttemptAt: deletionReclaimedAt,
             leasedUntil: new Date(deletionReclaimedAt.getTime() + 5 * 60_000),
             updatedAt: deletionReclaimedAt,
           })
           .where("recordingId", "=", receiptRecordingId)
           .where("status", "=", "processing")
-          .where("attempts", "=", 2)
+          .where("attempts", "=", 3)
           .executeTakeFirstOrThrow();
       },
     }),
@@ -2393,7 +2421,7 @@ try {
     .where("recordingId", "=", receiptRecordingId)
     .executeTakeFirstOrThrow();
   assert.equal(reclaimedDeletion.status, "processing");
-  assert.equal(reclaimedDeletion.attempts, 3);
+  assert.equal(reclaimedDeletion.attempts, 4);
   assert.ok(reclaimedDeletion.leasedUntil);
   const successorCompletedAt = new Date(
     reclaimedDeletion.leasedUntil.getTime() + 1,
@@ -2401,10 +2429,17 @@ try {
   const successorStorageCompletedAt = new Date(
     successorCompletedAt.getTime() + 10_000,
   );
+  const successorDeletionTimes = [
+    successorCompletedAt,
+    successorStorageCompletedAt,
+  ];
+  let successorDeletionTimeIndex = 0;
   assert.deepEqual(
     await processAvailableEventVirtualRecordingDeletions(1, {
       now: successorCompletedAt,
-      getCurrentTime: () => successorStorageCompletedAt,
+      getCurrentTime: () =>
+        successorDeletionTimes[successorDeletionTimeIndex++] ??
+        successorStorageCompletedAt,
       deleteStoredRecording: (bucket, key) => {
         deletedObjects.push({ bucket, key });
         return Promise.resolve();
@@ -2415,7 +2450,7 @@ try {
         {
           status: "deleted",
           recordingId: receiptRecordingId,
-          attempt: 4,
+          attempt: 5,
           reason: "administrator_requested",
         },
       ],
