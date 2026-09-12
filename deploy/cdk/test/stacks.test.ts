@@ -336,6 +336,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
           JSON.stringify({ Ref: instanceRoleLogicalId }),
       ) &&
       serialized.includes("s3:GetObject") &&
+      serialized.includes("s3:DeleteObjectVersion") &&
       serialized.includes("RecordingBucket")
     );
   });
@@ -349,13 +350,19 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
         JSON.stringify(statement).includes("RecordingBucket"),
     );
   expect(recordingReadStatement).toMatchObject({
-    Action: "s3:GetObject",
+    Action: ["s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"],
     Effect: "Allow",
   });
   expect(JSON.stringify(recordingReadStatement)).toContain("recordings/*");
-  expect(JSON.stringify(recordingReadStatement)).not.toMatch(
-    /s3:(?:DeleteObject|ListBucket)/u,
-  );
+  const recordingVersionListStatement =
+    recordingReadPolicy?.Properties.PolicyDocument.Statement.find((statement) =>
+      JSON.stringify(statement).includes("s3:ListBucketVersions"),
+    );
+  expect(recordingVersionListStatement).toMatchObject({
+    Action: "s3:ListBucketVersions",
+    Effect: "Allow",
+    Condition: { StringLike: { "s3:prefix": ["recordings/*"] } },
+  });
   const accessGrantsLocationWritePolicy = Object.values(policies).find(
     (policy) =>
       policy.Properties.Roles.some(

@@ -81,6 +81,7 @@ try {
     "event_virtual_room",
     "event_virtual_room_operation",
     "event_virtual_recording",
+    "event_virtual_recording_deletion",
     "livekit_webhook_receipt",
     "event_virtual_presenter_credential_reservation",
     "event_virtual_join_access",
@@ -240,6 +241,7 @@ try {
     "event_virtual_join_session_active_idx",
     "event_virtual_recording_status_idx",
     "event_virtual_recording_retention_idx",
+    "event_virtual_recording_deletion_work_idx",
     "livekit_webhook_receipt_processing_idx",
     "livekit_webhook_receipt_recording_attention_idx",
   ];
@@ -421,6 +423,10 @@ try {
   assert.match(
     auditActionDefinition.definition,
     /event_virtual_recording\.download_issued/u,
+  );
+  assert.match(
+    auditActionDefinition.definition,
+    /event_virtual_recording\.deletion_retried/u,
   );
   assert.match(
     auditActionDefinition.definition,
@@ -765,6 +771,42 @@ try {
   assert.match(recordingGuardDefinition, /INSERT/u);
   assert.match(recordingGuardDefinition, /UPDATE/u);
   assert.match(recordingGuardDefinition, /DELETE/u);
+  const liveKitRecordingDeletionConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_virtual_recording_deletion_pkey',
+          'event_virtual_recording_deletion_reason_ck',
+          'event_virtual_recording_deletion_actor_ck',
+          'event_virtual_recording_deletion_status_ck',
+          'event_virtual_recording_deletion_attempt_ck',
+          'event_virtual_recording_deletion_error_ck',
+          'event_virtual_recording_deletion_timeline_ck',
+          'event_virtual_recording_deletion_state_ck'
+        )`.execute(db);
+  assert.equal(
+    liveKitRecordingDeletionConstraints.rows.length,
+    8,
+    "LiveKit recording deletion requests, retry state and immutable evidence must be constrained",
+  );
+  const liveKitRecordingDeletionGuard = await sql<{
+    definition: string;
+  }>`select pg_get_triggerdef(oid) as definition
+      from pg_trigger
+      where tgname = 'event_virtual_recording_deletion_guard_trg'
+        and not tgisinternal`.execute(db);
+  assert.equal(
+    liveKitRecordingDeletionGuard.rows.length,
+    1,
+    "LiveKit recording deletion evidence must have one insert/update/delete guard",
+  );
+  const recordingDeletionGuardDefinition =
+    liveKitRecordingDeletionGuard.rows[0]?.definition.toUpperCase() ?? "";
+  assert.match(recordingDeletionGuardDefinition, /BEFORE/u);
+  assert.match(recordingDeletionGuardDefinition, /INSERT/u);
+  assert.match(recordingDeletionGuardDefinition, /UPDATE/u);
+  assert.match(recordingDeletionGuardDefinition, /DELETE/u);
   const liveKitLobbyConstraints = await sql<{
     constraint_name: string;
   }>`select constraint_name from information_schema.table_constraints

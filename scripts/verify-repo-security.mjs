@@ -370,8 +370,16 @@ for (const requiredRecordingStorageBoundary of [
 }
 if (!applicationStack.includes("S3_RECORDING_BUCKET"))
   failures.push("The deployed server must receive its recording bucket name");
-if (!applicationStack.includes('actions: ["s3:GetObject"]'))
-  failures.push("The application role must have scoped recording read access");
+if (
+  !applicationStack.includes(
+    'actions: ["s3:GetObject", "s3:DeleteObject", "s3:DeleteObjectVersion"]',
+  ) ||
+  !applicationStack.includes('actions: ["s3:ListBucketVersions"]') ||
+  !applicationStack.includes('StringLike: { "s3:prefix": ["recordings/*"] }')
+)
+  failures.push(
+    "The application role must have scoped recording read and retention access",
+  );
 for (const requiredRecordingUploadBoundary of [
   'new Role(this, "RecordingUploadRole"',
   "maxSessionDuration: Duration.hours(1)",
@@ -893,10 +901,38 @@ const liveKitRecordingPlaybackResponse = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitRecordingDownloadResponse = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-download-response.server.ts",
+  ),
+  "utf8",
+);
+const liveKitRecordingStreamResponse = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-stream-response.server.ts",
+  ),
+  "utf8",
+);
 const liveKitRecordingPlaybackMigration = fs.readFileSync(
   path.join(
     root,
     "src/server/db/migrations/0108_livekit_recording_playback_audit.ts",
+  ),
+  "utf8",
+);
+const liveKitRecordingRetention = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-recording-retention.server.ts",
+  ),
+  "utf8",
+);
+const liveKitRecordingRetentionMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0109_livekit_recording_retention.ts",
   ),
   "utf8",
 );
@@ -960,6 +996,13 @@ for (const boundary of [
   'import "@tanstack/react-start/server-only"',
   "findEventVirtualRecordingAccess",
   "RECORDING_DOWNLOAD_EXPIRY_SECONDS = 60",
+  'createHmac("sha256", getServerEnv().BETTER_AUTH_SECRET)',
+  "timingSafeEqual",
+  'accessMode: "application_download"',
+  "url = `/api/play/",
+  "accessEventVirtualRecordingDownload",
+  "isEventVirtualRecordingDownloadActive",
+  "transferExpiresAt: access.target.retentionDeadline",
   'action: "event_virtual_recording.download_issued"',
 ])
   if (!liveKitRecordingDownload.includes(boundary))
@@ -975,6 +1018,7 @@ for (const boundary of [
   ".forUpdate()",
   "session.expiresAt <= now",
   "findEventVirtualRecordingAccess",
+  "isEventVirtualRecordingPlaybackActive",
   '"update"',
 ])
   if (!liveKitRecordingPlayback.includes(boundary))
@@ -982,7 +1026,48 @@ for (const boundary of [
       `LiveKit recording playback boundary is missing: ${boundary}`,
     );
 for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'selectFrom("platform_admin")',
+  '.where("session.eventOccurrenceId", "=", input.eventOccurrenceId)',
+  'insertInto("event_virtual_recording_deletion")',
+  "revokeCompletedRecordingAccess",
+  'status: "deleted"',
+  'deleteFrom("event_virtual_recording_playback_session")',
+  "DELETION_MAXIMUM_AUTOMATIC_ATTEMPTS",
+  'deletion.status === "processing"',
+  'lastErrorCode: "recording_deletion_lease_expired"',
+  "deleteVersionedObject",
+  'action: "event_virtual_recording.deletion_requested"',
+  'action: "event_virtual_recording.deleted"',
+])
+  if (!liveKitRecordingRetention.includes(boundary))
+    failures.push(
+      `LiveKit recording retention boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "guard_event_virtual_recording_deletion",
+  "Recording deletion request evidence is immutable",
+  "Completed recording deletion evidence is immutable",
+  "event_virtual_recording_deletion_guard_trg",
+  "revoke delete on table event_virtual_recording_deletion",
+])
+  if (!liveKitRecordingRetentionMigration.includes(boundary))
+    failures.push(
+      `LiveKit recording deletion evidence guard is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "ListObjectVersionsCommand",
+  ".filter(({ Key, VersionId }) => Key === key && Boolean(VersionId))",
+  "deletion.Errors?.length",
+])
+  if (!objectStorage.includes(boundary))
+    failures.push(
+      `Recording version deletion boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
   "handleEventVirtualRecordingPlaybackRequest",
+  "handleEventVirtualRecordingDownloadRequest",
+  'searchParams.has("download")',
   "params.recordingId",
 ])
   if (!liveKitRecordingPlaybackRoute.includes(boundary))
@@ -998,7 +1083,8 @@ for (const boundary of [
   "parseByteRange",
   "boundByteRange",
   "MAXIMUM_PLAYBACK_RANGE_BYTES",
-  "limitPlaybackStreamToDeadline",
+  "limitRecordingStreamToAuthorization",
+  "isEventVirtualRecordingPlaybackActive",
   "access.target.expiresAt",
   "getObjectStream",
   'headers.set("Content-Range", object.contentRange)',
@@ -1009,6 +1095,47 @@ for (const boundary of [
     failures.push(
       `LiveKit recording playback response boundary is missing: ${boundary}`,
     );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "eventVirtualRecordingDownloadAccessSchema.safeParse({",
+  'searchParams.get("download")',
+  "getRequestUser()",
+  "accessEventVirtualRecordingDownload",
+  "isEventVirtualRecordingDownloadActive",
+  "limitRecordingStreamToAuthorization",
+  "access.target.transferExpiresAt",
+  "getObjectStream",
+  'headers.set("Content-Range", object.contentRange)',
+  'attachment; filename="webinar-recording.mp4"',
+  '"Cache-Control": "private, no-store"',
+  '"Referrer-Policy": "no-referrer"',
+])
+  if (!liveKitRecordingDownloadResponse.includes(boundary))
+    failures.push(
+      `LiveKit recording download response boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "AUTHORIZATION_RECHECK_INTERVAL_MILLISECONDS = 250",
+  "hasCurrentAuthorization",
+  "void reader.cancel(reason)",
+  "Recording authorization revoked",
+  "Recording authorization expired",
+])
+  if (!liveKitRecordingStreamResponse.includes(boundary))
+    failures.push(
+      `LiveKit recording stream revocation boundary is missing: ${boundary}`,
+    );
+if (
+  (
+    liveKitRecordingStreamResponse.match(
+      /await hasCurrentAuthorization\(\)/gu,
+    ) ?? []
+  ).length < 2
+)
+  failures.push(
+    "LiveKit recording streams must recheck bounded authorization before and after source reads",
+  );
 for (const boundary of [
   "create table event_virtual_recording_playback_session",
   'primary key ("recordingId", "userId")',
@@ -1021,13 +1148,6 @@ for (const boundary of [
     failures.push(
       `LiveKit recording playback migration boundary is missing: ${boundary}`,
     );
-for (const boundary of [
-  'from "@aws-sdk/s3-request-presigner"',
-  "ResponseContentDisposition",
-  'ResponseContentType: "video/mp4"',
-])
-  if (!objectStorage.includes(boundary))
-    failures.push(`Private object download signing is missing: ${boundary}`);
 for (const relative of [
   "src/worker/scorm-worker.ts",
   "src/worker/scorm-worker-iteration.ts",
@@ -1163,6 +1283,14 @@ if (
 )
   failures.push(
     "Runtime database roles must not physically delete LiveKit recording evidence",
+  );
+if (
+  !provisionRuntimeRoles.includes(
+    "revoke delete on table event_virtual_recording_deletion from ${role}",
+  )
+)
+  failures.push(
+    "Runtime database roles must not physically delete LiveKit recording deletion evidence",
   );
 if (
   !provisionRuntimeRoles.includes(

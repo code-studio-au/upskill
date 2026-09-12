@@ -6,7 +6,7 @@ import {
   eventOperationsRegionLockSchema,
   eventVirtualLobbyQueueSchema,
   eventVirtualPresenterCredentialSchema,
-  eventVirtualRecordingDownloadSchema,
+  eventVirtualRecordingMutationSchema,
   eventVirtualRoomMutationSchema,
   eventSurveyQrPresentationParamsSchema,
   type AssignedEventOperationsResult,
@@ -272,30 +272,47 @@ export const getEventVirtualPresenterCredential = createServerFn({
     );
   });
 
-export const getEventVirtualRecordingDownload = createServerFn({
+export const mutateEventVirtualRecording = createServerFn({
   method: "POST",
 })
-  .validator(eventVirtualRecordingDownloadSchema)
-  .handler(async ({ data }): Promise<EventVirtualRecordingDownloadResult> => {
-    const { getRequestUser } = await import("#/server/auth/session.server");
-    const user = await getRequestUser();
-    if (!user) return { status: "unauthenticated" };
-    try {
-      const { issueEventVirtualRecordingDownload } =
-        await import("#/server/events/event-virtual-recording-download.server");
-      return await issueEventVirtualRecordingDownload(data, user);
-    } catch (error) {
-      const { logServerEvent } = await import("#/server/logging/server-logger");
-      logServerEvent({
-        level: "error",
-        event: "event_virtual_recording.download_failed",
-        error,
-        fields: {
-          actorUserId: user.id,
-          entityType: "event_virtual_recording",
-          entityId: data.recordingId,
-        },
-      });
-      return { status: "conflict", reason: "recording_unavailable" };
-    }
-  });
+  .validator(eventVirtualRecordingMutationSchema)
+  .handler(
+    async ({
+      data,
+    }): Promise<
+      EventVirtualRecordingDownloadResult | EventOperationsMutationResult
+    > => {
+      const { getRequestUser } = await import("#/server/auth/session.server");
+      const user = await getRequestUser();
+      if (!user) return { status: "unauthenticated" };
+      if (data.action === "download") {
+        try {
+          const { issueEventVirtualRecordingDownload } =
+            await import("#/server/events/event-virtual-recording-download.server");
+          return await issueEventVirtualRecordingDownload(data, user);
+        } catch (error) {
+          const { logServerEvent } =
+            await import("#/server/logging/server-logger");
+          logServerEvent({
+            level: "error",
+            event: "event_virtual_recording.download_failed",
+            error,
+            fields: {
+              actorUserId: user.id,
+              entityType: "event_virtual_recording",
+              entityId: data.recordingId,
+            },
+          });
+          return { status: "conflict", reason: "recording_unavailable" };
+        }
+      }
+      const {
+        requestEventVirtualRecordingDeletion,
+        retryEventVirtualRecordingDeletion,
+      } =
+        await import("#/server/events/event-virtual-recording-retention.server");
+      return data.action === "request"
+        ? requestEventVirtualRecordingDeletion(data, user)
+        : retryEventVirtualRecordingDeletion(data, user);
+    },
+  );

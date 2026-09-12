@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   getRequestUser: vi.fn(),
   getServerEnv: vi.fn(),
   accessPlayback: vi.fn(),
+  isPlaybackActive: vi.fn(),
   getObjectStream: vi.fn(),
 }));
 
@@ -15,6 +16,7 @@ vi.mock("#/server/env.server", () => ({
 }));
 vi.mock("./event-virtual-recording-playback.server", () => ({
   accessEventVirtualRecordingPlayback: mocks.accessPlayback,
+  isEventVirtualRecordingPlaybackActive: mocks.isPlaybackActive,
 }));
 vi.mock("#/server/storage/object-storage.server", () => ({
   getObjectStream: mocks.getObjectStream,
@@ -41,11 +43,13 @@ describe("recording playback response", () => {
     mocks.getRequestUser.mockReset();
     mocks.getServerEnv.mockReset();
     mocks.accessPlayback.mockReset();
+    mocks.isPlaybackActive.mockReset();
     mocks.getObjectStream.mockReset();
     mocks.getRequestUser.mockResolvedValue(user);
     mocks.getServerEnv.mockReturnValue({
       S3_RECORDING_BUCKET: "recording-bucket",
     });
+    mocks.isPlaybackActive.mockResolvedValue(true);
   });
 
   it("rejects malformed ranges and unauthenticated requests before access", async () => {
@@ -192,16 +196,70 @@ describe("recording playback response", () => {
       if (!responseBody) throw new Error("Playback response body is missing");
       const pendingRead = responseBody.getReader().read();
       const expiryRejection = expect(pendingRead).rejects.toThrow(
-        "Playback authorization expired",
+        "Recording authorization expired",
       );
       await vi.advanceTimersByTimeAsync(1_000);
 
       await expiryRejection;
-      expect(cancel).toHaveBeenCalledWith("Playback authorization expired");
+      expect(cancel).toHaveBeenCalledWith("Recording authorization expired");
       expect(mocks.getObjectStream).toHaveBeenCalledWith(
         "recording-bucket",
         "recordings/private.mp4",
         undefined,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("cancels an active response when deletion revokes its session", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"));
+    const cancel = vi.fn();
+    let sourceController:
+      ReadableStreamDefaultController<Uint8Array> | undefined;
+    mocks.accessPlayback.mockResolvedValueOnce({
+      status: "ready",
+      target: {
+        storageObjectKey: "recordings/private.mp4",
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    mocks.isPlaybackActive
+      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce(false);
+    mocks.getObjectStream.mockResolvedValueOnce({
+      body: new ReadableStream({
+        start(controller) {
+          sourceController = controller;
+        },
+        cancel,
+      }),
+      contentLength: 1,
+    });
+
+    try {
+      const response = await handleEventVirtualRecordingPlaybackRequest(
+        "recording_1",
+        request(),
+      );
+      const pendingRead = response.body?.getReader().read();
+      if (!pendingRead) throw new Error("Playback response body is missing");
+      const revoked = expect(pendingRead).rejects.toThrow(
+        "Recording authorization revoked",
+      );
+      await vi.advanceTimersByTimeAsync(251);
+      sourceController?.enqueue(new Uint8Array([1]));
+
+      await revoked;
+      expect(cancel).toHaveBeenCalledWith("Recording authorization revoked");
+      expect(mocks.isPlaybackActive).toHaveBeenCalledTimes(2);
+      expect(mocks.isPlaybackActive).toHaveBeenCalledWith(
+        {
+          eventOccurrenceId: "occurrence_1",
+          recordingId: "recording_1",
+        },
+        user.id,
       );
     } finally {
       vi.useRealTimers();

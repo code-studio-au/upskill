@@ -173,9 +173,14 @@ type EventVirtualRecordingStatus =
   | "deleted";
 
 interface EventVirtualRecordingOperationsState {
+  recordingId: string;
   roomGeneration: number;
+  statusLabel: string;
   status: EventVirtualRecordingStatus;
   warning: string | null;
+  deletion?: {
+    status: "pending" | "processing" | "failed" | "succeeded";
+  } | null;
   details?: {
     recordingId: string;
     completedAt: string;
@@ -214,6 +219,11 @@ async function findRecordingOperationsByRoom(
         .on("operation.status", "in", ["pending", "processing"])
         .on("operation.lastErrorCode", "is not", null),
     )
+    .leftJoin(
+      "event_virtual_recording_deletion as deletion",
+      "deletion.recordingId",
+      "recording.id",
+    )
     .select([
       "recording.roomId",
       "recording.roomGeneration",
@@ -224,6 +234,8 @@ async function findRecordingOperationsByRoom(
       "recording.durationNanoseconds",
       "recording.retentionDeadline",
       "operation.id as retryingOperationId",
+      "deletion.status as deletionStatus",
+      "deletion.attempts as deletionAttempts",
     ])
     .select((expression) => [
       expression
@@ -259,17 +271,45 @@ async function findRecordingOperationsByRoom(
       Boolean(row.retryingOperationId) ||
       row.hasDelayedReceipt ||
       Boolean(current?.warning);
+    const deletionAttempts = row.deletionAttempts ?? 0;
     states.set(row.roomId, {
+      recordingId: row.id,
       roomGeneration: row.roomGeneration,
+      statusLabel:
+        row.deletionStatus === "pending" || row.deletionStatus === "processing"
+          ? "Deleting"
+          : row.deletionStatus === "failed"
+            ? "Deletion needs attention"
+            : row.deletionStatus === "succeeded"
+              ? row.status === "failed"
+                ? "Failed · Storage deleted"
+                : "Deleted"
+              : row.status === "active"
+                ? "Recording"
+                : row.status === "stopping"
+                  ? "Finalising"
+                  : row.status === "complete"
+                    ? row.retentionDeadline &&
+                      row.retentionDeadline > observedAt
+                      ? "Ready"
+                      : "Expired"
+                    : row.status.charAt(0).toUpperCase() + row.status.slice(1),
       status: row.status,
       warning:
-        row.status === "failed"
-          ? "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session."
-          : row.hasFailedReceipt
-            ? "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session."
-            : retrying
-              ? "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists."
-              : null,
+        row.deletionStatus === "failed"
+          ? `Recording storage deletion failed after ${String(deletionAttempts)} attempt${deletionAttempts === 1 ? "" : "s"}. Playback and download remain unavailable. ${deletionAttempts < 5 ? "An automatic retry is scheduled, or retry now." : "Automatic retries are exhausted; retry when storage is available."}`
+          : row.deletionStatus === "succeeded"
+            ? "Deleted from private storage. Recording history has been retained."
+            : row.deletionStatus === "pending" ||
+                row.deletionStatus === "processing"
+              ? "Recording storage deletion is in progress. Playback and download are unavailable."
+              : row.status === "failed"
+                ? "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session."
+                : row.hasFailedReceipt
+                  ? "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session."
+                  : retrying
+                    ? "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists."
+                    : null,
       ...(includeAdministratorDetails &&
       row.completedAt &&
       row.fileSizeBytes !== null &&
@@ -283,7 +323,16 @@ async function findRecordingOperationsByRoom(
               durationNanoseconds: row.durationNanoseconds,
               retentionDeadline: row.retentionDeadline.toISOString(),
               downloadAvailable:
-                row.status === "complete" && row.retentionDeadline > observedAt,
+                row.status === "complete" &&
+                row.retentionDeadline > observedAt &&
+                !row.deletionStatus,
+            },
+          }
+        : {}),
+      ...(includeAdministratorDetails && row.deletionStatus
+        ? {
+            deletion: {
+              status: row.deletionStatus,
             },
           }
         : {}),

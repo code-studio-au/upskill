@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
+function processNoRecordingDeletions() {
+  return Promise.resolve({ outcomes: [], limitReached: false });
+}
+
 describe("runScormWorkerIteration", () => {
   it("uses a non-blocking queue receive after dispatching outbox work", async () => {
     const consumeNextWorkMessage = vi
@@ -8,6 +12,8 @@ describe("runScormWorkerIteration", () => {
       .mockResolvedValue({ status: "no-work" });
 
     await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
       processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
@@ -45,6 +51,8 @@ describe("runScormWorkerIteration", () => {
       .mockResolvedValue({ status: "no-work" });
 
     await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
       processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
@@ -79,6 +87,8 @@ describe("runScormWorkerIteration", () => {
       .mockResolvedValue({ status: "no-work" });
 
     await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
       processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
         outcomes: [
           {
@@ -119,6 +129,8 @@ describe("runScormWorkerIteration", () => {
       .mockResolvedValue({ status: "no-work" });
 
     await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
       processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
@@ -160,6 +172,8 @@ describe("runScormWorkerIteration", () => {
       .mockResolvedValue({ status: "no-work" });
 
     await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
       processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
@@ -197,6 +211,8 @@ describe("runScormWorkerIteration", () => {
       .mockResolvedValue({ status: "no-work" });
 
     await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
       processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
@@ -235,6 +251,8 @@ describe("runScormWorkerIteration", () => {
       .mockResolvedValue({ status: "no-work" });
 
     await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
       processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,
@@ -282,6 +300,8 @@ describe("runScormWorkerIteration", () => {
       .mockResolvedValue({ status: "no-work" });
 
     const outcome = await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
       processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
         outcomes: [],
         limitReached: false,

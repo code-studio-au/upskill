@@ -1,22 +1,15 @@
-const recordingSizeFormatter = new Intl.NumberFormat("en-AU", {
-  maximumFractionDigits: 1,
-});
-
 export function formatRecordingDuration(durationNanoseconds: string): string {
-  try {
-    const totalMinutes = BigInt(durationNanoseconds) / 60_000_000_000n;
-    const hours = totalMinutes / 60n;
-    const minutes = totalMinutes % 60n;
-    return hours
-      ? `${String(hours)} hr ${String(minutes)} min`
-      : `${String(minutes)} min`;
-  } catch {
-    return "Unavailable";
-  }
+  const totalMinutes = Math.floor(Number(durationNanoseconds) / 60_000_000_000);
+  if (!isFinite(totalMinutes) || totalMinutes < 0) return "Unavailable";
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return hours
+    ? `${String(hours)} hr ${String(minutes)} min`
+    : `${String(minutes)} min`;
 }
 
 export function formatRecordingSize(fileSizeBytes: string): string {
   const bytes = Number(fileSizeBytes);
   if (!isFinite(bytes) || bytes < 0) return "Unavailable";
-  return `${recordingSizeFormatter.format(bytes / (1024 * 1024))} MB`;
+  return `${String(Math.round(bytes / 104_857.6) / 10)} MB`;
 }
