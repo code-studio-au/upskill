@@ -22,7 +22,7 @@ data and therefore requires a deliberate local-data lifecycle.
 ## Decision
 
 Introduce an explicit **Offline Learning Entitlement** owned by the Learning
-domain. It is an access-expiry-bounded delegation to one authenticated learner, one exact
+domain. It is a time-bounded delegation to one authenticated learner, one exact
 SCORM attempt, one exact Learning Activity Version and one registered browser
 installation.
 
@@ -36,7 +36,7 @@ the learner to use the activity. The entitlement contains or binds:
 - the exact SCORM package-version identifier, content digest and runtime
   version;
 - a device-held public key and opaque installation identifier;
-- issue and expiry instants; and
+- an issue instant, intended launch expiry and commit-acceptance deadline; and
 - the server progress revision from which offline work begins.
 
 The browser installation creates a non-exportable Web Crypto signing key. The
@@ -46,15 +46,17 @@ content and signs each queued commit with the device key. Device binding is a
 copy-resistance and attribution measure, not DRM and not proof that a learner
 personally performed the content.
 
-The offline entitlement remains valid until the learner's authoritative access
+The entitlement's intended launch expiry is the learner's authoritative access
 expiry captured when it is issued. For a course enrolment this is the
 enrolment's access expiry. For an Event Participation it is the applicable
-server-derived activity-availability boundary. The server must not issue an
-offline entitlement where it cannot determine a finite expiry. One attempt may
-have at most one active offline entitlement. A learner may replace the
-registered device while online; doing so revokes the prior entitlement for
-future server synchronisation and clearly warns that unsynchronised progress on
-the old installation may be lost.
+server-derived activity-availability boundary. The local runtime refuses a new
+launch after this instant, but that check relies on the device clock and is not
+server-verifiable proof of when offline work occurred. The server must not issue
+an offline entitlement where it cannot determine a finite intended launch
+expiry. One attempt may have at most one active offline entitlement. A learner
+may replace the registered device while online; doing so revokes the prior
+entitlement for future server synchronisation and clearly warns that
+unsynchronised progress on the old installation may be lost.
 
 While an offline entitlement is active, the same installation may continue the
 attempt online through the offline journal. Another device may view server
@@ -69,11 +71,14 @@ bounded lifetime. An administrator may hard-revoke server acceptance of a
 specific entitlement for a security incident; this cannot make an already
 offline copy inaccessible, and the administrative interface must say so.
 
-The server permits submission of an entitlement's queued commits for 30 days
-after its offline expiry. This is a transport grace period, not permission to
-launch the module after expiry. Server reconciliation retains the entitlement,
-receipt time and outcome so delayed evidence is distinguishable from online
-progress.
+The entitlement also delegates server acceptance of its correctly signed,
+ordered commits until an immutable commit-acceptance deadline no more than 30
+days after its intended launch expiry. This is deliberately extended delegated
+authority for delayed transport, not evidence that the commits were authored
+before access expired. The hard, server-verifiable boundary is that the server
+must receive a commit before the acceptance deadline. Server reconciliation
+retains both deadlines, receipt time and outcome so delayed evidence is
+distinguishable from online progress.
 
 Offline learning is intended for a learner-controlled device. Before download,
 the UI warns against public or shared devices. **Remove download** deletes the
@@ -92,9 +97,10 @@ sensitive workflows remain online.
 A separate entitlement makes the unavoidable delayed-revocation trade-off
 explicit and auditable. Exact-version binding preserves Upskill's historical
 model. A single writer avoids inventing unsafe merge semantics for opaque SCORM
-state. Binding offline validity to the access already granted to the learner
-makes the online and offline product promise consistent and avoids arbitrary
-periodic reauthorisation during a valid enrolment.
+state. Binding intended offline launch to the access already granted to the
+learner makes the online and offline product promise consistent, while the
+separate server-enforced acceptance deadline states the delayed-sync authority
+honestly.
 
 ## Alternatives Considered
 
@@ -122,9 +128,10 @@ expiry, device replacement and pending or rejected sync state. The product must
 explain that remote revocation cannot delete content from a disconnected device.
 
 Learners cannot freely continue one attempt offline on several devices. Device
-loss may lose unsynchronised progress. The 30-day upload grace retains data for
-recovery but increases the period during which the server must recognise an
-expired entitlement.
+loss may lose unsynchronised progress. The commit-acceptance window retains data
+for recovery but extends delegated server authority beyond the intended launch
+expiry. Neither the client timestamp nor the device-clock launch check can prove
+that accepted work occurred before access expired.
 
 ## Invariants / Guardrails
 
@@ -132,8 +139,12 @@ expired entitlement.
   access, release, registration, package and attempt state.
 - Every entitlement identifies one exact immutable activity and offering item.
 - At most one active offline writer exists for an attempt.
-- Offline validity ends at the authoritative finite access expiry captured when
-  the entitlement is issued.
+- Intended offline launch ends at the authoritative finite access expiry
+  captured when the entitlement is issued; this client-enforced boundary is not
+  treated as server-verifiable evidence.
+- Server acceptance ends at the immutable commit-acceptance deadline, enforced
+  against the server receipt instant and no later than 30 days after intended
+  launch expiry.
 - Device secrets, entitlement bearer material and SCORM state never enter logs,
   analytics or durable audit metadata.
 - Local browser protection is not described as DRM or equivalent to native

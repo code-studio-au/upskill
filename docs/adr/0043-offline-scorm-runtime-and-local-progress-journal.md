@@ -20,20 +20,25 @@ SCORM 1.2 profile rather than implying general SCORM compatibility.
 
 ## Decision
 
-Create a versioned offline SCORM player and runtime on the learning origin. The
-runtime retains the existing synchronous SCORM 1.2 `window.API` surface but
-persists through a learning-origin storage service instead of calling the
+Create a versioned trusted offline SCORM player and storage runtime on the
+learning origin. Execute the package and its minimal SCORM 1.2 `window.API`
+proxy on a distinct, uncredentialed package-execution origin. The proxy retains
+the synchronous API expected by supported packages while forwarding bounded
+operations to the trusted learning-origin runtime instead of calling the
 network directly.
 
-Cache package files under a content-addressed namespace containing the exact
-package-version identifier and SHA-256 digest. Cache the player shell and
-runtime separately by runtime version. Installation verifies the server-issued
-file inventory and each response before atomically publishing the downloaded
-package as ready. Updating application code does not mutate a downloaded
-package version. Removing or replacing a package deletes only its exact
-namespaced objects after no active local entitlement references them.
+On the package-execution origin, cache package files under a content-addressed
+namespace containing the exact package-version identifier and SHA-256 digest.
+That origin also caches the minimal API proxy, separately by runtime version,
+but holds no personalised state. The learning origin caches the trusted player
+and storage runtime. Installation verifies the server-issued file inventory and
+each response before atomically publishing the downloaded package as ready.
+Updating application code does not mutate a downloaded package version.
+Removing or replacing a package deletes only its exact namespaced objects after
+no active local entitlement references them.
 
-Use IndexedDB, not Local Storage, for personalised state. Maintain:
+Use learning-origin IndexedDB, not Local Storage, for personalised state.
+Maintain:
 
 - the verified entitlement and device-key reference;
 - the server base revision and initial SCORM snapshot;
@@ -65,11 +70,17 @@ Completion is monotonic within an attempt: once a local snapshot reports
 overrides remain server-side overlays and never rewrite local or server SCORM
 evidence.
 
-The package iframe remains sandboxed. Vendor content locates the SCORM API in
-its parent as it does today, but cannot access the entitlement, device key,
-journal database or service-worker control channel. All messages crossing
-frames or origins use fixed origins, discriminated schemas, size limits and
-request identifiers.
+The learning-origin player frames a sandboxed package host from the distinct
+package-execution origin. The package host and nested vendor content share only
+that uncredentialed origin so vendor code can locate the SCORM API in its parent
+as it does today. The host exposes no entitlement or attempt selector. For each
+authorised launch, the trusted player transfers a fresh `MessageChannel` port
+to the host using its exact origin and binds the trusted endpoint to the already
+resolved entitlement and attempt. Calls use a fixed discriminated schema,
+bounded values, request identifiers and response matching; neither wildcard
+origins nor bearer credentials cross the channel. Sandbox permissions remain
+limited to the supported package behaviours and deny top-level navigation and
+access to the learning origin.
 
 The offline workspace distinguishes:
 
@@ -87,7 +98,8 @@ An append-only local journal survives crashes and makes retry behaviour
 observable. Full bounded snapshots match the current server contract and avoid
 replaying arbitrary SCORM API calls. Content-addressed storage aligns with
 immutable package versions and makes corruption and partial downloads
-detectable.
+detectable. The third origin preserves synchronous parent API discovery without
+giving vendor scripts the origin that owns entitlements, keys or progress.
 
 ## Alternatives Considered
 
@@ -109,6 +121,11 @@ migrations and recovery tests. IndexedDB writes add latency to `LMSCommit`, but
 the API can truthfully acknowledge persistence. Support tooling can distinguish
 download, local-save and server-sync failures without logging SCORM state.
 
+The package API proxy and trusted runtime form a versioned protocol that must be
+compatibility-tested with supported Rise packages. The package-execution origin
+must be deployed without application or learning credentials and with its own
+least-privilege CSP, framing and service-worker scope.
+
 Browser storage corruption or eviction can still remove unsynchronised work.
 The application must surface that risk, detect missing objects and never derive
 server completion merely from a locally displayed state.
@@ -123,8 +140,11 @@ server completion merely from a locally displayed state.
 - Completion cannot regress within one attempt.
 - Package cache keys include the exact immutable version and digest.
 - Partial or digest-invalid packages never launch offline.
-- SCORM package code cannot read offline credentials, device keys or journal
-  records.
+- SCORM package code cannot read offline credentials, device keys, journal
+  records or a credentialed origin's storage.
+- Every package bridge is a fresh exact-origin channel bound by trusted code to
+  one already-authorised entitlement and attempt; package input cannot select
+  that binding.
 - SCORM values and suspend data never enter operational logs or analytics.
 
 ## Follow-up / Triggers

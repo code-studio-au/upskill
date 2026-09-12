@@ -31,16 +31,27 @@ Persist server reconciliation state with:
 
 - an attempt progress revision incremented for every accepted material change;
 - an offline entitlement lifecycle and its device public key;
-- a unique receipt for each `(entitlementId, commitId)`;
+- a unique receipt for each `(entitlementId, commitId)` with the server-computed
+  canonical request fingerprint;
 - the highest contiguous accepted client sequence; and
 - a sanitized outcome and server receipt instant.
 
 In one transaction, reconciliation locks the entitlement and attempt, verifies
 the entitlement, device signature, exact package and offering-item bindings,
 sequence, payload bounds and hard-revocation state, then processes records in
-client-sequence order. Duplicate commit identifiers return their existing
-receipt without reapplying state. A missing sequence produces a retryable gap
-response rather than skipping evidence.
+client-sequence order. Before applying any domain effect, the server computes a
+SHA-256 fingerprint over a versioned canonical encoding of every signed
+semantic request field, including entitlement and attempt identifiers, commit
+identifier, client sequence, base revision, runtime version, reason, normalized
+bounded snapshot, validated session delta and diagnostic client instant. The
+signature bytes are excluded from the fingerprint.
+
+When `(entitlementId, commitId)` already exists, an equal fingerprint returns
+the existing receipt without reapplying state. A different fingerprint returns
+a terminal `commit_id_reused` conflict, applies no state, and explicitly tells
+the client that the local entry is not acknowledged or eligible for compaction.
+A missing sequence produces a retryable gap response rather than skipping
+evidence.
 
 Because ADR 0042 permits only one offline writer, a base-revision mismatch is
 not silently merged. The server returns the authoritative snapshot and an
@@ -68,12 +79,16 @@ completion audit and outbox transition only when authoritative completion first
 changes. Certificates remain unavailable until this transaction confirms
 completion.
 
-Commits may arrive during the entitlement's 30-day transport grace after the
-captured access expiry. Ordinary access removal after the entitlement was issued
-does not invalidate otherwise valid evidence delegated until that expiry. The
-entitlement expiry bounds offline launch. A hard-revoked entitlement is
-rejected. Rejected or conflicted evidence is retained as a bounded receipt and
-reason, without copying learner SCORM values into global audit logs.
+Commits may arrive until the entitlement's immutable commit-acceptance deadline,
+which is no more than 30 days after its intended launch expiry. This window is
+extended delegated server authority: a client timestamp cannot prove that work
+was authored before intended launch expiry. The server therefore uses its
+receipt instant as the hard boundary and rejects a commit received after the
+acceptance deadline. Ordinary access removal after issuance does not invalidate
+the still-bounded delegated acceptance authority. The local runtime separately
+refuses launches after intended launch expiry, and a hard-revoked entitlement
+is rejected. Rejected or conflicted evidence is retained as a bounded receipt
+and reason, without copying learner SCORM values into global audit logs.
 
 The client deletes or compacts journal entries only after it receives durable
 receipts through a successfully authenticated response. Losing the response is
@@ -99,9 +114,10 @@ certificate invariants.
 - **Use SQS directly from the browser.** Rejected because it would expose an
   infrastructure boundary and would not provide the required synchronous
   validation and durable receipt contract.
-- **Reject every commit after current enrolment access ends.** Rejected because
-  it would contradict the bounded authority deliberately delegated for offline
-  use and penalise a learner who reconnects after legitimate offline work.
+- **Reject every commit after intended launch access ends.** Rejected because
+  the server cannot distinguish a delayed upload from work authored after that
+  instant using an untrusted client clock. The entitlement instead makes the
+  later, server-enforced acceptance deadline explicit delegated authority.
 
 ## Consequences
 
@@ -109,7 +125,9 @@ Reconciliation requires new forward-only tables or columns, focused database
 verification and an explicit conflict-support view. Receipt retention adds
 storage but makes retry and dispute behaviour reconstructable. The server will
 accept some evidence after ordinary access has ended when it belongs to a valid
-previously issued entitlement; that delayed authority is bounded and visible.
+previously issued entitlement; that delayed authority is bounded by the
+server-checked acceptance deadline and visible. It cannot be represented as
+proof that the learner authored the evidence before intended launch expiry.
 
 The PWA can display local completion immediately but must label it as pending
 until the server returns a receipt and confirmed projection. Other browser
@@ -121,11 +139,17 @@ sessions see completion after reconciliation without any special refresh path.
 - Every accepted offline commit is exact-version, exact-attempt and
   exact-device bound.
 - Applying the same commit more than once has no additional domain effect.
+- Commit identity is idempotent only when its canonical request fingerprint
+  matches; reuse with different semantics is a terminal non-acknowledging
+  conflict.
 - Records are applied in contiguous client-sequence order.
 - Incomplete or stale evidence cannot regress a completed attempt.
 - Course and Event completion, audit and outbox transitions occur in the same
   transaction as the accepted attempt change.
-- Client time cannot establish access validity or authoritative completion time.
+- Client time cannot establish access validity, pre-expiry authorship or
+  authoritative completion time.
+- The server receipt instant must not exceed the entitlement's immutable
+  commit-acceptance deadline.
 - Certificates require server-confirmed completion.
 - Sync logs and global audit projections contain identifiers and outcomes, not
   SCORM suspend data, learner answers or bearer material.

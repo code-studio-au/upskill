@@ -34,15 +34,21 @@ switch back to a browser to synchronise or view confirmed completion. A first
 launch inside the installed application may require online authentication even
 when the browser already has an application session.
 
-Preserve the separate application and learning origins:
+Preserve separate application, trusted learning-runtime and uncredentialed
+package-execution origins:
 
 - an application-origin service worker provides the installable shell, offline
   navigation and an offline-course index;
-- a learning-origin service worker provides the attempt player, SCORM runtime
-  and exact immutable package files; and
-- the two origins exchange only versioned, schema-validated status messages
-  through an explicit `postMessage` allowlist. SCORM state and offline
-  credentials remain on the learning origin.
+- a learning-origin service worker provides the trusted attempt player, verifies
+  entitlements, owns the device key and SCORM journal, and never executes
+  package scripts;
+- a package-execution-origin service worker stores only immutable package bytes
+  and a minimal versioned SCORM API proxy, without application or learning
+  cookies, bearer material, device keys or personalised state; and
+- the origins exchange only versioned, schema-validated messages over explicit
+  fixed-origin channels. A launch-specific `MessageChannel` binds the package
+  proxy to an already-authorised exact entitlement and attempt; package code
+  cannot select or discover another learner context.
 
 The first supported offline matrix is installed Chrome or Edge on supported
 desktop and Android platforms and installed Safari web apps on supported iPhone
@@ -67,11 +73,12 @@ facilities may improve timeliness but cannot be required for correctness.
 ## Rationale
 
 This retains one React/TanStack Start product and one learner experience while
-using standard browser capabilities. Two origin-scoped workers preserve the
-security boundary established by ADR 0004 instead of moving third-party package
-scripts onto the application origin. Explicit download and verification make
-offline availability understandable and testable; relying on opportunistic
-runtime caching would produce incomplete modules.
+using standard browser capabilities. Three origin-scoped workers preserve the
+security boundary established by ADR 0004 and keep third-party package scripts
+away from both application identity and the trusted offline runtime. Explicit
+download and verification make offline availability understandable and
+testable; relying on opportunistic runtime caching would produce incomplete
+modules.
 
 ## Alternatives Considered
 
@@ -92,9 +99,10 @@ runtime caching would produce incomplete modules.
 ## Consequences
 
 Upskill gains a consistent install-and-download journey without losing normal
-web access. The repository must build and version two service workers and test
-upgrade behaviour across two origins. Offline browser support becomes an
-explicit compatibility contract rather than an assumption.
+web access. The repository must build and version three service workers and
+test upgrade behaviour and message compatibility across three origins. Offline
+browser support becomes an explicit compatibility contract rather than an
+assumption.
 
 Package downloads consume material local storage and require progress,
 cancellation, quota and recovery interfaces. An installed application does not
@@ -103,10 +111,13 @@ must show download health and never promise permanent availability.
 
 ## Invariants / Guardrails
 
-- The learning origin remains the only origin that executes SCORM package code.
+- SCORM package code executes only on the uncredentialed package-execution
+  origin; the trusted learning origin never executes it.
 - A service worker controls only its own origin and scoped routes.
-- Third-party SCORM code does not receive Better Auth cookies, offline
-  credentials or direct IndexedDB access outside its sandboxed content frame.
+- Third-party SCORM code receives no Better Auth cookies, offline credentials,
+  device keys or direct access to the trusted journal database.
+- The package API proxy exposes only the bounded SCORM calls required by the
+  supported profile over a launch-specific, exact-attempt-bound channel.
 - Offline support does not weaken the application-origin CSP or the existing
   SCORM sandbox and framing policy.
 - No module is shown as ready until its complete immutable version is verified.
