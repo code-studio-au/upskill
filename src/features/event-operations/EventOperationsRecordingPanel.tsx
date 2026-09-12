@@ -1,5 +1,5 @@
 import { formatLocalDateTime } from "#/features/shared/local-date";
-import { Button, Text } from "#/features/shared/mantine";
+import { Button } from "#/features/shared/mantine";
 import { mutateEventVirtualRecording } from "#/server/functions/event-operations";
 import type { EventOperationsAction } from "./EventOperationsOverview";
 import type { EventOperationsWorkspace } from "./event-operations.schema";
@@ -27,8 +27,8 @@ function EventOperationsRecordingPanel({
   action: EventOperationsAction;
 }) {
   return (
-    <section className={classes.recordingSummary} aria-label="Recordings">
-      <Text fw={700}>Recordings</Text>
+    <section className={classes.recordingSummary}>
+      <h4>Recordings</h4>
       {recordings.map((recording) => {
         const details = recording.details;
         const recordingId = recording.recordingId;
@@ -48,16 +48,14 @@ function EventOperationsRecordingPanel({
           >
             <header>
               <div>
-                <Text fw={600}>Generation {recording.roomGeneration}</Text>
-                <Text c="dimmed" size="sm">
-                  {recording.statusLabel}
-                </Text>
+                <h5>Generation {recording.roomGeneration}</h5>
+                <p>{recording.statusLabel}</p>
               </div>
               {details?.downloadAvailable ? (
                 <>
                   <Button
                     component="a"
-                    href={`/api/play/${encodeURIComponent(details.recordingId)}?occurrence=${encodeURIComponent(eventOccurrenceId)}`}
+                    href={`/api/play/${encodeURIComponent(recordingId)}?occurrence=${encodeURIComponent(eventOccurrenceId)}`}
                     variant="light"
                   >
                     Play
@@ -71,7 +69,7 @@ function EventOperationsRecordingPanel({
                         const result = await mutateEventVirtualRecording({
                           data: {
                             eventOccurrenceId,
-                            recordingId: details.recordingId,
+                            recordingId,
                             action: "download",
                           },
                         });
@@ -113,6 +111,11 @@ function EventOperationsRecordingPanel({
                 </Button>
               ) : null}
             </header>
+            {recording.warning ? (
+              <p className={classes.recordingPanel} role="status">
+                {recording.warning}
+              </p>
+            ) : null}
             {details ? (
               <dl className={classes.recordingDetails}>
                 {[

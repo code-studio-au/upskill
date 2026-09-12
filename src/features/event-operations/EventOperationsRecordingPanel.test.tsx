@@ -119,7 +119,9 @@ describe("event operations recording download", () => {
     expect(failedHtml).not.toContain(">Play<");
     expect(failedHtml).not.toContain(">Download<");
     expect(failedHtml).toContain("Retry deletion");
-    expect(failedHtml).toContain("Retry deletion");
+    expect(failedHtml).toContain(
+      "Recording storage deletion failed after 2 attempts. An automatic retry is scheduled, or retry now.",
+    );
   });
 
   it("keeps deleted recording evidence visible after storage removal", () => {
@@ -145,7 +147,9 @@ describe("event operations recording download", () => {
     );
 
     expect(html).toContain("Deleted");
-    expect(html).toContain("Deleted");
+    expect(html).toContain(
+      "Deleted from private storage. Recording history has been retained.",
+    );
     expect(html).not.toContain("Delete recording");
   });
 
@@ -170,6 +174,9 @@ describe("event operations recording download", () => {
 
     expect(html).toContain("Generation 3");
     expect(html).toContain("Failed");
+    expect(html).toContain(
+      "Automatic recording failed. Arrange a manual follow-up.",
+    );
     expect(html).toContain("Delete recording");
   });
 

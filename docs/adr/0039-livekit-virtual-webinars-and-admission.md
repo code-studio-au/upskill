@@ -1473,6 +1473,9 @@ tests establish supported browser, presenter, attendee, room, and recording
 concurrency within the selected provider plan before administrator validation
 accepts that capacity.
 
+The bounded managed-recording acceptance sequence is documented in the
+[LiveKit recording staging test runbook](../livekit-recording-staging-test.md).
+
 ### Browser and repository verification
 
 Browser coverage exercises the learner, presenter, and administrator flows at
