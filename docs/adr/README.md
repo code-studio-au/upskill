@@ -47,3 +47,7 @@ is complete.
 | 0038 | [Enterprise blanket contracts as lazy entitlement producers](0038-enterprise-blanket-contracts.md)                                          | Accepted and initially implemented                         |
 | 0039 | [LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance](0039-livekit-virtual-webinars-and-admission.md) | Accepted; Slices 1–5 and 6a–6b3 implemented                |
 | 0040 | [Versioned registration questionnaires for Events and Courses](0040-versioned-registration-questionnaires.md)                               | Accepted and implemented                                   |
+| 0041 | [Progressive web application and offline SCORM delivery](0041-progressive-web-app-and-offline-scorm-delivery.md)                            | Proposed                                                   |
+| 0042 | [Device-bound offline learning entitlements](0042-device-bound-offline-learning-entitlements.md)                                            | Proposed                                                   |
+| 0043 | [Offline SCORM runtime and local progress journal](0043-offline-scorm-runtime-and-local-progress-journal.md)                                | Proposed                                                   |
+| 0044 | [Idempotent offline SCORM reconciliation](0044-idempotent-offline-scorm-reconciliation.md)                                                  | Proposed                                                   |
