@@ -1365,8 +1365,8 @@ gates passed; it does not by itself authorise staging or production activation.
       the snapshotted deadline, retain immutable deletion evidence, and add
       administrator failure/recovery controls without rewriting recording history.
       Implemented with leased retention work, complete version purging,
-      immediate access revocation, per-chunk termination of active application
-      streams, rollback-safe logical deletion in the existing recording state,
+      immediate access revocation, short-cached authorization checks before and
+      after source reads, rollback-safe logical deletion in the existing recording state,
       confirmed administrator deletion, a hard five-attempt automatic ceiling
       including expired leases, and an audited manual retry control. Physical
       storage completion remains separately evidenced by the deletion record.

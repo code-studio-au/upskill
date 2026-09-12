@@ -213,9 +213,44 @@ describe("recording download response", () => {
     }
   });
 
-  it("cancels an issued download when deletion revokes access", async () => {
-    const cancel = vi.fn();
+  it("bounds authorization reads while streaming fast source chunks", async () => {
     let chunk = 0;
+    mocks.accessDownload.mockResolvedValueOnce({
+      status: "ready",
+      target: {
+        storageObjectKey: "recordings/private.mp4",
+        transferExpiresAt: new Date(Date.now() + 24 * 60 * 60_000),
+      },
+    });
+    mocks.getObjectStream.mockResolvedValueOnce({
+      body: new ReadableStream({
+        pull(controller) {
+          chunk += 1;
+          if (chunk > 20) {
+            controller.close();
+            return;
+          }
+          controller.enqueue(new Uint8Array([chunk]));
+        },
+      }),
+      contentLength: 20,
+    });
+
+    const response = await handleEventVirtualRecordingDownloadRequest(
+      "recording_1",
+      request(),
+    );
+
+    expect((await response.arrayBuffer()).byteLength).toBe(20);
+    expect(mocks.isDownloadActive).toHaveBeenCalledTimes(1);
+  });
+
+  it("rechecks after a slow source read and cancels before emitting a revoked chunk", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"));
+    const cancel = vi.fn();
+    let sourceController:
+      ReadableStreamDefaultController<Uint8Array> | undefined;
     mocks.accessDownload.mockResolvedValueOnce({
       status: "ready",
       target: {
@@ -228,23 +263,32 @@ describe("recording download response", () => {
       .mockResolvedValueOnce(false);
     mocks.getObjectStream.mockResolvedValueOnce({
       body: new ReadableStream({
-        pull(controller) {
-          chunk += 1;
-          controller.enqueue(new Uint8Array([chunk]));
+        start(controller) {
+          sourceController = controller;
         },
         cancel,
       }),
-      contentLength: 2,
+      contentLength: 1,
     });
 
-    const response = await handleEventVirtualRecordingDownloadRequest(
-      "recording_1",
-      request(),
-    );
+    try {
+      const response = await handleEventVirtualRecordingDownloadRequest(
+        "recording_1",
+        request(),
+      );
+      const pendingRead = response.body?.getReader().read();
+      if (!pendingRead) throw new Error("Download response body is missing");
+      const revoked = expect(pendingRead).rejects.toThrow(
+        "Recording authorization revoked",
+      );
+      await vi.advanceTimersByTimeAsync(251);
+      sourceController?.enqueue(new Uint8Array([1]));
 
-    await expect(response.arrayBuffer()).rejects.toThrow(
-      "Recording authorization revoked",
-    );
-    expect(cancel).toHaveBeenCalledWith("Recording authorization revoked");
+      await revoked;
+      expect(cancel).toHaveBeenCalledWith("Recording authorization revoked");
+      expect(mocks.isDownloadActive).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

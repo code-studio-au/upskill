@@ -1116,7 +1116,8 @@ for (const boundary of [
     );
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
-  "isAuthorized()",
+  "AUTHORIZATION_RECHECK_INTERVAL_MILLISECONDS = 250",
+  "hasCurrentAuthorization",
   "void reader.cancel(reason)",
   "Recording authorization revoked",
   "Recording authorization expired",
@@ -1125,6 +1126,16 @@ for (const boundary of [
     failures.push(
       `LiveKit recording stream revocation boundary is missing: ${boundary}`,
     );
+if (
+  (
+    liveKitRecordingStreamResponse.match(
+      /await hasCurrentAuthorization\(\)/gu,
+    ) ?? []
+  ).length < 2
+)
+  failures.push(
+    "LiveKit recording streams must recheck bounded authorization before and after source reads",
+  );
 for (const boundary of [
   "create table event_virtual_recording_playback_session",
   'primary key ("recordingId", "userId")',

@@ -213,8 +213,11 @@ describe("recording playback response", () => {
   });
 
   it("cancels an active response when deletion revokes its session", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-12T00:00:00.000Z"));
     const cancel = vi.fn();
-    let chunk = 0;
+    let sourceController:
+      ReadableStreamDefaultController<Uint8Array> | undefined;
     mocks.accessPlayback.mockResolvedValueOnce({
       status: "ready",
       target: {
@@ -227,31 +230,40 @@ describe("recording playback response", () => {
       .mockResolvedValueOnce(false);
     mocks.getObjectStream.mockResolvedValueOnce({
       body: new ReadableStream({
-        pull(controller) {
-          chunk += 1;
-          controller.enqueue(new Uint8Array([chunk]));
+        start(controller) {
+          sourceController = controller;
         },
         cancel,
       }),
-      contentLength: 2,
+      contentLength: 1,
     });
 
-    const response = await handleEventVirtualRecordingPlaybackRequest(
-      "recording_1",
-      request(),
-    );
+    try {
+      const response = await handleEventVirtualRecordingPlaybackRequest(
+        "recording_1",
+        request(),
+      );
+      const pendingRead = response.body?.getReader().read();
+      if (!pendingRead) throw new Error("Playback response body is missing");
+      const revoked = expect(pendingRead).rejects.toThrow(
+        "Recording authorization revoked",
+      );
+      await vi.advanceTimersByTimeAsync(251);
+      sourceController?.enqueue(new Uint8Array([1]));
 
-    await expect(response.arrayBuffer()).rejects.toThrow(
-      "Recording authorization revoked",
-    );
-    expect(cancel).toHaveBeenCalledWith("Recording authorization revoked");
-    expect(mocks.isPlaybackActive).toHaveBeenCalledWith(
-      {
-        eventOccurrenceId: "occurrence_1",
-        recordingId: "recording_1",
-      },
-      user.id,
-    );
+      await revoked;
+      expect(cancel).toHaveBeenCalledWith("Recording authorization revoked");
+      expect(mocks.isPlaybackActive).toHaveBeenCalledTimes(2);
+      expect(mocks.isPlaybackActive).toHaveBeenCalledWith(
+        {
+          eventOccurrenceId: "occurrence_1",
+          recordingId: "recording_1",
+        },
+        user.id,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it.each([

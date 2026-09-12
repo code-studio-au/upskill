@@ -1,6 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 const MAXIMUM_TIMER_DELAY_MILLISECONDS = 2_147_000_000;
+const AUTHORIZATION_RECHECK_INTERVAL_MILLISECONDS = 250;
 
 export function limitRecordingStreamToAuthorization(
   source: ReadableStream<Uint8Array>,
@@ -10,6 +11,8 @@ export function limitRecordingStreamToAuthorization(
   let reader: ReadableStreamDefaultReader<Uint8Array>;
   let timeout: ReturnType<typeof setTimeout>;
   let terminated = false;
+  let authorizedUntil = 0;
+  let pendingAuthorization: Promise<boolean> | undefined;
   const clearDeadline = () => {
     clearTimeout(timeout);
   };
@@ -40,6 +43,19 @@ export function limitRecordingStreamToAuthorization(
     );
     (timeout as { unref?: () => void }).unref?.();
   };
+  const hasCurrentAuthorization = async (): Promise<boolean> => {
+    if (authorizedUntil > Date.now()) return true;
+    pendingAuthorization ??= isAuthorized();
+    try {
+      const authorized = await pendingAuthorization;
+      authorizedUntil = authorized
+        ? Date.now() + AUTHORIZATION_RECHECK_INTERVAL_MILLISECONDS
+        : 0;
+      return authorized;
+    } finally {
+      pendingAuthorization = undefined;
+    }
+  };
 
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -49,10 +65,11 @@ export function limitRecordingStreamToAuthorization(
     async pull(controller) {
       if (terminated) return;
       try {
-        if (!(await isAuthorized())) {
+        if (!(await hasCurrentAuthorization())) {
           terminate(controller, "Recording authorization revoked");
           return;
         }
+        if (hasTerminated()) return;
         const result = await reader.read();
         if (hasTerminated()) return;
         if (result.done) {
@@ -61,6 +78,11 @@ export function limitRecordingStreamToAuthorization(
           controller.close();
           return;
         }
+        if (!(await hasCurrentAuthorization())) {
+          terminate(controller, "Recording authorization revoked");
+          return;
+        }
+        if (hasTerminated()) return;
         controller.enqueue(result.value);
       } catch (error) {
         if (hasTerminated()) return;
