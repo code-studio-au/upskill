@@ -74,7 +74,7 @@ export function EventOperationsLobbyQueue({
 
   const entries = queue?.entries ?? [];
   const recording = queue?.recording ?? session.recording;
-  const webinarEnded = room.doorState === "ended";
+  const webinarEnded = (queue?.doorState ?? room.doorState) === "ended";
   const recordingMessage = webinarEnded
     ? recording?.statusLabel
     : recording?.warning;
@@ -100,7 +100,7 @@ export function EventOperationsLobbyQueue({
           <p>{room.maxParticipants} maximum connections</p>
         </div>
         <div className={classes.queueControls}>
-          {room.doorState !== "ended" ? (
+          {!webinarEnded ? (
             <MantineNativeSelect
               label="Admission mode"
               value={room.admissionMode}

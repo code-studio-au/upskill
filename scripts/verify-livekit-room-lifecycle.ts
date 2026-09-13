@@ -4118,6 +4118,7 @@ try {
     0,
   );
   assert.equal(retryingRecordingQueue.status, "ready");
+  assert.equal(retryingRecordingQueue.data.doorState, "open");
   assert.deepEqual(
     retryingRecordingQueue.data.recording,
     {
@@ -5616,6 +5617,19 @@ try {
     },
     "Completing an occurrence must terminate its current provider rooms",
   );
+  const terminalRecordingQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.raceSession,
+    administrator.id,
+    0,
+  );
+  assert.equal(terminalRecordingQueue.status, "ready");
+  assert.equal(
+    terminalRecordingQueue.data.doorState,
+    "ended",
+    "The live learner-list poll must refresh terminal room state for staff",
+  );
+  assert.equal(terminalRecordingQueue.data.recording?.status, "failed");
   const terminalCloseBatch = await processAvailableEventVirtualRoomOperations(
     10,
     { runtime: deferredRecordingRuntime, now: terminalTransitionTime },

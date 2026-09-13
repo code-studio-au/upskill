@@ -339,6 +339,7 @@ export interface EventOperationsWorkspace {
 
 export interface EventVirtualLobbyQueueData {
   etag: string;
+  doorState: "scheduled" | "open" | "locked" | "ended";
   entries: Array<{
     id: string;
     eventParticipationId: string;

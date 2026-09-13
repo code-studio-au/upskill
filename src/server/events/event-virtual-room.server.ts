@@ -364,7 +364,7 @@ export async function findEventVirtualLobbyQueue(
         .onRef("room.eventSessionId", "=", "access.eventSessionId")
         .onRef("room.generation", "=", "access.roomGeneration"),
     )
-    .select(["access.id", "room.id as roomId"])
+    .select(["access.id", "room.id as roomId", "room.doorState"])
     .where("access.eventOccurrenceId", "=", eventOccurrenceId)
     .where("access.eventSessionId", "=", eventSessionId)
     .where("access.revokedAt", "is", null)
@@ -417,6 +417,7 @@ export async function findEventVirtualLobbyQueue(
     status: "ready",
     data: {
       etag: String(revision.lobbyRevision),
+      doorState: access.doorState,
       entries: rows.slice(0, LOBBY_QUEUE_PAGE_SIZE).map((entry) => ({
         id: entry.id,
         eventParticipationId: entry.eventParticipationId,
