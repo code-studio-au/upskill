@@ -86,8 +86,10 @@ Progress fields follow these rules for accepted ordered commits:
 
 - lesson completion is monotonic;
 - location, suspend data and scores come from the latest accepted sequence;
-- total time advances only by validated non-negative session deltas not already
-  represented by an accepted commit; and
+- total time advances only by validated non-negative, non-overlapping
+  launch-session deltas not already represented by an accepted commit; repeated
+  cumulative session-time values therefore cannot be summed as new durations;
+  and
 - `completedAt` is the server receipt instant of the first accepted completing
   commit, while the client-observed instant remains non-authoritative metadata.
 
@@ -114,8 +116,14 @@ create terminal receipts.
 
 The client deletes or compacts journal entries only after it receives durable
 receipts through a successfully authenticated response. Losing the response is
-safe: retrying the same commit identifiers returns the same receipts. A manual
-**Sync now** action and automatic foreground sync use the same command.
+safe: retrying the same commit identifiers returns the same receipts. Before a
+manual **Sync now**, PWA startup or automatic foreground sync invokes this
+command, the trusted runtime performs ADR 0043's registered exact-attempt spool
+drain and signing recovery. It submits an attempt's trusted journal only after
+every registered spool for that attempt has been drained. A busy or unreachable
+registered spool, or one that still contains an unacknowledged entry, aborts
+that attempt's reconciliation and reports it as pending or **Needs attention**
+rather than synchronized.
 
 ## Rationale
 
@@ -170,6 +178,9 @@ sessions see completion after reconciliation without any special refresh path.
   entitlement and attempt locks, before lifecycle gates, sequence validation or
   any state change.
 - Records are applied in contiguous client-sequence order.
+- Total time uses validated non-overlapping increments from each launch
+  session's cumulative high-water history; cumulative checkpoints are never
+  independently summed.
 - A retryable sequence gap creates no terminal idempotency receipt; the same
   commit is re-evaluated after its predecessor is accepted.
 - Incomplete or stale evidence cannot regress a completed attempt.

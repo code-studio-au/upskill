@@ -46,15 +46,17 @@ Maintain:
 - the server base revision and initial SCORM snapshot;
 - the current materialised local snapshot;
 - an append-only commit journal;
+- trusted per-launch session-time high-water validation state;
 - package download and integrity state; and
 - synchronisation receipts and last error classification.
 
 Each journal record has a random commit identifier, entitlement identifier,
 attempt identifier, monotonically increasing client sequence, base server
 revision, runtime version, reason (`commit`, `finish`, `checkpoint` or
-`pagehide`), bounded SCORM snapshot and device signature. It also records a
-client-observed instant and session elapsed duration for diagnostics; client
-wall-clock time is not authoritative.
+`pagehide`), bounded SCORM snapshot, opaque launch-session identifier,
+non-overlapping session-time delta and device signature. It also records a
+client-observed instant and cumulative session elapsed duration for diagnostics;
+client wall-clock time is not authoritative.
 
 The package proxy implements getters and setters synchronously against its
 bounded in-memory snapshot. On `LMSCommit` or `LMSFinish`, it serializes one
@@ -62,13 +64,33 @@ self-contained bounded checkpoint and appends it with one synchronous
 `localStorage.setItem` on the exact-attempt package origin. A successful call is
 the SCORM acknowledgement that the checkpoint is durably recoverable on this
 device. Each spool entry contains only the package-visible snapshot, reason,
-session delta, diagnostic client instant, a stable random spool-entry identifier
-and a local ordinal; it contains no
+opaque launch-session identifier, cumulative session elapsed duration,
+incremental session delta, diagnostic client instant, a stable random
+spool-entry identifier and a local ordinal; it contains no
 entitlement, device key, signature or identity beyond the SCORM values already
 exposed to that package. The per-attempt spool has strict byte and record
 limits. Serialization, quota or storage failure returns an appropriate SCORM
 failure and shows a persistent learner-facing warning rather than claiming that
 progress was saved.
+
+The trusted runtime creates a fresh random launch-session identifier whenever a
+player initializes and gives it to the exact-attempt proxy through the bound
+launch channel. Within that launch, `cmi.core.session_time` is cumulative. The
+proxy therefore maintains a persisted cumulative high-water mark and writes
+only the non-overlapping difference between the normalized current value and
+that mark as the checkpoint's session delta. The spool queue and its high-water
+mark are one bounded serialized state object, so the proxy appends the
+checkpoint and advances the mark atomically with the same synchronous
+`localStorage.setItem`; a failed write advances neither. Repeated equal values
+produce a zero delta; a value below the high-water mark or outside the supported
+bounds fails the SCORM operation and enters **Needs attention** rather than
+subtracting time or starting another interval. A later player initialization
+uses a new launch-session identifier and a zero high-water mark. Import
+atomically advances trusted high-water validation state and validates that
+ordinals, cumulative values and deltas form one contiguous, non-regressing
+history for each launch session before signing them. That trusted validation
+state remains until the launch is closed and all of its spool and journal
+entries are durably acknowledged.
 
 After each spool write, the package proxy asynchronously notifies the trusted
 learning-origin runtime over its launch-specific channel. The trusted runtime
@@ -106,6 +128,23 @@ recovers the same acknowledgement through the stable identifier rather than
 creating another journal record. Package-origin state is therefore a recoverable
 staging queue, not trusted evidence or the canonical journal.
 
+The learning-origin IndexedDB package registry stores the exact drain URL and
+origin for every installed attempt package with unacknowledged or potentially
+unimported progress. PWA startup, automatic foreground sync and **Sync now**
+first enumerate that registry and load each exact-attempt package site's cached,
+minimal drain host in a restricted hidden frame. After checking the exact
+origin, trusted code binds a fresh attempt-scoped `MessageChannel`; no bearer
+credential or attempt selector is sent to the package site. The drain host
+acquires the same exact-attempt Web Lock used by the player, enumerates its
+bounded spool in ordinal order and resends entries until each receives a durable
+IndexedDB import acknowledgement. An active player therefore delays draining
+rather than racing it. The trusted runtime completes `signing` recovery and
+must drain every registered spool for an attempt before submitting that
+attempt's journal for server reconciliation. An unavailable host, busy lock,
+failed handshake or remaining spool aborts reconciliation for that attempt,
+keeps it registered, reports **Needs attention** or pending sync, and prevents
+the application from claiming that synchronization is complete.
+
 The runtime also requests checkpoints of dirty state while visible and on
 `pagehide` where possible. These use the same synchronous spool write; their
 subsequent import remains asynchronous. `sendBeacon` may trigger an online sync
@@ -118,8 +157,9 @@ generate local ordinals or accrue a session-time delta for that attempt. A
 second local context never initializes its SCORM API while the lock is held.
 
 The local materialised state resumes from the latest durable journal record.
-Total time is derived from the server base plus completed local session
-durations so retries, reloads and synchronisation do not double count time.
+Total time is derived from the server base plus accepted non-overlapping launch
+session deltas so repeated cumulative checkpoints, retries, reloads and
+synchronisation do not double count time.
 Completion is monotonic within an attempt: once a local snapshot reports
 `completed` or `passed`, a later local snapshot cannot regress it. Administrator
 overrides remain server-side overlays and never rewrite local or server SCORM
@@ -212,6 +252,11 @@ server completion merely from a locally displayed state.
   skips or reallocates their sequence.
 - One browser-enforced exact-attempt Web Lock covers the complete player
   lifetime and prevents competing local snapshots and session deltas.
+- Each launch session uses one persisted cumulative session-time high-water
+  mark; only its non-overlapping increments enter journal records.
+- Startup and every foreground or manual sync drain all reachable registered
+  exact-attempt spools before reconciliation and never report complete while a
+  spool remains, is busy or cannot be reached.
 - Spool entries are not trusted evidence; only validated, normalized and
   device-signed learning-origin journal records may be reconciled.
 - Every record is bounded by the existing validated progress limits.
