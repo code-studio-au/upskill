@@ -76,4 +76,45 @@ describe("LiveKit operations recording status", () => {
     expect(html).toContain("arrange a manual follow-up");
     expect(html).toContain('role="alert"');
   });
+
+  it.each([
+    ["stopping", "Finalising recording"],
+    ["complete", "Recording ready"],
+    ["failed", "Recording failed"],
+  ] as const)(
+    "shows presenters the %s recording outcome after the webinar ends",
+    (status, statusLabel) => {
+      const html = renderToStaticMarkup(
+        <EventOperationsLobbyQueue
+          eventOccurrenceId="event_occurrence_1"
+          session={{
+            eventSessionId: room.eventSessionId,
+            preparationOpensAt: "2030-09-03T23:00:00.000Z",
+            canEnterGreenRoom: true,
+            presenterRecordingNotice: "This webinar is recorded.",
+            lobbyPath: "/webinars/reference",
+            room: { ...room, doorState: "ended" },
+            recording: {
+              recordingId: "recording_1",
+              roomGeneration: room.generation,
+              statusLabel,
+              status,
+              warning: null,
+            },
+            recordings: [],
+          }}
+          room={{ ...room, doorState: "ended" }}
+          processingId={null}
+          changeAdmission={() => Promise.resolve()}
+          changeAdmissionMode={() => undefined}
+        />,
+      );
+
+      expect(html).toContain('role="status"');
+      expect(html).toContain(statusLabel);
+      expect(html).not.toContain("Play");
+      expect(html).not.toContain("Download");
+      expect(html).not.toContain("Delete recording");
+    },
+  );
 });
