@@ -154,4 +154,50 @@ describe("LiveKit operations recording status", () => {
       expect(html).not.toContain("Delete recording");
     },
   );
+
+  it.each([
+    [
+      "complete",
+      "Recording ready",
+      "Recording evidence needs review because the provider completion webhook failed.",
+    ],
+    [
+      "failed",
+      "Recording failed",
+      "Automatic recording failed. Arrange a manual follow-up.",
+    ],
+  ] as const)(
+    "preserves the %s recording warning after the webinar ends",
+    (status, statusLabel, warning) => {
+      const endedRoom = { ...room, doorState: "ended" as const };
+      const html = renderToStaticMarkup(
+        <EventOperationsLobbyQueue
+          eventOccurrenceId="event_occurrence_1"
+          session={{
+            eventSessionId: room.eventSessionId,
+            preparationOpensAt: "2030-09-03T23:00:00.000Z",
+            canEnterGreenRoom: true,
+            presenterRecordingNotice: "This webinar is recorded.",
+            lobbyPath: "/webinars/reference",
+            room: endedRoom,
+            recording: {
+              recordingId: "recording_1",
+              roomGeneration: room.generation,
+              statusLabel,
+              status,
+              warning,
+            },
+            recordings: [],
+          }}
+          room={endedRoom}
+          processingId={null}
+          changeAdmission={() => Promise.resolve()}
+          changeAdmissionMode={() => undefined}
+        />,
+      );
+
+      expect(html).toContain(`role="status">${statusLabel}</p>`);
+      expect(html).toContain(`role="alert">${warning}</p>`);
+    },
+  );
 });
