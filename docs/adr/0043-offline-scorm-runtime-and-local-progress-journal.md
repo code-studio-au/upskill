@@ -142,9 +142,11 @@ staging queue, not trusted evidence or the canonical journal.
 The learning-origin IndexedDB package registry stores the exact drain URL and
 origin for every installed attempt package with unacknowledged or potentially
 unimported progress. PWA startup, automatic foreground sync and **Sync now**
-first enumerate that registry and load each exact-attempt package site's cached,
-minimal drain host in a restricted hidden frame. After checking the exact
-origin, trusted code binds a fresh attempt-scoped `MessageChannel`; no bearer
+first enumerate that registry; at the trusted runtime's request, the top-level
+application coordinator loads each exact-attempt package site's cached minimal
+drain host as a restricted direct-child sibling of the learning frame. After
+checking the expected window and exact origin, the coordinator performs the same
+fresh attempt-scoped `MessageChannel` handoff used for playback; no bearer
 credential or attempt selector is sent to the package site. The drain host
 acquires the same exact-attempt Web Lock used by the player, enumerates its
 bounded spool in ordinal order and resends entries until each receives a
@@ -185,19 +187,26 @@ Completion is monotonic within an attempt: once a local snapshot reports
 overrides remain server-side overlays and never rewrite local or server SCORM
 evidence.
 
-The learning-origin player frames a sandboxed package host from the distinct
-exact-attempt package site. The package host and nested vendor content share
-only that uncredentialed, cookie-isolated context so vendor code can locate the SCORM API in its
-parent as it does today. Package code can inspect or damage only the working
-state and spool for its own attempt, which it can already influence through the
-SCORM API; it cannot reach another attempt or trusted evidence. The host exposes
-no entitlement or attempt selector. For each authorised launch, trusted code
-binds a fresh channel to the already resolved entitlement and attempt using the
-exact package site. Calls use a fixed discriminated schema, bounded values,
-request identifiers and response matching; neither wildcard origins nor bearer
-credentials cross the channel. Sandbox permissions remain limited to the
-supported package behaviours and deny top-level navigation and access to the
-learning origin.
+The top-level application shell frames the trusted learning runtime and a
+sandboxed package host from the distinct exact-attempt package site as direct
+siblings. The package host and its nested same-origin vendor content share only
+that uncredentialed, cookie-isolated context, so vendor code can locate the
+SCORM API in its parent as it does today. Package code can inspect or damage only
+the working state and spool for its own attempt, which it can already influence
+through the SCORM API; it cannot reach another attempt or trusted evidence. The
+host exposes no entitlement or attempt selector.
+
+The application shell validates readiness against each expected frame's exact
+origin and `WindowProxy`, creates a fresh `MessageChannel`, and transfers one
+port to each sibling. The learning runtime accepts that port only after it has
+independently resolved the entitlement from trusted storage and matched its
+exact attempt, package site and immutable package version. Calls then travel
+directly between the siblings using a fixed discriminated schema, bounded
+values, request identifiers and response matching; neither wildcard origins nor
+bearer credentials cross the channel. The same direct-child package frame is
+used for visible playback, pre-launch recovery and hidden spool drains. Sandbox
+permissions remain limited to the supported package behaviours and deny
+top-level navigation and access to the application or learning origin.
 
 The offline workspace distinguishes:
 
@@ -301,6 +310,9 @@ server completion merely from a locally displayed state.
 - Every package bridge is a fresh exact-origin channel bound by trusted code to
   one already-authorised entitlement and attempt; package input cannot select
   that binding.
+- The application hosts learning and package frames as direct siblings and
+  transfers their channel only after exact-origin, exact-`WindowProxy` and
+  trusted entitlement/package checks; qualification tests use this topology.
 - Per-attempt spool byte and record limits fail closed before browser quota is
   exhausted; acknowledged entries are removed only after trusted import.
 - SCORM values and suspend data never enter operational logs or analytics.

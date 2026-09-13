@@ -53,6 +53,28 @@ uncredentialed package-execution site unique to each offline attempt:
   learning origin; package code cannot select or discover another learner
   context.
 
+Use one production frame topology on every supported engine. The installed
+application is the top-level coordinator and creates the trusted learning frame
+and exact-attempt package frame as direct siblings; the package frame is never
+nested inside the learning frame. The application accepts readiness messages
+only from the two expected `WindowProxy` objects at their exact origins, creates
+a fresh `MessageChannel`, and transfers one port to each sibling. Before
+accepting the port, the learning runtime independently resolves the entitlement
+from trusted storage and verifies that the requested package origin, package
+version and attempt match it. The application sends the package frame no
+entitlement, signing key, bearer credential or attempt selector. After handoff,
+SCORM traffic travels directly over the transferred sibling channel using the
+bounded protocol; the application coordinator does not relay package-selected
+identity or authorization data.
+
+The package frame contains its same-origin minimal API host and nested Rise
+content, preserving the parent `window.API` discovery expected by SCORM. This
+keeps the package frame a direct child of the installed application for Safari's
+user-activated Storage Access request while package scripts remain unable to
+read application- or learning-origin storage. Hidden drain frames use the same
+direct-child package position and the same exact-origin channel handoff, so the
+prototype and production persistence paths test the identical topology.
+
 Origin isolation alone is insufficient because sibling origins can set and
 receive parent-domain cookies. The package-site provisioning design must provide
 a browser-enforced cookie boundary between attempts. Acceptable implementations
@@ -74,7 +96,7 @@ unsupported. Online Upskill remains available in supported ordinary browsers,
 including Safari, regardless of offline capability.
 
 For the Safari prototype, **Enable offline course** is an explicit learner
-action inside the installed web app. Its direct-child package frame includes
+action inside the installed web app. The production direct-child package frame includes
 only the required sandbox capabilities, including
 `allow-storage-access-by-user-activation`, and calls
 `document.requestStorageAccess()` from that user activation when the API says
