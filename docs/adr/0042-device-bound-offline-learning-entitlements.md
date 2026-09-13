@@ -39,6 +39,32 @@ the learner to use the activity. The entitlement contains or binds:
 - an issue instant, intended launch expiry and commit-acceptance deadline; and
 - the server progress revision from which offline work begins.
 
+Entitlement issuance is also the atomic transition from ordinary online writes
+to the exclusive offline-journal writer. In one transaction, the server locks
+the attempt, re-evaluates launch policy and active-entitlement state, revokes
+every live SCORM attempt session, invalidates every unconsumed launch token or
+older per-attempt credential generation, then creates the entitlement with the
+attempt revision visible under that lock. An online mutation already holding
+the attempt lock completes first and is included in that captured revision; if
+issuance wins the lock first, the competing online mutation observes the new
+writer mode and applies no state.
+
+Every ordinary online launch, session-creation and progress-mutation path,
+including the existing progress command, acquires the same attempt lock and
+rechecks active offline-entitlement state after acquiring it. While an
+entitlement is active, those paths reject both newly presented and previously
+issued online credentials with an `offline_writer_active` outcome. Possession
+of an otherwise unexpired eight-hour session or unused launch token is not an
+exception. The registered installation continues online through the signed
+offline journal and reconciliation command; it does not use the ordinary online
+progress path.
+
+Returning an attempt to ordinary online writer mode is another locked server
+transition. It occurs only after pending journal evidence is reconciled, or an
+explicit discard, replacement or administrative resolution records its outcome,
+and it invalidates the prior offline and online credential generations before a
+fresh online launch can be issued.
+
 The browser installation creates a non-exportable Web Crypto signing key. The
 server signs the entitlement and binds it to the corresponding public key. The
 learning-origin worker verifies the server signature before launching cached
@@ -186,6 +212,12 @@ can use that offline workspace.
   access, release, registration, package and attempt state.
 - Every entitlement identifies one exact immutable activity and offering item.
 - At most one active offline writer exists for an attempt.
+- Offline-entitlement issuance locks the attempt, invalidates all prior online
+  launch and session credentials, and captures its history-base revision in the
+  same transaction.
+- Every ordinary online launch and mutation rechecks writer mode while holding
+  the attempt lock and rejects all online credentials while an offline
+  entitlement is active.
 - At most one local player context holds the exact-attempt Web Lock and mutates
   its in-memory state, checkpoint spool or session-time delta.
 - Intended offline launch ends at the authoritative finite access expiry
