@@ -81,7 +81,11 @@ export function EventOperationsLobbyQueue({
   const waiting = entries.some((entry) => entry.state === "waiting");
   const admissionBusy = !!processingId;
   return (
-    <section className={classes.queuePanel} aria-label="Learner admission">
+    <section
+      className={classes.queuePanel}
+      aria-label="Learner admission"
+      data-r={recording?.status}
+    >
       {recordingMessage ? (
         <p
           className={classes.recordingPanel}
@@ -160,7 +164,7 @@ export function EventOperationsLobbyQueue({
                         ? "Admit"
                         : operation === "decline"
                           ? "Decline"
-                          : "Revoke access";
+                          : "Revoke";
                     return (
                       <button
                         data-danger={operation !== "admit"}
@@ -184,7 +188,7 @@ export function EventOperationsLobbyQueue({
         </ul>
       ) : null}
       {queue && !entries.length ? (
-        <strong className={classes.emptyQueue}>No learners in the lobby</strong>
+        <strong className={classes.emptyQueue}>No learners waiting</strong>
       ) : null}
       {queue && (page || queue.hasNextPage) ? (
         <nav

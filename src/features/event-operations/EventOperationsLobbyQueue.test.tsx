@@ -51,7 +51,7 @@ describe("LiveKit operations recording status", () => {
     const html = renderRecording({
       recordingId: "recording_1",
       roomGeneration: room.generation,
-      statusLabel: "Requested",
+      statusLabel: "Recording requested",
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -60,13 +60,14 @@ describe("LiveKit operations recording status", () => {
     expect(html).toContain("Automatic recording is delayed");
     expect(html).toContain("Background retries are continuing");
     expect(html).toContain('role="alert"');
+    expect(html).toContain('data-r="requested"');
   });
 
   it("shows an actionable warning when automatic recording fails", () => {
     const html = renderRecording({
       recordingId: "recording_1",
       roomGeneration: room.generation,
-      statusLabel: "Failed",
+      statusLabel: "Recording failed",
       status: "failed",
       warning:
         "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",
@@ -75,6 +76,19 @@ describe("LiveKit operations recording status", () => {
     expect(html).toContain("Automatic recording failed");
     expect(html).toContain("arrange a manual follow-up");
     expect(html).toContain('role="alert"');
+    expect(html).toContain('data-r="failed"');
+  });
+
+  it("exposes confirmed active recording state to the presenter controls", () => {
+    const html = renderRecording({
+      recordingId: "recording_1",
+      roomGeneration: room.generation,
+      statusLabel: "Recording",
+      status: "active",
+      warning: null,
+    });
+
+    expect(html).toContain('data-r="active"');
   });
 
   it.each([

@@ -11,7 +11,6 @@ describe("LiveKit presenter recording notice", () => {
         eventOccurrenceId="event_occurrence_1"
         eventSessionId="event_session_1"
         presenterRecordingNotice={notice}
-        record={false}
       />,
     );
 
@@ -26,7 +25,6 @@ describe("LiveKit presenter recording notice", () => {
         eventOccurrenceId="event_occurrence_1"
         eventSessionId="event_session_1"
         presenterRecordingNotice={null}
-        record={false}
       />,
     );
 
@@ -50,5 +48,24 @@ describe("LiveKit presenter recording notice", () => {
         ).toContain("<svg");
       }
     }
+  });
+
+  it("shows the live recording marker only for confirmed active recording", () => {
+    const source = readFileSync(
+      "src/features/event-operations/EventOperationsVirtualSessions.tsx",
+      "utf8",
+    );
+    const queueSource = readFileSync(
+      "src/features/event-operations/EventOperationsLobbyQueue.tsx",
+      "utf8",
+    );
+    const css = readFileSync(
+      "src/features/event-operations/EventOperations.module.css",
+      "utf8",
+    );
+
+    expect(source).not.toContain("record={");
+    expect(queueSource).toContain("data-r={recording?.status}");
+    expect(css).toContain(':has(.queuePanel[data-r="active"])');
   });
 });

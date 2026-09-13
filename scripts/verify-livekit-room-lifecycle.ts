@@ -1497,7 +1497,7 @@ try {
       {
         recordingId: receiptRecordingId,
         roomGeneration: room.generation,
-        statusLabel: "Requested",
+        statusLabel: "Recording requested",
         status: "requested",
         warning:
           "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -2114,7 +2114,7 @@ try {
       {
         recordingId: receiptRecordingId,
         roomGeneration: room.generation,
-        statusLabel: "Ready",
+        statusLabel: "Recording ready",
         status: "complete",
         warning:
           "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session.",
@@ -2365,7 +2365,7 @@ try {
       {
         recordingId: receiptRecordingId,
         roomGeneration: room.generation,
-        statusLabel: "Deletion needs attention",
+        statusLabel: "Recording deletion needs attention",
         status: "deleted",
         warning:
           "Recording storage deletion failed after 2 attempts. Playback and download remain unavailable. An automatic retry is scheduled, or retry now.",
@@ -4104,7 +4104,7 @@ try {
     {
       recordingId: retryingRecording.id,
       roomGeneration: startRoom.generation,
-      statusLabel: "Requested",
+      statusLabel: "Recording requested",
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -4123,7 +4123,7 @@ try {
     {
       recordingId: retryingRecording.id,
       roomGeneration: startRoom.generation,
-      statusLabel: "Requested",
+      statusLabel: "Recording requested",
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -5396,7 +5396,7 @@ try {
       {
         recordingId: fencedTerminalRecordingId,
         roomGeneration: deferredRoom.generation,
-        statusLabel: "Failed",
+        statusLabel: "Recording failed",
         status: "failed",
         warning:
           "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",

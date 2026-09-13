@@ -140,6 +140,14 @@
   font-weight: 700;
 }
 
+.sessionList [data-live-recording] {
+  display: none;
+}
+
+.sessionList > :has(.queuePanel[data-r="active"]) [data-live-recording] {
+  display: flex;
+}
+
 .lobbyLinkPanel {
   padding: 0.75rem 1rem;
   background: var(--mantine-color-gray-0);

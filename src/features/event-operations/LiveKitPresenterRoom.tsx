@@ -124,12 +124,10 @@ export function LiveKitPresenterRoom({
   eventOccurrenceId,
   eventSessionId,
   presenterRecordingNotice,
-  record,
 }: {
   eventOccurrenceId: string;
   eventSessionId: string;
   presenterRecordingNotice: string | null;
-  record: boolean;
 }) {
   const headingId = useId();
   const [phase, setPhase] = useState<ConnectionPhase>("idle");
@@ -358,9 +356,9 @@ export function LiveKitPresenterRoom({
                 </Button>
               );
             })}
-            {record ? (
-              <output className={classes.recording}>Recording</output>
-            ) : null}
+            <output className={classes.recording} data-live-recording>
+              Recording
+            </output>
           </div>
 
           {audioBlocked || !snapshot.canPlaybackAudio ? (
