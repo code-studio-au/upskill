@@ -41,9 +41,7 @@ export function EventOperationsLobbyQueue({
 
   useEffect(() => {
     let stopped: boolean | undefined;
-    let requestId = 0;
     const load = async () => {
-      const request = ++requestId;
       const result = await getEventVirtualLobbyQueue({
         data: {
           eventOccurrenceId,
@@ -51,7 +49,7 @@ export function EventOperationsLobbyQueue({
           page,
         },
       });
-      if (stopped || request !== requestId) return;
+      if (stopped) return;
       if (result.status !== "ready") {
         setQueue(null);
         return;
@@ -64,9 +62,15 @@ export function EventOperationsLobbyQueue({
       }
       setQueue(result.data);
     };
-    void load();
+    let pending: Promise<void> | undefined;
+    const poll = () => {
+      pending ??= load().finally(() => {
+        pending = undefined;
+      });
+    };
+    poll();
     const timer = setInterval(() => {
-      if (!document.hidden) void load();
+      if (!document.hidden) poll();
     }, 4_000);
     return () => {
       stopped = true;
@@ -137,7 +141,7 @@ export function EventOperationsLobbyQueue({
       {queue === undefined ? <p role="status">Loading…</p> : null}
       {queue === null ? (
         <p role="alert" className={classes.queueError}>
-          Learners unavailable. Retrying…
+          Retrying…
         </p>
       ) : null}
       {queue && entries.length ? (

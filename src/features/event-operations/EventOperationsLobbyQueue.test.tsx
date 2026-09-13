@@ -48,14 +48,14 @@ function renderRecording(
 }
 
 describe("LiveKit operations recording status", () => {
-  it("rejects older lobby refresh responses", () => {
+  it("keeps lobby refreshes single-flight", () => {
     const source = readFileSync(
       "src/features/event-operations/EventOperationsLobbyQueue.tsx",
       "utf8",
     );
 
-    expect(source).toContain("const request = ++requestId;");
-    expect(source).toContain("request !== requestId");
+    expect(source).toContain("pending ??= load().finally");
+    expect(source).toContain("pending = undefined;");
   });
 
   it("warns staff while an automatic recording operation is retrying", () => {
