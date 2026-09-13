@@ -2722,7 +2722,7 @@ test("platform administrators can inspect learner progress", async ({
     );
     await expect(
       page.getByRole("alert").filter({
-        hasText: "Learner list unavailable. Retrying",
+        hasText: "Learners unavailable. Retrying",
       }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(

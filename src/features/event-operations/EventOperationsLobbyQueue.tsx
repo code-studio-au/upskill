@@ -73,14 +73,21 @@ export function EventOperationsLobbyQueue({
   }, [eventOccurrenceId, page, sessionId]);
 
   const entries = queue?.entries ?? [];
-  const recordingWarning = (queue?.recording ?? session.recording)?.warning;
+  const recording = queue?.recording ?? session.recording;
+  const webinarEnded = room.doorState === "ended";
+  const recordingMessage = webinarEnded
+    ? recording?.statusLabel
+    : recording?.warning;
   const waiting = entries.some((entry) => entry.state === "waiting");
-  const admissionBusy = Boolean(processingId);
+  const admissionBusy = !!processingId;
   return (
     <section className={classes.queuePanel} aria-label="Learner admission">
-      {recordingWarning ? (
-        <p className={classes.recordingPanel} role="alert">
-          {recordingWarning}
+      {recordingMessage ? (
+        <p
+          className={classes.recordingPanel}
+          role={webinarEnded ? "status" : "alert"}
+        >
+          {recordingMessage}
         </p>
       ) : null}
       <header className={classes.queueHeader}>
@@ -124,7 +131,7 @@ export function EventOperationsLobbyQueue({
       {queue === undefined ? <p role="status">Checking lobby…</p> : null}
       {queue === null ? (
         <p role="alert" className={classes.queueError}>
-          Learner list unavailable. Retrying…
+          Learners unavailable. Retrying…
         </p>
       ) : null}
       {queue && entries.length ? (
@@ -188,7 +195,7 @@ export function EventOperationsLobbyQueue({
             type="button"
             disabled={!page}
             onClick={() => {
-              setPage((current) => Math.max(0, current - 1));
+              setPage(page - 1);
             }}
           >
             Previous
@@ -197,7 +204,7 @@ export function EventOperationsLobbyQueue({
             type="button"
             disabled={!queue.hasNextPage}
             onClick={() => {
-              setPage((current) => current + 1);
+              setPage(page + 1);
             }}
           >
             Next

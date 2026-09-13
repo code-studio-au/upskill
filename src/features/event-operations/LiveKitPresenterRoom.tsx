@@ -124,10 +124,12 @@ export function LiveKitPresenterRoom({
   eventOccurrenceId,
   eventSessionId,
   presenterRecordingNotice,
+  record,
 }: {
   eventOccurrenceId: string;
   eventSessionId: string;
   presenterRecordingNotice: string | null;
+  record: boolean;
 }) {
   const headingId = useId();
   const [phase, setPhase] = useState<ConnectionPhase>("idle");
@@ -287,25 +289,10 @@ export function LiveKitPresenterRoom({
     (track) => track.kind === "audio" && !track.local,
   );
   const mediaControls = [
-    {
-      control: "camera" as const,
-      enabled: snapshot.cameraEnabled,
-      on: "Stop video",
-      off: "Start video",
-    },
-    {
-      control: "microphone" as const,
-      enabled: snapshot.microphoneEnabled,
-      on: "Mute",
-      off: "Unmute",
-    },
-    {
-      control: "screen" as const,
-      enabled: snapshot.screenShareEnabled,
-      on: "Stop share",
-      off: "Share",
-    },
-  ];
+    ["camera", snapshot.cameraEnabled, "Video off", "Video on"],
+    ["microphone", snapshot.microphoneEnabled, "Mute", "Unmute"],
+    ["screen", snapshot.screenShareEnabled, "Stop share", "Share"],
+  ] as const;
   const statusMessage = phaseMessages[phase] ?? message;
   const roomActive = phase === "connected" || phase === "reconnecting";
 
@@ -351,30 +338,29 @@ export function LiveKitPresenterRoom({
       {roomActive ? (
         <Stack gap="md">
           <div className={classes.controls}>
-            {mediaControls.map(({ control, enabled, on, off }) => {
+            {mediaControls.map(([control, enabled, on, off]) => {
               const label = enabled ? on : off;
               return (
                 <Button
                   key={control}
                   type="button"
                   variant="subtle"
-                  color={enabled ? "indigo" : "red"}
                   className={classes.mediaControl}
-                  aria-pressed={enabled}
-                  aria-label={label}
                   loading={pendingControl === control}
                   disabled={pendingControl !== null || phase === "reconnecting"}
                   onClick={() => void toggleMedia(control, !enabled)}
                 >
-                  <svg aria-hidden="true" viewBox="0 0 24 24">
-                    <use
-                      href={`/brand/webinar-icons.svg#${control}${enabled ? "" : "-off"}`}
-                    />
-                  </svg>
+                  <img
+                    src={`/brand/${control}-${enabled ? "1" : "0"}.svg`}
+                    alt=""
+                  />
                   <span>{label}</span>
                 </Button>
               );
             })}
+            {record ? (
+              <output className={classes.recording}>Recording</output>
+            ) : null}
           </div>
 
           {audioBlocked || !snapshot.canPlaybackAudio ? (

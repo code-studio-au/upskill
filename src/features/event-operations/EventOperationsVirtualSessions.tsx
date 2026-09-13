@@ -328,6 +328,10 @@ export function EventOperationsVirtualSessions({
                       presenterRecordingNotice={
                         virtualSession.presenterRecordingNotice
                       }
+                      record={
+                        !!virtualSession.recording &&
+                        virtualSession.recording.status !== "failed"
+                      }
                     />
                   </Suspense>
                 ) : null}

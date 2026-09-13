@@ -657,8 +657,9 @@ const lobbyQueueUi = fs.readFileSync(
 );
 for (const requiredRecordingWarning of [
   "queue?.recording ?? session.recording",
-  'role="alert"',
-  "recordingWarning",
+  'role={webinarEnded ? "status" : "alert"}',
+  "recording?.warning",
+  "recording?.statusLabel",
 ]) {
   if (!lobbyQueueUi.includes(requiredRecordingWarning))
     failures.push(

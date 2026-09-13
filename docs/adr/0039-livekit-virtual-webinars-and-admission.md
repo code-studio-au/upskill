@@ -1,7 +1,8 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; Slices 1–4, 5a–5e, 6a–6b4b and open-entry lobby
-  integration implemented, later slices pending
+- **Status:** Accepted; webinar delivery, managed recording and open-entry lobby
+  implemented; the staging happy path is validated, with presenter feedback,
+  connection attendance and production hardening tracked below
 - **Date:** 2026-08-31
 
 ## Context
@@ -1370,31 +1371,65 @@ gates passed; it does not by itself authorise staging or production activation.
       confirmed administrator deletion, a hard five-attempt automatic ceiling
       including expired leases, and an audited manual retry control. Physical
       storage completion remains separately evidenced by the deletion record.
+- [x] **Slice 6c4 — presenter recording-outcome feedback:** keep playback,
+      download, retention metadata and deletion administrator-only, but show an
+      authorised Presenter a status-only recording outcome after ending the
+      webinar, including finalising, ready/completed and failed states. The live staging
+      acceptance test on 2026-09-12 confirmed that recording completed correctly
+      while the Presenter UI changed only to **Ended**, leaving no visible
+      indication that finalisation had succeeded.
 - [ ] **Slice 7a — connection evidence ingestion:** add signed LiveKit webhook
       receipts, exact room/generation/participant validation and append-only
       connection intervals that tolerate duplicate, delayed and out-of-order
-      events.
+      events. This is required for durable connected/disconnected status and is
+      the foundation for any automatic attendance. Live provider presence may be
+      shown during an active room, but token state is not durable connection
+      evidence after a participant leaves or the room ends.
 - [ ] **Slice 7b — attendance reconciliation and promotion:** add periodic and
       final reconciliation, versioned attendance-policy evaluation, automatic
-      check-in/duration promotion and preservation of manual corrections.
+      check-in/duration promotion and preservation of manual corrections. This is
+      conditional product scope: manual attendance and the webinar itself work
+      without it. Until it is implemented, publication must continue to reject
+      LiveKit sessions configured with a non-manual attendance mode.
 - [ ] **Slice 7c — attendance operations and reporting:** add administrator review,
       evidence explanation, filters and exports without changing the evidence or
-      promotion policy.
+      promotion policy. This is a deferred operational enhancement, not a
+      prerequisite for webinar delivery or recording, and should proceed only if
+      the automatic-attendance workflow is retained after Slice 7b.
 - [x] **Slice 8a — open-entry lobby integration:** route eligible open-entry
       guests through the same capacity, consent, admission, token and revocation
       policy as registered learners. Implemented by
       [PR #67](https://github.com/code-studio-au/upskill/pull/67).
-- [ ] **Slice 8b — provider recovery drills:** complete provider-failure and
-      generation-replacement drills, typed operational recovery and failure-path
-      verification.
-- [ ] **Slice 8c — quota and cost controls:** add provider quota, participant,
-      concurrent-room and Egress monitoring with actionable alerts.
-- [ ] **Slice 8d — staging-readiness review:** complete cross-browser staging media
-      tests and produce an evidence-backed readiness report while leaving
-      production disabled.
+- [ ] **Slice 8b — production recovery verification:** run bounded provider-failure
+      and generation-replacement drills and verify the existing typed recovery
+      controls. This is required production-readiness evidence, not a missing
+      happy-path feature.
+- [ ] **Slice 8c — minimum production guardrails:** add actionable alerts for
+      provider quota exhaustion, participant/concurrent-room saturation, managed
+      Egress failure and approved spend thresholds. Existing publication and room
+      limits protect individual operations; monitoring is still required before
+      routine production use.
+- [ ] **Slice 8d — production-readiness closeout:** retain the successful
+      2026-09-12 staging evidence for room creation, presenter/learner media,
+      recording, signed webhooks, private playback/download, audit and complete
+      version deletion. Limit the remaining work to supported-browser and
+      restrictive-network checks, the Slice 8b/8c evidence, reconciliation of the
+      deployed recording Access Grants subprefix with CDK source, packaging the
+      host connectivity preflight in release artifacts, correcting the staging
+      webhook runbook URL, and an explicit production-enable decision.
 
-Each unchecked tracker item is expected to be one pull request. Combining items
-requires an explicit bounded-scope rationale in the pull-request impact matrix.
+The unchecked items do not all block the same outcome. Slice 6c4 is a bounded
+presenter-experience fix. Slice 7a is required only for durable connection state
+and is the prerequisite for connection-derived attendance. Slices 7b and 7c are
+conditional/deferred attendance scope. Slices 8b–8d are production-operational
+assurance. The implemented webinar and managed-recording journeys may therefore
+be treated as functional in staging without implying that automatic attendance
+or production activation is complete.
+
+Each required unchecked tracker item is expected to be one pull request.
+Conditional or deferred items require an explicit product decision before
+implementation. Combining items requires an explicit bounded-scope rationale in
+the pull-request impact matrix.
 Each pull request audits equivalent actors, acquisition paths, targets, lifecycle
 states and downstream consumers before review. A review finding is classified as
 an invariant failure and repaired across the affected category before a new
