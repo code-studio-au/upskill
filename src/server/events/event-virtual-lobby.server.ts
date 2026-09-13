@@ -742,6 +742,7 @@ async function ensureLobbyEntry(
       await advanceEventVirtualLobbyRevision(
         transaction,
         destination.eventVirtualJoinAccessId,
+        admitted.id,
       );
       await recordDurableAuditEvent(transaction, {
         actorUserId: null,
@@ -778,6 +779,7 @@ async function ensureLobbyEntry(
       await advanceEventVirtualLobbyRevision(
         transaction,
         destination.eventVirtualJoinAccessId,
+        restored.id,
       );
       await recordDurableAuditEvent(transaction, {
         actorUserId: actor.user.id,
@@ -832,6 +834,7 @@ async function ensureLobbyEntry(
     await advanceEventVirtualLobbyRevision(
       transaction,
       destination.eventVirtualJoinAccessId,
+      entry.id,
     );
     await recordDurableAuditEvent(transaction, {
       actorUserId: actor.user.id,
@@ -2439,6 +2442,7 @@ export async function issueEventVirtualAttendeeCredential(
         await advanceEventVirtualLobbyRevision(
           transaction,
           resolved.destination.eventVirtualJoinAccessId,
+          entry.id,
         );
       await recordDurableAuditEvent(transaction, {
         actorUserId: resolved.actor.user.id,
@@ -2569,6 +2573,7 @@ async function changeAdmission(
   await advanceEventVirtualLobbyRevision(
     transaction,
     destination.eventVirtualJoinAccessId,
+    entry.id,
   );
   await recordDurableAuditEvent(transaction, {
     actorUserId,

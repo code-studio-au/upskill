@@ -955,6 +955,17 @@ const liveKitConnectionEvidenceMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitLobbyRevisionMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0111_livekit_lobby_revision_evidence.ts",
+  ),
+  "utf8",
+);
+const liveKitLobbyRevision = fs.readFileSync(
+  path.join(root, "src/server/events/event-virtual-join-access.server.ts"),
+  "utf8",
+);
 const objectStorage = fs.readFileSync(
   path.join(root, "src/server/storage/object-storage.server.ts"),
   "utf8",
@@ -1018,6 +1029,38 @@ for (const boundary of [
 ])
   if (!liveKitConnectionEvidenceMigration.includes(boundary))
     failures.push(`LiveKit connection evidence guard is missing: ${boundary}`);
+for (const boundary of [
+  "event_virtual_lobby_entry_revision_scope_uq",
+  "event_virtual_lobby_revision_entry_fk",
+  "event_virtual_lobby_revision_access_idx",
+  "guard_event_virtual_lobby_revision",
+  "Lobby revision evidence is immutable",
+  "event_virtual_lobby_revision_guard_trg",
+  "revoke update, delete on table event_virtual_lobby_revision",
+])
+  if (!liveKitLobbyRevisionMigration.includes(boundary))
+    failures.push(`LiveKit lobby revision guard is missing: ${boundary}`);
+for (const boundary of [
+  'insertInto("event_virtual_lobby_revision")',
+  "eventVirtualJoinAccessId, lobbyEntryId",
+])
+  if (!liveKitLobbyRevision.includes(boundary))
+    failures.push(`LiveKit lobby revision append is missing: ${boundary}`);
+if (
+  liveKitLobbyRevision.includes(
+    '.set({ lobbyRevision: sql`"lobbyRevision" + 1` })',
+  )
+)
+  failures.push(
+    "Lobby revision advancement must not lock shared join access after a lobby row mutation",
+  );
+for (const boundary of [
+  '.setIsolationLevel("repeatable read")',
+  '.selectFrom("event_virtual_lobby_revision")',
+  '.orderBy("revision", "desc")',
+])
+  if (!eventVirtualRoomServer.includes(boundary))
+    failures.push(`LiveKit lobby snapshots are not coherent: ${boundary}`);
 for (const boundary of [
   "guard_livekit_webhook_receipt_evidence",
   "Webhook receipt identity evidence is immutable",

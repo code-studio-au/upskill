@@ -1492,9 +1492,10 @@ try {
     .where("id", "=", tokenIssuedEntry.id)
     .executeTakeFirstOrThrow();
   const connectedQueueRevision = await database
-    .selectFrom("event_virtual_join_access")
-    .select("lobbyRevision")
-    .where("id", "=", access.id)
+    .selectFrom("event_virtual_lobby_revision")
+    .select("revision")
+    .where("eventVirtualJoinAccessId", "=", access.id)
+    .orderBy("revision", "desc")
     .executeTakeFirstOrThrow();
   const issuedIdentity = provider.operations.find(
     (operation) => operation.operation === "create_join_token",
@@ -1537,12 +1538,13 @@ try {
   );
   assert.equal(
     await database
-      .selectFrom("event_virtual_join_access")
-      .select("lobbyRevision")
-      .where("id", "=", access.id)
+      .selectFrom("event_virtual_lobby_revision")
+      .select("revision")
+      .where("eventVirtualJoinAccessId", "=", access.id)
+      .orderBy("revision", "desc")
       .executeTakeFirstOrThrow()
-      .then((row) => row.lobbyRevision),
-    connectedQueueRevision.lobbyRevision,
+      .then((row) => row.revision),
+    connectedQueueRevision.revision,
     "A credential refresh without a queue-visible transition must not advance the queue revision",
   );
   const rejoinNow = new Date();
@@ -4515,11 +4517,117 @@ try {
     "PA_VERIFY_CONNECTION_2",
     3,
   );
-  await ingestVerifiedLiveKitParticipantWebhook(
-    secondJoin,
-    database,
-    getServerEnv(),
-    receiptClock(5),
+  const visibleQueueIds = await database
+    .selectFrom("event_virtual_lobby_entry as lobby")
+    .select("lobby.id")
+    .where("lobby.eventVirtualJoinAccessId", "=", access.id)
+    .where("lobby.state", "in", [
+      "waiting",
+      "admitted",
+      "token_issued",
+      "connected",
+      "left",
+    ])
+    .orderBy(
+      sql<number>`case "lobby"."state" when 'waiting' then 0 when 'connected' then 1 else 2 end`,
+    )
+    .orderBy("lobby.requestedAt")
+    .orderBy("lobby.id")
+    .execute();
+  const evidenceQueueIndex = visibleQueueIds.findIndex(
+    (entry) => entry.id === evidenceLobbyEntryId,
+  );
+  assert.notEqual(evidenceQueueIndex, -1);
+  const evidenceQueuePage = Math.floor(evidenceQueueIndex / 50);
+  const disconnectedQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    evidenceQueuePage,
+  );
+  assert.equal(disconnectedQueue.status, "ready");
+  assert.equal(disconnectedQueue.data.connectedCount, 0);
+  assert.equal(
+    disconnectedQueue.data.entries.find(
+      (entry) => entry.id === evidenceLobbyEntryId,
+    )?.state,
+    "left",
+  );
+  let releaseAccessLock = () => {};
+  let markAccessLocked = () => {};
+  const accessLockHeld = new Promise<void>((resolve) => {
+    markAccessLocked = resolve;
+  });
+  const accessLockRelease = new Promise<void>((resolve) => {
+    releaseAccessLock = resolve;
+  });
+  const accessBlocker = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("event_virtual_join_access")
+      .select("id")
+      .where("id", "=", access.id)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    markAccessLocked();
+    await accessLockRelease;
+  });
+  await accessLockHeld;
+  let markSnapshotMutationStarted = () => {};
+  const snapshotMutationStarted = new Promise<void>((resolve) => {
+    markSnapshotMutationStarted = resolve;
+  });
+  let secondJoinSettled = false;
+  const coherentSnapshot = findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    evidenceQueuePage,
+    {
+      afterConnectedCount: async () => {
+        markSnapshotMutationStarted();
+        assert.equal(
+          (
+            await ingestVerifiedLiveKitParticipantWebhook(
+              secondJoin,
+              database,
+              getServerEnv(),
+              receiptClock(5),
+            )
+          ).status,
+          "processed",
+        );
+        secondJoinSettled = true;
+      },
+    },
+  );
+  await snapshotMutationStarted;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const secondJoinAvoidedAccessLock = secondJoinSettled;
+  releaseAccessLock();
+  await accessBlocker;
+  const disconnectedSnapshot = await coherentSnapshot;
+  assert.equal(
+    secondJoinAvoidedAccessLock,
+    true,
+    "Participant evidence ingestion must not wait for the shared join-access row",
+  );
+  assert.equal(disconnectedSnapshot.status, "ready");
+  assert.equal(
+    disconnectedSnapshot.data.connectedCount,
+    0,
+    "The queue count must remain on the snapshot taken before a concurrent join",
+  );
+  assert.equal(
+    disconnectedSnapshot.data.entries.find(
+      (entry) => entry.id === evidenceLobbyEntryId,
+    )?.state,
+    "left",
+    "The queue rows must use the same snapshot as the connected count",
+  );
+  assert.equal(
+    disconnectedSnapshot.data.etag,
+    disconnectedQueue.data.etag,
+    "The queue revision must use the same snapshot as its count and rows",
   );
   const connectedQueue = await findEventVirtualLobbyQueue(
     ids.occurrence,
@@ -4532,6 +4640,11 @@ try {
     connectedQueue.data.connectedCount,
     1,
     "A new participant SID must restore durable connected status",
+  );
+  assert.notEqual(
+    connectedQueue.data.etag,
+    disconnectedQueue.data.etag,
+    "The committed join must advance append-only queue revision evidence",
   );
   await ingestVerifiedLiveKitParticipantWebhook(
     participantEvent(

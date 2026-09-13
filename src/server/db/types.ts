@@ -962,6 +962,12 @@ interface EventVirtualJoinAccessTable {
   revokedByUserId: string | null;
 }
 
+interface EventVirtualLobbyRevisionTable {
+  revision: Generated<string>;
+  eventVirtualJoinAccessId: string;
+  lobbyEntryId: string;
+}
+
 interface EventVirtualLobbyEntryTable {
   id: string;
   eventVirtualJoinAccessId: string;
@@ -2034,6 +2040,7 @@ export interface Database {
   event_virtual_presenter_credential_reservation: EventVirtualPresenterCredentialReservationTable;
   event_virtual_join_access: EventVirtualJoinAccessTable;
   event_virtual_lobby_entry: EventVirtualLobbyEntryTable;
+  event_virtual_lobby_revision: EventVirtualLobbyRevisionTable;
   event_virtual_connection_interval: EventVirtualConnectionIntervalTable;
   event_virtual_recovery_challenge: EventVirtualRecoveryChallengeTable;
   event_virtual_recovery_delivery: EventVirtualRecoveryDeliveryTable;

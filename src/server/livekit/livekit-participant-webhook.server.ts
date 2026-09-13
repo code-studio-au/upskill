@@ -106,6 +106,7 @@ async function projectLobbyPresence(
   await advanceEventVirtualLobbyRevision(
     transaction,
     entry.eventVirtualJoinAccessId,
+    entry.id,
   );
 }
 

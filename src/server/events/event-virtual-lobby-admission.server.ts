@@ -147,6 +147,7 @@ export async function admitEligibleWaitingEntries(
           };
 
         let admittedCount = 0;
+        let lastAdmittedLobbyEntryId: string | null = null;
         for (const entry of waiting) {
           if (
             !(await lockEventVirtualAdmissionEligibility(transaction, {
@@ -183,6 +184,7 @@ export async function admitEligibleWaitingEntries(
             .executeTakeFirst();
           if (!admitted) continue;
           admittedCount += 1;
+          lastAdmittedLobbyEntryId = admitted.id;
           await recordDurableAuditEvent(transaction, {
             actorUserId: input.actorUserId,
             action: "event_virtual_lobby.admission_changed",
@@ -197,8 +199,12 @@ export async function admitEligibleWaitingEntries(
             createdAt: admittedAt,
           });
         }
-        if (admittedCount > 0)
-          await advanceEventVirtualLobbyRevision(transaction, access.id);
+        if (lastAdmittedLobbyEntryId)
+          await advanceEventVirtualLobbyRevision(
+            transaction,
+            access.id,
+            lastAdmittedLobbyEntryId,
+          );
         const last = waiting.at(-1);
         return {
           admittedCount,
