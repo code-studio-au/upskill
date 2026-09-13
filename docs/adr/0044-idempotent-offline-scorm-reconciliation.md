@@ -33,7 +33,9 @@ Persist server reconciliation state with:
 - an offline entitlement lifecycle and its device public key;
 - a unique receipt for each `(entitlementId, commitId)` with the server-computed
   canonical request fingerprint;
-- the highest contiguous accepted client sequence; and
+- the highest contiguous accepted client sequence;
+- a reconciliation cursor containing the attempt revision produced by the last
+  accepted sequence for this entitlement; and
 - a sanitized outcome and server receipt instant.
 
 Reconciliation first parses the record, resolves the retained entitlement and
@@ -71,13 +73,26 @@ accepted, an exact retry is evaluated again and may proceed normally. Optional
 gap diagnostics are operational and must not participate in receipt lookup or
 client compaction.
 
-Because ADR 0042 permits only one offline writer, a base-revision mismatch is
-not silently merged. The server returns the authoritative snapshot and an
-explicit conflict outcome. The normal expected resolution is:
+The signed base revision anchors the entitlement's complete offline journal,
+not each individual checkpoint. For the first previously unaccepted sequence,
+the server requires the locked attempt revision to equal that immutable history
+base. After accepting a sequence, the same transaction records the resulting
+attempt revision in the entitlement's reconciliation cursor. Each next
+contiguous sequence requires the locked attempt revision to equal the cursor,
+then advances the cursor to the revision produced by that commit. This applies
+identically when processing multiple records in one batch or records arriving
+across later requests, so accepting an earlier record does not make the next
+ordinary offline checkpoint conflict with its shared history base.
+
+Because ADR 0042 permits only one offline writer, a mismatch against the
+applicable history base or reconciliation cursor proves that another server-side
+mutation intervened and is not silently merged. The server returns the
+authoritative snapshot and an explicit conflict outcome. The normal expected
+resolution is:
 
 - acknowledge already-applied records by receipt;
-- accept a strict continuation from the entitlement's recorded base or last
-  accepted revision;
+- accept a strict contiguous continuation from the entitlement's history base
+  and then its server-owned reconciliation cursor;
 - preserve server completion when a delayed snapshot is incomplete; and
 - require learner or support action when the server contains a competing
   mutation that cannot be proven to be the same journal history.
@@ -178,6 +193,9 @@ sessions see completion after reconciliation without any special refresh path.
   entitlement and attempt locks, before lifecycle gates, sequence validation or
   any state change.
 - Records are applied in contiguous client-sequence order.
+- One immutable history-base revision anchors all records from an entitlement;
+  the server-owned reconciliation cursor advances transactionally after each
+  accepted sequence and detects intervening server mutations.
 - Total time uses validated non-overlapping increments from each launch
   session's cumulative high-water history; cumulative checkpoints are never
   independently summed.

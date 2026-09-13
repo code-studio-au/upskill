@@ -51,12 +51,15 @@ Maintain:
 - synchronisation receipts and last error classification.
 
 Each journal record has a random commit identifier, entitlement identifier,
-attempt identifier, monotonically increasing client sequence, base server
-revision, runtime version, reason (`commit`, `finish`, `checkpoint` or
-`pagehide`), bounded SCORM snapshot, opaque launch-session identifier,
-non-overlapping session-time delta and device signature. It also records a
-client-observed instant and cumulative session elapsed duration for diagnostics;
-client wall-clock time is not authoritative.
+attempt identifier, monotonically increasing client sequence, the entitlement's
+immutable history-base server revision, runtime version, reason (`commit`,
+`finish`, `checkpoint` or `pagehide`), bounded SCORM snapshot, opaque
+launch-session identifier, non-overlapping session-time delta and device
+signature. It also records a client-observed instant and cumulative session
+elapsed duration for diagnostics; client wall-clock time is not authoritative.
+The history base anchors the complete offline journal and does not change after
+each local checkpoint; ADR 0044's server-owned reconciliation cursor determines
+whether later contiguous records still extend that same history.
 
 The package proxy implements getters and setters synchronously against its
 bounded in-memory snapshot. On `LMSCommit` or `LMSFinish`, it serializes one
@@ -150,11 +153,19 @@ The runtime also requests checkpoints of dirty state while visible and on
 subsequent import remains asynchronous. `sendBeacon` may trigger an online sync
 attempt but is not the durability mechanism.
 
-Before initializing SCORM, the package host acquires the exclusive
-exact-attempt Web Lock specified by ADR 0042 and holds it until the player is
-closed. Consequently only one context can evolve the in-memory snapshot,
-generate local ordinals or accrue a session-time delta for that attempt. A
-second local context never initializes its SCORM API while the lock is held.
+Before every player initialization, including reopening a module while the PWA
+has remained in the foreground, the exact-attempt package host acquires the
+exclusive Web Lock specified by ADR 0042 and drains its complete spool through
+the trusted import protocol. Trusted code completes any `signing` recovery and
+rebuilds the resume snapshot only after all drained entries have durable import
+acknowledgements. The host then initializes the SCORM API and retains that same
+lock until the player closes, so no context can write between the drain and
+resume-state construction. A failed or incomplete drain blocks launch and shows
+**Needs attention**; the runtime never resumes from an older journal snapshot
+while a newer recoverable checkpoint remains staged. Consequently only one
+context can evolve the in-memory snapshot, generate local ordinals or accrue a
+session-time delta for that attempt. A second local context never initializes
+its SCORM API while the lock is held.
 
 The local materialised state resumes from the latest durable journal record.
 Total time is derived from the server base plus accepted non-overlapping launch
@@ -257,6 +268,8 @@ server completion merely from a locally displayed state.
 - Startup and every foreground or manual sync drain all reachable registered
   exact-attempt spools before reconciliation and never report complete while a
   spool remains, is busy or cannot be reached.
+- Every player initialization drains and imports its exact-attempt spool before
+  constructing resume state, then retains the same Web Lock for the session.
 - Spool entries are not trusted evidence; only validated, normalized and
   device-signed learning-origin journal records may be reconciled.
 - Every record is bounded by the existing validated progress limits.
