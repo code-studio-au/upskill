@@ -60,15 +60,21 @@ include a separately registrable site per active attempt or an opaque-origin
 sandbox with an explicitly proven durable SCORM bridge. Header filtering,
 host-only application cookies, JavaScript shims and sibling hosts beneath one
 registrable domain are not sufficient controls. No package-execution topology
-may ship until Chromium and WebKit tests prove that one package cannot set or
-read cookies, storage or service-worker state visible to another attempt.
+may ship for a browser engine until tests on that engine prove that one package
+cannot set or read cookies, storage or service-worker state visible to another
+attempt.
 
 The first supported offline matrix is installed Chrome or Edge on supported
-desktop and Android platforms and installed Safari web apps on supported iPhone
-and iPad platforms. Compatible non-installed browsers may pass the same runtime
-capability checks, but are not the recommended offline journey. Embedded and
-in-app browsers are unsupported. Online Upskill remains available in supported
-ordinary browsers regardless of offline capability.
+desktop and Android platforms. Installed Safari web apps on iPhone and iPad are
+deferred: in this design the package site is a cross-site frame, and WebKit does
+not provide a sufficiently reliable, pre-authorised synchronous storage
+contract for that frame to make `LMSCommit` durability an offline guarantee.
+Capability detection alone cannot repair a save mechanism that may require a
+first-party interaction or storage-access grant after download. Compatible
+non-installed Chromium browsers may pass the same runtime capability checks,
+but are not the recommended offline journey. Embedded and in-app browsers are
+unsupported. Online Upskill remains available in supported ordinary browsers,
+including Safari, regardless of offline capability.
 
 Before offering a download, use capability checks for service workers, Cache
 Storage, IndexedDB, Web Locks and required cryptography. Request persistent
@@ -108,6 +114,11 @@ modules.
   application identity.
 - **Depend on Background Sync.** Rejected because support and scheduling differ
   across browser engines.
+- **Include installed Safari in the first offline matrix.** Deferred because the
+  cookie-isolated cross-site package frame cannot yet rely on synchronous
+  durable spool storage without an additional first-party/storage-access flow.
+  A later design must prove save, drain, eviction and isolation behaviour on
+  supported iPhone and iPad versions before enabling the capability.
 
 ## Consequences
 
@@ -139,15 +150,20 @@ must show download health and never promise permanent availability.
 - Browser background execution is an optimisation, never the only sync path.
 - Offline launch requires a browser-enforced cross-context attempt lock; opening
   the same attempt concurrently in another tab or PWA window is denied.
+- Offline support is offered only on browser engines whose tested cross-site
+  package context provides the required synchronous spool and isolation
+  guarantees; a general PWA-installability check is insufficient.
 - Online learning and non-learning Upskill functions do not require PWA
   installation.
 
 ## Follow-up / Triggers
 
 Revisit the platform matrix after measured learner demand, browser failures or
-storage eviction rates. Consider a native application only when required
-offline reliability, operating-system integration or background execution
-cannot be achieved within the tested web capability.
+storage eviction rates. Add Safari only after a WebKit-compatible synchronous
+spool and whole-site cleanup flow passes the same crash, restart and isolation
+tests as Chromium. Consider a native application only when required offline
+reliability, operating-system integration or background execution cannot be
+achieved within the tested web capability.
 
 ## Related Documents
 
