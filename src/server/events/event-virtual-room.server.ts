@@ -277,23 +277,23 @@ async function findRecordingOperationsByRoom(
       roomGeneration: row.roomGeneration,
       statusLabel:
         row.deletionStatus === "pending" || row.deletionStatus === "processing"
-          ? "Deleting"
+          ? "Deleting recording"
           : row.deletionStatus === "failed"
-            ? "Deletion needs attention"
+            ? "Recording deletion needs attention"
             : row.deletionStatus === "succeeded"
               ? row.status === "failed"
-                ? "Failed · Storage deleted"
-                : "Deleted"
+                ? "Recording failed · Storage deleted"
+                : "Recording deleted"
               : row.status === "active"
                 ? "Recording"
                 : row.status === "stopping"
-                  ? "Finalising"
+                  ? "Finalising recording"
                   : row.status === "complete"
                     ? row.retentionDeadline &&
                       row.retentionDeadline > observedAt
-                      ? "Ready"
-                      : "Expired"
-                    : row.status.charAt(0).toUpperCase() + row.status.slice(1),
+                      ? "Recording ready"
+                      : "Recording expired"
+                    : `Recording ${row.status}`,
       status: row.status,
       warning:
         row.deletionStatus === "failed"
@@ -364,7 +364,7 @@ export async function findEventVirtualLobbyQueue(
         .onRef("room.eventSessionId", "=", "access.eventSessionId")
         .onRef("room.generation", "=", "access.roomGeneration"),
     )
-    .select(["access.id", "room.id as roomId"])
+    .select(["access.id", "room.id as roomId", "room.doorState"])
     .where("access.eventOccurrenceId", "=", eventOccurrenceId)
     .where("access.eventSessionId", "=", eventSessionId)
     .where("access.revokedAt", "is", null)
@@ -417,6 +417,7 @@ export async function findEventVirtualLobbyQueue(
     status: "ready",
     data: {
       etag: String(revision.lobbyRevision),
+      doorState: access.doorState,
       entries: rows.slice(0, LOBBY_QUEUE_PAGE_SIZE).map((entry) => ({
         id: entry.id,
         eventParticipationId: entry.eventParticipationId,

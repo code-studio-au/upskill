@@ -656,15 +656,23 @@ const lobbyQueueUi = fs.readFileSync(
   "utf8",
 );
 for (const requiredRecordingWarning of [
-  "queue?.recording ?? session.recording",
+  "queue === undefined ? session.recording : queue?.recording",
+  "webinarEnded && recording?.statusLabel",
+  "recording.statusLabel",
+  'role="status"',
+  "recording?.warning",
+  "recording.warning",
   'role="alert"',
-  "recordingWarning",
 ]) {
   if (!lobbyQueueUi.includes(requiredRecordingWarning))
     failures.push(
       `The webinar operations UI does not surface recording failures and retries to staff: ${requiredRecordingWarning}`,
     );
 }
+if (lobbyQueueUi.includes("queue?.recording ?? session.recording"))
+  failures.push(
+    "The webinar operations UI must not restore stale recording feedback after a lobby poll reports no recording for the active room generation",
+  );
 const attendeeLobbyUi = fs.readFileSync(
   path.join(root, "src/routes/webinars.$publicReference.tsx"),
   "utf8",

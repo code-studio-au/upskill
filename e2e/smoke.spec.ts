@@ -2524,7 +2524,7 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Presenter green room" }),
     ).toBeVisible();
-    await expect(page.getByText("No learners in the lobby")).toBeVisible();
+    await expect(page.getByText("Empty", { exact: true })).toBeVisible();
     const openEntryGuest = await authoringDatabase.query<{
       id: string;
       name: string;
@@ -2722,7 +2722,7 @@ test("platform administrators can inspect learner progress", async ({
     );
     await expect(
       page.getByRole("alert").filter({
-        hasText: "Learner list unavailable. Retrying",
+        hasText: "Retrying",
       }),
     ).toBeVisible({ timeout: 10_000 });
     await expect(

@@ -62,9 +62,15 @@ export function EventOperationsLobbyQueue({
       }
       setQueue(result.data);
     };
-    void load();
+    let pending: Promise<void> | undefined;
+    const poll = () => {
+      pending ??= load().finally(() => {
+        pending = undefined;
+      });
+    };
+    poll();
     const timer = setInterval(() => {
-      if (!document.hidden) void load();
+      if (!document.hidden) poll();
     }, 4_000);
     return () => {
       stopped = true;
@@ -73,14 +79,24 @@ export function EventOperationsLobbyQueue({
   }, [eventOccurrenceId, page, sessionId]);
 
   const entries = queue?.entries ?? [];
-  const recordingWarning = (queue?.recording ?? session.recording)?.warning;
+  const recording = queue === undefined ? session.recording : queue?.recording;
+  const webinarEnded = (queue?.doorState ?? room.doorState) === "ended";
   const waiting = entries.some((entry) => entry.state === "waiting");
-  const admissionBusy = Boolean(processingId);
+  const admissionBusy = !!processingId;
   return (
-    <section className={classes.queuePanel} aria-label="Learner admission">
-      {recordingWarning ? (
+    <section
+      className={classes.queuePanel}
+      aria-label="Learners"
+      data-r={recording?.status}
+    >
+      {webinarEnded && recording?.statusLabel ? (
+        <p className={classes.recordingPanel} role="status">
+          {recording.statusLabel}
+        </p>
+      ) : null}
+      {recording?.warning ? (
         <p className={classes.recordingPanel} role="alert">
-          {recordingWarning}
+          {recording.warning}
         </p>
       ) : null}
       <header className={classes.queueHeader}>
@@ -89,7 +105,7 @@ export function EventOperationsLobbyQueue({
           <p>{room.maxParticipants} maximum connections</p>
         </div>
         <div className={classes.queueControls}>
-          {room.doorState !== "ended" ? (
+          {!webinarEnded ? (
             <MantineNativeSelect
               label="Admission mode"
               value={room.admissionMode}
@@ -121,10 +137,10 @@ export function EventOperationsLobbyQueue({
         </div>
       </header>
 
-      {queue === undefined ? <p role="status">Checking lobby…</p> : null}
+      {queue === undefined ? <p role="status">Loading…</p> : null}
       {queue === null ? (
         <p role="alert" className={classes.queueError}>
-          Learner list unavailable. Retrying…
+          Retrying…
         </p>
       ) : null}
       {queue && entries.length ? (
@@ -138,8 +154,11 @@ export function EventOperationsLobbyQueue({
                   : "Access issued";
             const actions =
               entry.state === "waiting"
-                ? (["admit", "decline"] as const)
-                : (["revoke"] as const);
+                ? ([
+                    ["admit", "Admit"],
+                    ["decline", "Decline"],
+                  ] as const)
+                : ([["revoke", "Revoke"]] as const);
             return (
               <li className={classes.lobbyEntry} key={entry.id}>
                 <div className={classes.learnerIdentity}>
@@ -147,13 +166,7 @@ export function EventOperationsLobbyQueue({
                   <span>{admissionLabel}</span>
                 </div>
                 <div className={classes.attendeeActions}>
-                  {actions.map((operation) => {
-                    const label =
-                      operation === "admit"
-                        ? "Admit"
-                        : operation === "decline"
-                          ? "Decline"
-                          : "Revoke access";
+                  {actions.map(([operation, label]) => {
                     return (
                       <button
                         data-danger={operation !== "admit"}
@@ -177,18 +190,15 @@ export function EventOperationsLobbyQueue({
         </ul>
       ) : null}
       {queue && !entries.length ? (
-        <strong className={classes.emptyQueue}>No learners in the lobby</strong>
+        <strong className={classes.emptyQueue}>Empty</strong>
       ) : null}
       {queue && (page || queue.hasNextPage) ? (
-        <nav
-          className={classes.queuePagination}
-          aria-label="Attendee list pages"
-        >
+        <nav className={classes.queuePagination} aria-label="Learner pages">
           <button
             type="button"
             disabled={!page}
             onClick={() => {
-              setPage((current) => Math.max(0, current - 1));
+              setPage(page - 1);
             }}
           >
             Previous
@@ -197,7 +207,7 @@ export function EventOperationsLobbyQueue({
             type="button"
             disabled={!queue.hasNextPage}
             onClick={() => {
-              setPage((current) => current + 1);
+              setPage(page + 1);
             }}
           >
             Next

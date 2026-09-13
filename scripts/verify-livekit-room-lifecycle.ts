@@ -1497,7 +1497,7 @@ try {
       {
         recordingId: receiptRecordingId,
         roomGeneration: room.generation,
-        statusLabel: "Requested",
+        statusLabel: "Recording requested",
         status: "requested",
         warning:
           "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -2114,7 +2114,7 @@ try {
       {
         recordingId: receiptRecordingId,
         roomGeneration: room.generation,
-        statusLabel: "Ready",
+        statusLabel: "Recording ready",
         status: "complete",
         warning:
           "Recording evidence needs review. Background reconciliation could not apply a provider update; an administrator can review it after the session.",
@@ -2365,7 +2365,7 @@ try {
       {
         recordingId: receiptRecordingId,
         roomGeneration: room.generation,
-        statusLabel: "Deletion needs attention",
+        statusLabel: "Recording deletion needs attention",
         status: "deleted",
         warning:
           "Recording storage deletion failed after 2 attempts. Playback and download remain unavailable. An automatic retry is scheduled, or retry now.",
@@ -4104,7 +4104,7 @@ try {
     {
       recordingId: retryingRecording.id,
       roomGeneration: startRoom.generation,
-      statusLabel: "Requested",
+      statusLabel: "Recording requested",
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -4118,12 +4118,13 @@ try {
     0,
   );
   assert.equal(retryingRecordingQueue.status, "ready");
+  assert.equal(retryingRecordingQueue.data.doorState, "open");
   assert.deepEqual(
     retryingRecordingQueue.data.recording,
     {
       recordingId: retryingRecording.id,
       roomGeneration: startRoom.generation,
-      statusLabel: "Requested",
+      statusLabel: "Recording requested",
       status: "requested",
       warning:
         "Automatic recording is delayed. Background retries are continuing; ask an administrator to check the recording service if this persists.",
@@ -5396,7 +5397,7 @@ try {
       {
         recordingId: fencedTerminalRecordingId,
         roomGeneration: deferredRoom.generation,
-        statusLabel: "Failed",
+        statusLabel: "Recording failed",
         status: "failed",
         warning:
           "Automatic recording failed. Keep the webinar running and arrange a manual follow-up; an administrator can review the recording evidence after the session.",
@@ -5616,6 +5617,19 @@ try {
     },
     "Completing an occurrence must terminate its current provider rooms",
   );
+  const terminalRecordingQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.raceSession,
+    administrator.id,
+    0,
+  );
+  assert.equal(terminalRecordingQueue.status, "ready");
+  assert.equal(
+    terminalRecordingQueue.data.doorState,
+    "ended",
+    "The live learner-list poll must refresh terminal room state for staff",
+  );
+  assert.equal(terminalRecordingQueue.data.recording?.status, "failed");
   const terminalCloseBatch = await processAvailableEventVirtualRoomOperations(
     10,
     { runtime: deferredRecordingRuntime, now: terminalTransitionTime },

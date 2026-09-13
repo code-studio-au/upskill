@@ -19,7 +19,7 @@ function recording(roomGeneration: number, accessAvailable: boolean) {
   return {
     recordingId: `${details.recordingId}_${String(roomGeneration)}`,
     roomGeneration,
-    statusLabel: "Ready",
+    statusLabel: "Recording ready",
     status: "complete" as const,
     warning: null,
     details: {
@@ -48,7 +48,7 @@ describe("event operations recording download", () => {
 
     expect(html).toContain("Recordings");
     expect(html).toContain("Generation 1");
-    expect(html).toContain("Ready");
+    expect(html).toContain("Recording ready");
     expect(html).toContain("Completed");
     expect(html).toContain("4 min");
     expect(html).toContain("8 MB");
@@ -82,7 +82,9 @@ describe("event operations recording download", () => {
       <EventOperationsRecordingPanel
         eventOccurrenceId="event_occurrence_1"
         timezone="Australia/Sydney"
-        recordings={[{ ...recording(1, false), statusLabel: "Expired" }]}
+        recordings={[
+          { ...recording(1, false), statusLabel: "Recording expired" },
+        ]}
         processingId={null}
         action={() => Promise.resolve()}
       />,
@@ -90,7 +92,7 @@ describe("event operations recording download", () => {
 
     expect(html).not.toContain(">Download<");
     expect(html).not.toContain(">Play<");
-    expect(html).toContain("Expired");
+    expect(html).toContain("Recording expired");
   });
 
   it("offers confirmed deletion and exposes retryable storage failure", () => {
@@ -133,7 +135,7 @@ describe("event operations recording download", () => {
           {
             ...recording(1, false),
             status: "deleted",
-            statusLabel: "Deleted",
+            statusLabel: "Recording deleted",
             warning:
               "Deleted from private storage. Recording history has been retained.",
             deletion: {
@@ -162,7 +164,7 @@ describe("event operations recording download", () => {
           {
             recordingId: "failed_recording_1",
             roomGeneration: 3,
-            statusLabel: "Failed",
+            statusLabel: "Recording failed",
             status: "failed",
             warning: "Automatic recording failed. Arrange a manual follow-up.",
           },
@@ -173,7 +175,7 @@ describe("event operations recording download", () => {
     );
 
     expect(html).toContain("Generation 3");
-    expect(html).toContain("Failed");
+    expect(html).toContain("Recording failed");
     expect(html).toContain(
       "Automatic recording failed. Arrange a manual follow-up.",
     );
