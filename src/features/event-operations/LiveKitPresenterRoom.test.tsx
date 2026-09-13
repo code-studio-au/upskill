@@ -50,6 +50,26 @@ describe("LiveKit presenter recording notice", () => {
     }
   });
 
+  it("labels every media toggle with its next action", () => {
+    const source = readFileSync(
+      "src/features/event-operations/LiveKitPresenterRoom.tsx",
+      "utf8",
+    );
+
+    for (const label of [
+      "Turn video off",
+      "Turn video on",
+      "Mute microphone",
+      "Unmute microphone",
+      "Stop sharing screen",
+      "Share screen",
+    ]) {
+      expect(source).toContain(`"${label}"`);
+    }
+    expect(source).not.toContain('"Video off"');
+    expect(source).not.toContain('"Video on"');
+  });
+
   it("shows the live recording marker only for confirmed active recording", () => {
     const source = readFileSync(
       "src/features/event-operations/EventOperationsVirtualSessions.tsx",

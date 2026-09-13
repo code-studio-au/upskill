@@ -287,9 +287,19 @@ export function LiveKitPresenterRoom({
     (track) => track.kind === "audio" && !track.local,
   );
   const mediaControls = [
-    ["camera", snapshot.cameraEnabled, "Video off", "Video on"],
-    ["microphone", snapshot.microphoneEnabled, "Mute", "Unmute"],
-    ["screen", snapshot.screenShareEnabled, "Stop share", "Share"],
+    ["camera", snapshot.cameraEnabled, "Turn video off", "Turn video on"],
+    [
+      "microphone",
+      snapshot.microphoneEnabled,
+      "Mute microphone",
+      "Unmute microphone",
+    ],
+    [
+      "screen",
+      snapshot.screenShareEnabled,
+      "Stop sharing screen",
+      "Share screen",
+    ],
   ] as const;
   const statusMessage = phaseMessages[phase] ?? message;
   const roomActive = phase === "connected" || phase === "reconnecting";
