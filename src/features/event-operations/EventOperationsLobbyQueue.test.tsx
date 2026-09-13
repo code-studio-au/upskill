@@ -58,6 +58,18 @@ describe("LiveKit operations recording status", () => {
     expect(source).toContain("pending = undefined;");
   });
 
+  it("does not restore a previous room generation recording after polling", () => {
+    const source = readFileSync(
+      "src/features/event-operations/EventOperationsLobbyQueue.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "queue === undefined ? session.recording : queue?.recording",
+    );
+    expect(source).not.toContain("queue?.recording ?? session.recording");
+  });
+
   it("warns staff while an automatic recording operation is retrying", () => {
     const html = renderRecording({
       recordingId: "recording_1",

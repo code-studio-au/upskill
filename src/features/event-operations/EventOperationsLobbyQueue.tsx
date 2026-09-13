@@ -79,7 +79,7 @@ export function EventOperationsLobbyQueue({
   }, [eventOccurrenceId, page, sessionId]);
 
   const entries = queue?.entries ?? [];
-  const recording = queue?.recording ?? session.recording;
+  const recording = queue === undefined ? session.recording : queue?.recording;
   const webinarEnded = (queue?.doorState ?? room.doorState) === "ended";
   const recordingMessage = webinarEnded
     ? recording?.statusLabel
