@@ -4428,16 +4428,44 @@ try {
     "PA_VERIFY_CONNECTION_1",
     2,
   );
+  let releaseRoomLock = () => {};
+  let markRoomLocked = () => {};
+  const roomLockHeld = new Promise<void>((resolve) => {
+    markRoomLocked = resolve;
+  });
+  const roomLockRelease = new Promise<void>((resolve) => {
+    releaseRoomLock = resolve;
+  });
+  const roomBlocker = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("event_virtual_room")
+      .select("id")
+      .where("id", "=", ids.room)
+      .forNoKeyUpdate()
+      .executeTakeFirstOrThrow();
+    markRoomLocked();
+    await roomLockRelease;
+  });
+  await roomLockHeld;
+  let firstLeaveSettled = false;
+  const firstLeaveIngestion = ingestVerifiedLiveKitParticipantWebhook(
+    firstLeave,
+    database,
+    getServerEnv(),
+    receiptClock(2),
+  ).then((outcome) => {
+    firstLeaveSettled = true;
+    return outcome;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const firstLeaveAvoidedRoomLock = firstLeaveSettled;
+  releaseRoomLock();
+  await roomBlocker;
+  assert.equal((await firstLeaveIngestion).status, "processed");
   assert.equal(
-    (
-      await ingestVerifiedLiveKitParticipantWebhook(
-        firstLeave,
-        database,
-        getServerEnv(),
-        receiptClock(2),
-      )
-    ).status,
-    "processed",
+    firstLeaveAvoidedRoomLock,
+    true,
+    "Participant evidence ingestion must not wait for an unrelated room-row lock",
   );
   const firstJoin = participantEvent(
     "EV_VerifyConnectionJoinFirst",
@@ -4579,6 +4607,26 @@ try {
   );
   await ingestVerifiedLiveKitParticipantWebhook(
     participantEvent(
+      "EV_VerifyConnectionDelayedOldJoin",
+      "participant_joined",
+      "PA_VERIFY_CONNECTION_2",
+      4,
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(9),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("providerRoomSid")
+      .where("id", "=", ids.room)
+      .executeTakeFirstOrThrow(),
+    { providerRoomSid: "RM_VERIFY_LOBBY_RECREATED" },
+    "A delayed older join must not replace the current provider room SID",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
       "EV_VerifyConnectionDelayedOldLeave",
       "participant_left",
       "PA_VERIFY_CONNECTION_2",
@@ -4586,7 +4634,7 @@ try {
     ),
     database,
     getServerEnv(),
-    receiptClock(9),
+    receiptClock(10),
   );
   assert.deepEqual(
     await database
@@ -4618,7 +4666,7 @@ try {
     ),
     database,
     getServerEnv(),
-    receiptClock(10),
+    receiptClock(11),
   );
   assert.deepEqual(
     await database
@@ -4647,7 +4695,7 @@ try {
       .where("matchedLobbyEntryId", "=", evidenceLobbyEntryId)
       .executeTakeFirstOrThrow()
       .then((row) => Number(row.count)),
-    8,
+    9,
   );
 
   const replacement = await database

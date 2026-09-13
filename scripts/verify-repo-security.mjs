@@ -983,6 +983,8 @@ for (const boundary of [
   '"lobby.participantIdentityDigest",',
   "participantIdentityDigest,",
   ".executeTakeFirst()",
+  "reconcileProviderRoomSid",
+  "livekit-participant-room-sid:",
   'insertInto("event_virtual_connection_interval")',
   "advanceEventVirtualLobbyRevision",
 ])
@@ -997,6 +999,7 @@ if (liveKitParticipantWebhook.includes("rawBody"))
 for (const boundary of [
   '.selectFrom("event_virtual_join_access as access")',
   "lobbyEntries.find",
+  '.where("providerRoomName", "=", roomName)\n      .forUpdate()',
 ])
   if (liveKitParticipantWebhook.includes(boundary))
     failures.push(

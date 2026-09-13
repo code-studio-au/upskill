@@ -109,6 +109,42 @@ async function projectLobbyPresence(
   );
 }
 
+async function reconcileProviderRoomSid(
+  transaction: Transaction<Database>,
+  roomId: string,
+): Promise<void> {
+  await sql`select pg_advisory_xact_lock(hashtextextended(
+    ${`livekit-participant-room-sid:${roomId}`}, 0
+  ))`.execute(transaction);
+  const [currentRoom, latestMatchedJoin] = await Promise.all([
+    transaction
+      .selectFrom("event_virtual_room")
+      .select("providerRoomSid")
+      .where("id", "=", roomId)
+      .executeTakeFirst(),
+    transaction
+      .selectFrom("livekit_participant_webhook_receipt")
+      .select("providerRoomSid")
+      .where("matchedRoomId", "=", roomId)
+      .where("eventType", "=", "participant_joined")
+      .where("processingState", "=", "processed")
+      .orderBy("providerCreatedAt", "desc")
+      .orderBy("providerEventId", "desc")
+      .executeTakeFirst(),
+  ]);
+  if (
+    !currentRoom ||
+    !latestMatchedJoin ||
+    currentRoom.providerRoomSid === latestMatchedJoin.providerRoomSid
+  )
+    return;
+  await transaction
+    .updateTable("event_virtual_room")
+    .set({ providerRoomSid: latestMatchedJoin.providerRoomSid })
+    .where("id", "=", roomId)
+    .executeTakeFirstOrThrow();
+}
+
 export type LiveKitParticipantWebhookIngestionOutcome =
   | { status: "processed"; receiptId: string; lobbyEntryId: string }
   | { status: "duplicate"; receiptId: string }
@@ -225,7 +261,6 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
       .select(["id", "eventSessionId", "generation", "providerRoomSid"])
       .where("provider", "=", "livekit")
       .where("providerRoomName", "=", roomName)
-      .forUpdate()
       .executeTakeFirst();
     if (!room) {
       await transaction
@@ -289,31 +324,6 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
       })
       .where("id", "=", receiptId)
       .executeTakeFirstOrThrow();
-
-    if (
-      eventType === "participant_joined" &&
-      room.providerRoomSid !== roomSid
-    ) {
-      const latestMatchedJoin = await transaction
-        .selectFrom("livekit_participant_webhook_receipt")
-        .select(["providerCreatedAt", "providerRoomSid"])
-        .where("matchedRoomId", "=", room.id)
-        .where("eventType", "=", "participant_joined")
-        .where("processingState", "=", "processed")
-        .where("id", "!=", receiptId)
-        .orderBy("providerCreatedAt", "desc")
-        .orderBy("id", "desc")
-        .executeTakeFirst();
-      if (
-        !latestMatchedJoin ||
-        providerCreatedAt >= latestMatchedJoin.providerCreatedAt
-      )
-        await transaction
-          .updateTable("event_virtual_room")
-          .set({ providerRoomSid: roomSid })
-          .where("id", "=", room.id)
-          .executeTakeFirstOrThrow();
-    }
 
     const existingInterval = await transaction
       .selectFrom("event_virtual_connection_interval")
@@ -398,6 +408,8 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
     }
 
     await projectLobbyPresence(transaction, lobbyEntry, receivedAt);
+    if (eventType === "participant_joined" && room.providerRoomSid !== roomSid)
+      await reconcileProviderRoomSid(transaction, room.id);
     return { status: "processed", receiptId, lobbyEntryId: lobbyEntry.id };
   });
 }
