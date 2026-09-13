@@ -54,13 +54,15 @@ conflict, applies no state, and explicitly tells the client that the local entry
 is not acknowledged or eligible for compaction.
 
 Only a new commit proceeds to the state-changing transaction. Reconciliation
-then locks the entitlement and attempt, enforces the current lifecycle,
-then rechecks `(entitlementId, commitId)` and its canonical fingerprint while
-holding those locks. If a concurrent request created an equal receipt, this
-request returns it without another effect; a different fingerprint returns
-`commit_id_reused`. Only when no receipt exists under lock does reconciliation
-enforce the current lifecycle, commit-acceptance deadline, hard-revocation state
-and contiguous sequence and process records in client-sequence order.
+then locks the entitlement and attempt and immediately rechecks
+`(entitlementId, commitId)` and its canonical fingerprint while holding those
+locks, before evaluating any current lifecycle gate. If a concurrent request
+created an equal receipt, this request returns it without another effect even
+if the deadline or revocation state changed while it waited for the locks; a
+different fingerprint returns `commit_id_reused`. Only when no receipt exists
+under lock does reconciliation enforce the current lifecycle,
+commit-acceptance deadline, hard-revocation state and contiguous sequence and
+process records in client-sequence order.
 
 A missing sequence produces a retryable gap response rather than skipping
 evidence. A gap response is not a durable idempotency receipt and does not
@@ -165,7 +167,8 @@ sessions see completion after reconciliation without any special refresh path.
 - An authenticated, validly signed exact retry recovers its existing receipt
   before current deadline and revocation gates; it cannot apply another effect.
 - Receipt identity and fingerprint are checked again while holding the
-  entitlement and attempt locks, before sequence validation or any state change.
+  entitlement and attempt locks, before lifecycle gates, sequence validation or
+  any state change.
 - Records are applied in contiguous client-sequence order.
 - A retryable sequence gap creates no terminal idempotency receipt; the same
   commit is re-evaluated after its predecessor is accepted.
