@@ -71,12 +71,12 @@ in-app browsers are unsupported. Online Upskill remains available in supported
 ordinary browsers regardless of offline capability.
 
 Before offering a download, use capability checks for service workers, Cache
-Storage, IndexedDB and required cryptography. Request persistent storage where
-available, inspect the storage estimate, and explain that the operating system
-may still reclaim browser-managed data. A download becomes **Ready offline**
-only after the shell, runtime, manifest and every package object have been
-stored and digest-verified. Partial downloads remain unavailable and can be
-resumed or removed.
+Storage, IndexedDB, Web Locks and required cryptography. Request persistent
+storage where available, inspect the storage estimate, and explain that the
+operating system may still reclaim browser-managed data. A download becomes
+**Ready offline** only after the shell, runtime, manifest and every package
+object have been stored and digest-verified. Partial downloads remain
+unavailable and can be resumed or removed.
 
 Do not depend on Background Sync. Synchronisation is attempted when the PWA
 starts online, regains connectivity, returns to the foreground, records a
@@ -137,6 +137,8 @@ must show download health and never promise permanent availability.
   SCORM sandbox and framing policy.
 - No module is shown as ready until its complete immutable version is verified.
 - Browser background execution is an optimisation, never the only sync path.
+- Offline launch requires a browser-enforced cross-context attempt lock; opening
+  the same attempt concurrently in another tab or PWA window is denied.
 - Online learning and non-learning Upskill functions do not require PWA
   installation.
 

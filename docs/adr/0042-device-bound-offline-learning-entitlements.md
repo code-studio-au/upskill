@@ -64,6 +64,17 @@ progress but cannot start or mutate that attempt without first replacing the
 offline device. This exclusive-writer rule prevents competing opaque
 `suspend_data` histories.
 
+The registered installation also permits only one live player context for the
+attempt. Before loading package code, the exact-attempt package host obtains a
+browser-enforced exclusive Web Lock and holds it for the player lifetime. A
+second tab, iframe or PWA window does not start another SCORM session while that
+lock is held; it reports **This module is already open on this device** and may
+offer to focus or close the existing application surface where the platform
+allows. Browser or renderer termination releases the lock. Offline capability
+is unavailable when the platform cannot provide the required cross-context lock
+semantics; a service-worker flag or BroadcastChannel notification alone is not
+an atomic substitute.
+
 An ordinary revocation or removal prevents renewal and new online launches but
 does not pretend to erase content already stored on a disconnected device. The
 issued entitlement remains the record of the authority delegated for its
@@ -141,6 +152,8 @@ that accepted work occurred before access expired.
   access, release, registration, package and attempt state.
 - Every entitlement identifies one exact immutable activity and offering item.
 - At most one active offline writer exists for an attempt.
+- At most one local player context holds the exact-attempt Web Lock and mutates
+  its in-memory state, checkpoint spool or session-time delta.
 - Intended offline launch ends at the authoritative finite access expiry
   captured when the entitlement is issued; this client-enforced boundary is not
   treated as server-verifiable evidence.

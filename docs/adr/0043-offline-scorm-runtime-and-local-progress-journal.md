@@ -74,14 +74,30 @@ After each spool write, the package proxy asynchronously notifies the trusted
 learning-origin runtime over its launch-specific channel. The trusted runtime
 imports entries in order, validates and normalizes every field, and computes a
 canonical fingerprint over the spool identifier, ordinal and normalized
-checkpoint. In one IndexedDB transaction it first looks up the attempt-bound
-spool identifier. A new identifier stores its fingerprint, assigns the
-entitlement-bound commit identifier and client sequence, signs the record with
-the device key, and appends it to the journal. An existing identifier with the
-same fingerprint returns the original durable import acknowledgement and does
-not assign another commit or sequence; reuse with a different fingerprint fails
-closed as spool corruption. Only that trusted record is eligible for server
-reconciliation.
+checkpoint. Import uses a serialized reservation, signing and finalisation
+protocol because Web Crypto signing is asynchronous and must not be awaited
+inside a normal IndexedDB transaction:
+
+1. A short reservation transaction looks up the attempt-bound spool identifier.
+   A new identifier atomically stores its fingerprint, assigns the next client
+   sequence and entitlement-bound commit identifier, and records a `signing`
+   reservation containing the complete canonical unsigned record. An existing
+   identifier with a different fingerprint fails closed as corruption.
+2. After that transaction commits, the runtime signs the reserved canonical
+   record asynchronously with the device key.
+3. A short finalisation transaction re-reads the immutable reservation, verifies
+   its status and canonical fingerprint, stores the signature and changes it to
+   a reconciliation-eligible `pending` journal entry. It cannot allocate or
+   alter the reserved sequence.
+
+An existing `pending` or acknowledged identifier with the same fingerprint
+returns its original durable import acknowledgement. An existing `signing`
+reservation is resumed rather than assigned another commit or sequence. Startup
+and pre-sync recovery scans `signing` reservations in sequence order, signs and
+finalises them before later records can reconcile. If signing cannot be
+completed, the attempt enters **Needs attention** and later sequences remain
+blocked; the reservation is never silently skipped or renumbered. Only a
+finalised trusted journal record is eligible for server reconciliation.
 
 A durable import acknowledgement permits the package host to delete the
 matching spool entry. If the bridge or learning frame closes after the IndexedDB
@@ -94,6 +110,12 @@ The runtime also requests checkpoints of dirty state while visible and on
 `pagehide` where possible. These use the same synchronous spool write; their
 subsequent import remains asynchronous. `sendBeacon` may trigger an online sync
 attempt but is not the durability mechanism.
+
+Before initializing SCORM, the package host acquires the exclusive
+exact-attempt Web Lock specified by ADR 0042 and holds it until the player is
+closed. Consequently only one context can evolve the in-memory snapshot,
+generate local ordinals or accrue a session-time delta for that attempt. A
+second local context never initializes its SCORM API while the lock is held.
 
 The local materialised state resumes from the latest durable journal record.
 Total time is derived from the server base plus completed local session
@@ -183,6 +205,13 @@ server completion merely from a locally displayed state.
   original acknowledgement and never assigns another commit identifier,
   sequence or session delta; identifier reuse with different content fails
   closed.
+- Sequence allocation and the immutable unsigned record commit in a short
+  IndexedDB reservation transaction; asynchronous signing happens only after it
+  closes, and a second short transaction finalises that exact reservation.
+- Crash recovery resumes `signing` reservations in sequence order and never
+  skips or reallocates their sequence.
+- One browser-enforced exact-attempt Web Lock covers the complete player
+  lifetime and prevents competing local snapshots and session deltas.
 - Spool entries are not trusted evidence; only validated, normalized and
   device-signed learning-origin journal records may be reconciled.
 - Every record is bounded by the existing validated progress limits.

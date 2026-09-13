@@ -55,13 +55,19 @@ is not acknowledged or eligible for compaction.
 
 Only a new commit proceeds to the state-changing transaction. Reconciliation
 then locks the entitlement and attempt, enforces the current lifecycle,
-commit-acceptance deadline, hard-revocation state and contiguous sequence, and
-processes records in client-sequence order. A missing sequence produces a
-retryable gap response rather than skipping evidence. A gap response is not a
-durable idempotency receipt and does not reserve or consume the commit
-identifier. After the missing sequence is accepted, an exact retry is evaluated
-again and may proceed normally. Optional gap diagnostics are operational and
-must not participate in receipt lookup or client compaction.
+then rechecks `(entitlementId, commitId)` and its canonical fingerprint while
+holding those locks. If a concurrent request created an equal receipt, this
+request returns it without another effect; a different fingerprint returns
+`commit_id_reused`. Only when no receipt exists under lock does reconciliation
+enforce the current lifecycle, commit-acceptance deadline, hard-revocation state
+and contiguous sequence and process records in client-sequence order.
+
+A missing sequence produces a retryable gap response rather than skipping
+evidence. A gap response is not a durable idempotency receipt and does not
+reserve or consume the commit identifier. After the missing sequence is
+accepted, an exact retry is evaluated again and may proceed normally. Optional
+gap diagnostics are operational and must not participate in receipt lookup or
+client compaction.
 
 Because ADR 0042 permits only one offline writer, a base-revision mismatch is
 not silently merged. The server returns the authoritative snapshot and an
@@ -158,6 +164,8 @@ sessions see completion after reconciliation without any special refresh path.
   conflict.
 - An authenticated, validly signed exact retry recovers its existing receipt
   before current deadline and revocation gates; it cannot apply another effect.
+- Receipt identity and fingerprint are checked again while holding the
+  entitlement and attempt locks, before sequence validation or any state change.
 - Records are applied in contiguous client-sequence order.
 - A retryable sequence gap creates no terminal idempotency receipt; the same
   commit is re-evaluated after its predecessor is accepted.
