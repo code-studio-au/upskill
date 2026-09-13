@@ -120,7 +120,7 @@ export function EventOperationsVirtualSessions({
               withBorder
               radius="lg"
               p="md"
-              key={virtualSession.eventSessionId}
+              key={room?.id ?? virtualSession.eventSessionId}
             >
               <Stack gap="md">
                 <header className={classes.webinarSessionHeader}>
