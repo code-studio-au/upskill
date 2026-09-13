@@ -969,6 +969,7 @@ interface EventVirtualLobbyEntryTable {
   eventSessionId: string;
   roomGeneration: number;
   eventParticipationId: string;
+  participantIdentityDigest: Generated<string | null>;
   state:
     | "waiting"
     | "admitted"

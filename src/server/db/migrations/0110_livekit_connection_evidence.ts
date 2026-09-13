@@ -10,6 +10,44 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       id, "eventVirtualJoinAccessId", "eventOccurrenceId", "eventSessionId",
       "roomGeneration", "eventParticipationId"
     )`.execute(db);
+  await sql`alter table event_virtual_lobby_entry
+    add column "participantIdentityDigest" text,
+    add constraint event_virtual_lobby_entry_participant_identity_ck check (
+      "participantIdentityDigest" is null
+      or "participantIdentityDigest" ~ '^[a-f0-9]{64}$'
+    )`.execute(db);
+  await sql`update event_virtual_lobby_entry as lobby
+    set "participantIdentityDigest" = encode(
+      sha256(
+        convert_to(
+          'attendee:' || rtrim(
+            translate(
+              encode(
+                sha256(
+                  convert_to(
+                    room.id || ':' || lobby."eventParticipationId",
+                    'UTF8'
+                  )
+                ),
+                'base64'
+              ),
+              '+/',
+              '-_'
+            ),
+            '='
+          ),
+          'UTF8'
+        )
+      ),
+      'hex'
+    )
+    from event_virtual_room as room
+    where room."eventSessionId" = lobby."eventSessionId"
+      and room.generation = lobby."roomGeneration"`.execute(db);
+  await sql`create unique index event_virtual_lobby_entry_participant_identity_uq
+    on event_virtual_lobby_entry (
+      "eventSessionId", "roomGeneration", "participantIdentityDigest"
+    ) where "participantIdentityDigest" is not null`.execute(db);
 
   await sql`create table livekit_participant_webhook_receipt (
     id text primary key,
@@ -317,6 +355,11 @@ export async function down<Database>(db: Kysely<Database>): Promise<void> {
   );
   await sql`drop table event_virtual_connection_interval`.execute(db);
   await sql`drop table livekit_participant_webhook_receipt`.execute(db);
+  await sql`drop index if exists
+    event_virtual_lobby_entry_participant_identity_uq`.execute(db);
+  await sql`alter table event_virtual_lobby_entry
+    drop constraint if exists event_virtual_lobby_entry_participant_identity_ck,
+    drop column if exists "participantIdentityDigest"`.execute(db);
   await sql`alter table event_virtual_lobby_entry
     drop constraint event_virtual_lobby_entry_presence_scope_uq`.execute(db);
   await sql`alter table event_virtual_room

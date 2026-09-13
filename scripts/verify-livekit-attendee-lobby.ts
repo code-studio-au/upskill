@@ -25,7 +25,10 @@ import {
   processAvailableEventVirtualRecoveryDeliveries,
 } from "#/server/events/event-virtual-recovery-delivery.server";
 import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
-import { eventVirtualAttendeeIdentity } from "#/server/events/event-virtual-participant-identity.server";
+import {
+  eventVirtualAttendeeIdentity,
+  eventVirtualAttendeeIdentityDigest,
+} from "#/server/events/event-virtual-participant-identity.server";
 import {
   findEventVirtualLobbyQueue,
   processAvailableEventVirtualRoomOperations,
@@ -1898,6 +1901,10 @@ try {
         eventSessionId: ids.session,
         roomGeneration: 1,
         eventParticipationId: `verify_livekit_lobby_bulk_participation_${item.id}`,
+        participantIdentityDigest: eventVirtualAttendeeIdentityDigest(
+          ids.room,
+          `verify_livekit_lobby_bulk_participation_${item.id}`,
+        ),
         state: "waiting" as const,
         accessMethod: "authenticated" as const,
         requestedAt: new Date(bulkRequestedAt.getTime() + index),

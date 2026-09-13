@@ -1,13 +1,13 @@
 import "@tanstack/react-start/server-only";
 
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { sql, type Kysely, type Transaction } from "kysely";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv, type ServerEnv } from "#/server/env.server";
 import { advanceEventVirtualLobbyRevision } from "#/server/events/event-virtual-join-access.server";
 import {
-  eventVirtualAttendeeIdentity,
+  eventVirtualParticipantIdentityDigest,
   isEventVirtualAttendeeIdentity,
 } from "#/server/events/event-virtual-participant-identity.server";
 import type { VerifiedLiveKitWebhook } from "./livekit-webhook.server";
@@ -42,10 +42,6 @@ function isParticipantEventName(value: string): value is ParticipantEventName {
     value === "participant_left" ||
     value === "participant_connection_aborted"
   );
-}
-
-function digest(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 function sameInstant(left: Date | null, right: Date | null): boolean {
@@ -147,7 +143,8 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
   if (Number.isNaN(receivedAt.getTime()))
     throw new RangeError("Webhook receipt timestamp is invalid");
   const eventType = event.event;
-  const participantIdentityDigest = digest(participantIdentity);
+  const participantIdentityDigest =
+    eventVirtualParticipantIdentityDigest(participantIdentity);
 
   return database.transaction().execute(async (transaction) => {
     await sql`select pg_advisory_xact_lock(hashtextextended(
@@ -248,13 +245,8 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
       return { status: "ignored", receiptId };
     }
 
-    const lobbyEntries = await transaction
-      .selectFrom("event_virtual_join_access as access")
-      .innerJoin(
-        "event_virtual_lobby_entry as lobby",
-        "lobby.eventVirtualJoinAccessId",
-        "access.id",
-      )
+    const lobbyEntry = await transaction
+      .selectFrom("event_virtual_lobby_entry as lobby")
       .select([
         "lobby.id",
         "lobby.eventVirtualJoinAccessId",
@@ -268,15 +260,11 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
         "lobby.leftAt",
         "lobby.updatedAt",
       ])
-      .where("access.eventSessionId", "=", room.eventSessionId)
-      .where("access.roomGeneration", "=", room.generation)
-      .forUpdate("lobby")
-      .execute();
-    const lobbyEntry = lobbyEntries.find(
-      (entry) =>
-        eventVirtualAttendeeIdentity(room.id, entry.eventParticipationId) ===
-        participantIdentity,
-    );
+      .where("lobby.eventSessionId", "=", room.eventSessionId)
+      .where("lobby.roomGeneration", "=", room.generation)
+      .where("lobby.participantIdentityDigest", "=", participantIdentityDigest)
+      .forUpdate()
+      .executeTakeFirst();
     if (!lobbyEntry) {
       await transaction
         .updateTable("livekit_participant_webhook_receipt")

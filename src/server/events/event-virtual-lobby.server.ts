@@ -40,6 +40,7 @@ import { lockEventVirtualAdmissionEligibility } from "./event-virtual-lobby-elig
 import { revokeEventVirtualLobbyEntryForEligibility } from "./event-virtual-lobby-reconciliation.server";
 import {
   eventVirtualAttendeeIdentity,
+  eventVirtualAttendeeIdentityDigest,
   isEventVirtualAttendeeIdentity,
 } from "./event-virtual-participant-identity.server";
 import { enqueueEventVirtualParticipantRemoval } from "./event-virtual-provider-operation.server";
@@ -803,6 +804,12 @@ async function ensureLobbyEntry(
         eventSessionId: destination.eventSessionId,
         roomGeneration: destination.roomGeneration,
         eventParticipationId: participation.id,
+        participantIdentityDigest: destination.roomId
+          ? eventVirtualAttendeeIdentityDigest(
+              destination.roomId,
+              participation.id,
+            )
+          : null,
         state: automatic ? "admitted" : "waiting",
         accessMethod: actor.accessMethod,
         requestedAt: now,
@@ -2418,6 +2425,10 @@ export async function issueEventVirtualAttendeeCredential(
         .updateTable("event_virtual_lobby_entry")
         .set({
           state: nextState,
+          participantIdentityDigest: eventVirtualAttendeeIdentityDigest(
+            room.id,
+            resolved.participation.id,
+          ),
           firstTokenIssuedAt: entry.firstTokenIssuedAt ?? now,
           credentialExpiresAt,
           updatedAt: now,

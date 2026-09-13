@@ -980,7 +980,9 @@ for (const boundary of [
   '.columns(["providerEnvironment", "providerEventId"])',
   "environment.LIVEKIT_PROJECT_ENVIRONMENT !== event.providerEnvironment",
   'where("providerRoomName", "=", roomName)',
-  "eventVirtualAttendeeIdentity",
+  '"lobby.participantIdentityDigest",',
+  "participantIdentityDigest,",
+  ".executeTakeFirst()",
   'insertInto("event_virtual_connection_interval")',
   "advanceEventVirtualLobbyRevision",
 ])
@@ -993,6 +995,16 @@ if (liveKitParticipantWebhook.includes("rawBody"))
     "LiveKit participant evidence must not retain raw webhook bodies",
   );
 for (const boundary of [
+  '.selectFrom("event_virtual_join_access as access")',
+  "lobbyEntries.find",
+])
+  if (liveKitParticipantWebhook.includes(boundary))
+    failures.push(
+      `LiveKit participant receipt lookup must not scan the lobby roster: ${boundary}`,
+    );
+for (const boundary of [
+  "event_virtual_lobby_entry_participant_identity_ck",
+  "event_virtual_lobby_entry_participant_identity_uq",
   "guard_livekit_participant_webhook_receipt",
   "Participant webhook identity evidence is immutable",
   "livekit_participant_webhook_receipt_guard_trg",

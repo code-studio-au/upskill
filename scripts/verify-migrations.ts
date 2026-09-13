@@ -246,6 +246,7 @@ try {
     "event_virtual_recording_deletion_work_idx",
     "livekit_webhook_receipt_processing_idx",
     "livekit_webhook_receipt_recording_attention_idx",
+    "event_virtual_lobby_entry_participant_identity_uq",
     "livekit_participant_webhook_receipt_connection_idx",
     "event_virtual_connection_interval_presence_idx",
     "event_virtual_connection_interval_open_idx",
@@ -274,6 +275,21 @@ try {
   )
     throw new Error(
       "LiveKit credential reservations must index every unexpired credential state",
+    );
+  const participantIdentityIndex = indexResult.rows.find(
+    (index) =>
+      index.indexname === "event_virtual_lobby_entry_participant_identity_uq",
+  );
+  if (
+    !participantIdentityIndex?.indexdef.includes(
+      '("eventSessionId", "roomGeneration", "participantIdentityDigest")',
+    ) ||
+    !participantIdentityIndex.indexdef.includes(
+      'WHERE ("participantIdentityDigest" IS NOT NULL)',
+    )
+  )
+    throw new Error(
+      "LiveKit participant webhook identity must have one scoped indexed lobby lookup",
     );
   const emailDesignerConstraints = await sql<{
     constraint_name: string;
@@ -766,6 +782,7 @@ try {
         and constraint_name in (
           'event_virtual_room_presence_scope_uq',
           'event_virtual_lobby_entry_presence_scope_uq',
+          'event_virtual_lobby_entry_participant_identity_ck',
           'livekit_participant_webhook_receipt_event_uq',
           'livekit_participant_webhook_receipt_room_fk',
           'livekit_participant_webhook_receipt_lobby_fk',
@@ -782,7 +799,7 @@ try {
         )`.execute(db);
   assert.equal(
     liveKitConnectionEvidenceConstraints.rows.length,
-    15,
+    16,
     "LiveKit participant receipts and connection intervals must retain exact room, generation and lobby scope",
   );
   for (const triggerName of [
