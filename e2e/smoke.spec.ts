@@ -2494,7 +2494,7 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("combobox", { name: "Admission mode" }),
     ).toHaveValue("manual");
-    await expect(page.getByText("25 maximum connections")).toBeVisible();
+    await expect(page.getByText("0 / 25 (max) connected")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Check provider" }),
     ).toHaveCount(0);

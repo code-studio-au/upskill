@@ -179,6 +179,21 @@ describe("LiveKit webhook verification", () => {
         enabledEnvironment,
       ),
     ).rejects.toMatchObject({ code: "LIVEKIT_WEBHOOK_INVALID" });
+    const missingParticipant = Buffer.from(
+      JSON.stringify({
+        event: "participant_left",
+        id: "EV_ParticipantLeft1",
+        createdAt: "1788400800",
+        room: { sid: "RM_1", name: "room_generation_1" },
+      }),
+    );
+    await expect(
+      verifyLiveKitWebhook(
+        missingParticipant,
+        await sign(missingParticipant),
+        enabledEnvironment,
+      ),
+    ).rejects.toMatchObject({ code: "LIVEKIT_WEBHOOK_INVALID" });
   });
 
   it("stays unavailable when the feature is disabled", async () => {

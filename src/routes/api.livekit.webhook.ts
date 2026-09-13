@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { logServerEvent } from "#/server/logging/server-logger";
+import { ingestVerifiedLiveKitParticipantWebhook } from "#/server/livekit/livekit-participant-webhook.server";
 import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
 import {
   LiveKitWebhookError,
@@ -58,6 +59,23 @@ export async function handleLiveKitWebhookRequest(
         { status: 200, headers: responseHeaders },
       );
     }
+    const participantOutcome =
+      await ingestVerifiedLiveKitParticipantWebhook(event);
+    if (participantOutcome.status !== "unsupported") {
+      logServerEvent({
+        level: "info",
+        event: "livekit.participant_webhook_received",
+        fields: {
+          providerEventId: event.providerEventId,
+          providerEvent: event.event,
+          ingestionStatus: participantOutcome.status,
+        },
+      });
+      return Response.json(
+        { received: true },
+        { status: 200, headers: responseHeaders },
+      );
+    }
     logServerEvent({
       level: "warn",
       event: "livekit.webhook_ingestion_not_ready",
@@ -66,8 +84,8 @@ export async function handleLiveKitWebhookRequest(
         providerEvent: event.event,
       },
     });
-    // Participant evidence belongs to Slice 7a. Ask LiveKit to retry rather
-    // than acknowledging and silently discarding those valid lifecycle events.
+    // Room-level events still belong to a later reconciliation slice. Ask
+    // LiveKit to retry rather than acknowledging unsupported lifecycle input.
     return Response.json(
       { error: "webhook_ingestion_not_ready" },
       {

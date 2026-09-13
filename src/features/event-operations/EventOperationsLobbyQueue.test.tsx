@@ -70,6 +70,23 @@ describe("LiveKit operations recording status", () => {
     expect(source).not.toContain("queue?.recording ?? session.recording");
   });
 
+  it("shows connection-derived learner presence as one count and clear states", () => {
+    const source = readFileSync(
+      "src/features/event-operations/EventOperationsLobbyQueue.tsx",
+      "utf8",
+    );
+    const serverSource = readFileSync(
+      "src/server/events/event-virtual-room.server.ts",
+      "utf8",
+    );
+
+    expect(source).toContain('queue?.connectedCount ?? "—"');
+    expect(source).toContain("entry.statusLabel");
+    expect(serverSource).toContain('return state === "connected"');
+    expect(serverSource).toContain('? "Connected" : "Disconnected"');
+    expect(source).not.toContain("maximum connections");
+  });
+
   it("warns staff while an automatic recording operation is retrying", () => {
     const html = renderRecording({
       recordingId: "recording_1",

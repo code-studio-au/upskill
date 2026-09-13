@@ -944,6 +944,17 @@ const liveKitRecordingRetentionMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitParticipantWebhook = fs.readFileSync(
+  path.join(root, "src/server/livekit/livekit-participant-webhook.server.ts"),
+  "utf8",
+);
+const liveKitConnectionEvidenceMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0110_livekit_connection_evidence.ts",
+  ),
+  "utf8",
+);
 const objectStorage = fs.readFileSync(
   path.join(root, "src/server/storage/object-storage.server.ts"),
   "utf8",
@@ -963,6 +974,35 @@ if (liveKitRecordingWebhook.includes("rawBody"))
   failures.push(
     "LiveKit recording receipts must not retain raw webhook bodies",
   );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'insertInto("livekit_participant_webhook_receipt")',
+  '.columns(["providerEnvironment", "providerEventId"])',
+  "environment.LIVEKIT_PROJECT_ENVIRONMENT !== event.providerEnvironment",
+  'where("providerRoomName", "=", roomName)',
+  "eventVirtualAttendeeIdentity",
+  'insertInto("event_virtual_connection_interval")',
+  "advanceEventVirtualLobbyRevision",
+])
+  if (!liveKitParticipantWebhook.includes(boundary))
+    failures.push(
+      `LiveKit participant receipt boundary is missing: ${boundary}`,
+    );
+if (liveKitParticipantWebhook.includes("rawBody"))
+  failures.push(
+    "LiveKit participant evidence must not retain raw webhook bodies",
+  );
+for (const boundary of [
+  "guard_livekit_participant_webhook_receipt",
+  "Participant webhook identity evidence is immutable",
+  "livekit_participant_webhook_receipt_guard_trg",
+  "guard_event_virtual_connection_interval",
+  "event_virtual_connection_interval_guard_trg",
+  "revoke delete on table livekit_participant_webhook_receipt",
+  "revoke delete on table event_virtual_connection_interval",
+])
+  if (!liveKitConnectionEvidenceMigration.includes(boundary))
+    failures.push(`LiveKit connection evidence guard is missing: ${boundary}`);
 for (const boundary of [
   "guard_livekit_webhook_receipt_evidence",
   "Webhook receipt identity evidence is immutable",
@@ -1308,6 +1348,18 @@ if (
   failures.push(
     "Runtime database roles must not physically delete LiveKit webhook receipts",
   );
+for (const table of [
+  "livekit_participant_webhook_receipt",
+  "event_virtual_connection_interval",
+])
+  if (
+    !provisionRuntimeRoles.includes(
+      `revoke delete on table ${table} from \${role}`,
+    )
+  )
+    failures.push(
+      `Runtime database roles must not physically delete ${table} evidence`,
+    );
 if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
   failures.push(
     "Release installation must expose the verified commit identity",

@@ -344,12 +344,15 @@ export interface EventVirtualLobbyQueueData {
     id: string;
     eventParticipationId: string;
     name: string;
-    state: "waiting" | "admitted" | "token_issued" | "connected";
+    state: "waiting" | "admitted" | "token_issued" | "connected" | "left";
+    statusLabel:
+      "Waiting" | "Admitted" | "Access issued" | "Connected" | "Disconnected";
     accessMethod: "authenticated" | "email" | "sms" | "guest";
     requestedAt: string;
     admittedAt: string | null;
   }>;
   hasNextPage: boolean;
+  connectedCount: number;
   recording: EventVirtualRecordingOperationsState | null;
 }
 

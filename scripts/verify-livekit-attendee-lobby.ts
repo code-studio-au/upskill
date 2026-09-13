@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { FixedWindowRateLimitEntry } from "#/features/event-guest/event-guest-rate-limit";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { getServerEnv } from "#/server/env.server";
 import {
   ensureEventGuestAccessRecord,
   rotateEventGuestAccessRecord,
@@ -32,6 +33,8 @@ import {
   transitionEventVirtualRoom,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
+import { ingestVerifiedLiveKitParticipantWebhook } from "#/server/livekit/livekit-participant-webhook.server";
+import type { VerifiedLiveKitWebhook } from "#/server/livekit/livekit-webhook.server";
 import {
   type CreateLiveKitJoinTokenInput,
   LiveKitProviderError,
@@ -2076,7 +2079,11 @@ try {
     10,
   );
   assert.equal(lastQueuePage.status, "ready");
-  assert.equal(lastQueuePage.data.entries.length, 3);
+  assert.equal(lastQueuePage.data.entries.length, 4);
+  assert.ok(
+    lastQueuePage.data.entries.some((entry) => entry.state === "left"),
+    "Disconnected learners must remain visible in the staff roster",
+  );
   assert.equal(lastQueuePage.data.hasNextPage, false);
   await database
     .insertInto("event_admin_assignment")
@@ -4359,6 +4366,198 @@ try {
     (smsInvalidationAudit.metadata as { source?: string }).source,
     "verified_phone_invalidated",
     "SMS invalidation must record the source of the lobby revocation",
+  );
+
+  const evidenceLearner = bulkLearners.at(-1);
+  assert.ok(evidenceLearner);
+  const evidenceLobbyEntryId = `verify_livekit_lobby_bulk_entry_${evidenceLearner.id}`;
+  const evidenceParticipationId = `verify_livekit_lobby_bulk_participation_${evidenceLearner.id}`;
+  const evidenceJoinedAt = new Date(endsAt.getTime() + 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "token_issued",
+      admittedAt: createdAt,
+      admittedByUserId: administrator.id,
+      declinedAt: null,
+      declinedByUserId: null,
+      revokedAt: null,
+      revokedByUserId: null,
+      firstTokenIssuedAt: new Date(evidenceJoinedAt.getTime() - 1_000),
+      firstConnectedAt: null,
+      lastSeenAt: null,
+      leftAt: null,
+      updatedAt: evidenceJoinedAt,
+    })
+    .where("id", "=", evidenceLobbyEntryId)
+    .executeTakeFirstOrThrow();
+  const attendeeIdentity = eventVirtualAttendeeIdentity(
+    ids.room,
+    evidenceParticipationId,
+  );
+  const participantEvent = (
+    providerEventId: string,
+    event: VerifiedLiveKitWebhook["event"],
+    participantSid: string,
+    offsetSeconds: number,
+  ): VerifiedLiveKitWebhook => ({
+    providerEnvironment: "test",
+    providerEventId,
+    event,
+    createdAtSeconds:
+      Math.floor(evidenceJoinedAt.getTime() / 1_000) + offsetSeconds,
+    payloadDigest: "a".repeat(64),
+    roomSid: "RM_VERIFY_LOBBY",
+    roomName: "event:verify_lobby:g1",
+    participantSid,
+    participantIdentity: attendeeIdentity,
+  });
+  const receiptClock = (offsetSeconds: number) => () =>
+    new Date(evidenceJoinedAt.getTime() + offsetSeconds * 1_000 + 30_000);
+  const firstLeave = participantEvent(
+    "EV_VerifyConnectionLeftFirst",
+    "participant_left",
+    "PA_VERIFY_CONNECTION_1",
+    2,
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitParticipantWebhook(
+        firstLeave,
+        database,
+        getServerEnv(),
+        receiptClock(2),
+      )
+    ).status,
+    "processed",
+  );
+  const firstJoin = participantEvent(
+    "EV_VerifyConnectionJoinFirst",
+    "participant_joined",
+    "PA_VERIFY_CONNECTION_1",
+    1,
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitParticipantWebhook(
+        firstJoin,
+        database,
+        getServerEnv(),
+        receiptClock(3),
+      )
+    ).status,
+    "processed",
+    "A delayed join must pair with an already retained leave receipt",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "firstConnectedAt", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "left",
+      firstConnectedAt: new Date(evidenceJoinedAt.getTime() + 1_000),
+      leftAt: new Date(evidenceJoinedAt.getTime() + 2_000),
+    },
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitParticipantWebhook(
+        firstJoin,
+        database,
+        getServerEnv(),
+        receiptClock(4),
+      )
+    ).status,
+    "duplicate",
+    "A retried provider event must not create duplicate connection evidence",
+  );
+  const secondJoin = participantEvent(
+    "EV_VerifyConnectionJoinSecond",
+    "participant_joined",
+    "PA_VERIFY_CONNECTION_2",
+    3,
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    secondJoin,
+    database,
+    getServerEnv(),
+    receiptClock(5),
+  );
+  const connectedQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    0,
+  );
+  assert.equal(connectedQueue.status, "ready");
+  assert.equal(
+    connectedQueue.data.connectedCount,
+    1,
+    "A new participant SID must restore durable connected status",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionLeftDuplicate",
+      "participant_left",
+      "PA_VERIFY_CONNECTION_1",
+      4,
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(6),
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_virtual_lobby_entry")
+        .select("state")
+        .where("id", "=", evidenceLobbyEntryId)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "connected",
+    "One closed connection must not hide another active connection",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionLeftSecond",
+      "participant_connection_aborted",
+      "PA_VERIFY_CONNECTION_2",
+      5,
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(7),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "left",
+      leftAt: new Date(evidenceJoinedAt.getTime() + 5_000),
+    },
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_connection_interval")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("lobbyEntryId", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    2,
+  );
+  assert.equal(
+    await database
+      .selectFrom("livekit_participant_webhook_receipt")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("matchedLobbyEntryId", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    5,
   );
 
   const replacement = await database

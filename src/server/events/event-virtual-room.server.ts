@@ -51,6 +51,19 @@ const presenterCredentialDenialAuditLimits = new Map<
 type DatabaseConnection = Kysely<Database> | Transaction<Database>;
 type VirtualRoomDoorState = "scheduled" | "open" | "locked" | "ended";
 type VirtualRoomAction = "start" | "lock" | "reopen" | "end" | "replace";
+type VisibleLobbyState =
+  "waiting" | "admitted" | "token_issued" | "connected" | "left";
+type VisibleLobbyStatusLabel =
+  "Waiting" | "Admitted" | "Access issued" | "Connected" | "Disconnected";
+
+function visibleLobbyStatusLabel(
+  state: VisibleLobbyState,
+): VisibleLobbyStatusLabel {
+  if (state === "waiting") return "Waiting";
+  if (state === "admitted") return "Admitted";
+  if (state === "token_issued") return "Access issued";
+  return state === "connected" ? "Connected" : "Disconnected";
+}
 
 type EventVirtualRoomConflictReason =
   | "capacity_exceeded"
@@ -373,6 +386,14 @@ export async function findEventVirtualLobbyQueue(
   const recordingByRoom = await findRecordingOperationsByRoom(database, [
     access.roomId,
   ]);
+  const connectedCount = await database
+    .selectFrom("event_virtual_lobby_entry")
+    .select((expression) =>
+      expression.fn.countAll<string>().as("connectedCount"),
+    )
+    .where("eventVirtualJoinAccessId", "=", access.id)
+    .where("state", "=", "connected")
+    .executeTakeFirstOrThrow();
   const rows = await database
     .selectFrom("event_virtual_lobby_entry as lobby")
     .innerJoin(
@@ -395,6 +416,7 @@ export async function findEventVirtualLobbyQueue(
       "admitted",
       "token_issued",
       "connected",
+      "left",
     ])
     .orderBy(
       sql<number>`case "lobby"."state" when 'waiting' then 0 when 'connected' then 1 else 2 end`,
@@ -422,13 +444,14 @@ export async function findEventVirtualLobbyQueue(
         id: entry.id,
         eventParticipationId: entry.eventParticipationId,
         name: entry.name,
-        state: entry.state as
-          "waiting" | "admitted" | "token_issued" | "connected",
+        state: entry.state as VisibleLobbyState,
+        statusLabel: visibleLobbyStatusLabel(entry.state as VisibleLobbyState),
         accessMethod: entry.accessMethod,
         requestedAt: entry.requestedAt.toISOString(),
         admittedAt: entry.admittedAt?.toISOString() ?? null,
       })),
       hasNextPage: rows.length > LOBBY_QUEUE_PAGE_SIZE,
+      connectedCount: Number(connectedCount.connectedCount),
       recording: recordingByRoom.get(access.roomId) ?? null,
     },
   } as const;

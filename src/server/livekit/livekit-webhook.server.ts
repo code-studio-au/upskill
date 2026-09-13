@@ -34,6 +34,12 @@ const providerRoomNameSchema = z
   .max(200)
   .regex(/^\P{Cc}+$/u);
 
+const providerParticipantIdentitySchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^\P{Cc}+$/u);
+
 const liveKitWebhookPayloadSchema = z.looseObject({
   id: providerOpaqueIdSchema,
   createdAt: z.union([
@@ -101,11 +107,21 @@ export async function verifyLiveKitWebhook(
       validated.event === "egress_started" ||
       validated.event === "egress_updated" ||
       validated.event === "egress_ended";
+    const isParticipantEvent =
+      validated.event === "participant_joined" ||
+      validated.event === "participant_left" ||
+      validated.event === "participant_connection_aborted";
     const egressId = decoded.egressInfo?.egressId;
     const egressRoomName = decoded.egressInfo?.roomName;
     if (isEgressEvent) {
       providerOpaqueIdSchema.parse(egressId);
       providerRoomNameSchema.parse(egressRoomName);
+    }
+    if (isParticipantEvent) {
+      providerOpaqueIdSchema.parse(decoded.room?.sid);
+      providerRoomNameSchema.parse(decoded.room?.name);
+      providerOpaqueIdSchema.parse(decoded.participant?.sid);
+      providerParticipantIdentitySchema.parse(decoded.participant?.identity);
     }
     return {
       providerEnvironment,
