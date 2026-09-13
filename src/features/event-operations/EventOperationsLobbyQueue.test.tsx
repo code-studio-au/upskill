@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { EventOperationsWorkspace } from "./event-operations.schema";
@@ -47,6 +48,16 @@ function renderRecording(
 }
 
 describe("LiveKit operations recording status", () => {
+  it("rejects older lobby refresh responses", () => {
+    const source = readFileSync(
+      "src/features/event-operations/EventOperationsLobbyQueue.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("const request = ++requestId;");
+    expect(source).toContain("request !== requestId");
+  });
+
   it("warns staff while an automatic recording operation is retrying", () => {
     const html = renderRecording({
       recordingId: "recording_1",

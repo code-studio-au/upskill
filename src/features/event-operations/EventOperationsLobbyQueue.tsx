@@ -41,7 +41,9 @@ export function EventOperationsLobbyQueue({
 
   useEffect(() => {
     let stopped: boolean | undefined;
+    let requestId = 0;
     const load = async () => {
+      const request = ++requestId;
       const result = await getEventVirtualLobbyQueue({
         data: {
           eventOccurrenceId,
@@ -49,7 +51,7 @@ export function EventOperationsLobbyQueue({
           page,
         },
       });
-      if (stopped) return;
+      if (stopped || request !== requestId) return;
       if (result.status !== "ready") {
         setQueue(null);
         return;
@@ -132,7 +134,7 @@ export function EventOperationsLobbyQueue({
         </div>
       </header>
 
-      {queue === undefined ? <p role="status">Checking lobby…</p> : null}
+      {queue === undefined ? <p role="status">Loading…</p> : null}
       {queue === null ? (
         <p role="alert" className={classes.queueError}>
           Learners unavailable. Retrying…
@@ -188,7 +190,7 @@ export function EventOperationsLobbyQueue({
         </ul>
       ) : null}
       {queue && !entries.length ? (
-        <strong className={classes.emptyQueue}>No learners waiting</strong>
+        <strong className={classes.emptyQueue}>Empty</strong>
       ) : null}
       {queue && (page || queue.hasNextPage) ? (
         <nav
