@@ -64,17 +64,38 @@ may ship for a browser engine until tests on that engine prove that one package
 cannot set or read cookies, storage or service-worker state visible to another
 attempt.
 
-The first supported offline matrix is installed Chrome or Edge on supported
-desktop and Android platforms. Installed Safari web apps on iPhone and iPad are
-deferred: in this design the package site is a cross-site frame, and WebKit does
-not provide a sufficiently reliable, pre-authorised synchronous storage
-contract for that frame to make `LMSCommit` durability an offline guarantee.
-Capability detection alone cannot repair a save mechanism that may require a
-first-party interaction or storage-access grant after download. Compatible
+The first confirmed offline matrix is installed Chrome or Edge on supported
+desktop and Android platforms. Installed Safari web apps on supported iPhone
+and iPad platforms are a required qualification target, but are not advertised
+as supported until the Storage Access prototype below passes. Compatible
 non-installed Chromium browsers may pass the same runtime capability checks,
 but are not the recommended offline journey. Embedded and in-app browsers are
 unsupported. Online Upskill remains available in supported ordinary browsers,
 including Safari, regardless of offline capability.
+
+For the Safari prototype, **Enable offline course** is an explicit learner
+action inside the installed web app. Its direct-child package frame includes
+only the required sandbox capabilities, including
+`allow-storage-access-by-user-activation`, and calls
+`document.requestStorageAccess()` from that user activation when the API says
+access is absent. A granted request is not treated as proof that Web Storage is
+usable: the package frame must immediately pass a bounded synchronous
+`localStorage` write, read, replace and delete probe before download. The probe
+uses no learner data and the result is recorded only as local capability state.
+It is repeated before offline launch, and any denial, exception or mismatch
+keeps the module out of **Ready offline** without weakening the per-attempt
+origin and cookie-site boundary.
+
+Safari becomes supported only after this flow passes automated and real-device
+tests on every supported iOS/iPadOS version for permission denial and renewal,
+offline commits, repeated checkpoints, immediate frame and application
+termination, device restart, spool drain, multiple isolated attempts, storage
+pressure, upgrade and whole-site cleanup. Tests must distinguish a synchronously
+staged checkpoint from a trusted imported journal record as defined by ADR 0043.
+If WebKit cannot satisfy those gates, the required fallback is an iOS native
+container reusing the TanStack application and SCORM protocol with
+platform-controlled package storage and keys; moving package code onto a
+trusted Upskill origin is not an acceptable fallback.
 
 Before offering a download, use capability checks for service workers, Cache
 Storage, IndexedDB, Web Locks and required cryptography. Request persistent
@@ -114,11 +135,11 @@ modules.
   application identity.
 - **Depend on Background Sync.** Rejected because support and scheduling differ
   across browser engines.
-- **Include installed Safari in the first offline matrix.** Deferred because the
-  cookie-isolated cross-site package frame cannot yet rely on synchronous
-  durable spool storage without an additional first-party/storage-access flow.
-  A later design must prove save, drain, eviction and isolation behaviour on
-  supported iPhone and iPad versions before enabling the capability.
+- **Declare installed Safari supported from capability detection alone.**
+  Rejected because a Storage Access grant does not itself prove synchronous Web
+  Storage behaviour or persistence across the required lifecycle. Safari is a
+  required prototype target with explicit release gates and a native-container
+  fallback.
 
 ## Consequences
 
@@ -159,11 +180,12 @@ must show download health and never promise permanent availability.
 ## Follow-up / Triggers
 
 Revisit the platform matrix after measured learner demand, browser failures or
-storage eviction rates. Add Safari only after a WebKit-compatible synchronous
-spool and whole-site cleanup flow passes the same crash, restart and isolation
-tests as Chromium. Consider a native application only when required offline
-reliability, operating-system integration or background execution cannot be
-achieved within the tested web capability.
+storage eviction rates. Add Safari only after the Storage Access prototype and
+whole-site cleanup flow pass the defined crash, restart and isolation gates. If
+they fail, implement the iOS native-container fallback. Consider a broader
+native application only when required offline reliability, operating-system
+integration or background execution cannot be achieved within the tested web
+capability.
 
 ## Related Documents
 
