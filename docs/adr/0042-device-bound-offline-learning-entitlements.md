@@ -96,10 +96,24 @@ distinguishable from online progress.
 Offline learning is intended for a learner-controlled device. Before download,
 the UI warns against public or shared devices. **Remove download** deletes the
 package, progress journal and entitlement after pending work is synchronised or
-the learner explicitly accepts its loss. Signing out removes personalised
-offline state and credentials from that installation; immutable package bytes
-may remain only when they are unlinked from learner identity and inaccessible
-to a SCORM launch without a valid entitlement.
+the learner explicitly accepts its loss.
+
+Signing out or switching accounts uses the same synchronize-or-explicit-loss
+boundary. The application first drains every registered package spool,
+finalises signing reservations and synchronises pending journal records through
+durable server receipts. If the device is offline or any evidence remains
+unacknowledged, ordinary sign-out is paused and the learner is shown the exact
+affected downloads with two choices: remain signed in and retry later, or
+**Delete offline progress and sign out**. The destructive choice requires a
+separate explicit confirmation that the listed unsynchronised progress cannot
+be recovered; it then deletes the spool, journal, entitlement, device signing
+key and other personalised offline state before completing local sign-out. It
+must not present deletion as successful if cleanup fails. Closing the PWA or
+allowing an online session cookie to expire is not an instruction to delete
+offline evidence and does not bypass this flow. Once local sign-out completes,
+no personalised offline state or signing credential remains. Immutable package
+bytes may remain only when they are unlinked from learner identity and
+inaccessible to a SCORM launch without a valid entitlement.
 
 Offline scope initially includes SCORM activities only. Surveys, research
 questionnaires, payments, certificates, administrative functions and other
@@ -146,6 +160,13 @@ for recovery but extends delegated server authority beyond the intended launch
 expiry. Neither the client timestamp nor the device-clock launch check can prove
 that accepted work occurred before access expired.
 
+Sign-out may require connectivity and synchronization before it can complete
+without data loss. A learner can still clear the device immediately, but only
+through the explicit destructive sign-out path. Remote server-side session
+termination cannot erase or synchronize a disconnected installation; on its
+next authenticated use the installation must resolve its retained evidence
+before another learner account can use that offline workspace.
+
 ## Invariants / Guardrails
 
 - Entitlements are issued only by a server-owned policy using authoritative
@@ -167,6 +188,11 @@ that accepted work occurred before access expired.
 - Hard revocation changes server acceptance; it cannot promise remote deletion.
 - Receipt recovery for a previously accepted exact commit remains available
   after expiry or revocation and never reapplies the domain effect.
+- Sign-out, account switching and download removal never discard
+  unacknowledged offline evidence or its signing key without successful
+  synchronization or the learner's explicit destructive confirmation.
+- Completed local sign-out leaves no personalised offline state or device
+  signing credential available to a later user of that installation.
 - Research questionnaires and other non-SCORM evidence are not added to offline
   scope without a separate privacy and architecture decision.
 
