@@ -1387,9 +1387,11 @@ gates passed; it does not by itself authorise staging or production activation.
       shown during an active room, but token state is not durable connection
       evidence after a participant leaves or the room ends. Participant receipts
       remain separate from the recording-specific Egress receipt lifecycle; both
-      retain only bounded normalised evidence. Multiple provider participant SIDs
-      are projected as one learner presence state, and the staff roster retains a
-      disconnected learner after the final active interval closes.
+      retain only bounded normalised evidence. A unique provider room name anchors
+      the application generation while provider room SIDs are retained per room
+      incarnation. Multiple provider participant SIDs are projected as one learner
+      presence state, and the staff roster retains a disconnected learner after the
+      final active interval closes.
 - [ ] **Slice 7b — attendance reconciliation and promotion:** add periodic and
       final reconciliation, versioned attendance-policy evaluation, automatic
       check-in/duration promotion and preservation of manual corrections. This is

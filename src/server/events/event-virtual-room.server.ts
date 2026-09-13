@@ -206,6 +206,7 @@ interface EventVirtualRecordingOperationsState {
 
 export interface EventVirtualSessionOperations {
   eventSessionId: string;
+  learnerCapacity: number;
   preparationOpensAt: string;
   canEnterGreenRoom: boolean;
   presenterRecordingNotice: string | null;
@@ -1402,6 +1403,7 @@ export async function findEventVirtualSessionOperations(
       "session.livekitRecordingMode",
       "session.livekitPresenterRecordingNotice",
       "occurrence.status as occurrenceStatus",
+      "occurrence.capacity as learnerCapacity",
     ])
     .where("session.eventOccurrenceId", "=", eventOccurrenceId)
     .where("session.virtualDeliveryProvider", "=", "livekit")
@@ -1485,6 +1487,7 @@ export async function findEventVirtualSessionOperations(
     const accessRecord = accessBySession.get(session.id);
     return {
       eventSessionId: session.id,
+      learnerCapacity: session.learnerCapacity,
       preparationOpensAt: opensAt.toISOString(),
       canEnterGreenRoom:
         session.occurrenceStatus === "published" &&

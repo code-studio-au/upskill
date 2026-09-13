@@ -27,6 +27,7 @@ function renderRecording(
 ): string {
   const session: VirtualSession = {
     eventSessionId: room.eventSessionId,
+    learnerCapacity: 5,
     preparationOpensAt: "2030-09-03T23:00:00.000Z",
     canEnterGreenRoom: true,
     presenterRecordingNotice: "This webinar is recorded.",
@@ -81,6 +82,8 @@ describe("LiveKit operations recording status", () => {
     );
 
     expect(source).toContain('queue?.connectedCount ?? "—"');
+    expect(source).toContain("session.learnerCapacity");
+    expect(source).not.toContain("room.maxParticipants} (max)");
     expect(source).toContain("entry.statusLabel");
     expect(serverSource).toContain('return state === "connected"');
     expect(serverSource).toContain('? "Connected" : "Disconnected"');
@@ -143,6 +146,7 @@ describe("LiveKit operations recording status", () => {
           eventOccurrenceId="event_occurrence_1"
           session={{
             eventSessionId: room.eventSessionId,
+            learnerCapacity: 5,
             preparationOpensAt: "2030-09-03T23:00:00.000Z",
             canEnterGreenRoom: true,
             presenterRecordingNotice: "This webinar is recorded.",
@@ -192,6 +196,7 @@ describe("LiveKit operations recording status", () => {
           eventOccurrenceId="event_occurrence_1"
           session={{
             eventSessionId: room.eventSessionId,
+            learnerCapacity: 5,
             preparationOpensAt: "2030-09-03T23:00:00.000Z",
             canEnterGreenRoom: true,
             presenterRecordingNotice: "This webinar is recorded.",

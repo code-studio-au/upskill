@@ -2461,7 +2461,7 @@ test("platform administrators can inspect learner progress", async ({
         'e2e_livekit_start_confirmation', $1, 'livekit', 1,
         'upskill_room_e2e_start_confirmation', 'RM_E2E_START_CONFIRMATION',
         'scheduled', 'manual', 'manual', null, 'off', null,
-        25, 'ready', null,
+        35, 'ready', null,
         (select id from "user" where email = 'admin@codestudio.au'), now()
       )`,
       [occurrenceSessionId],
@@ -2494,7 +2494,7 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("combobox", { name: "Admission mode" }),
     ).toHaveValue("manual");
-    await expect(page.getByText("0 / 25 (max) connected")).toBeVisible();
+    await expect(page.getByText("0 / 30 (max) connected")).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Check provider" }),
     ).toHaveCount(0);

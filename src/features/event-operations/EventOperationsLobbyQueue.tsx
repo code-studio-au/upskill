@@ -103,7 +103,7 @@ export function EventOperationsLobbyQueue({
         <div>
           <h4>Learners</h4>
           <p>
-            {queue?.connectedCount ?? "—"} / {room.maxParticipants} (max)
+            {queue?.connectedCount ?? "—"} / {session.learnerCapacity} (max)
             connected
           </p>
         </div>

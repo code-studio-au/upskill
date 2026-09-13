@@ -230,7 +230,7 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
       .where("providerRoomName", "=", roomName)
       .forUpdate()
       .executeTakeFirst();
-    if (!room || (room.providerRoomSid && room.providerRoomSid !== roomSid)) {
+    if (!room) {
       await transaction
         .updateTable("livekit_participant_webhook_receipt")
         .set({ processingState: "unmatched", processedAt: receivedAt })
@@ -238,13 +238,6 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
         .executeTakeFirstOrThrow();
       return { status: "unmatched", receiptId };
     }
-    if (!room.providerRoomSid)
-      await transaction
-        .updateTable("event_virtual_room")
-        .set({ providerRoomSid: roomSid })
-        .where("id", "=", room.id)
-        .where("providerRoomSid", "is", null)
-        .executeTakeFirstOrThrow();
 
     if (!isEventVirtualAttendeeIdentity(participantIdentity)) {
       await transaction
@@ -308,6 +301,31 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
       })
       .where("id", "=", receiptId)
       .executeTakeFirstOrThrow();
+
+    if (
+      eventType === "participant_joined" &&
+      room.providerRoomSid !== roomSid
+    ) {
+      const latestMatchedJoin = await transaction
+        .selectFrom("livekit_participant_webhook_receipt")
+        .select(["providerCreatedAt", "providerRoomSid"])
+        .where("matchedRoomId", "=", room.id)
+        .where("eventType", "=", "participant_joined")
+        .where("processingState", "=", "processed")
+        .where("id", "!=", receiptId)
+        .orderBy("providerCreatedAt", "desc")
+        .orderBy("id", "desc")
+        .executeTakeFirst();
+      if (
+        !latestMatchedJoin ||
+        providerCreatedAt >= latestMatchedJoin.providerCreatedAt
+      )
+        await transaction
+          .updateTable("event_virtual_room")
+          .set({ providerRoomSid: roomSid })
+          .where("id", "=", room.id)
+          .executeTakeFirstOrThrow();
+    }
 
     const existingInterval = await transaction
       .selectFrom("event_virtual_connection_interval")

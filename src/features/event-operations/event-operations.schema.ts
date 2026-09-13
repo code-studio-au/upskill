@@ -311,6 +311,7 @@ export interface EventOperationsWorkspace {
   }>;
   virtualSessions: Array<{
     eventSessionId: string;
+    learnerCapacity: number;
     preparationOpensAt: string;
     canEnterGreenRoom: boolean;
     presenterRecordingNotice: string | null;

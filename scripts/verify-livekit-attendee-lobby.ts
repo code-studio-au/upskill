@@ -4400,6 +4400,7 @@ try {
     event: VerifiedLiveKitWebhook["event"],
     participantSid: string,
     offsetSeconds: number,
+    roomSid = "RM_VERIFY_LOBBY",
   ): VerifiedLiveKitWebhook => ({
     providerEnvironment: "test",
     providerEventId,
@@ -4407,7 +4408,7 @@ try {
     createdAtSeconds:
       Math.floor(evidenceJoinedAt.getTime() / 1_000) + offsetSeconds,
     payloadDigest: "a".repeat(64),
-    roomSid: "RM_VERIFY_LOBBY",
+    roomSid,
     roomName: "event:verify_lobby:g1",
     participantSid,
     participantIdentity: attendeeIdentity,
@@ -4541,6 +4542,88 @@ try {
       leftAt: new Date(evidenceJoinedAt.getTime() + 5_000),
     },
   );
+  const recreatedRoomJoin = participantEvent(
+    "EV_VerifyConnectionRecreatedJoin",
+    "participant_joined",
+    "PA_VERIFY_CONNECTION_3",
+    6,
+    "RM_VERIFY_LOBBY_RECREATED",
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitParticipantWebhook(
+        recreatedRoomJoin,
+        database,
+        getServerEnv(),
+        receiptClock(8),
+      )
+    ).status,
+    "processed",
+    "A valid recreated provider room must reconnect the application generation",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("providerRoomSid")
+      .where("id", "=", ids.room)
+      .executeTakeFirstOrThrow(),
+    { providerRoomSid: "RM_VERIFY_LOBBY_RECREATED" },
+    "The newest matched join must reconcile the current provider room SID",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionDelayedOldLeave",
+      "participant_left",
+      "PA_VERIFY_CONNECTION_2",
+      4,
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(9),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("providerRoomSid")
+      .where("id", "=", ids.room)
+      .executeTakeFirstOrThrow(),
+    { providerRoomSid: "RM_VERIFY_LOBBY_RECREATED" },
+    "A delayed terminal event from an older room incarnation must not replace the current SID",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_virtual_lobby_entry")
+        .select("state")
+        .where("id", "=", evidenceLobbyEntryId)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "connected",
+    "An older room incarnation event must not hide a current connection",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionRecreatedLeft",
+      "participant_left",
+      "PA_VERIFY_CONNECTION_3",
+      7,
+      "RM_VERIFY_LOBBY_RECREATED",
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(10),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "left",
+      leftAt: new Date(evidenceJoinedAt.getTime() + 7_000),
+    },
+  );
   assert.equal(
     await database
       .selectFrom("event_virtual_connection_interval")
@@ -4548,7 +4631,7 @@ try {
       .where("lobbyEntryId", "=", evidenceLobbyEntryId)
       .executeTakeFirstOrThrow()
       .then((row) => Number(row.count)),
-    2,
+    3,
   );
   assert.equal(
     await database
@@ -4557,7 +4640,7 @@ try {
       .where("matchedLobbyEntryId", "=", evidenceLobbyEntryId)
       .executeTakeFirstOrThrow()
       .then((row) => Number(row.count)),
-    5,
+    8,
   );
 
   const replacement = await database

@@ -49,6 +49,7 @@ function workspaceForGeneration(generation: number): EventOperationsWorkspace {
     virtualSessions: [
       {
         eventSessionId,
+        learnerCapacity: 5,
         preparationOpensAt: "2030-09-03T23:00:00.000Z",
         canEnterGreenRoom: false,
         presenterRecordingNotice: null,
