@@ -130,6 +130,15 @@ storage, caches, service workers and execution contexts before trusted code
 deletes the journal, entitlement and device binding. A cached cleanup page or
 JavaScript enumeration is not treated as a complete site wipe.
 
+Provisioning an exact-attempt package site also creates a server-retained
+cleanup-inventory entry bound to the learner, installation, entitlement and
+exact package-site origin. The inventory contains identifiers and cleanup state,
+never SCORM values, and is not deleted merely because application- or
+learning-origin browser storage disappears. It remains reconstructible to the
+cleanup workflow until that exact site has returned an authoritative whole-site
+clearing response and the server records its cleanup receipt. Local registries
+accelerate discovery but are not the sole record of sites that must be cleared.
+
 Signing out or switching accounts uses the same synchronize-or-explicit-loss
 boundary. The application first drains every registered package spool,
 finalises signing reservations and synchronises pending journal records through
@@ -144,10 +153,11 @@ exact-attempt package site before deleting the learning-origin journal,
 entitlements, device signing key and other personalised offline state. If any
 site is unreachable or the supported wipe cannot be confirmed, sign-out and
 account switching remain blocked, the application explains how to retry online
-or clear the PWA's site data through browser settings, and it does not claim
-cleanup succeeded. Closing the PWA or allowing an online session cookie to
-expire is not an instruction to delete offline evidence and does not bypass
-this flow. Once local sign-out completes, no personalised offline state,
+and does not claim cleanup succeeded. It must not instruct the learner to clear
+only the PWA/application site, because that would erase the local registry while
+leaving package sites behind. Closing the PWA or allowing an online session
+cookie to expire is not an instruction to delete offline evidence and does not
+bypass this flow. Once local sign-out completes, no personalised offline state,
 package-site state or signing credential remains.
 
 Offline scope initially includes SCORM activities only. Surveys, research
@@ -199,11 +209,16 @@ Sign-out, account switching and download removal require connectivity whenever
 an offline package site has been provisioned, including after the learner
 accepts loss, because only an authoritative whole-site response can clear state
 that package code may have stored outside the managed spool. A learner needing
-to clear a disconnected or unreachable device immediately must use the
-browser's site-data removal controls; Upskill cannot truthfully confirm cleanup
-from inside the offline PWA. Remote server-side session termination cannot erase
-or synchronize a disconnected installation; on its next authenticated use the
-installation must resolve its retained evidence before another learner account
+to clear a disconnected or unreachable device immediately is shown every exact
+application, learning and package site from the local and server inventory while
+that inventory remains available. Selective browser cleanup must include every
+listed site. If that cannot be guaranteed, the only supported emergency action
+is the browser or operating system control that clears all website data for the
+entire browser profile; clearing only the installed PWA is explicitly unsafe.
+Upskill cannot report an in-application sign-out receipt for this out-of-band
+action. Remote server-side session termination cannot erase or synchronize a
+disconnected installation; on its next authenticated use the installation must
+resolve the server-retained cleanup inventory before another learner account
 can use that offline workspace.
 
 ## Invariants / Guardrails
@@ -239,6 +254,12 @@ can use that offline workspace.
 - When an offline package site exists, sign-out, account switching and download
   removal do not complete until an online browser-enforced whole-site wipe has
   cleared that site; JavaScript-managed deletion is insufficient.
+- The server retains an exact package-site cleanup inventory independently of
+  local browser state until every site has an authoritative cleanup receipt;
+  local registry loss cannot silently mark cleanup complete.
+- Browser-settings guidance requires every inventoried application, learning
+  and package site to be cleared, or all website data for the browser profile;
+  clearing only PWA data is never presented as sufficient.
 - Completed local sign-out leaves no personalised package-site or trusted
   offline state and no device signing credential available to a later user of
   that installation.
