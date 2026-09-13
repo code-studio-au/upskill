@@ -134,10 +134,13 @@ Provisioning an exact-attempt package site also creates a server-retained
 cleanup-inventory entry bound to the learner, installation, entitlement and
 exact package-site origin. The inventory contains identifiers and cleanup state,
 never SCORM values, and is not deleted merely because application- or
-learning-origin browser storage disappears. It remains reconstructible to the
-cleanup workflow until that exact site has returned an authoritative whole-site
-clearing response and the server records its cleanup receipt. Local registries
-accelerate discovery but are not the sole record of sites that must be cleared.
+learning-origin browser storage disappears. The authenticated owning learner
+can query outstanding entries during the managed cleanup workflow even if the
+local registry is damaged. The inventory remains until that exact site has
+returned an authoritative whole-site clearing response and the server records
+its cleanup receipt. It is not claimed to identify the old browser installation
+after trusted-site storage is selectively erased or to associate that erased
+installation with a different learner's later login.
 
 Signing out or switching accounts uses the same synchronize-or-explicit-loss
 boundary. The application first drains every registered package spool,
@@ -216,10 +219,13 @@ listed site. If that cannot be guaranteed, the only supported emergency action
 is the browser or operating system control that clears all website data for the
 entire browser profile; clearing only the installed PWA is explicitly unsafe.
 Upskill cannot report an in-application sign-out receipt for this out-of-band
-action. Remote server-side session termination cannot erase or synchronize a
-disconnected installation; on its next authenticated use the installation must
-resolve the server-retained cleanup inventory before another learner account
-can use that offline workspace.
+action. Browser APIs provide no stable identifier guaranteed to survive
+selective deletion of the application and learning sites, so Upskill cannot
+detect that unsafe partial reset or promise to block a different learner after
+it. The managed application therefore blocks account switching while its
+trusted state exists and documents only a complete all-website-data reset as the
+emergency bypass. Remote server-side session termination cannot erase or
+synchronize a disconnected installation.
 
 ## Invariants / Guardrails
 
@@ -256,13 +262,15 @@ can use that offline workspace.
   cleared that site; JavaScript-managed deletion is insufficient.
 - The server retains an exact package-site cleanup inventory independently of
   local browser state until every site has an authoritative cleanup receipt;
-  local registry loss cannot silently mark cleanup complete.
+  local registry loss cannot silently mark the server inventory complete, but
+  the inventory is not presented as a cross-account device fingerprint.
 - Browser-settings guidance requires every inventoried application, learning
   and package site to be cleared, or all website data for the browser profile;
   clearing only PWA data is never presented as sufficient.
-- Completed local sign-out leaves no personalised package-site or trusted
-  offline state and no device signing credential available to a later user of
-  that installation.
+- A sign-out completed through the managed application leaves no personalised
+  package-site or trusted offline state and no device signing credential
+  available to a later user of that installation. No equivalent claim is made
+  for unsupported selective clearing through browser settings.
 - Research questionnaires and other non-SCORM evidence are not added to offline
   scope without a separate privacy and architecture decision.
 
