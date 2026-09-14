@@ -52,17 +52,41 @@ type DatabaseConnection = Kysely<Database> | Transaction<Database>;
 type VirtualRoomDoorState = "scheduled" | "open" | "locked" | "ended";
 type VirtualRoomAction = "start" | "lock" | "reopen" | "end" | "replace";
 type VisibleLobbyState =
-  "waiting" | "admitted" | "token_issued" | "connected" | "left";
+  | "waiting"
+  | "admitted"
+  | "token_issued"
+  | "connected"
+  | "left"
+  | "declined"
+  | "revoked";
 type VisibleLobbyStatusLabel =
-  "Waiting" | "Admitted" | "Access issued" | "Connected" | "Disconnected";
+  | "Waiting"
+  | "Admitted"
+  | "Access issued"
+  | "Connected"
+  | "Connected — admission pending"
+  | "Connected — access declined"
+  | "Connected — access revoked"
+  | "Disconnected"
+  | "Access declined"
+  | "Access revoked";
 
 function visibleLobbyStatusLabel(
   state: VisibleLobbyState,
+  isConnected: boolean,
 ): VisibleLobbyStatusLabel {
+  if (isConnected) {
+    if (state === "waiting") return "Connected — admission pending";
+    if (state === "declined") return "Connected — access declined";
+    if (state === "revoked") return "Connected — access revoked";
+    return "Connected";
+  }
   if (state === "waiting") return "Waiting";
   if (state === "admitted") return "Admitted";
   if (state === "token_issued") return "Access issued";
-  return state === "connected" ? "Connected" : "Disconnected";
+  if (state === "declined") return "Access declined";
+  if (state === "revoked") return "Access revoked";
+  return "Disconnected";
 }
 
 type EventVirtualRoomConflictReason =
@@ -393,14 +417,23 @@ export async function findEventVirtualLobbyQueue(
         access.roomId,
       ]);
       const connectedCount = await transaction
-        .selectFrom("event_virtual_lobby_entry")
+        .selectFrom("event_virtual_connection_interval as connection")
         .select((expression) =>
-          expression.fn.countAll<string>().as("connectedCount"),
+          expression.fn
+            .count<string>("connection.lobbyEntryId")
+            .distinct()
+            .as("connectedCount"),
         )
-        .where("eventVirtualJoinAccessId", "=", access.id)
-        .where("state", "=", "connected")
+        .where("connection.eventVirtualJoinAccessId", "=", access.id)
+        .where("connection.leftAt", "is", null)
         .executeTakeFirstOrThrow();
       await options.afterConnectedCount?.();
+      const hasOpenConnection = sql<boolean>`exists (
+        select 1
+        from event_virtual_connection_interval as connection
+        where connection."lobbyEntryId" = "lobby"."id"
+          and connection."leftAt" is null
+      )`;
       const rows = await transaction
         .selectFrom("event_virtual_lobby_entry as lobby")
         .innerJoin(
@@ -416,17 +449,23 @@ export async function findEventVirtualLobbyQueue(
           "lobby.requestedAt",
           "lobby.admittedAt",
           "participation.nameSnapshot as name",
+          hasOpenConnection.as("isConnected"),
         ])
         .where("lobby.eventVirtualJoinAccessId", "=", access.id)
-        .where("lobby.state", "in", [
-          "waiting",
-          "admitted",
-          "token_issued",
-          "connected",
-          "left",
-        ])
+        .where(
+          sql<boolean>`(
+            "lobby"."state" in (
+              'waiting', 'admitted', 'token_issued', 'connected', 'left'
+            )
+            or ${hasOpenConnection}
+          )`,
+        )
         .orderBy(
-          sql<number>`case "lobby"."state" when 'waiting' then 0 when 'connected' then 1 else 2 end`,
+          sql<number>`case
+            when "lobby"."state" = 'waiting' then 0
+            when ${hasOpenConnection} then 1
+            else 2
+          end`,
         )
         .orderBy("lobby.requestedAt")
         .orderBy("lobby.id")
@@ -448,10 +487,13 @@ export async function findEventVirtualLobbyQueue(
             id: entry.id,
             eventParticipationId: entry.eventParticipationId,
             name: entry.name,
-            state: entry.state as VisibleLobbyState,
+            state: entry.state,
             statusLabel: visibleLobbyStatusLabel(
-              entry.state as VisibleLobbyState,
+              entry.state,
+              entry.isConnected,
             ),
+            isConnected: entry.isConnected,
+            canRevoke: !["declined", "revoked"].includes(entry.state),
             accessMethod: entry.accessMethod,
             requestedAt: entry.requestedAt.toISOString(),
             admittedAt: entry.admittedAt?.toISOString() ?? null,

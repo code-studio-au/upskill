@@ -85,8 +85,10 @@ describe("LiveKit operations recording status", () => {
     expect(source).toContain("session.learnerCapacity");
     expect(source).not.toContain("room.maxParticipants} (max)");
     expect(source).toContain("entry.statusLabel");
-    expect(serverSource).toContain('return state === "connected"');
-    expect(serverSource).toContain('? "Connected" : "Disconnected"');
+    expect(serverSource).toContain('.count<string>("connection.lobbyEntryId")');
+    expect(serverSource).toContain('connection."leftAt" is null');
+    expect(serverSource).toContain('return "Connected — access revoked"');
+    expect(serverSource).toContain("isConnected: entry.isConnected");
     expect(source).not.toContain("maximum connections");
   });
 

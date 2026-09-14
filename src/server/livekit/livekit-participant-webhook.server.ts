@@ -114,9 +114,6 @@ async function reconcileProviderRoomSid(
   transaction: Transaction<Database>,
   roomId: string,
 ): Promise<void> {
-  await sql`select pg_advisory_xact_lock(hashtextextended(
-    ${`livekit-participant-room-sid:${roomId}`}, 0
-  ))`.execute(transaction);
   const [currentRoom, latestMatchedJoin] = await Promise.all([
     transaction
       .selectFrom("event_virtual_room")
@@ -281,6 +278,20 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
       return { status: "ignored", receiptId };
     }
 
+    const requiresProviderRoomSidRepair =
+      eventType === "participant_joined" && room.providerRoomSid !== roomSid;
+    if (requiresProviderRoomSidRepair) {
+      await sql`select pg_advisory_xact_lock(hashtextextended(
+        ${`livekit-participant-room-sid:${room.id}`}, 0
+      ))`.execute(transaction);
+      await transaction
+        .selectFrom("event_virtual_room")
+        .select("id")
+        .where("id", "=", room.id)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+    }
+
     const lobbyEntry = await transaction
       .selectFrom("event_virtual_lobby_entry as lobby")
       .select([
@@ -409,7 +420,7 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
     }
 
     await projectLobbyPresence(transaction, lobbyEntry, receivedAt);
-    if (eventType === "participant_joined" && room.providerRoomSid !== roomSid)
+    if (requiresProviderRoomSidRepair)
       await reconcileProviderRoomSid(transaction, room.id);
     return { status: "processed", receiptId, lobbyEntryId: lobbyEntry.id };
   });

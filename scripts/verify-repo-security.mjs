@@ -1003,6 +1003,26 @@ for (const boundary of [
     failures.push(
       `LiveKit participant receipt boundary is missing: ${boundary}`,
     );
+const providerSidRepairLockIndex = liveKitParticipantWebhook.indexOf(
+  "if (requiresProviderRoomSidRepair)",
+);
+const participantLobbyLockIndex = liveKitParticipantWebhook.indexOf(
+  "const lobbyEntry = await transaction",
+);
+if (
+  providerSidRepairLockIndex < 0 ||
+  participantLobbyLockIndex < 0 ||
+  providerSidRepairLockIndex > participantLobbyLockIndex ||
+  !liveKitParticipantWebhook
+    .slice(providerSidRepairLockIndex, participantLobbyLockIndex)
+    .includes('.selectFrom("event_virtual_room")') ||
+  !liveKitParticipantWebhook
+    .slice(providerSidRepairLockIndex, participantLobbyLockIndex)
+    .includes(".forUpdate()")
+)
+  failures.push(
+    "Changed-SID participant ingestion must lock the room before the learner lobby entry",
+  );
 if (liveKitParticipantWebhook.includes("rawBody"))
   failures.push(
     "LiveKit participant evidence must not retain raw webhook bodies",
@@ -1057,6 +1077,11 @@ if (
   );
 for (const boundary of [
   '.setIsolationLevel("repeatable read")',
+  '.selectFrom("event_virtual_connection_interval as connection")',
+  '.count<string>("connection.lobbyEntryId")',
+  ".distinct()",
+  "or ${hasOpenConnection}",
+  'return "Connected — access revoked"',
   '.selectFrom("event_virtual_lobby_revision")',
   '.orderBy("revision", "desc")',
 ])

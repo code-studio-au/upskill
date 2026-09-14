@@ -155,7 +155,9 @@ export function EventOperationsLobbyQueue({
                     ["admit", "Admit"],
                     ["decline", "Decline"],
                   ] as const)
-                : ([["revoke", "Revoke"]] as const);
+                : entry.canRevoke
+                  ? ([["revoke", "Revoke"]] as const)
+                  : ([] as const);
             return (
               <li className={classes.lobbyEntry} key={entry.id}>
                 <div className={classes.learnerIdentity}>
