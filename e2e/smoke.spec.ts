@@ -216,6 +216,14 @@ async function cleanupEventAuthoringFixture(
         [occurrenceIds],
       );
       await transaction.query(
+        `delete from event_virtual_lobby_revision
+          where "eventVirtualJoinAccessId" in (
+            select id from event_virtual_join_access
+            where "eventOccurrenceId" = any($1::text[])
+          )`,
+        [occurrenceIds],
+      );
+      await transaction.query(
         `delete from event_virtual_lobby_entry where "eventOccurrenceId" = any($1::text[])`,
         [occurrenceIds],
       );

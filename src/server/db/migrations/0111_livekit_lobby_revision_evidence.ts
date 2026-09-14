@@ -24,6 +24,13 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     language plpgsql
     as $$
     begin
+      if tg_op = 'DELETE' then
+        if current_user in ('upskill_web', 'upskill_worker') then
+          raise exception 'Lobby revision evidence cannot be deleted'
+            using errcode = '42501';
+        end if;
+        return old;
+      end if;
       raise exception 'Lobby revision evidence is immutable'
         using errcode = '23514';
     end

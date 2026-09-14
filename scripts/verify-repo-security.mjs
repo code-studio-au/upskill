@@ -1034,6 +1034,7 @@ for (const boundary of [
   "event_virtual_lobby_revision_entry_fk",
   "event_virtual_lobby_revision_access_idx",
   "guard_event_virtual_lobby_revision",
+  "Lobby revision evidence cannot be deleted",
   "Lobby revision evidence is immutable",
   "event_virtual_lobby_revision_guard_trg",
   "revoke update, delete on table event_virtual_lobby_revision",
