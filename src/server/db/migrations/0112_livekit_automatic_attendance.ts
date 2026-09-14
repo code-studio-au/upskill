@@ -236,7 +236,7 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       or (
         "attendanceMode" = 'automatic_duration'
         and "attendanceState" in ('checked_in', 'attended')
-        and "attendanceMinimumMinutes" between 1 and 1440
+        and "attendanceMinimumMinutes" between 1 and 10080
       )
     ),
     constraint event_virtual_attendance_decision_evidence_ck check (

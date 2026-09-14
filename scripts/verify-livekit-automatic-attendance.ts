@@ -534,6 +534,77 @@ try {
       startsAt,
     );
   });
+  const listParticipantsWithoutRace = provider.listParticipants.bind(provider);
+  let injectedConcurrentWebhook = false;
+  provider.listParticipants = async (providerRoomName) => {
+    const snapshot = await listParticipantsWithoutRace(providerRoomName);
+    if (!injectedConcurrentWebhook) {
+      injectedConcurrentWebhook = true;
+      const concurrentJoin: VerifiedLiveKitWebhook = {
+        providerEnvironment: "test",
+        providerEventId: "EV_VERIFY_ATTENDANCE_CONCURRENT_JOIN",
+        event: "participant_joined",
+        createdAtSeconds: Math.floor(startsAt.getTime() / 1_000),
+        payloadDigest: "b".repeat(64),
+        roomSid: "RM_VERIFY_ATTENDANCE",
+        roomName,
+        participantSid: "PA_VERIFY_ATTENDANCE_CONCURRENT",
+        participantIdentity: eventVirtualAttendeeIdentity(
+          ids.room,
+          ids.firstParticipation,
+        ),
+      };
+      assert.equal(
+        (
+          await ingestVerifiedLiveKitParticipantWebhook(
+            concurrentJoin,
+            database,
+            { ...getServerEnv(), LIVEKIT_PROJECT_ENVIRONMENT: "test" },
+            () => startsAt,
+          )
+        ).status,
+        "processed",
+      );
+    }
+    return snapshot;
+  };
+  assert.deepEqual(
+    await processAvailableEventVirtualAttendanceReconciliations(1, {
+      database,
+      provider,
+      now: startsAt,
+    }),
+    { outcomes: [], limitReached: false },
+    "A provider snapshot must be discarded when newer webhook evidence commits before reconciliation",
+  );
+  provider.listParticipants = listParticipantsWithoutRace;
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_connection_interval")
+      .select(["joinedSource", "leftAt", "leftSource"])
+      .where("roomId", "=", ids.room)
+      .where("providerParticipantSid", "=", "PA_VERIFY_ATTENDANCE_CONCURRENT")
+      .executeTakeFirstOrThrow(),
+    { joinedSource: "webhook", leftAt: null, leftSource: null },
+    "Stale provider absence must not close a concurrently committed webhook interval",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_attendance_reconciliation")
+      .select(["status", "evidenceRevision", "reconciledRevision"])
+      .where("roomId", "=", ids.room)
+      .executeTakeFirstOrThrow(),
+    { status: "pending", evidenceRevision: 1, reconciledRevision: 0 },
+    "Newer evidence must remain pending for a fresh provider snapshot",
+  );
+  provider.participants.set(roomName, [
+    ...(provider.participants.get(roomName) ?? []),
+    {
+      sid: "PA_VERIFY_ATTENDANCE_CONCURRENT",
+      identity: eventVirtualAttendeeIdentity(ids.room, ids.firstParticipation),
+      displayName: "First attendance learner reconnect",
+    },
+  ]);
   assert.deepEqual(
     await processAvailableEventVirtualAttendanceReconciliations(1, {
       database,
@@ -581,7 +652,13 @@ try {
     ),
     "recorded",
   );
-  provider.participants.set(roomName, []);
+  provider.participants.set(roomName, [
+    {
+      sid: "PA_VERIFY_ATTENDANCE_TERMINAL_DISCOVERY",
+      identity: eventVirtualAttendeeIdentity(ids.room, ids.secondParticipation),
+      displayName: "Second attendance learner terminal discovery",
+    },
+  ]);
   await database.transaction().execute(async (transaction) => {
     await transaction
       .updateTable("event_virtual_room")
@@ -678,6 +755,25 @@ try {
     await isEventVirtualAttendanceReconciliationComplete(database, ids.room),
     true,
   );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_connection_interval")
+      .select(["joinedAt", "leftAt", "joinedSource", "leftSource"])
+      .where("roomId", "=", ids.room)
+      .where(
+        "providerParticipantSid",
+        "=",
+        "PA_VERIFY_ATTENDANCE_TERMINAL_DISCOVERY",
+      )
+      .executeTakeFirstOrThrow(),
+    {
+      joinedAt: finalAt,
+      leftAt: finalAt,
+      joinedSource: "provider_reconciliation",
+      leftSource: "room_end",
+    },
+    "A participant first discovered by terminal reconciliation must produce closed evidence",
+  );
   const delayedLeave: VerifiedLiveKitWebhook = {
     providerEnvironment: "test",
     providerEventId: "EV_VERIFY_ATTENDANCE_DELAYED_LEAVE",
@@ -733,8 +829,30 @@ try {
     },
     "A delayed signed leave must replace conservative room-end evidence without rewriting the historical decision",
   );
+  await database
+    .insertInto("event_virtual_attendance_decision")
+    .values({
+      id: "verify_livekit_attendance_maximum_threshold_decision",
+      roomId: ids.room,
+      eventVirtualJoinAccessId: access.id,
+      eventOccurrenceId: ids.occurrence,
+      eventSessionId: ids.session,
+      roomGeneration: 1,
+      lobbyEntryId: ids.firstLobby,
+      eventParticipationId: ids.firstParticipation,
+      attendanceState: "checked_in",
+      attendanceMode: "automatic_duration",
+      attendanceMinimumMinutes: 10_080,
+      qualifyingConnectedSeconds: 0,
+      calculationVersion: 2,
+      decisionAt: new Date(finalAt.getTime() + 2_000),
+      applicationOutcome: "already_satisfied",
+      previousAttendanceState: "attended",
+      previousAttendanceSource: "system",
+    })
+    .executeTakeFirstOrThrow();
   console.log(
-    "LiveKit automatic attendance verification passed: provider reconciliation, duration promotion, completion, staff-correction preservation and idempotent reruns.",
+    "LiveKit automatic attendance verification passed: revision-safe provider reconciliation, closed terminal discovery, full threshold range, duration promotion, completion, staff-correction preservation and idempotent reruns.",
   );
 } finally {
   await cleanUp();

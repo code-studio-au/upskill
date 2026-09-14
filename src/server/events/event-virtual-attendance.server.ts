@@ -170,6 +170,7 @@ export async function wakeEventVirtualAttendanceReconciliation(
 type ClaimedReconciliation = {
   roomId: string;
   attempts: number;
+  evidenceRevision: number;
 };
 
 async function claimReconciliation(
@@ -179,7 +180,7 @@ async function claimReconciliation(
   return database.transaction().execute(async (transaction) => {
     const candidate = await transaction
       .selectFrom("event_virtual_attendance_reconciliation")
-      .select(["roomId", "attempts"])
+      .select(["roomId", "attempts", "evidenceRevision"])
       .where((expression) =>
         expression.or([
           expression.and([
@@ -213,7 +214,11 @@ async function claimReconciliation(
       })
       .where("roomId", "=", candidate.roomId)
       .executeTakeFirstOrThrow();
-    return { roomId: candidate.roomId, attempts };
+    return {
+      roomId: candidate.roomId,
+      attempts,
+      evidenceRevision: candidate.evidenceRevision,
+    };
   });
 }
 
@@ -419,6 +424,24 @@ async function reconcileRoomEvidenceAndAttendance(
       .executeTakeFirst();
     if (work?.status !== "processing" || work.attempts !== claimed.attempts)
       return { final: false, superseded: true };
+    if (work.evidenceRevision !== claimed.evidenceRevision) {
+      await transaction
+        .updateTable("event_virtual_attendance_reconciliation")
+        .set({
+          status: "pending",
+          attempts: 0,
+          availableAt: observedAt,
+          leasedUntil: null,
+          completedAt: null,
+          lastErrorCode: null,
+          updatedAt: observedAt,
+        })
+        .where("roomId", "=", claimed.roomId)
+        .where("status", "=", "processing")
+        .where("attempts", "=", claimed.attempts)
+        .executeTakeFirstOrThrow();
+      return { final: false, superseded: true };
+    }
     const room = await findAutomaticRoom(transaction, claimed.roomId);
     if (!room || room.attendanceMode === "manual" || !room.startedAt) {
       await transaction
@@ -546,9 +569,9 @@ async function reconcileRoomEvidenceAndAttendance(
           joinedReceiptId: null,
           joinedSource: "provider_reconciliation",
           leftReceiptId: null,
-          leftSource: null,
+          leftSource: terminal ? "room_end" : null,
           joinedAt: evidenceAt,
-          leftAt: null,
+          leftAt: terminal ? evidenceAt : null,
           createdAt: observedAt,
           updatedAt: observedAt,
         })
