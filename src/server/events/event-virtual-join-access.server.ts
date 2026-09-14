@@ -12,12 +12,12 @@ function publicReference(): string {
 export async function advanceEventVirtualLobbyRevision(
   transaction: Transaction<Database>,
   eventVirtualJoinAccessId: string,
+  lobbyEntryId: string,
 ): Promise<void> {
   await transaction
-    .updateTable("event_virtual_join_access")
-    .set({ lobbyRevision: sql`"lobbyRevision" + 1` })
-    .where("id", "=", eventVirtualJoinAccessId)
-    .execute();
+    .insertInto("event_virtual_lobby_revision")
+    .values({ eventVirtualJoinAccessId, lobbyEntryId })
+    .executeTakeFirstOrThrow();
 }
 
 async function revokeJoinAccess(

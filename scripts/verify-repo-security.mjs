@@ -944,6 +944,28 @@ const liveKitRecordingRetentionMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitParticipantWebhook = fs.readFileSync(
+  path.join(root, "src/server/livekit/livekit-participant-webhook.server.ts"),
+  "utf8",
+);
+const liveKitConnectionEvidenceMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0110_livekit_connection_evidence.ts",
+  ),
+  "utf8",
+);
+const liveKitLobbyRevisionMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0111_livekit_lobby_revision_evidence.ts",
+  ),
+  "utf8",
+);
+const liveKitLobbyRevision = fs.readFileSync(
+  path.join(root, "src/server/events/event-virtual-join-access.server.ts"),
+  "utf8",
+);
 const objectStorage = fs.readFileSync(
   path.join(root, "src/server/storage/object-storage.server.ts"),
   "utf8",
@@ -963,6 +985,110 @@ if (liveKitRecordingWebhook.includes("rawBody"))
   failures.push(
     "LiveKit recording receipts must not retain raw webhook bodies",
   );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'insertInto("livekit_participant_webhook_receipt")',
+  '.columns(["providerEnvironment", "providerEventId"])',
+  "environment.LIVEKIT_PROJECT_ENVIRONMENT !== event.providerEnvironment",
+  'where("providerRoomName", "=", roomName)',
+  '"lobby.participantIdentityDigest",',
+  "participantIdentityDigest,",
+  ".executeTakeFirst()",
+  "reconcileProviderRoomSid",
+  "livekit-participant-room-sid:",
+  'insertInto("event_virtual_connection_interval")',
+  "const projectedState =",
+  ": entry.state;",
+  "advanceEventVirtualLobbyRevision",
+])
+  if (!liveKitParticipantWebhook.includes(boundary))
+    failures.push(
+      `LiveKit participant receipt boundary is missing: ${boundary}`,
+    );
+const providerSidRepairLockIndex = liveKitParticipantWebhook.indexOf(
+  "if (requiresProviderRoomSidRepair)",
+);
+const participantLobbyLockIndex = liveKitParticipantWebhook.indexOf(
+  "const lobbyEntry = await transaction",
+);
+if (
+  providerSidRepairLockIndex < 0 ||
+  participantLobbyLockIndex < 0 ||
+  providerSidRepairLockIndex > participantLobbyLockIndex ||
+  !liveKitParticipantWebhook
+    .slice(providerSidRepairLockIndex, participantLobbyLockIndex)
+    .includes('.selectFrom("event_virtual_room")') ||
+  !liveKitParticipantWebhook
+    .slice(providerSidRepairLockIndex, participantLobbyLockIndex)
+    .includes(".forUpdate()")
+)
+  failures.push(
+    "Changed-SID participant ingestion must lock the room before the learner lobby entry",
+  );
+if (liveKitParticipantWebhook.includes("rawBody"))
+  failures.push(
+    "LiveKit participant evidence must not retain raw webhook bodies",
+  );
+for (const boundary of [
+  '.selectFrom("event_virtual_join_access as access")',
+  "lobbyEntries.find",
+  '.where("providerRoomName", "=", roomName)\n      .forUpdate()',
+])
+  if (liveKitParticipantWebhook.includes(boundary))
+    failures.push(
+      `LiveKit participant receipt lookup must not scan the lobby roster: ${boundary}`,
+    );
+for (const boundary of [
+  "event_virtual_lobby_entry_participant_identity_ck",
+  "event_virtual_lobby_entry_participant_identity_uq",
+  "guard_livekit_participant_webhook_receipt",
+  "Participant webhook identity evidence is immutable",
+  "livekit_participant_webhook_receipt_guard_trg",
+  "guard_event_virtual_connection_interval",
+  "event_virtual_connection_interval_guard_trg",
+  "revoke delete on table livekit_participant_webhook_receipt",
+  "revoke delete on table event_virtual_connection_interval",
+])
+  if (!liveKitConnectionEvidenceMigration.includes(boundary))
+    failures.push(`LiveKit connection evidence guard is missing: ${boundary}`);
+for (const boundary of [
+  "event_virtual_lobby_entry_revision_scope_uq",
+  "event_virtual_lobby_revision_entry_fk",
+  "event_virtual_lobby_revision_access_idx",
+  "guard_event_virtual_lobby_revision",
+  "Lobby revision evidence cannot be deleted",
+  "Lobby revision evidence is immutable",
+  "event_virtual_lobby_revision_guard_trg",
+  "revoke update, delete on table event_virtual_lobby_revision",
+])
+  if (!liveKitLobbyRevisionMigration.includes(boundary))
+    failures.push(`LiveKit lobby revision guard is missing: ${boundary}`);
+for (const boundary of [
+  'insertInto("event_virtual_lobby_revision")',
+  "eventVirtualJoinAccessId, lobbyEntryId",
+])
+  if (!liveKitLobbyRevision.includes(boundary))
+    failures.push(`LiveKit lobby revision append is missing: ${boundary}`);
+if (
+  liveKitLobbyRevision.includes(
+    '.set({ lobbyRevision: sql`"lobbyRevision" + 1` })',
+  )
+)
+  failures.push(
+    "Lobby revision advancement must not lock shared join access after a lobby row mutation",
+  );
+for (const boundary of [
+  '.setIsolationLevel("repeatable read")',
+  '.selectFrom("event_virtual_connection_interval as connection")',
+  '.count<string>("connection.lobbyEntryId")',
+  ".distinct()",
+  "or ${hasOpenConnection}",
+  'return "Connected — access revoked"',
+  '.selectFrom("event_virtual_lobby_revision")',
+  '.orderBy("revision", "desc")',
+])
+  if (!eventVirtualRoomServer.includes(boundary))
+    failures.push(`LiveKit lobby snapshots are not coherent: ${boundary}`);
 for (const boundary of [
   "guard_livekit_webhook_receipt_evidence",
   "Webhook receipt identity evidence is immutable",
@@ -1308,6 +1434,18 @@ if (
   failures.push(
     "Runtime database roles must not physically delete LiveKit webhook receipts",
   );
+for (const table of [
+  "livekit_participant_webhook_receipt",
+  "event_virtual_connection_interval",
+])
+  if (
+    !provisionRuntimeRoles.includes(
+      `revoke delete on table ${table} from \${role}`,
+    )
+  )
+    failures.push(
+      `Runtime database roles must not physically delete ${table} evidence`,
+    );
 if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
   failures.push(
     "Release installation must expose the verified commit identity",

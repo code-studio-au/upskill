@@ -1,8 +1,8 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
 
-- **Status:** Accepted; webinar delivery, managed recording and open-entry lobby
-  implemented; the staging happy path is validated, with presenter feedback,
-  connection attendance and production hardening tracked below
+- **Status:** Accepted; webinar delivery, managed recording, presenter outcome
+  feedback, open-entry lobby and durable attendee connection evidence
+  implemented; automatic attendance and production hardening are tracked below
 - **Date:** 2026-08-31
 
 ## Context
@@ -1377,14 +1377,21 @@ gates passed; it does not by itself authorise staging or production activation.
       webinar, including finalising, ready/completed and failed states. The live staging
       acceptance test on 2026-09-12 confirmed that recording completed correctly
       while the Presenter UI changed only to **Ended**, leaving no visible
-      indication that finalisation had succeeded.
-- [ ] **Slice 7a — connection evidence ingestion:** add signed LiveKit webhook
+      indication that finalisation had succeeded. Implemented by
+      [PR #87](https://github.com/code-studio-au/upskill/pull/87).
+- [x] **Slice 7a — connection evidence ingestion:** add signed LiveKit webhook
       receipts, exact room/generation/participant validation and append-only
       connection intervals that tolerate duplicate, delayed and out-of-order
       events. This is required for durable connected/disconnected status and is
       the foundation for any automatic attendance. Live provider presence may be
       shown during an active room, but token state is not durable connection
-      evidence after a participant leaves or the room ends.
+      evidence after a participant leaves or the room ends. Participant receipts
+      remain separate from the recording-specific Egress receipt lifecycle; both
+      retain only bounded normalised evidence. A unique provider room name anchors
+      the application generation while provider room SIDs are retained per room
+      incarnation. Multiple provider participant SIDs are projected as one learner
+      presence state, and the staff roster retains a disconnected learner after the
+      final active interval closes.
 - [ ] **Slice 7b — attendance reconciliation and promotion:** add periodic and
       final reconciliation, versioned attendance-policy evaluation, automatic
       check-in/duration promotion and preservation of manual corrections. This is
@@ -1418,13 +1425,12 @@ gates passed; it does not by itself authorise staging or production activation.
       host connectivity preflight in release artifacts, correcting the staging
       webhook runbook URL, and an explicit production-enable decision.
 
-The unchecked items do not all block the same outcome. Slice 6c4 is a bounded
-presenter-experience fix. Slice 7a is required only for durable connection state
-and is the prerequisite for connection-derived attendance. Slices 7b and 7c are
-conditional/deferred attendance scope. Slices 8b–8d are production-operational
-assurance. The implemented webinar and managed-recording journeys may therefore
-be treated as functional in staging without implying that automatic attendance
-or production activation is complete.
+The unchecked items do not all block the same outcome. Slice 7b is the next
+conditional step only if connection-derived attendance remains desired, while
+Slice 7c is deferred reporting scope. Slices 8b–8d are production-operational
+assurance. The implemented webinar, managed-recording and durable connection
+status journeys may therefore be treated as functional in staging without
+implying that automatic attendance or production activation is complete.
 
 Each required unchecked tracker item is expected to be one pull request.
 Conditional or deferred items require an explicit product decision before

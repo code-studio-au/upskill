@@ -102,9 +102,10 @@ implementations. Published content is immutable.
 
 ### Events
 
-This target context owns occurrences, sessions, registrations, capacity, staff
-assignments, attendance, event workflow, and composition of learning around
-scheduled delivery. It is not implemented in the current repository.
+Owns occurrences, sessions, registrations, capacity, staff assignments,
+attendance, event workflow, composition of learning around scheduled delivery,
+and LiveKit webinar operations. Connection-derived automatic attendance remains
+conditional target scope.
 
 ### Certificate rendering
 
@@ -119,13 +120,13 @@ rules, covered offerings, and organisational access relationships.
 
 ### Notifications
 
-Currently owns reusable Offering/System Email designs and immutable versions,
-typed template contracts, active-version selection, exact delivery snapshots,
+Owns reusable Offering/System Email designs and immutable versions, typed
+template contracts, active-version selection, exact delivery snapshots,
 provider-neutral email delivery and asynchronous account-setup notification
 work. It also owns version-pinned Course/Event Template communication plans,
-Section/Session placement, Event Occurrence plan materialization and revisioned
-local overrides. Durable schedule execution, committed-event recipient
-resolution and preferences remain Target Product capabilities. Additional
+Section/Session placement, Event Occurrence plan materialization, revisioned
+local overrides, durable schedule execution and committed-event recipient
+resolution for every currently authorable Course/Event trigger. Additional
 channels and sophisticated preference policy remain future possibilities.
 
 ### Reporting and Projections

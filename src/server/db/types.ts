@@ -896,6 +896,52 @@ interface LiveKitWebhookReceiptTable {
   failureCode: string | null;
 }
 
+interface LiveKitParticipantWebhookReceiptTable {
+  id: string;
+  provider: "livekit";
+  providerEnvironment: "development" | "test" | "staging" | "production";
+  providerEventId: string;
+  eventType:
+    | "participant_joined"
+    | "participant_left"
+    | "participant_connection_aborted";
+  payloadDigest: string;
+  providerCreatedAt: Timestamp;
+  receivedAt: Timestamp;
+  providerRoomSid: string;
+  providerRoomName: string;
+  providerParticipantSid: string;
+  participantIdentityDigest: string;
+  processingState: "processing" | "processed" | "unmatched" | "ignored";
+  processedAt: Timestamp | null;
+  matchedRoomId: string | null;
+  matchedLobbyEntryId: string | null;
+  matchedEventVirtualJoinAccessId: string | null;
+  matchedEventOccurrenceId: string | null;
+  matchedEventSessionId: string | null;
+  matchedRoomGeneration: number | null;
+  matchedEventParticipationId: string | null;
+}
+
+interface EventVirtualConnectionIntervalTable {
+  id: string;
+  roomId: string;
+  eventVirtualJoinAccessId: string;
+  eventOccurrenceId: string;
+  eventSessionId: string;
+  roomGeneration: number;
+  lobbyEntryId: string;
+  eventParticipationId: string;
+  providerParticipantSid: string;
+  participantIdentityDigest: string;
+  joinedReceiptId: string;
+  leftReceiptId: string | null;
+  joinedAt: Timestamp;
+  leftAt: Timestamp | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
 interface EventVirtualPresenterCredentialReservationTable {
   roomId: string;
   userId: string;
@@ -916,6 +962,12 @@ interface EventVirtualJoinAccessTable {
   revokedByUserId: string | null;
 }
 
+interface EventVirtualLobbyRevisionTable {
+  revision: Generated<string>;
+  eventVirtualJoinAccessId: string;
+  lobbyEntryId: string;
+}
+
 interface EventVirtualLobbyEntryTable {
   id: string;
   eventVirtualJoinAccessId: string;
@@ -923,6 +975,7 @@ interface EventVirtualLobbyEntryTable {
   eventSessionId: string;
   roomGeneration: number;
   eventParticipationId: string;
+  participantIdentityDigest: Generated<string | null>;
   state:
     | "waiting"
     | "admitted"
@@ -1987,6 +2040,8 @@ export interface Database {
   event_virtual_presenter_credential_reservation: EventVirtualPresenterCredentialReservationTable;
   event_virtual_join_access: EventVirtualJoinAccessTable;
   event_virtual_lobby_entry: EventVirtualLobbyEntryTable;
+  event_virtual_lobby_revision: EventVirtualLobbyRevisionTable;
+  event_virtual_connection_interval: EventVirtualConnectionIntervalTable;
   event_virtual_recovery_challenge: EventVirtualRecoveryChallengeTable;
   event_virtual_recovery_delivery: EventVirtualRecoveryDeliveryTable;
   event_virtual_join_session: EventVirtualJoinSessionTable;
@@ -1997,6 +2052,7 @@ export interface Database {
   learning_activity_version: LearningActivityVersionTable;
   learning_progress_override: LearningProgressOverrideTable;
   livekit_webhook_receipt: LiveKitWebhookReceiptTable;
+  livekit_participant_webhook_receipt: LiveKitParticipantWebhookReceiptTable;
   learning_resource_version: LearningResourceVersionTable;
   notification: NotificationTable;
   notification_delivery_attempt: NotificationDeliveryAttemptTable;

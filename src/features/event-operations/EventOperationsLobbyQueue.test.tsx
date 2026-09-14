@@ -27,6 +27,7 @@ function renderRecording(
 ): string {
   const session: VirtualSession = {
     eventSessionId: room.eventSessionId,
+    learnerCapacity: 5,
     preparationOpensAt: "2030-09-03T23:00:00.000Z",
     canEnterGreenRoom: true,
     presenterRecordingNotice: "This webinar is recorded.",
@@ -68,6 +69,27 @@ describe("LiveKit operations recording status", () => {
       "queue === undefined ? session.recording : queue?.recording",
     );
     expect(source).not.toContain("queue?.recording ?? session.recording");
+  });
+
+  it("shows connection-derived learner presence as one count and clear states", () => {
+    const source = readFileSync(
+      "src/features/event-operations/EventOperationsLobbyQueue.tsx",
+      "utf8",
+    );
+    const serverSource = readFileSync(
+      "src/server/events/event-virtual-room.server.ts",
+      "utf8",
+    );
+
+    expect(source).toContain('queue?.connectedCount ?? "—"');
+    expect(source).toContain("session.learnerCapacity");
+    expect(source).not.toContain("room.maxParticipants} (max)");
+    expect(source).toContain("entry.statusLabel");
+    expect(serverSource).toContain('.count<string>("connection.lobbyEntryId")');
+    expect(serverSource).toContain('connection."leftAt" is null');
+    expect(serverSource).toContain('return "Connected — access revoked"');
+    expect(serverSource).toContain("isConnected: entry.isConnected");
+    expect(source).not.toContain("maximum connections");
   });
 
   it("warns staff while an automatic recording operation is retrying", () => {
@@ -126,6 +148,7 @@ describe("LiveKit operations recording status", () => {
           eventOccurrenceId="event_occurrence_1"
           session={{
             eventSessionId: room.eventSessionId,
+            learnerCapacity: 5,
             preparationOpensAt: "2030-09-03T23:00:00.000Z",
             canEnterGreenRoom: true,
             presenterRecordingNotice: "This webinar is recorded.",
@@ -175,6 +198,7 @@ describe("LiveKit operations recording status", () => {
           eventOccurrenceId="event_occurrence_1"
           session={{
             eventSessionId: room.eventSessionId,
+            learnerCapacity: 5,
             preparationOpensAt: "2030-09-03T23:00:00.000Z",
             canEnterGreenRoom: true,
             presenterRecordingNotice: "This webinar is recorded.",

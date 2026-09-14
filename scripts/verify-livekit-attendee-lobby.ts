@@ -3,6 +3,7 @@ import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { FixedWindowRateLimitEntry } from "#/features/event-guest/event-guest-rate-limit";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import { getServerEnv } from "#/server/env.server";
 import {
   ensureEventGuestAccessRecord,
   rotateEventGuestAccessRecord,
@@ -24,7 +25,10 @@ import {
   processAvailableEventVirtualRecoveryDeliveries,
 } from "#/server/events/event-virtual-recovery-delivery.server";
 import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
-import { eventVirtualAttendeeIdentity } from "#/server/events/event-virtual-participant-identity.server";
+import {
+  eventVirtualAttendeeIdentity,
+  eventVirtualAttendeeIdentityDigest,
+} from "#/server/events/event-virtual-participant-identity.server";
 import {
   findEventVirtualLobbyQueue,
   processAvailableEventVirtualRoomOperations,
@@ -32,6 +36,8 @@ import {
   transitionEventVirtualRoom,
 } from "#/server/events/event-virtual-room.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
+import { ingestVerifiedLiveKitParticipantWebhook } from "#/server/livekit/livekit-participant-webhook.server";
+import type { VerifiedLiveKitWebhook } from "#/server/livekit/livekit-webhook.server";
 import {
   type CreateLiveKitJoinTokenInput,
   LiveKitProviderError,
@@ -1486,9 +1492,10 @@ try {
     .where("id", "=", tokenIssuedEntry.id)
     .executeTakeFirstOrThrow();
   const connectedQueueRevision = await database
-    .selectFrom("event_virtual_join_access")
-    .select("lobbyRevision")
-    .where("id", "=", access.id)
+    .selectFrom("event_virtual_lobby_revision")
+    .select("revision")
+    .where("eventVirtualJoinAccessId", "=", access.id)
+    .orderBy("revision", "desc")
     .executeTakeFirstOrThrow();
   const issuedIdentity = provider.operations.find(
     (operation) => operation.operation === "create_join_token",
@@ -1531,12 +1538,13 @@ try {
   );
   assert.equal(
     await database
-      .selectFrom("event_virtual_join_access")
-      .select("lobbyRevision")
-      .where("id", "=", access.id)
+      .selectFrom("event_virtual_lobby_revision")
+      .select("revision")
+      .where("eventVirtualJoinAccessId", "=", access.id)
+      .orderBy("revision", "desc")
       .executeTakeFirstOrThrow()
-      .then((row) => row.lobbyRevision),
-    connectedQueueRevision.lobbyRevision,
+      .then((row) => row.revision),
+    connectedQueueRevision.revision,
     "A credential refresh without a queue-visible transition must not advance the queue revision",
   );
   const rejoinNow = new Date();
@@ -1895,6 +1903,10 @@ try {
         eventSessionId: ids.session,
         roomGeneration: 1,
         eventParticipationId: `verify_livekit_lobby_bulk_participation_${item.id}`,
+        participantIdentityDigest: eventVirtualAttendeeIdentityDigest(
+          ids.room,
+          `verify_livekit_lobby_bulk_participation_${item.id}`,
+        ),
         state: "waiting" as const,
         accessMethod: "authenticated" as const,
         requestedAt: new Date(bulkRequestedAt.getTime() + index),
@@ -2076,7 +2088,11 @@ try {
     10,
   );
   assert.equal(lastQueuePage.status, "ready");
-  assert.equal(lastQueuePage.data.entries.length, 3);
+  assert.equal(lastQueuePage.data.entries.length, 4);
+  assert.ok(
+    lastQueuePage.data.entries.some((entry) => entry.state === "left"),
+    "Disconnected learners must remain visible in the staff roster",
+  );
   assert.equal(lastQueuePage.data.hasNextPage, false);
   await database
     .insertInto("event_admin_assignment")
@@ -4359,6 +4375,632 @@ try {
     (smsInvalidationAudit.metadata as { source?: string }).source,
     "verified_phone_invalidated",
     "SMS invalidation must record the source of the lobby revocation",
+  );
+
+  const evidenceLearner = bulkLearners.at(-1);
+  assert.ok(evidenceLearner);
+  const evidenceLobbyEntryId = `verify_livekit_lobby_bulk_entry_${evidenceLearner.id}`;
+  const evidenceParticipationId = `verify_livekit_lobby_bulk_participation_${evidenceLearner.id}`;
+  const evidenceJoinedAt = new Date(endsAt.getTime() + 60_000);
+  await database
+    .updateTable("event_virtual_lobby_entry")
+    .set({
+      state: "token_issued",
+      admittedAt: createdAt,
+      admittedByUserId: administrator.id,
+      declinedAt: null,
+      declinedByUserId: null,
+      revokedAt: null,
+      revokedByUserId: null,
+      firstTokenIssuedAt: new Date(evidenceJoinedAt.getTime() - 1_000),
+      firstConnectedAt: null,
+      lastSeenAt: null,
+      leftAt: null,
+      updatedAt: evidenceJoinedAt,
+    })
+    .where("id", "=", evidenceLobbyEntryId)
+    .executeTakeFirstOrThrow();
+  const attendeeIdentity = eventVirtualAttendeeIdentity(
+    ids.room,
+    evidenceParticipationId,
+  );
+  const participantEvent = (
+    providerEventId: string,
+    event: VerifiedLiveKitWebhook["event"],
+    participantSid: string,
+    offsetSeconds: number,
+    roomSid = "RM_VERIFY_LOBBY",
+  ): VerifiedLiveKitWebhook => ({
+    providerEnvironment: "test",
+    providerEventId,
+    event,
+    createdAtSeconds:
+      Math.floor(evidenceJoinedAt.getTime() / 1_000) + offsetSeconds,
+    payloadDigest: "a".repeat(64),
+    roomSid,
+    roomName: "event:verify_lobby:g1",
+    participantSid,
+    participantIdentity: attendeeIdentity,
+  });
+  const receiptClock = (offsetSeconds: number) => () =>
+    new Date(evidenceJoinedAt.getTime() + offsetSeconds * 1_000 + 30_000);
+  const firstLeave = participantEvent(
+    "EV_VerifyConnectionLeftFirst",
+    "participant_left",
+    "PA_VERIFY_CONNECTION_1",
+    2,
+  );
+  let releaseRoomLock = () => {};
+  let markRoomLocked = () => {};
+  const roomLockHeld = new Promise<void>((resolve) => {
+    markRoomLocked = resolve;
+  });
+  const roomLockRelease = new Promise<void>((resolve) => {
+    releaseRoomLock = resolve;
+  });
+  const roomBlocker = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("event_virtual_room")
+      .select("id")
+      .where("id", "=", ids.room)
+      .forNoKeyUpdate()
+      .executeTakeFirstOrThrow();
+    markRoomLocked();
+    await roomLockRelease;
+  });
+  await roomLockHeld;
+  let firstLeaveSettled = false;
+  const firstLeaveIngestion = ingestVerifiedLiveKitParticipantWebhook(
+    firstLeave,
+    database,
+    getServerEnv(),
+    receiptClock(2),
+  ).then((outcome) => {
+    firstLeaveSettled = true;
+    return outcome;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const firstLeaveAvoidedRoomLock = firstLeaveSettled;
+  releaseRoomLock();
+  await roomBlocker;
+  assert.equal((await firstLeaveIngestion).status, "processed");
+  assert.equal(
+    firstLeaveAvoidedRoomLock,
+    true,
+    "Participant evidence ingestion must not wait for an unrelated room-row lock",
+  );
+  const firstJoin = participantEvent(
+    "EV_VerifyConnectionJoinFirst",
+    "participant_joined",
+    "PA_VERIFY_CONNECTION_1",
+    1,
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitParticipantWebhook(
+        firstJoin,
+        database,
+        getServerEnv(),
+        receiptClock(3),
+      )
+    ).status,
+    "processed",
+    "A delayed join must pair with an already retained leave receipt",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "firstConnectedAt", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "left",
+      firstConnectedAt: new Date(evidenceJoinedAt.getTime() + 1_000),
+      leftAt: new Date(evidenceJoinedAt.getTime() + 2_000),
+    },
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitParticipantWebhook(
+        firstJoin,
+        database,
+        getServerEnv(),
+        receiptClock(4),
+      )
+    ).status,
+    "duplicate",
+    "A retried provider event must not create duplicate connection evidence",
+  );
+  const secondJoin = participantEvent(
+    "EV_VerifyConnectionJoinSecond",
+    "participant_joined",
+    "PA_VERIFY_CONNECTION_2",
+    3,
+  );
+  const visibleQueueIds = await database
+    .selectFrom("event_virtual_lobby_entry as lobby")
+    .select("lobby.id")
+    .where("lobby.eventVirtualJoinAccessId", "=", access.id)
+    .where("lobby.state", "in", [
+      "waiting",
+      "admitted",
+      "token_issued",
+      "connected",
+      "left",
+    ])
+    .orderBy(
+      sql<number>`case "lobby"."state" when 'waiting' then 0 when 'connected' then 1 else 2 end`,
+    )
+    .orderBy("lobby.requestedAt")
+    .orderBy("lobby.id")
+    .execute();
+  const evidenceQueueIndex = visibleQueueIds.findIndex(
+    (entry) => entry.id === evidenceLobbyEntryId,
+  );
+  assert.notEqual(evidenceQueueIndex, -1);
+  const evidenceQueuePage = Math.floor(evidenceQueueIndex / 50);
+  const disconnectedQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    evidenceQueuePage,
+  );
+  assert.equal(disconnectedQueue.status, "ready");
+  assert.equal(disconnectedQueue.data.connectedCount, 0);
+  assert.equal(
+    disconnectedQueue.data.entries.find(
+      (entry) => entry.id === evidenceLobbyEntryId,
+    )?.state,
+    "left",
+  );
+  let releaseAccessLock = () => {};
+  let markAccessLocked = () => {};
+  const accessLockHeld = new Promise<void>((resolve) => {
+    markAccessLocked = resolve;
+  });
+  const accessLockRelease = new Promise<void>((resolve) => {
+    releaseAccessLock = resolve;
+  });
+  const accessBlocker = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("event_virtual_join_access")
+      .select("id")
+      .where("id", "=", access.id)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    markAccessLocked();
+    await accessLockRelease;
+  });
+  await accessLockHeld;
+  let markSnapshotMutationStarted = () => {};
+  const snapshotMutationStarted = new Promise<void>((resolve) => {
+    markSnapshotMutationStarted = resolve;
+  });
+  let secondJoinSettled = false;
+  const coherentSnapshot = findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    evidenceQueuePage,
+    {
+      afterConnectedCount: async () => {
+        markSnapshotMutationStarted();
+        assert.equal(
+          (
+            await ingestVerifiedLiveKitParticipantWebhook(
+              secondJoin,
+              database,
+              getServerEnv(),
+              receiptClock(5),
+            )
+          ).status,
+          "processed",
+        );
+        secondJoinSettled = true;
+      },
+    },
+  );
+  await snapshotMutationStarted;
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const secondJoinAvoidedAccessLock = secondJoinSettled;
+  releaseAccessLock();
+  await accessBlocker;
+  const disconnectedSnapshot = await coherentSnapshot;
+  assert.equal(
+    secondJoinAvoidedAccessLock,
+    true,
+    "Participant evidence ingestion must not wait for the shared join-access row",
+  );
+  assert.equal(disconnectedSnapshot.status, "ready");
+  assert.equal(
+    disconnectedSnapshot.data.connectedCount,
+    0,
+    "The queue count must remain on the snapshot taken before a concurrent join",
+  );
+  assert.equal(
+    disconnectedSnapshot.data.entries.find(
+      (entry) => entry.id === evidenceLobbyEntryId,
+    )?.state,
+    "left",
+    "The queue rows must use the same snapshot as the connected count",
+  );
+  assert.equal(
+    disconnectedSnapshot.data.etag,
+    disconnectedQueue.data.etag,
+    "The queue revision must use the same snapshot as its count and rows",
+  );
+  const connectedQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    0,
+  );
+  assert.equal(connectedQueue.status, "ready");
+  assert.equal(
+    connectedQueue.data.connectedCount,
+    1,
+    "A new participant SID must restore durable connected status",
+  );
+  assert.notEqual(
+    connectedQueue.data.etag,
+    disconnectedQueue.data.etag,
+    "The committed join must advance append-only queue revision evidence",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionLeftDuplicate",
+      "participant_left",
+      "PA_VERIFY_CONNECTION_1",
+      4,
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(6),
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_virtual_lobby_entry")
+        .select("state")
+        .where("id", "=", evidenceLobbyEntryId)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "connected",
+    "One closed connection must not hide another active connection",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionLeftSecond",
+      "participant_connection_aborted",
+      "PA_VERIFY_CONNECTION_2",
+      5,
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(7),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "left",
+      leftAt: new Date(evidenceJoinedAt.getTime() + 5_000),
+    },
+  );
+  const recreatedRoomJoin = participantEvent(
+    "EV_VerifyConnectionRecreatedJoin",
+    "participant_joined",
+    "PA_VERIFY_CONNECTION_3",
+    6,
+    "RM_VERIFY_LOBBY_RECREATED",
+  );
+  let releaseRecreatedRoomLock = () => {};
+  let markRecreatedRoomLocked = () => {};
+  const recreatedRoomLockHeld = new Promise<void>((resolve) => {
+    markRecreatedRoomLocked = resolve;
+  });
+  const recreatedRoomLockRelease = new Promise<void>((resolve) => {
+    releaseRecreatedRoomLock = resolve;
+  });
+  const recreatedRoomBlocker = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("event_virtual_room")
+        .select("id")
+        .where("id", "=", ids.room)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      markRecreatedRoomLocked();
+      await recreatedRoomLockRelease;
+    });
+  await recreatedRoomLockHeld;
+  let recreatedRoomJoinSettled = false;
+  const recreatedRoomJoinIngestion = ingestVerifiedLiveKitParticipantWebhook(
+    recreatedRoomJoin,
+    database,
+    getServerEnv(),
+    receiptClock(8),
+  ).then((outcome) => {
+    recreatedRoomJoinSettled = true;
+    return outcome;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(
+    recreatedRoomJoinSettled,
+    false,
+    "A changed-SID join must wait for the room row before mutating learner evidence",
+  );
+  let lobbyLockProbeSettled = false;
+  const lobbyLockProbe = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("event_virtual_lobby_entry")
+      .select("id")
+      .where("id", "=", evidenceLobbyEntryId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    lobbyLockProbeSettled = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const providerSidRepairLocksRoomBeforeLobby = lobbyLockProbeSettled;
+  releaseRecreatedRoomLock();
+  await recreatedRoomBlocker;
+  await lobbyLockProbe;
+  assert.equal(
+    (await recreatedRoomJoinIngestion).status,
+    "processed",
+    "A valid recreated provider room must reconnect the application generation",
+  );
+  assert.equal(
+    providerSidRepairLocksRoomBeforeLobby,
+    true,
+    "Provider SID repair must acquire the room lock before the learner lobby lock",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("providerRoomSid")
+      .where("id", "=", ids.room)
+      .executeTakeFirstOrThrow(),
+    { providerRoomSid: "RM_VERIFY_LOBBY_RECREATED" },
+    "The newest matched join must reconcile the current provider room SID",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionDelayedOldJoin",
+      "participant_joined",
+      "PA_VERIFY_CONNECTION_2",
+      4,
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(9),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("providerRoomSid")
+      .where("id", "=", ids.room)
+      .executeTakeFirstOrThrow(),
+    { providerRoomSid: "RM_VERIFY_LOBBY_RECREATED" },
+    "A delayed older join must not replace the current provider room SID",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionDelayedOldLeave",
+      "participant_left",
+      "PA_VERIFY_CONNECTION_2",
+      4,
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(10),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room")
+      .select("providerRoomSid")
+      .where("id", "=", ids.room)
+      .executeTakeFirstOrThrow(),
+    { providerRoomSid: "RM_VERIFY_LOBBY_RECREATED" },
+    "A delayed terminal event from an older room incarnation must not replace the current SID",
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("event_virtual_lobby_entry")
+        .select("state")
+        .where("id", "=", evidenceLobbyEntryId)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "connected",
+    "An older room incarnation event must not hide a current connection",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionRecreatedLeft",
+      "participant_left",
+      "PA_VERIFY_CONNECTION_3",
+      7,
+      "RM_VERIFY_LOBBY_RECREATED",
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(11),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "left",
+      leftAt: new Date(evidenceJoinedAt.getTime() + 7_000),
+    },
+  );
+  assert.deepEqual(
+    await mutateEventVirtualLobbyAdmission(
+      {
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        lobbyEntryId: evidenceLobbyEntryId,
+        action: "revoke",
+      },
+      administrator,
+    ),
+    { status: "ready" },
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionRevokedJoin",
+      "participant_joined",
+      "PA_VERIFY_CONNECTION_4",
+      8,
+      "RM_VERIFY_LOBBY_RECREATED",
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(12),
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "firstConnectedAt", "lastSeenAt", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "revoked",
+      firstConnectedAt: new Date(evidenceJoinedAt.getTime() + 1_000),
+      lastSeenAt: new Date(evidenceJoinedAt.getTime() + 8_000),
+      leftAt: null,
+    },
+    "A revoked learner's timestamps must advance without overwriting admission state",
+  );
+  const activeRevokedQueueIds = await database
+    .selectFrom("event_virtual_lobby_entry as lobby")
+    .select("lobby.id")
+    .where("lobby.eventVirtualJoinAccessId", "=", access.id)
+    .where(
+      sql<boolean>`(
+        "lobby"."state" in (
+          'waiting', 'admitted', 'token_issued', 'connected', 'left'
+        )
+        or exists (
+          select 1
+          from event_virtual_connection_interval as connection
+          where connection."lobbyEntryId" = "lobby"."id"
+            and connection."leftAt" is null
+        )
+      )`,
+    )
+    .orderBy(
+      sql<number>`case
+        when "lobby"."state" = 'waiting' then 0
+        when exists (
+          select 1
+          from event_virtual_connection_interval as connection
+          where connection."lobbyEntryId" = "lobby"."id"
+            and connection."leftAt" is null
+        ) then 1
+        else 2
+      end`,
+    )
+    .orderBy("lobby.requestedAt")
+    .orderBy("lobby.id")
+    .execute();
+  const activeRevokedQueueIndex = activeRevokedQueueIds.findIndex(
+    (entry) => entry.id === evidenceLobbyEntryId,
+  );
+  assert.notEqual(activeRevokedQueueIndex, -1);
+  const activeRevokedQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    Math.floor(activeRevokedQueueIndex / 50),
+  );
+  assert.equal(activeRevokedQueue.status, "ready");
+  assert.equal(
+    activeRevokedQueue.data.connectedCount,
+    1,
+    "An open interval must remain in the provider-backed connected count after revocation",
+  );
+  const activeRevokedEntry = activeRevokedQueue.data.entries.find(
+    (entry) => entry.id === evidenceLobbyEntryId,
+  );
+  assert.ok(activeRevokedEntry);
+  assert.deepEqual(
+    {
+      state: activeRevokedEntry.state,
+      statusLabel: activeRevokedEntry.statusLabel,
+      isConnected: activeRevokedEntry.isConnected,
+      canRevoke: activeRevokedEntry.canRevoke,
+    },
+    {
+      state: "revoked",
+      statusLabel: "Connected — access revoked",
+      isConnected: true,
+      canRevoke: false,
+    },
+    "Staff must see live presence without losing the independent revocation decision",
+  );
+  await ingestVerifiedLiveKitParticipantWebhook(
+    participantEvent(
+      "EV_VerifyConnectionRevokedLeft",
+      "participant_left",
+      "PA_VERIFY_CONNECTION_4",
+      9,
+      "RM_VERIFY_LOBBY_RECREATED",
+    ),
+    database,
+    getServerEnv(),
+    receiptClock(13),
+  );
+  const afterRevokedDisconnectQueue = await findEventVirtualLobbyQueue(
+    ids.occurrence,
+    ids.session,
+    administrator.id,
+    0,
+  );
+  assert.equal(afterRevokedDisconnectQueue.status, "ready");
+  assert.equal(
+    afterRevokedDisconnectQueue.data.connectedCount,
+    0,
+    "Closing the revoked learner's final interval must clear live presence",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "lastSeenAt", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "revoked",
+      lastSeenAt: new Date(evidenceJoinedAt.getTime() + 9_000),
+      leftAt: new Date(evidenceJoinedAt.getTime() + 9_000),
+    },
+    "Connection evidence must refresh grace timestamps without overwriting revocation",
+  );
+  assert.equal(
+    await database
+      .selectFrom("event_virtual_connection_interval")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("lobbyEntryId", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    4,
+  );
+  assert.equal(
+    await database
+      .selectFrom("livekit_participant_webhook_receipt")
+      .select((expression) => expression.fn.countAll<string>().as("count"))
+      .where("matchedLobbyEntryId", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow()
+      .then((row) => Number(row.count)),
+    11,
   );
 
   const replacement = await database

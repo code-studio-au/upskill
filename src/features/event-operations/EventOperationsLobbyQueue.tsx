@@ -102,7 +102,10 @@ export function EventOperationsLobbyQueue({
       <header className={classes.queueHeader}>
         <div>
           <h4>Learners</h4>
-          <p>{room.maxParticipants} maximum connections</p>
+          <p>
+            {queue?.connectedCount ?? "—"} / {session.learnerCapacity} (max)
+            connected
+          </p>
         </div>
         <div className={classes.queueControls}>
           {!webinarEnded ? (
@@ -146,24 +149,20 @@ export function EventOperationsLobbyQueue({
       {queue && entries.length ? (
         <ul className={classes.lobbyQueue}>
           {entries.map((entry) => {
-            const admissionLabel =
-              entry.state === "waiting"
-                ? "Waiting"
-                : entry.state === "admitted"
-                  ? "Admitted"
-                  : "Access issued";
             const actions =
               entry.state === "waiting"
                 ? ([
                     ["admit", "Admit"],
                     ["decline", "Decline"],
                   ] as const)
-                : ([["revoke", "Revoke"]] as const);
+                : entry.canRevoke
+                  ? ([["revoke", "Revoke"]] as const)
+                  : ([] as const);
             return (
               <li className={classes.lobbyEntry} key={entry.id}>
                 <div className={classes.learnerIdentity}>
                   <strong>{entry.name}</strong>
-                  <span>{admissionLabel}</span>
+                  <span>{entry.statusLabel}</span>
                 </div>
                 <div className={classes.attendeeActions}>
                   {actions.map(([operation, label]) => {

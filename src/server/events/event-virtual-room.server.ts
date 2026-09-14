@@ -51,6 +51,43 @@ const presenterCredentialDenialAuditLimits = new Map<
 type DatabaseConnection = Kysely<Database> | Transaction<Database>;
 type VirtualRoomDoorState = "scheduled" | "open" | "locked" | "ended";
 type VirtualRoomAction = "start" | "lock" | "reopen" | "end" | "replace";
+type VisibleLobbyState =
+  | "waiting"
+  | "admitted"
+  | "token_issued"
+  | "connected"
+  | "left"
+  | "declined"
+  | "revoked";
+type VisibleLobbyStatusLabel =
+  | "Waiting"
+  | "Admitted"
+  | "Access issued"
+  | "Connected"
+  | "Connected — admission pending"
+  | "Connected — access declined"
+  | "Connected — access revoked"
+  | "Disconnected"
+  | "Access declined"
+  | "Access revoked";
+
+function visibleLobbyStatusLabel(
+  state: VisibleLobbyState,
+  isConnected: boolean,
+): VisibleLobbyStatusLabel {
+  if (isConnected) {
+    if (state === "waiting") return "Connected — admission pending";
+    if (state === "declined") return "Connected — access declined";
+    if (state === "revoked") return "Connected — access revoked";
+    return "Connected";
+  }
+  if (state === "waiting") return "Waiting";
+  if (state === "admitted") return "Admitted";
+  if (state === "token_issued") return "Access issued";
+  if (state === "declined") return "Access declined";
+  if (state === "revoked") return "Access revoked";
+  return "Disconnected";
+}
 
 type EventVirtualRoomConflictReason =
   | "capacity_exceeded"
@@ -193,6 +230,7 @@ interface EventVirtualRecordingOperationsState {
 
 export interface EventVirtualSessionOperations {
   eventSessionId: string;
+  learnerCapacity: number;
   preparationOpensAt: string;
   canEnterGreenRoom: boolean;
   presenterRecordingNotice: string | null;
@@ -346,6 +384,7 @@ export async function findEventVirtualLobbyQueue(
   eventSessionId: string,
   userId: string,
   page: number,
+  options: { afterConnectedCount?: () => Promise<void> } = {},
 ) {
   const database = getDatabase();
   if (
@@ -357,81 +396,114 @@ export async function findEventVirtualLobbyQueue(
     ))
   )
     return { status: "forbidden" } as const;
-  const access = await database
-    .selectFrom("event_virtual_join_access as access")
-    .innerJoin("event_virtual_room as room", (join) =>
-      join
-        .onRef("room.eventSessionId", "=", "access.eventSessionId")
-        .onRef("room.generation", "=", "access.roomGeneration"),
-    )
-    .select(["access.id", "room.id as roomId", "room.doorState"])
-    .where("access.eventOccurrenceId", "=", eventOccurrenceId)
-    .where("access.eventSessionId", "=", eventSessionId)
-    .where("access.revokedAt", "is", null)
-    .executeTakeFirst();
-  if (!access) return { status: "not-found" } as const;
-  const recordingByRoom = await findRecordingOperationsByRoom(database, [
-    access.roomId,
-  ]);
-  const rows = await database
-    .selectFrom("event_virtual_lobby_entry as lobby")
-    .innerJoin(
-      "event_participation as participation",
-      "participation.id",
-      "lobby.eventParticipationId",
-    )
-    .select([
-      "lobby.id",
-      "lobby.eventParticipationId",
-      "lobby.state",
-      "lobby.accessMethod",
-      "lobby.requestedAt",
-      "lobby.admittedAt",
-      "participation.nameSnapshot as name",
-    ])
-    .where("lobby.eventVirtualJoinAccessId", "=", access.id)
-    .where("lobby.state", "in", [
-      "waiting",
-      "admitted",
-      "token_issued",
-      "connected",
-    ])
-    .orderBy(
-      sql<number>`case "lobby"."state" when 'waiting' then 0 when 'connected' then 1 else 2 end`,
-    )
-    .orderBy("lobby.requestedAt")
-    .orderBy("lobby.id")
-    .limit(LOBBY_QUEUE_PAGE_SIZE + 1)
-    .offset(page * LOBBY_QUEUE_PAGE_SIZE)
-    .execute();
-  // Read the transactionally advanced revision after the page so a mutation
-  // between the two reads causes a safe client reset without scanning history.
-  const revision = await database
-    .selectFrom("event_virtual_join_access")
-    .select("lobbyRevision")
-    .where("id", "=", access.id)
-    .where("revokedAt", "is", null)
-    .executeTakeFirst();
-  if (!revision) return { status: "not-found" } as const;
-  return {
-    status: "ready",
-    data: {
-      etag: String(revision.lobbyRevision),
-      doorState: access.doorState,
-      entries: rows.slice(0, LOBBY_QUEUE_PAGE_SIZE).map((entry) => ({
-        id: entry.id,
-        eventParticipationId: entry.eventParticipationId,
-        name: entry.name,
-        state: entry.state as
-          "waiting" | "admitted" | "token_issued" | "connected",
-        accessMethod: entry.accessMethod,
-        requestedAt: entry.requestedAt.toISOString(),
-        admittedAt: entry.admittedAt?.toISOString() ?? null,
-      })),
-      hasNextPage: rows.length > LOBBY_QUEUE_PAGE_SIZE,
-      recording: recordingByRoom.get(access.roomId) ?? null,
-    },
-  } as const;
+  return database
+    .transaction()
+    .setIsolationLevel("repeatable read")
+    .execute(async (transaction) => {
+      const access = await transaction
+        .selectFrom("event_virtual_join_access as access")
+        .innerJoin("event_virtual_room as room", (join) =>
+          join
+            .onRef("room.eventSessionId", "=", "access.eventSessionId")
+            .onRef("room.generation", "=", "access.roomGeneration"),
+        )
+        .select(["access.id", "room.id as roomId", "room.doorState"])
+        .where("access.eventOccurrenceId", "=", eventOccurrenceId)
+        .where("access.eventSessionId", "=", eventSessionId)
+        .where("access.revokedAt", "is", null)
+        .executeTakeFirst();
+      if (!access) return { status: "not-found" } as const;
+      const recordingByRoom = await findRecordingOperationsByRoom(transaction, [
+        access.roomId,
+      ]);
+      const connectedCount = await transaction
+        .selectFrom("event_virtual_connection_interval as connection")
+        .select((expression) =>
+          expression.fn
+            .count<string>("connection.lobbyEntryId")
+            .distinct()
+            .as("connectedCount"),
+        )
+        .where("connection.eventVirtualJoinAccessId", "=", access.id)
+        .where("connection.leftAt", "is", null)
+        .executeTakeFirstOrThrow();
+      await options.afterConnectedCount?.();
+      const hasOpenConnection = sql<boolean>`exists (
+        select 1
+        from event_virtual_connection_interval as connection
+        where connection."lobbyEntryId" = "lobby"."id"
+          and connection."leftAt" is null
+      )`;
+      const rows = await transaction
+        .selectFrom("event_virtual_lobby_entry as lobby")
+        .innerJoin(
+          "event_participation as participation",
+          "participation.id",
+          "lobby.eventParticipationId",
+        )
+        .select([
+          "lobby.id",
+          "lobby.eventParticipationId",
+          "lobby.state",
+          "lobby.accessMethod",
+          "lobby.requestedAt",
+          "lobby.admittedAt",
+          "participation.nameSnapshot as name",
+          hasOpenConnection.as("isConnected"),
+        ])
+        .where("lobby.eventVirtualJoinAccessId", "=", access.id)
+        .where(
+          sql<boolean>`(
+            "lobby"."state" in (
+              'waiting', 'admitted', 'token_issued', 'connected', 'left'
+            )
+            or ${hasOpenConnection}
+          )`,
+        )
+        .orderBy(
+          sql<number>`case
+            when "lobby"."state" = 'waiting' then 0
+            when ${hasOpenConnection} then 1
+            else 2
+          end`,
+        )
+        .orderBy("lobby.requestedAt")
+        .orderBy("lobby.id")
+        .limit(LOBBY_QUEUE_PAGE_SIZE + 1)
+        .offset(page * LOBBY_QUEUE_PAGE_SIZE)
+        .execute();
+      const revision = await transaction
+        .selectFrom("event_virtual_lobby_revision")
+        .select("revision")
+        .where("eventVirtualJoinAccessId", "=", access.id)
+        .orderBy("revision", "desc")
+        .executeTakeFirst();
+      return {
+        status: "ready",
+        data: {
+          etag: revision?.revision ?? "0",
+          doorState: access.doorState,
+          entries: rows.slice(0, LOBBY_QUEUE_PAGE_SIZE).map((entry) => ({
+            id: entry.id,
+            eventParticipationId: entry.eventParticipationId,
+            name: entry.name,
+            state: entry.state,
+            statusLabel: visibleLobbyStatusLabel(
+              entry.state,
+              entry.isConnected,
+            ),
+            isConnected: entry.isConnected,
+            canRevoke: !["declined", "revoked"].includes(entry.state),
+            accessMethod: entry.accessMethod,
+            requestedAt: entry.requestedAt.toISOString(),
+            admittedAt: entry.admittedAt?.toISOString() ?? null,
+          })),
+          hasNextPage: rows.length > LOBBY_QUEUE_PAGE_SIZE,
+          connectedCount: Number(connectedCount.connectedCount),
+          recording: recordingByRoom.get(access.roomId) ?? null,
+        },
+      } as const;
+    });
 }
 
 interface VirtualSessionContext {
@@ -1379,6 +1451,7 @@ export async function findEventVirtualSessionOperations(
       "session.livekitRecordingMode",
       "session.livekitPresenterRecordingNotice",
       "occurrence.status as occurrenceStatus",
+      "occurrence.capacity as learnerCapacity",
     ])
     .where("session.eventOccurrenceId", "=", eventOccurrenceId)
     .where("session.virtualDeliveryProvider", "=", "livekit")
@@ -1462,6 +1535,7 @@ export async function findEventVirtualSessionOperations(
     const accessRecord = accessBySession.get(session.id);
     return {
       eventSessionId: session.id,
+      learnerCapacity: session.learnerCapacity,
       preparationOpensAt: opensAt.toISOString(),
       canEnterGreenRoom:
         session.occurrenceStatus === "published" &&

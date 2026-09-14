@@ -2,9 +2,9 @@
 
 ## Status
 
-Accepted; governed Email Designer, Section-embedded Offering communication
-plans and Event Occurrence overrides implemented. Scheduled delivery execution
-remains pending.
+Accepted and implemented for the governed Email Designer, Section-embedded
+Offering communication plans, Event Occurrence overrides and every currently
+authorable Course/Event trigger.
 
 ## Current implementation scope
 
@@ -33,6 +33,10 @@ used by this decision:
   materialization when a Scheduled Event is created;
 - revisioned occurrence-local subject/body/timing overrides with explicit reset
   to the inherited plan; and
+- durable schedules, committed-event trigger execution, recipient resolution,
+  delivery-time eligibility rechecks and stale-delivery suppression;
+- idempotent worker delivery with exact rendered/version snapshots, delivery
+  attempts and operational failure visibility; and
 - previews using the exact Course or Event context, visibly marked with an
   example recipient.
 
@@ -41,11 +45,11 @@ escaping all rendered content and applying only code-owned paragraph/line-break
 markup. This is a stricter implementation of the sanitization boundary and does
 not expose arbitrary HTML, CSS, URL attributes or executable expressions.
 
-Durable schedule creation, committed-event subscription, recipient resolution,
-delivery suppression/recheck, sent-message history UI and broader System Email
-contracts remain target work. Event Occurrence overrides retain their dedicated
-operational workspace because they revise an already materialized plan rather
-than authoring the reusable Section journey.
+Broader System Email contracts, sophisticated preference policy, provider-rate
+and worker-heartbeat telemetry, and explicit rendered-history retention controls
+remain target work. Event Occurrence overrides retain their dedicated operational
+workspace because they revise an already materialized plan rather than authoring
+the reusable Section journey.
 
 ## Context
 

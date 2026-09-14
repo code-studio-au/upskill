@@ -74,6 +74,7 @@ export async function revokeEventVirtualLobbyEntryForEligibility(
   await advanceEventVirtualLobbyRevision(
     transaction,
     input.eventVirtualJoinAccessId,
+    input.entry.id,
   );
   await recordDurableAuditEvent(transaction, {
     actorUserId: null,

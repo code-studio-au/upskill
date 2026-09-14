@@ -83,9 +83,12 @@ try {
     "event_virtual_recording",
     "event_virtual_recording_deletion",
     "livekit_webhook_receipt",
+    "livekit_participant_webhook_receipt",
+    "event_virtual_connection_interval",
     "event_virtual_presenter_credential_reservation",
     "event_virtual_join_access",
     "event_virtual_lobby_entry",
+    "event_virtual_lobby_revision",
     "event_virtual_recovery_challenge",
     "event_virtual_recovery_delivery",
     "event_virtual_join_session",
@@ -244,6 +247,11 @@ try {
     "event_virtual_recording_deletion_work_idx",
     "livekit_webhook_receipt_processing_idx",
     "livekit_webhook_receipt_recording_attention_idx",
+    "event_virtual_lobby_entry_participant_identity_uq",
+    "event_virtual_lobby_revision_access_idx",
+    "livekit_participant_webhook_receipt_connection_idx",
+    "event_virtual_connection_interval_presence_idx",
+    "event_virtual_connection_interval_open_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -269,6 +277,21 @@ try {
   )
     throw new Error(
       "LiveKit credential reservations must index every unexpired credential state",
+    );
+  const participantIdentityIndex = indexResult.rows.find(
+    (index) =>
+      index.indexname === "event_virtual_lobby_entry_participant_identity_uq",
+  );
+  if (
+    !participantIdentityIndex?.indexdef.includes(
+      '("eventSessionId", "roomGeneration", "participantIdentityDigest")',
+    ) ||
+    !participantIdentityIndex.indexdef.includes(
+      'WHERE ("participantIdentityDigest" IS NOT NULL)',
+    )
+  )
+    throw new Error(
+      "LiveKit participant webhook identity must have one scoped indexed lobby lookup",
     );
   const emailDesignerConstraints = await sql<{
     constraint_name: string;
@@ -754,6 +777,52 @@ try {
   assert.match(webhookReceiptGuardDefinition, /INSERT/u);
   assert.match(webhookReceiptGuardDefinition, /UPDATE/u);
   assert.match(webhookReceiptGuardDefinition, /DELETE/u);
+  const liveKitConnectionEvidenceConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'event_virtual_room_presence_scope_uq',
+          'event_virtual_lobby_entry_presence_scope_uq',
+          'event_virtual_lobby_entry_participant_identity_ck',
+          'livekit_participant_webhook_receipt_event_uq',
+          'livekit_participant_webhook_receipt_room_fk',
+          'livekit_participant_webhook_receipt_lobby_fk',
+          'livekit_participant_webhook_receipt_provider_ck',
+          'livekit_participant_webhook_receipt_identity_ck',
+          'livekit_participant_webhook_receipt_match_ck',
+          'livekit_participant_webhook_receipt_processing_ck',
+          'livekit_participant_webhook_receipt_timeline_ck',
+          'event_virtual_connection_interval_participant_uq',
+          'event_virtual_connection_interval_room_fk',
+          'event_virtual_connection_interval_lobby_fk',
+          'event_virtual_connection_interval_identity_ck',
+          'event_virtual_connection_interval_timeline_ck',
+          'event_virtual_lobby_entry_revision_scope_uq',
+          'event_virtual_lobby_revision_entry_fk'
+        )`.execute(db);
+  assert.equal(
+    liveKitConnectionEvidenceConstraints.rows.length,
+    18,
+    "LiveKit participant receipts, connection intervals and lobby revisions must retain exact room, generation and lobby scope",
+  );
+  for (const triggerName of [
+    "livekit_participant_webhook_receipt_guard_trg",
+    "event_virtual_connection_interval_guard_trg",
+    "event_virtual_lobby_revision_guard_trg",
+  ]) {
+    const trigger = await sql<{
+      definition: string;
+    }>`select pg_get_triggerdef(oid) as definition
+      from pg_trigger
+      where tgname = ${triggerName}
+        and not tgisinternal`.execute(db);
+    assert.equal(trigger.rows.length, 1);
+    const definition = trigger.rows[0]?.definition.toUpperCase() ?? "";
+    assert.match(definition, /BEFORE/u);
+    assert.match(definition, /UPDATE/u);
+    assert.match(definition, /DELETE/u);
+  }
   const liveKitRecordingGuard = await sql<{
     definition: string;
   }>`select pg_get_triggerdef(oid) as definition

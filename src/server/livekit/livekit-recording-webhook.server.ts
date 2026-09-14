@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
-import type { Kysely } from "kysely";
+import { sql, type Kysely } from "kysely";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv, type ServerEnv } from "#/server/env.server";
@@ -47,6 +47,17 @@ export async function ingestVerifiedLiveKitRecordingWebhook(
     throw new RangeError("Webhook receipt timestamp is invalid");
 
   return database.transaction().execute(async (transaction) => {
+    await sql`select pg_advisory_xact_lock(hashtextextended(
+      ${`${event.providerEnvironment}:${event.providerEventId}`}, 0
+    ))`.execute(transaction);
+    const participantReceipt = await transaction
+      .selectFrom("livekit_participant_webhook_receipt")
+      .select("id")
+      .where("providerEnvironment", "=", event.providerEnvironment)
+      .where("providerEventId", "=", event.providerEventId)
+      .executeTakeFirst();
+    if (participantReceipt)
+      throw new TypeError("Webhook event identity was reused");
     const receiptId = `livekit_webhook_receipt_${randomUUID()}`;
     const inserted = await transaction
       .insertInto("livekit_webhook_receipt")

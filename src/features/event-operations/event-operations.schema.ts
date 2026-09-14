@@ -311,6 +311,7 @@ export interface EventOperationsWorkspace {
   }>;
   virtualSessions: Array<{
     eventSessionId: string;
+    learnerCapacity: number;
     preparationOpensAt: string;
     canEnterGreenRoom: boolean;
     presenterRecordingNotice: string | null;
@@ -344,12 +345,33 @@ export interface EventVirtualLobbyQueueData {
     id: string;
     eventParticipationId: string;
     name: string;
-    state: "waiting" | "admitted" | "token_issued" | "connected";
+    state:
+      | "waiting"
+      | "admitted"
+      | "token_issued"
+      | "connected"
+      | "left"
+      | "declined"
+      | "revoked";
+    statusLabel:
+      | "Waiting"
+      | "Admitted"
+      | "Access issued"
+      | "Connected"
+      | "Connected — admission pending"
+      | "Connected — access declined"
+      | "Connected — access revoked"
+      | "Disconnected"
+      | "Access declined"
+      | "Access revoked";
+    isConnected: boolean;
+    canRevoke: boolean;
     accessMethod: "authenticated" | "email" | "sms" | "guest";
     requestedAt: string;
     admittedAt: string | null;
   }>;
   hasNextPage: boolean;
+  connectedCount: number;
   recording: EventVirtualRecordingOperationsState | null;
 }
 

@@ -40,6 +40,7 @@ import { lockEventVirtualAdmissionEligibility } from "./event-virtual-lobby-elig
 import { revokeEventVirtualLobbyEntryForEligibility } from "./event-virtual-lobby-reconciliation.server";
 import {
   eventVirtualAttendeeIdentity,
+  eventVirtualAttendeeIdentityDigest,
   isEventVirtualAttendeeIdentity,
 } from "./event-virtual-participant-identity.server";
 import { enqueueEventVirtualParticipantRemoval } from "./event-virtual-provider-operation.server";
@@ -741,6 +742,7 @@ async function ensureLobbyEntry(
       await advanceEventVirtualLobbyRevision(
         transaction,
         destination.eventVirtualJoinAccessId,
+        admitted.id,
       );
       await recordDurableAuditEvent(transaction, {
         actorUserId: null,
@@ -777,6 +779,7 @@ async function ensureLobbyEntry(
       await advanceEventVirtualLobbyRevision(
         transaction,
         destination.eventVirtualJoinAccessId,
+        restored.id,
       );
       await recordDurableAuditEvent(transaction, {
         actorUserId: actor.user.id,
@@ -803,6 +806,12 @@ async function ensureLobbyEntry(
         eventSessionId: destination.eventSessionId,
         roomGeneration: destination.roomGeneration,
         eventParticipationId: participation.id,
+        participantIdentityDigest: destination.roomId
+          ? eventVirtualAttendeeIdentityDigest(
+              destination.roomId,
+              participation.id,
+            )
+          : null,
         state: automatic ? "admitted" : "waiting",
         accessMethod: actor.accessMethod,
         requestedAt: now,
@@ -825,6 +834,7 @@ async function ensureLobbyEntry(
     await advanceEventVirtualLobbyRevision(
       transaction,
       destination.eventVirtualJoinAccessId,
+      entry.id,
     );
     await recordDurableAuditEvent(transaction, {
       actorUserId: actor.user.id,
@@ -2418,6 +2428,10 @@ export async function issueEventVirtualAttendeeCredential(
         .updateTable("event_virtual_lobby_entry")
         .set({
           state: nextState,
+          participantIdentityDigest: eventVirtualAttendeeIdentityDigest(
+            room.id,
+            resolved.participation.id,
+          ),
           firstTokenIssuedAt: entry.firstTokenIssuedAt ?? now,
           credentialExpiresAt,
           updatedAt: now,
@@ -2428,6 +2442,7 @@ export async function issueEventVirtualAttendeeCredential(
         await advanceEventVirtualLobbyRevision(
           transaction,
           resolved.destination.eventVirtualJoinAccessId,
+          entry.id,
         );
       await recordDurableAuditEvent(transaction, {
         actorUserId: resolved.actor.user.id,
@@ -2558,6 +2573,7 @@ async function changeAdmission(
   await advanceEventVirtualLobbyRevision(
     transaction,
     destination.eventVirtualJoinAccessId,
+    entry.id,
   );
   await recordDurableAuditEvent(transaction, {
     actorUserId,
