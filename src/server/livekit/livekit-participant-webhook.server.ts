@@ -5,7 +5,8 @@ import { sql, type Kysely, type Transaction } from "kysely";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { getServerEnv, type ServerEnv } from "#/server/env.server";
-import { advanceEventVirtualLobbyRevision } from "#/server/events/event-virtual-join-access.server";
+import { wakeEventVirtualAttendanceReconciliation } from "#/server/events/event-virtual-attendance.server";
+import { projectEventVirtualLobbyPresence } from "#/server/events/event-virtual-connection-presence.server";
 import {
   eventVirtualParticipantIdentityDigest,
   isEventVirtualAttendeeIdentity,
@@ -15,103 +16,11 @@ import type { VerifiedLiveKitWebhook } from "./livekit-webhook.server";
 type ParticipantEventName =
   "participant_joined" | "participant_left" | "participant_connection_aborted";
 
-type MatchedLobbyEntry = {
-  id: string;
-  eventVirtualJoinAccessId: string;
-  eventOccurrenceId: string;
-  eventSessionId: string;
-  roomGeneration: number;
-  eventParticipationId: string;
-  state:
-    | "waiting"
-    | "admitted"
-    | "token_issued"
-    | "connected"
-    | "left"
-    | "declined"
-    | "revoked";
-  firstConnectedAt: Date | null;
-  lastSeenAt: Date | null;
-  leftAt: Date | null;
-  updatedAt: Date;
-};
-
 function isParticipantEventName(value: string): value is ParticipantEventName {
   return (
     value === "participant_joined" ||
     value === "participant_left" ||
     value === "participant_connection_aborted"
-  );
-}
-
-function sameInstant(left: Date | null, right: Date | null): boolean {
-  return left?.getTime() === right?.getTime();
-}
-
-async function projectLobbyPresence(
-  transaction: Transaction<Database>,
-  entry: MatchedLobbyEntry,
-  observedAt: Date,
-): Promise<void> {
-  const intervals = await transaction
-    .selectFrom("event_virtual_connection_interval")
-    .select(["joinedAt", "leftAt"])
-    .where("eventVirtualJoinAccessId", "=", entry.eventVirtualJoinAccessId)
-    .where("eventParticipationId", "=", entry.eventParticipationId)
-    .orderBy("joinedAt")
-    .orderBy("id")
-    .execute();
-  if (!intervals.length) return;
-
-  const firstConnectedAt = intervals[0]?.joinedAt ?? null;
-  const hasOpenConnection = intervals.some((interval) => !interval.leftAt);
-  const observedInstants = intervals.flatMap((interval) =>
-    interval.leftAt
-      ? [interval.joinedAt, interval.leftAt]
-      : [interval.joinedAt],
-  );
-  const lastSeenAt = new Date(
-    Math.max(...observedInstants.map((instant) => instant.getTime())),
-  );
-  const leftAt = hasOpenConnection
-    ? null
-    : new Date(
-        Math.max(
-          ...intervals.map((interval) => interval.leftAt?.getTime() ?? 0),
-        ),
-      );
-  const projectedState = ["token_issued", "connected", "left"].includes(
-    entry.state,
-  )
-    ? hasOpenConnection
-      ? "connected"
-      : "left"
-    : entry.state;
-  if (
-    entry.state === projectedState &&
-    sameInstant(entry.firstConnectedAt, firstConnectedAt) &&
-    sameInstant(entry.lastSeenAt, lastSeenAt) &&
-    sameInstant(entry.leftAt, leftAt)
-  )
-    return;
-
-  await transaction
-    .updateTable("event_virtual_lobby_entry")
-    .set({
-      state: projectedState,
-      firstConnectedAt,
-      lastSeenAt,
-      leftAt,
-      updatedAt: new Date(
-        Math.max(observedAt.getTime(), entry.updatedAt.getTime()),
-      ),
-    })
-    .where("id", "=", entry.id)
-    .executeTakeFirstOrThrow();
-  await advanceEventVirtualLobbyRevision(
-    transaction,
-    entry.eventVirtualJoinAccessId,
-    entry.id,
   );
 }
 
@@ -297,6 +206,26 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
         .executeTakeFirstOrThrow();
     }
 
+    const matchedLobby = await transaction
+      .selectFrom("event_virtual_lobby_entry as lobby")
+      .select("lobby.id")
+      .where("lobby.eventSessionId", "=", room.eventSessionId)
+      .where("lobby.roomGeneration", "=", room.generation)
+      .where("lobby.participantIdentityDigest", "=", participantIdentityDigest)
+      .executeTakeFirst();
+    if (!matchedLobby) {
+      await transaction
+        .updateTable("livekit_participant_webhook_receipt")
+        .set({ processingState: "unmatched", processedAt: receivedAt })
+        .where("id", "=", receiptId)
+        .executeTakeFirstOrThrow();
+      return { status: "unmatched", receiptId };
+    }
+    await wakeEventVirtualAttendanceReconciliation(
+      transaction,
+      room.id,
+      receivedAt,
+    );
     const lobbyEntry = await transaction
       .selectFrom("event_virtual_lobby_entry as lobby")
       .select([
@@ -312,19 +241,9 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
         "lobby.leftAt",
         "lobby.updatedAt",
       ])
-      .where("lobby.eventSessionId", "=", room.eventSessionId)
-      .where("lobby.roomGeneration", "=", room.generation)
-      .where("lobby.participantIdentityDigest", "=", participantIdentityDigest)
+      .where("lobby.id", "=", matchedLobby.id)
       .forUpdate()
-      .executeTakeFirst();
-    if (!lobbyEntry) {
-      await transaction
-        .updateTable("livekit_participant_webhook_receipt")
-        .set({ processingState: "unmatched", processedAt: receivedAt })
-        .where("id", "=", receiptId)
-        .executeTakeFirstOrThrow();
-      return { status: "unmatched", receiptId };
-    }
+      .executeTakeFirstOrThrow();
 
     await transaction
       .updateTable("livekit_participant_webhook_receipt")
@@ -349,7 +268,10 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
         "lobbyEntryId",
         "participantIdentityDigest",
         "joinedAt",
+        "joinedReceiptId",
+        "joinedSource",
         "leftAt",
+        "leftSource",
         "createdAt",
       ])
       .where("roomId", "=", room.id)
@@ -394,7 +316,9 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
           providerParticipantSid: participantSid,
           participantIdentityDigest,
           joinedReceiptId: receiptId,
+          joinedSource: "webhook",
           leftReceiptId: terminalReceipt?.id ?? null,
+          leftSource: terminalReceipt ? "webhook" : null,
           joinedAt: providerCreatedAt,
           leftAt: terminalReceipt?.providerCreatedAt ?? null,
           createdAt: receivedAt,
@@ -402,15 +326,39 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
         })
         .executeTakeFirstOrThrow();
     } else if (
+      eventType === "participant_joined" &&
+      existingInterval?.joinedSource === "provider_reconciliation" &&
+      providerCreatedAt <= existingInterval.joinedAt &&
+      (!existingInterval.leftAt || providerCreatedAt <= existingInterval.leftAt)
+    ) {
+      await transaction
+        .updateTable("event_virtual_connection_interval")
+        .set({
+          joinedReceiptId: receiptId,
+          joinedSource: "webhook",
+          joinedAt: providerCreatedAt,
+          updatedAt: new Date(
+            Math.max(
+              receivedAt.getTime(),
+              existingInterval.createdAt.getTime(),
+            ),
+          ),
+        })
+        .where("id", "=", existingInterval.id)
+        .executeTakeFirstOrThrow();
+    } else if (
       eventType !== "participant_joined" &&
       existingInterval &&
-      !existingInterval.leftAt &&
-      providerCreatedAt >= existingInterval.joinedAt
+      providerCreatedAt >= existingInterval.joinedAt &&
+      (!existingInterval.leftAt ||
+        (existingInterval.leftSource !== "webhook" &&
+          providerCreatedAt <= existingInterval.leftAt))
     ) {
       await transaction
         .updateTable("event_virtual_connection_interval")
         .set({
           leftReceiptId: receiptId,
+          leftSource: "webhook",
           leftAt: providerCreatedAt,
           updatedAt: new Date(
             Math.max(
@@ -420,11 +368,10 @@ export async function ingestVerifiedLiveKitParticipantWebhook(
           ),
         })
         .where("id", "=", existingInterval.id)
-        .where("leftAt", "is", null)
         .executeTakeFirstOrThrow();
     }
 
-    await projectLobbyPresence(transaction, lobbyEntry, receivedAt);
+    await projectEventVirtualLobbyPresence(transaction, lobbyEntry, receivedAt);
     if (requiresProviderRoomSidRepair)
       await reconcileProviderRoomSid(transaction, room.id);
     return { status: "processed", receiptId, lobbyEntryId: lobbyEntry.id };

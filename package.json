@@ -85,6 +85,7 @@
     "db:verify:livekit-policy": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-livekit-provider-policy.ts",
     "db:verify:livekit-room-lifecycle": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-livekit-room-lifecycle.ts",
     "db:verify:livekit-attendee-lobby": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-livekit-attendee-lobby.ts",
+    "db:verify:livekit-automatic-attendance": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-livekit-automatic-attendance.ts",
     "worker:scorm:once": "node --env-file-if-exists=.env.local --import tsx scripts/process-scorm-ingestion.ts",
     "worker:scorm": "node --env-file-if-exists=.env.local --import tsx src/worker/scorm-worker.ts",
     "verify:scorm-ingestion:local": "node --env-file-if-exists=.env.local --import tsx scripts/verify-scorm-package-ingestion.ts",
@@ -136,7 +137,7 @@
     "@types/react-dom": "19.2.4",
     "@typescript/native": "npm:typescript@7.0.2",
     "@vitejs/plugin-react": "6.0.5",
-    "@vitest/coverage-v8": "4.1.10",
+    "@vitest/coverage-v8": "4.1.11",
     "eslint": "10.8.1",
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-react-refresh": "0.5.3",
@@ -152,7 +153,7 @@
     "typescript": "npm:@typescript/typescript6@6.0.2",
     "typescript-eslint": "8.66.0",
     "vite": "8.2.1",
-    "vitest": "4.1.10",
+    "vitest": "4.1.11",
     "yaml": "2.9.0"
   }
 }

@@ -91,8 +91,8 @@ than establishing another product foundation.
   alerts/exports where real delivery practice demonstrates the need.
 - Richer HTTP, SCORM, recording and certificate telemetry plus contract-wide
   reporting that cannot be served efficiently from bounded transactional reads.
-- Optional connection-derived automatic attendance only after the qualifying
-  policy, evidence threshold and correction consequences are explicitly agreed.
+- Automatic-attendance evidence review, filters and exports only if operational
+  use demonstrates that the current durable decision history needs dedicated UI.
 
 ### Future Possibilities
 

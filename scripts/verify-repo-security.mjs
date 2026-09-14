@@ -966,6 +966,24 @@ const liveKitLobbyRevision = fs.readFileSync(
   path.join(root, "src/server/events/event-virtual-join-access.server.ts"),
   "utf8",
 );
+const liveKitConnectionPresence = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/events/event-virtual-connection-presence.server.ts",
+  ),
+  "utf8",
+);
+const liveKitAutomaticAttendance = fs.readFileSync(
+  path.join(root, "src/server/events/event-virtual-attendance.server.ts"),
+  "utf8",
+);
+const liveKitAutomaticAttendanceMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0112_livekit_automatic_attendance.ts",
+  ),
+  "utf8",
+);
 const objectStorage = fs.readFileSync(
   path.join(root, "src/server/storage/object-storage.server.ts"),
   "utf8",
@@ -997,14 +1015,101 @@ for (const boundary of [
   "reconcileProviderRoomSid",
   "livekit-participant-room-sid:",
   'insertInto("event_virtual_connection_interval")',
-  "const projectedState =",
-  ": entry.state;",
-  "advanceEventVirtualLobbyRevision",
 ])
   if (!liveKitParticipantWebhook.includes(boundary))
     failures.push(
       `LiveKit participant receipt boundary is missing: ${boundary}`,
     );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  "const projectedState =",
+  ": entry.state;",
+  "advanceEventVirtualLobbyRevision",
+])
+  if (!liveKitConnectionPresence.includes(boundary))
+    failures.push(`LiveKit presence projection is missing: ${boundary}`);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'insertInto("event_virtual_attendance_decision")',
+  "qualifyingConnectedMilliseconds",
+  'previous?.source === "coordinator"',
+  "applicationOutcome = staffSource",
+  "EVENT_VIRTUAL_ATTENDANCE_CALCULATION_VERSION",
+  "isEventVirtualAttendanceReconciliationComplete",
+  '"event_virtual_room as intervalRoom"',
+  '"intervalRoom.replacedAt as roomReplacedAt"',
+  "if (qualifyingMilliseconds === 0) continue",
+])
+  if (!liveKitAutomaticAttendance.includes(boundary))
+    failures.push(
+      `LiveKit automatic attendance boundary is missing: ${boundary}`,
+    );
+const attendanceReconciliationStartIndex = liveKitAutomaticAttendance.indexOf(
+  "async function reconcileRoomEvidenceAndAttendance",
+);
+const attendanceOccurrenceLockIndex = liveKitAutomaticAttendance.indexOf(
+  '.selectFrom("event_occurrence")',
+  attendanceReconciliationStartIndex,
+);
+const attendanceWorkLockIndex = liveKitAutomaticAttendance.indexOf(
+  '.selectFrom("event_virtual_attendance_reconciliation")',
+  attendanceReconciliationStartIndex,
+);
+const attendanceRoomReadIndex = liveKitAutomaticAttendance.indexOf(
+  "const room = await findAutomaticRoom",
+  attendanceReconciliationStartIndex,
+);
+if (
+  attendanceReconciliationStartIndex < 0 ||
+  attendanceOccurrenceLockIndex < attendanceReconciliationStartIndex ||
+  attendanceWorkLockIndex < attendanceOccurrenceLockIndex ||
+  attendanceRoomReadIndex < attendanceWorkLockIndex ||
+  !liveKitAutomaticAttendance
+    .slice(attendanceOccurrenceLockIndex, attendanceWorkLockIndex)
+    .includes(".forUpdate()") ||
+  !liveKitAutomaticAttendance
+    .slice(attendanceWorkLockIndex, attendanceRoomReadIndex)
+    .includes(".forUpdate()")
+)
+  failures.push(
+    "Automatic attendance reconciliation must lock occurrence before reconciliation work",
+  );
+for (const boundary of [
+  "event_virtual_attendance_reconciliation_state_ck",
+  "event_virtual_attendance_decision_room_fk",
+  "event_virtual_attendance_decision_lobby_fk",
+  "event_virtual_attendance_decision_policy_ck",
+  "event_virtual_attendance_decision_evidence_ck",
+  "guard_event_virtual_attendance_decision",
+  "Automatic attendance decisions are immutable",
+  "event_virtual_attendance_decision_guard_trg",
+  "revoke update, delete on table event_virtual_attendance_decision",
+])
+  if (!liveKitAutomaticAttendanceMigration.includes(boundary))
+    failures.push(`LiveKit automatic attendance guard is missing: ${boundary}`);
+const attendanceGuardReplacementIndex =
+  liveKitAutomaticAttendanceMigration.indexOf(
+    "create or replace function guard_event_virtual_connection_interval",
+  );
+const attendanceClosedIntervalBackfillIndex =
+  liveKitAutomaticAttendanceMigration.indexOf(
+    `update event_virtual_connection_interval
+    set "leftSource" = 'webhook'`,
+  );
+if (
+  attendanceGuardReplacementIndex < 0 ||
+  attendanceClosedIntervalBackfillIndex < 0 ||
+  attendanceGuardReplacementIndex > attendanceClosedIntervalBackfillIndex ||
+  !liveKitAutomaticAttendanceMigration
+    .slice(
+      attendanceGuardReplacementIndex,
+      attendanceClosedIntervalBackfillIndex,
+    )
+    .includes('old."leftSource" is null')
+)
+  failures.push(
+    "Automatic attendance must install its transition-safe interval guard before backfilling retained closed evidence",
+  );
 const providerSidRepairLockIndex = liveKitParticipantWebhook.indexOf(
   "if (requiresProviderRoomSidRepair)",
 );
@@ -1446,6 +1551,14 @@ for (const table of [
     failures.push(
       `Runtime database roles must not physically delete ${table} evidence`,
     );
+if (
+  !provisionRuntimeRoles.includes(
+    "revoke update, delete on table event_virtual_attendance_decision from ${role}",
+  )
+)
+  failures.push(
+    "Runtime database roles must not mutate automatic attendance decisions",
+  );
 if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
   failures.push(
     "Release installation must expose the verified commit identity",

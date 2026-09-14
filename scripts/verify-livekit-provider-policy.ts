@@ -117,6 +117,10 @@ import {
   down as downLobbyRevisionEvidence,
   up as upLobbyRevisionEvidence,
 } from "#/server/db/migrations/0111_livekit_lobby_revision_evidence";
+import {
+  down as downAutomaticAttendance,
+  up as upAutomaticAttendance,
+} from "#/server/db/migrations/0112_livekit_automatic_attendance";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -144,6 +148,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downAutomaticAttendance(database);
   await downLobbyRevisionEvidence(database);
   await downConnectionEvidence(database);
   await downRecordingRetention(database);
@@ -308,6 +313,7 @@ try {
   await upRecordingRetention(database);
   await upConnectionEvidence(database);
   await upLobbyRevisionEvidence(database);
+  await upAutomaticAttendance(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -667,8 +673,8 @@ try {
       administrator,
       { approvedMaxParticipants: 25 },
     ),
-    "livekit-policy-unavailable",
-    "Automatic check-in must remain dormant while automatic recording is publishable",
+    "livekit-unavailable",
+    "Automatic check-in must pass policy validation before recording-provider validation",
   );
   await database
     .updateTable("event_session")
@@ -684,8 +690,8 @@ try {
       administrator,
       { approvedMaxParticipants: 25 },
     ),
-    "livekit-policy-unavailable",
-    "Automatic duration attendance must remain dormant until reconciliation is active",
+    "livekit-unavailable",
+    "Automatic duration attendance must pass policy validation before recording-provider validation",
   );
   await database
     .updateTable("event_session")
@@ -933,6 +939,7 @@ try {
       await upRecordingRetention(database);
       await upConnectionEvidence(database);
       await upLobbyRevisionEvidence(database);
+      await upAutomaticAttendance(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

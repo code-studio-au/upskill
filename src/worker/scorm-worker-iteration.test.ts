@@ -337,4 +337,47 @@ describe("runScormWorkerIteration", () => {
     });
     expect(consumeNextWorkMessage).toHaveBeenCalledWith(0);
   });
+
+  it("finishes attendance reconciliation before room closure work", async () => {
+    const order: string[] = [];
+    const outcome = await runScormWorkerIteration({
+      processAvailableEventVirtualRecordingDeletions:
+        processNoRecordingDeletions,
+      processAvailableEventCommunicationSchedules: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableLiveKitRecordingReceipts: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      processAvailableEventVirtualLobbyEligibilityRevocations: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualRecoveryDeliveries: vi
+        .fn()
+        .mockResolvedValue({ outcomes: [], limitReached: false }),
+      processAvailableEventVirtualAttendanceReconciliations: vi.fn(() => {
+        order.push("attendance");
+        return Promise.resolve({
+          outcomes: [
+            { status: "processed" as const, roomId: "virtual_room_1" },
+          ],
+          limitReached: false,
+        });
+      }),
+      processAvailableEventVirtualRoomOperations: vi.fn(() => {
+        order.push("room");
+        return Promise.resolve({ outcomes: [], limitReached: false });
+      }),
+      dispatchAvailableOutboxEvents: vi.fn().mockResolvedValue({
+        outcomes: [],
+        limitReached: false,
+      }),
+      consumeNextWorkMessage: vi.fn().mockResolvedValue({ status: "no-work" }),
+    });
+
+    expect(order).toEqual(["attendance", "room"]);
+    expect(outcome.virtualAttendanceReconciliations.outcomes).toHaveLength(1);
+  });
 });

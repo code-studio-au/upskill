@@ -9,6 +9,7 @@ import { processAvailableEventVirtualRecoveryDeliveries } from "#/server/events/
 import { processAvailableEventVirtualLobbyEligibilityRevocations } from "#/server/events/event-virtual-lobby-reconciliation.server";
 import { processAvailableLiveKitRecordingReceipts } from "#/server/events/event-virtual-recording-receipts.server";
 import { processAvailableEventVirtualRecordingDeletions } from "#/server/events/event-virtual-recording-retention.server";
+import { processAvailableEventVirtualAttendanceReconciliations } from "#/server/events/event-virtual-attendance.server";
 import { runScormWorkerIteration } from "./scorm-worker-iteration";
 
 const shutdown = new AbortController();
@@ -31,6 +32,7 @@ try {
       virtualRecordingDeletions,
       virtualLobbyEligibilityRevocations,
       virtualRecoveryDeliveries,
+      virtualAttendanceReconciliations,
       dispatch,
       consumption,
     } = await runScormWorkerIteration({
@@ -40,6 +42,7 @@ try {
       processAvailableEventVirtualRecordingDeletions,
       processAvailableEventVirtualLobbyEligibilityRevocations,
       processAvailableEventVirtualRecoveryDeliveries,
+      processAvailableEventVirtualAttendanceReconciliations,
       dispatchAvailableOutboxEvents,
       consumeNextWorkMessage,
     });
@@ -126,6 +129,18 @@ try {
           challengeId: outcome.challengeId,
         },
       });
+    for (const outcome of virtualAttendanceReconciliations.outcomes)
+      logServerEvent({
+        level: outcome.status === "retry" ? "warn" : "info",
+        event: "worker.event_virtual_attendance_reconciled",
+        fields: {
+          status: outcome.status,
+          roomId: outcome.roomId,
+          ...(outcome.status === "retry"
+            ? { reasonCode: outcome.reasonCode }
+            : {}),
+        },
+      });
     if (consumption.status !== "no-work")
       logServerEvent({
         level: consumption.status === "retry" ? "warn" : "info",
@@ -150,6 +165,7 @@ try {
       virtualRecordingDeletions.outcomes.length === 0 &&
       virtualLobbyEligibilityRevocations.outcomes.length === 0 &&
       virtualRecoveryDeliveries.outcomes.length === 0 &&
+      virtualAttendanceReconciliations.outcomes.length === 0 &&
       dispatch.outcomes.length === 0 &&
       consumption.status === "no-work"
     )
