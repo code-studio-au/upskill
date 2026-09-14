@@ -282,6 +282,13 @@ eligible replacement is assigned, revocation closes the outgoing User's active
 assignments while retaining their dated historical snapshots. Completed,
 cancelled and archived instances do not block revocation.
 
+The preceding coverage rule is the accepted target from ADR 0028, not fully
+delivered behaviour. Currently, Coordinator eligibility revocation closes the
+User's matching active Coordinator assignments without the sole-coverage,
+replacement, attention or successor-Template workflow. Presenter eligibility
+revocation ends the eligibility record but does not automatically end active
+Presenter assignments or run replacement/attention automation.
+
 ### Registration region snapshot
 
 The occurrence region selected and confirmed by the learner when registering.
@@ -333,6 +340,11 @@ Without an available replacement, affected instances are flagged for attention
 but learner/Event operation continues, and new instance creation is blocked until
 the Template has a valid default administrator set.
 
+This Administrator revocation impact workflow is pending. The current role
+revocation command returns an Event-responsibility blocker while the User has an
+active Event administrator assignment or a current Template default; it does
+not yet end assignments, create attention state or publish successor versions.
+
 ### Presenter assignment
 
 A narrower resource-scoped assignment allowing access to assigned
@@ -347,6 +359,11 @@ gap triggers replacement or `presenter_attention_required`; standard Platform
 Administrators retain digital operational fallback without being recorded as
 Presenters. Current Event Templates receive a successor version without the
 disabled default Presenter, while historical versions/instances remain exact.
+
+This Presenter revocation impact workflow is pending. Current roster
+eligibility revocation does not end active Presenter assignments, create
+attention state, notify backstop administrators or publish a successor Template
+Version.
 
 ### Attendance
 
@@ -1071,12 +1088,23 @@ transactional queries demonstrate real pressure.
   occurrence-owned exact-Survey QR catalogue with participant-free display.
 - Password, email OTP and verified-mobile SMS access to exact Survey tasks on
   shared devices.
-- Administrator/Coordinator/Presenter revocation, replacement, attention and
-  successor-Template workflows with retained attribution.
+- Coordinator roster-eligibility revocation with retained eligibility and
+  assignment history; it currently closes matching active Coordinator
+  assignments without automated coverage repair.
 - LiveKit presenter green room, attendee lobby/admission, webinar lifecycle,
   participant operations, managed recording/playback and durable learner
   connection status.
 - Focused server-side resource-scope, replay, failure and concurrency coverage.
+
+### Remaining --- Staff lifecycle resilience
+
+- Platform Administrator revocation impact handling for Event owner assignments
+  and current Template defaults, including immediate revocation, replacement or
+  attention state and successor Template Versions.
+- Coordinator sole-coverage checks, replacement/attention notifications and
+  successor Template automation after eligibility loss.
+- Presenter active-assignment revocation, replacement/attention notifications
+  and successor Template automation after eligibility loss or User disable.
 
 ### Implemented blended-learning foundation
 

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted and implemented.
+Accepted; partially implemented.
 
 ## Context
 
@@ -224,6 +224,18 @@ activity references, versioned administrator/Coordinator/Presenter defaults,
 occurrence assignment history and publish-time coverage checks. Template
 creation is intentionally blank and requires explicit default administrators.
 The version designer supports multi-session and region authoring, published
-read-only views, and cloned successor versions. Assignment
-replacement/revocation automation, registration decisions and attendance
-operations remain follow-on work under this ADR.
+read-only views, and cloned successor versions. Registration decisions and
+attendance operations are implemented.
+
+Staff-lifecycle automation remains partial. Coordinator roster-eligibility
+revocation ends the User's matching active Coordinator assignments and retains
+history, but does not yet enforce sole-region coverage or create replacements,
+attention state, notifications or successor Template Versions. Presenter
+eligibility revocation currently ends the eligibility record only; active
+Presenter assignments and the Presenter replacement/attention/successor flow
+remain follow-on work. Platform Administrator role revocation is currently
+blocked when active Event owner assignments or current Template defaults exist;
+the immediate revocation, replacement, attention and successor-Template impact
+workflow specified above is not implemented. Until those paths are delivered,
+the target resilience and immediate-access-removal guarantees in this ADR must
+not be reported as current system behaviour.
