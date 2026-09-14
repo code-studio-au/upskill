@@ -3,6 +3,10 @@ import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordAdminEventAttendance } from "#/server/admin/admin-event-registration-operations.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
+import {
+  down as downAutomaticAttendanceMigration,
+  up as upAutomaticAttendanceMigration,
+} from "#/server/db/migrations/0112_livekit_automatic_attendance";
 import { getServerEnv } from "#/server/env.server";
 import {
   ensureEventVirtualAttendanceReconciliation,
@@ -52,6 +56,7 @@ const finalAt = new Date(startsAt.getTime() + 20 * 60_000);
 const roomName = "event:verify_attendance:g1";
 const database = getDatabase();
 const provider = new FakeLiveKitProvider();
+let automaticAttendanceMigrationApplied = true;
 
 async function cleanUp(): Promise<void> {
   await database.transaction().execute(async (transaction) => {
@@ -872,10 +877,61 @@ try {
       previousAttendanceSource: "system",
     })
     .executeTakeFirstOrThrow();
+  const retainedIntervalLeave: VerifiedLiveKitWebhook = {
+    providerEnvironment: "test",
+    providerEventId: "EV_VERIFY_ATTENDANCE_RETAINED_INTERVAL_LEAVE",
+    event: "participant_left",
+    createdAtSeconds: Math.floor((startsAt.getTime() + 15 * 60_000) / 1_000),
+    payloadDigest: "c".repeat(64),
+    roomSid: "RM_VERIFY_ATTENDANCE",
+    roomName,
+    participantSid: "PA_VERIFY_ATTENDANCE_CONCURRENT",
+    participantIdentity: eventVirtualAttendeeIdentity(
+      ids.room,
+      ids.firstParticipation,
+    ),
+  };
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitParticipantWebhook(
+        retainedIntervalLeave,
+        database,
+        { ...getServerEnv(), LIVEKIT_PROJECT_ENVIRONMENT: "test" },
+        () => new Date(finalAt.getTime() + 2_000),
+      )
+    ).status,
+    "processed",
+  );
+  await downAutomaticAttendanceMigration(database);
+  automaticAttendanceMigrationApplied = false;
+  await upAutomaticAttendanceMigration(database);
+  automaticAttendanceMigrationApplied = true;
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_connection_interval")
+      .select(["joinedSource", "leftSource"])
+      .where("roomId", "=", ids.room)
+      .where("providerParticipantSid", "=", "PA_VERIFY_ATTENDANCE_CONCURRENT")
+      .executeTakeFirstOrThrow(),
+    {
+      joinedSource: "webhook",
+      leftSource: "webhook",
+    },
+    "Automatic-attendance migration must upgrade retained closed webhook intervals",
+  );
   console.log(
-    "LiveKit automatic attendance verification passed: revision-safe provider reconciliation, generation-bounded and positive-overlap evidence, closed terminal discovery, full threshold range, duration promotion, completion, staff-correction preservation and idempotent reruns.",
+    "LiveKit automatic attendance verification passed: revision-safe provider reconciliation, generation-bounded and positive-overlap evidence, closed terminal discovery, retained closed-interval upgrades, full threshold range, duration promotion, completion, staff-correction preservation and idempotent reruns.",
   );
 } finally {
-  await cleanUp();
+  if (!automaticAttendanceMigrationApplied) {
+    try {
+      await upAutomaticAttendanceMigration(database);
+      automaticAttendanceMigrationApplied = true;
+    } catch {
+      // Preserve the original migration failure; the disposable verifier drops
+      // its database even when typed cleanup cannot safely run.
+    }
+  }
+  if (automaticAttendanceMigrationApplied) await cleanUp();
   await destroyDatabase();
 }

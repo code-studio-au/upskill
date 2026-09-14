@@ -6,44 +6,6 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     alter column "joinedReceiptId" drop not null,
     add column "joinedSource" text not null default 'webhook',
     add column "leftSource" text`.execute(db);
-  await sql`update event_virtual_connection_interval
-    set "leftSource" = 'webhook'
-    where "leftReceiptId" is not null`.execute(db);
-  await sql`alter table event_virtual_connection_interval
-    add constraint event_virtual_connection_interval_source_ck check (
-      (
-        "joinedSource" = 'webhook'
-        and "joinedReceiptId" is not null
-      )
-      or (
-        "joinedSource" = 'provider_reconciliation'
-        and "joinedReceiptId" is null
-      )
-    ),
-    add constraint event_virtual_connection_interval_timeline_ck check (
-      "updatedAt" >= "createdAt"
-      and (
-        (
-          "leftAt" is null
-          and "leftReceiptId" is null
-          and "leftSource" is null
-        )
-        or (
-          "leftAt" is not null
-          and (
-            (
-              "leftSource" = 'webhook'
-              and "leftReceiptId" is not null
-            )
-            or (
-              "leftSource" in ('provider_reconciliation', 'room_end')
-              and "leftReceiptId" is null
-            )
-          )
-        )
-      )
-      and ("leftAt" is null or "leftAt" >= "joinedAt")
-    )`.execute(db);
 
   await sql`create or replace function guard_event_virtual_connection_interval()
     returns trigger
@@ -78,6 +40,12 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
           new."leftAt", new."leftReceiptId", new."leftSource"
         ) is distinct from row(
           old."leftAt", old."leftReceiptId", old."leftSource"
+        ) and not (
+          old."leftSource" is null
+          and new."leftSource" = 'webhook'
+          and row(new."leftAt", new."leftReceiptId") is not distinct from row(
+            old."leftAt", old."leftReceiptId"
+          )
         ) and not (
           old."leftSource" in ('provider_reconciliation', 'room_end')
           and new."leftSource" = 'webhook'
@@ -145,6 +113,45 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       return new;
     end
     $$`.execute(db);
+
+  await sql`update event_virtual_connection_interval
+    set "leftSource" = 'webhook'
+    where "leftReceiptId" is not null`.execute(db);
+  await sql`alter table event_virtual_connection_interval
+    add constraint event_virtual_connection_interval_source_ck check (
+      (
+        "joinedSource" = 'webhook'
+        and "joinedReceiptId" is not null
+      )
+      or (
+        "joinedSource" = 'provider_reconciliation'
+        and "joinedReceiptId" is null
+      )
+    ),
+    add constraint event_virtual_connection_interval_timeline_ck check (
+      "updatedAt" >= "createdAt"
+      and (
+        (
+          "leftAt" is null
+          and "leftReceiptId" is null
+          and "leftSource" is null
+        )
+        or (
+          "leftAt" is not null
+          and (
+            (
+              "leftSource" = 'webhook'
+              and "leftReceiptId" is not null
+            )
+            or (
+              "leftSource" in ('provider_reconciliation', 'room_end')
+              and "leftReceiptId" is null
+            )
+          )
+        )
+      )
+      and ("leftAt" is null or "leftAt" >= "joinedAt")
+    )`.execute(db);
 
   await sql`create table event_virtual_attendance_reconciliation (
     "roomId" text primary key

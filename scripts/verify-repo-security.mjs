@@ -1087,6 +1087,29 @@ for (const boundary of [
 ])
   if (!liveKitAutomaticAttendanceMigration.includes(boundary))
     failures.push(`LiveKit automatic attendance guard is missing: ${boundary}`);
+const attendanceGuardReplacementIndex =
+  liveKitAutomaticAttendanceMigration.indexOf(
+    "create or replace function guard_event_virtual_connection_interval",
+  );
+const attendanceClosedIntervalBackfillIndex =
+  liveKitAutomaticAttendanceMigration.indexOf(
+    `update event_virtual_connection_interval
+    set "leftSource" = 'webhook'`,
+  );
+if (
+  attendanceGuardReplacementIndex < 0 ||
+  attendanceClosedIntervalBackfillIndex < 0 ||
+  attendanceGuardReplacementIndex > attendanceClosedIntervalBackfillIndex ||
+  !liveKitAutomaticAttendanceMigration
+    .slice(
+      attendanceGuardReplacementIndex,
+      attendanceClosedIntervalBackfillIndex,
+    )
+    .includes('old."leftSource" is null')
+)
+  failures.push(
+    "Automatic attendance must install its transition-safe interval guard before backfilling retained closed evidence",
+  );
 const providerSidRepairLockIndex = liveKitParticipantWebhook.indexOf(
   "if (requiresProviderRoomSidRepair)",
 );
