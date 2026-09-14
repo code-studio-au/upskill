@@ -185,9 +185,9 @@ includes:
 - one or more versioned default standard administrators and default Coordinators
   per configured region plus default Presenters per presenter-required scope,
   automatically snapshotted into new instances;
-- immediate role/assignment revocation with retained attribution, replacement or
-  standard-admin fallback, and successor Template versions that remove disabled
-  administrator/Coordinator/Presenter defaults;
+- retained staff eligibility and assignment history, with Coordinator
+  eligibility revocation currently closing matching active Coordinator
+  assignments;
 - scheduled occurrences;
 - in-person/virtual delivery;
 - sessions/days;
@@ -569,9 +569,9 @@ without understanding why.
 - blank Template creation with explicit default administrators, multi-session
   and region/assignment authoring, ordered learning activities, immutable
   publication and successor versions (implemented);
-- multi-owner standard-admin Event responsibility plus multi-Coordinator regional
-  and Presenter assignments, including revocation/replacement workflows
-  (implemented);
+- multi-owner standard-admin Event responsibility plus multi-Coordinator
+  regional and Presenter assignment foundations (implemented; staff
+  revocation/replacement automation remains in the Phase B follow-on);
 - registration selection and attendance-taking workflows (implemented);
 - explicit published-occurrence rescheduling with retained schedules,
   keep/replace/reopen window policy, responsibility snapshots and new review
@@ -579,6 +579,15 @@ without understanding why.
 - reschedule-time region addition, Coordinator reassignment and regional
   retirement with affected-registration preview, future-only preservation or
   active-registration cancellation and confirmed-capacity release (implemented).
+
+### Phase B follow-on --- Staff lifecycle resilience (pending)
+
+- Platform Administrator revocation impact handling for Event ownership and
+  current Template defaults;
+- Coordinator sole-coverage repair, replacement/attention notifications and
+  successor Template automation after eligibility loss; and
+- Presenter active-assignment revocation, coverage repair,
+  replacement/attention notifications and successor Template automation.
 
 ### Phase C --- Blended event learning (delivered)
 

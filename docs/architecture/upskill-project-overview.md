@@ -612,11 +612,19 @@ architecture.
 When committed business state requires follow-up work, the outbox record
 is committed in the same database transaction.
 
-Outbox examples include SCORM ingestion, content deletion, audit projections,
-notifications, scheduled communication rules and SMS delivery. LiveKit room,
-recording and retention work instead uses dedicated leased operation tables
-serviced by the same worker because those provider lifecycles need richer
-reconciliation state than a one-shot outbox row.
+Dispatchable outbox examples are SCORM package ingestion/deletion, resource
+version deletion, audit projection and `notification.delivery_requested` for
+resulting email delivery. Event communication schedules are not outbox topics:
+they are durable `event_communication_schedule` rows polled and claimed directly
+by the worker, with attempt counts, availability times and bounded backoff; when
+due, they materialize the resulting notification delivery work. SMS is also not
+outbox-dispatched: `sendTrackedSms` first records a durable `sms_delivery` row,
+calls the provider inline and updates that row to `accepted`, `failed` or
+`unknown`. Ambiguous SMS outcomes are retained for operational reconciliation
+instead of being blindly retried as outbox messages. LiveKit room, recording and
+retention work instead uses dedicated leased operation tables serviced by the
+same worker because those provider lifecycles need richer reconciliation state
+than a one-shot outbox row.
 
 This means process failure does not cause Upskill to forget committed
 work.
