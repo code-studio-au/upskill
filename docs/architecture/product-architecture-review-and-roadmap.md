@@ -112,7 +112,7 @@ verifiers, and CDK verification.
 | Coordinator workflows              | Region-scoped review, progress, selection and Survey QR operations          | Add alerts only where delivery practice requires them                    |
 | Presenter workflows                | Attendance/QR plus LiveKit green-room, media, admission and recording       | Add printable/minimal export if required                                 |
 | Attendance                         | Durable evidence and corrections                                            | Add offline/minimal operational export                                   |
-| LiveKit webinars and recording     | Controlled admission, connection evidence, admin-only recording/playback    | Decide automatic attendance separately; harden from operations evidence  |
+| LiveKit webinars and recording     | Controlled admission, automatic attendance, admin-only recordings           | Complete recovery drills and production guardrails                       |
 | Authenticated user onboarding      | Versioned Survey-backed flow, contact verification and gating               | Add privacy/retention and optional bulk campaign operations              |
 | Open-entry guest check-in          | Guarded Event and LiveKit lobby workflow implemented                        | Add support controls only where required                                 |
 | Passwordless prerequisite recovery | Email/SMS OTP and exact-Survey task sessions implemented                    | Add scoped facilitated Survey fallback                                   |

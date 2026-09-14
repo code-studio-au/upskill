@@ -148,9 +148,9 @@ start/admission/eligibility checks; provider participant identities are derived
 and not stored raw. Signed provider webhooks retain recording and attendee
 connection evidence. Managed Egress recordings use private object storage,
 retention policy and audited administrator-only playback/download that rechecks
-current platform-administrator authority. Durable connection state is projected into
-the staff roster; automatic attendance from that evidence remains conditional
-follow-up work.
+current platform-administrator authority. Durable connection state is projected
+into the staff roster and feeds versioned automatic check-in or duration
+decisions while staff-authored corrections remain authoritative.
 
 Enterprise Contracts separately own contractual period, lifecycle, immutable
 Course and exact Event coverage, domain or uploaded-employee eligibility,

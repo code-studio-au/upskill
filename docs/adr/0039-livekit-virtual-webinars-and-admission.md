@@ -1,8 +1,8 @@
 # ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection evidence
 
 - **Status:** Accepted; webinar delivery, managed recording, presenter outcome
-  feedback, open-entry lobby and durable attendee connection evidence
-  implemented; automatic attendance and production hardening are tracked below
+  feedback, open-entry lobby, durable attendee connection evidence and automatic
+  attendance implemented; production hardening is tracked below
 - **Date:** 2026-08-31
 
 ## Context
@@ -1396,12 +1396,14 @@ gates passed; it does not by itself authorise staging or production activation.
       presence state, and the staff roster retains a disconnected learner after the
       final active interval closes. Implemented by
       [PR #88](https://github.com/code-studio-au/upskill/pull/88).
-- [ ] **Slice 7b — attendance reconciliation and promotion:** add periodic and
+- [x] **Slice 7b — attendance reconciliation and promotion:** add periodic and
       final reconciliation, versioned attendance-policy evaluation, automatic
       check-in/duration promotion and preservation of manual corrections. This is
       conditional product scope: manual attendance and the webinar itself work
-      without it. Until it is implemented, publication must continue to reject
-      LiveKit sessions configured with a non-manual attendance mode.
+      without it. The implementation retains append-only decisions and connection
+      evidence, repairs missed join/leave webhooks from provider presence, waits
+      for final reconciliation before closing a room, and leaves staff-authored
+      corrections authoritative. Non-manual attendance modes are now publishable.
 - [ ] **Slice 7c — attendance operations and reporting:** add administrator review,
       evidence explanation, filters and exports without changing the evidence or
       promotion policy. This is a deferred operational enhancement, not a
@@ -1429,12 +1431,11 @@ gates passed; it does not by itself authorise staging or production activation.
       host connectivity preflight in release artifacts, correcting the staging
       webhook runbook URL, and an explicit production-enable decision.
 
-The unchecked items do not all block the same outcome. Slice 7b is the next
-conditional step only if connection-derived attendance remains desired, while
-Slice 7c is deferred reporting scope. Slices 8b–8d are production-operational
-assurance. The implemented webinar, managed-recording and durable connection
-status journeys may therefore be treated as functional in staging without
-implying that automatic attendance or production activation is complete.
+The unchecked items do not all block the same outcome. Slice 7c is deferred
+reporting scope. Slices 8b–8d are the next production-operational assurance
+work. The implemented webinar, managed-recording, durable connection status and
+automatic-attendance journeys may therefore be treated as functional without
+implying that production activation is complete.
 
 Each required unchecked tracker item is expected to be one pull request.
 Conditional or deferred items require an explicit product decision before

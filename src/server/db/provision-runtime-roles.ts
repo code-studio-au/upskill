@@ -56,6 +56,7 @@ try {
        revoke delete on table livekit_webhook_receipt from ${role};
        revoke delete on table livekit_participant_webhook_receipt from ${role};
        revoke delete on table event_virtual_connection_interval from ${role};
+       revoke update, delete on table event_virtual_attendance_decision from ${role};
        revoke all on table kysely_migration, kysely_migration_lock from ${role};`,
     );
   }

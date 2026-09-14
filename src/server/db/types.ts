@@ -934,12 +934,57 @@ interface EventVirtualConnectionIntervalTable {
   eventParticipationId: string;
   providerParticipantSid: string;
   participantIdentityDigest: string;
-  joinedReceiptId: string;
+  joinedReceiptId: string | null;
+  joinedSource: "webhook" | "provider_reconciliation";
   leftReceiptId: string | null;
+  leftSource: "webhook" | "provider_reconciliation" | "room_end" | null;
   joinedAt: Timestamp;
   leftAt: Timestamp | null;
   createdAt: Timestamp;
   updatedAt: Timestamp;
+}
+
+interface EventVirtualAttendanceReconciliationTable {
+  roomId: string;
+  status: "pending" | "processing" | "succeeded";
+  evidenceRevision: Generated<number>;
+  reconciledRevision: Generated<number>;
+  attempts: Generated<number>;
+  availableAt: Timestamp;
+  leasedUntil: Timestamp | null;
+  lastAttemptAt: Timestamp | null;
+  lastSuccessAt: Timestamp | null;
+  completedAt: Timestamp | null;
+  lastErrorCode: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+}
+
+interface EventVirtualAttendanceDecisionTable {
+  id: string;
+  roomId: string;
+  eventVirtualJoinAccessId: string;
+  eventOccurrenceId: string;
+  eventSessionId: string;
+  roomGeneration: number;
+  lobbyEntryId: string;
+  eventParticipationId: string;
+  attendanceState: "checked_in" | "attended";
+  attendanceMode: "automatic_check_in" | "automatic_duration";
+  attendanceMinimumMinutes: number | null;
+  qualifyingConnectedSeconds: number;
+  calculationVersion: number;
+  decisionAt: Timestamp;
+  applicationOutcome: "applied" | "already_satisfied" | "preserved_manual";
+  previousAttendanceState:
+    "not_recorded" | "checked_in" | "attended" | "absent" | null;
+  previousAttendanceSource:
+    | "system"
+    | "self_check_in"
+    | "coordinator"
+    | "presenter"
+    | "administrator"
+    | null;
 }
 
 interface EventVirtualPresenterCredentialReservationTable {
@@ -2042,6 +2087,8 @@ export interface Database {
   event_virtual_lobby_entry: EventVirtualLobbyEntryTable;
   event_virtual_lobby_revision: EventVirtualLobbyRevisionTable;
   event_virtual_connection_interval: EventVirtualConnectionIntervalTable;
+  event_virtual_attendance_reconciliation: EventVirtualAttendanceReconciliationTable;
+  event_virtual_attendance_decision: EventVirtualAttendanceDecisionTable;
   event_virtual_recovery_challenge: EventVirtualRecoveryChallengeTable;
   event_virtual_recovery_delivery: EventVirtualRecoveryDeliveryTable;
   event_virtual_join_session: EventVirtualJoinSessionTable;

@@ -31,6 +31,7 @@ const verificationScripts = [
   "scripts/verify-livekit-provider-policy.ts",
   "scripts/verify-livekit-room-lifecycle.ts",
   "scripts/verify-livekit-attendee-lobby.ts",
+  "scripts/verify-livekit-automatic-attendance.ts",
   "scripts/verify-admin-learner-event-history.ts",
   "scripts/verify-email-designer.ts",
   "scripts/verify-offering-communications.ts",

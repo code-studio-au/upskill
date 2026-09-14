@@ -85,6 +85,8 @@ try {
     "livekit_webhook_receipt",
     "livekit_participant_webhook_receipt",
     "event_virtual_connection_interval",
+    "event_virtual_attendance_reconciliation",
+    "event_virtual_attendance_decision",
     "event_virtual_presenter_credential_reservation",
     "event_virtual_join_access",
     "event_virtual_lobby_entry",
@@ -252,6 +254,9 @@ try {
     "livekit_participant_webhook_receipt_connection_idx",
     "event_virtual_connection_interval_presence_idx",
     "event_virtual_connection_interval_open_idx",
+    "event_virtual_attendance_reconciliation_pending_idx",
+    "event_virtual_attendance_reconciliation_lease_idx",
+    "event_virtual_attendance_decision_participation_idx",
   ];
   const indexResult = await sql<{
     indexdef: string;
@@ -798,17 +803,25 @@ try {
           'event_virtual_connection_interval_lobby_fk',
           'event_virtual_connection_interval_identity_ck',
           'event_virtual_connection_interval_timeline_ck',
+          'event_virtual_connection_interval_source_ck',
+          'event_virtual_attendance_reconciliation_state_ck',
+          'event_virtual_attendance_decision_uq',
+          'event_virtual_attendance_decision_room_fk',
+          'event_virtual_attendance_decision_lobby_fk',
+          'event_virtual_attendance_decision_policy_ck',
+          'event_virtual_attendance_decision_evidence_ck',
           'event_virtual_lobby_entry_revision_scope_uq',
           'event_virtual_lobby_revision_entry_fk'
         )`.execute(db);
   assert.equal(
     liveKitConnectionEvidenceConstraints.rows.length,
-    18,
+    25,
     "LiveKit participant receipts, connection intervals and lobby revisions must retain exact room, generation and lobby scope",
   );
   for (const triggerName of [
     "livekit_participant_webhook_receipt_guard_trg",
     "event_virtual_connection_interval_guard_trg",
+    "event_virtual_attendance_decision_guard_trg",
     "event_virtual_lobby_revision_guard_trg",
   ]) {
     const trigger = await sql<{

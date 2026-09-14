@@ -107,8 +107,8 @@ implementations. Published content is immutable.
 
 Owns occurrences, sessions, registrations, capacity, staff assignments,
 attendance, event workflow, composition of learning around scheduled delivery,
-and LiveKit webinar operations. Connection-derived automatic attendance remains
-conditional target scope.
+and LiveKit webinar operations. Connection-derived automatic attendance uses
+versioned policy decisions and preserves staff corrections.
 
 ### Certificate rendering
 

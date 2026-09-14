@@ -6,6 +6,7 @@ import type { EventVirtualRecoveryDeliveryBatch } from "#/server/events/event-vi
 import type { EventVirtualLobbyEligibilityRevocationBatch } from "#/server/events/event-virtual-lobby-reconciliation.server";
 import type { LiveKitRecordingReceiptBatch } from "#/server/events/event-virtual-recording-receipts.server";
 import type { EventVirtualRecordingDeletionBatch } from "#/server/events/event-virtual-recording-retention.server";
+import type { EventVirtualAttendanceReconciliationBatch } from "#/server/events/event-virtual-attendance.server";
 
 const ELIGIBILITY_RECONCILIATION_MAX_QUEUE_WAIT_SECONDS = 1;
 
@@ -16,6 +17,7 @@ export interface ScormWorkerIterationDependencies {
   processAvailableEventVirtualRecordingDeletions: () => Promise<EventVirtualRecordingDeletionBatch>;
   processAvailableEventVirtualLobbyEligibilityRevocations: () => Promise<EventVirtualLobbyEligibilityRevocationBatch>;
   processAvailableEventVirtualRecoveryDeliveries: () => Promise<EventVirtualRecoveryDeliveryBatch>;
+  processAvailableEventVirtualAttendanceReconciliations?: () => Promise<EventVirtualAttendanceReconciliationBatch>;
   dispatchAvailableOutboxEvents: () => Promise<OutboxDispatchBatch>;
   consumeNextWorkMessage: (
     waitTimeSeconds?: number,
@@ -29,6 +31,7 @@ export interface ScormWorkerIterationOutcome {
   virtualRecordingDeletions: EventVirtualRecordingDeletionBatch;
   virtualLobbyEligibilityRevocations: EventVirtualLobbyEligibilityRevocationBatch;
   virtualRecoveryDeliveries: EventVirtualRecoveryDeliveryBatch;
+  virtualAttendanceReconciliations: EventVirtualAttendanceReconciliationBatch;
   dispatch: OutboxDispatchBatch;
   consumption: WorkConsumerOutcome;
 }
@@ -47,9 +50,15 @@ export async function runScormWorkerIteration(
     dependencies.processAvailableEventVirtualLobbyEligibilityRevocations(),
     dependencies.processAvailableEventVirtualRecoveryDeliveries(),
   ]);
-  const virtualRooms = liveKitRecordingReceipts.limitReached
-    ? { outcomes: [], limitReached: false }
-    : await dependencies.processAvailableEventVirtualRoomOperations();
+  const virtualAttendanceReconciliations =
+    dependencies.processAvailableEventVirtualAttendanceReconciliations
+      ? await dependencies.processAvailableEventVirtualAttendanceReconciliations()
+      : { outcomes: [], limitReached: false };
+  const virtualRooms =
+    liveKitRecordingReceipts.limitReached ||
+    virtualAttendanceReconciliations.limitReached
+      ? { outcomes: [], limitReached: false }
+      : await dependencies.processAvailableEventVirtualRoomOperations();
   const virtualRecordingDeletions =
     await dependencies.processAvailableEventVirtualRecordingDeletions();
   const dispatch = await dependencies.dispatchAvailableOutboxEvents();
@@ -60,6 +69,7 @@ export async function runScormWorkerIteration(
       virtualRecordingDeletions.outcomes.length > 0 ||
       virtualLobbyEligibilityRevocations.outcomes.length > 0 ||
       virtualRecoveryDeliveries.outcomes.length > 0 ||
+      virtualAttendanceReconciliations.outcomes.length > 0 ||
       dispatch.outcomes.length > 0
       ? 0
       : ELIGIBILITY_RECONCILIATION_MAX_QUEUE_WAIT_SECONDS,
@@ -71,6 +81,7 @@ export async function runScormWorkerIteration(
     virtualRecordingDeletions,
     virtualLobbyEligibilityRevocations,
     virtualRecoveryDeliveries,
+    virtualAttendanceReconciliations,
     dispatch,
     consumption,
   };

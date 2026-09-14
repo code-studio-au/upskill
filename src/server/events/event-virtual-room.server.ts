@@ -24,6 +24,11 @@ import {
   type LiveKitRecordingSnapshot,
 } from "#/server/livekit/livekit-recording-provider.server";
 import type { EventOperationsAccess } from "./event-operations-access.server";
+import {
+  ensureEventVirtualAttendanceReconciliation,
+  isEventVirtualAttendanceReconciliationComplete,
+  wakeEventVirtualAttendanceReconciliation,
+} from "./event-virtual-attendance.server";
 import { ensureEventVirtualJoinAccess } from "./event-virtual-join-access.server";
 import { admitEligibleWaitingEntries } from "./event-virtual-lobby-admission.server";
 import { eventVirtualPresenterIdentity } from "./event-virtual-participant-identity.server";
@@ -2020,6 +2025,12 @@ export async function endEventVirtualRoomsForOccurrence(
       });
     }
     await queueAutomaticRecordingStop(transaction, room.id, actorUserId, now);
+    await wakeEventVirtualAttendanceReconciliation(
+      transaction,
+      room.id,
+      now,
+      false,
+    );
     await insertRoomOperation(
       transaction,
       room.id,
@@ -2135,6 +2146,11 @@ export async function transitionEventVirtualRoom(
             requestedByUserId: room.startedByUserId ?? user.id,
             now: room.startedAt ?? clock(),
           });
+        await ensureEventVirtualAttendanceReconciliation(
+          transaction,
+          room.id,
+          room.startedAt ?? clock(),
+        );
         return { status: "ready" } as const;
       });
     if (idempotentStart) return idempotentStart;
@@ -2236,6 +2252,19 @@ export async function transitionEventVirtualRoom(
       .set(transitionValues(action, user.id, currentNow))
       .where("id", "=", room.id)
       .executeTakeFirstOrThrow();
+    if (action === "start")
+      await ensureEventVirtualAttendanceReconciliation(
+        transaction,
+        room.id,
+        currentNow,
+      );
+    if (action === "end")
+      await wakeEventVirtualAttendanceReconciliation(
+        transaction,
+        room.id,
+        currentNow,
+        false,
+      );
     if (
       action === "start" &&
       room.recordingMode === "automatic" &&
@@ -2510,6 +2539,12 @@ export async function replaceEventVirtualRoom(
       room.id,
       user.id,
       currentNow,
+    );
+    await wakeEventVirtualAttendanceReconciliation(
+      transaction,
+      room.id,
+      currentNow,
+      false,
     );
     await insertRoomOperation(
       transaction,
@@ -3783,6 +3818,25 @@ async function executeCloseRoom(
         ensureOperation.leasedUntil > now))
   ) {
     await retryRoomOperation(claimed, "ensure_room_pending", now, false);
+    return {
+      status: "retry",
+      operationId: claimed.id,
+      roomId,
+      kind: "close_room",
+    };
+  }
+  if (
+    !(await isEventVirtualAttendanceReconciliationComplete(
+      getDatabase(),
+      roomId,
+    ))
+  ) {
+    await retryRoomOperation(
+      claimed,
+      "attendance_reconciliation_pending",
+      now,
+      false,
+    );
     return {
       status: "retry",
       operationId: claimed.id,

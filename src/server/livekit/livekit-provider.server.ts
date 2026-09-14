@@ -293,7 +293,8 @@ export class LiveKitCloudProvider implements LiveKitProvider {
       return (await this.api.room.listParticipants(parsedRoomName)).map(
         participantSnapshot,
       );
-    } catch {
+    } catch (error) {
+      if (isLiveKitNotFound(error)) return [];
       throw new LiveKitProviderError("list_participants");
     }
   }
