@@ -1041,6 +1041,36 @@ for (const boundary of [
     failures.push(
       `LiveKit automatic attendance boundary is missing: ${boundary}`,
     );
+const attendanceReconciliationStartIndex = liveKitAutomaticAttendance.indexOf(
+  "async function reconcileRoomEvidenceAndAttendance",
+);
+const attendanceOccurrenceLockIndex = liveKitAutomaticAttendance.indexOf(
+  '.selectFrom("event_occurrence")',
+  attendanceReconciliationStartIndex,
+);
+const attendanceWorkLockIndex = liveKitAutomaticAttendance.indexOf(
+  '.selectFrom("event_virtual_attendance_reconciliation")',
+  attendanceReconciliationStartIndex,
+);
+const attendanceRoomReadIndex = liveKitAutomaticAttendance.indexOf(
+  "const room = await findAutomaticRoom",
+  attendanceReconciliationStartIndex,
+);
+if (
+  attendanceReconciliationStartIndex < 0 ||
+  attendanceOccurrenceLockIndex < attendanceReconciliationStartIndex ||
+  attendanceWorkLockIndex < attendanceOccurrenceLockIndex ||
+  attendanceRoomReadIndex < attendanceWorkLockIndex ||
+  !liveKitAutomaticAttendance
+    .slice(attendanceOccurrenceLockIndex, attendanceWorkLockIndex)
+    .includes(".forUpdate()") ||
+  !liveKitAutomaticAttendance
+    .slice(attendanceWorkLockIndex, attendanceRoomReadIndex)
+    .includes(".forUpdate()")
+)
+  failures.push(
+    "Automatic attendance reconciliation must lock occurrence before reconciliation work",
+  );
 for (const boundary of [
   "event_virtual_attendance_reconciliation_state_ck",
   "event_virtual_attendance_decision_room_fk",

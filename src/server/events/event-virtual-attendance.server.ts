@@ -416,6 +416,24 @@ async function reconcileRoomEvidenceAndAttendance(
   observedAt: Date,
 ): Promise<{ final: boolean; superseded: boolean }> {
   return database.transaction().execute(async (transaction) => {
+    const scope = await transaction
+      .selectFrom("event_virtual_room as room")
+      .innerJoin(
+        "event_session as session",
+        "session.id",
+        "room.eventSessionId",
+      )
+      .select("session.eventOccurrenceId")
+      .where("room.id", "=", claimed.roomId)
+      .executeTakeFirstOrThrow();
+    // Lifecycle mutations lock the occurrence before waking reconciliation.
+    // Keep occurrence -> reconciliation work -> lobby as the shared lock order.
+    await transaction
+      .selectFrom("event_occurrence")
+      .select("id")
+      .where("id", "=", scope.eventOccurrenceId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
     const work = await transaction
       .selectFrom("event_virtual_attendance_reconciliation")
       .select(["status", "attempts", "evidenceRevision"])
@@ -460,12 +478,6 @@ async function reconcileRoomEvidenceAndAttendance(
         .executeTakeFirstOrThrow();
       return { final: true, superseded: false };
     }
-    await transaction
-      .selectFrom("event_occurrence")
-      .select("id")
-      .where("id", "=", room.eventOccurrenceId)
-      .forUpdate()
-      .executeTakeFirstOrThrow();
     const access = await transaction
       .selectFrom("event_virtual_join_access")
       .select("id")
