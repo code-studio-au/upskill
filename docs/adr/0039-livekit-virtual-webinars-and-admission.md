@@ -1,4 +1,4 @@
-# ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection attendance
+# ADR 0039: LiveKit Cloud virtual webinars, controlled admission, recording and connection evidence
 
 - **Status:** Accepted; webinar delivery, managed recording, presenter outcome
   feedback, open-entry lobby and durable attendee connection evidence
@@ -1208,8 +1208,10 @@ existing occurrence lifecycle but does not expose a room. Cancellation or
 replacement revokes the current lobby access and ends the generation. A newly
 created replacement session receives a new public reference and room generation.
 
-No existing historical attendance is recalculated. Automatic attendance starts
-only for LiveKit sessions whose snapshotted policy enables it.
+No existing historical attendance is recalculated. Connection evidence does not
+currently mark Attendance automatically. If that conditional feature is later
+approved, it may run only for LiveKit sessions whose snapshotted policy enables
+it.
 
 ## Delivery sequence
 
@@ -1237,8 +1239,9 @@ combine all of its work into one pull request.
 6. **Managed recording:** recording policy and consent, idempotent RoomComposite
    Egress lifecycle, narrowly scoped S3 upload authorization, status webhooks,
    private playback/download, retention, deletion evidence, and failure UI.
-7. **Connection attendance:** signed webhook receipts, append-only intervals,
-   periodic/final reconciliation, policy-based promotion, review UI, and exports.
+7. **Connection evidence and optional attendance promotion:** signed webhook
+   receipts, append-only intervals, periodic/final reconciliation, policy-based
+   promotion, review UI, and exports.
 8. **Open-entry and operational hardening:** policy-controlled guest lobby,
    provider failure drills, quotas/cost alerts, cross-browser media smoke, and
    production readiness review.
@@ -1391,7 +1394,8 @@ gates passed; it does not by itself authorise staging or production activation.
       the application generation while provider room SIDs are retained per room
       incarnation. Multiple provider participant SIDs are projected as one learner
       presence state, and the staff roster retains a disconnected learner after the
-      final active interval closes.
+      final active interval closes. Implemented by
+      [PR #88](https://github.com/code-studio-au/upskill/pull/88).
 - [ ] **Slice 7b — attendance reconciliation and promotion:** add periodic and
       final reconciliation, versioned attendance-policy evaluation, automatic
       check-in/duration promotion and preservation of manual corrections. This is

@@ -19,32 +19,34 @@ database schema or API specification.
 
 Upskill is a professional education platform focused primarily on
 eating-disorder training for healthcare professionals. The current repository
-supports individual self-paced purchases, organisation-aware access grants and
-versioned online learning. The target product adds blanket
-enterprise/government access and instructor-led physical or virtual training.
+supports self-paced and instructor-led learning, physical and LiveKit virtual
+Events, individual and bulk purchases, organisation access grants, and blanket
+enterprise/government access.
 
-Target Events may use open entry, unrestricted required registration or
+Events may use open entry, unrestricted required registration or
 verified-domain-restricted required registration alongside pre-event
 SCORM/surveys/resources, attendance, post-event learning and certificates,
 regardless of physical or virtual delivery. The complete domain model therefore
-spans current commerce, access rights, immutable learning content, evidence and reliable
-asynchronous work, plus target event operations, enterprise entitlements and
-scoped staff responsibility.
+spans commerce, access rights, immutable learning content, evidence, reliable
+asynchronous work, event operations, enterprise entitlements and scoped staff
+responsibility.
 
 ## Model Horizons
 
 ### Current Product
 
-Identity/authorization, Stripe checkout, course-specific access grants,
-enrolments, versioned content, learning evidence, certificates, organisations,
+Identity/authorization, onboarding, Stripe checkout, Course/Event access grants,
+source-neutral Course entitlements, enterprise contracts, enrolments,
+registrations, versioned content, learning evidence, physical/LiveKit Event
+delivery, attendance, recording, notifications, certificates, organisations,
 audit and the transactional outbox are implemented bounded areas.
 
 ### Target Product
 
-Events, resource-scoped event assignments, access-owner assignments, attendance,
-explicit source-neutral entitlements, enterprise contracts, notifications and
-richer operational reporting are target bounded contexts. Their concepts are
-defined here so the current model can evolve without incompatible shortcuts.
+Target work includes visual analytics and complete export datasets,
+privacy-scoped onboarding support/retention, facilitated Event prerequisite
+recovery, optional policy-qualified connection-derived attendance, and richer
+operational telemetry/reporting.
 
 ### Future Possibilities
 
@@ -85,10 +87,11 @@ commercial snapshots.
 
 ### Entitlements and Access
 
-The target abstraction owns the source-neutral right to receive learning.
-Current purchases and access grants create enrolments directly; organisation
-seats, enterprise agreements, promotions, and manual grants should eventually
-produce or authorize explicit entitlements.
+Owns the source-neutral right to receive Course learning. Individual purchases,
+access grants, enterprise agreements and administrator assignment produce exact
+Course entitlements and enrolments transactionally. Event access currently
+materialises as a traceable registration/participation source rather than using
+the Course entitlement row.
 
 ### Learning
 
@@ -115,8 +118,9 @@ state and does not define completion.
 
 ### Organisations and Contracts
 
-Owns organisation identity and future enterprise agreements, eligibility
-rules, covered offerings, and organisational access relationships.
+Owns organisation identity, Enterprise Contract lifecycle, eligibility rules,
+immutable covered Courses/exact Event Occurrences, blanket claims, renewals,
+Access Owner assignments and organisational access relationships.
 
 ### Notifications
 
@@ -168,8 +172,8 @@ DLQ/outbox monitoring, and operational support tooling.
 - **Payment:** external settlement state; never learning progress.
 - **Organisation:** healthcare company, government entity, or other
   customer grouping.
-- **Enterprise Contract:** future agreement describing broad
-  organisation coverage and eligibility.
+- **Enterprise Contract:** retained agreement describing a commercial period,
+  immutable Course/Event coverage, eligibility, claims and lifecycle.
 - **Access Grant:** current capacity/rule mechanism supporting
   organisation access codes.
 - **Access Owner Assignment:** invited/active/revoked relationship between a
@@ -198,7 +202,7 @@ DLQ/outbox monitoring, and operational support tooling.
 - **Learning Activity Item:** Section item referencing one exact Learning
   Activity Version and participating in access/evidence/completion under its
   configured requirement semantics.
-- **Automated Email Item:** target administration-only Section item referencing
+- **Automated Email Item:** administration-only Section item referencing
   an exact Email Design Version and explicit trigger/timing/audience policy; it
   is omitted from learner activity lists and never affects progress/completion.
 - **Event Section Release Rule:** immutable phase/anchor/offset policy on an exact
@@ -207,7 +211,7 @@ DLQ/outbox monitoring, and operational support tooling.
   completion requirements.
 - **Enrolment:** learner relationship with exact delivered learning,
   anchoring progress/evidence/completion.
-- **Enrolment Region Snapshot:** target point-in-time region captured when Course
+- **Enrolment Region Snapshot:** point-in-time region captured when Course
   participation begins, enabling historical regional analytics independently of
   the User's later current-region changes.
 - **Learning Evidence:** SCORM attempts, survey responses, resource
@@ -299,11 +303,12 @@ DLQ/outbox monitoring, and operational support tooling.
   it is distinct from confirmed Attendance unless occurrence policy says
   otherwise.
 - **Event Prerequisite Recovery Window:** occurrence/session-scoped period in
-  which an exact prerequisite deep link offers normal authentication, OTP-backed
-  event-task access or explicitly enabled facilitated Survey completion.
-- **Facilitated Survey Capability:** short-lived one-use authorization bound to
-  one User, accepted Registration, occurrence item and exact Survey Version; it
-  is not an authenticated account session.
+  which an exact prerequisite deep link offers normal authentication or
+  OTP-backed event-task access. Facilitated Survey completion remains target
+  scope.
+- **Facilitated Survey Capability (target):** short-lived one-use authorization
+  bound to one User, accepted Registration, occurrence item and exact Survey
+  Version; it is not an authenticated account session.
 - **Event Survey QR Access:** persisted Event Occurrence-owned access record for
   one exact Survey item, with opaque public reference, availability policy and
   rotation/revocation lifecycle; email/PII is captured after scanning and is
@@ -480,8 +485,8 @@ retry/redelivery and DLQ for repeated failure.
     account but bypasses only the exact occurrence's domain criterion.**
 26. **Prerequisite recovery resolves the exact participant and activity before
     accepting evidence; later email matching is not a workflow.**
-27. **Email-only facilitated access is last-resort, Survey-only and
-    single-capability scoped; SCORM requires authenticated or OTP-verified
+27. **If implemented, email-only facilitated access is last-resort, Survey-only
+    and single-capability scoped; SCORM requires authenticated or OTP-verified
     event-task access.**
 28. **Each Event Survey QR resolves one occurrence, optional Session, item and
     Survey Version through an opaque reference; it never embeds email or raw

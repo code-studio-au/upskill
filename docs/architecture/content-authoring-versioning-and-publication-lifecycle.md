@@ -24,11 +24,12 @@ understandable long after content has changed.
 
 - **Current Product:** stable Learning Activity identities, common activity
   version envelopes with type-specific SCORM/survey/PDF content, exact-version
-  course composition, draft/published authoring, immutable publication, usage
-  guards, archive and constrained deletion.
+  Course and Event composition, draft/published authoring, immutable publication,
+  standard Survey types/branching, usage guards, archive and constrained
+  deletion.
 - **Target Product:** consistent preview, dependency visibility, version diff,
-  stronger publication validation and event-content configuration built from
-  the same immutable activities.
+  stronger publication validation and lifecycle workflow as authoring volume
+  requires them.
 - **Future Possibilities:** approval workflows, scheduled publication,
   localisation, templates and additional activity/resource formats when their
   operational triggers arise.
@@ -45,8 +46,8 @@ material:
   reference material; and
 - future learning activity types.
 
-These content types are composed into self-paced courses and,
-increasingly, blended instructor-led events.
+These content types are composed into self-paced Courses and blended
+instructor-led Events.
 
 The authoring model must support change without sacrificing historical
 accuracy.
@@ -234,7 +235,7 @@ Responses remain tied to the exact survey version completed.
 This is critical because changing questions beneath existing responses
 can make the data uninterpretable.
 
-The target Survey Designer supports the standard type set and answer semantics in
+The Survey Designer supports the standard type set and answer semantics in
 [ADR 0030](../adr/0030-standard-survey-question-types-and-option-authoring.md).
 Option questions support both individual maintenance and bounded bulk paste from
 a spreadsheet column. Import previews trimmed rows, preserves their order,
@@ -428,7 +429,7 @@ preserving historical learner truth.
 
 ## Event Content Configuration
 
-Events should reuse the same content versions through learning
+Events reuse the same content versions through learning
 activities.
 
 A published event configuration may need its own immutable/versioned

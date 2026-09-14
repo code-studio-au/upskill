@@ -38,7 +38,7 @@ learner contact details into command output or test evidence.
    `LIVEKIT_PROJECT_ENVIRONMENT=staging`, a canonical `wss:` URL, API key and
    API secret, plus approved participant and concurrent-room limits.
 4. In the staging LiveKit project, configure the signed webhook target as
-   `https://staging.codestudio.au/api/livekit/webhook`.
+   `https://staging.upskill.institute/api/livekit/webhook`.
 
 Infrastructure activation and secret mutation are separate operator actions.
 They require review of the exact CDK diff and explicit deployment approval.

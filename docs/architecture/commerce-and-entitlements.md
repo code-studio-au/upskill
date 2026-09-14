@@ -49,8 +49,8 @@ Eligible learners redeem codes until the purchased capacity is exhausted. The
 single-use mode supports third-party resellers who take payment outside Upskill
 and control distribution of individual codes.
 
-The target purchase flow also records one or more customer-side Access Owner
-email addresses. Their accepted scoped assignments expose only the associated
+The purchase flow records one or more customer-side Access Owner email
+addresses. Their accepted scoped assignments expose only the associated
 grant, shared code or single-use code batch, allocation utilisation and status
 of learners whose access originated from it.
 
@@ -62,12 +62,13 @@ purchase annual blanket access for its workforce and receive a shared
 organisation code that allows eligible staff to access covered courses
 without individual payment.
 
-The current access-grant implementation remains course-version oriented.
-Blanket multi-course contractual access is now a separate first-class
+Offering-specific access grants support an exact Course Version or Event
+Occurrence. Blanket multi-course contractual access is a separate first-class
 capability: an authenticated learner activates eligibility with an encrypted
-shared code plus verified email domain, then materialises exact-version course
-entitlements only as covered learning is selected. Events, renewal operations,
-customer ownership and wider coverage remain future increments.
+shared code plus verified domain or uploaded exact-employee eligibility, then
+materialises exact-version Course entitlements or ordinary capacity-controlled
+Event registrations only as covered learning is selected. Renewal, lifecycle,
+contract Access Owner and utilisation operations are implemented.
 
 ## Domain philosophy
 
@@ -103,9 +104,11 @@ certificates, and learner routes.
 
 ## Current Product
 
-Upskill now uses an explicit source-neutral course-entitlement record between
-individual order, access-grant, Enterprise Contract or administrator origin and
-the exact-version enrolment. Event entitlement scopes remain target work.
+Upskill uses an explicit source-neutral Course-entitlement record between an
+individual order, access grant, Enterprise Contract or administrator origin and
+the exact-version enrolment. Paid, access-code and enterprise-covered Events
+retain their source on ordinary registration/participation records instead of
+forcing Event access into the Course entitlement table.
 
 ### Orders and Stripe checkout
 
@@ -152,7 +155,7 @@ The recommended evolution is not to replace enrolments, but to make the
 access right that caused each enrolment explicit and consistent across
 commercial sources.
 
-## Target Product
+## Target Model
 
 Distinguish three concepts:
 
@@ -163,15 +166,17 @@ Distinguish three concepts:
 3.  **Enrolment** --- the learner's educational relationship with an
     exact learning offering/version.
 
-This can be introduced incrementally. It does not require an immediate
-rewrite of working checkout or access-code flows.
+This model is implemented for Course entitlements and traceable Event access.
+New commercial sources should extend the same boundary rather than rewrite
+working checkout or access-code flows.
 
 ### Entitlement scope
 
-An entitlement should eventually be able to cover one exact course
-version, a course resolved to an exact version at enrolment, a set of
-courses, all courses under an enterprise agreement, an event/blended
-offering, or a future program/bundle.
+An entitlement can cover one exact Course Version directly or be materialised
+from an enterprise agreement covering stable Courses. Event access is expressed
+through an exact Event Occurrence grant, paid order or contract coverage and its
+resulting Registration/Participation. A future program/bundle may compose these
+rights without changing their historical targets.
 
 Once an enrolment exists, it remains pinned to the educational version
 actually received. Later contract or publication changes must not
@@ -330,8 +335,8 @@ codes or entitlement.
 
 ## Enterprise contracts
 
-Blanket-access customers should eventually have a first-class
-contract/agreement model capable of representing organisation,
+Blanket-access customers have a first-class Enterprise Contract model
+representing organisation,
 effective/renewal dates, covered offerings, unlimited versus capped
 usage, eligibility rules, permitted domains, commercial reference,
 status, administrative ownership, and audit history.
@@ -437,17 +442,16 @@ unaware of the commercial source?** If yes, the boundary is working.
   entitlement origin and expose only bounded progress fields.
 - Checkout, access-code and administrator flows share one issuance boundary.
 
-### Next --- extend commercial scope
+### Implemented --- extended commercial scope
 
-- Add webhook-fulfilled capacity-extension orders for eligible finite grants.
-- Add enterprise-contract scope without adding learning-specific
-  exceptions.
-- Define explicit refund/revocation/access-removal policies.
+- Webhook-fulfilled capacity-extension orders for eligible finite grants.
+- Paid Event and bulk Event access-code checkout/redemption.
+- Enterprise Contracts with Course and exact Event coverage, eligibility,
+  claims, renewal, lifecycle and assigned-owner utilisation.
+- Explicit refund preservation and revocation/access-removal policies.
 
 ### Later --- broaden commercial models
 
-- Add multi-course enterprise coverage.
-- Support event/blended-learning entitlements.
 - Add subscriptions/bundles/promotions only as justified by product
   requirements.
 - Introduce reporting projections for commercial utilisation without

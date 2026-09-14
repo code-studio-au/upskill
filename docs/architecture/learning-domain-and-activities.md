@@ -19,13 +19,13 @@ blended experiences are built.
 
 ## Architecture Horizons
 
-- **Current Product:** exact course-version enrolments composed through common
-  Learning Activity/Version identities with SCORM, survey and PDF-resource
-  content, evidence-derived section/course completion, administrator overrides
-  and certificates.
-- **Target Product:** extend the common activity vocabulary to attendance and
-  pre/post-event learning, and introduce the broader Learning Offering concept
-  where implementation benefit justifies it.
+- **Current Product:** exact Course-Version enrolments and exact Event-Template-
+  Version participations compose common Learning Activity/Version identities
+  with SCORM, Survey and PDF-resource content. Evidence-derived Section,
+  Course/Event completion, Attendance, administrator corrections and
+  certificates are implemented.
+- **Target Product:** richer visual analytics/export semantics and new activity
+  kinds only where implementation benefit justifies them.
 - **Future Possibilities:** weighted requirements, assessments, acknowledgements,
   media and multi-offering programs/journeys when justified.
 
@@ -33,9 +33,8 @@ blended experiences are built.
 
 Upskill delivers professional education primarily to healthcare workers
 developing or refreshing eating-disorder skills. The current learning model
-combines self-paced courses, SCORM e-learning, surveys and PDF resources. The
-target model extends that composition to face-to-face or virtual events,
-pre-event requirements, attendance and post-event activities.
+combines self-paced Courses and physical/virtual Events with SCORM e-learning,
+Surveys, PDF resources, pre/post-event requirements and Attendance.
 
 The architecture must therefore not equate learning with either SCORM or
 courses. Those are parts of a broader model.
@@ -60,7 +59,7 @@ Current activity types are:
 - survey;
 - resource.
 
-Likely future types include attendance, assessment, media,
+Likely future types include assessment, media,
 acknowledgement, reflective exercise, assignment, or external learning.
 
 Courses and events compose activities rather than implementing separate
@@ -129,13 +128,12 @@ Published survey versions are immutable. Responses are associated with
 the learner's exact course-version item and survey version, providing
 stable evidence that contributes to progress.
 
-Event prerequisite recovery follows the same rule: authenticated, OTP-backed
-event-task and facilitated submissions all resolve the exact participant,
-offering item and Survey Version before accepting answers. Evidence records a
-bounded completion/authorization provenance such as authenticated or
-`facilitated_registered_email`, but never the OTP, capability token or unrelated
-identity data. A facilitated response cannot be reassigned later by fuzzy email
-matching or satisfy another participant/activity.
+Event prerequisite recovery follows the same rule: authenticated and OTP-backed
+event-task submissions resolve the exact participant, offering item and Survey
+Version before accepting answers. Evidence records bounded authorization
+provenance but never the OTP, capability token or unrelated identity data.
+Facilitated staff-assisted submission remains target work and must not rely on
+later fuzzy email matching.
 
 ### Resources
 
@@ -146,26 +144,26 @@ reference files without changing the learning model.
 
 ### Completion and certificates
 
-Course completion derives from required evidence. Certificate creation is an
+Course and Event completion derive from required evidence. Certificate creation is an
 authenticated on-demand rendering from the learner's current completion,
-exact course version and completion timestamp. No certificate state is stored.
+exact Course/Event version and completion timestamp. No certificate state is stored.
 Completion and document rendering remain separate.
 
-## Target Product
+## Current Course and Event Model
 
 ### Learning offering
 
-A learning offering is something a learner can be enrolled in and
-progress through. Today the main example is a course version; events
-will become another structured offering. This concept need not
-immediately become a single database table.
+A learning offering is something a learner can be enrolled or registered in and
+progress through. Course Versions and Event Occurrences are current structured
+offerings. This concept does not require one universal database table.
 
 ### Learning activity extensions
 
 The common Learning Activity and Learning Activity Version contract is current
-and governed by [ADR 0020](../adr/0020-learning-activity-versions.md). The target
-is to extend that existing contract to attendance and future activity kinds,
-not to introduce a second composition model.
+and governed by [ADR 0020](../adr/0020-learning-activity-versions.md). SCORM,
+Surveys and resources use that contract in Courses and Events. Attendance is
+separate scheduled-session evidence by design; future authored activity kinds
+extend the common contract rather than creating a second composition model.
 
 ### Event Section availability
 
@@ -207,7 +205,7 @@ contract, not an untyped catch-all payload:
 - a survey owns its sections, questions, instruction blocks and response rules;
 - a resource owns its immutable object reference, hash, media type and display
   metadata; and
-- attendance or a future activity owns its type-specific requirement
+- a future activity owns its type-specific content and requirement
   configuration.
 
 Large files remain in private object storage. The version encompasses them by
@@ -218,14 +216,14 @@ implementation details behind the common version contract.
 ### Section
 
 Both Courses and Events compose ordered, titled Sections, and each Section
-contains ordered authored items. In the implemented Course model these are exact
-Learning Activity Version items. The target authoring model also permits an
+contains ordered authored items. Learning items reference exact Learning
+Activity Versions. The implemented authoring model also permits an
 administration-only Automated Email Item among them under ADR 0027. Section
 titles communicate their purpose rather than selecting a different structural
 type; examples include "Pre-eLearning Survey", "Pre-Event Survey", "Workshop
 Activities" and "Post-Event Resources". Event Sessions remain separate scheduled
-attendance units and may be referenced by attendance activity semantics where
-required.
+attendance units whose evidence may independently participate in Event
+completion.
 
 An Automated Email Item is deliberately outside the Learning Activity contract.
 It has notification trigger/delivery state rather than learner evidence, is not
@@ -293,7 +291,7 @@ calculation.
 ### Percentage progress
 
 Percentages are useful UX projections but should not define completion.
-Future offerings may include weighted activities, attendance, or
+Future offerings may include weighted activities or
 mandatory gates for which simple item counts are misleading.
 
 ## Completion Semantics
@@ -392,8 +390,8 @@ Registration finally selected
   -> completion / certificate
 ```
 
-SCORM, surveys and resources should be reused directly. Attendance
-becomes another evidence/activity type with its own rules. Coordinator
+SCORM, Surveys and resources are reused directly. Attendance remains distinct
+Session/Occurrence evidence with its own rules. Coordinator
 views can then show requirement-by-requirement participant progress
 using the same underlying model.
 
@@ -431,8 +429,8 @@ actor/timestamp identified, auditable, preserve original evidence,
 trigger deterministic progress reassessment, and avoid pretending the
 underlying learning evidence itself changed.
 
-The same model can later support attendance and future activity
-corrections.
+The current model supports Attendance corrections and can later support future
+activity corrections.
 
 ## Roles and Learning UX
 
@@ -478,7 +476,7 @@ visibly signposted and audited support capability.
 - isolated SCORM origin and attempt sessions;
 - immutable survey versions and response evidence;
 - private versioned resources;
-- derived section/course progress;
+- derived Section/Course/Event progress and Attendance-aware completion;
 - audited administrator overrides;
 - authenticated on-demand completion certificates; and
 - transactional outbox integration for completion side effects.
@@ -488,28 +486,27 @@ generic LMS framework.
 
 ## Recommended Evolution
 
-### Now --- formalise the common language
+### Delivered --- common language and event composition
 
 - Treat `learning activity` as the parent concept for SCORM, surveys,
   and resources.
 - Treat `learning activity version` as the complete immutable, type-discriminated
   delivery snapshot described by ADR 0020.
-- Keep the existing course-version item implementation while aligning
-  services and terminology around the common activity contract.
+- Reuse the common activity contract across Course and Event version items.
 - Ensure every activity exposes consistent progress/completion state.
 - Keep exact content-version references explicit.
 - Keep completion derivation centralized.
 
-### Next --- support event learning cleanly
+The implementation reuses SCORM, Survey and resource activities in Event
+Sections, provides Coordinator progress read models, combines Attendance and
+learning evidence in Event completion, and reuses on-demand certificate
+eligibility.
 
-- Reuse SCORM, survey, and resource activities in Event Sections.
-- Introduce attendance as explicit evidence/activity semantics.
-- Give coordinators participant progress read models showing each
-  requirement.
-- Allow event completion requirements to combine learning evidence and
-  attendance.
-- Reuse on-demand certificate eligibility from the common completion boundary where
-  appropriate.
+### Next --- insight and justified activity extensions
+
+- Add complete authorized analytics/export datasets over the shared progress
+  semantics.
+- Add new activity kinds only for demonstrated product needs.
 
 ### Later --- richer composition
 

@@ -22,10 +22,12 @@ observability; an administrator completion override is audit evidence.
   release identity, CloudWatch alarms for EC2/RDS/SQS/DLQ/outbox/worker and
   uncertain delivery state, domain verifiers, basic administrator and learner
   views, and an evidence-derived Event participant/Section progress matrix with
-  region-scoped filtered/all-authorized CSV export.
+  region-scoped filtered/all-authorized CSV export. Assigned Access Owners have
+  consent-bounded grant/contract utilisation and CSV views; administrators have
+  notification health/detail and LiveKit recording/connection operations.
 - **Target Product:** richer HTTP and domain metrics, purpose-built
-  event/enterprise/support read
-  models and responsive visual learning analytics with validated selectable
+  additional event/enterprise/support read models and responsive visual
+  learning analytics with validated selectable
   filters plus complete filtered/unfiltered CSV export within authorization
   scope.
 - **Future Possibilities:** rebuildable projections, product analytics and a

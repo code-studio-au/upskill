@@ -1,7 +1,10 @@
 # Upskill
 
-Upskill is a mobile-first learning commerce platform built with TanStack Start,
-Mantine, Better Auth, PostgreSQL and AWS.
+Upskill is a mobile-first learning commerce and Event platform built with
+TanStack Start, Mantine, Better Auth, PostgreSQL and AWS. It currently supports
+self-paced Courses, physical and LiveKit virtual Events, individual/bulk Stripe
+commerce, enterprise blanket access, versioned onboarding and governed
+communications.
 
 ## Runtime
 
@@ -57,6 +60,15 @@ through TextBee, set `SMS_PROVIDER=textbee`, `TEXTBEE_API_KEY` and
 20-or-more-character value configured for the TextBee endpoint.
 `TEXTBEE_DEVICE_ID` is optional; when omitted, TextBee selects the default or
 most recently active device. Never commit either TextBee secret.
+
+LiveKit is disabled locally by default. To exercise virtual Events, configure
+the documented `LIVEKIT_*` values in `.env.local`; presenter/attendee credentials
+remain server-issued and the signed webhook endpoint is `/api/livekit/webhook`.
+Managed recording additionally requires the private recording bucket and
+upload-authorization values in `.env.example`. Use the
+[staging recording acceptance runbook](docs/livekit-recording-staging-test.md)
+for the controlled `staging.upskill.institute` workflow; never reuse staging or
+production provider credentials in local fixtures.
 
 Migration baseline v1 freezes migrations `0001` through `0072`; see ADR 0021.
 Every later schema change is a sequential, forward-only migration and the

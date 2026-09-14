@@ -74,6 +74,13 @@ idea does not override an accepted ADR.
     ADRs, review triggers, documentation governance, and definition of
     done.
 
+Operational companions:
+
+- [Local development data](../local-development-data.md) documents the
+  non-production fixture contract.
+- [LiveKit recording staging test](../livekit-recording-staging-test.md)
+  documents the controlled staging acceptance path.
+
 ## Handbook Map
 
 ```text
@@ -116,6 +123,11 @@ Engineering Governance + ADRs apply across all domains.
 11. Queue delivery is at least once and consumers are idempotent.
 12. Audit, observability, and reporting remain distinct.
 13. Infrastructure complexity is introduced only for demonstrated need.
+14. LiveKit provider access never replaces application-owned start, admission,
+    eligibility, generation and capacity policy.
+15. Recording and participant webhook evidence is signed, idempotent,
+    privacy-bounded and separate from Attendance until an explicit policy says
+    otherwise.
 
 ## Repository Layout
 

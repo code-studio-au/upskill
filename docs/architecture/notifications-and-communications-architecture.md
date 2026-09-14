@@ -63,11 +63,10 @@ architecture.
   mobile number to another account therefore does not relabel historical rows.
   The displaced-account notification is a durable, governed System Email queued
   in the same transaction as the ownership transfer.
-- **Target Product:** committed domain-event subscriptions create idempotent
-  notification records, resolve bounded recipients/templates and deliver
-  transactional email with observable retry/failure behaviour. A governed Email
-  Designer provides immutable Offering/System Email versions, Section-embedded
-  automation plans, occurrence overrides and reproducible delivery history.
+- **Target Product:** retention/redaction controls for privacy-bounded delivery
+  snapshots, additional organisation/customer messages where required, and
+  richer provider-rate/domain telemetry. The core governed design, scheduling,
+  delivery, suppression and operational recovery boundaries are Current Product.
 - **Future Possibilities:** additional channels, user preference centres,
   campaign-style communications and managed scheduling/fan-out when required.
 
@@ -796,8 +795,8 @@ real email.
 - exact version/render-snapshot persistence; **implemented for delivery records
   and privacy-bounded support history; retention controls remain pending**
 - metrics and failure visibility; **implemented for database notification,
-  schedule and outbox health plus production SQS age/backlog/DLQ alarms;
-  provider-rate and worker-heartbeat telemetry remain pending**.
+  schedule and outbox health plus production SQS age/backlog/DLQ and worker
+  heartbeat alarms; provider-rate telemetry remains pending**.
 
 ### Phase 2 --- Event communications
 
@@ -873,7 +872,7 @@ Model.
 
 ## Summary
 
-Notifications should become a reusable asynchronous platform capability
+Notifications are a reusable asynchronous platform capability
 rather than a collection of email calls inside business services.
 
 Domain transactions commit facts. The outbox makes those facts reliably
