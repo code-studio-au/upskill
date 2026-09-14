@@ -623,6 +623,27 @@ try {
       .where("eventSessionId", "=", ids.session)
       .orderBy("eventParticipationId")
       .execute(),
+    [],
+    "Intervals with no elapsed overlap must not create check-in evidence",
+  );
+  assert.deepEqual(
+    await processAvailableEventVirtualAttendanceReconciliations(1, {
+      database,
+      provider,
+      now: new Date(startsAt.getTime() + 30_000),
+    }),
+    {
+      outcomes: [{ status: "pending", roomId: ids.room }],
+      limitReached: true,
+    },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_attendance")
+      .select(["eventParticipationId", "state", "source"])
+      .where("eventSessionId", "=", ids.session)
+      .orderBy("eventParticipationId")
+      .execute(),
     [
       {
         eventParticipationId: ids.firstParticipation,
@@ -852,7 +873,7 @@ try {
     })
     .executeTakeFirstOrThrow();
   console.log(
-    "LiveKit automatic attendance verification passed: revision-safe provider reconciliation, closed terminal discovery, full threshold range, duration promotion, completion, staff-correction preservation and idempotent reruns.",
+    "LiveKit automatic attendance verification passed: revision-safe provider reconciliation, generation-bounded and positive-overlap evidence, closed terminal discovery, full threshold range, duration promotion, completion, staff-correction preservation and idempotent reruns.",
   );
 } finally {
   await cleanUp();

@@ -33,6 +33,8 @@ type DatabaseConnection = Kysely<Database> | Transaction<Database>;
 export interface ConnectionIntervalWindow {
   joinedAt: Date;
   leftAt: Date | null;
+  roomEndedAt?: Date | null;
+  roomReplacedAt?: Date | null;
 }
 
 export function qualifyingConnectedMilliseconds(
@@ -46,6 +48,8 @@ export function qualifyingConnectedMilliseconds(
       start: Math.max(interval.joinedAt.getTime(), windowStart.getTime()),
       end: Math.min(
         (interval.leftAt ?? windowEnd).getTime(),
+        (interval.roomEndedAt ?? windowEnd).getTime(),
+        (interval.roomReplacedAt ?? windowEnd).getTime(),
         windowEnd.getTime(),
       ),
     }))
@@ -620,10 +624,20 @@ async function reconcileRoomEvidenceAndAttendance(
 
     for (const entry of lobbyEntries) {
       const intervals = await transaction
-        .selectFrom("event_virtual_connection_interval")
-        .select(["joinedAt", "leftAt"])
-        .where("eventSessionId", "=", room.eventSessionId)
-        .where("eventParticipationId", "=", entry.eventParticipationId)
+        .selectFrom("event_virtual_connection_interval as interval")
+        .innerJoin(
+          "event_virtual_room as intervalRoom",
+          "intervalRoom.id",
+          "interval.roomId",
+        )
+        .select([
+          "interval.joinedAt",
+          "interval.leftAt",
+          "intervalRoom.endedAt as roomEndedAt",
+          "intervalRoom.replacedAt as roomReplacedAt",
+        ])
+        .where("interval.eventSessionId", "=", room.eventSessionId)
+        .where("interval.eventParticipationId", "=", entry.eventParticipationId)
         .execute();
       if (!intervals.length) continue;
       const qualifyingMilliseconds = qualifyingConnectedMilliseconds(
@@ -631,6 +645,7 @@ async function reconcileRoomEvidenceAndAttendance(
         room.scheduledStartsAt,
         evidenceAt,
       );
+      if (qualifyingMilliseconds === 0) continue;
       const qualifyingConnectedSeconds = Math.floor(
         qualifyingMilliseconds / 1_000,
       );

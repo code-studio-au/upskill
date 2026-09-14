@@ -1036,6 +1036,9 @@ for (const boundary of [
   "applicationOutcome = staffSource",
   "EVENT_VIRTUAL_ATTENDANCE_CALCULATION_VERSION",
   "isEventVirtualAttendanceReconciliationComplete",
+  '"event_virtual_room as intervalRoom"',
+  '"intervalRoom.replacedAt as roomReplacedAt"',
+  "if (qualifyingMilliseconds === 0) continue",
 ])
   if (!liveKitAutomaticAttendance.includes(boundary))
     failures.push(
