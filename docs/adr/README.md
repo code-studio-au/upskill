@@ -34,7 +34,7 @@ is complete.
 | 0025 | [Event registration finalisation and staged section release](0025-event-registration-finalisation-and-section-release.md)                 | Accepted and implemented                                |
 | 0026 | [Regional Event review, selection and late invitations](0026-regional-event-registration-selection.md)                                    | Accepted and implemented                                |
 | 0027 | [Section-embedded automated email plans and occurrence overrides](0027-section-embedded-automated-emails.md)                              | Accepted and implemented for authorable triggers        |
-| 0028 | [Versioned Event Templates and resilient staff coverage](0028-versioned-event-templates-and-admin-ownership.md)                           | Accepted and implemented                                |
+| 0028 | [Versioned Event Templates and resilient staff coverage](0028-versioned-event-templates-and-admin-ownership.md)                           | Accepted; partially implemented                         |
 | 0029 | [Survey-backed versioned user onboarding](0029-survey-backed-versioned-user-onboarding.md)                                                | Default flow implemented; campaign/privacy follow-up    |
 | 0030 | [Standard Survey question types and option authoring](0030-standard-survey-question-types-and-option-authoring.md)                        | Accepted and implemented                                |
 | 0031 | [TanStack Table for operational data grids](0031-tanstack-table-operational-data-grids.md)                                                | Accepted and initially implemented                      |
