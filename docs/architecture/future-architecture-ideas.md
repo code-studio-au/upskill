@@ -36,9 +36,9 @@ Add an ALB, at least two instances and rolling replacement. Preserve the
 existing invariant that deployment waits for every target and verifies
 readiness plus the deployed SHA.
 
-## Distributed auth rate limiting
+## Distributed auth rate limiting --- delivered foundation
 
-**Priority:** Near-term\
+**Priority:** Delivered foundation; WAF trigger-based\
 **Primary benefit:** Security\
 **Trigger:** Before substantial public traffic
 
@@ -64,51 +64,55 @@ Stripe and HTTP telemetry as those operational paths mature.
 Keep the outbox; distinguish commands from facts such as
 enrolment.completed or registration.accepted.
 
-## Notifications capability
+## Notifications capability --- delivered foundation
 
-**Priority:** Medium\
+**Priority:** Delivered foundation\
 **Primary benefit:** Product/operations\
 **Trigger:** Alongside Events
 
-Consume committed events for registration decisions, reminders,
-pre-work, cancellations, post-work and completion messages that may mention
-current certificate eligibility.
+Committed transitions now create governed, deduplicated notifications for
+registration decisions, reminders, pre-work, cancellations, post-work and
+completion messages that may mention current certificate eligibility. Remaining
+ideas are new message contracts, retention and provider telemetry.
 
-## Enterprise contract model
+## Enterprise contract model --- delivered
 
-**Priority:** Medium\
+**Priority:** Delivered\
 **Primary benefit:** Product fit\
 **Trigger:** Before true blanket multi-course contracts
 
-Represent organisation coverage, dates, eligibility and scope; contracts
-authorise entitlements rather than learning records.
+Enterprise Contracts represent organisation coverage, dates, eligibility and
+scope; contracts authorise Course entitlements or Event registrations rather
+than learning records.
 
-## Event read models
+## Event read models --- delivered foundation
 
-**Priority:** Medium\
+**Priority:** Delivered foundation\
 **Primary benefit:** Coordinator UX\
 **Trigger:** During Events implementation
 
-Join authoritative registration, learner, progress and attendance data
-first; project later only if necessary.
+Current scoped operations join authoritative registration, learner, progress,
+attendance, LiveKit connection and recording data. Project later only if
+measured query cost requires it.
 
-## Capability vocabulary
+## Capability vocabulary --- delivered foundation
 
-**Priority:** Medium\
+**Priority:** Delivered foundation\
 **Primary benefit:** Security/maintainability\
 **Trigger:** With coordinator/presenter roles
 
-Keep human-friendly roles but define action-oriented capabilities and
-resource scope; avoid a heavyweight policy engine.
+Human-friendly roles coexist with action-oriented capabilities and resource
+scope without a heavyweight policy engine. Further splitting remains
+need-driven.
 
-## Support inspection tools
+## Support inspection tools --- delivered foundation
 
-**Priority:** Medium\
+**Priority:** Delivered foundation\
 **Primary benefit:** Support/security\
 **Trigger:** Before impersonation
 
-Build admin views of enrolments, attempts, progress, attendance,
-certificates and audit evidence before adding impersonation.
+Admin views cover enrolments, attempts, progress, attendance, certificates and
+audit evidence. Add impersonation only if those views prove insufficient.
 
 ## Reporting projections
 
@@ -254,15 +258,15 @@ warehouse only if real business analytics requirements justify it.
 
 | Idea                           | Priority                | Trigger                                              |
 | ------------------------------ | ----------------------- | ---------------------------------------------------- |
-| Deployment verification        | Near-term               | Before serious production rollout                    |
-| Distributed auth rate limiting | Near-term               | Before substantial public traffic                    |
-| Operational observability      | Near-term               | Before meaningful production scale                   |
+| Deployment verification        | Delivered               | Extend when topology changes                         |
+| Distributed auth rate limiting | Delivered foundation    | Add WAF when edge abuse justifies it                 |
+| Operational observability      | Ongoing                 | Add domain telemetry from operational need           |
 | Richer domain events           | Medium                  | When transitions gain multiple independent reactions |
-| Notifications capability       | Medium                  | Alongside Events                                     |
-| Enterprise contract model      | Medium                  | Before true blanket multi-course contracts           |
-| Event read models              | Medium                  | During Events implementation                         |
-| Capability vocabulary          | Medium                  | With coordinator/presenter roles                     |
-| Support inspection tools       | Medium                  | Before impersonation                                 |
+| Notifications capability       | Delivered foundation    | Extend contracts/telemetry as needed                 |
+| Enterprise contract model      | Delivered               | Extend collections/SSO only on demand                |
+| Event read models              | Delivered foundation    | Project only when queries become costly              |
+| Capability vocabulary          | Delivered foundation    | Split further only when responsibility requires it   |
+| Support inspection tools       | Delivered foundation    | Extend before considering impersonation              |
 | Reporting projections          | Later                   | When transactional reporting becomes expensive       |
 | Content lifecycle workflow     | Later                   | When authoring workflow team/frequency grows         |
 | Learning programs/journeys     | Later                   | When a real multi-offering pathway exists            |
@@ -286,8 +290,8 @@ and why it was considered.
 
 Upskill already has a strong foundation. The most valuable future
 architecture work is not replacing the stack; it is selectively maturing
-reliability, event-driven reactions, enterprise access, event
-operations, reporting, and support as product demand appears.
+reliability, analytics, privacy operations, richer domain events and support as
+product demand appears.
 
 The default decision should remain: **use the simplest architecture that
 preserves the domain invariants and operational guarantees already

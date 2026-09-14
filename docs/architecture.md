@@ -8,11 +8,14 @@ implemented application architecture.
 
 ## Purpose
 
-Upskill currently provides a public course catalogue, authenticated purchasing,
-organisation access grants, versioned course/SCORM/survey/PDF content,
-certificates, transactional background work and audited administration. The
-broader handbook identifies Events, enterprise contracts and notifications as
-Target Product capabilities rather than implemented features.
+Upskill currently provides public Course and Event catalogues, authenticated
+individual and bulk purchasing, organisation access grants, enterprise blanket
+contracts, versioned Course/Event/SCORM/Survey/PDF content, blended and LiveKit
+webinar delivery, onboarding, certificates, governed communications,
+transactional background work and audited administration. The broader handbook
+separates those implemented capabilities from remaining target work such as
+visual analytics, facilitated prerequisite recovery, offline SCORM and support
+impersonation.
 
 ## Application model
 
@@ -34,8 +37,8 @@ The application follows TanStack Start's router-first model:
 Node 26.7.0 and pnpm 11.0.8 are pinned across development, CI, CDK and EC2.
 TypeScript 7 is the authoritative compiler. The TypeScript 6 compatibility
 package exists only while lint or ecosystem tools require its programmatic API.
-Critical dependencies are exact-pinned and upgraded as coherent cohorts without
-a release-age delay.
+Critical dependencies are exact-pinned and upgraded as coherent cohorts. pnpm's
+seven-day minimum release age applies to dependency resolution.
 
 ## Web and security boundaries
 
@@ -121,10 +124,40 @@ Content libraries expose the exact linked course version and its draft,
 published and archived state so administrators can understand reference and
 removal boundaries.
 
-Published survey versions contain validated written, single-choice and
-multiple-choice questions. Learner responses are entitlement-scoped to an
-exact course-version item, validated against its published survey version and
-stored as immutable evidence without answer content entering centralized logs.
+Published Survey Versions contain validated text, choice, dropdown, checkbox,
+number, date and rating questions, forward-only branching, titled Sections and
+instruction blocks. Course and Event learner responses are scoped to an exact
+versioned item, validated against its published Survey Version and stored as
+immutable evidence without answer content entering centralized logs. The same
+questionnaire machinery also powers version-pinned authenticated onboarding and
+registration questionnaires while keeping their privacy and progress semantics
+separate from Learning Survey evidence.
+
+Event Templates have immutable published versions with ordered Sections,
+Sessions, reusable Learning Activities, communication plans and default staff
+coverage. Scheduled occurrences retain exact-version provenance, regional
+registration review, capacity-safe final selection, scoped administrator,
+Coordinator and Presenter assignments, attendance, staged learner access,
+completion and on-demand certificates. Public Event checkout and access-code or
+enterprise-contract registration reuse the commerce/access boundary without
+making payment state part of Event learning evidence.
+
+Virtual occurrences use application-owned LiveKit room policy, presenter green
+rooms and an attendee lobby. Credentials are issued only after server-owned
+start/admission/eligibility checks; provider participant identities are derived
+and not stored raw. Signed provider webhooks retain recording and attendee
+connection evidence. Managed Egress recordings use private object storage,
+retention policy and audited administrator-only playback/download that rechecks
+current platform-administrator authority. Durable connection state is projected into
+the staff roster; automatic attendance from that evidence remains conditional
+follow-up work.
+
+Enterprise Contracts separately own contractual period, lifecycle, immutable
+Course and exact Event coverage, domain or uploaded-employee eligibility,
+blanket-code claims, Access Owner assignments and utilisation evidence. Course
+coverage materialises source-neutral exact-version entitlements; Event coverage
+creates ordinary capacity-controlled registrations. Suspension or termination
+blocks new claims without rewriting already-issued learning history.
 
 ## Content and asynchronous work
 

@@ -36,8 +36,7 @@ eligible workforce.
 
 ## Product Context
 
-Upskill currently sells professional education through the first two pathways
-below. The third is the Target Product commercial model:
+Upskill sells professional education through all three pathways below:
 
 1.  individuals purchasing their own learning;
 2.  healthcare organisations purchasing fixed quantities of course
@@ -65,7 +64,8 @@ progress.
 This works well for a customer buying a fixed number of places in one
 course.
 
-The gap appears when a contract means something broader, for example:
+The Enterprise Contract boundary handles agreements broader than one
+offering-specific grant, for example:
 
 ```text
 NSW Health
@@ -75,10 +75,11 @@ NSW Health
   -> no individual learner payment
 ```
 
-Representing this only as many unrelated course-specific grants would
-duplicate contract policy and make renewals/reporting harder.
+Representing this as many unrelated course-specific grants would duplicate
+contract policy and make renewals/reporting harder, so the implemented contract
+owns its period, coverage, eligibility, claims and renewal history.
 
-## Target Product
+## Current Contract Model
 
 The following boundaries describe the implemented direction. Organisation,
 offering-specific access grants, source-neutral Course entitlements and scoped

@@ -54,22 +54,21 @@ activities, completion, and certification.
   a revocable high-entropy guest link that captures privacy-accepted name/email,
   creates or reuses a provisional account, retains open-entry participation,
   protects the virtual destination until submission and records session-window
-  self check-in according to occurrence policy. Passwordless/shared-device
-  prerequisite recovery and automated communications remain target workflows.
-- **Target Product:** the Event domain described in this document, including
-  regional Coordinator review, assigned standard-administrator selection,
-  capacity-safe registration, attendance and blended learning. Every in-person
-  or virtual occurrence can be
-  open-entry with no registration, require unrestricted registration, or require
-  registration restricted to one or more verified email domains.
-- **Future Possibilities:** waitlists, advanced scheduling, external
-  calendar/video integrations and scale-driven read models.
+  self check-in according to occurrence policy. Email/SMS shared-device Survey
+  recovery, governed communication plans, lifecycle/reminder delivery, paid and
+  enterprise-covered registration, LiveKit admission/recording and durable
+  attendee connection status are also implemented.
+- **Target Product:** facilitated one-Survey recovery, selected operational
+  alerts/exports, complete analytics datasets and an optional explicitly
+  qualified connection-derived attendance policy.
+- **Future Possibilities:** advanced scheduling, external calendar integrations,
+  alternative video providers and scale-driven read models.
 
 ## Product Context
 
-The target Upskill product delivers instructor-led training in addition to the
-current self-paced e-learning experience. Events may be physical or virtual and
-may require learning before and after attendance.
+Upskill delivers instructor-led training in addition to self-paced e-learning.
+Events may be physical or virtual and may require learning before and after
+attendance.
 
 ```text
 Discover event
@@ -92,8 +91,9 @@ share one Event domain rather than becoming separate platforms.
 
 ## Current Implementation Boundary
 
-The implemented foundation deliberately establishes the breaking relational
-boundaries before adding broad UI workflows:
+The implemented Event boundary establishes the relational distinctions below
+and layers public, learner, administrator and assigned-staff workflows over
+them:
 
 - Event Instances are occurrences pinned to one immutable Event Template
   Version;
@@ -126,9 +126,10 @@ creates another review round. The same workflow supports region addition,
 Coordinator reassignment and region retirement with an affected-registration
 preview and a future-only or cancel-active disposition. Cancellation retains
 participation and Attendance evidence while revoking the cancelled learner
-workspace. Public promotion/registration pages are not implemented. The
-separate open-entry guest boundary is implemented, but it does not authenticate
-the submitted email address or replace the future passwordless recovery flow.
+workspace. Public discovery and registration/checkout pages are implemented for
+published occurrences. The separate open-entry guest boundary does not
+authenticate the submitted email address; registered learners and shared-device
+Survey recovery instead use password, email OTP or verified-mobile SMS OTP.
 
 Each occurrence also owns a persisted opaque public reference for every exact
 Survey item. Creating an occurrence materializes those records idempotently;
@@ -136,11 +137,11 @@ reading the assigned staff catalogue reconciles older occurrences created before
 that boundary existed. Assigned administrators, regional Coordinators and
 Presenters can display a Survey QR in a participant-free presentation view. The
 same-origin QR image is rendered at request time rather than stored as an object.
-The current landing route preserves the requested destination across sign-in,
-requires a selected or open-entry participant, and rechecks occurrence and
-Section availability before redirecting to the exact Event Survey. OTP,
-shared-device and assisted registered-email recovery are not implemented by this
-slice.
+The landing route preserves the requested destination across sign-in, requires
+a selected or open-entry participant, and rechecks occurrence and Section
+availability before redirecting to the exact Event Survey. Email and
+verified-mobile SMS challenges can issue a short-lived exact-Survey task session
+for a shared device. Facilitated staff-assisted recovery remains unimplemented.
 
 ## Domain Philosophy
 
@@ -395,6 +396,26 @@ staff.
 Delivery mode does not determine participation/registration mode. An in-person
 or virtual occurrence can independently use open entry, unrestricted
 required registration, or restricted required registration.
+
+### LiveKit virtual delivery
+
+An occurrence may select the versioned LiveKit provider policy. The application
+owns the room lifecycle, webinar start/end state and attendee door; provider
+room existence alone does not admit a learner. Presenters use one green-room
+path for device preparation and then operate camera, microphone, screen share,
+recording, admission and door controls from the scoped Event Operations view.
+Learners wait in an application lobby until the occurrence is live, they are
+eligible and the admission policy allows entry.
+
+Credentials are short-lived and server-issued for one exact occurrence, room
+generation, role and participant identity. Signed provider webhooks retain
+idempotent room-incarnation, recording and connection evidence. Active provider
+participants project to connected/disconnected roster state without replacing
+registration, participation or Attendance evidence. Managed recordings are
+written to private object storage and remain available only through audited,
+current Platform Administrator playback/download boundaries and explicit
+retention.
+Connection-derived automatic Attendance is not implemented.
 
 ## Event Lifecycle
 
@@ -708,9 +729,9 @@ instants and never silently relocks legitimately accessed/completed work. See
 Presenters regularly encounter registered participants who have not completed
 required pre-event learning and cannot readily authenticate because of forgotten
 passwords, email/2FA delivery problems, restricted corporate devices, poor
-connectivity or device sharing. The current manual workaround—anonymous Survey
-QR responses followed by coordinator email matching—is ambiguous and should not
-become product architecture.
+connectivity or device sharing. The historical workaround—anonymous Survey QR
+responses followed by coordinator email matching—is ambiguous and is not the
+implemented recovery boundary.
 
 Each recovery QR identifies the exact occurrence and prerequisite item. The
 preferred flow offers password, email OTP and verified-mobile SMS OTP, then
@@ -718,14 +739,14 @@ returns the authenticated participant directly to that item. A verified
 short-lived event-task session is available on shared devices so the participant
 does not expose their broader account.
 
-As a last resort, an occurrence may enable a presenter-window email-match route
-for selected non-sensitive Surveys. Exact normalized email matching must resolve
-an accepted Registration before a one-survey capability is issued. That
-capability is already bound to the User, Registration, occurrence, course/Event
-item and exact Survey Version, so submission records correctly attributed
-evidence immediately and requires no later matching.
+As a proposed last resort, an occurrence could enable a presenter-window
+email-match route for selected non-sensitive Surveys. Exact normalized email
+matching must resolve an accepted Registration before a one-Survey capability is
+issued. That capability would already be bound to the User, Registration,
+occurrence, Course/Event item and exact Survey Version, so submission could
+record correctly attributed evidence immediately without later matching.
 
-Different-email and exceptional cases use an authenticated, audited
+If this fallback is implemented, different-email and exceptional cases must use an authenticated, audited
 Presenter/Coordinator selection of the correct participant; never fuzzy email
 matching. The email-only route grants no account session or other participant
 data and does not apply to SCORM. Shared-device completion invalidates the token,
@@ -836,8 +857,9 @@ events.
 ## Presenter Experience
 
 The presenter UI should be narrower still: assigned events/sessions,
-schedule/location, attendance list, attendance marking, and offline
-attendance export.
+schedule/location, attendance and Survey QR operations, plus LiveKit green-room,
+media, admission, door, recording and connection-status controls for virtual
+occurrences. Printable/minimal attendance export remains target work.
 
 Do not expose registration decisions, unrelated learner history,
 organisation administration, access grants, or course authoring unless a
@@ -886,11 +908,10 @@ received/accepted/declined, reminders, incomplete pre-work,
 venue/virtual details, schedule changes, cancellation, post-event
 requirements, and certificate availability.
 
-The Events domain should emit meaningful domain events. Notification
-delivery should be asynchronous through the transactional outbox rather
-than email being sent inside registration transactions. Templates,
-preferences, scheduling, and channels belong to a Notifications
-capability.
+The Events domain creates meaningful notification intent from committed state.
+Delivery is asynchronous through the transactional outbox rather than email
+being sent inside registration transactions. Templates, scheduling, channels
+and operational delivery history belong to the Notifications capability.
 
 Publishing an Event Template pins exact Automated Email Item designs and rules.
 Creating an occurrence materializes its own Communication Plan. Its assigned
@@ -1017,9 +1038,9 @@ transactional queries demonstrate real pressure.
     Presenters; revocation preserves history and triggers replacement/attention
     rather than stranding digital delivery operations.**
 
-## Recommended Implementation Sequence
+## Implementation Status and Remaining Sequence
 
-### Phase 1 --- Event foundation
+### Delivered --- Event foundation
 
 - Stable Event Template identity, immutable versions and exact-version Event
   Instance provenance.
@@ -1042,28 +1063,20 @@ transactional queries demonstrate real pressure.
 - Standard Platform Administrator Event management plus one or more operational
   owners per instance.
 
-### Phase 2 --- Scoped operations
+### Delivered --- Scoped and virtual operations
 
-- Extend the first assigned-events dashboard with progress warnings, QR
-  presentation/recovery, filtered exports and assignment lifecycle alerts.
-  Evidence-derived participant/Section progress, scoped Coordinator visibility,
-  filtered/all-authorized Event Section progress CSV, and an occurrence-owned
-  exact-Survey QR catalogue with participant-free presentation are implemented.
-  Email and verified-mobile SMS shared-device recovery for the exact Survey are
-  implemented; facilitated recovery and assignment-alert work remain.
-- Assigned-administrator consolidated final-selection controls in the focused
-  workspace (the current full final-selection controls remain in Administration).
-- Presenter printable/minimal attendance export and time-windowed QR actions.
-- Administrator/Coordinator/Presenter revoke, replacement, attention and
-  successor-Template workflows.
-- Attendance evidence and corrections.
-- Minimal offline attendance export.
-- Presenter-controlled exact-prerequisite QR recovery windows.
-- Verified-mobile SMS OTP return to the exact activity; password and email OTP
-  return are implemented.
-- Audited one-survey assisted fallback; email-verified shared-device task
-  sessions are implemented.
-- Server-side resource-scoped authorisation tests.
+- Assigned staff dashboards, region/Session-scoped authorization, progress
+  warnings, final selection, attendance and correction controls.
+- Evidence-derived participant/Section progress, formula-safe CSV, and an
+  occurrence-owned exact-Survey QR catalogue with participant-free display.
+- Password, email OTP and verified-mobile SMS access to exact Survey tasks on
+  shared devices.
+- Administrator/Coordinator/Presenter revocation, replacement, attention and
+  successor-Template workflows with retained attribution.
+- LiveKit presenter green room, attendee lobby/admission, webinar lifecycle,
+  participant operations, managed recording/playback and durable learner
+  connection status.
+- Focused server-side resource-scope, replay, failure and concurrency coverage.
 
 ### Implemented blended-learning foundation
 
@@ -1082,7 +1095,7 @@ Presenters retain an attendance-only view. The UI provides current warnings,
 per-Section/activity inspection and a normalized, formula-safe Event Section
 progress CSV without exposing Survey answers.
 
-### Phase 4 --- Communications and maturity
+### Delivered --- Communications
 
 - Email Designer with immutable Offering/System Email versions and safe typed
   variables.
@@ -1090,10 +1103,17 @@ progress CSV without exposing Survey answers.
   previews and assigned-administrator local overrides.
 - Notification domain/events, durable schedules, idempotent delivery and exact
   rendered-message history.
-- Waitlists if required.
 - Cancellations/rescheduling workflows.
-- Event reporting projections where justified.
-- Global support/impersonation capability if required.
+
+### Next only where justified --- Operations and reporting maturity
+
+- Facilitated one-Survey recovery after ordinary authentication and OTP options.
+- Presenter printable/minimal attendance export and assignment lifecycle alerts.
+- Connection-derived automatic Attendance after policy and correction design.
+- Complete analytics/export datasets and Event reporting projections only when
+  bounded transactional reads no longer meet the product need.
+- Global support/impersonation capability only if dedicated inspection tools are
+  insufficient.
 
 ### Later
 
@@ -1137,7 +1157,7 @@ and, where appropriate, an ADR.
 
 ## Summary
 
-Events should become a first-class Upskill domain because instructor-led
+Events are a first-class Upskill domain because instructor-led
 and blended training are core product capabilities, not peripheral
 calendar functionality.
 

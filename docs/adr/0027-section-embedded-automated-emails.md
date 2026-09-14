@@ -46,7 +46,7 @@ markup. This is a stricter implementation of the sanitization boundary and does
 not expose arbitrary HTML, CSS, URL attributes or executable expressions.
 
 Broader System Email contracts, sophisticated preference policy, provider-rate
-and worker-heartbeat telemetry, and explicit rendered-history retention controls
+telemetry, and explicit rendered-history retention controls
 remain target work. Event Occurrence overrides retain their dedicated operational
 workspace because they revise an already materialized plan rather than authoring
 the reusable Section journey.
@@ -228,7 +228,7 @@ replace or suppress that mandatory cancellation message.
 Authors can understand learning and communication as one coherent journey while
 Learning retains clean evidence/completion semantics. Email content is reusable
 and versioned, each occurrence can be safely tailored, and sent history remains
-explainable. Implementation requires a polymorphic Section item boundary in the
-target authoring model, Email Design versioning, communication-plan snapshots,
+explainable. The implementation uses a polymorphic Section item boundary in the
+authoring model, Email Design versioning, communication-plan snapshots,
 typed variable/trigger/audience registries, occurrence-local revisions, durable
 scheduling, idempotent delivery and preview authorization.

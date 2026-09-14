@@ -1,6 +1,6 @@
 # User Onboarding
 
-**Status:** Current Product foundation; advanced administration pending\
+**Status:** Current Product implemented; privacy/retention and durable completion event pending\
 **Scope:** Authenticated-user onboarding, versioned questionnaires, profile
 initialisation, privacy, completion, and soft-account transition
 
@@ -70,11 +70,17 @@ Changing mobile closes the active phone claim, clears SMS verification and
 revokes outstanding SMS recovery challenges and survey-only sessions before the
 new number can be verified.
 
-Explicit re-onboarding campaigns, privacy-scoped answer support/reporting,
+Bulk/cohort re-onboarding campaigns, privacy-scoped answer support/reporting,
 answer retention/redaction jobs, profession mappings and a durable
-`onboarding.completed` outbox event remain Target Product work.
+`onboarding.completed` outbox event remain Target Product work. User-level
+administrator re-onboarding is implemented; the current completion log is
+operational rather than a committed outbox fact.
 
-## Target Product
+## Current Model and Remaining Target
+
+The versioned model, learner flow and User-level administration below are
+implemented. Statements about bulk campaigns, privacy operations and retention
+describe the remaining target.
 
 ### Domain concepts
 

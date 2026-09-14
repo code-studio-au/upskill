@@ -13,22 +13,25 @@ model, immutable learning versions, isolated SCORM runtime,
 transactional outbox, Stripe reconciliation, audit model, and
 verification discipline are appropriate for the product.
 
-The next major challenge is **product-domain expansion**, particularly
-first-class events, enterprise entitlements, scoped event roles,
-communications, and reporting. The architecture can support these
-additions without changing the core stack.
+The major product-domain expansion into Events, enterprise entitlements,
+scoped staff roles and governed communications is now implemented. The next
+high-value work is **product insight and measured operational maturity**:
+visual analytics/export datasets, privacy/retention operations, selected Event
+recovery improvements and richer domain telemetry. Offline SCORM and automatic
+attendance remain explicit decisions, not assumed next steps.
 
 Overall architectural maturity is high for the current product stage.
-The highest-value work is to preserve existing invariants while
-formalising domain concepts that are currently implicit.
+The highest-value work is to preserve existing invariants, keep executable and
+documented state aligned, and deliver the remaining gaps as bounded slices.
 
 ## Product Lens
 
-Upskill currently serves individual healthcare professionals and healthcare
-organisations through self-paced learning, individual purchases and fixed-seat
-access grants. The target product also serves enterprise/government customers
-through broad workforce access and delivers instructor-led physical/virtual
-events containing pre-work, surveys, resources, attendance and post-work.
+Upskill serves individual healthcare professionals, healthcare organisations
+and enterprise/government customers through self-paced learning,
+instructor-led physical/virtual Events, individual and bulk purchases,
+fixed-seat grants and broad workforce contracts. Events compose pre-work,
+Surveys, resources, attendance and post-work through the same versioned learning
+model.
 
 The architecture should therefore optimise for:
 
@@ -91,33 +94,34 @@ verifiers, and CDK verification.
 
 ## Current Capability Assessment
 
-| Capability                         | Current maturity                                                           | Direction                                                                |
-| ---------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
-| Public course catalogue            | Strong                                                                     | Continue incremental UX/product growth                                   |
-| Individual course checkout         | Strong                                                                     | Preserve transaction and idempotency model                               |
-| Learner enrolment/workspace        | Common activity-version foundation                                         | Extend the model to Events and attendance                                |
-| SCORM delivery                     | Strong                                                                     | Preserve isolation and immutable versions                                |
-| Surveys                            | Strong foundation                                                          | Reuse in courses and target Events                                       |
-| Resources                          | Strong foundation                                                          | Broaden beyond PDF when required                                         |
-| Certificates                       | On-demand rendering implemented                                            | Reuse the common completion-eligibility boundary                         |
-| Organisation access codes          | Encrypted shared or single-use batches plus entitlements                   | Add contracts and broader coverage                                       |
-| Customer Access Owner portal       | Orders, invoices, CSV and Stripe capacity extensions                       | Add contract-wide reporting and broader coverage                         |
-| Enterprise blanket access          | Partial concept                                                            | Add a first-class contract/coverage model                                |
-| Course administration              | Strong foundation                                                          | Add authoring workflow maturity as needed                                |
-| Learner administration             | Course and Event support evidence views implemented                        | Add broader cross-domain support timelines as justified                  |
-| Events                             | Authoring, registration and blended-learning foundation                    | Add facilitated recovery and operational maturity                        |
-| Coordinator workflows              | Region-scoped review, progress and Survey QR operations                    | Add lifecycle alerts and recovery controls                               |
-| Presenter workflows                | Session-scoped attendance and Survey QR operations                         | Add recovery windows and printable/minimal export                        |
-| Attendance                         | Durable evidence and corrections                                           | Add offline/minimal operational export                                   |
-| Authenticated user onboarding      | Secure account activation implemented                                      | Add Survey-backed version assignment, privacy-scoped response and gating |
-| Open-entry guest check-in          | Initial guarded workflow implemented                                       | Add broader lifecycle and support controls                               |
-| Passwordless prerequisite recovery | Email/SMS OTP and exact-Survey task sessions implemented                   | Add scoped facilitated Survey fallback                                   |
-| Staged Event release               | Implemented learner foundation                                             | Add notification and open-entry workflow maturity                        |
-| Regional Event selection           | Review, deadline locks and late invitations implemented                    | Add broader recovery controls only when operational need is demonstrated |
-| Automated email/notifications      | Durable triggers plus audited delivery operations                          | Add retention controls and broader message types                         |
-| Reporting/visual analytics         | Basic read boundaries                                                      | Add filtered charts/tables; project only when justified                  |
-| Global support/impersonation       | Future possibility                                                         | Add carefully with audit safeguards                                      |
-| Operational observability          | Release/readiness, EC2/RDS, outbox/SQS/DLQ and delivery alarms implemented | Add HTTP, SCORM and certificate telemetry                                |
+| Capability                         | Current maturity                                                            | Direction                                                                |
+| ---------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Public course catalogue            | Strong                                                                      | Continue incremental UX/product growth                                   |
+| Individual course checkout         | Strong                                                                      | Preserve transaction and idempotency model                               |
+| Learner enrolment/workspace        | Course and staged Event learning implemented                                | Continue incremental UX/support maturity                                 |
+| SCORM delivery                     | Strong                                                                      | Preserve isolation and immutable versions                                |
+| Surveys                            | Reused across Courses, Events, onboarding and registration questionnaires   | Add privacy operations where required                                    |
+| Resources                          | Strong foundation                                                           | Broaden beyond PDF when required                                         |
+| Certificates                       | On-demand rendering implemented                                             | Reuse the common completion-eligibility boundary                         |
+| Organisation access codes          | Encrypted shared/single-use Course and Event grants                         | Preserve capacity, consent and recovery controls                         |
+| Customer Access Owner portal       | Grant/contract utilisation, CSV, invoices and capacity extensions           | Add richer reporting only when required                                  |
+| Enterprise blanket access          | First-class lifecycle, eligibility, Course/Event coverage and claims        | Add dynamic collections/SSO only on demonstrated demand                  |
+| Course administration              | Strong foundation                                                           | Add authoring workflow maturity as needed                                |
+| Learner administration             | Course and Event support evidence views implemented                         | Add broader cross-domain support timelines as justified                  |
+| Events                             | Public commerce, authoring, registration, learning and lifecycle operations | Add measured recovery/reporting refinements                              |
+| Coordinator workflows              | Region-scoped review, progress, selection and Survey QR operations          | Add alerts only where delivery practice requires them                    |
+| Presenter workflows                | Attendance/QR plus LiveKit green-room, media, admission and recording       | Add printable/minimal export if required                                 |
+| Attendance                         | Durable evidence and corrections                                            | Add offline/minimal operational export                                   |
+| LiveKit webinars and recording     | Controlled admission, connection evidence, admin-only recording/playback    | Decide automatic attendance separately; harden from operations evidence  |
+| Authenticated user onboarding      | Versioned Survey-backed flow, contact verification and gating               | Add privacy/retention and optional bulk campaign operations              |
+| Open-entry guest check-in          | Guarded Event and LiveKit lobby workflow implemented                        | Add support controls only where required                                 |
+| Passwordless prerequisite recovery | Email/SMS OTP and exact-Survey task sessions implemented                    | Add scoped facilitated Survey fallback                                   |
+| Staged Event release               | Implemented with open-entry semantics and notifications                     | Preserve server-owned release decisions                                  |
+| Regional Event selection           | Review, deadline locks and late invitations implemented                     | Add broader recovery controls only when operational need is demonstrated |
+| Automated email/notifications      | Governed design, schedules, suppression and audited delivery operations     | Add retention controls and justified message types                       |
+| Reporting/visual analytics         | Basic read boundaries                                                       | Add filtered charts/tables; project only when justified                  |
+| Global support/impersonation       | Future possibility                                                          | Add carefully with audit safeguards                                      |
+| Operational observability          | Release/readiness, EC2/RDS, outbox/SQS/DLQ and delivery alarms implemented  | Add HTTP, SCORM and certificate telemetry                                |
 
 ## Priority 0/1 --- Production Reliability
 
@@ -171,12 +175,10 @@ SCORM domain metrics.
 **Benefit:** failures are discovered by the platform before users report
 them.
 
-## Priority 1 --- First-Class Events
+## Delivered Foundation --- First-Class Events
 
-Events are a core product delivery mode and should be the next major
-domain expansion.
-
-Implement:
+Events are a current core product delivery mode. The implemented domain
+includes:
 
 - stable Event Template identity, immutable versions and exact-version Event
   Instances;
@@ -195,8 +197,8 @@ Implement:
 - guarded open-entry guest links that collect point-in-time name/email, create
   or reuse a provisional not-onboarded user without Registration/authentication,
   and distinguish check-in from attendance;
-- exact-prerequisite QR recovery using password/email OTP/SMS OTP first, with
-  shared-device task sessions and a last-resort one-survey email-match capability;
+- exact-prerequisite QR recovery using password/email OTP/SMS OTP with
+  shared-device exact-Survey task sessions;
 - an Event Occurrence-owned QR catalogue for every contained Survey item and
   participant-free staff presentation (implemented occurrence scope; explicit
   Session binding remains target work);
@@ -235,20 +237,25 @@ Implement:
 Do not build separate event-specific SCORM/survey/resource systems.
 Reuse learning activities.
 
+Remaining work is deliberately narrower: facilitated Survey recovery,
+printable/minimal attendance export, selected assignment alerts, complete
+analytics datasets and any explicitly approved connection-derived attendance
+policy.
+
 **Benefit:** enables Upskill's instructor-led business model without
 creating a second LMS.
 
-## Priority 1 --- Hybrid Authorisation
+## Delivered Foundation --- Hybrid Authorisation
 
-Formalise global capabilities, ownership-based learner access, and
-resource-scoped event assignments.
+Global capabilities, ownership-based learner access and resource-scoped Event
+and Access Owner assignments are implemented.
 
 Do not replace product personas; use them as understandable capability
 bundles. Do not create combined roles for every possible responsibility
 combination.
 
-Build focused operating modes for Learning, Administration, Coordinator,
-and Presenter.
+Preserve focused operating modes for Learning, Administration, Coordinator and
+Presenter as their operational surfaces mature.
 
 **Benefit:** users can hold overlapping responsibilities without
 over-permissioning or confusing UI.
@@ -302,20 +309,20 @@ Each activity kind is standardised around:
 - override semantics; and
 - common progress state.
 
-The next extension is to use the same model for event attendance and other
-Event Section requirements. That should add a typed child-content/evidence
-contract rather than another set of polymorphic course/event columns.
+Events reuse the common activity/version model for SCORM, Surveys and resources,
+while Attendance remains distinct occurrence/session evidence. Future activity
+kinds should add a typed child-content/evidence contract rather than another set
+of polymorphic Course/Event columns.
 
 **Benefit:** future learning types can be added without rewriting
 course/event progress.
 
-## Priority 2 --- Notifications
+## Delivered Foundation --- Notifications
 
-Events and enterprise learning will make communications increasingly
-important.
+Events and enterprise learning make communications a core current capability.
 
-Create a notification capability that reacts to committed domain events rather
-than embedding email sends in transactions. Add a governed Email Designer with
+The notification capability reacts to committed domain events rather than
+embedding email sends in transactions. Its governed Email Designer provides
 immutable Offering/System Email versions, typed variables, preview, publication
 and rollback. System administrators may revise content without changing
 code-owned trigger, recipient or security behavior.
@@ -327,7 +334,7 @@ Publishing pins exact email versions. Event Occurrences snapshot a Communication
 Plan whose assigned standard Platform Administrators can override locally for
 eligible unsent messages only.
 
-Initial use cases:
+Implemented use cases:
 
 - registration received/accepted/declined;
 - event reminders;
@@ -341,16 +348,15 @@ Delivery history pins the exact immutable email/override version and reproducibl
 rendered subject/body received at that time. New publication never silently
 rewrites published offerings, existing plans, queued intents or sent history.
 
-Use the transactional outbox for reliable hand-off and idempotent
-notification delivery.
+The transactional outbox provides reliable hand-off and idempotent notification
+delivery.
 
 **Benefit:** communications become reliable, reusable, and decoupled
 from core domain transactions.
 
-## Priority 2 --- Support Tooling
+## Delivered Foundation / Priority 2 --- Support Tooling
 
-Before implementing impersonation, build strong administrator inspection
-views for common support scenarios:
+Strong administrator inspection views cover common support scenarios:
 
 - enrolment/access state;
 - SCORM attempts;
@@ -360,7 +366,7 @@ views for common support scenarios:
 - completion and current certificate eligibility; and
 - relevant audit history.
 
-Then add impersonation only for cases requiring reproduction of the
+Add impersonation only if remaining cases genuinely require reproduction of the
 exact user experience.
 
 **Benefit:** solves most support problems with lower security risk.
@@ -496,8 +502,8 @@ allowing a single arbitrary global JavaScript byte cap to distort
 component architecture. User-centric critical-route budgets matter more
 than the sum of every lazy admin chunk.
 
-Operating-mode navigation will become important once coordinator and
-presenter experiences are added.
+Preserve focused operating-mode navigation as Coordinator and Presenter
+experiences continue to mature.
 
 ### Long-term user locale preferences
 
@@ -546,7 +552,7 @@ without understanding why.
 
 ## Recommended Implementation Phases
 
-### Phase A --- Production hardening
+### Phase A --- Production hardening (delivered foundation)
 
 - deployment verification;
 - distributed rate limiting;
@@ -554,18 +560,19 @@ without understanding why.
 - release/readiness visibility;
 - failure-injection coverage.
 
-### Phase B --- Event foundation
+### Phase B --- Event foundation (delivered)
 
 - Event Template identity/version, default-owner/Coordinator/Presenter and
   exact-version occurrence/session schema (implemented foundation);
 - separate registration, participation and attendance records plus capacity
-  constraints (implemented schema; operational workflows pending);
+  constraints and operational workflows (implemented);
 - blank Template creation with explicit default administrators, multi-session
   and region/assignment authoring, ordered learning activities, immutable
   publication and successor versions (implemented);
 - multi-owner standard-admin Event responsibility plus multi-Coordinator regional
-  and Presenter assignments, including revocation/replacement workflows;
-- registration selection and attendance-taking workflows.
+  and Presenter assignments, including revocation/replacement workflows
+  (implemented);
+- registration selection and attendance-taking workflows (implemented);
 - explicit published-occurrence rescheduling with retained schedules,
   keep/replace/reopen window policy, responsibility snapshots and new review
   rounds after a lock (implemented);
@@ -573,7 +580,7 @@ without understanding why.
   retirement with affected-registration preview, future-only preservation or
   active-registration cancellation and confirmed-capacity release (implemented).
 
-### Phase C --- Blended event learning
+### Phase C --- Blended event learning (delivered)
 
 - ordered, titled Event Sections (implemented);
 - reusable SCORM/survey/resource activities (implemented);
@@ -584,22 +591,23 @@ without understanding why.
 - event completion (implemented);
 - certificates (implemented).
 
-### Phase D --- Enterprise access
+### Phase D --- Enterprise access (delivered)
 
 - explicit course entitlement semantics (implemented);
-- enterprise contracts;
-- multi-course coverage;
-- organisation utilisation reporting;
-- Access Owner assignment and narrow customer dashboard (implemented for
-  course-specific grants);
+- enterprise contracts (implemented);
+- multi-course and exact Event Occurrence coverage (implemented);
+- organisation utilisation reporting (implemented for assigned grants and
+  contracts);
+- Access Owner assignment and narrow customer dashboard (implemented for grants
+  and contracts);
 - capped-grant capacity-extension checkout and webhook fulfilment (implemented);
 
-### Phase E --- Communications and support
+### Phase E --- Communications and support (delivered foundation)
 
 - Email Designer with Offering/System catalogues and immutable versions
   (implemented foundation);
 - polymorphic administration Section items for Automated Emails without learning
-  progress semantics;
+  progress semantics (implemented);
 - Event/Course Template communication plans, occurrence snapshots and local
   assigned-administrator overrides (implemented authoring/versioning foundation);
 - notification domain, exact delivery snapshots, all authorable Course/Event
@@ -613,7 +621,21 @@ without understanding why.
   history);
 - carefully audited impersonation if still needed.
 
-### Phase F --- Visual analytics
+### Delivered cross-cutting phase --- LiveKit virtual delivery
+
+- versioned provider policy and room lifecycle;
+- presenter green room, media and moderation;
+- attendee lobby, controlled admission and recovery;
+- managed recording, signed receipt reconciliation, private playback/download
+  and retention;
+- open-entry virtual participation; and
+- durable attendee connection evidence in the staff roster.
+
+Automatic Attendance from provider connection evidence remains a separate
+conditional product decision. Production hardening tasks remain operationally
+triggered and do not reopen the delivered webinar foundation.
+
+### Phase F --- Visual analytics (next product slice)
 
 - authorized semantic aggregate queries and drill-down;
 - responsive accessible charts/tables with selectable filters;
@@ -622,7 +644,7 @@ without understanding why.
   bundles;
 - route-level chart-library splitting and bundle gates.
 
-### Phase G --- Scale-driven evolution
+### Phase G --- Scale-driven evolution (trigger-based)
 
 - reporting projections;
 - worker/web separation;
@@ -680,11 +702,11 @@ The low-cost single-host topology now has verified immutable deployment,
 readiness/release identity, rollback and baseline operational alarms. Richer
 HTTP and domain telemetry remains incremental work.
 
-### Product completeness --- Growing
+### Product completeness --- Broad foundation delivered
 
-Self-paced learning is comparatively mature. Events, enterprise blanket
-access, notifications, and scoped staff workflows are the major missing
-product layers.
+Self-paced learning, Events, enterprise blanket access, notifications and scoped
+staff workflows are implemented. Visual analytics, privacy/retention operations
+and measured Event/support refinements remain the main product gaps.
 
 ### Maintainability --- Strong
 
@@ -696,9 +718,9 @@ and invariants current.
 
 Continue building on the existing architecture.
 
-The repo does not need a new foundational stack. It needs the next
-product layer: first-class events, explicit enterprise access, hybrid
-scoped authorisation, notifications, and operational maturity.
+The repo does not need a new foundational stack or another broad product-domain
+layer. It needs focused insight and operational slices that build on the
+implemented Event, enterprise, authorisation and notification boundaries.
 
 The most important design discipline is to keep the existing boundaries
 intact while those features are added:

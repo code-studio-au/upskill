@@ -19,10 +19,9 @@ modelling**.
 
 Upskill is a professional education platform focused primarily on helping
 healthcare professionals develop, refresh, and maintain skills in
-eating-disorder care. The current product delivers self-paced e-learning and
-direct course access. The target product expands that foundation into
-instructor-led training and broad enterprise access without rewriting the
-existing learning system.
+eating-disorder care. The current product combines self-paced learning,
+instructor-led physical and LiveKit virtual Events, direct and bulk commerce,
+and enterprise access without maintaining separate learning systems.
 
 Across those horizons, learning may include SCORM modules, surveys, reference
 resources, face-to-face or virtual workshops, attendance requirements,
@@ -30,11 +29,11 @@ post-event activities, and completion certificates. Upskill serves both
 individual healthcare professionals and large organisational customers.
 
 The product vision is therefore not only an LMS and not only an e-commerce
-site. It combines professional learning delivery, direct-to-consumer course
-sales, organisation access, immutable learning records, certification and
-reliable asynchronous processing today, with enterprise agreements,
-instructor-led event operations and scoped staff workflows as accepted target
-capabilities.
+site. It combines professional learning delivery, direct-to-consumer sales,
+organisation and enterprise access, immutable learning records, certification,
+governed communications and reliable asynchronous processing. Remaining target
+work matures analytics, support and selected recovery/offline workflows rather
+than establishing another product foundation.
 
 ## Product Scope by Horizon
 
@@ -65,41 +64,40 @@ capabilities.
   exact-Survey task sessions. Open-entry check-in and durable Event
   communications are also implemented; facilitated recovery remains target
   work.
+- Public paid Course and Event discovery, individual and bulk Stripe Checkout,
+  shared or single-use access-code fulfilment, assigned Access Owner operations,
+  and first-class enterprise contracts covering Courses and exact Event
+  Occurrences.
+- Survey-backed authenticated onboarding, contact verification, profile
+  projection, administrator re-onboarding, and versioned Course/Event
+  registration questionnaires.
+- LiveKit webinar green rooms, controlled start/admission/door policy,
+  open-entry joining, presenter and attendee media controls, durable connection
+  evidence, managed recording, private administrator playback/download and
+  retention.
+- Governed Email Designer catalogues, version-pinned Course/Event communication
+  plans, occurrence overrides, idempotent delivery and operational health views.
 
 ### Target Product
 
-- Instructor-led physical and virtual events, including occurrences, sessions,
-  registration, capacity and attendance. Each delivery mode supports open entry
-  with no registration, required unrestricted registration, or required
-  registration limited to configured verified email domains.
-- Configurable regional coordination, optional cross-region priority ranking,
-  regional list lock deadlines and assigned standard-administrator final
-  selection.
-- Stable Event Templates with immutable versions, one or more versioned default
-  Platform Administrators, one or more default Coordinators per configured
-  region, one or more default Presenters per presenter-required scope and
-  exact-version Event Instance creation.
-- Pre-event and post-event learning composed from the existing activity model.
-- Standard Platform Administrators recorded as shared Event Instance owners,
-  plus regional Coordinator and Presenter assignments scoped to the resources
-  they operate.
-- Explicit source-neutral entitlements and blanket enterprise/government
-  contracts.
-- Access Owner assignments created with bulk grants/contracts, invitation-based
-  account activation and a narrow allocation/utilisation dashboard.
-- Email Designer-managed reusable/system messages, Section-embedded automated
-  email plans, Event Occurrence overrides, event/enterprise notifications,
-  operational views and reporting.
 - Responsive visual analytics with selectable Course/Event, exact-version/
   instance, date-range, completion and current/historical region filters.
 - Complete filtered or all-authorized Course/Event CSV exports covering
   enrolment/participation summaries, progress, Section completion, activity
   state and Event Attendance through explicit versioned datasets.
+- Privacy-scoped onboarding answer support/reporting and retention/redaction,
+  with bulk/cohort re-onboarding only when product policy requires it.
+- Facilitated one-Survey prerequisite recovery and additional Event operational
+  alerts/exports where real delivery practice demonstrates the need.
+- Richer HTTP, SCORM, recording and certificate telemetry plus contract-wide
+  reporting that cannot be served efficiently from bounded transactional reads.
+- Optional connection-derived automatic attendance only after the qualifying
+  policy, evidence threshold and correction consequences are explicitly agreed.
 
 ### Future Possibilities
 
-- Open-entry Event variations with no formal registration record where product
-  demand justifies them.
+- Participant-free Event promotion or broadcast variants where no durable
+  identity/evidence is required.
 - Broader resource/activity formats, assessments and acknowledgements.
 - Multi-offering learning programs or journeys.
 - Promotions, subscriptions and additional commercial entitlement producers.
@@ -163,9 +161,11 @@ eligible staff and all covered Upskill courses. A shared code can
 establish eligibility so staff receive 100% covered access without
 individual payment.
 
-The long-term architecture should model this as an enterprise
-entitlement/contract rather than forcing blanket access into many
-unrelated course-specific special cases.
+Upskill models this as a first-class Enterprise Contract rather than forcing
+blanket access into unrelated course-specific special cases. Contract periods,
+coverage, eligibility, claims, Access Owners, renewal and lifecycle are retained
+independently from the exact Course entitlements and Event registrations they
+produce.
 
 ## Learning Delivery Models
 
@@ -186,9 +186,10 @@ training manuals, and worksheets.
 
 ### Instructor-led events
 
-The target product also delivers scheduled professional training, physically
-and virtually. This workflow is product context for the Events target; it is not
-implemented in the current repository.
+The current product delivers scheduled professional training physically and
+virtually. The workflow below is implemented across public discovery,
+registration/commerce, scoped operations, staged learning, attendance and
+completion; the precise path depends on occurrence policy.
 
 A typical event may involve:
 
@@ -430,8 +431,9 @@ for selection purposes once the regional list is locked.
 A presenter is assigned to deliver an event or session.
 
 Their interface is intentionally narrow: assigned schedule/location,
-attendance list, attendance marking, and an offline attendance list
-where required.
+attendance list, attendance marking, Survey QR presentation and, for LiveKit
+occurrences, the presenter green room, media controls, recording controls,
+admission/door operations and provider-backed learner connection status.
 
 ### Global Support Administrator
 
@@ -564,9 +566,9 @@ Learners may authenticate with password, email OTP or a code sent to a verified
 mobile number. Event prerequisite QR links preserve an exact safe return target,
 so successful authentication resumes the required activity. Borrowed/shared
 devices use a short-lived OTP-verified event-task session rather than exposing
-the full account. A final facilitated Survey fallback matches an accepted
-Registration email before issuing one exact activity capability; it is not a
-general login and eliminates later response matching.
+the full account. A proposed final facilitated Survey fallback would match an
+accepted Registration email before issuing one exact activity capability; it
+would not be a general login and must eliminate later response matching.
 
 Each Event Occurrence owns a persisted QR access catalogue for all exact Survey
 items in its Sections, with optional Session scope for multi-session delivery.
@@ -610,8 +612,11 @@ architecture.
 When committed business state requires follow-up work, the outbox record
 is committed in the same database transaction.
 
-Examples include SCORM ingestion, content deletion, audit
-projections, and future notifications/reporting events.
+Outbox examples include SCORM ingestion, content deletion, audit projections,
+notifications, scheduled communication rules and SMS delivery. LiveKit room,
+recording and retention work instead uses dedicated leased operation tables
+serviced by the same worker because those provider lifecycles need richer
+reconciliation state than a one-shot outbox row.
 
 This means process failure does not cause Upskill to forget committed
 work.
@@ -662,19 +667,17 @@ operational or organisational need.
 
 ## Product Areas Still to Grow
 
-The strongest future product work is expected around:
+The strongest remaining product work is expected around:
 
-- first-class events and event occurrences;
-- assigned standard-admin/Coordinator/Presenter workflows;
-- attendance;
-- blended pre/post event learning;
-- explicit enterprise contracts/blanket entitlements;
-- versioned System/Offering Emails, automated Section plans, occurrence
-  overrides, notifications and reminders;
 - visual chart/table analytics with validated filters and richer
   reporting/operational views;
 - safe filtered/unfiltered Course and Event CSV exports;
-- global support/impersonation;
+- privacy-scoped onboarding support and retention operations;
+- measured Event operations refinements, including facilitated prerequisite
+  recovery and any justified connection-derived attendance policy;
+- richer domain and delivery telemetry;
+- global support/impersonation only if inspection tools prove insufficient;
+- offline SCORM only after the proposed ADR set is accepted;
 - broader resource formats; and
 - potentially later learning programs/journeys.
 
@@ -703,9 +706,9 @@ documentation and the implementation.
 The [architecture handbook index](README.md) links the current set of product,
 domain, security, operations and governance documents and gives their reading
 order. Significant decisions remain in the separate
-[ADR collection](../adr/README.md). Notifications, organisations/contracts and
-reporting/observability now have dedicated target-design documents; their
-existence does not imply those target capabilities are implemented.
+[ADR collection](../adr/README.md). Each domain document marks Current Product,
+Target Product and Future Possibilities explicitly; a target section must not be
+read as evidence that the capability is already implemented.
 
 ## Guidance for Contributors
 

@@ -40,9 +40,9 @@ durably.
 ### Current Product
 
 PostgreSQL commits audit projections, versioned work commands and selected
-enrolment facts with domain state. The dispatcher currently routes only the
-explicit audit, resource and SCORM topic allowlist. SQS workers
-consume the supported work commands idempotently.
+domain facts with domain state. The dispatcher routes only the explicit audit,
+resource, SCORM and notification-delivery topic allowlist. SQS workers consume
+the supported work commands idempotently.
 
 `enrollment.created` and `enrollment.completed` are currently persisted as
 domain facts but are not claimed by the dispatcher and have no downstream
@@ -142,26 +142,30 @@ retaining different semantics.
 ## Current Product Uses
 
 Current dispatched asynchronous work covers SCORM ingestion/deletion, resource
-cleanup and committed audit projections. Enrolment
-creation/completion facts are transactionally recorded but are not currently
-dispatched.
+cleanup, notification delivery and committed audit projections. Enrolment
+creation/completion facts are transactionally recorded but are not themselves
+dispatched; applicable Course/Event transitions create a separate deduplicated
+notification record and delivery command in their authoritative transaction.
+
+LiveKit room, recording and retention operations use dedicated PostgreSQL
+operation tables with leases, retry state and provider reconciliation because
+their lifecycle needs richer state than a one-shot outbox row. The same worker
+services those queues, but they are not described as outbox topics.
 
 ## Target Product Uses
 
-Target dispatchable domain events cover event registration transitions,
-attendance and enrolment/completion facts. Post-event workers may use those
-facts for notifications, incomplete pre-work reminders, post-event activities,
-enterprise provisioning and reporting projections. Large/full CSV exports use a
-versioned `reporting.export.generate` command that carries the export-record ID,
-not raw rows or sensitive filters, and writes a private expiring S3/MinIO object
-through an idempotent streaming worker.
+Future dispatchable domain events may cover facts that genuinely need multiple
+independent subscribers, such as analytics projections. Large/full CSV exports
+may use a versioned `reporting.export.generate` command that carries the
+export-record ID, not raw rows or sensitive filters, and writes a private
+expiring S3/MinIO object through an idempotent streaming worker.
 Sequenced workflows must model prerequisites and idempotent state transitions;
 they must not depend on queue delivery order alone.
 
 ## Future Possibilities
 
-Additional uses may include analytics, cache/search invalidation, scheduled
-communications, bulk imports and integration webhooks. Managed fan-out
+Additional uses may include analytics, cache/search invalidation, bulk imports
+and integration webhooks. Managed fan-out
 becomes an option only when several independent consumers justify it.
 
 Use the outbox when work must reliably follow a committed domain

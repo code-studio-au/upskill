@@ -39,7 +39,9 @@ domain interface. Examples include:
 - SCORM launch metadata, manifest, content hash and immutable object prefix;
 - survey sections, questions, instruction blocks and response rules;
 - resource object reference, content hash, media type and display metadata; and
-- attendance or future activity-specific requirement configuration.
+- future activity-specific content and requirement configuration. Attendance is
+  currently retained as separate Event Session/Occurrence evidence rather than
+  a Learning Activity Version.
 
 Large files remain in private immutable object storage. The version owns their
 exact object references, integrity hashes and delivery metadata rather than

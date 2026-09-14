@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted and implemented for course enrolments produced by individual checkout,
-access-grant redemption, and administrator assignment. Enterprise contracts,
-blanket coverage, and customer capacity-extension Checkout remain future work.
-Shared-code and generated single-use-code fulfilment are implemented for finite
-bulk and enterprise access grants.
+Accepted and implemented for Course enrolments produced by individual checkout,
+access-grant redemption, Enterprise Contracts and administrator assignment.
+Shared-code and generated single-use-code fulfilment, assigned-owner disclosure
+and customer capacity-extension Checkout are implemented for finite grants.
+ADR 0038 governs blanket Enterprise Contract coverage, including Event access.
 
 ## Context
 
@@ -64,8 +64,7 @@ and point-in-time learner attribution.
 - Access Owner revocation can remove future customer access without changing
   learner entitlements or history.
 - Grant capacity remains serialized by the existing row lock.
-- Customer-extendable grants are now distinguishable, but increasing capacity
-  still requires the future Stripe order/webhook workflow before an owner-facing
-  purchase action is exposed.
-- Event and enterprise-contract entitlements can extend the origin/scope model
-  through later migrations without overloading course enrolment semantics.
+- Customer-extendable finite grants use a separate Stripe order/webhook workflow
+  so capacity changes only after authoritative replay-safe fulfilment.
+- Event and Enterprise Contract access extend the origin/scope model without
+  overloading Course enrolment semantics.

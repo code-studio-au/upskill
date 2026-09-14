@@ -28,9 +28,11 @@ The recommended model separates:
   assignment, organisation roles, server-authorised administrator commands, and
   Event Instance administrator, regional Coordinator and occurrence/Session
   Presenter assignments. Assigned Event staff receive scoped operational reads
-  and actions, including participant-free exact-Survey QR presentation.
-- **Target Product:** named capability vocabulary plus grant/contract Access
-  Owner workflows and more mature Event assignment lifecycle/recovery controls.
+  and actions, including participant-free exact-Survey QR presentation and
+  LiveKit operations. Email-bound Access Owner assignments provide scoped grant
+  or Enterprise Contract views without granting organisation-wide authority.
+- **Target Product:** finer named capability bundles and selected Event
+  assignment lifecycle/recovery controls where operational need justifies them.
 - **Future Possibilities:** separated global support capabilities and tightly
   controlled impersonation after dedicated support inspection tools.
 
@@ -91,19 +93,20 @@ The existing organisation role ranking can remain where a genuine
 organisation hierarchy exists. It should not become the universal model
 for events, support, and learning operations.
 
-## Target Product
+## Current Model and Remaining Target
 
 ### Global capabilities
 
-Global capabilities apply platform-wide. Initially many may remain
-bundled as `platform_admin`, but the architecture should allow later
+Global capabilities apply platform-wide. Current broad administration remains
+bundled as `platform_admin`, while dedicated System Email management is
+separately checkable. The architecture allows later
 separation of capabilities such as course management, survey/resource
 management, access-grant management, event management, learner support,
 audit/report access, and impersonation.
 
 ### Resource-scoped assignments
 
-Assignments should be first-class records, for example:
+Assignments are first-class records, for example:
 
 ```text
 user -> coordinator -> event occurrence + coordination region
@@ -163,12 +166,12 @@ explicit replacement first. Pending invitations can be cancelled without
 deleting the User. Grants, invitations, cancellations and revocations are
 durably audited.
 
-Platform Administrators may use the visual learning-analytics workspace across
+**Target:** Platform Administrators may use a visual learning-analytics workspace across
 Courses and Events, with explicit exact-version/instance, date, completion and
 current-versus-snapshotted-region filters. Chart drill-down remains an authorized
 server read rather than an implication of seeing an aggregate.
 
-They may export filtered or all-authorized versioned Course/Event CSV datasets,
+**Target:** They may export filtered or all-authorized versioned Course/Event CSV datasets,
 including overall and Section/activity progress. Broad unfiltered export is an
 explicit audited action and never includes fields outside the export contract.
 

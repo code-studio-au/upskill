@@ -41,15 +41,19 @@ capacity, expiry and revocation controls. Event Survey QR records use random
 opaque public references; the QR endpoint discloses only a same-origin guarded
 landing URL, and the landing route rechecks authentication, selected/open-entry
 participation, occurrence lifecycle and Section release before exact-Survey
-access.
+access. Grant/contract Access Owner scope, enterprise eligibility and lifecycle,
+governed notification delivery, and Event staff scope are implemented.
+LiveKit credentials are short lived and exact-room/role scoped; signed webhook
+receipts, private recording storage, reauthorized playback/download and
+retention preserve provider evidence without exposing provider secrets.
 
 ### Target Product
 
 The current product includes shared PostgreSQL-backed auth rate limiting,
 verified immutable deployment and baseline production metrics/alerts. The
-accepted target adds richer edge and domain observability,
-grant/contract-scoped Access Owner authorization, Events-scoped authorization
-and the security boundaries required by enterprise contracts and notifications.
+remaining target adds richer edge and domain observability, privacy
+retention/redaction operations, and any separately approved facilitated
+recovery or automatic-attendance boundary.
 
 ### Future Possibilities
 
@@ -62,8 +66,8 @@ review before implementation.
 
 Major boundaries include public browser to primary app, one learner to
 another learner's data, scoped event staff to unrelated resources,
-primary app to SCORM origin, app to Stripe/PostgreSQL/S3, dispatcher to
-SQS, worker to queue payload, future notification providers,
+primary app to SCORM origin, app to Stripe/PostgreSQL/S3/LiveKit, dispatcher to
+SQS, worker to queue payload, email/SMS providers,
 administrators to privileged actions, and CI/SSM to production hosts.
 
 ## Identity, Sessions, and Auth Abuse
@@ -97,10 +101,10 @@ redirect.
 Shared-device Event recovery uses an OTP-verified, short-lived task session with
 minimal scope instead of exposing the learner's entire account. Completion or
 inactivity invalidates it and clears participant-specific browser state. The
-last-resort registered-email Survey capability is not authentication: it is
-time-bounded, single-use, exact-participant/activity scoped, rate limited and
-disabled for sensitive Surveys. Different-email cases require an audited staff
-selection rather than fuzzy matching.
+proposed last-resort registered-email Survey capability would not be
+authentication: it must be time-bounded, single-use, exact-participant/activity
+scoped, rate limited and disabled for sensitive Surveys. Different-email cases
+would require audited staff selection rather than fuzzy matching.
 
 Occurrence Survey QR codes carry only opaque high-entropy public references.
 They do not embed raw occurrence/session/user IDs, email addresses, OTPs or
@@ -108,6 +112,24 @@ capabilities. The server resolves the stored occurrence-owned QR record and
 rechecks active window, exact Survey item, registration and Presenter/Coordinator
 scope. A photographed code can still be shared, so expiry, rotation/revocation,
 rate limiting and downstream participant resolution remain mandatory.
+
+## LiveKit and Recording Boundary
+
+Presenter browser credentials grant media participation, not provider room-admin
+authority. Server-only provider clients own room, participant and Egress
+operations. Attendee credentials are withheld until the application-owned
+start, admission, eligibility, generation and capacity policies all allow them;
+revocation blocks future issuance and provider removal enforces current denial.
+
+Webhook requests are verified from the raw body before parsing and retained with
+provider-environment/event identity for idempotency. Participant identity is
+matched through a scoped one-way digest and is neither stored raw nor logged.
+Recording outputs must match the exact private bucket/key contract before they
+can advance evidence. Playback and download use same-origin, short-lived,
+administrator-bound authorization that rechecks current access;
+deletion revokes new and active access before object cleanup. Temporary upload
+credentials, signed object access and provider secrets never enter browser,
+audit or log payloads.
 
 ## Authorisation and Data Minimisation
 
@@ -378,7 +400,7 @@ no credential leakage to logs or referrers.
 - **OTP interception/brute force:** short expiry, one-use digest, bounded
   attempts/resends, account/IP/device controls, provider monitoring and no code
   leakage through telemetry.
-- **Facilitated Survey email impersonation:** presenter-window QR, accepted
+- **Proposed facilitated Survey email impersonation:** presenter-window QR, accepted
   Registration match, one-survey capability, non-sensitive eligibility policy,
   provenance and explicit staff-assisted resolution for different emails.
 - **Survey QR photographed/replayed:** opaque occurrence-owned reference,
@@ -419,7 +441,7 @@ production/auth/payment/event milestones.
 
 ## Recommended Hardening Sequence
 
-### Immediate / pre-production
+### Continuing hardening
 
 - extend shared auth abuse protection with WAF when justified by traffic;
 - extend deployment verification when moving beyond one host;
@@ -427,7 +449,7 @@ production/auth/payment/event milestones.
 - verify GitHub/AWS least privilege and secret externalisation;
 - review CSP/security headers on both origins.
 
-### Events phase
+### Delivered Event security coverage
 
 - standard-admin Event ownership plus scoped regional Coordinator and Presenter
   tests;
@@ -447,21 +469,22 @@ production/auth/payment/event milestones.
 - attendance audit/provenance;
 - participant data minimisation;
 - capacity concurrency;
-- virtual-event credential protection.
+- LiveKit credential, admission, webhook, recording and connection-evidence
+  protection;
 - Email Designer privilege, sanitization, required-system-contract and rollback
   tests;
 - occurrence-override isolation, unsent-only rebase and preview-no-send tests;
 - exact-version/render-snapshot attribution and delivery-history authorization
   tests.
 
-### Enterprise phase
+### Delivered Enterprise security coverage
 
 - shared-code hardening/rotation;
 - eligibility verification;
 - organisation data-scope tests;
 - contract audit controls.
 
-### Support phase
+### Support phase if required
 
 - dedicated support inspection;
 - then audited/restricted impersonation if still needed.

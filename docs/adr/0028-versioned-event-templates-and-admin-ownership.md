@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; relational foundation and initial authoring workflow implemented.
+Accepted and implemented.
 
 ## Context
 
