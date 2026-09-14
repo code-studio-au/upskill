@@ -997,6 +997,8 @@ for (const boundary of [
   "reconcileProviderRoomSid",
   "livekit-participant-room-sid:",
   'insertInto("event_virtual_connection_interval")',
+  "const projectedState =",
+  ": entry.state;",
   "advanceEventVirtualLobbyRevision",
 ])
   if (!liveKitParticipantWebhook.includes(boundary))

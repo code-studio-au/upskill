@@ -4866,6 +4866,20 @@ try {
     getServerEnv(),
     receiptClock(12),
   );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_lobby_entry")
+      .select(["state", "firstConnectedAt", "lastSeenAt", "leftAt"])
+      .where("id", "=", evidenceLobbyEntryId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "revoked",
+      firstConnectedAt: new Date(evidenceJoinedAt.getTime() + 1_000),
+      lastSeenAt: new Date(evidenceJoinedAt.getTime() + 8_000),
+      leftAt: null,
+    },
+    "A revoked learner's timestamps must advance without overwriting admission state",
+  );
   const activeRevokedQueueIds = await database
     .selectFrom("event_virtual_lobby_entry as lobby")
     .select("lobby.id")
@@ -4957,15 +4971,18 @@ try {
     0,
     "Closing the revoked learner's final interval must clear live presence",
   );
-  assert.equal(
+  assert.deepEqual(
     await database
       .selectFrom("event_virtual_lobby_entry")
-      .select("state")
+      .select(["state", "lastSeenAt", "leftAt"])
       .where("id", "=", evidenceLobbyEntryId)
-      .executeTakeFirstOrThrow()
-      .then((entry) => entry.state),
-    "revoked",
-    "Connection evidence must not overwrite the revocation decision",
+      .executeTakeFirstOrThrow(),
+    {
+      state: "revoked",
+      lastSeenAt: new Date(evidenceJoinedAt.getTime() + 9_000),
+      leftAt: new Date(evidenceJoinedAt.getTime() + 9_000),
+    },
+    "Connection evidence must refresh grace timestamps without overwriting revocation",
   );
   assert.equal(
     await database

@@ -53,7 +53,6 @@ async function projectLobbyPresence(
   entry: MatchedLobbyEntry,
   observedAt: Date,
 ): Promise<void> {
-  if (!["token_issued", "connected", "left"].includes(entry.state)) return;
   const intervals = await transaction
     .selectFrom("event_virtual_connection_interval")
     .select(["joinedAt", "leftAt"])
@@ -81,9 +80,15 @@ async function projectLobbyPresence(
           ...intervals.map((interval) => interval.leftAt?.getTime() ?? 0),
         ),
       );
-  const state = hasOpenConnection ? "connected" : "left";
+  const projectedState = ["token_issued", "connected", "left"].includes(
+    entry.state,
+  )
+    ? hasOpenConnection
+      ? "connected"
+      : "left"
+    : entry.state;
   if (
-    entry.state === state &&
+    entry.state === projectedState &&
     sameInstant(entry.firstConnectedAt, firstConnectedAt) &&
     sameInstant(entry.lastSeenAt, lastSeenAt) &&
     sameInstant(entry.leftAt, leftAt)
@@ -93,7 +98,7 @@ async function projectLobbyPresence(
   await transaction
     .updateTable("event_virtual_lobby_entry")
     .set({
-      state,
+      state: projectedState,
       firstConnectedAt,
       lastSeenAt,
       leftAt,
