@@ -206,7 +206,6 @@ export function AdminEventAttendanceReview({
           <Button
             component="a"
             href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?${exportQuery.toString()}`}
-            variant="light"
             onClick={(event) => {
               if (
                 !hasActiveFilters &&
@@ -223,7 +222,7 @@ export function AdminEventAttendanceReview({
             <Button
               component="a"
               href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?q=&sessionId=all&state=all&evidence=all`}
-              variant="outline"
+              variant="default"
               onClick={(event) => {
                 if (!confirmAllEvidenceExport(allEvidenceCount))
                   event.preventDefault();

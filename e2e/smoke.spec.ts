@@ -2264,6 +2264,10 @@ test("platform administrators can inspect learner progress", async ({
       "including participant email addresses",
     );
     await expect(page).toHaveURL(defaultAttendanceUrl);
+    const defaultAttendanceAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(defaultAttendanceAccessibility.violations).toEqual([]);
     await page.goto(
       `/admin/events/instances/${occurrenceId}?view=registrations`,
     );
