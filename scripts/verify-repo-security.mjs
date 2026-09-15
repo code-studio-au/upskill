@@ -998,6 +998,10 @@ const eventAttendanceReportIndexMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const liveKitProviderPolicyVerification = fs.readFileSync(
+  path.join(root, "scripts/verify-livekit-provider-policy.ts"),
+  "utf8",
+);
 const adminEventAttendanceReport = fs.readFileSync(
   path.join(root, "src/server/admin/admin-event-attendance-report.server.ts"),
   "utf8",
@@ -1261,6 +1265,17 @@ for (const boundary of [
     failures.push(
       `Administrator attendance report index is missing: ${boundary}`,
     );
+if (
+  (liveKitProviderPolicyVerification.match(
+    /await upAttendanceReportIndexes\(database\);/gu,
+  )?.length ?? 0) !== 2 ||
+  !liveKitProviderPolicyVerification.includes(
+    "The rollback exercise must restore the attendance-report interval index",
+  )
+)
+  failures.push(
+    "LiveKit provider-policy rollback verification must restore and assert the attendance-report index",
+  );
 const attendanceGuardReplacementIndex =
   liveKitAutomaticAttendanceMigration.indexOf(
     "create or replace function guard_event_virtual_connection_interval",

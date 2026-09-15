@@ -122,6 +122,7 @@ import {
   up as upAutomaticAttendance,
 } from "#/server/db/migrations/0112_livekit_automatic_attendance";
 import { up as upAttendanceReportAudit } from "#/server/db/migrations/0113_event_attendance_report_audit";
+import { up as upAttendanceReportIndexes } from "#/server/db/migrations/0114_event_attendance_report_indexes";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -316,6 +317,16 @@ try {
   await upLobbyRevisionEvidence(database);
   await upAutomaticAttendance(database);
   await upAttendanceReportAudit(database);
+  await upAttendanceReportIndexes(database);
+  assert.equal(
+    (
+      await sql<{ indexName: string | null }>`
+        select to_regclass('event_virtual_connection_interval_report_idx')::text as "indexName"
+      `.execute(database)
+    ).rows[0]?.indexName,
+    "event_virtual_connection_interval_report_idx",
+    "The rollback exercise must restore the attendance-report interval index",
+  );
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -943,6 +954,7 @@ try {
       await upLobbyRevisionEvidence(database);
       await upAutomaticAttendance(database);
       await upAttendanceReportAudit(database);
+      await upAttendanceReportIndexes(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }
