@@ -192,6 +192,12 @@ export function AdminEventAttendanceReview({
           </Button>
         </Group>
       </Group>
+      {report.evidenceTruncated ? (
+        <Text c="indigo.7" role="status" size="sm">
+          This page shows a bounded evidence preview. Export the filtered CSV
+          for the complete decision and connection history.
+        </Text>
+      ) : null}
       {rows.length ? (
         <div className={classes.rows}>
           {rows.map((row) => (

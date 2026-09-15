@@ -17,11 +17,14 @@ import { sql, type Kysely, type Transaction } from "kysely";
 
 const ATTENDANCE_REPORT_PAGE_SIZE = 25;
 const ATTENDANCE_REPORT_EXPORT_BATCH_SIZE = 250;
+const ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT = 250;
 
 type AttendanceRowCursor = Pick<
   AdminEventAttendanceReviewRow,
   "eventParticipationId" | "eventSessionId"
 >;
+type AttendanceDecisionCursor = { decisionAt: Date; id: string };
+type AttendanceIntervalCursor = { joinedAt: Date; id: string };
 
 function evidenceKey(eventSessionId: string, eventParticipationId: string) {
   return `${eventSessionId}\u0000${eventParticipationId}`;
@@ -40,13 +43,15 @@ const automaticEvidenceExists = sql<boolean>`exists (
 const intervalEvidenceExists = sql<boolean>`exists (
   select 1
     from event_virtual_connection_interval interval_evidence
-    where interval_evidence."eventSessionId" = session.id
+    where interval_evidence."eventOccurrenceId" = session."eventOccurrenceId"
+      and interval_evidence."eventSessionId" = session.id
       and interval_evidence."eventParticipationId" = participation.id
 )`;
 const estimatedEvidenceExists = sql<boolean>`exists (
   select 1
     from event_virtual_connection_interval estimated_evidence
-    where estimated_evidence."eventSessionId" = session.id
+    where estimated_evidence."eventOccurrenceId" = session."eventOccurrenceId"
+      and estimated_evidence."eventSessionId" = session.id
       and estimated_evidence."eventParticipationId" = participation.id
       and (
         estimated_evidence."joinedSource" = 'provider_reconciliation'
@@ -113,6 +118,86 @@ function attendanceRowsQuery(
     );
 }
 
+function attendanceSelectedScopes(
+  selectedRows: ReadonlyArray<AttendanceRowCursor>,
+) {
+  return sql<{
+    eventSessionId: string;
+    eventParticipationId: string;
+  }>`(
+    select
+      scope.event_session_id as "eventSessionId",
+      scope.event_participation_id as "eventParticipationId"
+    from unnest(
+      ${selectedRows.map((row) => row.eventSessionId)}::text[],
+      ${selectedRows.map((row) => row.eventParticipationId)}::text[]
+    ) as scope(event_session_id, event_participation_id)
+  )`.as("selected_scope");
+}
+
+function attendanceDecisionsQuery(
+  database: Kysely<Database> | Transaction<Database>,
+  eventOccurrenceId: string,
+  selectedRows: ReadonlyArray<AttendanceRowCursor>,
+) {
+  return database
+    .selectFrom("event_virtual_attendance_decision as decision")
+    .innerJoin(attendanceSelectedScopes(selectedRows), (join) =>
+      join
+        .onRef("selected_scope.eventSessionId", "=", "decision.eventSessionId")
+        .onRef(
+          "selected_scope.eventParticipationId",
+          "=",
+          "decision.eventParticipationId",
+        ),
+    )
+    .select([
+      "decision.id",
+      "decision.eventSessionId",
+      "decision.eventParticipationId",
+      "decision.roomGeneration",
+      "decision.attendanceState",
+      "decision.attendanceMode",
+      "decision.attendanceMinimumMinutes",
+      "decision.qualifyingConnectedSeconds",
+      "decision.calculationVersion",
+      "decision.decisionAt",
+      "decision.applicationOutcome",
+      "decision.previousAttendanceState",
+      "decision.previousAttendanceSource",
+    ])
+    .where("decision.eventOccurrenceId", "=", eventOccurrenceId);
+}
+
+function attendanceIntervalsQuery(
+  database: Kysely<Database> | Transaction<Database>,
+  eventOccurrenceId: string,
+  selectedRows: ReadonlyArray<AttendanceRowCursor>,
+) {
+  return database
+    .selectFrom("event_virtual_connection_interval as interval")
+    .innerJoin(attendanceSelectedScopes(selectedRows), (join) =>
+      join
+        .onRef("selected_scope.eventSessionId", "=", "interval.eventSessionId")
+        .onRef(
+          "selected_scope.eventParticipationId",
+          "=",
+          "interval.eventParticipationId",
+        ),
+    )
+    .select([
+      "interval.id",
+      "interval.eventSessionId",
+      "interval.eventParticipationId",
+      "interval.roomGeneration",
+      "interval.joinedAt",
+      "interval.leftAt",
+      "interval.joinedSource",
+      "interval.leftSource",
+    ])
+    .where("interval.eventOccurrenceId", "=", eventOccurrenceId);
+}
+
 async function readAdminEventAttendanceRows(
   database: Kysely<Database> | Transaction<Database>,
   eventOccurrenceId: string,
@@ -124,7 +209,10 @@ async function readAdminEventAttendanceRows(
         limit: number;
         after: AttendanceRowCursor | null;
       },
-): Promise<Array<AdminEventAttendanceReviewRow>> {
+): Promise<{
+  rows: Array<AdminEventAttendanceReviewRow>;
+  evidenceTruncated: boolean;
+}> {
   const selectedRows = await attendanceRowsQuery(
     database,
     eventOccurrenceId,
@@ -146,6 +234,7 @@ async function readAdminEventAttendanceRows(
       "actor.name as recordedByName",
       "attendance.recordedAt",
       "attendance.updatedAt",
+      estimatedEvidenceExists.as("estimatedEvidencePresent"),
     ])
     .$if(options.order === "export" && options.after !== null, (query) => {
       const after = options.order === "export" ? options.after : null;
@@ -174,72 +263,40 @@ async function readAdminEventAttendanceRows(
     )
     .execute();
 
-  const selectedScopes = sql<{
-    eventSessionId: string;
-    eventParticipationId: string;
-  }>`(
-    select
-      scope.event_session_id as "eventSessionId",
-      scope.event_participation_id as "eventParticipationId"
-    from unnest(
-      ${selectedRows.map((row) => row.eventSessionId)}::text[],
-      ${selectedRows.map((row) => row.eventParticipationId)}::text[]
-    ) as scope(event_session_id, event_participation_id)
-  )`.as("selected_scope");
-  const decisionsQuery = database
-    .selectFrom("event_virtual_attendance_decision as decision")
-    .innerJoin(selectedScopes, (join) =>
-      join
-        .onRef("selected_scope.eventSessionId", "=", "decision.eventSessionId")
-        .onRef(
-          "selected_scope.eventParticipationId",
-          "=",
-          "decision.eventParticipationId",
-        ),
-    )
-    .select([
-      "decision.id",
-      "decision.eventSessionId",
-      "decision.eventParticipationId",
-      "decision.roomGeneration",
-      "decision.attendanceState",
-      "decision.attendanceMode",
-      "decision.attendanceMinimumMinutes",
-      "decision.qualifyingConnectedSeconds",
-      "decision.calculationVersion",
-      "decision.decisionAt",
-      "decision.applicationOutcome",
-      "decision.previousAttendanceState",
-      "decision.previousAttendanceSource",
-    ])
-    .where("decision.eventOccurrenceId", "=", eventOccurrenceId)
-    .orderBy("decision.decisionAt");
-  const intervalsQuery = database
-    .selectFrom("event_virtual_connection_interval as interval")
-    .innerJoin(selectedScopes, (join) =>
-      join
-        .onRef("selected_scope.eventSessionId", "=", "interval.eventSessionId")
-        .onRef(
-          "selected_scope.eventParticipationId",
-          "=",
-          "interval.eventParticipationId",
-        ),
-    )
-    .select([
-      "interval.id",
-      "interval.eventSessionId",
-      "interval.eventParticipationId",
-      "interval.roomGeneration",
-      "interval.joinedAt",
-      "interval.leftAt",
-      "interval.joinedSource",
-      "interval.leftSource",
-    ])
-    .where("interval.eventOccurrenceId", "=", eventOccurrenceId)
-    .orderBy("interval.joinedAt");
-  const [decisions, intervals] = selectedRows.length
-    ? await Promise.all([decisionsQuery.execute(), intervalsQuery.execute()])
-    : [[], []];
+  const decisionResults =
+    selectedRows.length && options.order === "display"
+      ? await attendanceDecisionsQuery(
+          database,
+          eventOccurrenceId,
+          selectedRows,
+        )
+          .orderBy("decision.decisionAt")
+          .orderBy("decision.id")
+          .limit(ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT + 1)
+          .execute()
+      : [];
+  const decisions = decisionResults.slice(
+    0,
+    ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT,
+  );
+  const intervalEvidenceLimit =
+    ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT - decisions.length;
+  const intervalResults =
+    selectedRows.length && options.order === "display"
+      ? await attendanceIntervalsQuery(
+          database,
+          eventOccurrenceId,
+          selectedRows,
+        )
+          .orderBy("interval.joinedAt")
+          .orderBy("interval.id")
+          .limit(intervalEvidenceLimit + 1)
+          .execute()
+      : [];
+  const evidenceTruncated =
+    decisionResults.length > ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT ||
+    intervalResults.length > intervalEvidenceLimit;
+  const intervals = intervalResults.slice(0, intervalEvidenceLimit);
 
   const decisionsByScope = new Map<
     string,
@@ -287,18 +344,21 @@ async function readAdminEventAttendanceRows(
     intervalsByScope.set(key, scoped);
   }
 
-  return selectedRows.map((row) => {
-    const key = evidenceKey(row.eventSessionId, row.eventParticipationId);
-    return {
-      ...row,
-      sessionStartsAt: row.sessionStartsAt.toISOString(),
-      sessionEndsAt: row.sessionEndsAt.toISOString(),
-      recordedAt: row.recordedAt?.toISOString() ?? null,
-      updatedAt: row.updatedAt?.toISOString() ?? null,
-      decisions: decisionsByScope.get(key) ?? [],
-      intervals: intervalsByScope.get(key) ?? [],
-    };
-  });
+  return {
+    evidenceTruncated,
+    rows: selectedRows.map((row) => {
+      const key = evidenceKey(row.eventSessionId, row.eventParticipationId);
+      return {
+        ...row,
+        sessionStartsAt: row.sessionStartsAt.toISOString(),
+        sessionEndsAt: row.sessionEndsAt.toISOString(),
+        recordedAt: row.recordedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+        decisions: decisionsByScope.get(key) ?? [],
+        intervals: intervalsByScope.get(key) ?? [],
+      };
+    }),
+  };
 }
 
 async function readAdminEventAttendanceReport(
@@ -330,7 +390,7 @@ async function readAdminEventAttendanceReport(
 
   const pages = Math.max(1, Math.ceil(count.count / pageSize));
   const page = Math.min(requestedPage, pages);
-  const rows = await readAdminEventAttendanceRows(
+  const rowResult = await readAdminEventAttendanceRows(
     database,
     eventOccurrenceId,
     filters,
@@ -350,7 +410,8 @@ async function readAdminEventAttendanceReport(
       startsAt: session.startsAt.toISOString(),
       endsAt: session.endsAt.toISOString(),
     })),
-    rows,
+    rows: rowResult.rows,
+    evidenceTruncated: rowResult.evidenceTruncated,
     pagination: {
       page,
       pages,
@@ -385,6 +446,7 @@ export async function exportAdminEventAttendanceReport(
   const transaction = await database
     .startTransaction()
     .setIsolationLevel("repeatable read")
+    .setAccessMode("read only")
     .execute();
   let firstReport: AdminEventAttendanceReport | null;
   try {
@@ -400,19 +462,22 @@ export async function exportAdminEventAttendanceReport(
       await transaction.rollback().execute();
       return null;
     }
-    await recordDurableAuditEvent(transaction, {
-      actorUserId: administrator.id,
-      action: "event_attendance.report_exported",
-      subjectType: "event_occurrence",
-      subjectId: eventOccurrenceId,
-      metadata: {
-        format: "csv",
-        rowCount: firstReport.pagination.total,
-        searchApplied: filters.q.length > 0,
-        sessionId: filters.sessionId,
-        state: filters.state,
-        evidence: filters.evidence,
-      },
+    const exportRowCount = firstReport.pagination.total;
+    await database.transaction().execute(async (auditTransaction) => {
+      await recordDurableAuditEvent(auditTransaction, {
+        actorUserId: administrator.id,
+        action: "event_attendance.report_exported",
+        subjectType: "event_occurrence",
+        subjectId: eventOccurrenceId,
+        metadata: {
+          format: "csv",
+          rowCount: exportRowCount,
+          searchApplied: filters.q.length > 0,
+          sessionId: filters.sessionId,
+          state: filters.state,
+          evidence: filters.evidence,
+        },
+      });
     });
   } catch (error) {
     await transaction.rollback().execute();
@@ -422,9 +487,11 @@ export async function exportAdminEventAttendanceReport(
   const occurrence = firstReport.occurrence;
   const pagination = firstReport.pagination;
   const encoder = new TextEncoder();
-  let pendingRows: Array<AdminEventAttendanceReviewRow> | null =
-    firstReport.rows;
-  let after: AttendanceRowCursor | null = null;
+  let rows: Array<AdminEventAttendanceReviewRow> | null = firstReport.rows;
+  let rowAfter: AttendanceRowCursor | null = null;
+  let decisionAfter: AttendanceDecisionCursor | null = null;
+  let intervalAfter: AttendanceIntervalCursor | null = null;
+  let phase: "attendance" | "decisions" | "intervals" = "attendance";
   let includeHeader = true;
   let finalized = false;
   async function finalize(outcome: "commit" | "rollback") {
@@ -436,46 +503,234 @@ export async function exportAdminEventAttendanceReport(
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {
       try {
-        const rows =
-          pendingRows ??
-          (await readAdminEventAttendanceRows(
+        for (;;) {
+          if (!rows) {
+            const result = await readAdminEventAttendanceRows(
+              transaction,
+              eventOccurrenceId,
+              filters,
+              {
+                order: "export",
+                limit: ATTENDANCE_REPORT_EXPORT_BATCH_SIZE,
+                after: rowAfter,
+              },
+            );
+            rows = result.rows;
+            decisionAfter = null;
+            intervalAfter = null;
+            phase = "attendance";
+          }
+          if (phase === "attendance") {
+            if (rows.length === 0 && !includeHeader) {
+              await finalize("commit");
+              controller.close();
+              return;
+            }
+            const chunk = encoder.encode(
+              encodeAdminEventAttendanceCsv(
+                {
+                  occurrence,
+                  sessions: [],
+                  rows,
+                  evidenceTruncated: false,
+                  pagination,
+                },
+                filters,
+                asOf,
+                { includeHeader, applyFilters: false },
+              ),
+            );
+            includeHeader = false;
+            phase = "decisions";
+            if (rows.length === 0) {
+              await finalize("commit");
+              controller.enqueue(chunk);
+              controller.close();
+              return;
+            }
+            controller.enqueue(chunk);
+            return;
+          }
+          if (phase === "decisions") {
+            const decisions = await attendanceDecisionsQuery(
+              transaction,
+              eventOccurrenceId,
+              rows,
+            )
+              .$if(decisionAfter !== null, (query) => {
+                const cursor = decisionAfter;
+                if (!cursor) return query;
+                return query.where((expression) =>
+                  expression.or([
+                    expression("decision.decisionAt", ">", cursor.decisionAt),
+                    expression.and([
+                      expression("decision.decisionAt", "=", cursor.decisionAt),
+                      expression("decision.id", ">", cursor.id),
+                    ]),
+                  ]),
+                );
+              })
+              .orderBy("decision.decisionAt")
+              .orderBy("decision.id")
+              .limit(ATTENDANCE_REPORT_EXPORT_BATCH_SIZE)
+              .execute();
+            if (decisions.length === 0) {
+              phase = "intervals";
+              continue;
+            }
+            const decisionsByScope = new Map<
+              string,
+              Array<AdminEventAttendanceDecisionEvidence>
+            >();
+            for (const decision of decisions) {
+              const key = evidenceKey(
+                decision.eventSessionId,
+                decision.eventParticipationId,
+              );
+              const scoped = decisionsByScope.get(key) ?? [];
+              scoped.push({
+                id: decision.id,
+                roomGeneration: decision.roomGeneration,
+                attendanceState: decision.attendanceState,
+                attendanceMode: decision.attendanceMode,
+                attendanceMinimumMinutes: decision.attendanceMinimumMinutes,
+                qualifyingConnectedSeconds: decision.qualifyingConnectedSeconds,
+                calculationVersion: decision.calculationVersion,
+                decisionAt: decision.decisionAt.toISOString(),
+                applicationOutcome: decision.applicationOutcome,
+                previousAttendanceState: decision.previousAttendanceState,
+                previousAttendanceSource: decision.previousAttendanceSource,
+              });
+              decisionsByScope.set(key, scoped);
+            }
+            const evidenceRows = rows.flatMap((row) => {
+              const decisions = decisionsByScope.get(
+                evidenceKey(row.eventSessionId, row.eventParticipationId),
+              );
+              return decisions ? [{ ...row, decisions, intervals: [] }] : [];
+            });
+            const last = decisions.at(-1);
+            if (!last)
+              throw new Error("Attendance decision export cursor is missing");
+            decisionAfter = { decisionAt: last.decisionAt, id: last.id };
+            if (decisions.length < ATTENDANCE_REPORT_EXPORT_BATCH_SIZE)
+              phase = "intervals";
+            controller.enqueue(
+              encoder.encode(
+                encodeAdminEventAttendanceCsv(
+                  {
+                    occurrence,
+                    sessions: [],
+                    rows: evidenceRows,
+                    evidenceTruncated: false,
+                    pagination,
+                  },
+                  filters,
+                  asOf,
+                  {
+                    includeHeader: false,
+                    includeAttendance: false,
+                    applyFilters: false,
+                  },
+                ),
+              ),
+            );
+            return;
+          }
+          const intervals = await attendanceIntervalsQuery(
             transaction,
             eventOccurrenceId,
-            filters,
-            {
-              order: "export",
-              limit: ATTENDANCE_REPORT_EXPORT_BATCH_SIZE,
-              after,
-            },
-          ));
-        pendingRows = null;
-        if (!includeHeader && rows.length === 0) {
-          await finalize("commit");
-          controller.close();
-          return;
+            rows,
+          )
+            .$if(intervalAfter !== null, (query) => {
+              const cursor = intervalAfter;
+              if (!cursor) return query;
+              return query.where((expression) =>
+                expression.or([
+                  expression("interval.joinedAt", ">", cursor.joinedAt),
+                  expression.and([
+                    expression("interval.joinedAt", "=", cursor.joinedAt),
+                    expression("interval.id", ">", cursor.id),
+                  ]),
+                ]),
+              );
+            })
+            .orderBy("interval.joinedAt")
+            .orderBy("interval.id")
+            .limit(ATTENDANCE_REPORT_EXPORT_BATCH_SIZE)
+            .execute();
+          if (intervals.length > 0) {
+            const intervalsByScope = new Map<
+              string,
+              Array<AdminEventAttendanceIntervalEvidence>
+            >();
+            for (const interval of intervals) {
+              const key = evidenceKey(
+                interval.eventSessionId,
+                interval.eventParticipationId,
+              );
+              const scoped = intervalsByScope.get(key) ?? [];
+              scoped.push({
+                id: interval.id,
+                roomGeneration: interval.roomGeneration,
+                joinedAt: interval.joinedAt.toISOString(),
+                leftAt: interval.leftAt?.toISOString() ?? null,
+                joinedSource: interval.joinedSource,
+                leftSource: interval.leftSource,
+              });
+              intervalsByScope.set(key, scoped);
+            }
+            const evidenceRows = rows.flatMap((row) => {
+              const intervals = intervalsByScope.get(
+                evidenceKey(row.eventSessionId, row.eventParticipationId),
+              );
+              return intervals ? [{ ...row, decisions: [], intervals }] : [];
+            });
+            const last = intervals.at(-1);
+            if (!last)
+              throw new Error("Attendance interval export cursor is missing");
+            intervalAfter = { joinedAt: last.joinedAt, id: last.id };
+            if (intervals.length < ATTENDANCE_REPORT_EXPORT_BATCH_SIZE) {
+              const lastRow = rows.at(-1);
+              if (!lastRow)
+                throw new Error("Attendance export batch cursor is missing");
+              rowAfter = {
+                eventParticipationId: lastRow.eventParticipationId,
+                eventSessionId: lastRow.eventSessionId,
+              };
+              rows = null;
+            }
+            controller.enqueue(
+              encoder.encode(
+                encodeAdminEventAttendanceCsv(
+                  {
+                    occurrence,
+                    sessions: [],
+                    rows: evidenceRows,
+                    evidenceTruncated: false,
+                    pagination,
+                  },
+                  filters,
+                  asOf,
+                  {
+                    includeHeader: false,
+                    includeAttendance: false,
+                    applyFilters: false,
+                  },
+                ),
+              ),
+            );
+            return;
+          }
+          const lastRow = rows.at(-1);
+          if (!lastRow)
+            throw new Error("Attendance export batch cursor is missing");
+          rowAfter = {
+            eventParticipationId: lastRow.eventParticipationId,
+            eventSessionId: lastRow.eventSessionId,
+          };
+          rows = null;
         }
-        const chunk = encoder.encode(
-          encodeAdminEventAttendanceCsv(
-            { occurrence, sessions: [], rows, pagination },
-            filters,
-            asOf,
-            includeHeader,
-          ),
-        );
-        const complete = rows.length < ATTENDANCE_REPORT_EXPORT_BATCH_SIZE;
-        if (complete) await finalize("commit");
-        controller.enqueue(chunk);
-        if (complete) {
-          controller.close();
-          return;
-        }
-        const last = rows.at(-1);
-        if (!last) throw new Error("Attendance export batch cursor is missing");
-        after = {
-          eventParticipationId: last.eventParticipationId,
-          eventSessionId: last.eventSessionId,
-        };
-        includeHeader = false;
       } catch (error) {
         await finalize("rollback");
         controller.error(error);

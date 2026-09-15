@@ -162,6 +162,7 @@ export interface AdminEventAttendanceReviewRow {
   recordedByName: string | null;
   recordedAt: string | null;
   updatedAt: string | null;
+  estimatedEvidencePresent: boolean;
   decisions: Array<AdminEventAttendanceDecisionEvidence>;
   intervals: Array<AdminEventAttendanceIntervalEvidence>;
 }
@@ -179,6 +180,7 @@ export interface AdminEventAttendanceReport {
     endsAt: string;
   }>;
   rows: Array<AdminEventAttendanceReviewRow>;
+  evidenceTruncated: boolean;
   pagination: {
     page: number;
     pages: number;

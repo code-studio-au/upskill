@@ -1002,6 +1002,10 @@ const adminEventAttendanceReport = fs.readFileSync(
   path.join(root, "src/server/admin/admin-event-attendance-report.server.ts"),
   "utf8",
 );
+const adminEventAttendanceReview = fs.readFileSync(
+  path.join(root, "src/features/admin-event/AdminEventAttendanceReview.tsx"),
+  "utf8",
+);
 const adminEventOperationsSchema = fs.readFileSync(
   path.join(root, "src/features/admin-event/admin-event-operations.schema.ts"),
   "utf8",
@@ -1130,17 +1134,26 @@ for (const boundary of [
   "searchApplied: filters.q.length > 0",
   "ATTENDANCE_REPORT_PAGE_SIZE",
   "ATTENDANCE_REPORT_EXPORT_BATCH_SIZE",
+  "ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT",
   ".startTransaction()",
   '.setIsolationLevel("repeatable read")',
+  '.setAccessMode("read only")',
+  "database.transaction().execute(async (auditTransaction)",
   'count(*)::integer`.as("count")',
   ".limit(options.limit)",
+  ".limit(intervalEvidenceLimit + 1)",
   "offset: (page - 1) * pageSize",
   "from unnest(",
   '"selected_scope.eventSessionId"',
   '"selected_scope.eventParticipationId"',
+  'interval_evidence."eventOccurrenceId" = session."eventOccurrenceId"',
+  'estimated_evidence."eventOccurrenceId" = session."eventOccurrenceId"',
   "new ReadableStream<Uint8Array>",
   'order: "export"',
   'expression("participation.id", ">"',
+  'expression("decision.decisionAt", ">"',
+  'expression("interval.joinedAt", ">"',
+  "includeAttendance: false",
   "transaction.commit().execute()",
   "transaction.rollback().execute()",
 ])
@@ -1152,6 +1165,15 @@ if (/expression\.or\(\s*selectedRows\.map/u.test(adminEventAttendanceReport))
   failures.push(
     "Administrator attendance evidence must not expand selected rows into per-row SQL bind pairs",
   );
+for (const boundary of [
+  "report.evidenceTruncated",
+  "bounded evidence preview",
+  "Export the filtered CSV",
+])
+  if (!adminEventAttendanceReview.includes(boundary))
+    failures.push(
+      `Administrator attendance evidence preview warning is missing: ${boundary}`,
+    );
 for (const boundary of [
   "loaderDeps: ({ search }) => search",
   'deps.view === "staffing"',

@@ -8,11 +8,14 @@ const staffSources = new Set(["administrator", "coordinator", "presenter"]);
 export function hasEstimatedAttendanceEvidence(
   row: AdminEventAttendanceReviewRow,
 ): boolean {
-  return row.intervals.some(
-    (interval) =>
-      interval.joinedSource === "provider_reconciliation" ||
-      interval.leftSource === "provider_reconciliation" ||
-      interval.leftSource === "room_end",
+  return (
+    row.estimatedEvidencePresent ||
+    row.intervals.some(
+      (interval) =>
+        interval.joinedSource === "provider_reconciliation" ||
+        interval.leftSource === "provider_reconciliation" ||
+        interval.leftSource === "room_end",
+    )
   );
 }
 

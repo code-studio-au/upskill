@@ -1054,6 +1054,72 @@ try {
     },
     "Automatic-attendance migration must upgrade retained closed webhook intervals",
   );
+  const streamedDecisionIds = Array.from(
+    { length: 251 },
+    (_, index) =>
+      `verify_livekit_attendance_stream_decision_${String(index).padStart(3, "0")}`,
+  );
+  await database
+    .insertInto("event_virtual_attendance_decision")
+    .values(
+      streamedDecisionIds.map((id, index) => ({
+        id,
+        roomId: ids.room,
+        eventVirtualJoinAccessId: access.id,
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        roomGeneration: 1,
+        lobbyEntryId: ids.firstLobby,
+        eventParticipationId: ids.firstParticipation,
+        attendanceState: "checked_in" as const,
+        attendanceMode: "automatic_check_in" as const,
+        attendanceMinimumMinutes: null,
+        qualifyingConnectedSeconds: 0,
+        calculationVersion: 10_000 + index,
+        decisionAt: new Date(finalAt.getTime() + 10_000 + index),
+        applicationOutcome: "already_satisfied" as const,
+        previousAttendanceState: "attended" as const,
+        previousAttendanceSource: "system" as const,
+      })),
+    )
+    .execute();
+  const boundedEvidenceReport = await findAdminEventAttendanceReport({
+    eventOccurrenceId: ids.occurrence,
+    q: "First attendance",
+    sessionId: ids.session,
+    state: "attended",
+    evidence: "automatic",
+    page: 1,
+  });
+  assert.ok(boundedEvidenceReport);
+  assert.equal(boundedEvidenceReport.evidenceTruncated, true);
+  assert.equal(
+    boundedEvidenceReport.rows.reduce(
+      (count, row) => count + row.decisions.length + row.intervals.length,
+      0,
+    ),
+    250,
+    "The staffing report must bound its in-memory evidence preview",
+  );
+  const streamedEvidenceReport = await exportAdminEventAttendanceReport(
+    ids.occurrence,
+    {
+      q: "First attendance",
+      sessionId: ids.session,
+      state: "attended",
+      evidence: "automatic",
+    },
+    administrator,
+  );
+  assert.ok(streamedEvidenceReport);
+  const streamedEvidenceCsv = await new Response(
+    streamedEvidenceReport.body,
+  ).text();
+  assert.equal(
+    streamedDecisionIds.filter((id) => streamedEvidenceCsv.includes(id)).length,
+    streamedDecisionIds.length,
+    "CSV exports must stream every evidence record beyond the UI preview bound",
+  );
   const streamUsers = Array.from({ length: 251 }, (_, index) => {
     const suffix = String(index).padStart(3, "0");
     return {
@@ -1089,6 +1155,38 @@ try {
       })),
     )
     .execute();
+  const auditCountBeforeCancellation = await database
+    .selectFrom("audit_event")
+    .select(sql<number>`count(*)::integer`.as("count"))
+    .where("action", "=", "event_attendance.report_exported")
+    .where("subjectId", "=", ids.occurrence)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.count);
+  const cancelledSnapshot = await exportAdminEventAttendanceReport(
+    ids.occurrence,
+    {
+      q: "Stream attendance learner",
+      sessionId: ids.session,
+      state: "not_recorded",
+      evidence: "all",
+    },
+    administrator,
+  );
+  assert.ok(cancelledSnapshot);
+  const cancelledReader = cancelledSnapshot.body.getReader();
+  assert.equal((await cancelledReader.read()).done, false);
+  await cancelledReader.cancel();
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("action", "=", "event_attendance.report_exported")
+      .where("subjectId", "=", ids.occurrence)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    auditCountBeforeCancellation + 1,
+    "A cancelled download must retain its independently committed audit event",
+  );
   const streamedSnapshot = await exportAdminEventAttendanceReport(
     ids.occurrence,
     {

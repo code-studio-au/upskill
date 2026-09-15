@@ -31,6 +31,7 @@ const report: AdminEventAttendanceReport = {
       recordedByName: null,
       recordedAt: "2030-09-04T00:10:00.000Z",
       updatedAt: "2030-09-04T00:30:00.000Z",
+      estimatedEvidencePresent: true,
       decisions: [
         {
           id: "decision-one",
@@ -58,6 +59,7 @@ const report: AdminEventAttendanceReport = {
       ],
     },
   ],
+  evidenceTruncated: false,
   pagination: { page: 1, pages: 1, total: 1, pageSize: 25 },
 };
 
@@ -97,7 +99,7 @@ describe("encodeAdminEventAttendanceCsv", () => {
       report,
       { q: "", sessionId: "all", state: "all", evidence: "all" },
       "2030-09-04T02:00:00.000Z",
-      false,
+      { includeHeader: false },
     );
     expect(csv).not.toContain('"schema_version"');
     expect(csv).toContain('"attendance"');

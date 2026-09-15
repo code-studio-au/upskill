@@ -12,8 +12,17 @@ export function encodeAdminEventAttendanceCsv(
   report: AdminEventAttendanceReport,
   filters: AdminEventAttendanceFilter,
   asOf: string,
-  includeHeader = true,
+  options: {
+    includeHeader?: boolean;
+    includeAttendance?: boolean;
+    applyFilters?: boolean;
+  } = {},
 ): string {
+  const {
+    includeHeader = true,
+    includeAttendance = true,
+    applyFilters = true,
+  } = options;
   const rows: Array<Array<CsvValue>> = includeHeader
     ? [
         [
@@ -53,7 +62,10 @@ export function encodeAdminEventAttendanceCsv(
         ],
       ]
     : [];
-  for (const row of filterAdminEventAttendanceRows(report.rows, filters)) {
+  const reportRows = applyFilters
+    ? filterAdminEventAttendanceRows(report.rows, filters)
+    : report.rows;
+  for (const row of reportRows) {
     const shared: Array<CsvValue> = [
       "event-attendance-evidence-v1",
       "attendance",
@@ -70,28 +82,29 @@ export function encodeAdminEventAttendanceCsv(
       row.recordedAt,
       row.updatedAt,
     ];
-    rows.push([
-      ...shared,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      null,
-      hasEstimatedAttendanceEvidence(row),
-      asOf,
-    ]);
+    if (includeAttendance)
+      rows.push([
+        ...shared,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        hasEstimatedAttendanceEvidence(row),
+        asOf,
+      ]);
     for (const decision of row.decisions)
       rows.push([
         ...shared.with(1, "decision"),

@@ -32,6 +32,7 @@ const report: AdminEventAttendanceReport = {
       recordedByName: "Admin User",
       recordedAt: "2030-09-04T00:10:00.000Z",
       updatedAt: "2030-09-04T00:30:00.000Z",
+      estimatedEvidencePresent: true,
       decisions: [
         {
           id: "decision-one",
@@ -59,6 +60,7 @@ const report: AdminEventAttendanceReport = {
       ],
     },
   ],
+  evidenceTruncated: false,
   pagination: { page: 1, pages: 2, total: 26, pageSize: 25 },
 };
 
@@ -102,5 +104,20 @@ describe("AdminEventAttendanceReview", () => {
     );
     expect(html).toContain("Page 1 of 4000");
     expect(html).not.toContain("Page 2 of 4000");
+  });
+
+  it("directs administrators to the export when page evidence is truncated", () => {
+    const html = renderToStaticMarkup(
+      <AdminEventAttendanceReview
+        report={{ ...report, evidenceTruncated: true }}
+        filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
+        processingId={null}
+        onFiltersChange={() => undefined}
+        onPageChange={() => undefined}
+        onRecordAttendance={() => undefined}
+      />,
+    );
+    expect(html).toContain("bounded evidence preview");
+    expect(html).toContain("Export the filtered CSV");
   });
 });
