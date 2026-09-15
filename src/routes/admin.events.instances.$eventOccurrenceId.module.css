@@ -47,8 +47,7 @@
 }
 
 .overviewGrid,
-.regionGrid,
-.sessionGrid {
+.regionGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.875rem;
@@ -125,28 +124,6 @@
   padding: 0 1rem 1rem;
 }
 
-.teamBar {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 1rem;
-  align-items: center;
-}
-
-.peopleList {
-  display: flex;
-  min-width: 0;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-.person {
-  min-width: 12rem;
-  padding: 0.45rem 0.65rem;
-  border: 1px solid var(--mantine-color-gray-2);
-  border-radius: var(--mantine-radius-md);
-  background: var(--mantine-color-gray-0);
-}
-
 .attendanceList {
   display: grid;
   border-top: 1px solid var(--mantine-color-gray-2);
@@ -204,12 +181,7 @@
     border-top: 1px solid var(--mantine-color-gray-2);
   }
 
-  .overviewGrid,
-  .sessionGrid {
-    grid-template-columns: 1fr;
-  }
-
-  .teamBar {
+  .overviewGrid {
     grid-template-columns: 1fr;
   }
 }

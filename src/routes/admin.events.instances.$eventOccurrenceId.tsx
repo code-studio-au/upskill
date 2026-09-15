@@ -14,6 +14,7 @@ import {
   adminEventOccurrenceOperationsParamsSchema,
   type AdminEventOccurrenceOperations,
 } from "#/features/admin-event/admin-event-operations.schema";
+import { AdminEventAttendanceStaffingSummary } from "#/features/admin-event/AdminEventAttendanceStaffingSummary";
 import { Badge } from "#/features/shared/Badge";
 import { AppDialog } from "#/features/shared/AppDialog";
 import { ConfirmationDialog } from "#/features/shared/ConfirmationDialog";
@@ -770,41 +771,11 @@ function EventInstanceOperationsPage() {
 
       {search.view === "staffing" && result.attendanceReport ? (
         <Stack gap="lg">
-          <Paper withBorder radius="lg" p="md">
-            <div className={classes.teamBar}>
-              <Text fw={700}>Event administrators</Text>
-              <div className={classes.peopleList}>
-                {workspace.administrators.map((person) => (
-                  <div className={classes.person} key={person.id}>
-                    <Text fw={600} size="sm">
-                      {person.name}
-                    </Text>
-                    <Text c="dimmed" size="xs">
-                      {person.email}
-                    </Text>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Paper>
-          <div className={classes.sessionGrid}>
-            {workspace.sessions.map((session) => (
-              <Paper withBorder radius="lg" p="md" key={session.id}>
-                <Title order={2} size="h4">
-                  {session.title}
-                </Title>
-                <Text size="sm" mt="xs">
-                  {formatLocalDateTime(session.startsAt, {
-                    timeZone: occurrence.timezone,
-                  })}
-                </Text>
-                <Text c="dimmed" size="sm">
-                  {session.presenters.map((person) => person.name).join(", ") ||
-                    "No presenters assigned"}
-                </Text>
-              </Paper>
-            ))}
-          </div>
+          <AdminEventAttendanceStaffingSummary
+            administrators={workspace.administrators}
+            sessions={workspace.sessions}
+            timezone={occurrence.timezone}
+          />
           <Suspense fallback={<LoadingSpinner label="Loading attendance" />}>
             <AdminEventAttendanceReview
               report={result.attendanceReport}

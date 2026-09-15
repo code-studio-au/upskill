@@ -10,7 +10,14 @@ import { Badge } from "#/features/shared/Badge";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
 import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
 import { formatLocalDateTime } from "#/features/shared/local-date";
-import { Button, Group, Stack, Text, Title } from "#/features/shared/mantine";
+import {
+  Button,
+  Group,
+  Paper,
+  Stack,
+  Text,
+  Title,
+} from "#/features/shared/mantine";
 import {
   adminEventAttendanceFilterSchema,
   type AdminEventAttendanceDecisionEvidence,
@@ -168,6 +175,9 @@ export function AdminEventAttendanceReview({
     filters.sessionId !== "all" ||
     filters.state !== "all" ||
     filters.evidence !== "all";
+  const filteredCount = report.pagination.total;
+  const filteredRecordLabel = filteredCount === 1 ? "record" : "records";
+  const allRecordLabel = allEvidenceCount === 1 ? "record" : "records";
   const columns = useMemo(
     () =>
       attendanceColumn.columns([
@@ -237,85 +247,48 @@ export function AdminEventAttendanceReview({
     rowCount: report.pagination.total,
   });
   return (
-    <Stack gap="lg">
-      <AdminDirectorySearch
-        key={exportQuery.toString()}
-        query={filters.q}
-        label="Search attendance"
-        placeholder="Participant, email or session"
-        submitLabel="Apply filters"
-        secondary={
-          <div className={classes.filterGrid}>
-            <MantineNativeSelect
-              name="sessionId"
-              label="Session"
-              defaultValue={filters.sessionId}
-              data={[
-                { value: "all", label: "All sessions" },
-                ...report.sessions.map(({ id, title }) => ({
-                  value: id,
-                  label: title,
-                })),
-              ]}
-            />
-            <MantineNativeSelect
-              name="state"
-              label="Attendance state"
-              defaultValue={filters.state}
-              data={[
-                { value: "all", label: "All states" },
-                ...Object.entries(attendanceLabels).map(([value, label]) => ({
-                  value,
-                  label,
-                })),
-              ]}
-            />
-            <MantineNativeSelect
-              name="evidence"
-              label="Evidence"
-              defaultValue={filters.evidence}
-              data={Object.entries(evidenceLabels).map(([value, label]) => ({
-                value,
-                label,
-              }))}
-            />
-          </div>
-        }
-        onSubmit={(form) => {
-          onFiltersChange(
-            adminEventAttendanceFilterSchema.parse({
-              q: form.get("q"),
-              sessionId: form.get("sessionId"),
-              state: form.get("state"),
-              evidence: form.get("evidence"),
-            }),
-          );
-        }}
-      />
-      <Group justify="space-between" align="end" wrap="wrap">
-        <div>
-          <Title order={2}>Attendance review</Title>
+    <section
+      className={classes.reviewSection}
+      aria-labelledby="attendance-review-heading"
+    >
+      <header className={classes.reviewHeader}>
+        <div className={classes.reviewCopy}>
+          <Text c="indigo.7" fw={700} size="sm">
+            Evidence and decisions
+          </Text>
+          <Title order={2} id="attendance-review-heading">
+            Attendance review
+          </Title>
           <Text c="dimmed" size="sm">
-            Showing {first}–{last} of {report.pagination.total} records
+            Review current attendance and the evidence behind automatic
+            decisions. Staff corrections remain authoritative.
           </Text>
         </div>
-        <Group gap="sm">
-          <Button
-            component="a"
-            href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?${exportQuery.toString()}`}
-            onClick={(event) => {
-              if (
-                !hasActiveFilters &&
-                !confirmAllEvidenceExport(allEvidenceCount)
-              )
-                event.preventDefault();
-            }}
-          >
-            {hasActiveFilters
-              ? "Export filtered CSV"
-              : `Export all evidence (${String(allEvidenceCount)} ${allEvidenceCount === 1 ? "record" : "records"})`}
-          </Button>
-          {hasActiveFilters ? (
+        <Group gap="sm" className={classes.exportActions}>
+          {filteredCount > 0 ? (
+            <Button
+              component="a"
+              href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?${exportQuery.toString()}`}
+              onClick={(event) => {
+                if (
+                  !hasActiveFilters &&
+                  !confirmAllEvidenceExport(allEvidenceCount)
+                )
+                  event.preventDefault();
+              }}
+            >
+              {hasActiveFilters
+                ? `Export filtered CSV (${String(filteredCount)} ${filteredRecordLabel})`
+                : `Export all evidence (${String(allEvidenceCount)} ${allRecordLabel})`}
+            </Button>
+          ) : (
+            <Button type="button" disabled>
+              {hasActiveFilters
+                ? "Export filtered CSV (0 records)"
+                : "Export all evidence (0 records)"}
+            </Button>
+          )}
+          {hasActiveFilters && allEvidenceCount > 0 ? (
             <Button
               component="a"
               href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?q=&sessionId=all&state=all&evidence=all`}
@@ -325,12 +298,97 @@ export function AdminEventAttendanceReview({
                   event.preventDefault();
               }}
             >
-              Export all evidence ({allEvidenceCount}{" "}
-              {allEvidenceCount === 1 ? "record" : "records"})
+              Export all evidence ({allEvidenceCount} {allRecordLabel})
             </Button>
           ) : null}
         </Group>
-      </Group>
+      </header>
+      <Paper withBorder radius="lg" p="md" className={classes.filterPanel}>
+        <div className={classes.filterHeading}>
+          <Text fw={700}>Find attendance records</Text>
+          <Text c="dimmed" size="sm">
+            Search participants or narrow the review by session, attendance
+            state, and evidence type.
+          </Text>
+        </div>
+        <AdminDirectorySearch
+          className={classes.filterForm}
+          key={exportQuery.toString()}
+          query={filters.q}
+          label="Participant, email or session"
+          placeholder="Name, email or session title"
+          submitLabel="Apply filters"
+          secondary={
+            <div className={classes.filterGrid}>
+              <MantineNativeSelect
+                name="sessionId"
+                label="Session"
+                defaultValue={filters.sessionId}
+                data={[
+                  { value: "all", label: "All sessions" },
+                  ...report.sessions.map(({ id, title }) => ({
+                    value: id,
+                    label: title,
+                  })),
+                ]}
+              />
+              <MantineNativeSelect
+                name="state"
+                label="Attendance state"
+                defaultValue={filters.state}
+                data={[
+                  { value: "all", label: "All states" },
+                  ...Object.entries(attendanceLabels).map(([value, label]) => ({
+                    value,
+                    label,
+                  })),
+                ]}
+              />
+              <MantineNativeSelect
+                name="evidence"
+                label="Evidence"
+                defaultValue={filters.evidence}
+                data={Object.entries(evidenceLabels).map(([value, label]) => ({
+                  value,
+                  label,
+                }))}
+              />
+            </div>
+          }
+          onSubmit={(form) => {
+            onFiltersChange(
+              adminEventAttendanceFilterSchema.parse({
+                q: form.get("q"),
+                sessionId: form.get("sessionId"),
+                state: form.get("state"),
+                evidence: form.get("evidence"),
+              }),
+            );
+          }}
+        />
+      </Paper>
+      <div className={classes.resultsMeta}>
+        <Text c="dimmed" size="sm" role="status">
+          Showing {first}–{last} of {report.pagination.total} records
+        </Text>
+        {hasActiveFilters ? (
+          <Button
+            type="button"
+            variant="subtle"
+            size="compact-sm"
+            onClick={() => {
+              onFiltersChange({
+                q: "",
+                sessionId: "all",
+                state: "all",
+                evidence: "all",
+              });
+            }}
+          >
+            Clear filters
+          </Button>
+        ) : null}
+      </div>
       {report.evidenceTruncated ? (
         <Text c="indigo.7" role="status" size="sm">
           This page shows a bounded evidence preview. Export the filtered CSV
@@ -352,7 +410,18 @@ export function AdminEventAttendanceReview({
           )}
         />
       ) : (
-        <Text c="dimmed">No attendance records match these filters.</Text>
+        <div className={classes.emptyState}>
+          <Title order={3} size="h4">
+            {hasActiveFilters
+              ? "No matching attendance records"
+              : "No attendance records yet"}
+          </Title>
+          <Text c="dimmed" size="sm">
+            {hasActiveFilters
+              ? "No attendance records match these filters. Clear or adjust the filters to broaden the review."
+              : "Attendance records will appear after participants are registered or given event access."}
+          </Text>
+        </div>
       )}
       {report.pagination.pages > 1 ? (
         <Group justify="space-between" wrap="wrap">
@@ -381,6 +450,6 @@ export function AdminEventAttendanceReview({
           </Button>
         </Group>
       ) : null}
-    </Stack>
+    </section>
   );
 }

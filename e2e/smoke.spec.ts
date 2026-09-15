@@ -2193,6 +2193,13 @@ test("platform administrators can inspect learner progress", async ({
     await page.goto(
       `/admin/events/instances/${occurrenceId}?view=staffing&q=${encodeURIComponent(administratorUser.email)}&sessionId=${encodeURIComponent(occurrenceSessionId)}&state=attended&evidence=staff`,
     );
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(
+      page.getByRole("heading", { name: "Staffing coverage" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Presenter covered", { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByRole("heading", { name: "Attendance review" }),
     ).toBeVisible();
@@ -2222,6 +2229,18 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page.getByLabel("Evidence", { exact: true })).toHaveValue(
       "staff",
     );
+    const evidenceFilterBox = await page
+      .getByLabel("Evidence", { exact: true })
+      .boundingBox();
+    const applyFiltersBox = await page
+      .getByRole("button", { name: "Apply filters" })
+      .boundingBox();
+    if (!evidenceFilterBox || !applyFiltersBox)
+      throw new Error("Expected visible attendance filter controls");
+    expect(applyFiltersBox.x).toBeGreaterThanOrEqual(
+      evidenceFilterBox.x + evidenceFilterBox.width,
+    );
+    await page.setViewportSize({ width: 412, height: 915 });
     const allAttendanceExport = page.getByRole("link", {
       name: /Export all evidence/u,
     });
