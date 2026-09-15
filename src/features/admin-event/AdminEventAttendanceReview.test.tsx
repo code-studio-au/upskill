@@ -84,6 +84,11 @@ describe("AdminEventAttendanceReview", () => {
       />,
     );
     expect(html).toContain("Attendance review");
+    expect(html).toContain("<table");
+    expect(html).toContain("Attendance records and LiveKit evidence");
+    expect(html).toContain(
+      "Toggle evidence for Alex Learner in Clinical webinar",
+    );
     expect(html).toContain("Staff correction preserved");
     expect(html).toContain("Estimated boundary");
     expect(html).toContain("Connection evidence explains");

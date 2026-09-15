@@ -1,6 +1,14 @@
+import {
+  createColumnHelper,
+  rowPaginationFeature,
+  tableFeatures,
+  useTable,
+} from "@tanstack/react-table";
+import { useMemo } from "react";
 import { AdminDirectorySearch } from "#/features/admin/AdminDirectory";
 import { Badge } from "#/features/shared/Badge";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
+import { ResponsiveDataTable } from "#/features/shared/ResponsiveDataTable";
 import { formatLocalDateTime } from "#/features/shared/local-date";
 import { Button, Group, Stack, Text, Title } from "#/features/shared/mantine";
 import {
@@ -39,6 +47,11 @@ const outcomeLabels = {
   already_satisfied: "Already satisfied",
   preserved_manual: "Staff correction preserved",
 } as const;
+const attendanceTableFeatures = tableFeatures({ rowPaginationFeature });
+const attendanceColumn = createColumnHelper<
+  typeof attendanceTableFeatures,
+  AdminEventAttendanceReviewRow
+>();
 
 function duration(seconds: number): string {
   return `${String(Math.floor(seconds / 60))}m ${String(seconds % 60)}s`;
@@ -62,7 +75,20 @@ function confirmAllEvidenceExport(recordCount: number): boolean {
   );
 }
 
-function Evidence({
+function evidenceSummary(row: AdminEventAttendanceReviewRow): string {
+  const displayedEvidenceTotal = row.decisions.length + row.intervals.length;
+  const evidenceTotal = row.automaticEvidenceTotal + row.intervalEvidenceTotal;
+  if (evidenceTotal === 0) return "No LiveKit evidence";
+  if (displayedEvidenceTotal < evidenceTotal)
+    return `Showing ${String(displayedEvidenceTotal)} of ${String(evidenceTotal)} LiveKit evidence records`;
+  if (row.decisions.length)
+    return `${String(row.decisions.length)} automatic decision${row.decisions.length === 1 ? "" : "s"}`;
+  if (row.intervals.length)
+    return `${String(row.intervals.length)} connection interval${row.intervals.length === 1 ? "" : "s"}`;
+  return "No LiveKit evidence";
+}
+
+function EvidenceDetails({
   row,
   timezone,
 }: {
@@ -73,18 +99,10 @@ function Evidence({
   const evidenceTotal = row.automaticEvidenceTotal + row.intervalEvidenceTotal;
   const evidenceTruncated = displayedEvidenceTotal < evidenceTotal;
   return (
-    <details className={classes.evidence}>
-      <summary>
-        {evidenceTotal === 0
-          ? "No LiveKit evidence"
-          : evidenceTruncated
-            ? `Showing ${String(displayedEvidenceTotal)} of ${String(evidenceTotal)} LiveKit evidence records`
-            : row.decisions.length
-              ? `${String(row.decisions.length)} automatic decision${row.decisions.length === 1 ? "" : "s"}`
-              : row.intervals.length
-                ? `${String(row.intervals.length)} connection interval${row.intervals.length === 1 ? "" : "s"}`
-                : "No LiveKit evidence"}
-      </summary>
+    <Stack className={classes.evidence} gap="xs">
+      <Text fw={700} size="sm">
+        {evidenceSummary(row)}
+      </Text>
       {evidenceTruncated ? (
         <Text c="dimmed" size="sm">
           This row&apos;s evidence is partially omitted from the preview. Export
@@ -116,7 +134,7 @@ function Evidence({
         Connection evidence explains the automatic decision; it does not prove
         attention. Staff-authored attendance remains authoritative.
       </Text>
-    </details>
+    </Stack>
   );
 }
 
@@ -150,6 +168,74 @@ export function AdminEventAttendanceReview({
     filters.sessionId !== "all" ||
     filters.state !== "all" ||
     filters.evidence !== "all";
+  const columns = useMemo(
+    () =>
+      attendanceColumn.columns([
+        attendanceColumn.accessor("name", {
+          header: "Participant",
+          cell: ({ row }) => (
+            <Stack className={classes.identity} gap={4}>
+              <Text fw={700}>{row.original.name}</Text>
+              <Text c="dimmed" size="sm">
+                {row.original.email}
+              </Text>
+              <Group gap="xs" wrap="wrap">
+                {row.original.source ? (
+                  <Badge color="gray" variant="light">
+                    {sourceLabels[row.original.source]}
+                  </Badge>
+                ) : null}
+                {hasEstimatedAttendanceEvidence(row.original) ? (
+                  <Badge color="yellow" variant="light">
+                    Estimated boundary
+                  </Badge>
+                ) : null}
+              </Group>
+            </Stack>
+          ),
+        }),
+        attendanceColumn.accessor("sessionTitle", { header: "Session" }),
+        attendanceColumn.display({
+          id: "attendance",
+          header: "Attendance",
+          cell: ({ row }) => (
+            <MantineNativeSelect
+              aria-label={`Attendance for ${row.original.name} in ${row.original.sessionTitle}`}
+              value={row.original.state}
+              disabled={
+                processingId ===
+                `attendance-${row.original.eventSessionId}-${row.original.eventParticipationId}`
+              }
+              data={Object.entries(attendanceLabels).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+              onChange={(event) => {
+                onRecordAttendance(
+                  row.original,
+                  event.currentTarget
+                    .value as AdminEventAttendanceReviewRow["state"],
+                );
+              }}
+            />
+          ),
+        }),
+        attendanceColumn.display({
+          id: "evidence",
+          header: "Evidence",
+          cell: ({ row }) => evidenceSummary(row.original),
+        }),
+      ]),
+    [onRecordAttendance, processingId],
+  );
+  const table = useTable({
+    features: attendanceTableFeatures,
+    columns,
+    data: rows,
+    getRowId: (row) => `${row.eventSessionId}:${row.eventParticipationId}`,
+    manualPagination: true,
+    rowCount: report.pagination.total,
+  });
   return (
     <Stack gap="lg">
       <AdminDirectorySearch
@@ -252,52 +338,19 @@ export function AdminEventAttendanceReview({
         </Text>
       ) : null}
       {rows.length ? (
-        <div className={classes.rows}>
-          {rows.map((row) => (
-            <article
-              className={classes.row}
-              key={`${row.eventSessionId}:${row.eventParticipationId}`}
-            >
-              <div className={classes.identity}>
-                <Text fw={700}>{row.name}</Text>
-                <Text c="dimmed" size="sm">
-                  {row.email} · {row.sessionTitle}
-                </Text>
-                <Group gap="xs" wrap="wrap">
-                  {row.source ? (
-                    <Badge color="gray" variant="light">
-                      {sourceLabels[row.source]}
-                    </Badge>
-                  ) : null}
-                  {hasEstimatedAttendanceEvidence(row) ? (
-                    <Badge color="yellow" variant="light">
-                      Estimated boundary
-                    </Badge>
-                  ) : null}
-                </Group>
-              </div>
-              <MantineNativeSelect
-                aria-label={`Attendance for ${row.name} in ${row.sessionTitle}`}
-                value={row.state}
-                disabled={
-                  processingId ===
-                  `attendance-${row.eventSessionId}-${row.eventParticipationId}`
-                }
-                data={Object.entries(attendanceLabels).map(
-                  ([value, label]) => ({ value, label }),
-                )}
-                onChange={(event) => {
-                  onRecordAttendance(
-                    row,
-                    event.currentTarget
-                      .value as AdminEventAttendanceReviewRow["state"],
-                  );
-                }}
-              />
-              <Evidence row={row} timezone={report.occurrence.timezone} />
-            </article>
-          ))}
-        </div>
+        <ResponsiveDataTable
+          table={table}
+          caption="Attendance records and LiveKit evidence"
+          expandedRowLabel={(row) =>
+            `Toggle evidence for ${row.original.name} in ${row.original.sessionTitle}`
+          }
+          renderExpandedRow={(row) => (
+            <EvidenceDetails
+              row={row.original}
+              timezone={report.occurrence.timezone}
+            />
+          )}
+        />
       ) : (
         <Text c="dimmed">No attendance records match these filters.</Text>
       )}

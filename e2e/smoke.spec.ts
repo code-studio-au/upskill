@@ -2196,7 +2196,10 @@ test("platform administrators can inspect learner progress", async ({
     await expect(
       page.getByRole("heading", { name: "Attendance review" }),
     ).toBeVisible();
-    const attendanceReviewRow = page.getByRole("article").filter({
+    const attendanceReviewTable = page.getByRole("table", {
+      name: "Attendance records and LiveKit evidence",
+    });
+    const attendanceReviewRow = attendanceReviewTable.getByRole("row").filter({
       hasText: administratorUser.email,
     });
     await expect(attendanceReviewRow).toContainText("No LiveKit evidence");
@@ -2205,6 +2208,17 @@ test("platform administrators can inspect learner progress", async ({
         `Attendance for ${administratorUser.name} in Live workshop`,
       ),
     ).toHaveValue("attended");
+    await attendanceReviewRow
+      .getByLabel(
+        `Toggle evidence for ${administratorUser.name} in Live workshop`,
+      )
+      .check();
+    await expect(
+      attendanceReviewTable.getByText(
+        "Connection evidence explains the automatic decision",
+        { exact: false },
+      ),
+    ).toBeVisible();
     await expect(page.getByLabel("Evidence", { exact: true })).toHaveValue(
       "staff",
     );
