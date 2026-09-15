@@ -1147,7 +1147,7 @@ for (const boundary of [
   ".startTransaction()",
   '.setIsolationLevel("repeatable read")',
   '.setAccessMode("read only")',
-  "transaction_timestamp()",
+  "clock_timestamp()",
   'count(*)::integer`.as("count")',
   ".limit(options.limit)",
   ".limit(intervalEvidenceLimit + 1)",
@@ -1171,6 +1171,40 @@ for (const boundary of [
     failures.push(
       `Administrator attendance evidence report boundary is missing: ${boundary}`,
     );
+const attendancePreviewFunction = adminEventAttendanceReport.slice(
+  adminEventAttendanceReport.indexOf(
+    "export async function findAdminEventAttendanceReport",
+  ),
+  adminEventAttendanceReport.indexOf(
+    "export async function exportAdminEventAttendanceReport",
+  ),
+);
+for (const boundary of [
+  ".transaction()",
+  '.setIsolationLevel("repeatable read")',
+  '.setAccessMode("read only")',
+])
+  if (!attendancePreviewFunction.includes(boundary))
+    failures.push(
+      `Administrator attendance preview must use one read-only snapshot: ${boundary}`,
+    );
+const attendanceSnapshotClockIndex = adminEventAttendanceReport.indexOf(
+  'select clock_timestamp() as "asOf"',
+);
+const attendanceSnapshotReportIndex = adminEventAttendanceReport.indexOf(
+  "firstReport = await readAdminEventAttendanceReport",
+);
+if (
+  attendanceSnapshotClockIndex < 0 ||
+  attendanceSnapshotReportIndex < 0 ||
+  attendanceSnapshotClockIndex > attendanceSnapshotReportIndex ||
+  !adminEventAttendanceReport
+    .slice(attendanceSnapshotClockIndex, attendanceSnapshotReportIndex)
+    .includes("from event_occurrence")
+)
+  failures.push(
+    "Administrator attendance export timestamp must be captured after establishing its relational snapshot",
+  );
 if (/expression\.or\(\s*selectedRows\.map/u.test(adminEventAttendanceReport))
   failures.push(
     "Administrator attendance evidence must not expand selected rows into per-row SQL bind pairs",

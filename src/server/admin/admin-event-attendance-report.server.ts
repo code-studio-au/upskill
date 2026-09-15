@@ -491,12 +491,19 @@ export async function findAdminEventAttendanceReport(
   query: AdminEventAttendanceReportQuery,
 ): Promise<AdminEventAttendanceReport | null> {
   const { eventOccurrenceId, page, ...filters } = query;
-  return await readAdminEventAttendanceReport(
-    getDatabase(),
-    eventOccurrenceId,
-    filters,
-    page,
-  );
+  return await getDatabase()
+    .transaction()
+    .setIsolationLevel("repeatable read")
+    .setAccessMode("read only")
+    .execute(
+      async (transaction) =>
+        await readAdminEventAttendanceReport(
+          transaction,
+          eventOccurrenceId,
+          filters,
+          page,
+        ),
+    );
 }
 
 export async function exportAdminEventAttendanceReport(
@@ -524,11 +531,19 @@ export async function exportAdminEventAttendanceReport(
   let asOf: string;
   try {
     const snapshotClock = await sql<{ asOf: Date }>`
-      select transaction_timestamp() as "asOf"
+      select clock_timestamp() as "asOf"
+      from event_occurrence
+      where id = ${eventOccurrenceId}
     `.execute(transaction);
     const snapshotAsOf = snapshotClock.rows[0]?.asOf;
-    if (!snapshotAsOf)
-      throw new Error("Attendance export snapshot timestamp is missing");
+    if (!snapshotAsOf) {
+      try {
+        await transaction.rollback().execute();
+      } finally {
+        releaseExportSlot();
+      }
+      return null;
+    }
     asOf = snapshotAsOf.toISOString();
     firstReport = await readAdminEventAttendanceReport(
       transaction,
