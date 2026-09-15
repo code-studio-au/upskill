@@ -165,8 +165,29 @@ async function readAdminEventAttendanceReport(
       .offset((page - 1) * ATTENDANCE_REPORT_PAGE_SIZE);
   const selectedRows = await selectedRowsQuery.execute();
 
-  let decisionsQuery = database
+  const selectedScopes = sql<{
+    eventSessionId: string;
+    eventParticipationId: string;
+  }>`(
+    select
+      scope.event_session_id as "eventSessionId",
+      scope.event_participation_id as "eventParticipationId"
+    from unnest(
+      ${selectedRows.map((row) => row.eventSessionId)}::text[],
+      ${selectedRows.map((row) => row.eventParticipationId)}::text[]
+    ) as scope(event_session_id, event_participation_id)
+  )`.as("selected_scope");
+  const decisionsQuery = database
     .selectFrom("event_virtual_attendance_decision as decision")
+    .innerJoin(selectedScopes, (join) =>
+      join
+        .onRef("selected_scope.eventSessionId", "=", "decision.eventSessionId")
+        .onRef(
+          "selected_scope.eventParticipationId",
+          "=",
+          "decision.eventParticipationId",
+        ),
+    )
     .select([
       "decision.id",
       "decision.eventSessionId",
@@ -184,8 +205,17 @@ async function readAdminEventAttendanceReport(
     ])
     .where("decision.eventOccurrenceId", "=", eventOccurrenceId)
     .orderBy("decision.decisionAt");
-  let intervalsQuery = database
+  const intervalsQuery = database
     .selectFrom("event_virtual_connection_interval as interval")
+    .innerJoin(selectedScopes, (join) =>
+      join
+        .onRef("selected_scope.eventSessionId", "=", "interval.eventSessionId")
+        .onRef(
+          "selected_scope.eventParticipationId",
+          "=",
+          "interval.eventParticipationId",
+        ),
+    )
     .select([
       "interval.id",
       "interval.eventSessionId",
@@ -198,36 +228,6 @@ async function readAdminEventAttendanceReport(
     ])
     .where("interval.eventOccurrenceId", "=", eventOccurrenceId)
     .orderBy("interval.joinedAt");
-  if (selectedRows.length > 0) {
-    decisionsQuery = decisionsQuery.where((expression) =>
-      expression.or(
-        selectedRows.map((row) =>
-          expression.and([
-            expression("decision.eventSessionId", "=", row.eventSessionId),
-            expression(
-              "decision.eventParticipationId",
-              "=",
-              row.eventParticipationId,
-            ),
-          ]),
-        ),
-      ),
-    );
-    intervalsQuery = intervalsQuery.where((expression) =>
-      expression.or(
-        selectedRows.map((row) =>
-          expression.and([
-            expression("interval.eventSessionId", "=", row.eventSessionId),
-            expression(
-              "interval.eventParticipationId",
-              "=",
-              row.eventParticipationId,
-            ),
-          ]),
-        ),
-      ),
-    );
-  }
   const [decisions, intervals] = selectedRows.length
     ? await Promise.all([decisionsQuery.execute(), intervalsQuery.execute()])
     : [[], []];

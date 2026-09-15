@@ -243,17 +243,31 @@ export function AdminEventAttendanceReview({
         <Text c="dimmed">No attendance records match these filters.</Text>
       )}
       {report.pagination.pages > 1 ? (
-        <MantineNativeSelect
-          label="Attendance page"
-          value={String(report.pagination.page)}
-          data={Array.from({ length: report.pagination.pages }, (_, index) => ({
-            value: String(index + 1),
-            label: `Page ${String(index + 1)} of ${String(report.pagination.pages)}`,
-          }))}
-          onChange={(event) => {
-            onPageChange(Number(event.currentTarget.value));
-          }}
-        />
+        <Group justify="space-between" wrap="wrap">
+          <Button
+            type="button"
+            variant="subtle"
+            disabled={report.pagination.page === 1}
+            onClick={() => {
+              onPageChange(report.pagination.page - 1);
+            }}
+          >
+            Previous page
+          </Button>
+          <Text size="sm">
+            Page {report.pagination.page} of {report.pagination.pages}
+          </Text>
+          <Button
+            type="button"
+            variant="subtle"
+            disabled={report.pagination.page === report.pagination.pages}
+            onClick={() => {
+              onPageChange(report.pagination.page + 1);
+            }}
+          >
+            Next page
+          </Button>
+        </Group>
       ) : null}
     </Stack>
   );

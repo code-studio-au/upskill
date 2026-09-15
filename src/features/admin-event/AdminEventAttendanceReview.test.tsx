@@ -82,5 +82,25 @@ describe("AdminEventAttendanceReview", () => {
     expect(html).toContain("Attendance for Alex Learner in Clinical webinar");
     expect(html).toContain("1 automatic decision");
     expect(html).toContain("Page 1 of 2");
+    expect(html).toContain("Previous page");
+    expect(html).toContain("Next page");
+  });
+
+  it("keeps pagination controls bounded for large reports", () => {
+    const html = renderToStaticMarkup(
+      <AdminEventAttendanceReview
+        report={{
+          ...report,
+          pagination: { page: 1, pages: 4_000, total: 100_000, pageSize: 25 },
+        }}
+        filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
+        processingId={null}
+        onFiltersChange={() => undefined}
+        onPageChange={() => undefined}
+        onRecordAttendance={() => undefined}
+      />,
+    );
+    expect(html).toContain("Page 1 of 4000");
+    expect(html).not.toContain("Page 2 of 4000");
   });
 });
