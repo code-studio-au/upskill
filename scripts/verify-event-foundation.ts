@@ -2411,6 +2411,17 @@ try {
       ?.finalDecisionLocked,
     true,
   );
+  const staffingOperations = await findAdminEventOccurrenceOperations(
+    eventOccurrenceId,
+    { includeAttendance: false },
+  );
+  assert.ok(staffingOperations);
+  assert.ok(
+    staffingOperations.sessions.every(
+      (staffingSession) => staffingSession.attendance.length === 0,
+    ),
+    "Staffing operations must omit the legacy attendance matrix",
+  );
   assert.deepEqual(
     await resolveLearnerEventSurveyReference(
       eventSurveyAccess.publicReference,

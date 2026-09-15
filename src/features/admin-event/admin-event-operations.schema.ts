@@ -7,6 +7,11 @@ export const adminEventOccurrenceOperationsParamsSchema = z.object({
   eventOccurrenceId: identifier,
 });
 
+export const adminEventOccurrenceOperationsQuerySchema = z.object({
+  eventOccurrenceId: identifier,
+  includeAttendance: z.boolean(),
+});
+
 export const adminEventCoordinatorDecisionSchema = z.object({
   eventOccurrenceId: identifier,
   registrationId: identifier,

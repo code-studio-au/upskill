@@ -1006,6 +1006,10 @@ const adminEventAttendanceReport = fs.readFileSync(
   path.join(root, "src/server/admin/admin-event-attendance-report.server.ts"),
   "utf8",
 );
+const adminEventOperations = fs.readFileSync(
+  path.join(root, "src/server/admin/admin-event-operations.server.ts"),
+  "utf8",
+);
 const adminEventAttendanceReview = fs.readFileSync(
   path.join(root, "src/features/admin-event/AdminEventAttendanceReview.tsx"),
   "utf8",
@@ -1243,11 +1247,23 @@ for (const boundary of [
 for (const boundary of [
   "loaderDeps: ({ search }) => search",
   'deps.view === "staffing"',
+  'includeAttendance: deps.view !== "staffing"',
   "attendanceReport?.status",
 ])
   if (!adminEventInstanceRoute.includes(boundary))
     failures.push(
       `Administrator attendance route loading boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "options: { includeAttendance?: boolean } = {}",
+  "const includeAttendance = options.includeAttendance ?? true",
+  "includeAttendance",
+  ": Promise.resolve([])",
+  "attendance: includeAttendance",
+])
+  if (!adminEventOperations.includes(boundary))
+    failures.push(
+      `Administrator staffing load must omit the legacy attendance matrix: ${boundary}`,
     );
 const strictAttendanceFilterStart = adminEventOperationsSchema.indexOf(
   "export const adminEventAttendanceFilterSchema",

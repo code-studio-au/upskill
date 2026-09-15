@@ -10,7 +10,7 @@ import {
   adminEventLifecycleSchema,
   adminEventLateInvitationCreateSchema,
   adminEventLateInvitationRevokeSchema,
-  adminEventOccurrenceOperationsParamsSchema,
+  adminEventOccurrenceOperationsQuerySchema,
   adminEventRegionLockSchema,
   adminEventRegistrationProfileRegionAlignmentSchema,
   adminEventRegistrationRegionGuestDecisionSchema,
@@ -30,7 +30,7 @@ async function administratorRequest() {
 export const getAdminEventOccurrenceOperations = createServerFn({
   method: "GET",
 })
-  .validator(adminEventOccurrenceOperationsParamsSchema)
+  .validator(adminEventOccurrenceOperationsQuerySchema)
   .handler(async ({ data }): Promise<AdminEventOperationsResult> => {
     const request = await administratorRequest();
     if (request.status !== "ready") return request;
@@ -38,6 +38,7 @@ export const getAdminEventOccurrenceOperations = createServerFn({
       await import("#/server/admin/admin-event-operations.server");
     const detail = await findAdminEventOccurrenceOperations(
       data.eventOccurrenceId,
+      { includeAttendance: data.includeAttendance },
     );
     return detail ? { status: "ready", data: detail } : { status: "not-found" };
   });

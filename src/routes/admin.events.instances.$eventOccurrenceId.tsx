@@ -121,7 +121,12 @@ export const Route = createFileRoute(
     const parsed = adminEventOccurrenceOperationsParamsSchema.safeParse(params);
     if (!parsed.success) throw notFound();
     const [result, attendanceReport] = await Promise.all([
-      getAdminEventOccurrenceOperations({ data: parsed.data }),
+      getAdminEventOccurrenceOperations({
+        data: {
+          ...parsed.data,
+          includeAttendance: deps.view !== "staffing",
+        },
+      }),
       deps.view === "staffing"
         ? getAdminEventAttendanceReport({
             data: {
