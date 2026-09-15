@@ -1135,10 +1135,11 @@ for (const boundary of [
   "ATTENDANCE_REPORT_PAGE_SIZE",
   "ATTENDANCE_REPORT_EXPORT_BATCH_SIZE",
   "ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT",
+  "hasActiveAttendanceFilters",
   ".startTransaction()",
   '.setIsolationLevel("repeatable read")',
   '.setAccessMode("read only")',
-  "database.transaction().execute(async (auditTransaction)",
+  "readAdminEventAttendanceExportMetadata",
   'count(*)::integer`.as("count")',
   ".limit(options.limit)",
   ".limit(intervalEvidenceLimit + 1)",
@@ -1146,6 +1147,7 @@ for (const boundary of [
   "from unnest(",
   '"selected_scope.eventSessionId"',
   '"selected_scope.eventParticipationId"',
+  'decision_evidence."eventOccurrenceId" = session."eventOccurrenceId"',
   'interval_evidence."eventOccurrenceId" = session."eventOccurrenceId"',
   'estimated_evidence."eventOccurrenceId" = session."eventOccurrenceId"',
   "new ReadableStream<Uint8Array>",
@@ -1165,10 +1167,30 @@ if (/expression\.or\(\s*selectedRows\.map/u.test(adminEventAttendanceReport))
   failures.push(
     "Administrator attendance evidence must not expand selected rows into per-row SQL bind pairs",
   );
+const attendanceAuditTransactionIndex =
+  adminEventAttendanceReport.indexOf(".transaction()");
+const attendanceSnapshotTransactionIndex = adminEventAttendanceReport.indexOf(
+  ".startTransaction()",
+);
+if (
+  attendanceAuditTransactionIndex < 0 ||
+  attendanceSnapshotTransactionIndex < 0 ||
+  attendanceAuditTransactionIndex > attendanceSnapshotTransactionIndex
+)
+  failures.push(
+    "Administrator attendance exports must commit audit evidence before acquiring a streaming snapshot connection",
+  );
 for (const boundary of [
   "report.evidenceTruncated",
   "bounded evidence preview",
   "Export the filtered CSV",
+  "row.automaticEvidencePresent",
+  "row.intervalEvidencePresent",
+  "LiveKit evidence omitted from preview",
+  "report.pagination.allTotal",
+  "globalThis.confirm",
+  "including participant email addresses",
+  "This ignores the visible filters",
 ])
   if (!adminEventAttendanceReview.includes(boundary))
     failures.push(

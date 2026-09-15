@@ -32,6 +32,8 @@ const report: AdminEventAttendanceReport = {
       recordedByName: "Admin User",
       recordedAt: "2030-09-04T00:10:00.000Z",
       updatedAt: "2030-09-04T00:30:00.000Z",
+      automaticEvidencePresent: true,
+      intervalEvidencePresent: true,
       estimatedEvidencePresent: true,
       decisions: [
         {
@@ -61,7 +63,7 @@ const report: AdminEventAttendanceReport = {
     },
   ],
   evidenceTruncated: false,
-  pagination: { page: 1, pages: 2, total: 26, pageSize: 25 },
+  pagination: { page: 1, pages: 2, total: 26, allTotal: 26, pageSize: 25 },
 };
 
 describe("AdminEventAttendanceReview", () => {
@@ -81,6 +83,7 @@ describe("AdminEventAttendanceReview", () => {
     expect(html).toContain("Estimated boundary");
     expect(html).toContain("Connection evidence explains");
     expect(html).toContain("Export filtered CSV");
+    expect(html).toContain("Export all evidence (26 records)");
     expect(html).toContain("Attendance for Alex Learner in Clinical webinar");
     expect(html).toContain("1 automatic decision");
     expect(html).toContain("Page 1 of 2");
@@ -93,7 +96,13 @@ describe("AdminEventAttendanceReview", () => {
       <AdminEventAttendanceReview
         report={{
           ...report,
-          pagination: { page: 1, pages: 4_000, total: 100_000, pageSize: 25 },
+          pagination: {
+            page: 1,
+            pages: 4_000,
+            total: 100_000,
+            allTotal: 100_000,
+            pageSize: 25,
+          },
         }}
         filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
         processingId={null}
@@ -119,5 +128,28 @@ describe("AdminEventAttendanceReview", () => {
     );
     expect(html).toContain("bounded evidence preview");
     expect(html).toContain("Export the filtered CSV");
+  });
+
+  it("does not describe omitted evidence as absent", () => {
+    const html = renderToStaticMarkup(
+      <AdminEventAttendanceReview
+        report={{
+          ...report,
+          evidenceTruncated: true,
+          rows: report.rows.map((row) => ({
+            ...row,
+            decisions: [],
+            intervals: [],
+          })),
+        }}
+        filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
+        processingId={null}
+        onFiltersChange={() => undefined}
+        onPageChange={() => undefined}
+        onRecordAttendance={() => undefined}
+      />,
+    );
+    expect(html).toContain("LiveKit evidence omitted from preview");
+    expect(html).not.toContain("<summary>No LiveKit evidence</summary>");
   });
 });

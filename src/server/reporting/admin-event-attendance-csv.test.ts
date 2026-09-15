@@ -31,6 +31,8 @@ const report: AdminEventAttendanceReport = {
       recordedByName: null,
       recordedAt: "2030-09-04T00:10:00.000Z",
       updatedAt: "2030-09-04T00:30:00.000Z",
+      automaticEvidencePresent: true,
+      intervalEvidencePresent: true,
       estimatedEvidencePresent: true,
       decisions: [
         {
@@ -60,7 +62,7 @@ const report: AdminEventAttendanceReport = {
     },
   ],
   evidenceTruncated: false,
-  pagination: { page: 1, pages: 1, total: 1, pageSize: 25 },
+  pagination: { page: 1, pages: 1, total: 1, allTotal: 1, pageSize: 25 },
 };
 
 describe("encodeAdminEventAttendanceCsv", () => {

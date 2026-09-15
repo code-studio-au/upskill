@@ -27,13 +27,16 @@ export function filterAdminEventAttendanceRows(
   return rows.filter((row) => {
     const matchesEvidence =
       filters.evidence === "all" ||
-      (filters.evidence === "automatic" && row.decisions.length > 0) ||
+      (filters.evidence === "automatic" &&
+        (row.automaticEvidencePresent || row.decisions.length > 0)) ||
       (filters.evidence === "staff" &&
         row.source !== null &&
         staffSources.has(row.source)) ||
       (filters.evidence === "estimated" &&
         hasEstimatedAttendanceEvidence(row)) ||
       (filters.evidence === "none" &&
+        !row.automaticEvidencePresent &&
+        !row.intervalEvidencePresent &&
         row.decisions.length === 0 &&
         row.intervals.length === 0);
     return (

@@ -882,6 +882,8 @@ try {
     {
       state: firstAttendanceReview.state,
       source: firstAttendanceReview.source,
+      automaticEvidencePresent: firstAttendanceReview.automaticEvidencePresent,
+      intervalEvidencePresent: firstAttendanceReview.intervalEvidencePresent,
       decisionStates: firstAttendanceReview.decisions.map(
         (decision) => decision.attendanceState,
       ),
@@ -894,6 +896,8 @@ try {
     {
       state: "attended",
       source: "system",
+      automaticEvidencePresent: true,
+      intervalEvidencePresent: true,
       decisionStates: ["checked_in", "attended"],
       intervalSources: [
         ["provider_reconciliation", "webhook"],
@@ -928,11 +932,12 @@ try {
   assert.deepEqual(
     {
       total: staffFilteredAttendanceReport.pagination.total,
+      allTotal: staffFilteredAttendanceReport.pagination.allTotal,
       participations: staffFilteredAttendanceReport.rows.map(
         (row) => row.eventParticipationId,
       ),
     },
-    { total: 1, participations: [ids.secondParticipation] },
+    { total: 1, allTotal: 2, participations: [ids.secondParticipation] },
     "Administrator attendance review filtering and counts must be applied by the database read model",
   );
   const clampedAttendanceReport = await findAdminEventAttendanceReport({
@@ -1093,6 +1098,10 @@ try {
   });
   assert.ok(boundedEvidenceReport);
   assert.equal(boundedEvidenceReport.evidenceTruncated, true);
+  const boundedEvidenceRow = boundedEvidenceReport.rows[0];
+  assert.ok(boundedEvidenceRow);
+  assert.equal(boundedEvidenceRow.automaticEvidencePresent, true);
+  assert.equal(boundedEvidenceRow.intervalEvidencePresent, true);
   assert.equal(
     boundedEvidenceReport.rows.reduce(
       (count, row) => count + row.decisions.length + row.intervals.length,

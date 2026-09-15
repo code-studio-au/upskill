@@ -50,6 +50,10 @@ function Evidence({
   row: AdminEventAttendanceReviewRow;
   timezone: string;
 }) {
+  const evidenceOmitted =
+    row.decisions.length === 0 &&
+    row.intervals.length === 0 &&
+    (row.automaticEvidencePresent || row.intervalEvidencePresent);
   return (
     <details className={classes.evidence}>
       <summary>
@@ -57,8 +61,15 @@ function Evidence({
           ? `${String(row.decisions.length)} automatic decision${row.decisions.length === 1 ? "" : "s"}`
           : row.intervals.length
             ? `${String(row.intervals.length)} connection interval${row.intervals.length === 1 ? "" : "s"}`
-            : "No LiveKit evidence"}
+            : evidenceOmitted
+              ? "LiveKit evidence omitted from preview"
+              : "No LiveKit evidence"}
       </summary>
+      {evidenceOmitted ? (
+        <Text c="dimmed" size="sm">
+          Export the filtered CSV to inspect this row&apos;s complete evidence.
+        </Text>
+      ) : null}
       {row.decisions.map((decision) => (
         <Text size="sm" key={decision.id}>
           {attendanceLabels[decision.attendanceState]} · generation{" "}
@@ -112,6 +123,7 @@ export function AdminEventAttendanceReview({
     : 0;
   const last = rows.length ? first + rows.length - 1 : 0;
   const exportQuery = new URLSearchParams(filters);
+  const allEvidenceCount = report.pagination.allTotal;
   return (
     <Stack gap="lg">
       <AdminDirectorySearch
@@ -187,8 +199,23 @@ export function AdminEventAttendanceReview({
             component="a"
             href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?q=&sessionId=all&state=all&evidence=all`}
             variant="subtle"
+            onClick={(event) => {
+              const recordLabel =
+                allEvidenceCount === 1
+                  ? "attendance record"
+                  : "attendance records";
+              const confirmed = globalThis.confirm(
+                "Export all " +
+                  String(allEvidenceCount) +
+                  " " +
+                  recordLabel +
+                  ", including participant email addresses? This ignores the visible filters.",
+              );
+              if (!confirmed) event.preventDefault();
+            }}
           >
-            Export all evidence
+            Export all evidence ({allEvidenceCount}{" "}
+            {allEvidenceCount === 1 ? "record" : "records"})
           </Button>
         </Group>
       </Group>

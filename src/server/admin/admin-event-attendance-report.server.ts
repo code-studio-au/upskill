@@ -18,6 +18,12 @@ import { sql, type Kysely, type Transaction } from "kysely";
 const ATTENDANCE_REPORT_PAGE_SIZE = 25;
 const ATTENDANCE_REPORT_EXPORT_BATCH_SIZE = 250;
 const ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT = 250;
+const unfilteredAttendanceFilters: AdminEventAttendanceFilter = {
+  q: "",
+  sessionId: "all",
+  state: "all",
+  evidence: "all",
+};
 
 type AttendanceRowCursor = Pick<
   AdminEventAttendanceReviewRow,
@@ -37,7 +43,8 @@ function searchPattern(query: string): string {
 const automaticEvidenceExists = sql<boolean>`exists (
   select 1
     from event_virtual_attendance_decision decision_evidence
-    where decision_evidence."eventSessionId" = session.id
+    where decision_evidence."eventOccurrenceId" = session."eventOccurrenceId"
+      and decision_evidence."eventSessionId" = session.id
       and decision_evidence."eventParticipationId" = participation.id
 )`;
 const intervalEvidenceExists = sql<boolean>`exists (
@@ -116,6 +123,33 @@ function attendanceRowsQuery(
         .where(sql<boolean>`not (${automaticEvidenceExists})`)
         .where(sql<boolean>`not (${intervalEvidenceExists})`),
     );
+}
+
+function hasActiveAttendanceFilters(filters: AdminEventAttendanceFilter) {
+  return (
+    filters.q.length > 0 ||
+    filters.sessionId !== "all" ||
+    filters.state !== "all" ||
+    filters.evidence !== "all"
+  );
+}
+
+async function readAdminEventAttendanceExportMetadata(
+  database: Kysely<Database> | Transaction<Database>,
+  eventOccurrenceId: string,
+  filters: AdminEventAttendanceFilter,
+): Promise<{ rowCount: number } | null> {
+  const [occurrence, count] = await Promise.all([
+    database
+      .selectFrom("event_occurrence")
+      .select("id")
+      .where("id", "=", eventOccurrenceId)
+      .executeTakeFirst(),
+    attendanceRowsQuery(database, eventOccurrenceId, filters)
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .executeTakeFirstOrThrow(),
+  ]);
+  return occurrence ? { rowCount: count.count } : null;
 }
 
 function attendanceSelectedScopes(
@@ -234,6 +268,8 @@ async function readAdminEventAttendanceRows(
       "actor.name as recordedByName",
       "attendance.recordedAt",
       "attendance.updatedAt",
+      automaticEvidenceExists.as("automaticEvidencePresent"),
+      intervalEvidenceExists.as("intervalEvidencePresent"),
       estimatedEvidenceExists.as("estimatedEvidencePresent"),
     ])
     .$if(options.order === "export" && options.after !== null, (query) => {
@@ -370,7 +406,7 @@ async function readAdminEventAttendanceReport(
   rowOrder: "display" | "export" = "display",
 ): Promise<AdminEventAttendanceReport | null> {
   const baseRows = attendanceRowsQuery(database, eventOccurrenceId, filters);
-  const [occurrence, sessions, count] = await Promise.all([
+  const [occurrence, sessions, count, allCount] = await Promise.all([
     database
       .selectFrom("event_occurrence")
       .select(["id", "title", "timezone"])
@@ -385,6 +421,15 @@ async function readAdminEventAttendanceReport(
     baseRows
       .select(sql<number>`count(*)::integer`.as("count"))
       .executeTakeFirstOrThrow(),
+    rowOrder === "display" && hasActiveAttendanceFilters(filters)
+      ? attendanceRowsQuery(
+          database,
+          eventOccurrenceId,
+          unfilteredAttendanceFilters,
+        )
+          .select(sql<number>`count(*)::integer`.as("count"))
+          .executeTakeFirstOrThrow()
+      : Promise.resolve(null),
   ]);
   if (!occurrence) return null;
 
@@ -416,6 +461,7 @@ async function readAdminEventAttendanceReport(
       page,
       pages,
       total: count.count,
+      allTotal: allCount?.count ?? count.count,
       pageSize,
     },
   };
@@ -443,6 +489,32 @@ export async function exportAdminEventAttendanceReport(
 } | null> {
   const database = getDatabase();
   const asOf = new Date().toISOString();
+  const exportMetadata = await database
+    .transaction()
+    .execute(async (auditTransaction) => {
+      const metadata = await readAdminEventAttendanceExportMetadata(
+        auditTransaction,
+        eventOccurrenceId,
+        filters,
+      );
+      if (!metadata) return null;
+      await recordDurableAuditEvent(auditTransaction, {
+        actorUserId: administrator.id,
+        action: "event_attendance.report_exported",
+        subjectType: "event_occurrence",
+        subjectId: eventOccurrenceId,
+        metadata: {
+          format: "csv",
+          rowCount: metadata.rowCount,
+          searchApplied: filters.q.length > 0,
+          sessionId: filters.sessionId,
+          state: filters.state,
+          evidence: filters.evidence,
+        },
+      });
+      return metadata;
+    });
+  if (!exportMetadata) return null;
   const transaction = await database
     .startTransaction()
     .setIsolationLevel("repeatable read")
@@ -462,23 +534,6 @@ export async function exportAdminEventAttendanceReport(
       await transaction.rollback().execute();
       return null;
     }
-    const exportRowCount = firstReport.pagination.total;
-    await database.transaction().execute(async (auditTransaction) => {
-      await recordDurableAuditEvent(auditTransaction, {
-        actorUserId: administrator.id,
-        action: "event_attendance.report_exported",
-        subjectType: "event_occurrence",
-        subjectId: eventOccurrenceId,
-        metadata: {
-          format: "csv",
-          rowCount: exportRowCount,
-          searchApplied: filters.q.length > 0,
-          sessionId: filters.sessionId,
-          state: filters.state,
-          evidence: filters.evidence,
-        },
-      });
-    });
   } catch (error) {
     await transaction.rollback().execute();
     throw error;

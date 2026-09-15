@@ -162,6 +162,8 @@ export interface AdminEventAttendanceReviewRow {
   recordedByName: string | null;
   recordedAt: string | null;
   updatedAt: string | null;
+  automaticEvidencePresent: boolean;
+  intervalEvidencePresent: boolean;
   estimatedEvidencePresent: boolean;
   decisions: Array<AdminEventAttendanceDecisionEvidence>;
   intervals: Array<AdminEventAttendanceIntervalEvidence>;
@@ -185,6 +187,7 @@ export interface AdminEventAttendanceReport {
     page: number;
     pages: number;
     total: number;
+    allTotal: number;
     pageSize: number;
   };
 }

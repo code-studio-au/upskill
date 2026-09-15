@@ -2208,6 +2208,27 @@ test("platform administrators can inspect learner progress", async ({
     await expect(page.getByLabel("Evidence", { exact: true })).toHaveValue(
       "staff",
     );
+    const allAttendanceExport = page.getByRole("link", {
+      name: /Export all evidence/u,
+    });
+    const allAttendanceExportLabel = await allAttendanceExport.innerText();
+    expect(allAttendanceExportLabel).toMatch(
+      /^Export all evidence \(\d+ records?\)$/u,
+    );
+    let allAttendanceConfirmation = "";
+    page.once("dialog", async (dialog) => {
+      allAttendanceConfirmation = dialog.message();
+      await dialog.dismiss();
+    });
+    const filteredAttendanceUrl = page.url();
+    await allAttendanceExport.click();
+    expect(allAttendanceConfirmation).toContain(
+      "including participant email addresses",
+    );
+    expect(allAttendanceConfirmation).toContain(
+      "This ignores the visible filters.",
+    );
+    await expect(page).toHaveURL(filteredAttendanceUrl);
     await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
     const attendanceAccessibility = await new AxeBuilder({ page }).analyze();
     expect(attendanceAccessibility.violations).toEqual([]);
