@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
   adminEventAttendanceSchema,
+  adminEventAttendanceReportQuerySchema,
   adminEventAccountSetupSchema,
   adminEventCoordinatorDecisionSchema,
   adminEventFinalDecisionSchema,
@@ -9,13 +10,14 @@ import {
   adminEventLifecycleSchema,
   adminEventLateInvitationCreateSchema,
   adminEventLateInvitationRevokeSchema,
-  adminEventOccurrenceOperationsParamsSchema,
+  adminEventOccurrenceOperationsQuerySchema,
   adminEventRegionLockSchema,
   adminEventRegistrationProfileRegionAlignmentSchema,
   adminEventRegistrationRegionGuestDecisionSchema,
   adminEventRegistrationRegionMismatchAcknowledgementSchema,
   adminEventRegistrationRegionReassignmentSchema,
   type AdminEventOperationsMutationResult,
+  type AdminEventAttendanceReportResult,
   type AdminEventOperationsResult,
 } from "#/features/admin-event/admin-event-operations.schema";
 
@@ -28,7 +30,7 @@ async function administratorRequest() {
 export const getAdminEventOccurrenceOperations = createServerFn({
   method: "GET",
 })
-  .validator(adminEventOccurrenceOperationsParamsSchema)
+  .validator(adminEventOccurrenceOperationsQuerySchema)
   .handler(async ({ data }): Promise<AdminEventOperationsResult> => {
     const request = await administratorRequest();
     if (request.status !== "ready") return request;
@@ -36,8 +38,20 @@ export const getAdminEventOccurrenceOperations = createServerFn({
       await import("#/server/admin/admin-event-operations.server");
     const detail = await findAdminEventOccurrenceOperations(
       data.eventOccurrenceId,
+      { includeAttendance: data.includeAttendance },
     );
     return detail ? { status: "ready", data: detail } : { status: "not-found" };
+  });
+
+export const getAdminEventAttendanceReport = createServerFn({ method: "GET" })
+  .validator(adminEventAttendanceReportQuerySchema)
+  .handler(async ({ data }): Promise<AdminEventAttendanceReportResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { findAdminEventAttendanceReport } =
+      await import("#/server/admin/admin-event-attendance-report.server");
+    const report = await findAdminEventAttendanceReport(data);
+    return report ? { status: "ready", data: report } : { status: "not-found" };
   });
 
 export const rotateAdminEventGuestAccess = createServerFn({ method: "POST" })

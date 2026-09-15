@@ -88,6 +88,7 @@ import { Route as AdminLearnersUserIdEventsEventOccurrenceIdRouteImport } from '
 import { Route as ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRouteImport } from './routes/api.access-management.contracts.$enterpriseContractId.utilisation[.]csv'
 import { Route as ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRouteImport } from './routes/api.admin.contracts.$enterpriseContractId.utilisation[.]csv'
 import { Route as ApiAdminScormPackagesPackageVersionIdPreviewRouteImport } from './routes/api.admin.scorm-packages.$packageVersionId.preview'
+import { Route as ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRouteImport } from './routes/api.admin.events.instances.$eventOccurrenceId.attendance[.]csv'
 import { Route as ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.courses.$slug.accreditation-logos.$assetId'
 import { Route as ApiCatalogCoursesSlugCoverImagesAssetIdRouteImport } from './routes/api.catalog.courses.$slug.cover-images.$assetId'
 import { Route as ApiCatalogEventsSlugAccreditationLogosAssetIdRouteImport } from './routes/api.catalog.events.$slug.accreditation-logos.$assetId'
@@ -520,6 +521,12 @@ const ApiAdminScormPackagesPackageVersionIdPreviewRoute =
     path: '/$packageVersionId/preview',
     getParentRoute: () => ApiAdminScormPackagesRoute,
   } as any)
+const ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRoute =
+  ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRouteImport.update({
+    id: '/api/admin/events/instances/$eventOccurrenceId/attendance.csv',
+    path: '/api/admin/events/instances/$eventOccurrenceId/attendance.csv',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute =
   ApiCatalogCoursesSlugAccreditationLogosAssetIdRouteImport.update({
     id: '/api/catalog/courses/$slug/accreditation-logos/$assetId',
@@ -637,6 +644,7 @@ export interface FileRoutesByFullPath {
   '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/scorm-packages/$packageVersionId/preview': typeof ApiAdminScormPackagesPackageVersionIdPreviewRoute
+  '/api/admin/events/instances/$eventOccurrenceId/attendance.csv': typeof ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -722,6 +730,7 @@ export interface FileRoutesByTo {
   '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/scorm-packages/$packageVersionId/preview': typeof ApiAdminScormPackagesPackageVersionIdPreviewRoute
+  '/api/admin/events/instances/$eventOccurrenceId/attendance.csv': typeof ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -810,6 +819,7 @@ export interface FileRoutesById {
   '/api/access-management/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/contracts/$enterpriseContractId/utilisation.csv': typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
   '/api/admin/scorm-packages/$packageVersionId/preview': typeof ApiAdminScormPackagesPackageVersionIdPreviewRoute
+  '/api/admin/events/instances/$eventOccurrenceId/attendance.csv': typeof ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRoute
   '/api/catalog/courses/$slug/accreditation-logos/$assetId': typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   '/api/catalog/courses/$slug/cover-images/$assetId': typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   '/api/catalog/events/$slug/accreditation-logos/$assetId': typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -899,6 +909,7 @@ export interface FileRouteTypes {
     | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/scorm-packages/$packageVersionId/preview'
+    | '/api/admin/events/instances/$eventOccurrenceId/attendance.csv'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -984,6 +995,7 @@ export interface FileRouteTypes {
     | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/scorm-packages/$packageVersionId/preview'
+    | '/api/admin/events/instances/$eventOccurrenceId/attendance.csv'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -1071,6 +1083,7 @@ export interface FileRouteTypes {
     | '/api/access-management/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/contracts/$enterpriseContractId/utilisation.csv'
     | '/api/admin/scorm-packages/$packageVersionId/preview'
+    | '/api/admin/events/instances/$eventOccurrenceId/attendance.csv'
     | '/api/catalog/courses/$slug/accreditation-logos/$assetId'
     | '/api/catalog/courses/$slug/cover-images/$assetId'
     | '/api/catalog/events/$slug/accreditation-logos/$assetId'
@@ -1128,6 +1141,7 @@ export interface RootRouteChildren {
   MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute: typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
   ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute: typeof ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute
   ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute: typeof ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute
+  ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRoute: typeof ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRoute
   ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute: typeof ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute
   ApiCatalogCoursesSlugCoverImagesAssetIdRoute: typeof ApiCatalogCoursesSlugCoverImagesAssetIdRoute
   ApiCatalogEventsSlugAccreditationLogosAssetIdRoute: typeof ApiCatalogEventsSlugAccreditationLogosAssetIdRoute
@@ -1689,6 +1703,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAdminScormPackagesPackageVersionIdPreviewRouteImport
       parentRoute: typeof ApiAdminScormPackagesRoute
     }
+    '/api/admin/events/instances/$eventOccurrenceId/attendance.csv': {
+      id: '/api/admin/events/instances/$eventOccurrenceId/attendance.csv'
+      path: '/api/admin/events/instances/$eventOccurrenceId/attendance.csv'
+      fullPath: '/api/admin/events/instances/$eventOccurrenceId/attendance.csv'
+      preLoaderRoute: typeof ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/catalog/courses/$slug/accreditation-logos/$assetId': {
       id: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
       path: '/api/catalog/courses/$slug/accreditation-logos/$assetId'
@@ -1933,6 +1954,8 @@ const rootRouteChildren: RootRouteChildren = {
     ApiAccessManagementContractsEnterpriseContractIdUtilisationDotcsvRoute,
   ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute:
     ApiAdminContractsEnterpriseContractIdUtilisationDotcsvRoute,
+  ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRoute:
+    ApiAdminEventsInstancesEventOccurrenceIdAttendanceDotcsvRoute,
   ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute:
     ApiCatalogCoursesSlugAccreditationLogosAssetIdRoute,
   ApiCatalogCoursesSlugCoverImagesAssetIdRoute:

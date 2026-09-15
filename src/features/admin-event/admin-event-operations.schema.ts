@@ -7,6 +7,11 @@ export const adminEventOccurrenceOperationsParamsSchema = z.object({
   eventOccurrenceId: identifier,
 });
 
+export const adminEventOccurrenceOperationsQuerySchema = z.object({
+  eventOccurrenceId: identifier,
+  includeAttendance: z.boolean(),
+});
+
 export const adminEventCoordinatorDecisionSchema = z.object({
   eventOccurrenceId: identifier,
   registrationId: identifier,
@@ -71,6 +76,132 @@ export const adminEventAttendanceSchema = z.object({
   eventParticipationId: identifier,
   state: z.enum(["not_recorded", "checked_in", "attended", "absent"]),
 });
+
+const attendanceQuery = z.string().check(z.trim(), z.maxLength(100));
+const attendanceSession = z.union([z.literal("all"), identifier]);
+const attendanceState = z.enum([
+  "all",
+  "not_recorded",
+  "checked_in",
+  "attended",
+  "absent",
+]);
+const attendanceEvidence = z.enum([
+  "all",
+  "automatic",
+  "staff",
+  "estimated",
+  "none",
+]);
+const attendanceFilterFields = {
+  q: attendanceQuery,
+  sessionId: attendanceSession,
+  state: attendanceState,
+  evidence: attendanceEvidence,
+};
+
+export const adminEventAttendanceFilterSchema = z.object(
+  attendanceFilterFields,
+);
+
+export type AdminEventAttendanceFilter = z.infer<
+  typeof adminEventAttendanceFilterSchema
+>;
+
+export const adminEventAttendanceSearchSchema = z.object({
+  q: z.optional(z.catch(attendanceQuery, "")),
+  sessionId: z.optional(z.catch(attendanceSession, "all" as const)),
+  state: z.optional(z.catch(attendanceState, "all" as const)),
+  evidence: z.optional(z.catch(attendanceEvidence, "all" as const)),
+  page: z.optional(z.catch(z.coerce.number().check(z.int(), z.minimum(1)), 1)),
+});
+
+export const adminEventAttendanceReportQuerySchema = z.object({
+  eventOccurrenceId: identifier,
+  ...attendanceFilterFields,
+  page: z.number().check(z.int(), z.minimum(1)),
+});
+
+export type AdminEventAttendanceReportQuery = z.infer<
+  typeof adminEventAttendanceReportQuerySchema
+>;
+
+export type AdminEventAttendanceSource =
+  "system" | "self_check_in" | "coordinator" | "presenter" | "administrator";
+
+export interface AdminEventAttendanceDecisionEvidence {
+  id: string;
+  roomGeneration: number;
+  attendanceState: "checked_in" | "attended";
+  attendanceMode: "automatic_check_in" | "automatic_duration";
+  attendanceMinimumMinutes: number | null;
+  qualifyingConnectedSeconds: number;
+  calculationVersion: number;
+  decisionAt: string;
+  applicationOutcome: "applied" | "already_satisfied" | "preserved_manual";
+  previousAttendanceState:
+    "not_recorded" | "checked_in" | "attended" | "absent" | null;
+  previousAttendanceSource: AdminEventAttendanceSource | null;
+}
+
+export interface AdminEventAttendanceIntervalEvidence {
+  id: string;
+  roomGeneration: number;
+  joinedAt: string;
+  leftAt: string | null;
+  joinedSource: "webhook" | "provider_reconciliation";
+  leftSource: "webhook" | "provider_reconciliation" | "room_end" | null;
+}
+
+export interface AdminEventAttendanceReviewRow {
+  eventParticipationId: string;
+  eventSessionId: string;
+  sessionTitle: string;
+  sessionStartsAt: string;
+  sessionEndsAt: string;
+  name: string;
+  email: string;
+  participationMode: "registered" | "open_entry";
+  state: "not_recorded" | "checked_in" | "attended" | "absent";
+  source: AdminEventAttendanceSource | null;
+  recordedByName: string | null;
+  recordedAt: string | null;
+  updatedAt: string | null;
+  automaticEvidenceTotal: number;
+  intervalEvidenceTotal: number;
+  estimatedEvidencePresent: boolean;
+  decisions: Array<AdminEventAttendanceDecisionEvidence>;
+  intervals: Array<AdminEventAttendanceIntervalEvidence>;
+}
+
+export interface AdminEventAttendanceReport {
+  occurrence: {
+    id: string;
+    title: string;
+    timezone: string;
+  };
+  sessions: Array<{
+    id: string;
+    title: string;
+    startsAt: string;
+    endsAt: string;
+  }>;
+  rows: Array<AdminEventAttendanceReviewRow>;
+  evidenceTruncated: boolean;
+  pagination: {
+    page: number;
+    pages: number;
+    total: number;
+    allTotal: number;
+    pageSize: number;
+  };
+}
+
+export type AdminEventAttendanceReportResult =
+  | { status: "ready"; data: AdminEventAttendanceReport }
+  | { status: "unauthenticated" }
+  | { status: "forbidden" }
+  | { status: "not-found" };
 
 export const adminEventAccountSetupSchema = z.object({
   eventOccurrenceId: identifier,

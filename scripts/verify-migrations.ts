@@ -254,6 +254,7 @@ try {
     "livekit_participant_webhook_receipt_connection_idx",
     "event_virtual_connection_interval_presence_idx",
     "event_virtual_connection_interval_open_idx",
+    "event_virtual_connection_interval_report_idx",
     "event_virtual_attendance_reconciliation_pending_idx",
     "event_virtual_attendance_reconciliation_lease_idx",
     "event_virtual_attendance_decision_participation_idx",
@@ -297,6 +298,18 @@ try {
   )
     throw new Error(
       "LiveKit participant webhook identity must have one scoped indexed lobby lookup",
+    );
+  const attendanceIntervalReportIndex = indexResult.rows.find(
+    (index) =>
+      index.indexname === "event_virtual_connection_interval_report_idx",
+  );
+  if (
+    !attendanceIntervalReportIndex?.indexdef.includes(
+      '("eventOccurrenceId", "eventSessionId", "eventParticipationId", "joinedAt")',
+    )
+  )
+    throw new Error(
+      "Attendance interval evidence must have one occurrence-scoped report index",
     );
   const emailDesignerConstraints = await sql<{
     constraint_name: string;

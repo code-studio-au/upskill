@@ -2191,6 +2191,98 @@ test("platform administrators can inspect learner progress", async ({
       [participationId, occurrenceSessionId, administratorUser.id],
     );
     await page.goto(
+      `/admin/events/instances/${occurrenceId}?view=staffing&q=${encodeURIComponent(administratorUser.email)}&sessionId=${encodeURIComponent(occurrenceSessionId)}&state=attended&evidence=staff`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Attendance review" }),
+    ).toBeVisible();
+    const attendanceReviewTable = page.getByRole("table", {
+      name: "Attendance records and LiveKit evidence",
+    });
+    const attendanceReviewRow = attendanceReviewTable.getByRole("row").filter({
+      hasText: administratorUser.email,
+    });
+    await expect(attendanceReviewRow).toContainText("No LiveKit evidence");
+    await expect(
+      attendanceReviewRow.getByLabel(
+        `Attendance for ${administratorUser.name} in Live workshop`,
+      ),
+    ).toHaveValue("attended");
+    await attendanceReviewRow
+      .getByLabel(
+        `Toggle evidence for ${administratorUser.name} in Live workshop`,
+      )
+      .check();
+    await expect(
+      attendanceReviewTable.getByText(
+        "Connection evidence explains the automatic decision",
+        { exact: false },
+      ),
+    ).toBeVisible();
+    await expect(page.getByLabel("Evidence", { exact: true })).toHaveValue(
+      "staff",
+    );
+    const allAttendanceExport = page.getByRole("link", {
+      name: /Export all evidence/u,
+    });
+    const allAttendanceExportLabel = await allAttendanceExport.innerText();
+    expect(allAttendanceExportLabel).toMatch(
+      /^Export all evidence \(\d+ records?\)$/u,
+    );
+    let allAttendanceConfirmation = "";
+    page.once("dialog", async (dialog) => {
+      allAttendanceConfirmation = dialog.message();
+      await dialog.dismiss();
+    });
+    const filteredAttendanceUrl = page.url();
+    await allAttendanceExport.click();
+    expect(allAttendanceConfirmation).toContain(
+      "including participant email addresses",
+    );
+    expect(allAttendanceConfirmation).toContain(
+      "This ignores the visible filters.",
+    );
+    await expect(page).toHaveURL(filteredAttendanceUrl);
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const attendanceAccessibility = await new AxeBuilder({ page }).analyze();
+    expect(attendanceAccessibility.violations).toEqual([]);
+    const attendanceCsv = await page.request.get(
+      `/api/admin/events/instances/${occurrenceId}/attendance.csv?q=${encodeURIComponent(administratorUser.email)}&sessionId=${encodeURIComponent(occurrenceSessionId)}&state=attended&evidence=staff`,
+    );
+    expect(attendanceCsv.status()).toBe(200);
+    expect(attendanceCsv.headers()["cache-control"]).toBe("no-store");
+    expect(attendanceCsv.headers()["x-content-type-options"]).toBe("nosniff");
+    await expect(attendanceCsv.text()).resolves.toContain(
+      '"event-attendance-evidence-v1","attendance"',
+    );
+    const invalidAttendanceCsv = await page.request.get(
+      `/api/admin/events/instances/${occurrenceId}/attendance.csv?q=&sessionId=all&state=attend&evidence=all`,
+    );
+    expect(invalidAttendanceCsv.status()).toBe(400);
+    await expect(invalidAttendanceCsv.json()).resolves.toEqual({
+      error: "invalid_request",
+    });
+    await page.goto(`/admin/events/instances/${occurrenceId}?view=staffing`);
+    const defaultAttendanceExport = page.getByRole("link", {
+      name: /^Export all evidence \(\d+ records?\)$/u,
+    });
+    await expect(defaultAttendanceExport).toHaveCount(1);
+    let defaultAttendanceConfirmation = "";
+    page.once("dialog", async (dialog) => {
+      defaultAttendanceConfirmation = dialog.message();
+      await dialog.dismiss();
+    });
+    const defaultAttendanceUrl = page.url();
+    await defaultAttendanceExport.click();
+    expect(defaultAttendanceConfirmation).toContain(
+      "including participant email addresses",
+    );
+    await expect(page).toHaveURL(defaultAttendanceUrl);
+    const defaultAttendanceAccessibility = await new AxeBuilder({
+      page,
+    }).analyze();
+    expect(defaultAttendanceAccessibility.violations).toEqual([]);
+    await page.goto(
       `/admin/events/instances/${occurrenceId}?view=registrations`,
     );
     const finalisedRegistrationRow = page.getByRole("row").filter({

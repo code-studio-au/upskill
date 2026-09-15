@@ -2,7 +2,7 @@
 
 - **Status:** Accepted; webinar delivery, managed recording, presenter outcome
   feedback, open-entry lobby, durable attendee connection evidence and automatic
-  attendance implemented; production hardening is tracked below
+  attendance operations implemented; production hardening is tracked below
 - **Date:** 2026-08-31
 
 ## Context
@@ -1404,11 +1404,16 @@ gates passed; it does not by itself authorise staging or production activation.
       evidence, repairs missed join/leave webhooks from provider presence, waits
       for final reconciliation before closing a room, and leaves staff-authored
       corrections authoritative. Non-manual attendance modes are now publishable.
-- [ ] **Slice 7c — attendance operations and reporting:** add administrator review,
+      Implemented by
+      [PR #90](https://github.com/code-studio-au/upskill/pull/90).
+- [x] **Slice 7c — attendance operations and reporting:** add administrator review,
       evidence explanation, filters and exports without changing the evidence or
-      promotion policy. This is a deferred operational enhancement, not a
-      prerequisite for webinar delivery or recording, and should proceed only if
-      the automatic-attendance workflow is retained after Slice 7b.
+      promotion policy. The Event instance now provides an administrator-only,
+      URL-filtered attendance grid over current attendance, immutable automatic
+      decisions and connection intervals. Staff corrections remain authoritative;
+      estimated interval boundaries are explicit rather than promoted to proof of
+      attention. Filtered and complete normalized CSV exports use the same read
+      model and create durable export-audit evidence without retaining search text.
 - [x] **Slice 8a — open-entry lobby integration:** route eligible open-entry
       guests through the same capacity, consent, admission, token and revocation
       policy as registered learners. Implemented by
@@ -1431,11 +1436,11 @@ gates passed; it does not by itself authorise staging or production activation.
       host connectivity preflight in release artifacts, correcting the staging
       webhook runbook URL, and an explicit production-enable decision.
 
-The unchecked items do not all block the same outcome. Slice 7c is deferred
-reporting scope. Slices 8b–8d are the next production-operational assurance
-work. The implemented webinar, managed-recording, durable connection status and
-automatic-attendance journeys may therefore be treated as functional without
-implying that production activation is complete.
+The unchecked items do not all block the same outcome. Slices 8b–8d are the next
+production-operational assurance work. The implemented webinar,
+managed-recording, durable connection status and automatic-attendance operations
+may therefore be treated as functional without implying that production
+activation is complete.
 
 Each required unchecked tracker item is expected to be one pull request.
 Conditional or deferred items require an explicit product decision before

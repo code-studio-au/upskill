@@ -8,8 +8,10 @@ import { getEnabledLiveKitConfiguration } from "#/server/livekit/livekit-provide
 
 export async function findAdminEventOccurrenceOperations(
   eventOccurrenceId: string,
+  options: { includeAttendance?: boolean } = {},
 ): Promise<AdminEventOccurrenceOperations | null> {
   const database = getDatabase();
+  const includeAttendance = options.includeAttendance ?? true;
   const liveKitConfiguration = getEnabledLiveKitConfiguration();
   const occurrence = await database
     .selectFrom("event_occurrence as occurrence")
@@ -248,35 +250,39 @@ export async function findAdminEventOccurrenceOperations(
       .where("region.kind", "=", "operational")
       .orderBy("user.name")
       .execute(),
-    database
-      .selectFrom("event_participation")
-      .select([
-        "id",
-        "registrationId",
-        "mode",
-        "nameSnapshot as name",
-        "emailSnapshot as email",
-        "detailsSubmittedAt",
-        "joinDisclosedAt",
-        "checkedInAt",
-      ])
-      .where("eventOccurrenceId", "=", eventOccurrenceId)
-      .execute(),
-    database
-      .selectFrom("event_attendance as attendance")
-      .innerJoin(
-        "event_session as session",
-        "session.id",
-        "attendance.eventSessionId",
-      )
-      .select([
-        "attendance.eventParticipationId",
-        "attendance.eventSessionId",
-        "attendance.state",
-        "attendance.updatedAt",
-      ])
-      .where("session.eventOccurrenceId", "=", eventOccurrenceId)
-      .execute(),
+    includeAttendance
+      ? database
+          .selectFrom("event_participation")
+          .select([
+            "id",
+            "registrationId",
+            "mode",
+            "nameSnapshot as name",
+            "emailSnapshot as email",
+            "detailsSubmittedAt",
+            "joinDisclosedAt",
+            "checkedInAt",
+          ])
+          .where("eventOccurrenceId", "=", eventOccurrenceId)
+          .execute()
+      : Promise.resolve([]),
+    includeAttendance
+      ? database
+          .selectFrom("event_attendance as attendance")
+          .innerJoin(
+            "event_session as session",
+            "session.id",
+            "attendance.eventSessionId",
+          )
+          .select([
+            "attendance.eventParticipationId",
+            "attendance.eventSessionId",
+            "attendance.state",
+            "attendance.updatedAt",
+          ])
+          .where("session.eventOccurrenceId", "=", eventOccurrenceId)
+          .execute()
+      : Promise.resolve([]),
     database
       .selectFrom("event_occurrence_domain")
       .select("domain")
@@ -576,25 +582,28 @@ export async function findAdminEventOccurrenceOperations(
       presenters: presenterRows
         .filter((row) => row.eventSessionId === session.id)
         .map(({ id, name, email }) => ({ id, name, email })),
-      attendance: participationRows.map((participation) => {
-        const attendance = attendanceRows.find(
-          (row) =>
-            row.eventSessionId === session.id &&
-            row.eventParticipationId === participation.id,
-        );
-        return {
-          eventParticipationId: participation.id,
-          name: participation.name,
-          email: participation.email,
-          mode: participation.mode,
-          detailsSubmittedAt:
-            participation.detailsSubmittedAt?.toISOString() ?? null,
-          joinDisclosedAt: participation.joinDisclosedAt?.toISOString() ?? null,
-          checkedInAt: participation.checkedInAt?.toISOString() ?? null,
-          state: attendance?.state ?? "not_recorded",
-          updatedAt: attendance?.updatedAt.toISOString() ?? null,
-        };
-      }),
+      attendance: includeAttendance
+        ? participationRows.map((participation) => {
+            const attendance = attendanceRows.find(
+              (row) =>
+                row.eventSessionId === session.id &&
+                row.eventParticipationId === participation.id,
+            );
+            return {
+              eventParticipationId: participation.id,
+              name: participation.name,
+              email: participation.email,
+              mode: participation.mode,
+              detailsSubmittedAt:
+                participation.detailsSubmittedAt?.toISOString() ?? null,
+              joinDisclosedAt:
+                participation.joinDisclosedAt?.toISOString() ?? null,
+              checkedInAt: participation.checkedInAt?.toISOString() ?? null,
+              state: attendance?.state ?? "not_recorded",
+              updatedAt: attendance?.updatedAt.toISOString() ?? null,
+            };
+          })
+        : [],
     })),
     administrators: adminRows,
     availableUsers: userRows,

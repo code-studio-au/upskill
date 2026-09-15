@@ -420,11 +420,10 @@ export function AdminEventOccurrenceEditor({
                         const value = event.currentTarget
                           .value as typeof field.state.value;
                         field.handleChange(value);
-                        if (value === "in_person")
+                        if (value === "in_person") {
                           form.setFieldValue("virtualDeliveryProvider", null);
-                        if (value === "in_person")
                           form.setFieldValue("virtualJoinUrl", "");
-                        else {
+                        } else {
                           form.setFieldValue(
                             "virtualDeliveryProvider",
                             "external_url",

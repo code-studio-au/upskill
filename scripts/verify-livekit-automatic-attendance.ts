@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordAdminEventAttendance } from "#/server/admin/admin-event-registration-operations.server";
+import {
+  exportAdminEventAttendanceReport,
+  findAdminEventAttendanceReport,
+} from "#/server/admin/admin-event-attendance-report.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import {
   down as downAutomaticAttendanceMigration,
@@ -163,6 +167,10 @@ async function cleanUp(): Promise<void> {
   await database
     .deleteFrom("user")
     .where("id", "in", [ids.administrator, ids.firstLearner, ids.secondLearner])
+    .execute();
+  await database
+    .deleteFrom("user")
+    .where("id", "like", "verify_livekit_attendance_stream_%")
     .execute();
 }
 
@@ -855,6 +863,138 @@ try {
     },
     "A delayed signed leave must replace conservative room-end evidence without rewriting the historical decision",
   );
+  const attendanceReport = await findAdminEventAttendanceReport({
+    eventOccurrenceId: ids.occurrence,
+    q: "",
+    sessionId: "all",
+    state: "all",
+    evidence: "all",
+    page: 1,
+  });
+  assert.ok(attendanceReport);
+  const firstAttendanceReview = attendanceReport.rows.find(
+    (row) =>
+      row.eventSessionId === ids.session &&
+      row.eventParticipationId === ids.firstParticipation,
+  );
+  assert.ok(firstAttendanceReview);
+  assert.deepEqual(
+    {
+      state: firstAttendanceReview.state,
+      source: firstAttendanceReview.source,
+      automaticEvidenceTotal: firstAttendanceReview.automaticEvidenceTotal,
+      intervalEvidenceTotal: firstAttendanceReview.intervalEvidenceTotal,
+      decisionStates: firstAttendanceReview.decisions.map(
+        (decision) => decision.attendanceState,
+      ),
+      intervalSources: firstAttendanceReview.intervals
+        .map(
+          (interval) => [interval.joinedSource, interval.leftSource] as const,
+        )
+        .sort((left, right) => left[0].localeCompare(right[0])),
+    },
+    {
+      state: "attended",
+      source: "system",
+      automaticEvidenceTotal: 2,
+      intervalEvidenceTotal: 2,
+      decisionStates: ["checked_in", "attended"],
+      intervalSources: [
+        ["provider_reconciliation", "webhook"],
+        ["webhook", "room_end"],
+      ],
+    },
+    "Administrator attendance review must explain system decisions with retained interval sources",
+  );
+  const correctedAttendanceReview = attendanceReport.rows.find(
+    (row) =>
+      row.eventSessionId === ids.session &&
+      row.eventParticipationId === ids.secondParticipation,
+  );
+  assert.ok(correctedAttendanceReview);
+  assert.equal(correctedAttendanceReview.state, "absent");
+  assert.equal(correctedAttendanceReview.source, "administrator");
+  assert.ok(
+    correctedAttendanceReview.decisions.some(
+      (decision) => decision.applicationOutcome === "preserved_manual",
+    ),
+    "Administrator attendance review must retain automatic evidence without obscuring the staff correction",
+  );
+  const staffFilteredAttendanceReport = await findAdminEventAttendanceReport({
+    eventOccurrenceId: ids.occurrence,
+    q: "Second attendance",
+    sessionId: ids.session,
+    state: "absent",
+    evidence: "staff",
+    page: 1,
+  });
+  assert.ok(staffFilteredAttendanceReport);
+  assert.deepEqual(
+    {
+      total: staffFilteredAttendanceReport.pagination.total,
+      allTotal: staffFilteredAttendanceReport.pagination.allTotal,
+      participations: staffFilteredAttendanceReport.rows.map(
+        (row) => row.eventParticipationId,
+      ),
+    },
+    { total: 1, allTotal: 2, participations: [ids.secondParticipation] },
+    "Administrator attendance review filtering and counts must be applied by the database read model",
+  );
+  const clampedAttendanceReport = await findAdminEventAttendanceReport({
+    eventOccurrenceId: ids.occurrence,
+    q: "Second attendance",
+    sessionId: ids.session,
+    state: "absent",
+    evidence: "staff",
+    page: 100_001,
+  });
+  assert.ok(clampedAttendanceReport);
+  assert.equal(clampedAttendanceReport.pagination.page, 1);
+  assert.deepEqual(
+    clampedAttendanceReport.rows.map((row) => row.eventParticipationId),
+    [ids.secondParticipation],
+    "Large valid page requests must clamp to the report's actual last page",
+  );
+  const exportedAttendanceReport = await exportAdminEventAttendanceReport(
+    ids.occurrence,
+    {
+      q: "First attendance",
+      sessionId: ids.session,
+      state: "attended",
+      evidence: "automatic",
+    },
+    administrator,
+  );
+  assert.ok(exportedAttendanceReport);
+  const exportedAttendanceCsv = await new Response(
+    exportedAttendanceReport.body,
+  ).text();
+  assert.match(exportedAttendanceCsv, new RegExp(ids.firstParticipation, "u"));
+  assert.match(exportedAttendanceCsv, /"decision"/u);
+  assert.match(exportedAttendanceCsv, /"interval"/u);
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select(["actorUserId", "action", "subjectType", "subjectId", "metadata"])
+      .where("action", "=", "event_attendance.report_exported")
+      .where("subjectId", "=", ids.occurrence)
+      .executeTakeFirstOrThrow(),
+    {
+      actorUserId: ids.administrator,
+      action: "event_attendance.report_exported",
+      subjectType: "event_occurrence",
+      subjectId: ids.occurrence,
+      metadata: {
+        format: "csv",
+        rowCount: 1,
+        searchApplied: true,
+        sessionId: ids.session,
+        state: "attended",
+        evidence: "automatic",
+      },
+    },
+    "Attendance report exports must create durable audit evidence without retaining the search text",
+  );
   await database
     .insertInto("event_virtual_attendance_decision")
     .values({
@@ -918,6 +1058,269 @@ try {
       leftSource: "webhook",
     },
     "Automatic-attendance migration must upgrade retained closed webhook intervals",
+  );
+  const streamedDecisionIds = Array.from(
+    { length: 251 },
+    (_, index) =>
+      `verify_livekit_attendance_stream_decision_${String(index).padStart(3, "0")}`,
+  );
+  await database
+    .insertInto("event_virtual_attendance_decision")
+    .values(
+      streamedDecisionIds.map((id, index) => ({
+        id,
+        roomId: ids.room,
+        eventVirtualJoinAccessId: access.id,
+        eventOccurrenceId: ids.occurrence,
+        eventSessionId: ids.session,
+        roomGeneration: 1,
+        lobbyEntryId: ids.firstLobby,
+        eventParticipationId: ids.firstParticipation,
+        attendanceState: "checked_in" as const,
+        attendanceMode: "automatic_check_in" as const,
+        attendanceMinimumMinutes: null,
+        qualifyingConnectedSeconds: 0,
+        calculationVersion: 10_000 + index,
+        decisionAt: new Date(finalAt.getTime() + 10_000 + index),
+        applicationOutcome: "already_satisfied" as const,
+        previousAttendanceState: "attended" as const,
+        previousAttendanceSource: "system" as const,
+      })),
+    )
+    .execute();
+  const boundedEvidenceReport = await findAdminEventAttendanceReport({
+    eventOccurrenceId: ids.occurrence,
+    q: "First attendance",
+    sessionId: ids.session,
+    state: "attended",
+    evidence: "automatic",
+    page: 1,
+  });
+  assert.ok(boundedEvidenceReport);
+  assert.equal(boundedEvidenceReport.evidenceTruncated, true);
+  const boundedEvidenceRow = boundedEvidenceReport.rows[0];
+  assert.ok(boundedEvidenceRow);
+  assert.equal(boundedEvidenceRow.automaticEvidenceTotal, 251);
+  assert.equal(boundedEvidenceRow.intervalEvidenceTotal, 1);
+  assert.equal(
+    boundedEvidenceReport.rows.reduce(
+      (count, row) => count + row.decisions.length + row.intervals.length,
+      0,
+    ),
+    250,
+    "The staffing report must bound its in-memory evidence preview",
+  );
+  const streamedEvidenceReport = await exportAdminEventAttendanceReport(
+    ids.occurrence,
+    {
+      q: "First attendance",
+      sessionId: ids.session,
+      state: "attended",
+      evidence: "automatic",
+    },
+    administrator,
+  );
+  assert.ok(streamedEvidenceReport);
+  const streamedEvidenceCsv = await new Response(
+    streamedEvidenceReport.body,
+  ).text();
+  assert.equal(
+    streamedDecisionIds.filter((id) => streamedEvidenceCsv.includes(id)).length,
+    streamedDecisionIds.length,
+    "CSV exports must stream every evidence record beyond the UI preview bound",
+  );
+  const streamUsers = Array.from({ length: 251 }, (_, index) => {
+    const suffix = String(index).padStart(3, "0");
+    return {
+      id: `verify_livekit_attendance_stream_user_${suffix}`,
+      name: `Stream attendance learner ${suffix}`,
+      email: `verify-livekit-attendance-stream-${suffix}@example.com`,
+      emailVerified: true,
+    };
+  });
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 1_000 })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database.insertInto("user").values(streamUsers).execute();
+  await database
+    .insertInto("event_participation")
+    .values(
+      streamUsers.map((user) => ({
+        id: user.id.replace("_user_", "_participation_"),
+        eventOccurrenceId: ids.occurrence,
+        userId: user.id,
+        registrationId: null,
+        mode: "open_entry" as const,
+        nameSnapshot: user.name,
+        emailSnapshot: user.email,
+        detailsSubmittedAt: createdAt,
+        joinDisclosedAt: createdAt,
+        checkedInAt: null,
+        privacyAcceptedAt: createdAt,
+        privacyNoticeVersion: "verify",
+        createdAt,
+      })),
+    )
+    .execute();
+  await Promise.all(
+    Array.from({ length: 6 }, async () => {
+      const concurrentExport = await exportAdminEventAttendanceReport(
+        ids.occurrence,
+        {
+          q: "Stream attendance learner",
+          sessionId: ids.session,
+          state: "not_recorded",
+          evidence: "all",
+        },
+        administrator,
+      );
+      assert.ok(concurrentExport);
+      await concurrentExport.body.cancel();
+    }),
+  );
+  const stalledExports = await Promise.all(
+    Array.from({ length: 4 }, async () => {
+      const stalledExport = await exportAdminEventAttendanceReport(
+        ids.occurrence,
+        {
+          q: "Stream attendance learner",
+          sessionId: ids.session,
+          state: "not_recorded",
+          evidence: "all",
+        },
+        administrator,
+        { idleTimeoutMilliseconds: 250 },
+      );
+      assert.ok(stalledExport);
+      return stalledExport;
+    }),
+  );
+  const stalledReaders = stalledExports.map((stalledExport) =>
+    stalledExport.body.getReader(),
+  );
+  const stalledClosures = stalledReaders.map(async (reader) => {
+    try {
+      await reader.closed;
+      return null;
+    } catch (error) {
+      return error;
+    }
+  });
+  const stalledFirstChunks = await Promise.all(
+    stalledReaders.map(async (reader) => await reader.read()),
+  );
+  assert.ok(stalledFirstChunks.every((chunk) => !chunk.done));
+  const recoveredExport = await Promise.race([
+    exportAdminEventAttendanceReport(
+      ids.occurrence,
+      {
+        q: "Stream attendance learner",
+        sessionId: ids.session,
+        state: "not_recorded",
+        evidence: "all",
+      },
+      administrator,
+      { idleTimeoutMilliseconds: 2_000 },
+    ),
+    new Promise<never>((_resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(
+          new Error(
+            "Attendance export slot was not released after idle timeout",
+          ),
+        );
+      }, 2_000);
+      timeout.unref();
+    }),
+  ]);
+  assert.ok(recoveredExport);
+  await recoveredExport.body.cancel();
+  for (const stalledClosure of await Promise.all(stalledClosures)) {
+    assert.ok(stalledClosure instanceof Error);
+    assert.match(stalledClosure.message, /idle deadline exceeded/u);
+  }
+  const auditCountBeforeCancellation = await database
+    .selectFrom("audit_event")
+    .select(sql<number>`count(*)::integer`.as("count"))
+    .where("action", "=", "event_attendance.report_exported")
+    .where("subjectId", "=", ids.occurrence)
+    .executeTakeFirstOrThrow()
+    .then((row) => row.count);
+  const cancelledSnapshot = await exportAdminEventAttendanceReport(
+    ids.occurrence,
+    {
+      q: "Stream attendance learner",
+      sessionId: ids.session,
+      state: "not_recorded",
+      evidence: "all",
+    },
+    administrator,
+  );
+  assert.ok(cancelledSnapshot);
+  const cancelledReader = cancelledSnapshot.body.getReader();
+  assert.equal((await cancelledReader.read()).done, false);
+  await cancelledReader.cancel();
+  assert.equal(
+    await database
+      .selectFrom("audit_event")
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .where("action", "=", "event_attendance.report_exported")
+      .where("subjectId", "=", ids.occurrence)
+      .executeTakeFirstOrThrow()
+      .then((row) => row.count),
+    auditCountBeforeCancellation + 1,
+    "A cancelled download must retain its independently committed audit event",
+  );
+  const streamedSnapshot = await exportAdminEventAttendanceReport(
+    ids.occurrence,
+    {
+      q: "Stream attendance learner",
+      sessionId: ids.session,
+      state: "not_recorded",
+      evidence: "all",
+    },
+    administrator,
+  );
+  assert.ok(streamedSnapshot);
+  const streamReader = streamedSnapshot.body.getReader();
+  const firstStreamChunk = await streamReader.read();
+  assert.equal(firstStreamChunk.done, false);
+  assert.ok(firstStreamChunk.value);
+  const finalStreamParticipationId =
+    "verify_livekit_attendance_stream_participation_250";
+  await database
+    .insertInto("event_attendance")
+    .values({
+      eventParticipationId: finalStreamParticipationId,
+      eventSessionId: ids.session,
+      state: "absent",
+      source: "administrator",
+      recordedByUserId: ids.administrator,
+      recordedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .executeTakeFirstOrThrow();
+  const streamDecoder = new TextDecoder();
+  let streamedCsv = streamDecoder.decode(firstStreamChunk.value, {
+    stream: true,
+  });
+  for (;;) {
+    const chunk = await streamReader.read();
+    if (chunk.done) break;
+    streamedCsv += streamDecoder.decode(chunk.value, { stream: true });
+  }
+  streamedCsv += streamDecoder.decode();
+  assert.equal(
+    streamedCsv.match(/"schema_version"/gu)?.length,
+    1,
+    "Multi-batch exports must emit one CSV header",
+  );
+  assert.equal(
+    streamedCsv.match(new RegExp(finalStreamParticipationId, "gu"))?.length,
+    1,
+    "The repeatable-read keyset must export each row from its initial snapshot exactly once",
   );
   console.log(
     "LiveKit automatic attendance verification passed: revision-safe provider reconciliation, generation-bounded and positive-overlap evidence, closed terminal discovery, retained closed-interval upgrades, full threshold range, duration promotion, completion, staff-correction preservation and idempotent reruns.",

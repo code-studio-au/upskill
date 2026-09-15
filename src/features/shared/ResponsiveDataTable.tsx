@@ -17,11 +17,13 @@ export function ResponsiveDataTable<
   caption,
   numericColumns,
   renderExpandedRow,
+  expandedRowLabel,
 }: {
   table: ReactTable<TFeatures, TData, TSelected>;
   caption: string;
   numericColumns?: ReadonlySet<string> | undefined;
   renderExpandedRow?: ((row: Row<TFeatures, TData>) => ReactNode) | undefined;
+  expandedRowLabel?: ((row: Row<TFeatures, TData>) => string) | undefined;
 }) {
   return (
     <div className={classes.region}>
@@ -31,7 +33,9 @@ export function ResponsiveDataTable<
           {table.getHeaderGroups().map((headerGroup) => (
             <tr key={headerGroup.id}>
               {renderExpandedRow ? (
-                <th scope="col" data-expander aria-label="Details" />
+                <th scope="col" data-expander>
+                  <span className={classes.screenReaderOnly}>Details</span>
+                </th>
               ) : null}
               {headerGroup.headers.map((header) => (
                 <th
@@ -60,7 +64,9 @@ export function ResponsiveDataTable<
                         <input
                           type="checkbox"
                           className={classes.expanderInput}
-                          aria-label="Toggle row details"
+                          aria-label={
+                            expandedRowLabel?.(row) ?? "Toggle row details"
+                          }
                         />
                       </label>
                     </td>

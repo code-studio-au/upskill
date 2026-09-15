@@ -1,0 +1,21 @@
+.filterGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(9rem, 1fr));
+  gap: var(--mantine-spacing-sm);
+  min-width: min(38rem, 100%);
+}
+
+.identity {
+  min-width: 0;
+}
+
+.evidence p + p {
+  margin-top: var(--mantine-spacing-xs);
+}
+
+@media (max-width: 48rem) {
+  .filterGrid {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+}

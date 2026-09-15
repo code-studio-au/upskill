@@ -984,6 +984,51 @@ const liveKitAutomaticAttendanceMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const eventAttendanceReportAuditMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0113_event_attendance_report_audit.ts",
+  ),
+  "utf8",
+);
+const eventAttendanceReportIndexMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0114_event_attendance_report_indexes.ts",
+  ),
+  "utf8",
+);
+const liveKitProviderPolicyVerification = fs.readFileSync(
+  path.join(root, "scripts/verify-livekit-provider-policy.ts"),
+  "utf8",
+);
+const adminEventAttendanceReport = fs.readFileSync(
+  path.join(root, "src/server/admin/admin-event-attendance-report.server.ts"),
+  "utf8",
+);
+const adminEventOperations = fs.readFileSync(
+  path.join(root, "src/server/admin/admin-event-operations.server.ts"),
+  "utf8",
+);
+const adminEventAttendanceReview = fs.readFileSync(
+  path.join(root, "src/features/admin-event/AdminEventAttendanceReview.tsx"),
+  "utf8",
+);
+const adminEventOperationsSchema = fs.readFileSync(
+  path.join(root, "src/features/admin-event/admin-event-operations.schema.ts"),
+  "utf8",
+);
+const adminEventInstanceRoute = fs.readFileSync(
+  path.join(root, "src/routes/admin.events.instances.$eventOccurrenceId.tsx"),
+  "utf8",
+);
+const adminEventAttendanceCsvRoute = fs.readFileSync(
+  path.join(
+    root,
+    "src/routes/api.admin.events.instances.$eventOccurrenceId.attendance[.]csv.ts",
+  ),
+  "utf8",
+);
 const objectStorage = fs.readFileSync(
   path.join(root, "src/server/storage/object-storage.server.ts"),
   "utf8",
@@ -1087,6 +1132,205 @@ for (const boundary of [
 ])
   if (!liveKitAutomaticAttendanceMigration.includes(boundary))
     failures.push(`LiveKit automatic attendance guard is missing: ${boundary}`);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'selectFrom("event_virtual_attendance_decision as decision")',
+  'selectFrom("event_virtual_connection_interval as interval")',
+  'leftJoin("user as actor"',
+  "recordDurableAuditEvent",
+  'action: "event_attendance.report_exported"',
+  "searchApplied: filters.q.length > 0",
+  "ATTENDANCE_REPORT_PAGE_SIZE",
+  "ATTENDANCE_REPORT_EXPORT_BATCH_SIZE",
+  "ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT",
+  "ATTENDANCE_REPORT_MAX_CONCURRENT_EXPORTS = 4",
+  "ATTENDANCE_REPORT_EXPORT_IDLE_TIMEOUT_MILLISECONDS",
+  "acquireAttendanceExportSlot",
+  "automaticEvidenceCount",
+  "intervalEvidenceCount",
+  "hasActiveAttendanceFilters",
+  ".startTransaction()",
+  '.setIsolationLevel("repeatable read")',
+  '.setAccessMode("read only")',
+  "clock_timestamp()",
+  'count(*)::integer`.as("count")',
+  ".limit(options.limit)",
+  ".limit(intervalEvidenceLimit + 1)",
+  "offset: (page - 1) * pageSize",
+  "from unnest(",
+  '"selected_scope.eventSessionId"',
+  '"selected_scope.eventParticipationId"',
+  'decision_evidence."eventOccurrenceId" = session."eventOccurrenceId"',
+  'interval_evidence."eventOccurrenceId" = session."eventOccurrenceId"',
+  'estimated_evidence."eventOccurrenceId" = session."eventOccurrenceId"',
+  "new ReadableStream<Uint8Array>",
+  'order: "export"',
+  'expression("participation.id", ">"',
+  'expression("decision.decisionAt", ">"',
+  'expression("interval.joinedAt", ">"',
+  "includeAttendance: false",
+  "transaction.commit().execute()",
+  "transaction.rollback().execute()",
+  "resetIdleDeadline",
+  "clearIdleDeadline",
+  "async pull(controller) {\n      clearIdleDeadline();",
+  "Attendance export stream idle deadline exceeded",
+])
+  if (!adminEventAttendanceReport.includes(boundary))
+    failures.push(
+      `Administrator attendance evidence report boundary is missing: ${boundary}`,
+    );
+const attendancePreviewFunction = adminEventAttendanceReport.slice(
+  adminEventAttendanceReport.indexOf(
+    "export async function findAdminEventAttendanceReport",
+  ),
+  adminEventAttendanceReport.indexOf(
+    "export async function exportAdminEventAttendanceReport",
+  ),
+);
+for (const boundary of [
+  ".transaction()",
+  '.setIsolationLevel("repeatable read")',
+  '.setAccessMode("read only")',
+])
+  if (!attendancePreviewFunction.includes(boundary))
+    failures.push(
+      `Administrator attendance preview must use one read-only snapshot: ${boundary}`,
+    );
+const attendanceSnapshotClockIndex = adminEventAttendanceReport.indexOf(
+  'select clock_timestamp() as "asOf"',
+);
+const attendanceSnapshotReportIndex = adminEventAttendanceReport.indexOf(
+  "firstReport = await readAdminEventAttendanceReport",
+);
+if (
+  attendanceSnapshotClockIndex < 0 ||
+  attendanceSnapshotReportIndex < 0 ||
+  attendanceSnapshotClockIndex > attendanceSnapshotReportIndex ||
+  !adminEventAttendanceReport
+    .slice(attendanceSnapshotClockIndex, attendanceSnapshotReportIndex)
+    .includes("from event_occurrence")
+)
+  failures.push(
+    "Administrator attendance export timestamp must be captured after establishing its relational snapshot",
+  );
+if (/expression\.or\(\s*selectedRows\.map/u.test(adminEventAttendanceReport))
+  failures.push(
+    "Administrator attendance evidence must not expand selected rows into per-row SQL bind pairs",
+  );
+const attendanceExportSlotIndex = adminEventAttendanceReport.indexOf(
+  "const releaseExportSlot = await acquireAttendanceExportSlot()",
+);
+const attendanceSnapshotTransactionIndex = adminEventAttendanceReport.indexOf(
+  ".startTransaction()",
+);
+if (
+  attendanceExportSlotIndex < 0 ||
+  attendanceSnapshotTransactionIndex < 0 ||
+  attendanceExportSlotIndex > attendanceSnapshotTransactionIndex
+)
+  failures.push(
+    "Administrator attendance exports must reserve bounded concurrency before acquiring a streaming snapshot connection",
+  );
+for (const boundary of [
+  "report.evidenceTruncated",
+  "bounded evidence preview",
+  "Export the filtered CSV",
+  "row.automaticEvidenceTotal",
+  "row.intervalEvidenceTotal",
+  "evidence is partially omitted from the preview",
+  "report.pagination.allTotal",
+  "confirmAllEvidenceExport",
+  "!hasActiveFilters",
+  "including participant email addresses",
+  "This ignores the visible filters",
+])
+  if (!adminEventAttendanceReview.includes(boundary))
+    failures.push(
+      `Administrator attendance evidence preview warning is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "loaderDeps: ({ search }) => search",
+  'deps.view === "staffing"',
+  'includeAttendance: deps.view !== "staffing"',
+  "attendanceReport?.status",
+])
+  if (!adminEventInstanceRoute.includes(boundary))
+    failures.push(
+      `Administrator attendance route loading boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "options: { includeAttendance?: boolean } = {}",
+  "const includeAttendance = options.includeAttendance ?? true",
+  "includeAttendance",
+  ": Promise.resolve([])",
+  "attendance: includeAttendance",
+])
+  if (!adminEventOperations.includes(boundary))
+    failures.push(
+      `Administrator staffing load must omit the legacy attendance matrix: ${boundary}`,
+    );
+const strictAttendanceFilterStart = adminEventOperationsSchema.indexOf(
+  "export const adminEventAttendanceFilterSchema",
+);
+const forgivingAttendanceSearchStart = adminEventOperationsSchema.indexOf(
+  "export const adminEventAttendanceSearchSchema",
+);
+if (
+  strictAttendanceFilterStart < 0 ||
+  forgivingAttendanceSearchStart < strictAttendanceFilterStart ||
+  adminEventOperationsSchema
+    .slice(strictAttendanceFilterStart, forgivingAttendanceSearchStart)
+    .includes("z.catch")
+)
+  failures.push(
+    "Administrator attendance network filters must remain strict and separate from forgiving browser search normalization",
+  );
+for (const boundary of [
+  "getAdministratorRequest",
+  "adminEventAttendanceFilterSchema.safeParse",
+  "exportAdminEventAttendanceReport",
+  "administrator.user",
+  "exported.body",
+  "exported.occurrenceId",
+  '"Cache-Control": "no-store"',
+  '"X-Content-Type-Options": "nosniff"',
+])
+  if (!adminEventAttendanceCsvRoute.includes(boundary))
+    failures.push(
+      `Administrator attendance CSV boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  '"event_attendance.report_exported"',
+  "audit_event_action_known_ck",
+  "immutable audit history",
+])
+  if (!eventAttendanceReportAuditMigration.includes(boundary))
+    failures.push(
+      `Administrator attendance report audit migration is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "event_virtual_connection_interval_report_idx",
+  '"eventOccurrenceId"',
+  '"eventSessionId"',
+  '"eventParticipationId"',
+  '"joinedAt"',
+])
+  if (!eventAttendanceReportIndexMigration.includes(boundary))
+    failures.push(
+      `Administrator attendance report index is missing: ${boundary}`,
+    );
+if (
+  (liveKitProviderPolicyVerification.match(
+    /await upAttendanceReportIndexes\(database\);/gu,
+  )?.length ?? 0) !== 2 ||
+  !liveKitProviderPolicyVerification.includes(
+    "The rollback exercise must restore the attendance-report interval index",
+  )
+)
+  failures.push(
+    "LiveKit provider-policy rollback verification must restore and assert the attendance-report index",
+  );
 const attendanceGuardReplacementIndex =
   liveKitAutomaticAttendanceMigration.indexOf(
     "create or replace function guard_event_virtual_connection_interval",
