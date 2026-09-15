@@ -964,7 +964,8 @@ export async function applyLiveKitRoomLifecycleEvent(
     event: "room_started" | "room_finished";
     providerRoomName: string;
     providerRoomSid: string;
-    observedAt: Date;
+    providerCreatedAt: Date;
+    receivedAt: Date;
   },
 ): Promise<
   | { status: "unmatched" }
@@ -1028,19 +1029,22 @@ export async function applyLiveKitRoomLifecycleEvent(
     return { status: "ignored", ...matched };
 
   const wasActive = room.doorState === "open" || room.doorState === "locked";
+  const lifecycleLowerBound = room.startedAt ?? room.createdAt;
+  const providerBoundaryAt = new Date(
+    Math.max(
+      lifecycleLowerBound.getTime(),
+      Math.min(input.providerCreatedAt.getTime(), input.receivedAt.getTime()),
+    ),
+  );
   await transaction
     .updateTable("event_virtual_room")
     .set({
       ...(room.providerRoomSid === null
         ? { providerRoomSid: input.providerRoomSid }
         : {}),
-      ...(wasActive
-        ? {
-            doorState: "ended" as const,
-            endedByUserId: null,
-            endedAt: input.observedAt,
-          }
-        : {}),
+      doorState: "ended",
+      endedByUserId: null,
+      endedAt: providerBoundaryAt,
       providerStatus: "error",
       providerErrorCode: "livekit_room_finished",
     })
@@ -1052,22 +1056,22 @@ export async function applyLiveKitRoomLifecycleEvent(
       transaction,
       room.id,
       null,
-      input.observedAt,
+      input.receivedAt,
     );
     await wakeEventVirtualAttendanceReconciliation(
       transaction,
       room.id,
-      input.observedAt,
+      input.receivedAt,
       false,
     );
-    await insertRoomOperation(
-      transaction,
-      room.id,
-      "close_room",
-      null,
-      input.observedAt,
-    );
   }
+  await insertRoomOperation(
+    transaction,
+    room.id,
+    "close_room",
+    null,
+    input.receivedAt,
+  );
   await recordDurableAuditEvent(transaction, {
     actorUserId: null,
     action: "event_virtual_room.lifecycle_changed",
@@ -1082,8 +1086,10 @@ export async function applyLiveKitRoomLifecycleEvent(
         ? "provider_finished"
         : "provider_finished_before_start",
       previousState: room.doorState,
+      providerCreatedAt: input.providerCreatedAt.toISOString(),
+      receivedAt: input.receivedAt.toISOString(),
     },
-    createdAt: input.observedAt,
+    createdAt: providerBoundaryAt,
   });
   return { status: "processed", ...matched };
 }

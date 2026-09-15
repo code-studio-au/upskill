@@ -3631,6 +3631,22 @@ try {
     ),
   );
   const replacementTime = new Date("2030-09-03T23:40:00.000Z");
+  await database
+    .updateTable("event_virtual_room_operation")
+    .set({
+      status: "pending",
+      availableAt: replacementTime,
+      leasedUntil: null,
+      completedAt: null,
+      lastErrorCode: null,
+    })
+    .where("roomId", "=", room.id)
+    .where("kind", "=", "ensure_room")
+    .where("targetKey", "=", "room")
+    .executeTakeFirstOrThrow();
+  const ensureCallsBeforeProviderFinish = fakeProvider.operations.filter(
+    (operation) => operation.operation === "ensure_room",
+  ).length;
   const preStartFinishedEvent = {
     providerEnvironment: "test" as const,
     providerEventId: "EV_VerifyRoomFinishedBeforeStart1",
@@ -3667,14 +3683,33 @@ try {
   assert.deepEqual(
     await database
       .selectFrom("event_virtual_room")
-      .select(["doorState", "providerStatus", "providerErrorCode"])
+      .select(["doorState", "providerStatus", "providerErrorCode", "endedAt"])
       .where("id", "=", room.id)
       .executeTakeFirstOrThrow(),
     {
-      doorState: "scheduled",
+      doorState: "ended",
       providerStatus: "error",
       providerErrorCode: "livekit_room_finished",
+      endedAt: replacementTime,
     },
+    "A pre-start provider finish must make the generation terminal",
+  );
+  const preStartFinishedBatch =
+    await processAvailableEventVirtualRoomOperations(10, {
+      runtime,
+      now: replacementTime,
+    });
+  assert.deepEqual(
+    preStartFinishedBatch.outcomes.map((outcome) => outcome.kind),
+    ["ensure_room", "close_room"],
+    "A terminal generation must settle pending ensure work before durable close",
+  );
+  assert.equal(
+    fakeProvider.operations.filter(
+      (operation) => operation.operation === "ensure_room",
+    ).length,
+    ensureCallsBeforeProviderFinish,
+    "A pending ensure operation must not recreate a provider-finished generation",
   );
   let releaseReplacementLock: (() => void) | undefined;
   const replacementLockHeld = new Promise<void>((resolve) => {
@@ -3900,10 +3935,10 @@ try {
     10,
     { runtime, now: replacementTime },
   );
-  assert.equal(replacementBatch.outcomes.length, 2);
   assert.deepEqual(
-    new Set(replacementBatch.outcomes.map((outcome) => outcome.kind)),
-    new Set(["close_room", "ensure_room"]),
+    replacementBatch.outcomes.map((outcome) => outcome.kind),
+    ["ensure_room"],
+    "Replacement must not reopen or redundantly re-close the settled provider-finished generation",
   );
   const generations = await database
     .selectFrom("event_virtual_room")
@@ -4434,6 +4469,7 @@ try {
     { status: "ready" },
   );
   const recoveryEndTime = new Date("2030-09-04T00:30:00.000Z");
+  const recoveryReceivedAt = new Date(recoveryEndTime.getTime() + 30 * 1_000);
   const activeProviderRoomSid = await database
     .selectFrom("event_virtual_room")
     .select("providerRoomSid")
@@ -4456,7 +4492,7 @@ try {
         activeRoomFinishedEvent,
         database,
         getServerEnv(),
-        () => recoveryEndTime,
+        () => recoveryReceivedAt,
       )
     ).status,
     "processed",
@@ -4482,10 +4518,31 @@ try {
       endedAt: recoveryEndTime,
     },
   );
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select(["createdAt", "metadata"])
+      .where("action", "=", "event_virtual_room.lifecycle_changed")
+      .where("subjectId", "=", startRoom.id)
+      .where("reason", "=", "livekit_room_finished")
+      .executeTakeFirstOrThrow(),
+    {
+      createdAt: recoveryEndTime,
+      metadata: {
+        eventSessionId: ids.session,
+        generation: startRoom.generation,
+        transition: "provider_finished",
+        previousState: "open",
+        providerCreatedAt: recoveryEndTime.toISOString(),
+        receivedAt: recoveryReceivedAt.toISOString(),
+      },
+    },
+    "Lifecycle audit evidence must preserve provider occurrence time separately from delayed receipt time",
+  );
 
   const closeBatch = await processAvailableEventVirtualRoomOperations(10, {
     runtime: recordingRuntime,
-    now: recoveryEndTime,
+    now: recoveryReceivedAt,
   });
   assert.deepEqual(
     closeBatch.outcomes.map((outcome) => outcome.kind),
@@ -5060,17 +5117,43 @@ try {
     .selectFrom("event_virtual_room")
     .selectAll()
     .where("eventSessionId", "=", ids.raceSession)
+    .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
   const deferredEndTime = new Date("2030-09-03T23:46:00.000Z");
+  const deferredReceivedAt = new Date(deferredEndTime.getTime() + 30 * 1_000);
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRoomWebhook(
+        {
+          providerEnvironment: "test",
+          providerEventId: "EV_VerifyDeferredRoomFinished1",
+          event: "room_finished",
+          createdAtSeconds: Math.floor(deferredEndTime.getTime() / 1_000),
+          payloadDigest: "d".repeat(64),
+          roomSid:
+            deferredRoom.providerRoomSid ?? "RM_VerifyDeferredRoomFinished1",
+          roomName: deferredRoom.providerRoomName,
+        },
+        database,
+        getServerEnv(),
+        () => deferredReceivedAt,
+      )
+    ).status,
+    "processed",
+    "A provider finish racing an in-flight ensure must be accepted",
+  );
   assert.deepEqual(
-    await transitionEventVirtualRoom(
-      ids.occurrence,
-      ids.raceSession,
-      "end",
-      wholePresenter,
-      { clock: () => deferredEndTime },
-    ),
-    { status: "ready" },
+    await database
+      .selectFrom("event_virtual_room")
+      .select(["doorState", "endedAt", "providerStatus"])
+      .where("id", "=", deferredRoom.id)
+      .executeTakeFirstOrThrow(),
+    {
+      doorState: "ended",
+      endedAt: deferredEndTime,
+      providerStatus: "error",
+    },
+    "Provider event time must terminate the in-flight generation without delivery-time inflation",
   );
   const reclaimedTime = new Date("2030-09-03T23:47:01.000Z");
   const reclaimedBatch = await processAvailableEventVirtualRoomOperations(10, {

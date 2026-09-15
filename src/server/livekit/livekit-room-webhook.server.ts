@@ -120,7 +120,8 @@ export async function ingestVerifiedLiveKitRoomWebhook(
       event: eventType,
       providerRoomName: roomName,
       providerRoomSid: roomSid,
-      observedAt: receivedAt,
+      providerCreatedAt,
+      receivedAt,
     });
     await transaction
       .updateTable("livekit_room_webhook_receipt")
