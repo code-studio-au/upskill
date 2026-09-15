@@ -198,7 +198,7 @@ export function AdminEventAttendanceReview({
           <Button
             component="a"
             href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?q=&sessionId=all&state=all&evidence=all`}
-            variant="subtle"
+            variant="outline"
             onClick={(event) => {
               const recordLabel =
                 allEvidenceCount === 1
