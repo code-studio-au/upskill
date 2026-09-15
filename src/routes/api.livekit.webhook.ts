@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { ingestVerifiedLiveKitParticipantWebhook } from "#/server/livekit/livekit-participant-webhook.server";
 import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
+import { ingestVerifiedLiveKitRoomWebhook } from "#/server/livekit/livekit-room-webhook.server";
 import {
   LiveKitWebhookError,
   verifyLiveKitWebhook,
@@ -76,6 +77,22 @@ export async function handleLiveKitWebhookRequest(
         { status: 200, headers: responseHeaders },
       );
     }
+    const roomOutcome = await ingestVerifiedLiveKitRoomWebhook(event);
+    if (roomOutcome.status !== "unsupported") {
+      logServerEvent({
+        level: "info",
+        event: "livekit.room_webhook_received",
+        fields: {
+          providerEventId: event.providerEventId,
+          providerEvent: event.event,
+          ingestionStatus: roomOutcome.status,
+        },
+      });
+      return Response.json(
+        { received: true },
+        { status: 200, headers: responseHeaders },
+      );
+    }
     logServerEvent({
       level: "warn",
       event: "livekit.webhook_ingestion_not_ready",
@@ -84,8 +101,8 @@ export async function handleLiveKitWebhookRequest(
         providerEvent: event.event,
       },
     });
-    // Room-level events still belong to a later reconciliation slice. Ask
-    // LiveKit to retry rather than acknowledging unsupported lifecycle input.
+    // Ask LiveKit to retry event families without a dedicated consumer rather
+    // than acknowledging evidence that was not durably ingested.
     return Response.json(
       { error: "webhook_ingestion_not_ready" },
       {

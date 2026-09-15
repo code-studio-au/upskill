@@ -923,6 +923,24 @@ interface LiveKitParticipantWebhookReceiptTable {
   matchedEventParticipationId: string | null;
 }
 
+interface LiveKitRoomWebhookReceiptTable {
+  id: string;
+  provider: "livekit";
+  providerEnvironment: "development" | "test" | "staging" | "production";
+  providerEventId: string;
+  eventType: "room_started" | "room_finished";
+  payloadDigest: string;
+  providerCreatedAt: Timestamp;
+  receivedAt: Timestamp;
+  providerRoomSid: string;
+  providerRoomName: string;
+  processingState: "processing" | "processed" | "unmatched" | "ignored";
+  processedAt: Timestamp | null;
+  matchedRoomId: string | null;
+  matchedEventSessionId: string | null;
+  matchedRoomGeneration: number | null;
+}
+
 interface EventVirtualConnectionIntervalTable {
   id: string;
   roomId: string;
@@ -2101,6 +2119,7 @@ export interface Database {
   learning_progress_override: LearningProgressOverrideTable;
   livekit_webhook_receipt: LiveKitWebhookReceiptTable;
   livekit_participant_webhook_receipt: LiveKitParticipantWebhookReceiptTable;
+  livekit_room_webhook_receipt: LiveKitRoomWebhookReceiptTable;
   learning_resource_version: LearningResourceVersionTable;
   notification: NotificationTable;
   notification_delivery_attempt: NotificationDeliveryAttemptTable;

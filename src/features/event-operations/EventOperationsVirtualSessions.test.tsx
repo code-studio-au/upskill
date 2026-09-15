@@ -7,8 +7,14 @@ import type { EventOperationsWorkspace } from "./event-operations.schema";
 import { EventOperationsVirtualSessions } from "./EventOperationsVirtualSessions";
 
 const eventSessionId = "event_session_1";
+type VirtualSession = EventOperationsWorkspace["virtualSessions"][number];
+type Room = NonNullable<VirtualSession["room"]>;
+type Role = EventOperationsWorkspace["access"]["roles"][number];
 
-function workspaceForGeneration(generation: number): EventOperationsWorkspace {
+function workspaceForGeneration(
+  generation: number,
+  options: { roles?: Role[]; room?: Partial<Room> } = {},
+): EventOperationsWorkspace {
   return {
     occurrence: {
       id: "event_occurrence_1",
@@ -27,7 +33,7 @@ function workspaceForGeneration(generation: number): EventOperationsWorkspace {
     },
     guestAccess: null,
     access: {
-      roles: ["presenter"],
+      roles: options.roles ?? ["presenter"],
       canReviewRegistrations: false,
       canViewRegistrations: false,
       canRecordAttendance: false,
@@ -70,6 +76,7 @@ function workspaceForGeneration(generation: number): EventOperationsWorkspace {
           lockedAt: null,
           reopenedAt: null,
           endedAt: "2030-09-04T01:00:00.000Z",
+          ...options.room,
         },
       },
     ],
@@ -113,6 +120,79 @@ describe("LiveKit room generation identity", () => {
     });
 
     expect(sessionCard(container)).not.toBe(previousGenerationCard);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("keeps a provider failure safe and exposes explicit replacement", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <EventOperationsVirtualSessions
+          workspace={workspaceForGeneration(1, {
+            room: {
+              doorState: "scheduled",
+              providerStatus: "error",
+              providerErrorCode: "livekit_ensure_room",
+              startedAt: null,
+              endedAt: null,
+            },
+          })}
+          processingId={null}
+          action={() => Promise.resolve()}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Provider issue");
+    expect(container.textContent).toContain(
+      "The provider room needs attention. Check LiveKit and replace this generation only if retrying cannot recover it.",
+    );
+    expect(container.textContent).toContain("Replace generation");
+    expect(container.textContent).not.toContain("livekit_ensure_room");
+
+    const startButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Start webinar",
+    );
+    expect(startButton).toBeDefined();
+    expect(startButton?.disabled).toBe(true);
+
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it("limits ended-generation recovery to administrators", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <EventOperationsVirtualSessions
+          workspace={workspaceForGeneration(1)}
+          processingId={null}
+          action={() => Promise.resolve()}
+        />,
+      );
+    });
+    expect(container.textContent).not.toContain("Recover with new generation");
+
+    act(() => {
+      root.render(
+        <EventOperationsVirtualSessions
+          workspace={workspaceForGeneration(1, {
+            roles: ["administrator"],
+          })}
+          processingId={null}
+          action={() => Promise.resolve()}
+        />,
+      );
+    });
+    expect(container.textContent).toContain("Recover with new generation");
 
     act(() => {
       root.unmount();

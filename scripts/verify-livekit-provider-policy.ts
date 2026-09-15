@@ -123,6 +123,10 @@ import {
 } from "#/server/db/migrations/0112_livekit_automatic_attendance";
 import { up as upAttendanceReportAudit } from "#/server/db/migrations/0113_event_attendance_report_audit";
 import { up as upAttendanceReportIndexes } from "#/server/db/migrations/0114_event_attendance_report_indexes";
+import {
+  down as downRoomWebhookReceipts,
+  up as upRoomWebhookReceipts,
+} from "#/server/db/migrations/0115_livekit_room_webhook_receipts";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -150,6 +154,7 @@ const endsAt = new Date("2030-09-04T01:00:00.000Z");
 let migrationRestored = false;
 
 try {
+  await downRoomWebhookReceipts(database);
   await downAutomaticAttendance(database);
   await downLobbyRevisionEvidence(database);
   await downConnectionEvidence(database);
@@ -318,6 +323,7 @@ try {
   await upAutomaticAttendance(database);
   await upAttendanceReportAudit(database);
   await upAttendanceReportIndexes(database);
+  await upRoomWebhookReceipts(database);
   assert.equal(
     (
       await sql<{ indexName: string | null }>`
@@ -955,6 +961,7 @@ try {
       await upAutomaticAttendance(database);
       await upAttendanceReportAudit(database);
       await upAttendanceReportIndexes(database);
+      await upRoomWebhookReceipts(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

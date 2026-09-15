@@ -80,6 +80,8 @@ Operational companions:
   non-production fixture contract.
 - [LiveKit recording staging test](../livekit-recording-staging-test.md)
   documents the controlled staging acceptance path.
+- [LiveKit recovery staging test](../livekit-recovery-staging-test.md)
+  documents the bounded provider-failure and generation-replacement drill.
 
 ## Handbook Map
 

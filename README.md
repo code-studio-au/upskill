@@ -67,7 +67,8 @@ remain server-issued and the signed webhook endpoint is `/api/livekit/webhook`.
 Managed recording additionally requires the private recording bucket and
 upload-authorization values in `.env.example`. Use the
 [staging recording acceptance runbook](docs/livekit-recording-staging-test.md)
-for the controlled `staging.upskill.institute` workflow; never reuse staging or
+and the [staging recovery drill](docs/livekit-recovery-staging-test.md) for the
+controlled `staging.upskill.institute` workflows; never reuse staging or
 production provider credentials in local fixtures.
 
 Migration baseline v1 freezes migrations `0001` through `0072`; see ADR 0021.
