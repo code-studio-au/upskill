@@ -605,10 +605,15 @@ export async function exportAdminEventAttendanceReport(
     options.idleTimeoutMilliseconds ??
       ATTENDANCE_REPORT_EXPORT_IDLE_TIMEOUT_MILLISECONDS,
   );
+  function clearIdleDeadline() {
+    if (!idleDeadline) return;
+    clearTimeout(idleDeadline);
+    idleDeadline = undefined;
+  }
   async function finalize(outcome: "commit" | "rollback") {
     if (finalized) return;
     finalized = true;
-    if (idleDeadline) clearTimeout(idleDeadline);
+    clearIdleDeadline();
     try {
       if (outcome === "commit") await transaction.commit().execute();
       else await transaction.rollback().execute();
@@ -619,7 +624,7 @@ export async function exportAdminEventAttendanceReport(
   function resetIdleDeadline(
     controller: ReadableStreamDefaultController<Uint8Array>,
   ) {
-    if (idleDeadline) clearTimeout(idleDeadline);
+    clearIdleDeadline();
     idleDeadline = setTimeout(() => {
       void (async () => {
         if (finalized) return;
@@ -641,6 +646,7 @@ export async function exportAdminEventAttendanceReport(
       resetIdleDeadline(controller);
     },
     async pull(controller) {
+      clearIdleDeadline();
       try {
         for (;;) {
           if (!rows) {

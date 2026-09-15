@@ -1172,7 +1172,8 @@ for (const boundary of [
   "transaction.commit().execute()",
   "transaction.rollback().execute()",
   "resetIdleDeadline",
-  "clearTimeout(idleDeadline)",
+  "clearIdleDeadline",
+  "async pull(controller) {\n      clearIdleDeadline();",
   "Attendance export stream idle deadline exceeded",
 ])
   if (!adminEventAttendanceReport.includes(boundary))
