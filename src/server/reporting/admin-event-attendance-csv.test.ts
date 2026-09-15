@@ -91,4 +91,15 @@ describe("encodeAdminEventAttendanceCsv", () => {
     );
     expect(csv.trim().split("\r\n")).toHaveLength(1);
   });
+
+  it("can omit the header for subsequent streamed batches", () => {
+    const csv = encodeAdminEventAttendanceCsv(
+      report,
+      { q: "", sessionId: "all", state: "all", evidence: "all" },
+      "2030-09-04T02:00:00.000Z",
+      false,
+    );
+    expect(csv).not.toContain('"schema_version"');
+    expect(csv).toContain('"attendance"');
+  });
 });

@@ -1123,12 +1123,15 @@ for (const boundary of [
   'action: "event_attendance.report_exported"',
   "searchApplied: filters.q.length > 0",
   "ATTENDANCE_REPORT_PAGE_SIZE",
+  "ATTENDANCE_REPORT_EXPORT_BATCH_SIZE",
   'count(*)::integer`.as("count")',
-  ".limit(ATTENDANCE_REPORT_PAGE_SIZE)",
-  ".offset((page - 1) * ATTENDANCE_REPORT_PAGE_SIZE)",
+  ".limit(pageSize)",
+  ".offset((page - 1) * pageSize)",
   "from unnest(",
   '"selected_scope.eventSessionId"',
   '"selected_scope.eventParticipationId"',
+  "new ReadableStream<Uint8Array>",
+  "nextPage === 1",
 ])
   if (!adminEventAttendanceReport.includes(boundary))
     failures.push(
@@ -1168,7 +1171,8 @@ for (const boundary of [
   "adminEventAttendanceFilterSchema.safeParse",
   "exportAdminEventAttendanceReport",
   "administrator.user",
-  "encodeAdminEventAttendanceCsv",
+  "exported.body",
+  "exported.occurrenceId",
   '"Cache-Control": "no-store"',
   '"X-Content-Type-Options": "nosniff"',
 ])

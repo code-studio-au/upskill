@@ -12,9 +12,11 @@ import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import { encodeAdminEventAttendanceCsv } from "#/server/reporting/admin-event-attendance-csv";
 import { sql, type Kysely, type Transaction } from "kysely";
 
 const ATTENDANCE_REPORT_PAGE_SIZE = 25;
+const ATTENDANCE_REPORT_EXPORT_BATCH_SIZE = 250;
 
 function evidenceKey(eventSessionId: string, eventParticipationId: string) {
   return `${eventSessionId}\u0000${eventParticipationId}`;
@@ -110,7 +112,8 @@ async function readAdminEventAttendanceReport(
   database: Kysely<Database> | Transaction<Database>,
   eventOccurrenceId: string,
   filters: AdminEventAttendanceFilter,
-  requestedPage: number | null,
+  requestedPage: number,
+  pageSize = ATTENDANCE_REPORT_PAGE_SIZE,
 ): Promise<AdminEventAttendanceReport | null> {
   const baseRows = attendanceRowsQuery(database, eventOccurrenceId, filters);
   const [occurrence, sessions, count] = await Promise.all([
@@ -131,12 +134,9 @@ async function readAdminEventAttendanceReport(
   ]);
   if (!occurrence) return null;
 
-  const pages = Math.max(
-    1,
-    Math.ceil(count.count / ATTENDANCE_REPORT_PAGE_SIZE),
-  );
-  const page = requestedPage === null ? 1 : Math.min(requestedPage, pages);
-  let selectedRowsQuery = baseRows
+  const pages = Math.max(1, Math.ceil(count.count / pageSize));
+  const page = Math.min(requestedPage, pages);
+  const selectedRowsQuery = baseRows
     .select([
       "participation.id as eventParticipationId",
       "session.id as eventSessionId",
@@ -158,11 +158,9 @@ async function readAdminEventAttendanceReport(
     .orderBy("participation.emailSnapshot")
     .orderBy("session.position")
     .orderBy("participation.id")
-    .orderBy("session.id");
-  if (requestedPage !== null)
-    selectedRowsQuery = selectedRowsQuery
-      .limit(ATTENDANCE_REPORT_PAGE_SIZE)
-      .offset((page - 1) * ATTENDANCE_REPORT_PAGE_SIZE);
+    .orderBy("session.id")
+    .limit(pageSize)
+    .offset((page - 1) * pageSize);
   const selectedRows = await selectedRowsQuery.execute();
 
   const selectedScopes = sql<{
@@ -301,7 +299,7 @@ async function readAdminEventAttendanceReport(
       page,
       pages,
       total: count.count,
-      pageSize: ATTENDANCE_REPORT_PAGE_SIZE,
+      pageSize,
     },
   };
 }
@@ -322,15 +320,20 @@ export async function exportAdminEventAttendanceReport(
   eventOccurrenceId: string,
   filters: AdminEventAttendanceFilter,
   administrator: AuthenticatedUser,
-): Promise<AdminEventAttendanceReport | null> {
-  return await getDatabase()
+): Promise<{
+  occurrenceId: string;
+  body: ReadableStream<Uint8Array>;
+} | null> {
+  const database = getDatabase();
+  const firstReport = await database
     .transaction()
     .execute(async (transaction) => {
       const report = await readAdminEventAttendanceReport(
         transaction,
         eventOccurrenceId,
         filters,
-        null,
+        1,
+        ATTENDANCE_REPORT_EXPORT_BATCH_SIZE,
       );
       if (!report) return null;
       await recordDurableAuditEvent(transaction, {
@@ -349,4 +352,49 @@ export async function exportAdminEventAttendanceReport(
       });
       return report;
     });
+  if (!firstReport) return null;
+
+  const asOf = new Date().toISOString();
+  const encoder = new TextEncoder();
+  const pages = firstReport.pagination.pages;
+  let nextPage = 1;
+  let pendingFirstReport: AdminEventAttendanceReport | null = firstReport;
+  const body = new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const report =
+          pendingFirstReport ??
+          (await readAdminEventAttendanceReport(
+            database,
+            eventOccurrenceId,
+            filters,
+            nextPage,
+            ATTENDANCE_REPORT_EXPORT_BATCH_SIZE,
+          ));
+        pendingFirstReport = null;
+        if (!report || report.pagination.page !== nextPage) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(
+          encoder.encode(
+            encodeAdminEventAttendanceCsv(
+              report,
+              filters,
+              asOf,
+              nextPage === 1,
+            ),
+          ),
+        );
+        if (nextPage >= pages) {
+          controller.close();
+          return;
+        }
+        nextPage += 1;
+      } catch (error) {
+        controller.error(error);
+      }
+    },
+  });
+  return { occurrenceId: firstReport.occurrence.id, body };
 }

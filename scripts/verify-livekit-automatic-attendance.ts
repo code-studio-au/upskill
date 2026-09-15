@@ -931,6 +931,21 @@ try {
     { total: 1, participations: [ids.secondParticipation] },
     "Administrator attendance review filtering and counts must be applied by the database read model",
   );
+  const clampedAttendanceReport = await findAdminEventAttendanceReport({
+    eventOccurrenceId: ids.occurrence,
+    q: "Second attendance",
+    sessionId: ids.session,
+    state: "absent",
+    evidence: "staff",
+    page: 100_001,
+  });
+  assert.ok(clampedAttendanceReport);
+  assert.equal(clampedAttendanceReport.pagination.page, 1);
+  assert.deepEqual(
+    clampedAttendanceReport.rows.map((row) => row.eventParticipationId),
+    [ids.secondParticipation],
+    "Large valid page requests must clamp to the report's actual last page",
+  );
   const exportedAttendanceReport = await exportAdminEventAttendanceReport(
     ids.occurrence,
     {
@@ -942,13 +957,12 @@ try {
     administrator,
   );
   assert.ok(exportedAttendanceReport);
-  assert.equal(exportedAttendanceReport.rows.length, 1);
-  assert.equal(
-    exportedAttendanceReport.rows[0]?.eventParticipationId,
-    ids.firstParticipation,
-  );
-  assert.ok(exportedAttendanceReport.rows[0].decisions.length);
-  assert.ok(exportedAttendanceReport.rows[0].intervals.length);
+  const exportedAttendanceCsv = await new Response(
+    exportedAttendanceReport.body,
+  ).text();
+  assert.match(exportedAttendanceCsv, new RegExp(ids.firstParticipation, "u"));
+  assert.match(exportedAttendanceCsv, /"decision"/u);
+  assert.match(exportedAttendanceCsv, /"interval"/u);
   assert.deepEqual(
     await database
       .selectFrom("audit_event")

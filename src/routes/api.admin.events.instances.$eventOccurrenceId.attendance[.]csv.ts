@@ -3,7 +3,6 @@ import {
   adminEventAttendanceFilterSchema,
   adminEventOccurrenceOperationsParamsSchema,
 } from "#/features/admin-event/admin-event-operations.schema";
-import { encodeAdminEventAttendanceCsv } from "#/server/reporting/admin-event-attendance-csv";
 
 const noStoreHeaders = { "Cache-Control": "no-store" };
 
@@ -40,32 +39,25 @@ export const Route = createFileRoute(
           );
         const { exportAdminEventAttendanceReport } =
           await import("#/server/admin/admin-event-attendance-report.server");
-        const report = await exportAdminEventAttendanceReport(
+        const exported = await exportAdminEventAttendanceReport(
           path.data.eventOccurrenceId,
           filters.data,
           administrator.user,
         );
-        if (!report)
+        if (!exported)
           return Response.json(
             { error: "not_found" },
             { status: 404, headers: noStoreHeaders },
           );
 
-        return new Response(
-          encodeAdminEventAttendanceCsv(
-            report,
-            filters.data,
-            new Date().toISOString(),
-          ),
-          {
-            headers: {
-              ...noStoreHeaders,
-              "Content-Type": "text/csv; charset=utf-8",
-              "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`event-attendance-${report.occurrence.id}.csv`)}`,
-              "X-Content-Type-Options": "nosniff",
-            },
+        return new Response(exported.body, {
+          headers: {
+            ...noStoreHeaders,
+            "Content-Type": "text/csv; charset=utf-8",
+            "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(`event-attendance-${exported.occurrenceId}.csv`)}`,
+            "X-Content-Type-Options": "nosniff",
           },
-        );
+        });
       },
     },
   },

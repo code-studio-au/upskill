@@ -108,18 +108,13 @@ export const adminEventAttendanceSearchSchema = z.object({
   sessionId: z.optional(z.catch(attendanceSession, "all" as const)),
   state: z.optional(z.catch(attendanceState, "all" as const)),
   evidence: z.optional(z.catch(attendanceEvidence, "all" as const)),
-  page: z.optional(
-    z.catch(
-      z.coerce.number().check(z.int(), z.minimum(1), z.maximum(100_000)),
-      1,
-    ),
-  ),
+  page: z.optional(z.catch(z.coerce.number().check(z.int(), z.minimum(1)), 1)),
 });
 
 export const adminEventAttendanceReportQuerySchema = z.object({
   eventOccurrenceId: identifier,
   ...attendanceFilterFields,
-  page: z.number().check(z.int(), z.minimum(1), z.maximum(100_000)),
+  page: z.number().check(z.int(), z.minimum(1)),
 });
 
 export type AdminEventAttendanceReportQuery = z.infer<

@@ -134,4 +134,10 @@ describe("attendance report filter validation", () => {
       page: 1,
     });
   });
+
+  it("leaves valid large page numbers for the report-size clamp", () => {
+    expect(
+      adminEventAttendanceSearchSchema.parse({ page: "100001" }).page,
+    ).toBe(100_001);
+  });
 });
