@@ -91,9 +91,35 @@ describe("AdminEventAttendanceReview", () => {
     expect(html).toContain("Export all evidence (26 records)");
     expect(html).toContain("Attendance for Alex Learner in Clinical webinar");
     expect(html).toContain("1 automatic decision");
+    expect(html).toContain("Automatic duration · 20m minimum");
     expect(html).toContain("Page 1 of 2");
     expect(html).toContain("Previous page");
     expect(html).toContain("Next page");
+  });
+
+  it("identifies automatic check-in decisions without a duration threshold", () => {
+    const html = renderToStaticMarkup(
+      <AdminEventAttendanceReview
+        report={{
+          ...report,
+          rows: report.rows.map((row) => ({
+            ...row,
+            decisions: row.decisions.map((decision) => ({
+              ...decision,
+              attendanceMode: "automatic_check_in" as const,
+              attendanceMinimumMinutes: null,
+            })),
+          })),
+        }}
+        filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
+        processingId={null}
+        onFiltersChange={() => undefined}
+        onPageChange={() => undefined}
+        onRecordAttendance={() => undefined}
+      />,
+    );
+    expect(html).toContain("Automatic check-in");
+    expect(html).not.toContain("minimum");
   });
 
   it("keeps pagination controls bounded for large reports", () => {

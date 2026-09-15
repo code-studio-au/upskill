@@ -5,6 +5,7 @@ import { formatLocalDateTime } from "#/features/shared/local-date";
 import { Button, Group, Stack, Text, Title } from "#/features/shared/mantine";
 import {
   adminEventAttendanceFilterSchema,
+  type AdminEventAttendanceDecisionEvidence,
   type AdminEventAttendanceFilter,
   type AdminEventAttendanceReport,
   type AdminEventAttendanceReviewRow,
@@ -41,6 +42,16 @@ const outcomeLabels = {
 
 function duration(seconds: number): string {
   return `${String(Math.floor(seconds / 60))}m ${String(seconds % 60)}s`;
+}
+
+function automaticDecisionPolicy(
+  decision: AdminEventAttendanceDecisionEvidence,
+): string {
+  if (decision.attendanceMode === "automatic_check_in")
+    return "Automatic check-in";
+  return decision.attendanceMinimumMinutes === null
+    ? "Automatic duration"
+    : `Automatic duration · ${String(decision.attendanceMinimumMinutes)}m minimum`;
 }
 
 function confirmAllEvidenceExport(recordCount: number): boolean {
@@ -83,7 +94,7 @@ function Evidence({
       {row.decisions.map((decision) => (
         <Text size="sm" key={decision.id}>
           {attendanceLabels[decision.attendanceState]} · generation{" "}
-          {decision.roomGeneration} ·{" "}
+          {decision.roomGeneration} · {automaticDecisionPolicy(decision)} ·{" "}
           {duration(decision.qualifyingConnectedSeconds)} qualifying ·{" "}
           {outcomeLabels[decision.applicationOutcome]} ·{" "}
           {formatLocalDateTime(decision.decisionAt, { timeZone: timezone })} · v
