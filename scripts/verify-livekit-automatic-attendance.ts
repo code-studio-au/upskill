@@ -882,8 +882,8 @@ try {
     {
       state: firstAttendanceReview.state,
       source: firstAttendanceReview.source,
-      automaticEvidencePresent: firstAttendanceReview.automaticEvidencePresent,
-      intervalEvidencePresent: firstAttendanceReview.intervalEvidencePresent,
+      automaticEvidenceTotal: firstAttendanceReview.automaticEvidenceTotal,
+      intervalEvidenceTotal: firstAttendanceReview.intervalEvidenceTotal,
       decisionStates: firstAttendanceReview.decisions.map(
         (decision) => decision.attendanceState,
       ),
@@ -896,8 +896,8 @@ try {
     {
       state: "attended",
       source: "system",
-      automaticEvidencePresent: true,
-      intervalEvidencePresent: true,
+      automaticEvidenceTotal: 2,
+      intervalEvidenceTotal: 2,
       decisionStates: ["checked_in", "attended"],
       intervalSources: [
         ["provider_reconciliation", "webhook"],
@@ -1100,8 +1100,8 @@ try {
   assert.equal(boundedEvidenceReport.evidenceTruncated, true);
   const boundedEvidenceRow = boundedEvidenceReport.rows[0];
   assert.ok(boundedEvidenceRow);
-  assert.equal(boundedEvidenceRow.automaticEvidencePresent, true);
-  assert.equal(boundedEvidenceRow.intervalEvidencePresent, true);
+  assert.equal(boundedEvidenceRow.automaticEvidenceTotal, 251);
+  assert.equal(boundedEvidenceRow.intervalEvidenceTotal, 1);
   assert.equal(
     boundedEvidenceReport.rows.reduce(
       (count, row) => count + row.decisions.length + row.intervals.length,
@@ -1164,6 +1164,22 @@ try {
       })),
     )
     .execute();
+  await Promise.all(
+    Array.from({ length: 6 }, async () => {
+      const concurrentExport = await exportAdminEventAttendanceReport(
+        ids.occurrence,
+        {
+          q: "Stream attendance learner",
+          sessionId: ids.session,
+          state: "not_recorded",
+          evidence: "all",
+        },
+        administrator,
+      );
+      assert.ok(concurrentExport);
+      await concurrentExport.body.cancel();
+    }),
+  );
   const auditCountBeforeCancellation = await database
     .selectFrom("audit_event")
     .select(sql<number>`count(*)::integer`.as("count"))

@@ -2248,6 +2248,22 @@ test("platform administrators can inspect learner progress", async ({
     await expect(invalidAttendanceCsv.json()).resolves.toEqual({
       error: "invalid_request",
     });
+    await page.goto(`/admin/events/instances/${occurrenceId}?view=staffing`);
+    const defaultAttendanceExport = page.getByRole("link", {
+      name: /^Export all evidence \(\d+ records?\)$/u,
+    });
+    await expect(defaultAttendanceExport).toHaveCount(1);
+    let defaultAttendanceConfirmation = "";
+    page.once("dialog", async (dialog) => {
+      defaultAttendanceConfirmation = dialog.message();
+      await dialog.dismiss();
+    });
+    const defaultAttendanceUrl = page.url();
+    await defaultAttendanceExport.click();
+    expect(defaultAttendanceConfirmation).toContain(
+      "including participant email addresses",
+    );
+    await expect(page).toHaveURL(defaultAttendanceUrl);
     await page.goto(
       `/admin/events/instances/${occurrenceId}?view=registrations`,
     );

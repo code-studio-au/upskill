@@ -23,8 +23,8 @@ const automaticRow: AdminEventAttendanceReviewRow = {
   recordedByName: "Admin User",
   recordedAt: "2030-09-04T00:30:00.000Z",
   updatedAt: "2030-09-04T01:10:00.000Z",
-  automaticEvidencePresent: true,
-  intervalEvidencePresent: true,
+  automaticEvidenceTotal: 1,
+  intervalEvidenceTotal: 1,
   estimatedEvidencePresent: true,
   decisions: [
     {
@@ -65,8 +65,8 @@ const noEvidenceRow: AdminEventAttendanceReviewRow = {
   recordedByName: null,
   recordedAt: null,
   updatedAt: null,
-  automaticEvidencePresent: false,
-  intervalEvidencePresent: false,
+  automaticEvidenceTotal: 0,
+  intervalEvidenceTotal: 0,
   estimatedEvidencePresent: false,
   decisions: [],
   intervals: [],

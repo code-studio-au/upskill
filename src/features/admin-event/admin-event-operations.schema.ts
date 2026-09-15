@@ -162,8 +162,8 @@ export interface AdminEventAttendanceReviewRow {
   recordedByName: string | null;
   recordedAt: string | null;
   updatedAt: string | null;
-  automaticEvidencePresent: boolean;
-  intervalEvidencePresent: boolean;
+  automaticEvidenceTotal: number;
+  intervalEvidenceTotal: number;
   estimatedEvidencePresent: boolean;
   decisions: Array<AdminEventAttendanceDecisionEvidence>;
   intervals: Array<AdminEventAttendanceIntervalEvidence>;

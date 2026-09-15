@@ -43,6 +43,14 @@ function duration(seconds: number): string {
   return `${String(Math.floor(seconds / 60))}m ${String(seconds % 60)}s`;
 }
 
+function confirmAllEvidenceExport(recordCount: number): boolean {
+  const recordLabel =
+    recordCount === 1 ? "attendance record" : "attendance records";
+  return globalThis.confirm(
+    `Export all ${String(recordCount)} ${recordLabel}, including participant email addresses? This ignores the visible filters.`,
+  );
+}
+
 function Evidence({
   row,
   timezone,
@@ -50,24 +58,26 @@ function Evidence({
   row: AdminEventAttendanceReviewRow;
   timezone: string;
 }) {
-  const evidenceOmitted =
-    row.decisions.length === 0 &&
-    row.intervals.length === 0 &&
-    (row.automaticEvidencePresent || row.intervalEvidencePresent);
+  const displayedEvidenceTotal = row.decisions.length + row.intervals.length;
+  const evidenceTotal = row.automaticEvidenceTotal + row.intervalEvidenceTotal;
+  const evidenceTruncated = displayedEvidenceTotal < evidenceTotal;
   return (
     <details className={classes.evidence}>
       <summary>
-        {row.decisions.length
-          ? `${String(row.decisions.length)} automatic decision${row.decisions.length === 1 ? "" : "s"}`
-          : row.intervals.length
-            ? `${String(row.intervals.length)} connection interval${row.intervals.length === 1 ? "" : "s"}`
-            : evidenceOmitted
-              ? "LiveKit evidence omitted from preview"
-              : "No LiveKit evidence"}
+        {evidenceTotal === 0
+          ? "No LiveKit evidence"
+          : evidenceTruncated
+            ? `Showing ${String(displayedEvidenceTotal)} of ${String(evidenceTotal)} LiveKit evidence records`
+            : row.decisions.length
+              ? `${String(row.decisions.length)} automatic decision${row.decisions.length === 1 ? "" : "s"}`
+              : row.intervals.length
+                ? `${String(row.intervals.length)} connection interval${row.intervals.length === 1 ? "" : "s"}`
+                : "No LiveKit evidence"}
       </summary>
-      {evidenceOmitted ? (
+      {evidenceTruncated ? (
         <Text c="dimmed" size="sm">
-          Export the filtered CSV to inspect this row&apos;s complete evidence.
+          This row&apos;s evidence is partially omitted from the preview. Export
+          the filtered CSV to inspect its complete history.
         </Text>
       ) : null}
       {row.decisions.map((decision) => (
@@ -124,6 +134,11 @@ export function AdminEventAttendanceReview({
   const last = rows.length ? first + rows.length - 1 : 0;
   const exportQuery = new URLSearchParams(filters);
   const allEvidenceCount = report.pagination.allTotal;
+  const hasActiveFilters =
+    filters.q.length > 0 ||
+    filters.sessionId !== "all" ||
+    filters.state !== "all" ||
+    filters.evidence !== "all";
   return (
     <Stack gap="lg">
       <AdminDirectorySearch
@@ -192,31 +207,32 @@ export function AdminEventAttendanceReview({
             component="a"
             href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?${exportQuery.toString()}`}
             variant="light"
-          >
-            Export filtered CSV
-          </Button>
-          <Button
-            component="a"
-            href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?q=&sessionId=all&state=all&evidence=all`}
-            variant="outline"
             onClick={(event) => {
-              const recordLabel =
-                allEvidenceCount === 1
-                  ? "attendance record"
-                  : "attendance records";
-              const confirmed = globalThis.confirm(
-                "Export all " +
-                  String(allEvidenceCount) +
-                  " " +
-                  recordLabel +
-                  ", including participant email addresses? This ignores the visible filters.",
-              );
-              if (!confirmed) event.preventDefault();
+              if (
+                !hasActiveFilters &&
+                !confirmAllEvidenceExport(allEvidenceCount)
+              )
+                event.preventDefault();
             }}
           >
-            Export all evidence ({allEvidenceCount}{" "}
-            {allEvidenceCount === 1 ? "record" : "records"})
+            {hasActiveFilters
+              ? "Export filtered CSV"
+              : `Export all evidence (${String(allEvidenceCount)} ${allEvidenceCount === 1 ? "record" : "records"})`}
           </Button>
+          {hasActiveFilters ? (
+            <Button
+              component="a"
+              href={`/api/admin/events/instances/${encodeURIComponent(report.occurrence.id)}/attendance.csv?q=&sessionId=all&state=all&evidence=all`}
+              variant="outline"
+              onClick={(event) => {
+                if (!confirmAllEvidenceExport(allEvidenceCount))
+                  event.preventDefault();
+              }}
+            >
+              Export all evidence ({allEvidenceCount}{" "}
+              {allEvidenceCount === 1 ? "record" : "records"})
+            </Button>
+          ) : null}
         </Group>
       </Group>
       {report.evidenceTruncated ? (

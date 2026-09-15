@@ -32,8 +32,8 @@ const report: AdminEventAttendanceReport = {
       recordedByName: "Admin User",
       recordedAt: "2030-09-04T00:10:00.000Z",
       updatedAt: "2030-09-04T00:30:00.000Z",
-      automaticEvidencePresent: true,
-      intervalEvidencePresent: true,
+      automaticEvidenceTotal: 1,
+      intervalEvidenceTotal: 1,
       estimatedEvidencePresent: true,
       decisions: [
         {
@@ -71,7 +71,12 @@ describe("AdminEventAttendanceReview", () => {
     const html = renderToStaticMarkup(
       <AdminEventAttendanceReview
         report={report}
-        filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
+        filters={{
+          q: "Alex",
+          sessionId: "all",
+          state: "all",
+          evidence: "all",
+        }}
         processingId={null}
         onFiltersChange={() => undefined}
         onPageChange={() => undefined}
@@ -115,6 +120,21 @@ describe("AdminEventAttendanceReview", () => {
     expect(html).not.toContain("Page 2 of 4000");
   });
 
+  it("uses one confirmed broad-export action when no filters are active", () => {
+    const html = renderToStaticMarkup(
+      <AdminEventAttendanceReview
+        report={report}
+        filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
+        processingId={null}
+        onFiltersChange={() => undefined}
+        onPageChange={() => undefined}
+        onRecordAttendance={() => undefined}
+      />,
+    );
+    expect(html).not.toContain("Export filtered CSV");
+    expect(html.match(/Export all evidence \(26 records\)/gu)).toHaveLength(1);
+  });
+
   it("directs administrators to the export when page evidence is truncated", () => {
     const html = renderToStaticMarkup(
       <AdminEventAttendanceReview
@@ -149,7 +169,8 @@ describe("AdminEventAttendanceReview", () => {
         onRecordAttendance={() => undefined}
       />,
     );
-    expect(html).toContain("LiveKit evidence omitted from preview");
+    expect(html).toContain("Showing 0 of 2 LiveKit evidence records");
+    expect(html).toContain("partially omitted from the preview");
     expect(html).not.toContain("<summary>No LiveKit evidence</summary>");
   });
 });

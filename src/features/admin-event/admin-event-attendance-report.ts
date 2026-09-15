@@ -28,15 +28,15 @@ export function filterAdminEventAttendanceRows(
     const matchesEvidence =
       filters.evidence === "all" ||
       (filters.evidence === "automatic" &&
-        (row.automaticEvidencePresent || row.decisions.length > 0)) ||
+        (row.automaticEvidenceTotal > 0 || row.decisions.length > 0)) ||
       (filters.evidence === "staff" &&
         row.source !== null &&
         staffSources.has(row.source)) ||
       (filters.evidence === "estimated" &&
         hasEstimatedAttendanceEvidence(row)) ||
       (filters.evidence === "none" &&
-        !row.automaticEvidencePresent &&
-        !row.intervalEvidencePresent &&
+        row.automaticEvidenceTotal === 0 &&
+        row.intervalEvidenceTotal === 0 &&
         row.decisions.length === 0 &&
         row.intervals.length === 0);
     return (

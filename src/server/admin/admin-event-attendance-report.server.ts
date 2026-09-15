@@ -13,17 +13,41 @@ import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
 import { encodeAdminEventAttendanceCsv } from "#/server/reporting/admin-event-attendance-csv";
-import { sql, type Kysely, type Transaction } from "kysely";
+import {
+  sql,
+  type ControlledTransaction,
+  type Kysely,
+  type Transaction,
+} from "kysely";
 
 const ATTENDANCE_REPORT_PAGE_SIZE = 25;
 const ATTENDANCE_REPORT_EXPORT_BATCH_SIZE = 250;
 const ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT = 250;
+const ATTENDANCE_REPORT_MAX_CONCURRENT_EXPORTS = 4;
 const unfilteredAttendanceFilters: AdminEventAttendanceFilter = {
   q: "",
   sessionId: "all",
   state: "all",
   evidence: "all",
 };
+let activeAttendanceExports = 0;
+const attendanceExportWaiters: Array<() => void> = [];
+
+async function acquireAttendanceExportSlot(): Promise<() => void> {
+  if (activeAttendanceExports >= ATTENDANCE_REPORT_MAX_CONCURRENT_EXPORTS)
+    await new Promise<void>((resolve) => {
+      attendanceExportWaiters.push(resolve);
+    });
+  else activeAttendanceExports += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    const next = attendanceExportWaiters.shift();
+    if (next) next();
+    else activeAttendanceExports -= 1;
+  };
+}
 
 type AttendanceRowCursor = Pick<
   AdminEventAttendanceReviewRow,
@@ -64,6 +88,20 @@ const estimatedEvidenceExists = sql<boolean>`exists (
         estimated_evidence."joinedSource" = 'provider_reconciliation'
         or estimated_evidence."leftSource" in ('provider_reconciliation', 'room_end')
       )
+)`;
+const automaticEvidenceCount = sql<number>`(
+  select count(*)::integer
+    from event_virtual_attendance_decision decision_evidence_count
+    where decision_evidence_count."eventOccurrenceId" = session."eventOccurrenceId"
+      and decision_evidence_count."eventSessionId" = session.id
+      and decision_evidence_count."eventParticipationId" = participation.id
+)`;
+const intervalEvidenceCount = sql<number>`(
+  select count(*)::integer
+    from event_virtual_connection_interval interval_evidence_count
+    where interval_evidence_count."eventOccurrenceId" = session."eventOccurrenceId"
+      and interval_evidence_count."eventSessionId" = session.id
+      and interval_evidence_count."eventParticipationId" = participation.id
 )`;
 
 function attendanceRowsQuery(
@@ -132,24 +170,6 @@ function hasActiveAttendanceFilters(filters: AdminEventAttendanceFilter) {
     filters.state !== "all" ||
     filters.evidence !== "all"
   );
-}
-
-async function readAdminEventAttendanceExportMetadata(
-  database: Kysely<Database> | Transaction<Database>,
-  eventOccurrenceId: string,
-  filters: AdminEventAttendanceFilter,
-): Promise<{ rowCount: number } | null> {
-  const [occurrence, count] = await Promise.all([
-    database
-      .selectFrom("event_occurrence")
-      .select("id")
-      .where("id", "=", eventOccurrenceId)
-      .executeTakeFirst(),
-    attendanceRowsQuery(database, eventOccurrenceId, filters)
-      .select(sql<number>`count(*)::integer`.as("count"))
-      .executeTakeFirstOrThrow(),
-  ]);
-  return occurrence ? { rowCount: count.count } : null;
 }
 
 function attendanceSelectedScopes(
@@ -268,8 +288,8 @@ async function readAdminEventAttendanceRows(
       "actor.name as recordedByName",
       "attendance.recordedAt",
       "attendance.updatedAt",
-      automaticEvidenceExists.as("automaticEvidencePresent"),
-      intervalEvidenceExists.as("intervalEvidencePresent"),
+      automaticEvidenceCount.as("automaticEvidenceTotal"),
+      intervalEvidenceCount.as("intervalEvidenceTotal"),
       estimatedEvidenceExists.as("estimatedEvidencePresent"),
     ])
     .$if(options.order === "export" && options.after !== null, (query) => {
@@ -488,40 +508,28 @@ export async function exportAdminEventAttendanceReport(
   body: ReadableStream<Uint8Array>;
 } | null> {
   const database = getDatabase();
-  const asOf = new Date().toISOString();
-  const exportMetadata = await database
-    .transaction()
-    .execute(async (auditTransaction) => {
-      const metadata = await readAdminEventAttendanceExportMetadata(
-        auditTransaction,
-        eventOccurrenceId,
-        filters,
-      );
-      if (!metadata) return null;
-      await recordDurableAuditEvent(auditTransaction, {
-        actorUserId: administrator.id,
-        action: "event_attendance.report_exported",
-        subjectType: "event_occurrence",
-        subjectId: eventOccurrenceId,
-        metadata: {
-          format: "csv",
-          rowCount: metadata.rowCount,
-          searchApplied: filters.q.length > 0,
-          sessionId: filters.sessionId,
-          state: filters.state,
-          evidence: filters.evidence,
-        },
-      });
-      return metadata;
-    });
-  if (!exportMetadata) return null;
-  const transaction = await database
-    .startTransaction()
-    .setIsolationLevel("repeatable read")
-    .setAccessMode("read only")
-    .execute();
-  let firstReport: AdminEventAttendanceReport | null;
+  const releaseExportSlot = await acquireAttendanceExportSlot();
+  let transaction: ControlledTransaction<Database>;
   try {
+    transaction = await database
+      .startTransaction()
+      .setIsolationLevel("repeatable read")
+      .setAccessMode("read only")
+      .execute();
+  } catch (error) {
+    releaseExportSlot();
+    throw error;
+  }
+  let firstReport: AdminEventAttendanceReport | null;
+  let asOf: string;
+  try {
+    const snapshotClock = await sql<{ asOf: Date }>`
+      select transaction_timestamp() as "asOf"
+    `.execute(transaction);
+    const snapshotAsOf = snapshotClock.rows[0]?.asOf;
+    if (!snapshotAsOf)
+      throw new Error("Attendance export snapshot timestamp is missing");
+    asOf = snapshotAsOf.toISOString();
     firstReport = await readAdminEventAttendanceReport(
       transaction,
       eventOccurrenceId,
@@ -531,11 +539,36 @@ export async function exportAdminEventAttendanceReport(
       "export",
     );
     if (!firstReport) {
-      await transaction.rollback().execute();
+      try {
+        await transaction.rollback().execute();
+      } finally {
+        releaseExportSlot();
+      }
       return null;
     }
+    const exportRowCount = firstReport.pagination.total;
+    await database.transaction().execute(async (auditTransaction) => {
+      await recordDurableAuditEvent(auditTransaction, {
+        actorUserId: administrator.id,
+        action: "event_attendance.report_exported",
+        subjectType: "event_occurrence",
+        subjectId: eventOccurrenceId,
+        metadata: {
+          format: "csv",
+          rowCount: exportRowCount,
+          searchApplied: filters.q.length > 0,
+          sessionId: filters.sessionId,
+          state: filters.state,
+          evidence: filters.evidence,
+        },
+      });
+    });
   } catch (error) {
-    await transaction.rollback().execute();
+    try {
+      await transaction.rollback().execute();
+    } finally {
+      releaseExportSlot();
+    }
     throw error;
   }
 
@@ -552,8 +585,12 @@ export async function exportAdminEventAttendanceReport(
   async function finalize(outcome: "commit" | "rollback") {
     if (finalized) return;
     finalized = true;
-    if (outcome === "commit") await transaction.commit().execute();
-    else await transaction.rollback().execute();
+    try {
+      if (outcome === "commit") await transaction.commit().execute();
+      else await transaction.rollback().execute();
+    } finally {
+      releaseExportSlot();
+    }
   }
   const body = new ReadableStream<Uint8Array>({
     async pull(controller) {

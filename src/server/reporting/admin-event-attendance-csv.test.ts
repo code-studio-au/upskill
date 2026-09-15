@@ -31,8 +31,8 @@ const report: AdminEventAttendanceReport = {
       recordedByName: null,
       recordedAt: "2030-09-04T00:10:00.000Z",
       updatedAt: "2030-09-04T00:30:00.000Z",
-      automaticEvidencePresent: true,
-      intervalEvidencePresent: true,
+      automaticEvidenceTotal: 1,
+      intervalEvidenceTotal: 1,
       estimatedEvidencePresent: true,
       decisions: [
         {
