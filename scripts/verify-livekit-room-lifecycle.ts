@@ -47,6 +47,7 @@ import {
 } from "#/server/events/event-virtual-recording-retention.server";
 import { FakeLiveKitProvider } from "#/server/livekit/livekit-provider.fake";
 import { ingestVerifiedLiveKitRecordingWebhook } from "#/server/livekit/livekit-recording-webhook.server";
+import { ingestVerifiedLiveKitRoomWebhook } from "#/server/livekit/livekit-room-webhook.server";
 import { FakeLiveKitRecordingProvider } from "#/server/livekit/livekit-recording-provider.fake";
 import { eventVirtualPresenterIdentity } from "#/server/events/event-virtual-participant-identity.server";
 import {
@@ -3629,15 +3630,52 @@ try {
         outcome.status === "processed",
     ),
   );
-  await database
-    .updateTable("event_virtual_room")
-    .set({
-      providerStatus: "error",
-      providerErrorCode: "verification_failure",
-    })
-    .where("id", "=", room.id)
-    .executeTakeFirstOrThrow();
   const replacementTime = new Date("2030-09-03T23:40:00.000Z");
+  const preStartFinishedEvent = {
+    providerEnvironment: "test" as const,
+    providerEventId: "EV_VerifyRoomFinishedBeforeStart1",
+    event: "room_finished" as const,
+    createdAtSeconds: Math.floor(replacementTime.getTime() / 1_000),
+    payloadDigest: "b".repeat(64),
+    roomSid: room.providerRoomSid ?? "RM_VerifyRoomBeforeStart1",
+    roomName: room.providerRoomName,
+  };
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRoomWebhook(
+        preStartFinishedEvent,
+        database,
+        getServerEnv(),
+        () => replacementTime,
+      )
+    ).status,
+    "processed",
+    "A provider room ending before Start must enter a safe retryable state",
+  );
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRoomWebhook(
+        preStartFinishedEvent,
+        database,
+        getServerEnv(),
+        () => replacementTime,
+      )
+    ).status,
+    "duplicate",
+    "A repeated room lifecycle webhook must be idempotent",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("event_virtual_room")
+      .select(["doorState", "providerStatus", "providerErrorCode"])
+      .where("id", "=", room.id)
+      .executeTakeFirstOrThrow(),
+    {
+      doorState: "scheduled",
+      providerStatus: "error",
+      providerErrorCode: "livekit_room_finished",
+    },
+  );
   let releaseReplacementLock: (() => void) | undefined;
   const replacementLockHeld = new Promise<void>((resolve) => {
     confirmOccurrenceLock = resolve;
@@ -4033,7 +4071,7 @@ try {
 
   const startRoom = await database
     .selectFrom("event_virtual_room")
-    .select(["id", "providerRoomName", "generation"])
+    .select(["id", "providerRoomName", "providerRoomSid", "generation"])
     .where("eventSessionId", "=", ids.session)
     .where("replacedAt", "is", null)
     .executeTakeFirstOrThrow();
@@ -4396,15 +4434,53 @@ try {
     { status: "ready" },
   );
   const recoveryEndTime = new Date("2030-09-04T00:30:00.000Z");
+  const activeProviderRoomSid = await database
+    .selectFrom("event_virtual_room")
+    .select("providerRoomSid")
+    .where("id", "=", startRoom.id)
+    .executeTakeFirstOrThrow()
+    .then((currentRoom) => currentRoom.providerRoomSid);
+  assert.ok(activeProviderRoomSid);
+  const activeRoomFinishedEvent = {
+    providerEnvironment: "test" as const,
+    providerEventId: "EV_VerifyActiveRoomFinished1",
+    event: "room_finished" as const,
+    createdAtSeconds: Math.floor(recoveryEndTime.getTime() / 1_000),
+    payloadDigest: "c".repeat(64),
+    roomSid: activeProviderRoomSid,
+    roomName: startRoom.providerRoomName,
+  };
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRoomWebhook(
+        activeRoomFinishedEvent,
+        database,
+        getServerEnv(),
+        () => recoveryEndTime,
+      )
+    ).status,
+    "processed",
+    "An unexpected active-room end must close issuance and require recovery",
+  );
   assert.deepEqual(
-    await transitionEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      "end",
-      administrator,
-      { clock: () => recoveryEndTime },
-    ),
-    { status: "ready" },
+    await database
+      .selectFrom("event_virtual_room")
+      .select([
+        "doorState",
+        "providerStatus",
+        "providerErrorCode",
+        "endedByUserId",
+        "endedAt",
+      ])
+      .where("id", "=", startRoom.id)
+      .executeTakeFirstOrThrow(),
+    {
+      doorState: "ended",
+      providerStatus: "error",
+      providerErrorCode: "livekit_room_finished",
+      endedByUserId: null,
+      endedAt: recoveryEndTime,
+    },
   );
 
   const closeBatch = await processAvailableEventVirtualRoomOperations(10, {
@@ -4682,15 +4758,32 @@ try {
       operation.operation === "stop_recording" &&
       operation.target.providerEgressId === recoveredRecording.providerEgressId,
   ).length;
-  assert.deepEqual(
-    await transitionEventVirtualRoom(
-      ids.occurrence,
-      ids.session,
-      "end",
-      administrator,
-      { clock: () => endsAt },
-    ),
-    { status: "ready" },
+  const recoveredProviderRoomSid = await database
+    .selectFrom("event_virtual_room")
+    .select("providerRoomSid")
+    .where("id", "=", recoveredRoom.id)
+    .executeTakeFirstOrThrow()
+    .then((currentRoom) => currentRoom.providerRoomSid);
+  assert.ok(recoveredProviderRoomSid);
+  assert.equal(
+    (
+      await ingestVerifiedLiveKitRoomWebhook(
+        {
+          providerEnvironment: "test",
+          providerEventId: "EV_VerifyRecordingRoomFinished1",
+          event: "room_finished",
+          createdAtSeconds: Math.floor(endsAt.getTime() / 1_000),
+          payloadDigest: "d".repeat(64),
+          roomSid: recoveredProviderRoomSid,
+          roomName: recoveredRoom.providerRoomName,
+        },
+        database,
+        getServerEnv(),
+        () => endsAt,
+      )
+    ).status,
+    "processed",
+    "An unexpected end must also stop an active recording through system-authored evidence",
   );
   const deferredClose = fakeProvider.deferNextClose();
   const recoveredCloseProcessing = processAvailableEventVirtualRoomOperations(
@@ -5695,10 +5788,17 @@ try {
         event.actorUserId !== null ||
         (event.reason === "retention_expired" &&
           (event.action === "event_virtual_recording.deletion_requested" ||
-            event.action === "event_virtual_recording.deleted")),
+            event.action === "event_virtual_recording.deleted")) ||
+        (event.reason === "livekit_room_finished" &&
+          [
+            "event_virtual_recording.completed",
+            "event_virtual_recording.failed",
+            "event_virtual_recording.stop_requested",
+            "event_virtual_recording.stop_started",
+          ].includes(event.action)),
     ),
     true,
-    "Only system retention deletion may omit an initiating staff actor",
+    "Only bounded retention or provider-room lifecycle work may omit an initiating staff actor",
   );
   assert.equal(
     recordingAuditActions.some(
@@ -5711,6 +5811,9 @@ try {
   );
   console.log(
     "Verified LiveKit exact staff authorization, preparation timing, capacity, idempotent room creation, health, lifecycle, recording evidence, closure, replacement, worker processing and durable audit evidence",
+  );
+  console.log(
+    "Verified bounded LiveKit recovery rehearsal: safe provider-failure retry, explicit generation replacement, previous-access revocation, retained recording history, worker settlement and durable audit evidence",
   );
 } finally {
   await database
@@ -5751,6 +5854,10 @@ try {
           ids.failureSession,
         ]),
     )
+    .execute();
+  await database
+    .deleteFrom("livekit_room_webhook_receipt")
+    .where("providerEventId", "like", "EV_Verify%RoomFinished%")
     .execute();
   await database
     .deleteFrom("livekit_webhook_receipt")

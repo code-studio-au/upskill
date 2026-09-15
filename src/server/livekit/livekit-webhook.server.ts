@@ -111,15 +111,19 @@ export async function verifyLiveKitWebhook(
       validated.event === "participant_joined" ||
       validated.event === "participant_left" ||
       validated.event === "participant_connection_aborted";
+    const isRoomEvent =
+      validated.event === "room_started" || validated.event === "room_finished";
     const egressId = decoded.egressInfo?.egressId;
     const egressRoomName = decoded.egressInfo?.roomName;
     if (isEgressEvent) {
       providerOpaqueIdSchema.parse(egressId);
       providerRoomNameSchema.parse(egressRoomName);
     }
-    if (isParticipantEvent) {
+    if (isParticipantEvent || isRoomEvent) {
       providerOpaqueIdSchema.parse(decoded.room?.sid);
       providerRoomNameSchema.parse(decoded.room?.name);
+    }
+    if (isParticipantEvent) {
       providerOpaqueIdSchema.parse(decoded.participant?.sid);
       providerParticipantIdentitySchema.parse(decoded.participant?.identity);
     }

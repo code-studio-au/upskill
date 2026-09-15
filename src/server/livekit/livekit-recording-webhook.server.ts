@@ -50,13 +50,21 @@ export async function ingestVerifiedLiveKitRecordingWebhook(
     await sql`select pg_advisory_xact_lock(hashtextextended(
       ${`${event.providerEnvironment}:${event.providerEventId}`}, 0
     ))`.execute(transaction);
-    const participantReceipt = await transaction
-      .selectFrom("livekit_participant_webhook_receipt")
-      .select("id")
-      .where("providerEnvironment", "=", event.providerEnvironment)
-      .where("providerEventId", "=", event.providerEventId)
-      .executeTakeFirst();
-    if (participantReceipt)
+    const [participantReceipt, roomReceipt] = await Promise.all([
+      transaction
+        .selectFrom("livekit_participant_webhook_receipt")
+        .select("id")
+        .where("providerEnvironment", "=", event.providerEnvironment)
+        .where("providerEventId", "=", event.providerEventId)
+        .executeTakeFirst(),
+      transaction
+        .selectFrom("livekit_room_webhook_receipt")
+        .select("id")
+        .where("providerEnvironment", "=", event.providerEnvironment)
+        .where("providerEventId", "=", event.providerEventId)
+        .executeTakeFirst(),
+    ]);
+    if (participantReceipt || roomReceipt)
       throw new TypeError("Webhook event identity was reused");
     const receiptId = `livekit_webhook_receipt_${randomUUID()}`;
     const inserted = await transaction

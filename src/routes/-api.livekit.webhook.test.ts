@@ -1,12 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type * as ParticipantWebhookModule from "#/server/livekit/livekit-participant-webhook.server";
 import type * as RecordingWebhookModule from "#/server/livekit/livekit-recording-webhook.server";
+import type * as RoomWebhookModule from "#/server/livekit/livekit-room-webhook.server";
 import type * as LiveKitWebhookModule from "#/server/livekit/livekit-webhook.server";
 
 const mocks = vi.hoisted(() => ({
   verifyLiveKitWebhook: vi.fn(),
   ingestVerifiedLiveKitParticipantWebhook: vi.fn(),
   ingestVerifiedLiveKitRecordingWebhook: vi.fn(),
+  ingestVerifiedLiveKitRoomWebhook: vi.fn(),
   logServerEvent: vi.fn(),
 }));
 
@@ -28,6 +30,13 @@ vi.mock(
     ...(await importOriginal<typeof RecordingWebhookModule>()),
     ingestVerifiedLiveKitRecordingWebhook:
       mocks.ingestVerifiedLiveKitRecordingWebhook,
+  }),
+);
+vi.mock(
+  "#/server/livekit/livekit-room-webhook.server",
+  async (importOriginal) => ({
+    ...(await importOriginal<typeof RoomWebhookModule>()),
+    ingestVerifiedLiveKitRoomWebhook: mocks.ingestVerifiedLiveKitRoomWebhook,
   }),
 );
 vi.mock("#/server/logging/server-logger", () => ({
@@ -57,6 +66,10 @@ describe("LiveKit webhook route", () => {
       status: "unsupported",
     });
     mocks.ingestVerifiedLiveKitRecordingWebhook.mockReset();
+    mocks.ingestVerifiedLiveKitRoomWebhook.mockReset();
+    mocks.ingestVerifiedLiveKitRoomWebhook.mockResolvedValue({
+      status: "unsupported",
+    });
     mocks.logServerEvent.mockReset();
   });
 
@@ -91,10 +104,10 @@ describe("LiveKit webhook route", () => {
     },
   );
 
-  it("asks LiveKit to retry a valid unsupported lifecycle event", async () => {
+  it("asks LiveKit to retry a valid event without a dedicated consumer", async () => {
     mocks.verifyLiveKitWebhook.mockResolvedValueOnce({
       providerEventId: "EV_GZDoCEnjEwhx",
-      event: "room_started",
+      event: "track_published",
       createdAtSeconds: 1_788_400_800,
     });
     mocks.ingestVerifiedLiveKitRecordingWebhook.mockResolvedValueOnce({
@@ -112,6 +125,44 @@ describe("LiveKit webhook route", () => {
       }),
     );
   });
+
+  it.each(["processed", "duplicate", "unmatched", "ignored"] as const)(
+    "acknowledges an idempotently persisted room receipt with %s status",
+    async (status) => {
+      const event = {
+        providerEnvironment: "development",
+        providerEventId: "EV_RoomFinished1",
+        event: "room_finished",
+        createdAtSeconds: 1_788_400_800,
+        payloadDigest: "a".repeat(64),
+        roomSid: "RM_1",
+        roomName: "room_generation_1",
+      };
+      mocks.verifyLiveKitWebhook.mockResolvedValueOnce(event);
+      mocks.ingestVerifiedLiveKitRecordingWebhook.mockResolvedValueOnce({
+        status: "unsupported",
+      });
+      mocks.ingestVerifiedLiveKitRoomWebhook.mockResolvedValueOnce({
+        status,
+        receiptId: "livekit_room_webhook_receipt_1",
+        ...(status === "processed" || status === "ignored"
+          ? { roomId: "event_virtual_room_1" }
+          : {}),
+      });
+      const response = await handleLiveKitWebhookRequest(request());
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({ received: true });
+      expect(mocks.ingestVerifiedLiveKitRoomWebhook).toHaveBeenCalledWith(
+        event,
+      );
+      expect(mocks.logServerEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          level: "info",
+          event: "livekit.room_webhook_received",
+        }),
+      );
+    },
+  );
 
   it.each(["processed", "duplicate", "unmatched", "ignored"] as const)(
     "acknowledges an idempotently persisted participant receipt with %s status",

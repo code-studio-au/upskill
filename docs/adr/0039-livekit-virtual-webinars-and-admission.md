@@ -1421,7 +1421,12 @@ gates passed; it does not by itself authorise staging or production activation.
 - [ ] **Slice 8b — production recovery verification:** run bounded provider-failure
       and generation-replacement drills and verify the existing typed recovery
       controls. This is required production-readiness evidence, not a missing
-      happy-path feature.
+      happy-path feature. The repeatable local recovery rehearsal is available as
+      `pnpm run db:verify:livekit-recovery`; the bounded live procedure and
+      evidence contract are documented in the
+      [LiveKit recovery staging test runbook](../livekit-recovery-staging-test.md).
+      This item remains open until the staging drill passes against an exact
+      deployed release.
 - [ ] **Slice 8c — minimum production guardrails:** add actionable alerts for
       provider quota exhaustion, participant/concurrent-room saturation, managed
       Egress failure and approved spend thresholds. Existing publication and room
@@ -1533,6 +1538,8 @@ accepts that capacity.
 
 The bounded managed-recording acceptance sequence is documented in the
 [LiveKit recording staging test runbook](../livekit-recording-staging-test.md).
+The bounded provider-failure and generation-replacement sequence is documented
+in the [LiveKit recovery staging test runbook](../livekit-recovery-staging-test.md).
 
 ### Browser and repository verification
 

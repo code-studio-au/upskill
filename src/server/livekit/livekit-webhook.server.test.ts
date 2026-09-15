@@ -141,6 +141,28 @@ describe("LiveKit webhook verification", () => {
     });
   });
 
+  it("normalizes signed room lifecycle events with an exact room identity", async () => {
+    const payload = Buffer.from(
+      JSON.stringify({
+        event: "room_finished",
+        id: "EV_RoomFinished1",
+        createdAt: "1788400800",
+        room: { sid: "RM_1", name: "room_generation_1" },
+      }),
+    );
+    await expect(
+      verifyLiveKitWebhook(payload, await sign(payload), enabledEnvironment),
+    ).resolves.toEqual({
+      providerEnvironment: "development",
+      providerEventId: "EV_RoomFinished1",
+      event: "room_finished",
+      createdAtSeconds: 1_788_400_800,
+      payloadDigest: createHash("sha256").update(payload).digest("hex"),
+      roomSid: "RM_1",
+      roomName: "room_generation_1",
+    });
+  });
+
   it("rejects malformed opaque provider event identifiers", async () => {
     const payload = Buffer.from(
       webhookPayload().toString().replace("EV_GZDoCEnjEwhx", "EV bad"),
@@ -191,6 +213,20 @@ describe("LiveKit webhook verification", () => {
       verifyLiveKitWebhook(
         missingParticipant,
         await sign(missingParticipant),
+        enabledEnvironment,
+      ),
+    ).rejects.toMatchObject({ code: "LIVEKIT_WEBHOOK_INVALID" });
+    const missingRoom = Buffer.from(
+      JSON.stringify({
+        event: "room_finished",
+        id: "EV_RoomFinished1",
+        createdAt: "1788400800",
+      }),
+    );
+    await expect(
+      verifyLiveKitWebhook(
+        missingRoom,
+        await sign(missingRoom),
         enabledEnvironment,
       ),
     ).rejects.toMatchObject({ code: "LIVEKIT_WEBHOOK_INVALID" });

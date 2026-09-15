@@ -807,7 +807,7 @@ async function insertRecordingOperation(
     roomId: string;
     recordingId: string;
     kind: "start_recording" | "stop_recording";
-    requestedByUserId: string;
+    requestedByUserId: string | null;
     now: Date;
   },
 ): Promise<boolean> {
@@ -921,7 +921,7 @@ async function ensureAutomaticRecordingRequested(
 async function queueAutomaticRecordingStop(
   transaction: Transaction<Database>,
   roomId: string,
-  requestedByUserId: string,
+  requestedByUserId: string | null,
   now: Date,
 ): Promise<void> {
   const recording = await transaction
@@ -951,8 +951,141 @@ async function queueAutomaticRecordingStop(
       eventSessionId: recording.eventSessionId,
       roomGeneration: recording.roomGeneration,
       status: recording.status,
+      ...(requestedByUserId === null
+        ? { reasonCode: "livekit_room_finished" }
+        : {}),
       createdAt: now,
     });
+}
+
+export async function applyLiveKitRoomLifecycleEvent(
+  transaction: Transaction<Database>,
+  input: {
+    event: "room_started" | "room_finished";
+    providerRoomName: string;
+    providerRoomSid: string;
+    observedAt: Date;
+  },
+): Promise<
+  | { status: "unmatched" }
+  | {
+      status: "processed" | "ignored";
+      roomId: string;
+      eventSessionId: string;
+      generation: number;
+    }
+> {
+  const match = await transaction
+    .selectFrom("event_virtual_room as room")
+    .innerJoin("event_session as session", "session.id", "room.eventSessionId")
+    .select([
+      "room.id",
+      "room.eventSessionId",
+      "room.generation",
+      "session.eventOccurrenceId",
+    ])
+    .where("room.provider", "=", "livekit")
+    .where("room.providerRoomName", "=", input.providerRoomName)
+    .executeTakeFirst();
+  if (!match) return { status: "unmatched" };
+
+  await transaction
+    .selectFrom("event_occurrence")
+    .select("id")
+    .where("id", "=", match.eventOccurrenceId)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  const room = await transaction
+    .selectFrom("event_virtual_room")
+    .selectAll()
+    .where("id", "=", match.id)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  if (
+    room.providerRoomSid !== null &&
+    room.providerRoomSid !== input.providerRoomSid
+  )
+    return { status: "unmatched" };
+
+  const matched = {
+    roomId: room.id,
+    eventSessionId: room.eventSessionId,
+    generation: room.generation,
+  };
+  if (input.event === "room_started") {
+    if (room.replacedAt || room.doorState === "ended")
+      return { status: "ignored", ...matched };
+    if (room.providerRoomSid === null)
+      await transaction
+        .updateTable("event_virtual_room")
+        .set({ providerRoomSid: input.providerRoomSid })
+        .where("id", "=", room.id)
+        .executeTakeFirstOrThrow();
+    return { status: "processed", ...matched };
+  }
+
+  if (room.replacedAt || room.doorState === "ended")
+    return { status: "ignored", ...matched };
+
+  const wasActive = room.doorState === "open" || room.doorState === "locked";
+  await transaction
+    .updateTable("event_virtual_room")
+    .set({
+      ...(room.providerRoomSid === null
+        ? { providerRoomSid: input.providerRoomSid }
+        : {}),
+      ...(wasActive
+        ? {
+            doorState: "ended" as const,
+            endedByUserId: null,
+            endedAt: input.observedAt,
+          }
+        : {}),
+      providerStatus: "error",
+      providerErrorCode: "livekit_room_finished",
+    })
+    .where("id", "=", room.id)
+    .executeTakeFirstOrThrow();
+
+  if (wasActive) {
+    await queueAutomaticRecordingStop(
+      transaction,
+      room.id,
+      null,
+      input.observedAt,
+    );
+    await wakeEventVirtualAttendanceReconciliation(
+      transaction,
+      room.id,
+      input.observedAt,
+      false,
+    );
+    await insertRoomOperation(
+      transaction,
+      room.id,
+      "close_room",
+      null,
+      input.observedAt,
+    );
+  }
+  await recordDurableAuditEvent(transaction, {
+    actorUserId: null,
+    action: "event_virtual_room.lifecycle_changed",
+    subjectType: "event_virtual_room",
+    subjectId: room.id,
+    aggregateId: match.eventOccurrenceId,
+    reasonCode: "livekit_room_finished",
+    metadata: {
+      eventSessionId: room.eventSessionId,
+      generation: room.generation,
+      transition: wasActive
+        ? "provider_finished"
+        : "provider_finished_before_start",
+      previousState: room.doorState,
+    },
+    createdAt: input.observedAt,
+  });
+  return { status: "processed", ...matched };
 }
 
 async function currentRoom(
@@ -2671,7 +2804,7 @@ async function recordingStopRequestEvidence(
     stopRequestedAt: Date | null;
   },
 ) {
-  if (input.stopRequestedByUserId && input.stopRequestedAt)
+  if (input.stopRequestedAt)
     return {
       stopRequestedByUserId: input.stopRequestedByUserId,
       stopRequestedAt: input.stopRequestedAt,
@@ -2683,7 +2816,7 @@ async function recordingStopRequestEvidence(
     .where("kind", "=", "stop_recording")
     .where("recordingId", "=", input.recordingId)
     .executeTakeFirst();
-  return operation?.requestedByUserId
+  return operation
     ? {
         stopRequestedByUserId: operation.requestedByUserId,
         stopRequestedAt: operation.createdAt,
@@ -3437,7 +3570,7 @@ async function settleRecordingStop(
       )
         return "stale";
       let terminal = true;
-      if (claimed.recordingId && claimed.requestedByUserId) {
+      if (claimed.recordingId) {
         const recording = await transaction
           .selectFrom("event_virtual_recording")
           .select([
@@ -3463,6 +3596,10 @@ async function settleRecordingStop(
             recording.stopRequestedByUserId ?? claimed.requestedByUserId;
           const stopRequestedAt =
             recording.stopRequestedAt ?? claimed.createdAt;
+          const stopReasonCode =
+            stopRequestedByUserId === null
+              ? "livekit_room_finished"
+              : undefined;
           if (!terminal) {
             const stopStartedAt =
               recording.stopRequestedAt === null ? stopDispatchedAt : null;
@@ -3492,6 +3629,7 @@ async function settleRecordingStop(
                   status: completion.status,
                   previousStatus: recording.status,
                   providerStatus: snapshot.status,
+                  ...(stopReasonCode ? { reasonCode: stopReasonCode } : {}),
                   createdAt: stopStartedAt,
                 });
               await recordRecordingLifecycleAudit(transaction, {
@@ -3504,6 +3642,7 @@ async function settleRecordingStop(
                 status: completion.status,
                 previousStatus: recording.status,
                 providerStatus: snapshot.status,
+                ...(stopReasonCode ? { reasonCode: stopReasonCode } : {}),
                 createdAt: completion.completedAt,
               });
             } else if (snapshot.status === "failed") {
@@ -3532,6 +3671,7 @@ async function settleRecordingStop(
                   status: failure.status,
                   previousStatus: recording.status,
                   providerStatus: snapshot.status,
+                  ...(stopReasonCode ? { reasonCode: stopReasonCode } : {}),
                   createdAt: stopStartedAt,
                 });
               await recordRecordingLifecycleAudit(transaction, {
@@ -3544,7 +3684,7 @@ async function settleRecordingStop(
                 status: failure.status,
                 previousStatus: recording.status,
                 providerStatus: snapshot.status,
-                reasonCode: failure.failureCode,
+                reasonCode: stopReasonCode ?? failure.failureCode,
                 createdAt: failure.completedAt,
               });
             } else {
@@ -3575,6 +3715,7 @@ async function settleRecordingStop(
                   status: "stopping",
                   previousStatus: recording.status,
                   providerStatus: snapshot.status,
+                  ...(stopReasonCode ? { reasonCode: stopReasonCode } : {}),
                   createdAt: stopStartedAt,
                 });
             }
