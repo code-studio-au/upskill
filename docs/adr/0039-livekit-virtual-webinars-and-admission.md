@@ -1431,7 +1431,11 @@ gates passed; it does not by itself authorise staging or production activation.
       provider quota exhaustion, participant/concurrent-room saturation, managed
       Egress failure and approved spend thresholds. Existing publication and room
       limits protect individual operations; monitoring is still required before
-      routine production use.
+      routine production use. The repository implementation and operator
+      evidence contract are documented in the
+      [LiveKit production guardrails runbook](../livekit-production-guardrails.md);
+      this item remains open until the alarms and operational subscription are
+      verified in staging against an exact deployed release.
 - [ ] **Slice 8d — production-readiness closeout:** retain the successful
       2026-09-12 staging evidence for room creation, presenter/learner media,
       recording, signed webhooks, private playback/download, audit and complete

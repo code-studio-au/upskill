@@ -183,6 +183,16 @@ export class ApplicationStack extends Stack {
         stringValue: this.account,
       },
     );
+    const liveKitApprovedMonthlySpendParameter = new StringParameter(
+      this,
+      "LiveKitApprovedMonthlySpendParameter",
+      {
+        parameterName: `/upskill/${props.config.name}/livekit/approved-monthly-spend-aud`,
+        description:
+          "Reviewed LiveKit monthly spend alert threshold in AUD; zero blocks enablement",
+        stringValue: String(props.config.liveKitApprovedMonthlySpendAud),
+      },
+    );
     role.addToPolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
@@ -190,6 +200,7 @@ export class ApplicationStack extends Stack {
         resources: [
           recordingUploadRoleParameter.parameterArn,
           recordingAccessGrantsAccountParameter.parameterArn,
+          liveKitApprovedMonthlySpendParameter.parameterArn,
         ],
       }),
     );
@@ -350,15 +361,17 @@ worker_database_json=$(aws secretsmanager get-secret-value --region ${this.regio
 access_code_encryption_key=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${accessCodeEncryptionSecret.secretArn}' --query SecretString --output text)
 recording_upload_role_arn=$(aws ssm get-parameter --region ${this.region} --name '${recordingUploadRoleParameter.parameterName}' --query Parameter.Value --output text)
 recording_access_grants_account_id=$(aws ssm get-parameter --region ${this.region} --name '${recordingAccessGrantsAccountParameter.parameterName}' --query Parameter.Value --output text)
+livekit_approved_monthly_spend_aud=$(aws ssm get-parameter --region ${this.region} --name '${liveKitApprovedMonthlySpendParameter.parameterName}' --query Parameter.Value --output text)
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)
 deploy_environment_tmp=$(mktemp)
 trap 'rm -f -- "$base_environment_tmp" "$web_environment_tmp" "$worker_environment_tmp" "$deploy_environment_tmp"' EXIT
 jq -r 'to_entries[] | "\\(.key)=\\(.value|tostring|@json)"' <<< "$application_json" > "$base_environment_tmp"
-jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS") | "\\(.key)=\\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
+jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS") | "\\(.key)=\\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
 jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\\($value|@json)"' >> "$base_environment_tmp"
 jq -rn --arg value "$recording_access_grants_account_id" '"LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID=\\($value|@json)"' >> "$base_environment_tmp"
+jq -rn --arg value "$livekit_approved_monthly_spend_aud" '"LIVEKIT_APPROVED_MONTHLY_SPEND_AUD=\\($value|@json)"' >> "$base_environment_tmp"
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")
 database_name=$(jq -r '.dbname' <<< "$database_json")
@@ -411,6 +424,7 @@ UPSKILL_ENV`,
     });
     instance.node.addDependency(recordingUploadRoleParameter);
     instance.node.addDependency(recordingAccessGrantsAccountParameter);
+    instance.node.addDependency(liveKitApprovedMonthlySpendParameter);
     this.instanceId = instance.instanceId;
     Tags.of(instance).add("Application", "upskill");
     Tags.of(instance).add("Environment", props.config.name);
@@ -491,11 +505,114 @@ UPSKILL_ENV`,
       comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
       treatMissingData: TreatMissingData.BREACHING,
     });
+    const liveKitProviderAlarm = new Alarm(this, "LiveKitProviderAlarm", {
+      alarmName: `upskill-${props.config.name}-livekit-provider-probe`,
+      alarmDescription:
+        "LiveKit operational probe failed; keep attendees in the application lobby and inspect provider status and credentials before retrying.",
+      metric: customMetric("LiveKitProviderAvailable"),
+      threshold: 1,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 2,
+      comparisonOperator: ComparisonOperator.LESS_THAN_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    });
+    const liveKitQuotaAlarm = new Alarm(this, "LiveKitQuotaAlarm", {
+      alarmName: `upskill-${props.config.name}-livekit-quota-exhausted`,
+      alarmDescription:
+        "LiveKit reached an approved capacity boundary or denied capacity; inspect provider quotas and active rooms, participants and Egress before starting more sessions.",
+      metric: customMetric("LiveKitQuotaExhausted"),
+      threshold: 1,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    });
+    const liveKitParticipantAlarm = new Alarm(
+      this,
+      "LiveKitParticipantSaturationAlarm",
+      {
+        alarmName: `upskill-${props.config.name}-livekit-participant-saturation`,
+        alarmDescription:
+          "LiveKit concurrent participants reached 80% of the reviewed project limit; inspect active rooms and preserve headroom before admitting more attendees.",
+        metric: customMetric("LiveKitParticipantUtilizationPercent"),
+        threshold: 80,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 2,
+        comparisonOperator:
+          ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: TreatMissingData.NOT_BREACHING,
+      },
+    );
+    const liveKitRoomAlarm = new Alarm(
+      this,
+      "LiveKitConcurrentRoomSaturationAlarm",
+      {
+        alarmName: `upskill-${props.config.name}-livekit-room-saturation`,
+        alarmDescription:
+          "LiveKit active rooms reached 80% of the reviewed concurrent-room limit; inspect room lifecycle and provider capacity before starting more sessions.",
+        metric: customMetric("LiveKitConcurrentRoomUtilizationPercent"),
+        threshold: 80,
+        evaluationPeriods: 3,
+        datapointsToAlarm: 2,
+        comparisonOperator:
+          ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: TreatMissingData.NOT_BREACHING,
+      },
+    );
+    const liveKitEgressAlarm = new Alarm(
+      this,
+      "LiveKitManagedEgressFailureAlarm",
+      {
+        alarmName: `upskill-${props.config.name}-livekit-egress-failure`,
+        alarmDescription:
+          "Managed LiveKit Egress failed in the last ten minutes; inspect the Event Operations recording failure and exact provider job before retrying.",
+        metric: customMetric("LiveKitManagedEgressFailures"),
+        threshold: 1,
+        evaluationPeriods: 2,
+        datapointsToAlarm: 1,
+        comparisonOperator:
+          ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        treatMissingData: TreatMissingData.NOT_BREACHING,
+      },
+    );
+    const liveKitSpendAlarm = new Alarm(this, "LiveKitApprovedSpendAlarm", {
+      alarmName: `upskill-${props.config.name}-livekit-approved-spend`,
+      alarmDescription:
+        "Observed LiveKit month-to-date spend reached the reviewed AUD threshold; pause new LiveKit activation and publication while provider billing is reviewed.",
+      metric: customMetric("LiveKitMonthlySpendAud"),
+      threshold: props.config.liveKitApprovedMonthlySpendAud,
+      evaluationPeriods: 2,
+      datapointsToAlarm: 1,
+      comparisonOperator: ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+      treatMissingData: TreatMissingData.NOT_BREACHING,
+    });
+    const liveKitSpendFreshnessAlarm = new Alarm(
+      this,
+      "LiveKitSpendObservationFreshnessAlarm",
+      {
+        alarmName: `upskill-${props.config.name}-livekit-spend-observation-stale`,
+        alarmDescription:
+          "LiveKit spend evidence is missing, stale or for another billing month; refresh the root-owned observation from provider billing before routine use.",
+        metric: customMetric("LiveKitSpendObservationFresh"),
+        threshold: 1,
+        evaluationPeriods: 2,
+        datapointsToAlarm: 2,
+        comparisonOperator: ComparisonOperator.LESS_THAN_THRESHOLD,
+        treatMissingData: TreatMissingData.NOT_BREACHING,
+      },
+    );
     for (const alarm of [
       readinessAlarm,
       workerAlarm,
       outboxAgeAlarm,
       uncertainDeliveryAlarm,
+      liveKitProviderAlarm,
+      liveKitQuotaAlarm,
+      liveKitParticipantAlarm,
+      liveKitRoomAlarm,
+      liveKitEgressAlarm,
+      liveKitSpendAlarm,
+      liveKitSpendFreshnessAlarm,
     ])
       alarm.addAlarmAction(new SnsAction(props.alarmTopic));
     new CfnOutput(this, "ApplicationInstanceId", {

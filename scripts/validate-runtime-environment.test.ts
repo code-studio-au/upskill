@@ -27,6 +27,7 @@ function stagingEnvironment(
     TEXTBEE_WEBHOOK_SECRET: "configured-webhook-secret",
     LIVEKIT_ENABLED: "false",
     LIVEKIT_PROJECT_ENVIRONMENT: "staging",
+    LIVEKIT_APPROVED_MONTHLY_SPEND_AUD: "0",
     LIVEKIT_RECORDING_UPLOAD_ROLE_ARN:
       "arn:aws:iam::123456789012:role/upskill-staging-recording-upload",
     LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID: "123456789012",
@@ -48,10 +49,29 @@ function stagingEnvironment(
 }
 
 describe("deployed runtime environment", () => {
-  it("accepts the complete least-privilege staging contract", () => {
+  it("accepts the complete least-privilege staging contract with dormant LiveKit spend", () => {
     expect(() => {
       validateDeployedRuntimeEnvironment(stagingEnvironment());
     }).not.toThrow();
+  });
+
+  it("requires positive approved spend before deployed LiveKit enablement", () => {
+    expect(() => {
+      validateDeployedRuntimeEnvironment(
+        stagingEnvironment({
+          LIVEKIT_ENABLED: "true",
+          LIVEKIT_URL: "wss://staging-project.livekit.cloud",
+          LIVEKIT_API_KEY: "staging-key",
+          LIVEKIT_API_SECRET: "staging-secret-with-at-least-32-characters",
+          LIVEKIT_APPROVED_MAX_PARTICIPANTS: "100",
+          LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS: "5",
+          LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS: "500",
+          LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS: "5",
+        }),
+      );
+    }).toThrow(
+      "LIVEKIT_APPROVED_MONTHLY_SPEND_AUD must be greater than zero when LiveKit is enabled",
+    );
   });
 
   it.each([
