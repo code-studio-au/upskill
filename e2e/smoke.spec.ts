@@ -2191,6 +2191,36 @@ test("platform administrators can inspect learner progress", async ({
       [participationId, occurrenceSessionId, administratorUser.id],
     );
     await page.goto(
+      `/admin/events/instances/${occurrenceId}?view=staffing&q=${encodeURIComponent(administratorUser.email)}&sessionId=${encodeURIComponent(occurrenceSessionId)}&state=attended&evidence=staff`,
+    );
+    await expect(
+      page.getByRole("heading", { name: "Attendance review" }),
+    ).toBeVisible();
+    const attendanceReviewRow = page.getByRole("article").filter({
+      hasText: administratorUser.email,
+    });
+    await expect(attendanceReviewRow).toContainText("No LiveKit evidence");
+    await expect(
+      attendanceReviewRow.getByLabel(
+        `Attendance for ${administratorUser.name} in Live workshop`,
+      ),
+    ).toHaveValue("attended");
+    await expect(page.getByLabel("Evidence", { exact: true })).toHaveValue(
+      "staff",
+    );
+    await expect(page.locator("body")).not.toHaveCSS("overflow-x", "scroll");
+    const attendanceAccessibility = await new AxeBuilder({ page }).analyze();
+    expect(attendanceAccessibility.violations).toEqual([]);
+    const attendanceCsv = await page.request.get(
+      `/api/admin/events/instances/${occurrenceId}/attendance.csv?q=${encodeURIComponent(administratorUser.email)}&sessionId=${encodeURIComponent(occurrenceSessionId)}&state=attended&evidence=staff`,
+    );
+    expect(attendanceCsv.status()).toBe(200);
+    expect(attendanceCsv.headers()["cache-control"]).toBe("no-store");
+    expect(attendanceCsv.headers()["x-content-type-options"]).toBe("nosniff");
+    await expect(attendanceCsv.text()).resolves.toContain(
+      '"event-attendance-evidence-v1","attendance"',
+    );
+    await page.goto(
       `/admin/events/instances/${occurrenceId}?view=registrations`,
     );
     const finalisedRegistrationRow = page.getByRole("row").filter({

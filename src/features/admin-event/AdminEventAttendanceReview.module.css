@@ -1,0 +1,52 @@
+.filterGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(9rem, 1fr));
+  gap: var(--mantine-spacing-sm);
+  min-width: min(38rem, 100%);
+}
+
+.rows {
+  display: grid;
+  gap: var(--mantine-spacing-sm);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) minmax(10rem, 1fr);
+  gap: var(--mantine-spacing-md);
+  padding: var(--mantine-spacing-md);
+  border: 1px solid var(--mantine-color-gray-3);
+  border-radius: var(--mantine-radius-md);
+}
+
+.identity {
+  min-width: 0;
+}
+
+.evidence {
+  grid-column: 1 / -1;
+}
+
+.evidence summary {
+  min-height: 2.75rem;
+  padding-block: var(--mantine-spacing-xs);
+  color: var(--mantine-color-indigo-8);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.evidence p + p {
+  margin-top: var(--mantine-spacing-xs);
+}
+
+@media (max-width: 48rem) {
+  .filterGrid,
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+
+  .evidence {
+    grid-column: auto;
+  }
+}

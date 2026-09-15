@@ -111,7 +111,7 @@ verifiers, and CDK verification.
 | Events                             | Public commerce, authoring, registration, learning and lifecycle operations | Add measured recovery/reporting refinements                              |
 | Coordinator workflows              | Region-scoped review, progress, selection and Survey QR operations          | Add alerts only where delivery practice requires them                    |
 | Presenter workflows                | Attendance/QR plus LiveKit green-room, media, admission and recording       | Add printable/minimal export if required                                 |
-| Attendance                         | Durable evidence and corrections                                            | Add offline/minimal operational export                                   |
+| Attendance                         | Durable evidence, corrections, review filters and audited CSV exports       | Add offline/minimal presenter export only if required                    |
 | LiveKit webinars and recording     | Controlled admission, automatic attendance, admin-only recordings           | Complete recovery drills and production guardrails                       |
 | Authenticated user onboarding      | Versioned Survey-backed flow, contact verification and gating               | Add privacy/retention and optional bulk campaign operations              |
 | Open-entry guest check-in          | Guarded Event and LiveKit lobby workflow implemented                        | Add support controls only where required                                 |

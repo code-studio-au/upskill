@@ -9,6 +9,7 @@ import { useCallback, useState } from "react";
 import { lazy, Suspense } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import {
+  adminEventAttendanceFilterSchema,
   adminEventOccurrenceOperationsParamsSchema,
   type AdminEventOccurrenceOperations,
 } from "#/features/admin-event/admin-event-operations.schema";
@@ -32,6 +33,7 @@ import {
 } from "#/features/shared/mantine";
 import {
   createAdminEventLateInvitation,
+  getAdminEventAttendanceReport,
   getAdminEventOccurrenceOperations,
   lockAdminEventRegion,
   recordAdminEventAttendance,
@@ -55,6 +57,19 @@ const searchSchema = z.object({
     ]),
     "overview",
   ),
+  q: z.optional(z.string().check(z.trim(), z.maxLength(100))),
+  sessionId: z.optional(
+    z.union([
+      z.literal("all"),
+      z.string().check(z.trim(), z.minLength(1), z.maxLength(255)),
+    ]),
+  ),
+  state: z.optional(
+    z.enum(["all", "not_recorded", "checked_in", "attended", "absent"]),
+  ),
+  evidence: z.optional(
+    z.enum(["all", "automatic", "staff", "estimated", "none"]),
+  ),
 });
 
 const AdminEventRegistrationTable = lazy(async () => {
@@ -72,6 +87,12 @@ const AdminEventOccurrenceEditor = lazy(async () => {
 const AdminEventActivityTable = lazy(async () => {
   const module = await import("#/features/admin-event/AdminEventActivityTable");
   return { default: module.AdminEventActivityTable };
+});
+
+const AdminEventAttendanceReview = lazy(async () => {
+  const module =
+    await import("#/features/admin-event/AdminEventAttendanceReview");
+  return { default: module.AdminEventAttendanceReview };
 });
 
 const AdminCommunicationPlanEditor = lazy(async () => {
@@ -107,9 +128,10 @@ export const Route = createFileRoute(
   loader: async ({ params }) => {
     const parsed = adminEventOccurrenceOperationsParamsSchema.safeParse(params);
     if (!parsed.success) throw notFound();
-    const result = await getAdminEventOccurrenceOperations({
-      data: parsed.data,
-    });
+    const [result, attendanceReport] = await Promise.all([
+      getAdminEventOccurrenceOperations({ data: parsed.data }),
+      getAdminEventAttendanceReport({ data: parsed.data }),
+    ]);
     if (result.status === "unauthenticated")
       throw redirect({
         to: "/login",
@@ -118,7 +140,17 @@ export const Route = createFileRoute(
         },
       });
     if (result.status === "not-found") throw notFound();
-    return result;
+    if (result.status !== "ready") return result;
+    if (attendanceReport.status === "unauthenticated")
+      throw redirect({
+        to: "/login",
+        search: {
+          redirect: `/admin/events/instances/${encodeURIComponent(parsed.data.eventOccurrenceId)}`,
+        },
+      });
+    if (attendanceReport.status === "not-found") throw notFound();
+    if (attendanceReport.status === "forbidden") return attendanceReport;
+    return { ...result, attendanceReport: attendanceReport.data };
   },
   component: EventInstanceOperationsPage,
 });
@@ -244,11 +276,17 @@ function EventInstanceOperationsPage() {
             })),
           }}
           onCancel={() => {
-            void navigate({ search: { view: "overview" }, replace: true });
+            void navigate({
+              search: { ...search, view: "overview" },
+              replace: true,
+            });
           }}
           onSaved={async () => {
             await router.invalidate();
-            await navigate({ search: { view: "overview" }, replace: true });
+            await navigate({
+              search: { ...search, view: "overview" },
+              replace: true,
+            });
           }}
         />
       </Suspense>
@@ -350,7 +388,7 @@ function EventInstanceOperationsPage() {
           { value: "activity", label: "History" },
           { value: "communications", label: "Communications" },
         ]}
-        onChange={(view) => void navigate({ search: { view } })}
+        onChange={(view) => void navigate({ search: { ...search, view } })}
       />
 
       {search.view === "overview" ? (
@@ -740,94 +778,47 @@ function EventInstanceOperationsPage() {
           <div className={classes.sessionGrid}>
             {workspace.sessions.map((session) => (
               <Paper withBorder radius="lg" p="md" key={session.id}>
-                <Stack gap="md">
-                  <div>
-                    <Title order={3} size="h4">
-                      {session.title}
-                    </Title>
-                    <Text size="sm" mt="xs">
-                      {formatLocalDateTime(session.startsAt, {
-                        timeZone: occurrence.timezone,
-                      })}
-                    </Text>
-                    <Text c="dimmed" size="sm">
-                      {session.presenters
-                        .map((person) => person.name)
-                        .join(", ") || "No presenters assigned"}
-                    </Text>
-                  </div>
-                  {session.attendance.length ? (
-                    <div className={classes.attendanceList}>
-                      {session.attendance.map((participant) => (
-                        <div
-                          className={classes.attendanceRow}
-                          key={participant.eventParticipationId}
-                        >
-                          <div className={classes.attendeeIdentity}>
-                            <Text fw={600} size="sm">
-                              {participant.name}
-                            </Text>
-                            <Text c="dimmed" size="xs">
-                              {participant.email}
-                            </Text>
-                            {participant.mode === "open_entry" ? (
-                              <Badge color="gray" variant="light">
-                                Guest
-                              </Badge>
-                            ) : null}
-                          </div>
-                          <MantineNativeSelect
-                            aria-label={"Attendance for " + participant.name}
-                            value={participant.state}
-                            disabled={
-                              processingId ===
-                              "attendance-" +
-                                session.id +
-                                "-" +
-                                participant.eventParticipationId
-                            }
-                            data={[
-                              { value: "not_recorded", label: "Not recorded" },
-                              { value: "checked_in", label: "Checked in" },
-                              { value: "attended", label: "Attended" },
-                              { value: "absent", label: "Absent" },
-                            ]}
-                            onChange={(event) => {
-                              const state = event.currentTarget.value as
-                                | "not_recorded"
-                                | "checked_in"
-                                | "attended"
-                                | "absent";
-                              void action(
-                                "attendance-" +
-                                  session.id +
-                                  "-" +
-                                  participant.eventParticipationId,
-                                () =>
-                                  recordAdminEventAttendance({
-                                    data: {
-                                      eventOccurrenceId: occurrence.id,
-                                      eventSessionId: session.id,
-                                      eventParticipationId:
-                                        participant.eventParticipationId,
-                                      state,
-                                    },
-                                  }),
-                              );
-                            }}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <Text c="dimmed" size="sm">
-                      No confirmed participants
-                    </Text>
-                  )}
-                </Stack>
+                <Title order={2} size="h4">
+                  {session.title}
+                </Title>
+                <Text size="sm" mt="xs">
+                  {formatLocalDateTime(session.startsAt, {
+                    timeZone: occurrence.timezone,
+                  })}
+                </Text>
+                <Text c="dimmed" size="sm">
+                  {session.presenters.map((person) => person.name).join(", ") ||
+                    "No presenters assigned"}
+                </Text>
               </Paper>
             ))}
           </div>
+          <Suspense fallback={<LoadingSpinner label="Loading attendance" />}>
+            <AdminEventAttendanceReview
+              report={result.attendanceReport}
+              filters={adminEventAttendanceFilterSchema.parse(search)}
+              processingId={processingId}
+              onFiltersChange={(filters) => {
+                void navigate({
+                  search: { ...search, ...filters, view: "staffing" },
+                });
+              }}
+              onRecordAttendance={(row, state) => {
+                void action(
+                  `attendance-${row.eventSessionId}-${row.eventParticipationId}`,
+                  () =>
+                    recordAdminEventAttendance({
+                      data: {
+                        eventOccurrenceId: occurrence.id,
+                        eventSessionId: row.eventSessionId,
+                        eventParticipationId: row.eventParticipationId,
+                        state,
+                      },
+                    }),
+                );
+              }}
+            />
+          </Suspense>
         </Stack>
       ) : null}
       {search.view === "activity" ? (

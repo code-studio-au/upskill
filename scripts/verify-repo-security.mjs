@@ -984,6 +984,24 @@ const liveKitAutomaticAttendanceMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const eventAttendanceReportAuditMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0113_event_attendance_report_audit.ts",
+  ),
+  "utf8",
+);
+const adminEventAttendanceReport = fs.readFileSync(
+  path.join(root, "src/server/admin/admin-event-attendance-report.server.ts"),
+  "utf8",
+);
+const adminEventAttendanceCsvRoute = fs.readFileSync(
+  path.join(
+    root,
+    "src/routes/api.admin.events.instances.$eventOccurrenceId.attendance[.]csv.ts",
+  ),
+  "utf8",
+);
 const objectStorage = fs.readFileSync(
   path.join(root, "src/server/storage/object-storage.server.ts"),
   "utf8",
@@ -1087,6 +1105,42 @@ for (const boundary of [
 ])
   if (!liveKitAutomaticAttendanceMigration.includes(boundary))
     failures.push(`LiveKit automatic attendance guard is missing: ${boundary}`);
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'selectFrom("event_virtual_attendance_decision as decision")',
+  'selectFrom("event_virtual_connection_interval as interval")',
+  'leftJoin("user as actor"',
+  ".transaction()",
+  "recordDurableAuditEvent",
+  'action: "event_attendance.report_exported"',
+  "searchApplied: filters.q.length > 0",
+])
+  if (!adminEventAttendanceReport.includes(boundary))
+    failures.push(
+      `Administrator attendance evidence report boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "getAdministratorRequest",
+  "adminEventAttendanceFilterSchema.safeParse",
+  "exportAdminEventAttendanceReport",
+  "administrator.user",
+  "encodeAdminEventAttendanceCsv",
+  '"Cache-Control": "no-store"',
+  '"X-Content-Type-Options": "nosniff"',
+])
+  if (!adminEventAttendanceCsvRoute.includes(boundary))
+    failures.push(
+      `Administrator attendance CSV boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  '"event_attendance.report_exported"',
+  "audit_event_action_known_ck",
+  "immutable audit history",
+])
+  if (!eventAttendanceReportAuditMigration.includes(boundary))
+    failures.push(
+      `Administrator attendance report audit migration is missing: ${boundary}`,
+    );
 const attendanceGuardReplacementIndex =
   liveKitAutomaticAttendanceMigration.indexOf(
     "create or replace function guard_event_virtual_connection_interval",

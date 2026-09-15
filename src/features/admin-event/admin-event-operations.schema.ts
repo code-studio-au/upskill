@@ -72,6 +72,89 @@ export const adminEventAttendanceSchema = z.object({
   state: z.enum(["not_recorded", "checked_in", "attended", "absent"]),
 });
 
+export const adminEventAttendanceFilterSchema = z.object({
+  q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
+  sessionId: z.catch(z.union([z.literal("all"), identifier]), "all" as const),
+  state: z.catch(
+    z.enum(["all", "not_recorded", "checked_in", "attended", "absent"]),
+    "all" as const,
+  ),
+  evidence: z.catch(
+    z.enum(["all", "automatic", "staff", "estimated", "none"]),
+    "all" as const,
+  ),
+});
+
+export type AdminEventAttendanceFilter = z.infer<
+  typeof adminEventAttendanceFilterSchema
+>;
+
+export type AdminEventAttendanceSource =
+  "system" | "self_check_in" | "coordinator" | "presenter" | "administrator";
+
+export interface AdminEventAttendanceDecisionEvidence {
+  id: string;
+  roomGeneration: number;
+  attendanceState: "checked_in" | "attended";
+  attendanceMode: "automatic_check_in" | "automatic_duration";
+  attendanceMinimumMinutes: number | null;
+  qualifyingConnectedSeconds: number;
+  calculationVersion: number;
+  decisionAt: string;
+  applicationOutcome: "applied" | "already_satisfied" | "preserved_manual";
+  previousAttendanceState:
+    "not_recorded" | "checked_in" | "attended" | "absent" | null;
+  previousAttendanceSource: AdminEventAttendanceSource | null;
+}
+
+export interface AdminEventAttendanceIntervalEvidence {
+  id: string;
+  roomGeneration: number;
+  joinedAt: string;
+  leftAt: string | null;
+  joinedSource: "webhook" | "provider_reconciliation";
+  leftSource: "webhook" | "provider_reconciliation" | "room_end" | null;
+}
+
+export interface AdminEventAttendanceReviewRow {
+  eventParticipationId: string;
+  eventSessionId: string;
+  sessionTitle: string;
+  sessionStartsAt: string;
+  sessionEndsAt: string;
+  name: string;
+  email: string;
+  participationMode: "registered" | "open_entry";
+  state: "not_recorded" | "checked_in" | "attended" | "absent";
+  source: AdminEventAttendanceSource | null;
+  recordedByName: string | null;
+  recordedAt: string | null;
+  updatedAt: string | null;
+  decisions: Array<AdminEventAttendanceDecisionEvidence>;
+  intervals: Array<AdminEventAttendanceIntervalEvidence>;
+}
+
+export interface AdminEventAttendanceReport {
+  occurrence: {
+    id: string;
+    title: string;
+    timezone: string;
+  };
+  sessions: Array<{
+    id: string;
+    title: string;
+    startsAt: string;
+    endsAt: string;
+  }>;
+  rows: Array<AdminEventAttendanceReviewRow>;
+}
+
+export type AdminEventAttendanceReportResult =
+  | { status: "ready"; data: AdminEventAttendanceReport }
+  | { status: "unauthenticated" }
+  | { status: "forbidden" }
+  | { status: "not-found" };
+
 export const adminEventAccountSetupSchema = z.object({
   eventOccurrenceId: identifier,
   userId: identifier,

@@ -121,6 +121,7 @@ import {
   down as downAutomaticAttendance,
   up as upAutomaticAttendance,
 } from "#/server/db/migrations/0112_livekit_automatic_attendance";
+import { up as upAttendanceReportAudit } from "#/server/db/migrations/0113_event_attendance_report_audit";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 
 const ids = {
@@ -314,6 +315,7 @@ try {
   await upConnectionEvidence(database);
   await upLobbyRevisionEvidence(database);
   await upAutomaticAttendance(database);
+  await upAttendanceReportAudit(database);
   migrationRestored = true;
 
   const backfilledOccurrence = await database
@@ -940,6 +942,7 @@ try {
       await upConnectionEvidence(database);
       await upLobbyRevisionEvidence(database);
       await upAutomaticAttendance(database);
+      await upAttendanceReportAudit(database);
     } catch {
       // Preserve the original verification failure when restoration cannot run.
     }

@@ -69,6 +69,7 @@ export const durableAuditActions = [
   "coordination_region.retired",
   "coordination_region.reactivated",
   "event_attendance.recorded",
+  "event_attendance.report_exported",
   "event_late_registration_invitation.accepted",
   "event_late_registration_invitation.created",
   "event_late_registration_invitation.revoked",

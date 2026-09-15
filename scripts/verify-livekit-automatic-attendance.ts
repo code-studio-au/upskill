@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { sql } from "kysely";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordAdminEventAttendance } from "#/server/admin/admin-event-registration-operations.server";
+import {
+  exportAdminEventAttendanceReport,
+  findAdminEventAttendanceReport,
+} from "#/server/admin/admin-event-attendance-report.server";
 import { destroyDatabase, getDatabase } from "#/server/db/database.server";
 import {
   down as downAutomaticAttendanceMigration,
@@ -854,6 +858,86 @@ try {
       leftSource: "webhook",
     },
     "A delayed signed leave must replace conservative room-end evidence without rewriting the historical decision",
+  );
+  const attendanceReport = await findAdminEventAttendanceReport(ids.occurrence);
+  assert.ok(attendanceReport);
+  const firstAttendanceReview = attendanceReport.rows.find(
+    (row) =>
+      row.eventSessionId === ids.session &&
+      row.eventParticipationId === ids.firstParticipation,
+  );
+  assert.ok(firstAttendanceReview);
+  assert.deepEqual(
+    {
+      state: firstAttendanceReview.state,
+      source: firstAttendanceReview.source,
+      decisionStates: firstAttendanceReview.decisions.map(
+        (decision) => decision.attendanceState,
+      ),
+      intervalSources: firstAttendanceReview.intervals
+        .map(
+          (interval) => [interval.joinedSource, interval.leftSource] as const,
+        )
+        .sort((left, right) => left[0].localeCompare(right[0])),
+    },
+    {
+      state: "attended",
+      source: "system",
+      decisionStates: ["checked_in", "attended"],
+      intervalSources: [
+        ["provider_reconciliation", "webhook"],
+        ["webhook", "room_end"],
+      ],
+    },
+    "Administrator attendance review must explain system decisions with retained interval sources",
+  );
+  const correctedAttendanceReview = attendanceReport.rows.find(
+    (row) =>
+      row.eventSessionId === ids.session &&
+      row.eventParticipationId === ids.secondParticipation,
+  );
+  assert.ok(correctedAttendanceReview);
+  assert.equal(correctedAttendanceReview.state, "absent");
+  assert.equal(correctedAttendanceReview.source, "administrator");
+  assert.ok(
+    correctedAttendanceReview.decisions.some(
+      (decision) => decision.applicationOutcome === "preserved_manual",
+    ),
+    "Administrator attendance review must retain automatic evidence without obscuring the staff correction",
+  );
+  const exportedAttendanceReport = await exportAdminEventAttendanceReport(
+    ids.occurrence,
+    {
+      q: "First attendance",
+      sessionId: ids.session,
+      state: "attended",
+      evidence: "automatic",
+    },
+    administrator,
+  );
+  assert.ok(exportedAttendanceReport);
+  assert.deepEqual(
+    await database
+      .selectFrom("audit_event")
+      .select(["actorUserId", "action", "subjectType", "subjectId", "metadata"])
+      .where("action", "=", "event_attendance.report_exported")
+      .where("subjectId", "=", ids.occurrence)
+      .executeTakeFirstOrThrow(),
+    {
+      actorUserId: ids.administrator,
+      action: "event_attendance.report_exported",
+      subjectType: "event_occurrence",
+      subjectId: ids.occurrence,
+      metadata: {
+        format: "csv",
+        rowCount: 1,
+        searchApplied: true,
+        sessionId: ids.session,
+        state: "attended",
+        evidence: "automatic",
+      },
+    },
+    "Attendance report exports must create durable audit evidence without retaining the search text",
   );
   await database
     .insertInto("event_virtual_attendance_decision")

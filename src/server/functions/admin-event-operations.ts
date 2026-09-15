@@ -16,6 +16,7 @@ import {
   adminEventRegistrationRegionMismatchAcknowledgementSchema,
   adminEventRegistrationRegionReassignmentSchema,
   type AdminEventOperationsMutationResult,
+  type AdminEventAttendanceReportResult,
   type AdminEventOperationsResult,
 } from "#/features/admin-event/admin-event-operations.schema";
 
@@ -38,6 +39,17 @@ export const getAdminEventOccurrenceOperations = createServerFn({
       data.eventOccurrenceId,
     );
     return detail ? { status: "ready", data: detail } : { status: "not-found" };
+  });
+
+export const getAdminEventAttendanceReport = createServerFn({ method: "GET" })
+  .validator(adminEventOccurrenceOperationsParamsSchema)
+  .handler(async ({ data }): Promise<AdminEventAttendanceReportResult> => {
+    const request = await administratorRequest();
+    if (request.status !== "ready") return request;
+    const { findAdminEventAttendanceReport } =
+      await import("#/server/admin/admin-event-attendance-report.server");
+    const report = await findAdminEventAttendanceReport(data.eventOccurrenceId);
+    return report ? { status: "ready", data: report } : { status: "not-found" };
   });
 
 export const rotateAdminEventGuestAccess = createServerFn({ method: "POST" })
