@@ -942,6 +942,13 @@ try {
     administrator,
   );
   assert.ok(exportedAttendanceReport);
+  assert.equal(exportedAttendanceReport.rows.length, 1);
+  assert.equal(
+    exportedAttendanceReport.rows[0]?.eventParticipationId,
+    ids.firstParticipation,
+  );
+  assert.ok(exportedAttendanceReport.rows[0].decisions.length);
+  assert.ok(exportedAttendanceReport.rows[0].intervals.length);
   assert.deepEqual(
     await database
       .selectFrom("audit_event")

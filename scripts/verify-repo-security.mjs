@@ -1126,11 +1126,21 @@ for (const boundary of [
   'count(*)::integer`.as("count")',
   ".limit(ATTENDANCE_REPORT_PAGE_SIZE)",
   ".offset((page - 1) * ATTENDANCE_REPORT_PAGE_SIZE)",
+  "if (selectedRows.length > 0)",
+  'expression("decision.eventSessionId", "=", row.eventSessionId)',
 ])
   if (!adminEventAttendanceReport.includes(boundary))
     failures.push(
       `Administrator attendance evidence report boundary is missing: ${boundary}`,
     );
+if (
+  !/expression\(\s*"interval\.eventParticipationId",\s*"=",\s*row\.eventParticipationId,/u.test(
+    adminEventAttendanceReport,
+  )
+)
+  failures.push(
+    "Administrator attendance interval evidence must be scoped to selected participant-session rows",
+  );
 for (const boundary of [
   "loaderDeps: ({ search }) => search",
   'deps.view === "staffing"',

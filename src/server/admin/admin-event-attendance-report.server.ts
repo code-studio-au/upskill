@@ -198,7 +198,7 @@ async function readAdminEventAttendanceReport(
     ])
     .where("interval.eventOccurrenceId", "=", eventOccurrenceId)
     .orderBy("interval.joinedAt");
-  if (requestedPage !== null && selectedRows.length > 0) {
+  if (selectedRows.length > 0) {
     decisionsQuery = decisionsQuery.where((expression) =>
       expression.or(
         selectedRows.map((row) =>

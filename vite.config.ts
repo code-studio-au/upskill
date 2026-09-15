@@ -21,12 +21,7 @@ export default defineConfig({
     },
   },
   build: {
-    minify: "terser",
-    terserOptions: {
-      compress: { passes: 5 },
-      format: { comments: false },
-      module: true,
-    },
+    minify: "oxc",
     rolldownOptions: {
       output: {
         chunkFileNames: (chunk) =>
