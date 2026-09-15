@@ -9,6 +9,18 @@ import { ApplicationStack } from "../lib/application-stack.js";
 import { DeploymentIdentityStack } from "../lib/deployment-identity-stack.js";
 import { AccessGrantsStack } from "../lib/access-grants-stack.js";
 
+test("LiveKit spend approval is explicit CDK context", () => {
+  expect(environmentConfig("production").liveKitApprovedMonthlySpendAud).toBe(
+    0,
+  );
+  expect(
+    environmentConfig("production", "250").liveKitApprovedMonthlySpendAud,
+  ).toBe(250);
+  expect(() => environmentConfig("production", "0")).toThrow(
+    "must be a positive number",
+  );
+});
+
 test("shared S3 Access Grants foundation owns the account-region singleton", () => {
   const stack = new AccessGrantsStack(new App(), "AccessGrants");
   const template = Template.fromStack(stack);
@@ -152,7 +164,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   applicationTemplate.hasResourceProperties("AWS::EC2::LaunchTemplate", {
     LaunchTemplateData: { MetadataOptions: { HttpTokens: "required" } },
   });
-  applicationTemplate.resourceCountIs("AWS::CloudWatch::Alarm", 6);
+  applicationTemplate.resourceCountIs("AWS::CloudWatch::Alarm", 13);
   applicationTemplate.resourceCountIs("AWS::SecretsManager::Secret", 5);
   applicationTemplate.hasResourceProperties("AWS::SecretsManager::Secret", {
     Name: "upskill/staging/livekit",
@@ -286,6 +298,15 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(recordingAccountParameterLogicalId).toBeDefined();
   expect(applicationInstance?.DependsOn).toContain(
     recordingAccountParameterLogicalId,
+  );
+  const liveKitSpendParameterLogicalId = Object.keys(parameters).find(
+    (logicalId) =>
+      parameters[logicalId]?.Properties?.Name ===
+      "/upskill/staging/livekit/approved-monthly-spend-aud",
+  );
+  expect(liveKitSpendParameterLogicalId).toBeDefined();
+  expect(applicationInstance?.DependsOn).toContain(
+    liveKitSpendParameterLogicalId,
   );
   const policies = applicationTemplate.findResources(
     "AWS::IAM::Policy",
@@ -434,6 +455,9 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(JSON.stringify(recordingRoleParameterReadPolicy)).toContain(
     "RecordingAccessGrantsAccountParameter",
   );
+  expect(JSON.stringify(recordingRoleParameterReadPolicy)).toContain(
+    "LiveKitApprovedMonthlySpendParameter",
+  );
   expect(
     recordingRoleParameterReadPolicy?.Properties.PolicyDocument.Statement,
   ).toEqual(
@@ -450,6 +474,50 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(applicationJson).toContain(
     '.key == \\"LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS\\"',
   );
+  expect(applicationJson).toContain(
+    '.key == \\"LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS\\"',
+  );
+  expect(applicationJson).toContain(
+    '.key == \\"LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS\\"',
+  );
+  applicationTemplate.hasResourceProperties("AWS::SSM::Parameter", {
+    Name: "/upskill/staging/livekit/approved-monthly-spend-aud",
+    Type: "String",
+    Value: "0",
+  });
+  expect(applicationJson).toContain("LIVEKIT_APPROVED_MONTHLY_SPEND_AUD");
+  for (const [alarmName, metricName, threshold] of [
+    ["upskill-staging-livekit-provider-probe", "LiveKitProviderAvailable", 1],
+    ["upskill-staging-livekit-quota-exhausted", "LiveKitQuotaExhausted", 1],
+    [
+      "upskill-staging-livekit-participant-saturation",
+      "LiveKitParticipantUtilizationPercent",
+      80,
+    ],
+    [
+      "upskill-staging-livekit-room-saturation",
+      "LiveKitConcurrentRoomUtilizationPercent",
+      80,
+    ],
+    [
+      "upskill-staging-livekit-egress-failure",
+      "LiveKitManagedEgressFailures",
+      1,
+    ],
+    ["upskill-staging-livekit-approved-spend", "LiveKitMonthlySpendAud", 0],
+    [
+      "upskill-staging-livekit-spend-observation-stale",
+      "LiveKitSpendObservationFresh",
+      1,
+    ],
+  ] as const)
+    applicationTemplate.hasResourceProperties("AWS::CloudWatch::Alarm", {
+      AlarmName: alarmName,
+      Namespace: "Upskill",
+      MetricName: metricName,
+      Threshold: threshold,
+      AlarmActions: Match.anyValue(),
+    });
   expect(applicationJson).toContain("/swapfile");
   expect(applicationJson).toContain("dnf install -y jq libatomic nginx xz");
   expect(applicationJson).toContain(

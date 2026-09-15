@@ -9,7 +9,10 @@ import { NetworkStack } from "../lib/network-stack.js";
 import { StorageStack } from "../lib/storage-stack.js";
 
 const app = new App();
-const config = environmentConfig(app.node.tryGetContext("environment"));
+const config = environmentConfig(
+  app.node.tryGetContext("environment"),
+  app.node.tryGetContext("liveKitApprovedMonthlySpendAud"),
+);
 const stackPrefix = `upskill-${config.name}`;
 const account = process.env.CDK_DEFAULT_ACCOUNT;
 const region = process.env.CDK_DEFAULT_REGION;

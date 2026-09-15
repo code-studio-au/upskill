@@ -350,6 +350,11 @@ for (const requiredLiveKitBoundary of [
   '"LiveKitConfiguration"',
   "liveKitConfigurationSecret.grantRead(role)",
   "livekit_json",
+  '"LiveKitQuotaAlarm"',
+  '"LiveKitManagedEgressFailureAlarm"',
+  '"LiveKitApprovedSpendAlarm"',
+  '"LiveKitSpendObservationFreshnessAlarm"',
+  "LIVEKIT_APPROVED_MONTHLY_SPEND_AUD",
 ]) {
   if (!applicationStack.includes(requiredLiveKitBoundary))
     failures.push(

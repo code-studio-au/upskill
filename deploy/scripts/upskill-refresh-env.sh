@@ -41,19 +41,21 @@ if ! recording_access_grants_account_id=$(aws ssm get-parameter --region "$refre
   echo "LiveKit production recording upload authorization is not provisioned; continuing without it" >&2
   recording_access_grants_account_id=""
 fi
+livekit_approved_monthly_spend_aud=$(aws ssm get-parameter --region "$refresh_region" --name "/${secret_prefix}/livekit/approved-monthly-spend-aud" --query Parameter.Value --output text)
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)
 deploy_environment_tmp=$(mktemp)
 trap 'rm -f -- "$base_environment_tmp" "$web_environment_tmp" "$worker_environment_tmp" "$deploy_environment_tmp"' EXIT
 jq -r 'to_entries[] | "\(.key)=\(.value|tostring|@json)"' <<< "$application_json" > "$base_environment_tmp"
-jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS") | "\(.key)=\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
+jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS") | "\(.key)=\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
 if [[ -n "$recording_upload_role_arn" ]]; then
   jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\($value|@json)"' >> "$base_environment_tmp"
 fi
 if [[ -n "$recording_access_grants_account_id" ]]; then
   jq -rn --arg value "$recording_access_grants_account_id" '"LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID=\($value|@json)"' >> "$base_environment_tmp"
 fi
+jq -rn --arg value "$livekit_approved_monthly_spend_aud" '"LIVEKIT_APPROVED_MONTHLY_SPEND_AUD=\($value|@json)"' >> "$base_environment_tmp"
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")
 database_name=$(jq -r '.dbname' <<< "$database_json")

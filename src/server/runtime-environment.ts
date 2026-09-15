@@ -54,6 +54,23 @@ const environmentSchema = z.object({
     .min(1)
     .max(10_000)
     .optional(),
+  LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(100_000)
+    .optional(),
+  LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(10_000)
+    .optional(),
+  LIVEKIT_APPROVED_MONTHLY_SPEND_AUD: z.coerce
+    .number()
+    .positive()
+    .max(10_000_000)
+    .optional(),
   LIVEKIT_RECORDING_UPLOAD_ROLE_ARN: z
     .string()
     .min(20)
@@ -102,6 +119,8 @@ export type ServerEnv = z.infer<typeof environmentSchema>;
 
 function requireLiveKitConfiguration(validated: ServerEnv): void {
   if (!validated.LIVEKIT_ENABLED) return;
+  const localEnvironment =
+    validated.APP_ENV === "development" || validated.APP_ENV === "test";
   if (!validated.LIVEKIT_PROJECT_ENVIRONMENT)
     throw new Error(
       "LIVEKIT_PROJECT_ENVIRONMENT is required when LiveKit is enabled",
@@ -128,10 +147,34 @@ function requireLiveKitConfiguration(validated: ServerEnv): void {
     throw new Error(
       "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS is required when LiveKit is enabled",
     );
+  if (
+    !localEnvironment &&
+    !validated.LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS
+  )
+    throw new Error(
+      "LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS is required when LiveKit is enabled",
+    );
+  if (
+    validated.LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS &&
+    validated.LIVEKIT_APPROVED_MAX_PARTICIPANTS >
+      validated.LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS
+  )
+    throw new Error(
+      "LIVEKIT_APPROVED_MAX_PARTICIPANTS cannot exceed the approved project participant limit",
+    );
+  if (
+    !localEnvironment &&
+    !validated.LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS
+  )
+    throw new Error(
+      "LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS is required when LiveKit is enabled",
+    );
+  if (!localEnvironment && !validated.LIVEKIT_APPROVED_MONTHLY_SPEND_AUD)
+    throw new Error(
+      "LIVEKIT_APPROVED_MONTHLY_SPEND_AUD is required when LiveKit is enabled",
+    );
 
   const url = new URL(validated.LIVEKIT_URL);
-  const localEnvironment =
-    validated.APP_ENV === "development" || validated.APP_ENV === "test";
   if (url.protocol !== "wss:" && !(localEnvironment && url.protocol === "ws:"))
     throw new Error(
       "LIVEKIT_URL must use WSS outside local environments and WS or WSS locally",

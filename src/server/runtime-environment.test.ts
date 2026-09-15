@@ -39,8 +39,38 @@ describe("server runtime environment", () => {
         LIVEKIT_API_SECRET: "development-secret-with-32-characters",
         LIVEKIT_APPROVED_MAX_PARTICIPANTS: "10",
         LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS: "1",
+        LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS: "10",
+        LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS: "1",
+        LIVEKIT_APPROVED_MONTHLY_SPEND_AUD: "100",
       }),
     ).not.toThrow();
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        LIVEKIT_ENABLED: "true",
+        LIVEKIT_PROJECT_ENVIRONMENT: "development",
+        LIVEKIT_URL: "ws://127.0.0.1:7880",
+        LIVEKIT_API_KEY: "development-key",
+        LIVEKIT_API_SECRET: "development-secret-with-32-characters",
+        LIVEKIT_APPROVED_MAX_PARTICIPANTS: "10",
+        LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS: "1",
+      }),
+    ).not.toThrow();
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        LIVEKIT_ENABLED: "true",
+        LIVEKIT_PROJECT_ENVIRONMENT: "development",
+        LIVEKIT_URL: "ws://127.0.0.1:7880",
+        LIVEKIT_API_KEY: "development-key",
+        LIVEKIT_API_SECRET: "development-secret-with-32-characters",
+        LIVEKIT_APPROVED_MAX_PARTICIPANTS: "11",
+        LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS: "1",
+        LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS: "10",
+        LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS: "1",
+        LIVEKIT_APPROVED_MONTHLY_SPEND_AUD: "100",
+      }),
+    ).toThrow("cannot exceed the approved project participant limit");
   });
 
   it("requires canonical WSS and non-placeholder LiveKit values outside local environments", () => {
@@ -54,6 +84,9 @@ describe("server runtime environment", () => {
       LIVEKIT_API_SECRET: "staging-secret-with-at-least-32-characters",
       LIVEKIT_APPROVED_MAX_PARTICIPANTS: "100",
       LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS: "5",
+      LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS: "500",
+      LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS: "5",
+      LIVEKIT_APPROVED_MONTHLY_SPEND_AUD: "1000",
     };
     expect(() => parseServerEnvironment(deployedLiveKit)).toThrow(
       "must use WSS",

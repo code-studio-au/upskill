@@ -63,6 +63,9 @@ try {
     "deploy/scripts/invite-platform-admin.sh",
     "deploy/scripts/reset-and-seed-staging.sh",
     "deploy/scripts/seed-staging.sh",
+    "deploy/scripts/record-livekit-spend-observation.sh",
+    "scripts/report-operational-metrics.mjs",
+    "src/server/livekit/livekit-operational-metrics.ts",
     "src/server/access/access-code-encryption.server.ts",
     "src/server/storage/object-storage.server.ts",
     "src/server/runtime-environment.ts",
@@ -185,6 +188,16 @@ try {
       stdio: "inherit",
     },
   );
+  execFileSync(
+    process.execPath,
+    ["--check", "scripts/report-operational-metrics.mjs"],
+    { cwd: extractedDirectory, stdio: "inherit" },
+  );
+  execFileSync(
+    process.execPath,
+    ["--check", "src/server/livekit/livekit-operational-metrics.ts"],
+    { cwd: extractedDirectory, stdio: "inherit" },
+  );
   execFileSync("bash", ["-n", "deploy/scripts/bootstrap-platform-admin.sh"], {
     cwd: extractedDirectory,
     stdio: "inherit",
@@ -205,6 +218,11 @@ try {
     cwd: extractedDirectory,
     stdio: "inherit",
   });
+  execFileSync(
+    "bash",
+    ["-n", "deploy/scripts/record-livekit-spend-observation.sh"],
+    { cwd: extractedDirectory, stdio: "inherit" },
+  );
   console.log("Verified immutable deploy artifact and production dependencies");
 } finally {
   rmSync(temporaryDirectory, { recursive: true, force: true });

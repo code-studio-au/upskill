@@ -210,6 +210,7 @@ install -o root -g root -m 0750 "$release_path/deploy/scripts/invite-platform-ad
 install -o root -g root -m 0750 "$release_path/deploy/scripts/seed-staging.sh" /usr/local/sbin/upskill-seed-staging
 install -o root -g root -m 0750 "$release_path/deploy/scripts/reset-and-seed-staging.sh" /usr/local/sbin/upskill-reset-and-seed-staging
 install -m 0755 "$release_path/deploy/scripts/publish-operational-metrics.sh" /usr/local/bin/upskill-publish-operational-metrics
+install -o root -g root -m 0750 "$release_path/deploy/scripts/record-livekit-spend-observation.sh" /usr/local/sbin/upskill-record-livekit-spend-observation
 if [[ ! -f /etc/nginx/conf.d/upskill.conf ]]; then
   install -m 0644 "$release_path/deploy/nginx/upskill.conf" /etc/nginx/conf.d/upskill.conf
 fi

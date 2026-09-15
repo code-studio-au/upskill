@@ -8,6 +8,7 @@ export interface EnvironmentConfig {
   databaseInstanceType: string;
   databaseBackupRetentionDays: number;
   alarmEmail: string;
+  liveKitApprovedMonthlySpendAud: number;
 }
 
 const configurations: Record<EnvironmentName, EnvironmentConfig> = {
@@ -19,6 +20,7 @@ const configurations: Record<EnvironmentName, EnvironmentConfig> = {
     databaseInstanceType: "t4g.micro",
     databaseBackupRetentionDays: 7,
     alarmEmail: "ops@codestudio.au",
+    liveKitApprovedMonthlySpendAud: 0,
   },
   production: {
     name: "production",
@@ -28,11 +30,25 @@ const configurations: Record<EnvironmentName, EnvironmentConfig> = {
     databaseInstanceType: "t4g.micro",
     databaseBackupRetentionDays: 14,
     alarmEmail: "ops@codestudio.au",
+    liveKitApprovedMonthlySpendAud: 0,
   },
 };
 
-export function environmentConfig(value: unknown): EnvironmentConfig {
+export function environmentConfig(
+  value: unknown,
+  liveKitApprovedMonthlySpendAud?: unknown,
+): EnvironmentConfig {
   if (value !== "staging" && value !== "production")
     throw new Error("CDK context environment must be staging or production");
-  return configurations[value];
+  if (liveKitApprovedMonthlySpendAud === undefined)
+    return configurations[value];
+  const parsedSpend = Number(liveKitApprovedMonthlySpendAud);
+  if (!Number.isFinite(parsedSpend) || parsedSpend <= 0)
+    throw new Error(
+      "CDK context liveKitApprovedMonthlySpendAud must be a positive number",
+    );
+  return {
+    ...configurations[value],
+    liveKitApprovedMonthlySpendAud: parsedSpend,
+  };
 }
