@@ -68,7 +68,7 @@ const environmentSchema = z.object({
     .optional(),
   LIVEKIT_APPROVED_MONTHLY_SPEND_AUD: z.coerce
     .number()
-    .positive()
+    .min(0)
     .max(10_000_000)
     .optional(),
   LIVEKIT_RECORDING_UPLOAD_ROLE_ARN: z
@@ -169,9 +169,13 @@ function requireLiveKitConfiguration(validated: ServerEnv): void {
     throw new Error(
       "LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS is required when LiveKit is enabled",
     );
-  if (!localEnvironment && !validated.LIVEKIT_APPROVED_MONTHLY_SPEND_AUD)
+  if (
+    !localEnvironment &&
+    (!validated.LIVEKIT_APPROVED_MONTHLY_SPEND_AUD ||
+      validated.LIVEKIT_APPROVED_MONTHLY_SPEND_AUD <= 0)
+  )
     throw new Error(
-      "LIVEKIT_APPROVED_MONTHLY_SPEND_AUD is required when LiveKit is enabled",
+      "LIVEKIT_APPROVED_MONTHLY_SPEND_AUD must be greater than zero when LiveKit is enabled",
     );
 
   const url = new URL(validated.LIVEKIT_URL);
