@@ -59,6 +59,7 @@ const report: AdminEventAttendanceReport = {
       ],
     },
   ],
+  pagination: { page: 1, pages: 2, total: 26, pageSize: 25 },
 };
 
 describe("AdminEventAttendanceReview", () => {
@@ -69,6 +70,7 @@ describe("AdminEventAttendanceReview", () => {
         filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
         processingId={null}
         onFiltersChange={() => undefined}
+        onPageChange={() => undefined}
         onRecordAttendance={() => undefined}
       />,
     );
@@ -79,5 +81,6 @@ describe("AdminEventAttendanceReview", () => {
     expect(html).toContain("Export filtered CSV");
     expect(html).toContain("Attendance for Alex Learner in Clinical webinar");
     expect(html).toContain("1 automatic decision");
+    expect(html).toContain("Page 1 of 2");
   });
 });

@@ -10,6 +10,7 @@ import { lazy, Suspense } from "react";
 import { AdminAccessDenied } from "#/features/admin/AdminAccessDenied";
 import {
   adminEventAttendanceFilterSchema,
+  adminEventAttendanceSearchSchema,
   adminEventOccurrenceOperationsParamsSchema,
   type AdminEventOccurrenceOperations,
 } from "#/features/admin-event/admin-event-operations.schema";
@@ -45,7 +46,7 @@ import {
 import { z } from "#/validation/zod";
 import classes from "./admin.events.instances.$eventOccurrenceId.module.css";
 
-const searchSchema = z.object({
+const viewSearchSchema = z.object({
   view: z.catch(
     z.enum([
       "overview",
@@ -56,19 +57,6 @@ const searchSchema = z.object({
       "configuration",
     ]),
     "overview",
-  ),
-  q: z.optional(z.string().check(z.trim(), z.maxLength(100))),
-  sessionId: z.optional(
-    z.union([
-      z.literal("all"),
-      z.string().check(z.trim(), z.minLength(1), z.maxLength(255)),
-    ]),
-  ),
-  state: z.optional(
-    z.enum(["all", "not_recorded", "checked_in", "attended", "absent"]),
-  ),
-  evidence: z.optional(
-    z.enum(["all", "automatic", "staff", "estimated", "none"]),
   ),
 });
 
@@ -123,14 +111,29 @@ function DetailList({
 export const Route = createFileRoute(
   "/admin/events/instances/$eventOccurrenceId",
 )({
-  validateSearch: searchSchema,
+  validateSearch: (search) => ({
+    ...adminEventAttendanceSearchSchema.parse(search),
+    ...viewSearchSchema.parse(search),
+  }),
+  loaderDeps: ({ search }) => search,
   ssr: false,
-  loader: async ({ params }) => {
+  loader: async ({ params, deps }) => {
     const parsed = adminEventOccurrenceOperationsParamsSchema.safeParse(params);
     if (!parsed.success) throw notFound();
     const [result, attendanceReport] = await Promise.all([
       getAdminEventOccurrenceOperations({ data: parsed.data }),
-      getAdminEventAttendanceReport({ data: parsed.data }),
+      deps.view === "staffing"
+        ? getAdminEventAttendanceReport({
+            data: {
+              ...parsed.data,
+              q: deps.q ?? "",
+              sessionId: deps.sessionId ?? "all",
+              state: deps.state ?? "all",
+              evidence: deps.evidence ?? "all",
+              page: deps.page ?? 1,
+            },
+          })
+        : Promise.resolve(null),
     ]);
     if (result.status === "unauthenticated")
       throw redirect({
@@ -141,16 +144,20 @@ export const Route = createFileRoute(
       });
     if (result.status === "not-found") throw notFound();
     if (result.status !== "ready") return result;
-    if (attendanceReport.status === "unauthenticated")
+    if (attendanceReport?.status === "unauthenticated")
       throw redirect({
         to: "/login",
         search: {
           redirect: `/admin/events/instances/${encodeURIComponent(parsed.data.eventOccurrenceId)}`,
         },
       });
-    if (attendanceReport.status === "not-found") throw notFound();
-    if (attendanceReport.status === "forbidden") return attendanceReport;
-    return { ...result, attendanceReport: attendanceReport.data };
+    if (attendanceReport?.status === "not-found") throw notFound();
+    if (attendanceReport?.status === "forbidden") return attendanceReport;
+    return {
+      ...result,
+      attendanceReport:
+        attendanceReport?.status === "ready" ? attendanceReport.data : null,
+    };
   },
   component: EventInstanceOperationsPage,
 });
@@ -756,7 +763,7 @@ function EventInstanceOperationsPage() {
         </Stack>
       ) : null}
 
-      {search.view === "staffing" ? (
+      {search.view === "staffing" && result.attendanceReport ? (
         <Stack gap="lg">
           <Paper withBorder radius="lg" p="md">
             <div className={classes.teamBar}>
@@ -796,11 +803,21 @@ function EventInstanceOperationsPage() {
           <Suspense fallback={<LoadingSpinner label="Loading attendance" />}>
             <AdminEventAttendanceReview
               report={result.attendanceReport}
-              filters={adminEventAttendanceFilterSchema.parse(search)}
+              filters={adminEventAttendanceFilterSchema.parse({
+                q: search.q ?? "",
+                sessionId: search.sessionId ?? "all",
+                state: search.state ?? "all",
+                evidence: search.evidence ?? "all",
+              })}
               processingId={processingId}
               onFiltersChange={(filters) => {
                 void navigate({
-                  search: { ...search, ...filters, view: "staffing" },
+                  search: { ...search, ...filters, page: 1, view: "staffing" },
+                });
+              }}
+              onPageChange={(page) => {
+                void navigate({
+                  search: { ...search, page, view: "staffing" },
                 });
               }}
               onRecordAttendance={(row, state) => {

@@ -859,7 +859,14 @@ try {
     },
     "A delayed signed leave must replace conservative room-end evidence without rewriting the historical decision",
   );
-  const attendanceReport = await findAdminEventAttendanceReport(ids.occurrence);
+  const attendanceReport = await findAdminEventAttendanceReport({
+    eventOccurrenceId: ids.occurrence,
+    q: "",
+    sessionId: "all",
+    state: "all",
+    evidence: "all",
+    page: 1,
+  });
   assert.ok(attendanceReport);
   const firstAttendanceReview = attendanceReport.rows.find(
     (row) =>
@@ -904,6 +911,25 @@ try {
       (decision) => decision.applicationOutcome === "preserved_manual",
     ),
     "Administrator attendance review must retain automatic evidence without obscuring the staff correction",
+  );
+  const staffFilteredAttendanceReport = await findAdminEventAttendanceReport({
+    eventOccurrenceId: ids.occurrence,
+    q: "Second attendance",
+    sessionId: ids.session,
+    state: "absent",
+    evidence: "staff",
+    page: 1,
+  });
+  assert.ok(staffFilteredAttendanceReport);
+  assert.deepEqual(
+    {
+      total: staffFilteredAttendanceReport.pagination.total,
+      participations: staffFilteredAttendanceReport.rows.map(
+        (row) => row.eventParticipationId,
+      ),
+    },
+    { total: 1, participations: [ids.secondParticipation] },
+    "Administrator attendance review filtering and counts must be applied by the database read model",
   );
   const exportedAttendanceReport = await exportAdminEventAttendanceReport(
     ids.occurrence,

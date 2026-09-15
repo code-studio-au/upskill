@@ -995,6 +995,14 @@ const adminEventAttendanceReport = fs.readFileSync(
   path.join(root, "src/server/admin/admin-event-attendance-report.server.ts"),
   "utf8",
 );
+const adminEventOperationsSchema = fs.readFileSync(
+  path.join(root, "src/features/admin-event/admin-event-operations.schema.ts"),
+  "utf8",
+);
+const adminEventInstanceRoute = fs.readFileSync(
+  path.join(root, "src/routes/admin.events.instances.$eventOccurrenceId.tsx"),
+  "utf8",
+);
 const adminEventAttendanceCsvRoute = fs.readFileSync(
   path.join(
     root,
@@ -1114,11 +1122,40 @@ for (const boundary of [
   "recordDurableAuditEvent",
   'action: "event_attendance.report_exported"',
   "searchApplied: filters.q.length > 0",
+  "ATTENDANCE_REPORT_PAGE_SIZE",
+  'count(*)::integer`.as("count")',
+  ".limit(ATTENDANCE_REPORT_PAGE_SIZE)",
+  ".offset((page - 1) * ATTENDANCE_REPORT_PAGE_SIZE)",
 ])
   if (!adminEventAttendanceReport.includes(boundary))
     failures.push(
       `Administrator attendance evidence report boundary is missing: ${boundary}`,
     );
+for (const boundary of [
+  "loaderDeps: ({ search }) => search",
+  'deps.view === "staffing"',
+  "attendanceReport?.status",
+])
+  if (!adminEventInstanceRoute.includes(boundary))
+    failures.push(
+      `Administrator attendance route loading boundary is missing: ${boundary}`,
+    );
+const strictAttendanceFilterStart = adminEventOperationsSchema.indexOf(
+  "export const adminEventAttendanceFilterSchema",
+);
+const forgivingAttendanceSearchStart = adminEventOperationsSchema.indexOf(
+  "export const adminEventAttendanceSearchSchema",
+);
+if (
+  strictAttendanceFilterStart < 0 ||
+  forgivingAttendanceSearchStart < strictAttendanceFilterStart ||
+  adminEventOperationsSchema
+    .slice(strictAttendanceFilterStart, forgivingAttendanceSearchStart)
+    .includes("z.catch")
+)
+  failures.push(
+    "Administrator attendance network filters must remain strict and separate from forgiving browser search normalization",
+  );
 for (const boundary of [
   "getAdministratorRequest",
   "adminEventAttendanceFilterSchema.safeParse",

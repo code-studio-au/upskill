@@ -1,6 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
   adminEventAttendanceSchema,
+  adminEventAttendanceReportQuerySchema,
   adminEventAccountSetupSchema,
   adminEventCoordinatorDecisionSchema,
   adminEventFinalDecisionSchema,
@@ -42,13 +43,13 @@ export const getAdminEventOccurrenceOperations = createServerFn({
   });
 
 export const getAdminEventAttendanceReport = createServerFn({ method: "GET" })
-  .validator(adminEventOccurrenceOperationsParamsSchema)
+  .validator(adminEventAttendanceReportQuerySchema)
   .handler(async ({ data }): Promise<AdminEventAttendanceReportResult> => {
     const request = await administratorRequest();
     if (request.status !== "ready") return request;
     const { findAdminEventAttendanceReport } =
       await import("#/server/admin/admin-event-attendance-report.server");
-    const report = await findAdminEventAttendanceReport(data.eventOccurrenceId);
+    const report = await findAdminEventAttendanceReport(data);
     return report ? { status: "ready", data: report } : { status: "not-found" };
   });
 

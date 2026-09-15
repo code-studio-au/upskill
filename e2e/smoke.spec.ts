@@ -2220,6 +2220,13 @@ test("platform administrators can inspect learner progress", async ({
     await expect(attendanceCsv.text()).resolves.toContain(
       '"event-attendance-evidence-v1","attendance"',
     );
+    const invalidAttendanceCsv = await page.request.get(
+      `/api/admin/events/instances/${occurrenceId}/attendance.csv?q=&sessionId=all&state=attend&evidence=all`,
+    );
+    expect(invalidAttendanceCsv.status()).toBe(400);
+    await expect(invalidAttendanceCsv.json()).resolves.toEqual({
+      error: "invalid_request",
+    });
     await page.goto(
       `/admin/events/instances/${occurrenceId}?view=registrations`,
     );

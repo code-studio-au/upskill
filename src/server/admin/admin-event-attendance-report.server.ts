@@ -5,111 +5,233 @@ import type {
   AdminEventAttendanceDecisionEvidence,
   AdminEventAttendanceIntervalEvidence,
   AdminEventAttendanceReport,
+  AdminEventAttendanceReportQuery,
+  AdminEventAttendanceReviewRow,
 } from "#/features/admin-event/admin-event-operations.schema";
-import { filterAdminEventAttendanceRows } from "#/features/admin-event/admin-event-attendance-report";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { recordDurableAuditEvent } from "#/server/audit/audit-event.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
-import type { Kysely, Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
+
+const ATTENDANCE_REPORT_PAGE_SIZE = 25;
 
 function evidenceKey(eventSessionId: string, eventParticipationId: string) {
   return `${eventSessionId}\u0000${eventParticipationId}`;
 }
 
+function searchPattern(query: string): string {
+  return `%${query.replaceAll("\\", "\\\\").replaceAll("%", "\\%").replaceAll("_", "\\_")}%`;
+}
+
+const automaticEvidenceExists = sql<boolean>`exists (
+  select 1
+    from event_virtual_attendance_decision decision_evidence
+    where decision_evidence."eventSessionId" = session.id
+      and decision_evidence."eventParticipationId" = participation.id
+)`;
+const intervalEvidenceExists = sql<boolean>`exists (
+  select 1
+    from event_virtual_connection_interval interval_evidence
+    where interval_evidence."eventSessionId" = session.id
+      and interval_evidence."eventParticipationId" = participation.id
+)`;
+const estimatedEvidenceExists = sql<boolean>`exists (
+  select 1
+    from event_virtual_connection_interval estimated_evidence
+    where estimated_evidence."eventSessionId" = session.id
+      and estimated_evidence."eventParticipationId" = participation.id
+      and (
+        estimated_evidence."joinedSource" = 'provider_reconciliation'
+        or estimated_evidence."leftSource" in ('provider_reconciliation', 'room_end')
+      )
+)`;
+
+function attendanceRowsQuery(
+  database: Kysely<Database> | Transaction<Database>,
+  eventOccurrenceId: string,
+  filters: AdminEventAttendanceFilter,
+) {
+  const pattern = searchPattern(filters.q);
+  return database
+    .selectFrom("event_session as session")
+    .innerJoin("event_participation as participation", (join) =>
+      join.onRef(
+        "participation.eventOccurrenceId",
+        "=",
+        "session.eventOccurrenceId",
+      ),
+    )
+    .leftJoin("event_attendance as attendance", (join) =>
+      join
+        .onRef("attendance.eventSessionId", "=", "session.id")
+        .onRef("attendance.eventParticipationId", "=", "participation.id"),
+    )
+    .leftJoin("user as actor", "actor.id", "attendance.recordedByUserId")
+    .where("session.eventOccurrenceId", "=", eventOccurrenceId)
+    .$if(filters.q.length > 0, (query) =>
+      query.where((expression) =>
+        expression.or([
+          expression("participation.nameSnapshot", "ilike", pattern),
+          expression("participation.emailSnapshot", "ilike", pattern),
+          expression("session.title", "ilike", pattern),
+        ]),
+      ),
+    )
+    .$if(filters.sessionId !== "all", (query) =>
+      query.where("session.id", "=", filters.sessionId),
+    )
+    .$if(filters.state !== "all", (query) =>
+      query.where(
+        sql<boolean>`coalesce(attendance.state, 'not_recorded') = ${filters.state}`,
+      ),
+    )
+    .$if(filters.evidence === "automatic", (query) =>
+      query.where(automaticEvidenceExists),
+    )
+    .$if(filters.evidence === "staff", (query) =>
+      query.where("attendance.source", "in", [
+        "administrator",
+        "coordinator",
+        "presenter",
+      ]),
+    )
+    .$if(filters.evidence === "estimated", (query) =>
+      query.where(estimatedEvidenceExists),
+    )
+    .$if(filters.evidence === "none", (query) =>
+      query
+        .where(sql<boolean>`not (${automaticEvidenceExists})`)
+        .where(sql<boolean>`not (${intervalEvidenceExists})`),
+    );
+}
+
 async function readAdminEventAttendanceReport(
   database: Kysely<Database> | Transaction<Database>,
   eventOccurrenceId: string,
+  filters: AdminEventAttendanceFilter,
+  requestedPage: number | null,
 ): Promise<AdminEventAttendanceReport | null> {
-  const occurrence = await database
-    .selectFrom("event_occurrence")
-    .select(["id", "title", "timezone"])
-    .where("id", "=", eventOccurrenceId)
-    .executeTakeFirst();
+  const baseRows = attendanceRowsQuery(database, eventOccurrenceId, filters);
+  const [occurrence, sessions, count] = await Promise.all([
+    database
+      .selectFrom("event_occurrence")
+      .select(["id", "title", "timezone"])
+      .where("id", "=", eventOccurrenceId)
+      .executeTakeFirst(),
+    database
+      .selectFrom("event_session")
+      .select(["id", "title", "startsAt", "endsAt"])
+      .where("eventOccurrenceId", "=", eventOccurrenceId)
+      .orderBy("position")
+      .execute(),
+    baseRows
+      .select(sql<number>`count(*)::integer`.as("count"))
+      .executeTakeFirstOrThrow(),
+  ]);
   if (!occurrence) return null;
 
-  const [sessions, participations, attendance, decisions, intervals] =
-    await Promise.all([
-      database
-        .selectFrom("event_session")
-        .select(["id", "title", "startsAt", "endsAt"])
-        .where("eventOccurrenceId", "=", eventOccurrenceId)
-        .orderBy("position")
-        .execute(),
-      database
-        .selectFrom("event_participation")
-        .select([
-          "id",
-          "nameSnapshot as name",
-          "emailSnapshot as email",
-          "mode",
-        ])
-        .where("eventOccurrenceId", "=", eventOccurrenceId)
-        .orderBy("nameSnapshot")
-        .orderBy("emailSnapshot")
-        .execute(),
-      database
-        .selectFrom("event_attendance as attendance")
-        .innerJoin(
-          "event_session as session",
-          "session.id",
-          "attendance.eventSessionId",
-        )
-        .leftJoin("user as actor", "actor.id", "attendance.recordedByUserId")
-        .select([
-          "attendance.eventParticipationId",
-          "attendance.eventSessionId",
-          "attendance.state",
-          "attendance.source",
-          "attendance.recordedAt",
-          "attendance.updatedAt",
-          "actor.name as recordedByName",
-        ])
-        .where("session.eventOccurrenceId", "=", eventOccurrenceId)
-        .execute(),
-      database
-        .selectFrom("event_virtual_attendance_decision as decision")
-        .select([
-          "decision.id",
-          "decision.eventSessionId",
-          "decision.eventParticipationId",
-          "decision.roomGeneration",
-          "decision.attendanceState",
-          "decision.attendanceMode",
-          "decision.attendanceMinimumMinutes",
-          "decision.qualifyingConnectedSeconds",
-          "decision.calculationVersion",
-          "decision.decisionAt",
-          "decision.applicationOutcome",
-          "decision.previousAttendanceState",
-          "decision.previousAttendanceSource",
-        ])
-        .where("decision.eventOccurrenceId", "=", eventOccurrenceId)
-        .orderBy("decision.decisionAt")
-        .execute(),
-      database
-        .selectFrom("event_virtual_connection_interval as interval")
-        .select([
-          "interval.id",
-          "interval.eventSessionId",
-          "interval.eventParticipationId",
-          "interval.roomGeneration",
-          "interval.joinedAt",
-          "interval.leftAt",
-          "interval.joinedSource",
-          "interval.leftSource",
-        ])
-        .where("interval.eventOccurrenceId", "=", eventOccurrenceId)
-        .orderBy("interval.joinedAt")
-        .execute(),
-    ]);
-
-  const attendanceByScope = new Map(
-    attendance.map((row) => [
-      evidenceKey(row.eventSessionId, row.eventParticipationId),
-      row,
-    ]),
+  const pages = Math.max(
+    1,
+    Math.ceil(count.count / ATTENDANCE_REPORT_PAGE_SIZE),
   );
+  const page = requestedPage === null ? 1 : Math.min(requestedPage, pages);
+  let selectedRowsQuery = baseRows
+    .select([
+      "participation.id as eventParticipationId",
+      "session.id as eventSessionId",
+      "session.title as sessionTitle",
+      "session.startsAt as sessionStartsAt",
+      "session.endsAt as sessionEndsAt",
+      "participation.nameSnapshot as name",
+      "participation.emailSnapshot as email",
+      "participation.mode as participationMode",
+      sql<
+        AdminEventAttendanceReviewRow["state"]
+      >`coalesce(attendance.state, 'not_recorded')`.as("state"),
+      "attendance.source",
+      "actor.name as recordedByName",
+      "attendance.recordedAt",
+      "attendance.updatedAt",
+    ])
+    .orderBy("participation.nameSnapshot")
+    .orderBy("participation.emailSnapshot")
+    .orderBy("session.position")
+    .orderBy("participation.id")
+    .orderBy("session.id");
+  if (requestedPage !== null)
+    selectedRowsQuery = selectedRowsQuery
+      .limit(ATTENDANCE_REPORT_PAGE_SIZE)
+      .offset((page - 1) * ATTENDANCE_REPORT_PAGE_SIZE);
+  const selectedRows = await selectedRowsQuery.execute();
+
+  let decisionsQuery = database
+    .selectFrom("event_virtual_attendance_decision as decision")
+    .select([
+      "decision.id",
+      "decision.eventSessionId",
+      "decision.eventParticipationId",
+      "decision.roomGeneration",
+      "decision.attendanceState",
+      "decision.attendanceMode",
+      "decision.attendanceMinimumMinutes",
+      "decision.qualifyingConnectedSeconds",
+      "decision.calculationVersion",
+      "decision.decisionAt",
+      "decision.applicationOutcome",
+      "decision.previousAttendanceState",
+      "decision.previousAttendanceSource",
+    ])
+    .where("decision.eventOccurrenceId", "=", eventOccurrenceId)
+    .orderBy("decision.decisionAt");
+  let intervalsQuery = database
+    .selectFrom("event_virtual_connection_interval as interval")
+    .select([
+      "interval.id",
+      "interval.eventSessionId",
+      "interval.eventParticipationId",
+      "interval.roomGeneration",
+      "interval.joinedAt",
+      "interval.leftAt",
+      "interval.joinedSource",
+      "interval.leftSource",
+    ])
+    .where("interval.eventOccurrenceId", "=", eventOccurrenceId)
+    .orderBy("interval.joinedAt");
+  if (requestedPage !== null && selectedRows.length > 0) {
+    decisionsQuery = decisionsQuery.where((expression) =>
+      expression.or(
+        selectedRows.map((row) =>
+          expression.and([
+            expression("decision.eventSessionId", "=", row.eventSessionId),
+            expression(
+              "decision.eventParticipationId",
+              "=",
+              row.eventParticipationId,
+            ),
+          ]),
+        ),
+      ),
+    );
+    intervalsQuery = intervalsQuery.where((expression) =>
+      expression.or(
+        selectedRows.map((row) =>
+          expression.and([
+            expression("interval.eventSessionId", "=", row.eventSessionId),
+            expression(
+              "interval.eventParticipationId",
+              "=",
+              row.eventParticipationId,
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+  const [decisions, intervals] = selectedRows.length
+    ? await Promise.all([decisionsQuery.execute(), intervalsQuery.execute()])
+    : [[], []];
+
   const decisionsByScope = new Map<
     string,
     Array<AdminEventAttendanceDecisionEvidence>
@@ -163,36 +285,37 @@ async function readAdminEventAttendanceReport(
       startsAt: session.startsAt.toISOString(),
       endsAt: session.endsAt.toISOString(),
     })),
-    rows: sessions.flatMap((session) =>
-      participations.map((participation) => {
-        const key = evidenceKey(session.id, participation.id);
-        const current = attendanceByScope.get(key);
-        return {
-          eventParticipationId: participation.id,
-          eventSessionId: session.id,
-          sessionTitle: session.title,
-          sessionStartsAt: session.startsAt.toISOString(),
-          sessionEndsAt: session.endsAt.toISOString(),
-          name: participation.name,
-          email: participation.email,
-          participationMode: participation.mode,
-          state: current?.state ?? "not_recorded",
-          source: current?.source ?? null,
-          recordedByName: current?.recordedByName ?? null,
-          recordedAt: current?.recordedAt.toISOString() ?? null,
-          updatedAt: current?.updatedAt.toISOString() ?? null,
-          decisions: decisionsByScope.get(key) ?? [],
-          intervals: intervalsByScope.get(key) ?? [],
-        };
-      }),
-    ),
+    rows: selectedRows.map((row) => {
+      const key = evidenceKey(row.eventSessionId, row.eventParticipationId);
+      return {
+        ...row,
+        sessionStartsAt: row.sessionStartsAt.toISOString(),
+        sessionEndsAt: row.sessionEndsAt.toISOString(),
+        recordedAt: row.recordedAt?.toISOString() ?? null,
+        updatedAt: row.updatedAt?.toISOString() ?? null,
+        decisions: decisionsByScope.get(key) ?? [],
+        intervals: intervalsByScope.get(key) ?? [],
+      };
+    }),
+    pagination: {
+      page,
+      pages,
+      total: count.count,
+      pageSize: ATTENDANCE_REPORT_PAGE_SIZE,
+    },
   };
 }
 
 export async function findAdminEventAttendanceReport(
-  eventOccurrenceId: string,
+  query: AdminEventAttendanceReportQuery,
 ): Promise<AdminEventAttendanceReport | null> {
-  return await readAdminEventAttendanceReport(getDatabase(), eventOccurrenceId);
+  const { eventOccurrenceId, page, ...filters } = query;
+  return await readAdminEventAttendanceReport(
+    getDatabase(),
+    eventOccurrenceId,
+    filters,
+    page,
+  );
 }
 
 export async function exportAdminEventAttendanceReport(
@@ -206,12 +329,10 @@ export async function exportAdminEventAttendanceReport(
       const report = await readAdminEventAttendanceReport(
         transaction,
         eventOccurrenceId,
+        filters,
+        null,
       );
       if (!report) return null;
-      const rowCount = filterAdminEventAttendanceRows(
-        report.rows,
-        filters,
-      ).length;
       await recordDurableAuditEvent(transaction, {
         actorUserId: administrator.id,
         action: "event_attendance.report_exported",
@@ -219,7 +340,7 @@ export async function exportAdminEventAttendanceReport(
         subjectId: eventOccurrenceId,
         metadata: {
           format: "csv",
-          rowCount,
+          rowCount: report.pagination.total,
           searchApplied: filters.q.length > 0,
           sessionId: filters.sessionId,
           state: filters.state,

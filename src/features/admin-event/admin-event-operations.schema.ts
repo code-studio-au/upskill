@@ -72,21 +72,58 @@ export const adminEventAttendanceSchema = z.object({
   state: z.enum(["not_recorded", "checked_in", "attended", "absent"]),
 });
 
-export const adminEventAttendanceFilterSchema = z.object({
-  q: z.catch(z.string().check(z.trim(), z.maxLength(100)), ""),
-  sessionId: z.catch(z.union([z.literal("all"), identifier]), "all" as const),
-  state: z.catch(
-    z.enum(["all", "not_recorded", "checked_in", "attended", "absent"]),
-    "all" as const,
-  ),
-  evidence: z.catch(
-    z.enum(["all", "automatic", "staff", "estimated", "none"]),
-    "all" as const,
-  ),
-});
+const attendanceQuery = z.string().check(z.trim(), z.maxLength(100));
+const attendanceSession = z.union([z.literal("all"), identifier]);
+const attendanceState = z.enum([
+  "all",
+  "not_recorded",
+  "checked_in",
+  "attended",
+  "absent",
+]);
+const attendanceEvidence = z.enum([
+  "all",
+  "automatic",
+  "staff",
+  "estimated",
+  "none",
+]);
+const attendanceFilterFields = {
+  q: attendanceQuery,
+  sessionId: attendanceSession,
+  state: attendanceState,
+  evidence: attendanceEvidence,
+};
+
+export const adminEventAttendanceFilterSchema = z.object(
+  attendanceFilterFields,
+);
 
 export type AdminEventAttendanceFilter = z.infer<
   typeof adminEventAttendanceFilterSchema
+>;
+
+export const adminEventAttendanceSearchSchema = z.object({
+  q: z.optional(z.catch(attendanceQuery, "")),
+  sessionId: z.optional(z.catch(attendanceSession, "all" as const)),
+  state: z.optional(z.catch(attendanceState, "all" as const)),
+  evidence: z.optional(z.catch(attendanceEvidence, "all" as const)),
+  page: z.optional(
+    z.catch(
+      z.coerce.number().check(z.int(), z.minimum(1), z.maximum(100_000)),
+      1,
+    ),
+  ),
+});
+
+export const adminEventAttendanceReportQuerySchema = z.object({
+  eventOccurrenceId: identifier,
+  ...attendanceFilterFields,
+  page: z.number().check(z.int(), z.minimum(1), z.maximum(100_000)),
+});
+
+export type AdminEventAttendanceReportQuery = z.infer<
+  typeof adminEventAttendanceReportQuerySchema
 >;
 
 export type AdminEventAttendanceSource =
@@ -147,6 +184,12 @@ export interface AdminEventAttendanceReport {
     endsAt: string;
   }>;
   rows: Array<AdminEventAttendanceReviewRow>;
+  pagination: {
+    page: number;
+    pages: number;
+    total: number;
+    pageSize: number;
+  };
 }
 
 export type AdminEventAttendanceReportResult =

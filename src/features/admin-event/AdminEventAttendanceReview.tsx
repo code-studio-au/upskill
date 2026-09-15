@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { AdminDirectorySearch } from "#/features/admin/AdminDirectory";
 import { Badge } from "#/features/shared/Badge";
 import { MantineNativeSelect } from "#/features/shared/MantineNativeSelect";
@@ -11,10 +10,7 @@ import {
   type AdminEventAttendanceReviewRow,
   type AdminEventAttendanceSource,
 } from "./admin-event-operations.schema";
-import {
-  filterAdminEventAttendanceRows,
-  hasEstimatedAttendanceEvidence,
-} from "./admin-event-attendance-report";
+import { hasEstimatedAttendanceEvidence } from "./admin-event-attendance-report";
 import classes from "./AdminEventAttendanceReview.module.css";
 
 const attendanceLabels = {
@@ -97,21 +93,24 @@ export function AdminEventAttendanceReview({
   filters,
   processingId,
   onFiltersChange,
+  onPageChange,
   onRecordAttendance,
 }: {
   report: AdminEventAttendanceReport;
   filters: AdminEventAttendanceFilter;
   processingId: string | null;
   onFiltersChange: (filters: AdminEventAttendanceFilter) => void;
+  onPageChange: (page: number) => void;
   onRecordAttendance: (
     row: AdminEventAttendanceReviewRow,
     state: AdminEventAttendanceReviewRow["state"],
   ) => void;
 }) {
-  const rows = useMemo(
-    () => filterAdminEventAttendanceRows(report.rows, filters),
-    [filters, report.rows],
-  );
+  const rows = report.rows;
+  const first = report.pagination.total
+    ? (report.pagination.page - 1) * report.pagination.pageSize + 1
+    : 0;
+  const last = rows.length ? first + rows.length - 1 : 0;
   const exportQuery = new URLSearchParams(filters);
   return (
     <Stack gap="lg">
@@ -173,7 +172,7 @@ export function AdminEventAttendanceReview({
         <div>
           <Title order={2}>Attendance review</Title>
           <Text c="dimmed" size="sm">
-            {rows.length} matching participant-session records
+            Showing {first}–{last} of {report.pagination.total} records
           </Text>
         </div>
         <Group gap="sm">
@@ -243,6 +242,19 @@ export function AdminEventAttendanceReview({
       ) : (
         <Text c="dimmed">No attendance records match these filters.</Text>
       )}
+      {report.pagination.pages > 1 ? (
+        <MantineNativeSelect
+          label="Attendance page"
+          value={String(report.pagination.page)}
+          data={Array.from({ length: report.pagination.pages }, (_, index) => ({
+            value: String(index + 1),
+            label: `Page ${String(index + 1)} of ${String(report.pagination.pages)}`,
+          }))}
+          onChange={(event) => {
+            onPageChange(Number(event.currentTarget.value));
+          }}
+        />
+      ) : null}
     </Stack>
   );
 }

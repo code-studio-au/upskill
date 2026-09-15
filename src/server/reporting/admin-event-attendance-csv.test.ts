@@ -58,6 +58,7 @@ const report: AdminEventAttendanceReport = {
       ],
     },
   ],
+  pagination: { page: 1, pages: 1, total: 1, pageSize: 25 },
 };
 
 describe("encodeAdminEventAttendanceCsv", () => {

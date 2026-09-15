@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { AdminEventAttendanceReviewRow } from "./admin-event-operations.schema";
+import {
+  adminEventAttendanceFilterSchema,
+  adminEventAttendanceSearchSchema,
+  type AdminEventAttendanceReviewRow,
+} from "./admin-event-operations.schema";
 import {
   filterAdminEventAttendanceRows,
   hasEstimatedAttendanceEvidence,
@@ -93,5 +97,41 @@ describe("filterAdminEventAttendanceRows", () => {
       }),
     ).toEqual([automaticRow]);
     expect(hasEstimatedAttendanceEvidence(automaticRow)).toBe(true);
+  });
+});
+
+describe("attendance report filter validation", () => {
+  it("rejects malformed network filters instead of widening the report", () => {
+    for (const filters of [
+      { q: "", sessionId: "all", state: "attend", evidence: "all" },
+      { q: "", sessionId: "all", state: "all", evidence: "other" },
+      {
+        q: "x".repeat(101),
+        sessionId: "all",
+        state: "all",
+        evidence: "all",
+      },
+    ])
+      expect(adminEventAttendanceFilterSchema.safeParse(filters).success).toBe(
+        false,
+      );
+  });
+
+  it("normalizes malformed browser search state independently", () => {
+    expect(
+      adminEventAttendanceSearchSchema.parse({
+        q: "x".repeat(101),
+        sessionId: "",
+        state: "attend",
+        evidence: "other",
+        page: "not-a-page",
+      }),
+    ).toEqual({
+      q: "",
+      sessionId: "all",
+      state: "all",
+      evidence: "all",
+      page: 1,
+    });
   });
 });
