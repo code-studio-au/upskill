@@ -991,6 +991,13 @@ const eventAttendanceReportAuditMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const eventAttendanceReportIndexMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0114_event_attendance_report_indexes.ts",
+  ),
+  "utf8",
+);
 const adminEventAttendanceReport = fs.readFileSync(
   path.join(root, "src/server/admin/admin-event-attendance-report.server.ts"),
   "utf8",
@@ -1118,20 +1125,24 @@ for (const boundary of [
   'selectFrom("event_virtual_attendance_decision as decision")',
   'selectFrom("event_virtual_connection_interval as interval")',
   'leftJoin("user as actor"',
-  ".transaction()",
   "recordDurableAuditEvent",
   'action: "event_attendance.report_exported"',
   "searchApplied: filters.q.length > 0",
   "ATTENDANCE_REPORT_PAGE_SIZE",
   "ATTENDANCE_REPORT_EXPORT_BATCH_SIZE",
+  ".startTransaction()",
+  '.setIsolationLevel("repeatable read")',
   'count(*)::integer`.as("count")',
-  ".limit(pageSize)",
-  ".offset((page - 1) * pageSize)",
+  ".limit(options.limit)",
+  "offset: (page - 1) * pageSize",
   "from unnest(",
   '"selected_scope.eventSessionId"',
   '"selected_scope.eventParticipationId"',
   "new ReadableStream<Uint8Array>",
-  "nextPage === 1",
+  'order: "export"',
+  'expression("participation.id", ">"',
+  "transaction.commit().execute()",
+  "transaction.rollback().execute()",
 ])
   if (!adminEventAttendanceReport.includes(boundary))
     failures.push(
@@ -1188,6 +1199,17 @@ for (const boundary of [
   if (!eventAttendanceReportAuditMigration.includes(boundary))
     failures.push(
       `Administrator attendance report audit migration is missing: ${boundary}`,
+    );
+for (const boundary of [
+  "event_virtual_connection_interval_report_idx",
+  '"eventOccurrenceId"',
+  '"eventSessionId"',
+  '"eventParticipationId"',
+  '"joinedAt"',
+])
+  if (!eventAttendanceReportIndexMigration.includes(boundary))
+    failures.push(
+      `Administrator attendance report index is missing: ${boundary}`,
     );
 const attendanceGuardReplacementIndex =
   liveKitAutomaticAttendanceMigration.indexOf(

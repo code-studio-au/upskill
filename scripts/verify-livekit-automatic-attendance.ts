@@ -168,6 +168,10 @@ async function cleanUp(): Promise<void> {
     .deleteFrom("user")
     .where("id", "in", [ids.administrator, ids.firstLearner, ids.secondLearner])
     .execute();
+  await database
+    .deleteFrom("user")
+    .where("id", "like", "verify_livekit_attendance_stream_%")
+    .execute();
 }
 
 try {
@@ -1049,6 +1053,90 @@ try {
       leftSource: "webhook",
     },
     "Automatic-attendance migration must upgrade retained closed webhook intervals",
+  );
+  const streamUsers = Array.from({ length: 251 }, (_, index) => {
+    const suffix = String(index).padStart(3, "0");
+    return {
+      id: `verify_livekit_attendance_stream_user_${suffix}`,
+      name: `Stream attendance learner ${suffix}`,
+      email: `verify-livekit-attendance-stream-${suffix}@example.com`,
+      emailVerified: true,
+    };
+  });
+  await database
+    .updateTable("event_occurrence")
+    .set({ capacity: 1_000 })
+    .where("id", "=", ids.occurrence)
+    .executeTakeFirstOrThrow();
+  await database.insertInto("user").values(streamUsers).execute();
+  await database
+    .insertInto("event_participation")
+    .values(
+      streamUsers.map((user) => ({
+        id: user.id.replace("_user_", "_participation_"),
+        eventOccurrenceId: ids.occurrence,
+        userId: user.id,
+        registrationId: null,
+        mode: "open_entry" as const,
+        nameSnapshot: user.name,
+        emailSnapshot: user.email,
+        detailsSubmittedAt: createdAt,
+        joinDisclosedAt: createdAt,
+        checkedInAt: null,
+        privacyAcceptedAt: createdAt,
+        privacyNoticeVersion: "verify",
+        createdAt,
+      })),
+    )
+    .execute();
+  const streamedSnapshot = await exportAdminEventAttendanceReport(
+    ids.occurrence,
+    {
+      q: "Stream attendance learner",
+      sessionId: ids.session,
+      state: "not_recorded",
+      evidence: "all",
+    },
+    administrator,
+  );
+  assert.ok(streamedSnapshot);
+  const streamReader = streamedSnapshot.body.getReader();
+  const firstStreamChunk = await streamReader.read();
+  assert.equal(firstStreamChunk.done, false);
+  assert.ok(firstStreamChunk.value);
+  const finalStreamParticipationId =
+    "verify_livekit_attendance_stream_participation_250";
+  await database
+    .insertInto("event_attendance")
+    .values({
+      eventParticipationId: finalStreamParticipationId,
+      eventSessionId: ids.session,
+      state: "absent",
+      source: "administrator",
+      recordedByUserId: ids.administrator,
+      recordedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .executeTakeFirstOrThrow();
+  const streamDecoder = new TextDecoder();
+  let streamedCsv = streamDecoder.decode(firstStreamChunk.value, {
+    stream: true,
+  });
+  for (;;) {
+    const chunk = await streamReader.read();
+    if (chunk.done) break;
+    streamedCsv += streamDecoder.decode(chunk.value, { stream: true });
+  }
+  streamedCsv += streamDecoder.decode();
+  assert.equal(
+    streamedCsv.match(/"schema_version"/gu)?.length,
+    1,
+    "Multi-batch exports must emit one CSV header",
+  );
+  assert.equal(
+    streamedCsv.match(new RegExp(finalStreamParticipationId, "gu"))?.length,
+    1,
+    "The repeatable-read keyset must export each row from its initial snapshot exactly once",
   );
   console.log(
     "LiveKit automatic attendance verification passed: revision-safe provider reconciliation, generation-bounded and positive-overlap evidence, closed terminal discovery, retained closed-interval upgrades, full threshold range, duration promotion, completion, staff-correction preservation and idempotent reruns.",
