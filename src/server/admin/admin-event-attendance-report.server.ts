@@ -24,6 +24,7 @@ const ATTENDANCE_REPORT_PAGE_SIZE = 25;
 const ATTENDANCE_REPORT_EXPORT_BATCH_SIZE = 250;
 const ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT = 250;
 const ATTENDANCE_REPORT_MAX_CONCURRENT_EXPORTS = 4;
+const ATTENDANCE_REPORT_EXPORT_IDLE_TIMEOUT_MILLISECONDS = 60_000;
 const unfilteredAttendanceFilters: AdminEventAttendanceFilter = {
   q: "",
   sessionId: "all",
@@ -510,6 +511,7 @@ export async function exportAdminEventAttendanceReport(
   eventOccurrenceId: string,
   filters: AdminEventAttendanceFilter,
   administrator: AuthenticatedUser,
+  options: { idleTimeoutMilliseconds?: number } = {},
 ): Promise<{
   occurrenceId: string;
   body: ReadableStream<Uint8Array>;
@@ -597,9 +599,16 @@ export async function exportAdminEventAttendanceReport(
   let phase: "attendance" | "decisions" | "intervals" = "attendance";
   let includeHeader = true;
   let finalized = false;
+  let idleDeadline: ReturnType<typeof setTimeout> | undefined;
+  const idleTimeoutMilliseconds = Math.max(
+    1,
+    options.idleTimeoutMilliseconds ??
+      ATTENDANCE_REPORT_EXPORT_IDLE_TIMEOUT_MILLISECONDS,
+  );
   async function finalize(outcome: "commit" | "rollback") {
     if (finalized) return;
     finalized = true;
+    if (idleDeadline) clearTimeout(idleDeadline);
     try {
       if (outcome === "commit") await transaction.commit().execute();
       else await transaction.rollback().execute();
@@ -607,7 +616,30 @@ export async function exportAdminEventAttendanceReport(
       releaseExportSlot();
     }
   }
+  function resetIdleDeadline(
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ) {
+    if (idleDeadline) clearTimeout(idleDeadline);
+    idleDeadline = setTimeout(() => {
+      void (async () => {
+        if (finalized) return;
+        try {
+          await finalize("rollback");
+        } catch (error) {
+          controller.error(error);
+          return;
+        }
+        controller.error(
+          new Error("Attendance export stream idle deadline exceeded"),
+        );
+      })();
+    }, idleTimeoutMilliseconds);
+    idleDeadline.unref();
+  }
   const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      resetIdleDeadline(controller);
+    },
     async pull(controller) {
       try {
         for (;;) {
@@ -622,6 +654,7 @@ export async function exportAdminEventAttendanceReport(
                 after: rowAfter,
               },
             );
+            if (finalized) return;
             rows = result.rows;
             decisionAfter = null;
             intervalAfter = null;
@@ -656,6 +689,7 @@ export async function exportAdminEventAttendanceReport(
               return;
             }
             controller.enqueue(chunk);
+            resetIdleDeadline(controller);
             return;
           }
           if (phase === "decisions") {
@@ -681,6 +715,7 @@ export async function exportAdminEventAttendanceReport(
               .orderBy("decision.id")
               .limit(ATTENDANCE_REPORT_EXPORT_BATCH_SIZE)
               .execute();
+            if (finalized) return;
             if (decisions.length === 0) {
               phase = "intervals";
               continue;
@@ -742,6 +777,7 @@ export async function exportAdminEventAttendanceReport(
                 ),
               ),
             );
+            resetIdleDeadline(controller);
             return;
           }
           const intervals = await attendanceIntervalsQuery(
@@ -766,6 +802,7 @@ export async function exportAdminEventAttendanceReport(
             .orderBy("interval.id")
             .limit(ATTENDANCE_REPORT_EXPORT_BATCH_SIZE)
             .execute();
+          if (finalized) return;
           if (intervals.length > 0) {
             const intervalsByScope = new Map<
               string,
@@ -827,6 +864,7 @@ export async function exportAdminEventAttendanceReport(
                 ),
               ),
             );
+            resetIdleDeadline(controller);
             return;
           }
           const lastRow = rows.at(-1);

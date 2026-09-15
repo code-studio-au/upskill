@@ -1180,6 +1180,67 @@ try {
       await concurrentExport.body.cancel();
     }),
   );
+  const stalledExports = await Promise.all(
+    Array.from({ length: 4 }, async () => {
+      const stalledExport = await exportAdminEventAttendanceReport(
+        ids.occurrence,
+        {
+          q: "Stream attendance learner",
+          sessionId: ids.session,
+          state: "not_recorded",
+          evidence: "all",
+        },
+        administrator,
+        { idleTimeoutMilliseconds: 250 },
+      );
+      assert.ok(stalledExport);
+      return stalledExport;
+    }),
+  );
+  const stalledReaders = stalledExports.map((stalledExport) =>
+    stalledExport.body.getReader(),
+  );
+  const stalledClosures = stalledReaders.map(async (reader) => {
+    try {
+      await reader.closed;
+      return null;
+    } catch (error) {
+      return error;
+    }
+  });
+  const stalledFirstChunks = await Promise.all(
+    stalledReaders.map(async (reader) => await reader.read()),
+  );
+  assert.ok(stalledFirstChunks.every((chunk) => !chunk.done));
+  const recoveredExport = await Promise.race([
+    exportAdminEventAttendanceReport(
+      ids.occurrence,
+      {
+        q: "Stream attendance learner",
+        sessionId: ids.session,
+        state: "not_recorded",
+        evidence: "all",
+      },
+      administrator,
+      { idleTimeoutMilliseconds: 2_000 },
+    ),
+    new Promise<never>((_resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(
+          new Error(
+            "Attendance export slot was not released after idle timeout",
+          ),
+        );
+      }, 2_000);
+      timeout.unref();
+    }),
+  ]);
+  assert.ok(recoveredExport);
+  await recoveredExport.body.cancel();
+  for (const stalledClosure of await Promise.all(stalledClosures)) {
+    assert.ok(stalledClosure instanceof Error);
+    assert.match(stalledClosure.message, /idle deadline exceeded/u);
+  }
   const auditCountBeforeCancellation = await database
     .selectFrom("audit_event")
     .select(sql<number>`count(*)::integer`.as("count"))

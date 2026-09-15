@@ -1144,6 +1144,7 @@ for (const boundary of [
   "ATTENDANCE_REPORT_EXPORT_BATCH_SIZE",
   "ATTENDANCE_REPORT_UI_EVIDENCE_LIMIT",
   "ATTENDANCE_REPORT_MAX_CONCURRENT_EXPORTS = 4",
+  "ATTENDANCE_REPORT_EXPORT_IDLE_TIMEOUT_MILLISECONDS",
   "acquireAttendanceExportSlot",
   "automaticEvidenceCount",
   "intervalEvidenceCount",
@@ -1170,6 +1171,9 @@ for (const boundary of [
   "includeAttendance: false",
   "transaction.commit().execute()",
   "transaction.rollback().execute()",
+  "resetIdleDeadline",
+  "clearTimeout(idleDeadline)",
+  "Attendance export stream idle deadline exceeded",
 ])
   if (!adminEventAttendanceReport.includes(boundary))
     failures.push(
