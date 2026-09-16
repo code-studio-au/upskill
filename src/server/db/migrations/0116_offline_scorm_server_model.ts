@@ -301,7 +301,8 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
           into installation_status
           from offline_learning_installation installation
          where installation.id = new."installationId"
-           and installation."userId" = new."userId";
+           and installation."userId" = new."userId"
+           for share;
         if installation_status is distinct from 'active' then
           raise exception 'Offline entitlement requires an active installation'
             using errcode = '23514';
@@ -350,6 +351,72 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
   await sql`create trigger offline_learning_entitlement_guard_trg
     before insert or update or delete on offline_learning_entitlement
     for each row execute function guard_offline_learning_entitlement()`.execute(
+    db,
+  );
+
+  await sql`create function enforce_offline_learning_installation_consistency()
+    returns trigger
+    language plpgsql
+    as $$
+    declare
+      affected_installation_id text;
+      installation_status text;
+      installation_user_id text;
+      replacement_installation_id text;
+      replacement_status text;
+      active_entitlement_id text;
+    begin
+      if tg_table_name = 'offline_learning_installation' then
+        affected_installation_id := new.id;
+      else
+        affected_installation_id := new."installationId";
+      end if;
+
+      select installation.status, installation."userId",
+             installation."replacementInstallationId"
+        into installation_status, installation_user_id,
+             replacement_installation_id
+        from offline_learning_installation installation
+       where installation.id = affected_installation_id;
+
+      if installation_status = 'replaced' then
+        select replacement.status
+          into replacement_status
+          from offline_learning_installation replacement
+         where replacement.id = replacement_installation_id
+           and replacement."userId" = installation_user_id
+           and replacement.id <> affected_installation_id;
+        if replacement_status is distinct from 'active' then
+          raise exception 'Replaced offline installation requires an active successor'
+            using errcode = '23514';
+        end if;
+      end if;
+
+      if installation_status is distinct from 'active' then
+        select entitlement.id
+          into active_entitlement_id
+          from offline_learning_entitlement entitlement
+         where entitlement."installationId" = affected_installation_id
+           and entitlement.status = 'active'
+         limit 1;
+        if active_entitlement_id is not null then
+          raise exception 'Terminal offline installation cannot retain active entitlements'
+            using errcode = '23514';
+        end if;
+      end if;
+      return null;
+    end
+    $$`.execute(db);
+  await sql`create constraint trigger offline_learning_installation_consistency_trg
+    after insert or update on offline_learning_installation
+    deferrable initially deferred
+    for each row execute function enforce_offline_learning_installation_consistency()`.execute(
+    db,
+  );
+  await sql`create constraint trigger offline_learning_entitlement_installation_consistency_trg
+    after insert or update on offline_learning_entitlement
+    deferrable initially deferred
+    for each row execute function enforce_offline_learning_installation_consistency()`.execute(
     db,
   );
 
@@ -734,6 +801,13 @@ export async function down<Database>(db: Kysely<Database>): Promise<void> {
   await sql`drop trigger offline_learning_entitlement_writer_consistency_trg
     on offline_learning_entitlement`.execute(db);
   await sql`drop function enforce_offline_scorm_writer_consistency()`.execute(
+    db,
+  );
+  await sql`drop trigger offline_learning_installation_consistency_trg
+    on offline_learning_installation`.execute(db);
+  await sql`drop trigger offline_learning_entitlement_installation_consistency_trg
+    on offline_learning_entitlement`.execute(db);
+  await sql`drop function enforce_offline_learning_installation_consistency()`.execute(
     db,
   );
   await sql`drop trigger scorm_attempt_offline_writer_guard_trg

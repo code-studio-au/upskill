@@ -344,6 +344,8 @@ try {
       assert.match(definition, new RegExp(operation, "u"));
   }
   for (const triggerName of [
+    "offline_learning_installation_consistency_trg",
+    "offline_learning_entitlement_installation_consistency_trg",
     "scorm_attempt_offline_writer_consistency_trg",
     "offline_learning_entitlement_writer_consistency_trg",
   ]) {
@@ -358,6 +360,17 @@ try {
     assert.match(definition, /AFTER INSERT OR UPDATE/u);
     assert.match(definition, /DEFERRABLE INITIALLY DEFERRED/u);
   }
+  const entitlementGuardFunction = await sql<{
+    definition: string;
+  }>`select pg_get_functiondef(oid) as definition
+      from pg_proc
+      where proname = 'guard_offline_learning_entitlement'
+        and pg_get_function_identity_arguments(oid) = ''`.execute(db);
+  assert.equal(entitlementGuardFunction.rows.length, 1);
+  assert.match(
+    entitlementGuardFunction.rows[0]?.definition.toUpperCase() ?? "",
+    /FOR SHARE/u,
+  );
   const activeCredentialIndex = indexResult.rows.find(
     (index) =>
       index.indexname === "event_virtual_lobby_entry_active_credential_idx",

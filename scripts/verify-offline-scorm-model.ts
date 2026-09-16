@@ -484,6 +484,21 @@ try {
         /replacement requires an active installation for the same learner/u,
     },
   );
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_installation")
+      .set({
+        status: "replaced",
+        endedAt: new Date("2030-01-02T00:00:00.000Z"),
+        updatedAt: new Date("2030-01-02T00:00:00.000Z"),
+      })
+      .where("id", "=", ids.installation)
+      .execute(),
+    {
+      code: "23514",
+      message: /installation requires an active successor/u,
+    },
+  );
 
   await assert.rejects(
     insertEntitlement(ids.duplicateEntitlement, {
@@ -803,6 +818,21 @@ try {
       message: /Active offline entitlement must own the attempt writer/u,
     },
   );
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_installation")
+      .set({
+        status: "revoked",
+        endedAt: new Date("2030-02-03T00:04:00.000Z"),
+        updatedAt: new Date("2030-02-03T00:04:00.000Z"),
+      })
+      .where("id", "=", ids.installation)
+      .execute(),
+    {
+      code: "23514",
+      message: /installation cannot retain active entitlements/u,
+    },
+  );
   const resolvedAt = new Date("2030-02-03T00:05:00.000Z");
   await assert.rejects(
     database
@@ -844,6 +874,7 @@ try {
     "23514",
     "offline_learning_entitlement_timeline_ck",
   );
+  const replacedAt = new Date("2030-02-04T00:00:00.000Z");
   await database.transaction().execute(async (transaction) => {
     await transaction
       .updateTable("scorm_attempt")
@@ -863,6 +894,36 @@ try {
       })
       .where("id", "=", ids.entitlement)
       .execute();
+    await transaction
+      .updateTable("offline_learning_installation")
+      .set({
+        status: "replaced",
+        endedAt: replacedAt,
+        updatedAt: replacedAt,
+      })
+      .where("id", "=", ids.installation)
+      .execute();
+    await transaction
+      .insertInto("offline_learning_installation")
+      .values({
+        id: ids.duplicateInstallation,
+        userId: ids.user,
+        publicKeySpki: Buffer.alloc(91, 3),
+        publicKeySha256: "d".repeat(64),
+        replacementInstallationId: null,
+        registeredAt: replacedAt,
+        endedAt: null,
+        updatedAt: replacedAt,
+      })
+      .execute();
+    await transaction
+      .updateTable("offline_learning_installation")
+      .set({
+        replacementInstallationId: ids.duplicateInstallation,
+        updatedAt: new Date("2030-02-04T00:01:00.000Z"),
+      })
+      .where("id", "=", ids.installation)
+      .execute();
   });
   await assert.rejects(
     database
@@ -876,37 +937,6 @@ try {
     },
   );
 
-  const replacedAt = new Date("2030-02-04T00:00:00.000Z");
-  await database
-    .updateTable("offline_learning_installation")
-    .set({
-      status: "replaced",
-      endedAt: replacedAt,
-      updatedAt: replacedAt,
-    })
-    .where("id", "=", ids.installation)
-    .execute();
-  await database
-    .insertInto("offline_learning_installation")
-    .values({
-      id: ids.duplicateInstallation,
-      userId: ids.user,
-      publicKeySpki: Buffer.alloc(91, 3),
-      publicKeySha256: "d".repeat(64),
-      replacementInstallationId: null,
-      registeredAt: replacedAt,
-      endedAt: null,
-      updatedAt: replacedAt,
-    })
-    .execute();
-  await database
-    .updateTable("offline_learning_installation")
-    .set({
-      replacementInstallationId: ids.duplicateInstallation,
-      updatedAt: new Date("2030-02-04T00:01:00.000Z"),
-    })
-    .where("id", "=", ids.installation)
-    .execute();
   await assert.rejects(
     database
       .updateTable("offline_learning_installation")
