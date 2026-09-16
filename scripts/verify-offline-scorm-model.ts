@@ -519,21 +519,93 @@ try {
     .where("id", "=", ids.attempt)
     .executeTakeFirstOrThrow();
 
-  await database
-    .insertInto("offline_scorm_reconciliation_receipt")
-    .values({
-      id: ids.receipt,
-      entitlementId: ids.entitlement,
-      attemptId: ids.attempt,
-      commitId: "commit-1",
-      clientSequence: 1,
-      requestFingerprint: "1".repeat(64),
-      outcome: "accepted",
-      reasonCode: "accepted",
-      resultingAttemptRevision: 1,
-      receivedAt: new Date("2030-02-02T00:00:00.000Z"),
-    })
-    .execute();
+  await assert.rejects(
+    database
+      .updateTable("scorm_attempt")
+      .set({ progressRevision: 1 })
+      .where("id", "=", ids.attempt)
+      .execute(),
+    {
+      code: "23514",
+      message: /offline writer does not match its entitlement/u,
+    },
+  );
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("offline_learning_entitlement")
+      .set({
+        highestContiguousSequence: 1,
+        reconciliationCursorRevision: 1,
+      })
+      .where("id", "=", ids.entitlement)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({ progressRevision: 1 })
+      .where("id", "=", ids.attempt)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .insertInto("offline_scorm_reconciliation_receipt")
+      .values({
+        id: ids.receipt,
+        entitlementId: ids.entitlement,
+        attemptId: ids.attempt,
+        commitId: "commit-1",
+        clientSequence: 1,
+        requestFingerprint: "1".repeat(64),
+        outcome: "accepted",
+        reasonCode: "accepted",
+        resultingAttemptRevision: 1,
+        receivedAt: new Date("2030-02-02T00:00:00.000Z"),
+      })
+      .execute();
+  });
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_learning_entitlement")
+      .innerJoin(
+        "scorm_attempt",
+        "scorm_attempt.id",
+        "offline_learning_entitlement.attemptId",
+      )
+      .select([
+        "offline_learning_entitlement.highestContiguousSequence",
+        "offline_learning_entitlement.reconciliationCursorRevision",
+        "scorm_attempt.progressRevision",
+      ])
+      .where("offline_learning_entitlement.id", "=", ids.entitlement)
+      .executeTakeFirstOrThrow(),
+    {
+      highestContiguousSequence: 1,
+      reconciliationCursorRevision: 1,
+      progressRevision: 1,
+    },
+  );
+  await assert.rejects(
+    database
+      .updateTable("scorm_attempt")
+      .set({ progressRevision: 2 })
+      .where("id", "=", ids.attempt)
+      .execute(),
+    {
+      code: "23514",
+      message: /offline writer does not match its entitlement/u,
+    },
+  );
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_entitlement")
+      .set({
+        highestContiguousSequence: 0,
+        reconciliationCursorRevision: 0,
+      })
+      .where("id", "=", ids.entitlement)
+      .execute(),
+    {
+      code: "23514",
+      message: /reconciliation cursor cannot regress/u,
+    },
+  );
   await assertDatabaseConstraint(
     () =>
       database

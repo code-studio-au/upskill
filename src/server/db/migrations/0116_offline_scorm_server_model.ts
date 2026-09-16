@@ -369,7 +369,7 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       end if;
       if new."writerMode" = 'offline' then
         select entitlement.status, entitlement."writerGeneration",
-               entitlement."historyBaseRevision"
+               entitlement."reconciliationCursorRevision"
           into entitlement_status, entitlement_generation,
                entitlement_revision
           from offline_learning_entitlement entitlement
