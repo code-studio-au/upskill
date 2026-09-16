@@ -653,7 +653,10 @@ triggered and do not reopen the delivered webinar foundation.
 - dormant server entitlement/reconciliation model (implemented second slice);
 - central Course/Event policy and exclusive writer transition (implemented,
   unreachable until activation);
-- trusted local runtime and isolated exact-attempt package prototype;
+- trusted local runtime storage and recoverable signed journal (implemented,
+  dormant until activation);
+- isolated exact-attempt package prototype across mobile Chromium and Firefox,
+  with Safari explicit-storage-confirmation qualification;
 - one complete Course path before Event reuse and support operations; and
 - browser qualification, operational controls and deliberate activation.
 
