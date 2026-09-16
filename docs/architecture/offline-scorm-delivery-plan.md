@@ -99,7 +99,8 @@ must not expose routes or UI that imply a later invariant already holds.
 
 ## Current slice
 
-The first slice installs only a public application shell:
+The application-shell foundation is implemented and remains deliberately
+public-only:
 
 - no authenticated document, API response or SCORM package is cached;
 - the manifest applies and the worker registers only on mobile form factors;
@@ -109,11 +110,38 @@ The first slice installs only a public application shell:
   says course downloads and offline progress are not enabled yet; and
 - development mode does not register a worker, avoiding stale local routing.
 
-This slice has no database, authorisation, evidence, audit, outbox, certificate,
-sign-out or package-execution effect. Rollback must first deploy a cleanup worker
-that deletes the application-shell cache and unregisters itself; registration
-and static worker assets can be removed after active installations receive that
-cleanup version.
+The current dormant-model slice adds the server-owned storage boundaries needed
+by later commands:
+
+- SCORM attempts now carry a non-regressing progress revision, writer mode,
+  credential generation and exact active-entitlement reference while every
+  existing attempt remains in online mode;
+- one retained installation identity binds one learner to one immutable P-256
+  public key, with a single active mobile installation per learner initially;
+- offline entitlements are exact learner, attempt, package digest, installation,
+  runtime, history-base and deadline records, with at most one active offline
+  writer per attempt;
+- reconciliation receipts enforce one immutable fingerprint per commit and one
+  accepted record per client sequence; and
+- cleanup inventory retains the exact package-site origin until an
+  authoritative clearing receipt reaches a terminal state.
+
+Database triggers protect immutable identity and terminal evidence, validate
+the authoritative attempt owner and package digest, require credential rotation
+for writer changes and prevent reconciliation cursors from regressing. Runtime
+database roles cannot delete retained offline evidence or mutate receipts.
+
+No route creates an installation or entitlement, no existing launch or progress
+caller enters offline writer mode, and no learner UI exposes download, offline
+launch, reconciliation or cleanup controls. The next slice owns the shared
+Course/Event policy and locked writer transition; it must remain unreachable
+until its full caller and concurrency matrix passes.
+
+The application-shell rollback still must first deploy a cleanup worker that
+deletes the application-shell cache and unregisters itself; registration and
+static worker assets can be removed after active installations receive that
+cleanup version. The dormant database model is retained as forward-only history
+until a later expand-and-contract migration can prove removal safe.
 
 ## Verification strategy
 
@@ -124,6 +152,9 @@ cleanup version.
   a native Firefox lane and Safari through Safari WebDriver plus real devices.
 - Add policy unit and database integration matrices before entitlement
   activation, including Course/Event equivalence and malicious identifiers.
+- Run `pnpm run db:verify:offline-scorm-model` to prove installation,
+  entitlement, writer-generation, receipt-idempotency and cleanup-lifecycle
+  constraints while the model remains unreachable.
 - Add deterministic crash-point tests across spool, import, signing,
   reconciliation and receipt recovery.
 - Run `pnpm run verify:app` for every application slice,

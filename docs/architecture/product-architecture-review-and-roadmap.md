@@ -101,7 +101,7 @@ verifiers, and CDK verification.
 | Individual course checkout         | Strong                                                                      | Preserve transaction and idempotency model                               |
 | Learner enrolment/workspace        | Course and staged Event learning implemented                                | Continue incremental UX/support maturity                                 |
 | SCORM delivery                     | Strong                                                                      | Preserve isolation and immutable versions                                |
-| PWA/offline SCORM                  | Mobile installable public shell foundation in progress                      | Deliver staged mobile offline learning                                   |
+| PWA/offline SCORM                  | Mobile public shell and dormant server model implemented                    | Deliver staged mobile offline learning                                   |
 | Surveys                            | Reused across Courses, Events, onboarding and registration questionnaires   | Add privacy operations where required                                    |
 | Resources                          | Strong foundation                                                           | Broaden beyond PDF when required                                         |
 | Certificates                       | On-demand rendering implemented                                             | Reuse the common completion-eligibility boundary                         |
@@ -649,8 +649,9 @@ triggered and do not reopen the delivered webinar foundation.
 ### Cross-cutting delivery --- PWA and offline SCORM (in progress)
 
 - mobile-only installable application shell and static public offline fallback
-  (first slice);
-- dormant server entitlement/reconciliation model and central writer policy;
+  (implemented first slice);
+- dormant server entitlement/reconciliation model (implemented second slice);
+- central Course/Event policy and exclusive writer transition;
 - trusted local runtime and isolated exact-attempt package prototype;
 - one complete Course path before Event reuse and support operations; and
 - browser qualification, operational controls and deliberate activation.

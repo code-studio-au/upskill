@@ -21,6 +21,7 @@ type NullableBigIntValue = ColumnType<
   bigint | number | string | null | undefined,
   bigint | number | string | null
 >;
+type BinaryValue = ColumnType<Uint8Array, Uint8Array, Uint8Array>;
 
 interface UserTable {
   id: string;
@@ -435,6 +436,10 @@ interface ScormAttemptTable {
   startedAt: Timestamp | null;
   lastActivityAt: Timestamp | null;
   completedAt: Timestamp | null;
+  progressRevision: Generated<number>;
+  writerMode: Generated<"online" | "offline">;
+  credentialGeneration: Generated<number>;
+  offlineEntitlementId: Generated<string | null>;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -442,6 +447,7 @@ interface ScormAttemptTable {
 interface ScormLaunchTokenTable {
   digest: string;
   attemptId: string;
+  credentialGeneration: Generated<number>;
   expiresAt: Timestamp;
   consumedAt: Timestamp | null;
   createdAt: Timestamp;
@@ -450,9 +456,80 @@ interface ScormLaunchTokenTable {
 interface ScormAttemptSessionTable {
   digest: string;
   attemptId: string;
+  credentialGeneration: Generated<number>;
   expiresAt: Timestamp;
   revokedAt: Timestamp | null;
   createdAt: Timestamp;
+}
+
+interface OfflineLearningInstallationTable {
+  id: string;
+  userId: string;
+  schemaVersion: Generated<number>;
+  publicKeyAlgorithm: Generated<"ecdsa-p256-sha256">;
+  publicKeySpki: BinaryValue;
+  publicKeySha256: string;
+  status: Generated<"active" | "replaced" | "revoked">;
+  replacementInstallationId: string | null;
+  registeredAt: Timestamp;
+  endedAt: Timestamp | null;
+  updatedAt: Timestamp;
+}
+
+interface OfflineLearningEntitlementTable {
+  id: string;
+  schemaVersion: Generated<number>;
+  userId: string;
+  attemptId: string;
+  installationId: string;
+  scormPackageVersionId: string;
+  packageSha256: string;
+  runtimeVersion: string;
+  historyBaseRevision: number;
+  writerGeneration: number;
+  highestContiguousSequence: Generated<number>;
+  reconciliationCursorRevision: number;
+  status: Generated<"active" | "resolved" | "replaced" | "hard_revoked">;
+  resolution:
+    | "reconciled"
+    | "discarded"
+    | "administrator_resolved"
+    | "device_replaced"
+    | "hard_revoked"
+    | null;
+  resolvedByUserId: string | null;
+  issuedAt: Timestamp;
+  intendedLaunchExpiresAt: Timestamp;
+  commitAcceptanceDeadline: Timestamp;
+  endedAt: Timestamp | null;
+}
+
+interface OfflineScormReconciliationReceiptTable {
+  id: string;
+  entitlementId: string;
+  attemptId: string;
+  commitId: string;
+  clientSequence: number;
+  requestFingerprint: string;
+  outcome: "accepted" | "rejected" | "conflict";
+  reasonCode: string;
+  resultingAttemptRevision: number | null;
+  receivedAt: Timestamp;
+}
+
+interface OfflineScormCleanupInventoryTable {
+  id: string;
+  entitlementId: string;
+  installationId: string;
+  userId: string;
+  packageSiteOrigin: string;
+  state: Generated<"pending" | "clearing" | "needs_attention" | "cleared">;
+  clearRequestedAt: Timestamp | null;
+  clearedAt: Timestamp | null;
+  cleanupReceiptSha256: string | null;
+  lastErrorCode: string | null;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 }
 
 interface ScormAttemptContextTable {
@@ -2123,6 +2200,10 @@ export interface Database {
   learning_resource_version: LearningResourceVersionTable;
   notification: NotificationTable;
   notification_delivery_attempt: NotificationDeliveryAttemptTable;
+  offline_learning_entitlement: OfflineLearningEntitlementTable;
+  offline_learning_installation: OfflineLearningInstallationTable;
+  offline_scorm_cleanup_inventory: OfflineScormCleanupInventoryTable;
+  offline_scorm_reconciliation_receipt: OfflineScormReconciliationReceiptTable;
   onboarding_assignment: OnboardingAssignmentTable;
   contact_verification_challenge: ContactVerificationChallengeTable;
   onboarding_definition: OnboardingDefinitionTable;

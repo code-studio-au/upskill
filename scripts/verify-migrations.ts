@@ -111,6 +111,10 @@ try {
     "learning_resource_version",
     "notification",
     "notification_delivery_attempt",
+    "offline_learning_entitlement",
+    "offline_learning_installation",
+    "offline_scorm_cleanup_inventory",
+    "offline_scorm_reconciliation_receipt",
     "contact_verification_challenge",
     "email_delivery_capture",
     "email_design",
@@ -197,6 +201,12 @@ try {
     "scorm_attempt_enrollment_idx",
     "scorm_attempt_session_attempt_idx",
     "scorm_launch_token_attempt_idx",
+    "offline_learning_installation_active_user_uq",
+    "offline_learning_entitlement_active_attempt_uq",
+    "offline_learning_entitlement_user_status_idx",
+    "offline_scorm_receipt_accepted_sequence_uq",
+    "offline_scorm_receipt_attempt_received_idx",
+    "offline_scorm_cleanup_user_state_idx",
     "survey_response_enrollment_idx",
     "survey_progress_enrollment_idx",
     "event_presenter_eligibility_active_uq",
@@ -271,6 +281,96 @@ try {
   );
   if (missingIndexes.length > 0)
     throw new Error(`Missing indexes: ${missingIndexes.join(", ")}`);
+  const offlineScormConstraints = await sql<{
+    constraint_name: string;
+  }>`select constraint_name from information_schema.table_constraints
+      where table_schema = 'public'
+        and constraint_name in (
+          'scorm_attempt_offline_identity_uq',
+          'scorm_attempt_offline_writer_ck',
+          'scorm_attempt_offline_entitlement_fk',
+          'scorm_launch_token_generation_ck',
+          'scorm_attempt_session_generation_ck',
+          'offline_learning_installation_user_uq',
+          'offline_learning_installation_replacement_fk',
+          'offline_learning_installation_key_uq',
+          'offline_learning_installation_key_ck',
+          'offline_learning_installation_lifecycle_ck',
+          'offline_learning_installation_timeline_ck',
+          'offline_learning_entitlement_attempt_uq',
+          'offline_learning_entitlement_installation_uq',
+          'offline_learning_entitlement_installation_fk',
+          'offline_learning_entitlement_attempt_package_fk',
+          'offline_learning_entitlement_identity_ck',
+          'offline_learning_entitlement_deadline_ck',
+          'offline_learning_entitlement_lifecycle_ck',
+          'offline_learning_entitlement_timeline_ck',
+          'offline_scorm_reconciliation_receipt_commit_uq',
+          'offline_scorm_reconciliation_receipt_entitlement_fk',
+          'offline_scorm_reconciliation_receipt_identity_ck',
+          'offline_scorm_reconciliation_receipt_outcome_ck',
+          'offline_scorm_cleanup_inventory_entitlement_uq',
+          'offline_scorm_cleanup_inventory_origin_uq',
+          'offline_scorm_cleanup_inventory_entitlement_fk',
+          'offline_scorm_cleanup_inventory_origin_ck',
+          'offline_scorm_cleanup_inventory_state_ck',
+          'offline_scorm_cleanup_inventory_timeline_ck'
+        )`.execute(db);
+  assert.equal(
+    offlineScormConstraints.rows.length,
+    29,
+    "Offline SCORM identity, writer, deadline, receipt and cleanup constraints must exist",
+  );
+  for (const [triggerName, operations] of [
+    ["offline_learning_installation_guard_trg", ["INSERT", "UPDATE", "DELETE"]],
+    ["offline_learning_entitlement_guard_trg", ["INSERT", "UPDATE", "DELETE"]],
+    ["scorm_attempt_offline_writer_guard_trg", ["INSERT", "UPDATE"]],
+    ["offline_scorm_reconciliation_receipt_guard_trg", ["UPDATE", "DELETE"]],
+    [
+      "offline_scorm_cleanup_inventory_guard_trg",
+      ["INSERT", "UPDATE", "DELETE"],
+    ],
+  ] as const) {
+    const trigger = await sql<{
+      definition: string;
+    }>`select pg_get_triggerdef(oid) as definition
+        from pg_trigger
+        where tgname = ${triggerName}
+          and not tgisinternal`.execute(db);
+    assert.equal(trigger.rows.length, 1);
+    const definition = trigger.rows[0]?.definition.toUpperCase() ?? "";
+    assert.match(definition, /BEFORE/u);
+    for (const operation of operations)
+      assert.match(definition, new RegExp(operation, "u"));
+  }
+  for (const triggerName of [
+    "offline_learning_installation_consistency_trg",
+    "offline_learning_entitlement_installation_consistency_trg",
+    "scorm_attempt_offline_writer_consistency_trg",
+    "offline_learning_entitlement_writer_consistency_trg",
+  ]) {
+    const trigger = await sql<{
+      definition: string;
+    }>`select pg_get_triggerdef(oid) as definition
+        from pg_trigger
+        where tgname = ${triggerName}
+          and not tgisinternal`.execute(db);
+    assert.equal(trigger.rows.length, 1);
+    const definition = trigger.rows[0]?.definition.toUpperCase() ?? "";
+    assert.match(definition, /AFTER INSERT OR UPDATE/u);
+    assert.match(definition, /DEFERRABLE INITIALLY DEFERRED/u);
+  }
+  const entitlementGuardFunction = await sql<{
+    definition: string;
+  }>`select pg_get_functiondef(oid) as definition
+      from pg_proc
+      where proname = 'guard_offline_learning_entitlement'
+        and pg_get_function_identity_arguments(oid) = ''`.execute(db);
+  assert.equal(entitlementGuardFunction.rows.length, 1);
+  assert.match(
+    entitlementGuardFunction.rows[0]?.definition.toUpperCase() ?? "",
+    /FOR SHARE/u,
+  );
   const activeCredentialIndex = indexResult.rows.find(
     (index) =>
       index.indexname === "event_virtual_lobby_entry_active_credential_idx",
