@@ -292,6 +292,7 @@ try {
           'scorm_launch_token_generation_ck',
           'scorm_attempt_session_generation_ck',
           'offline_learning_installation_user_uq',
+          'offline_learning_installation_replacement_fk',
           'offline_learning_installation_key_uq',
           'offline_learning_installation_key_ck',
           'offline_learning_installation_lifecycle_ck',
@@ -317,7 +318,7 @@ try {
         )`.execute(db);
   assert.equal(
     offlineScormConstraints.rows.length,
-    28,
+    29,
     "Offline SCORM identity, writer, deadline, receipt and cleanup constraints must exist",
   );
   for (const [triggerName, operations] of [

@@ -1149,6 +1149,7 @@ for (const boundary of [
     failures.push(`LiveKit automatic attendance guard is missing: ${boundary}`);
 for (const boundary of [
   "offline_learning_installation_active_user_uq",
+  "offline_learning_installation_replacement_fk",
   "offline_learning_entitlement_active_attempt_uq",
   "offline_learning_entitlement_deadline_ck",
   "offline_learning_entitlement_attempt_package_fk",

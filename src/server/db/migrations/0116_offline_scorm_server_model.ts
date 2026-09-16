@@ -43,12 +43,15 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     "publicKeySpki" bytea not null,
     "publicKeySha256" text not null,
     status text not null default 'active',
-    "replacementInstallationId" text references offline_learning_installation(id)
-      on delete restrict,
+    "replacementInstallationId" text,
     "registeredAt" timestamptz not null default statement_timestamp(),
     "endedAt" timestamptz,
     "updatedAt" timestamptz not null default statement_timestamp(),
     constraint offline_learning_installation_user_uq unique (id, "userId"),
+    constraint offline_learning_installation_replacement_fk foreign key (
+      "replacementInstallationId", "userId"
+    ) references offline_learning_installation (id, "userId")
+      on delete restrict,
     constraint offline_learning_installation_key_uq unique (
       "userId", "publicKeySha256"
     ),

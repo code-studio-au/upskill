@@ -436,6 +436,21 @@ try {
       message: /Offline installation key identity is immutable/u,
     },
   );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("offline_learning_installation")
+        .set({
+          status: "replaced",
+          replacementInstallationId: ids.otherInstallation,
+          endedAt: new Date("2030-01-02T00:00:00.000Z"),
+          updatedAt: new Date("2030-01-02T00:00:00.000Z"),
+        })
+        .where("id", "=", ids.installation)
+        .execute(),
+    "23503",
+    "offline_learning_installation_replacement_fk",
+  );
 
   await assert.rejects(
     insertEntitlement(ids.duplicateEntitlement, {
