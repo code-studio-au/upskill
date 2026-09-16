@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
-import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { sql, type Transaction } from "kysely";
+import { createHash, randomBytes } from "node:crypto";
+import { sql } from "kysely";
 import {
   scormProgressInputSchema,
   type ScormLaunchResult,
@@ -9,17 +9,18 @@ import {
 } from "#/features/scorm/scorm.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
-import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
-import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
-import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 import {
   lockExistingScormAttempt,
   lockOrCreateScormAttempt,
   resolveScormLaunchPolicy,
   type ScormLaunchTarget,
 } from "#/server/scorm/scorm-launch-policy.server";
+import {
+  deriveScormCompletion,
+  lockScormProgressOwner,
+} from "#/server/scorm/scorm-progress-transaction.server";
 import { addElapsedMilliseconds } from "#/server/time/time.server";
 
 const LAUNCH_TOKEN_LIFETIME_MS = 5 * 60 * 1_000;
@@ -450,56 +451,6 @@ export async function authorizeScormAttemptSession(
   return sessionIsAvailable(session) ? "authorized" : "unauthorized";
 }
 
-type LockedScormProgressOwner =
-  | {
-      kind: "course";
-      enrollmentId: string;
-      courseVersionId: string;
-    }
-  | {
-      kind: "event";
-      eventParticipationId: string;
-    };
-
-async function lockScormProgressOwner(
-  transaction: Transaction<Database>,
-  identity: {
-    enrollmentId: string | null;
-    eventParticipationId: string | null;
-  },
-): Promise<LockedScormProgressOwner | undefined> {
-  if (identity.enrollmentId) {
-    const enrollment = await transaction
-      .selectFrom("enrollment")
-      .select("courseVersionId")
-      .where("id", "=", identity.enrollmentId)
-      .forUpdate()
-      .executeTakeFirst();
-    return enrollment
-      ? {
-          kind: "course",
-          enrollmentId: identity.enrollmentId,
-          courseVersionId: enrollment.courseVersionId,
-        }
-      : undefined;
-  }
-  if (identity.eventParticipationId) {
-    const participation = await transaction
-      .selectFrom("event_participation")
-      .select("id")
-      .where("id", "=", identity.eventParticipationId)
-      .forUpdate()
-      .executeTakeFirst();
-    return participation
-      ? {
-          kind: "event",
-          eventParticipationId: participation.id,
-        }
-      : undefined;
-  }
-  return undefined;
-}
-
 export async function recordScormProgress(
   attemptId: string,
   sessionToken: string,
@@ -619,45 +570,12 @@ export async function recordScormProgress(
         .where("id", "=", attemptId)
         .executeTakeFirstOrThrow();
       if (completed) {
-        if (owner.kind === "course") {
-          await completeEnrollmentIfReady(
-            transaction,
-            {
-              enrollmentId: owner.enrollmentId,
-              courseVersionId: owner.courseVersionId,
-              source: "scorm",
-            },
-            now,
-          );
-        } else if (attempt.eventTemplateVersionItemId) {
-          await transaction
-            .insertInto("learning_item_progress")
-            .values({
-              id: `learning_progress_${randomUUID()}`,
-              enrollmentId: null,
-              courseVersionItemId: null,
-              eventParticipationId: owner.eventParticipationId,
-              eventTemplateVersionItemId: attempt.eventTemplateVersionItemId,
-              state: "completed",
-              completedAt: now,
-              updatedAt: now,
-            })
-            .onConflict((conflict) =>
-              conflict
-                .columns(["eventParticipationId", "eventTemplateVersionItemId"])
-                .where("eventParticipationId", "is not", null)
-                .doUpdateSet({ state: "completed", updatedAt: now }),
-            )
-            .execute();
-          await completeEventParticipationIfReady(
-            transaction,
-            {
-              eventParticipationId: owner.eventParticipationId,
-              source: "scorm",
-            },
-            now,
-          );
-        }
+        await deriveScormCompletion(
+          transaction,
+          owner,
+          attempt.eventTemplateVersionItemId,
+          now,
+        );
       }
       return completed ? "completed" : "updated";
     });

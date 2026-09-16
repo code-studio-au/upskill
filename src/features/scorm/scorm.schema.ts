@@ -33,7 +33,7 @@ const scoreSchema = z.nullable(
 );
 
 export const scormProgressInputSchema = z
-  .object({
+  .strictObject({
     lessonStatus: z.enum([
       "not_attempted",
       "incomplete",

@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; dormant receipt model implemented, reconciliation command pending.
+Accepted; dormant reconciliation command implemented, activation pending.
 Date: 2026-09-12
 Accepted: 2026-09-16
 
@@ -48,6 +48,65 @@ identifier, client sequence, base revision, runtime version, reason, normalized
 bounded snapshot, validated session delta and diagnostic client instant. The
 signature bytes are excluded from the fingerprint.
 
+### Version 1 request and signature contract
+
+The version 1 command accepts one strict batch object containing schema version
+`1`, one entitlement identifier, one attempt identifier and between one and 16
+strict signed commit objects. Every commit repeats and signs the same entitlement
+and attempt identifiers. Commit identifiers and client sequences must be unique
+within a batch. Unknown fields fail parsing rather than being silently excluded
+from signature verification.
+
+Each commit signs these normalized fields:
+
+- schema, entitlement, attempt, random commit and client-sequence identifiers;
+- immutable history-base revision and trusted-runtime version;
+- the exact Course enrolment and Course Version item, or Event Participation and
+  Event Template Version item;
+- exact SCORM package-version identifier and lowercase SHA-256 digest;
+- journal reason, bounded complete SCORM snapshot, opaque launch-session
+  identifier, cumulative session elapsed duration, non-overlapping session-time
+  delta and diagnostic client-observed instant.
+
+The trusted runtime and server encode those fields as the UTF-8 bytes of one
+fixed-position JSON tuple in this order:
+
+```text
+[
+  "upskill-offline-scorm-commit-v1", schemaVersion,
+  entitlementId, attemptId, commitId, clientSequence, historyBaseRevision,
+  runtimeVersion, offeringTuple, packageVersionId, packageSha256, reason,
+  snapshotTuple, launchSessionId, sessionElapsedSeconds,
+  sessionTimeDeltaSeconds, clientObservedAt
+]
+```
+
+The Course offering tuple is `['course', enrollmentId,
+courseVersionItemId]`; the Event tuple is `['event', eventParticipationId,
+eventTemplateVersionItemId]`. The snapshot tuple contains lesson status,
+location, suspend data, raw/minimum/maximum score and total time in that order.
+UTC instants normalize to the millisecond `Date.toISOString()` representation
+and signed negative zero normalizes to zero. All other numbers have already
+passed the bounded integer or finite-score schemas before encoding.
+
+The device signs this exact byte string using ECDSA P-256 with SHA-256 and sends
+the 64-byte IEEE P1363 signature as unpadded base64url. The request fingerprint
+is lowercase SHA-256 over the same bytes. The server verifies that the retained
+SPKI is a P-256 key and that its digest still matches the retained installation
+key identity before verifying every record in the batch. A batch containing an
+invalid signature applies no state.
+
+The cumulative session elapsed duration is signed diagnostic and validation
+context; authoritative total time advances only by the signed non-negative
+delta. Each accepted receipt retains the launch-session identifier, cumulative
+elapsed duration and applied delta. Under the entitlement lock, the server
+derives that session's accepted cumulative high-water and requires the next
+delta to equal the new cumulative value minus that high-water. The delta cannot
+exceed the cumulative value, and the signed snapshot's total must equal the
+locked server total plus the delta. This makes overlapping or malformed trusted
+journal time fail closed while receipt identity prevents an accepted delta from
+being applied twice.
+
 When `(entitlementId, commitId)` already exists, an equal fingerprint returns
 the existing receipt without reapplying state, even when the current time is
 past the acceptance deadline or the entitlement was subsequently hard-revoked.
@@ -57,13 +116,13 @@ conflict, applies no state, and explicitly tells the client that the local entry
 is not acknowledged or eligible for compaction.
 
 Only a new commit proceeds to the state-changing transaction. Reconciliation
-then locks the entitlement and attempt and immediately rechecks
-`(entitlementId, commitId)` and its canonical fingerprint while holding those
-locks, before evaluating any current lifecycle gate. If a concurrent request
-created an equal receipt, this request returns it without another effect even
-if the deadline or revocation state changed while it waited for the locks; a
-different fingerprint returns `commit_id_reused`. Only when no receipt exists
-under lock does reconciliation enforce the current lifecycle,
+then locks the entitlement and immediately rechecks every batch commit identity
+and canonical fingerprint while holding that lock, before locking or changing
+the attempt. If a concurrent request created an equal receipt, this request
+returns it without another effect even if the deadline or revocation state
+changed while it waited for the lock; any different fingerprint returns
+`commit_id_reused` before any earlier batch record can apply. Only when no
+conflicting receipt exists under lock does reconciliation enforce the lifecycle,
 commit-acceptance deadline, hard-revocation state and contiguous sequence and
 process records in client-sequence order.
 
@@ -215,11 +274,23 @@ sessions see completion after reconciliation without any special refresh path.
 
 ## Follow-up / Triggers
 
-Specify the exact reconciliation schema and impact matrix before implementation,
-including enrolment and Event Participation paths, ordinary and hard revocation,
-expiry, retries, gaps, duplicate batches, administrator overrides and device
-replacement. Revisit exclusive-writer reconciliation only if product evidence
-justifies multi-device offline attempts.
+The dormant command covers the following impact matrix before any route is
+activated:
+
+| Dimension             | Version 1 behaviour                                                                                                                                                                                          |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Actor and entry point | The authenticated owning learner invokes a future learning-origin sync route; the command itself remains server-only and unreachable.                                                                        |
+| Exact targets         | Entitlement, attempt, installation key, package version and digest, plus Course enrolment/item or Event Participation/item are independently resolved and compared.                                          |
+| Ordering and retry    | Records sort by client sequence; exact receipts recover before current lifecycle gates; gaps are retryable without receipts; reused commit identities with different fingerprints are not acknowledged.      |
+| Lifecycle             | Active evidence is bounded by the server receipt deadline; resolved, replaced, hard-revoked and past-deadline submissions produce retained terminal receipts, while prior exact receipts remain recoverable. |
+| Progress              | Completion is monotonic; latest ordered location, suspend data and scores apply; total time adds only the signed delta; the entitlement cursor and attempt revision advance atomically.                      |
+| Consumers             | Course enrolment and Event Participation item/completion derivation reuse the online transaction helper, so audit, outbox and communication transitions remain idempotent.                                   |
+| Failure boundary      | Invalid schemas, keys or signatures apply nothing; binding, history, writer and consumed-sequence conflicts are retained without logging SCORM values; transient failures roll back.                         |
+
+The remaining activation work must cover ordinary revocation, replacement and
+administrator resolution commands, the trusted local runtime, the authenticated
+route and the real browser matrix. Revisit exclusive-writer reconciliation only
+if product evidence justifies multi-device offline attempts.
 
 ## Related Documents
 
