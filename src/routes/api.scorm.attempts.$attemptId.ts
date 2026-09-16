@@ -40,18 +40,24 @@ export const Route = createFileRoute("/api/scorm/attempts/$attemptId")({
       GET: async ({ request, params }) => {
         const responseHeaders = scormResponseHeaders(request, noStoreHeaders);
         const identity = requestIdentity(request, params.attemptId);
-        const player = identity
+        const playerAuthorization = identity
           ? await findAuthorizedScormPlayer(
               identity.attemptId,
               identity.sessionToken,
             )
           : null;
-        if (!identity || !player) {
+        if (playerAuthorization === "offline-writer-active")
+          return Response.json(
+            { error: "offline_writer_active" },
+            { status: 409, headers: responseHeaders },
+          );
+        if (!identity || !playerAuthorization) {
           return Response.json(
             { error: "attempt_unauthorized" },
             { status: 401, headers: responseHeaders },
           );
         }
+        const player = playerAuthorization;
         const requestUrl = new URL(request.url);
         if (requestUrl.searchParams.get("runtime") === "script")
           return new Response(SCORM_12_RUNTIME, {
@@ -139,6 +145,11 @@ export const Route = createFileRoute("/api/scorm/attempts/$attemptId")({
           return Response.json(
             { error: "attempt_unauthorized" },
             { status: 401, headers: responseHeaders },
+          );
+        if (result === "offline-writer-active")
+          return Response.json(
+            { error: "offline_writer_active" },
+            { status: 409, headers: responseHeaders },
           );
         return Response.json({ status: result }, { headers: responseHeaders });
       },

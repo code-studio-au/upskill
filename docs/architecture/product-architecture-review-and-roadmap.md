@@ -101,7 +101,7 @@ verifiers, and CDK verification.
 | Individual course checkout         | Strong                                                                      | Preserve transaction and idempotency model                               |
 | Learner enrolment/workspace        | Course and staged Event learning implemented                                | Continue incremental UX/support maturity                                 |
 | SCORM delivery                     | Strong                                                                      | Preserve isolation and immutable versions                                |
-| PWA/offline SCORM                  | Mobile public shell and dormant server model implemented                    | Deliver staged mobile offline learning                                   |
+| PWA/offline SCORM                  | Mobile shell, dormant model and exclusive-writer boundary implemented       | Deliver staged mobile offline learning                                   |
 | Surveys                            | Reused across Courses, Events, onboarding and registration questionnaires   | Add privacy operations where required                                    |
 | Resources                          | Strong foundation                                                           | Broaden beyond PDF when required                                         |
 | Certificates                       | On-demand rendering implemented                                             | Reuse the common completion-eligibility boundary                         |
@@ -651,7 +651,8 @@ triggered and do not reopen the delivered webinar foundation.
 - mobile-only installable application shell and static public offline fallback
   (implemented first slice);
 - dormant server entitlement/reconciliation model (implemented second slice);
-- central Course/Event policy and exclusive writer transition;
+- central Course/Event policy and exclusive writer transition (implemented,
+  unreachable until activation);
 - trusted local runtime and isolated exact-attempt package prototype;
 - one complete Course path before Event reuse and support operations; and
 - browser qualification, operational controls and deliberate activation.

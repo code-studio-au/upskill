@@ -1,8 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { sql } from "kysely";
-import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import { sql, type Transaction } from "kysely";
 import {
   scormProgressInputSchema,
   type ScormLaunchResult,
@@ -10,18 +9,17 @@ import {
 } from "#/features/scorm/scorm.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
+import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
-import {
-  courseRegistrationQuestionnaireComplete,
-  eventRegistrationQuestionnaireComplete,
-} from "#/server/registration/registration-questionnaire-access.server";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
 import { completeEventParticipationIfReady } from "#/server/learning/event-learning-completion.server";
 import {
-  calculateEventSectionReleaseAt,
-  ensureEventSectionReleased,
-} from "#/server/learning/event-section-release.server";
+  lockExistingScormAttempt,
+  lockOrCreateScormAttempt,
+  resolveScormLaunchPolicy,
+  type ScormLaunchTarget,
+} from "#/server/scorm/scorm-launch-policy.server";
 import { addElapsedMilliseconds } from "#/server/time/time.server";
 
 const LAUNCH_TOKEN_LIFETIME_MS = 5 * 60 * 1_000;
@@ -35,16 +33,19 @@ function digestScormToken(token: string): string {
   return createHash("sha256").update(token, "utf8").digest("hex");
 }
 
-function accessAvailable(enrollment: {
-  status: string;
-  expiresAt: Date | null;
-  removedAt: Date | null;
-}): boolean {
+function courseAccessAvailable(
+  enrollment: {
+    status: string;
+    expiresAt: Date | null;
+    removedAt: Date | null;
+  },
+  now = new Date(),
+): boolean {
   return (
     !enrollment.removedAt &&
     enrollment.status !== "cancelled" &&
     enrollment.status !== "expired" &&
-    (!enrollment.expiresAt || enrollment.expiresAt > new Date())
+    (!enrollment.expiresAt || enrollment.expiresAt > now)
   );
 }
 
@@ -61,7 +62,7 @@ function attemptContextAvailable(context: {
   if (context.enrollmentId)
     return (
       context.enrollmentStatus !== null &&
-      accessAvailable({
+      courseAccessAvailable({
         status: context.enrollmentStatus,
         expiresAt: context.enrollmentExpiresAt,
         removedAt: context.removedAt,
@@ -76,128 +77,38 @@ function attemptContextAvailable(context: {
   );
 }
 
-export async function createScormLaunch(
-  enrollmentId: string,
-  modulePosition: number,
+async function createOnlineScormLaunch(
+  target: ScormLaunchTarget,
   user: AuthenticatedUser,
 ): Promise<Exclude<ScormLaunchResult, { status: "unauthenticated" }>> {
   let launchedAttemptId: string | undefined;
   const result = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
-      const enrollment = await transaction
-        .selectFrom("enrollment")
-        .innerJoin(
-          "course_version",
-          "course_version.id",
-          "enrollment.courseVersionId",
-        )
-        .select([
-          "enrollment.id",
-          "enrollment.status",
-          "enrollment.expiresAt",
-          "enrollment.removedAt",
-          "enrollment.courseVersionId",
-          "course_version.content",
-        ])
-        .where("enrollment.id", "=", enrollmentId)
-        .where("enrollment.userId", "=", user.id)
-        .forUpdate("enrollment")
-        .executeTakeFirst();
-      if (!enrollment) return { status: "not-found" } as const;
-      if (!accessAvailable(enrollment))
-        return { status: "unavailable" } as const;
-      if (
-        !(await courseRegistrationQuestionnaireComplete(
-          transaction,
-          enrollment.id,
-          user.id,
-        ))
-      )
-        return { status: "unavailable" } as const;
-
-      const content = courseContentSchema.parse(enrollment.content);
-      if (!content.modules[modulePosition])
-        return { status: "not-found" } as const;
-
-      const packageVersion = await transaction
-        .selectFrom("course_version_item")
-        .innerJoin(
-          "scorm_package_version",
-          "scorm_package_version.id",
-          "course_version_item.learningActivityVersionId",
-        )
-        .select(["scorm_package_version.id", "scorm_package_version.status"])
-        .where(
-          "course_version_item.courseVersionId",
-          "=",
-          enrollment.courseVersionId,
-        )
-        .where("course_version_item.kind", "=", "scorm")
-        .where("course_version_item.modulePosition", "=", modulePosition)
-        .executeTakeFirst();
-      if (!packageVersion || packageVersion.status !== "ready")
-        return { status: "unavailable" } as const;
-
-      let attempt = await transaction
-        .selectFrom("scorm_attempt")
-        .select(["id", "status"])
-        .where("enrollmentId", "=", enrollment.id)
-        .where("modulePosition", "=", modulePosition)
-        .where("status", "=", "completed")
-        .orderBy("attemptNumber", "desc")
-        .limit(1)
-        .executeTakeFirst();
-      attempt ??= await transaction
-        .selectFrom("scorm_attempt")
-        .select(["id", "status"])
-        .where("enrollmentId", "=", enrollment.id)
-        .where("modulePosition", "=", modulePosition)
-        .where("status", "in", ["not_started", "in_progress"])
-        .orderBy("attemptNumber", "desc")
-        .limit(1)
-        .executeTakeFirst();
-      if (!attempt) {
-        const numberRow = await transaction
-          .selectFrom("scorm_attempt")
-          .select(
-            sql<number>`coalesce(max("attemptNumber"), 0)::integer`.as(
-              "lastAttemptNumber",
-            ),
-          )
-          .where("enrollmentId", "=", enrollment.id)
-          .where("modulePosition", "=", modulePosition)
-          .executeTakeFirstOrThrow();
-        attempt = {
-          id: randomUUID(),
-          status: "not_started",
-        };
-        await transaction
-          .insertInto("scorm_attempt")
-          .values({
-            id: attempt.id,
-            enrollmentId: enrollment.id,
-            modulePosition,
-            eventParticipationId: null,
-            eventTemplateVersionItemId: null,
-            scormPackageVersionId: packageVersion.id,
-            attemptNumber: numberRow.lastAttemptNumber + 1,
-            status: "not_started",
-            lessonStatus: "not_attempted",
-            location: "",
-            suspendData: "",
-            scoreRaw: null,
-            scoreMin: null,
-            scoreMax: null,
-            totalTimeSeconds: 0,
-            startedAt: null,
-            lastActivityAt: null,
-            completedAt: null,
-          })
-          .execute();
-      }
-
       const now = new Date();
+      const policy = await resolveScormLaunchPolicy(
+        transaction,
+        target,
+        user.id,
+        now,
+      );
+      if (policy.status === "denied") {
+        if (policy.reason !== "not-found") {
+          const existingAttempt = await lockExistingScormAttempt(
+            transaction,
+            target,
+          );
+          if (existingAttempt?.writerMode === "offline")
+            return { status: "offline-writer-active" } as const;
+        }
+        return {
+          status: policy.reason === "not-found" ? "not-found" : "unavailable",
+        } as const;
+      }
+      const attempt = await lockOrCreateScormAttempt(transaction, policy);
+      if (attempt.writerMode === "offline")
+        return { status: "offline-writer-active" } as const;
+
       const token = opaqueToken();
       await transaction
         .updateTable("scorm_launch_token")
@@ -211,6 +122,7 @@ export async function createScormLaunch(
         .values({
           digest: digestScormToken(token),
           attemptId: attempt.id,
+          credentialGeneration: attempt.credentialGeneration,
           expiresAt: addElapsedMilliseconds(now, LAUNCH_TOKEN_LIFETIME_MS),
           consumedAt: null,
           createdAt: now,
@@ -233,10 +145,23 @@ export async function createScormLaunch(
         actorUserId: user.id,
         entityType: "scorm_attempt",
         entityId: launchedAttemptId,
-        enrollmentId,
+        ...(target.kind === "course"
+          ? { enrollmentId: target.enrollmentId }
+          : { eventParticipationId: target.eventParticipationId }),
       },
     });
   return result;
+}
+
+export async function createScormLaunch(
+  enrollmentId: string,
+  modulePosition: number,
+  user: AuthenticatedUser,
+): Promise<Exclude<ScormLaunchResult, { status: "unauthenticated" }>> {
+  return await createOnlineScormLaunch(
+    { kind: "course", enrollmentId, modulePosition },
+    user,
+  );
 }
 
 export async function createEventScormLaunch(
@@ -244,198 +169,14 @@ export async function createEventScormLaunch(
   eventTemplateVersionItemId: string,
   user: AuthenticatedUser,
 ): Promise<Exclude<ScormLaunchResult, { status: "unauthenticated" }>> {
-  let launchedAttemptId: string | undefined;
-  const result = await getDatabase()
-    .transaction()
-    .execute(async (transaction) => {
-      const item = await transaction
-        .selectFrom("event_participation as participation")
-        .innerJoin(
-          "event_occurrence as occurrence",
-          "occurrence.id",
-          "participation.eventOccurrenceId",
-        )
-        .leftJoin(
-          "event_registration as registration",
-          "registration.id",
-          "participation.registrationId",
-        )
-        .innerJoin("event_template_version_item as item", (join) =>
-          join.onRef(
-            "item.eventTemplateVersionId",
-            "=",
-            "occurrence.eventTemplateVersionId",
-          ),
-        )
-        .innerJoin(
-          "event_template_version_section as section",
-          "section.id",
-          "item.sectionId",
-        )
-        .innerJoin(
-          "scorm_package_version as package",
-          "package.id",
-          "item.learningActivityVersionId",
-        )
-        .select([
-          "participation.id as eventParticipationId",
-          "participation.createdAt as participationCreatedAt",
-          "occurrence.id as eventOccurrenceId",
-          "occurrence.status as occurrenceStatus",
-          "occurrence.startsAt",
-          "occurrence.endsAt",
-          "occurrence.timezone",
-          "item.id as eventTemplateVersionItemId",
-          "section.id as eventTemplateVersionSectionId",
-          "section.releaseAnchor",
-          "section.releaseOffsetAmount",
-          "section.releaseOffsetUnit",
-          "package.id as packageVersionId",
-          "package.status as packageStatus",
-        ])
-        .where("participation.id", "=", eventParticipationId)
-        .where("participation.userId", "=", user.id)
-        .where((expression) =>
-          expression.or([
-            expression("participation.mode", "=", "open_entry"),
-            expression("registration.status", "=", "selected"),
-          ]),
-        )
-        .where("item.id", "=", eventTemplateVersionItemId)
-        .where("item.kind", "=", "scorm")
-        .forUpdate("participation")
-        .executeTakeFirst();
-      if (!item) return { status: "not-found" } as const;
-      if (
-        !(await eventRegistrationQuestionnaireComplete(
-          transaction,
-          item.eventOccurrenceId,
-          user.id,
-        ))
-      )
-        return { status: "unavailable" } as const;
-      if (
-        item.packageStatus !== "ready" ||
-        ["cancelled", "archived"].includes(item.occurrenceStatus)
-      )
-        return { status: "unavailable" } as const;
-      const finalSession = await transaction
-        .selectFrom("event_session")
-        .select(sql<Date>`coalesce(max("endsAt"), ${item.endsAt})`.as("endsAt"))
-        .where("eventOccurrenceId", "=", item.eventOccurrenceId)
-        .executeTakeFirstOrThrow();
-      const now = new Date();
-      if (
-        !(await ensureEventSectionReleased(transaction, {
-          eventParticipationId,
-          eventTemplateVersionSectionId: item.eventTemplateVersionSectionId,
-          calculatedReleaseAt: calculateEventSectionReleaseAt({
-            releaseAnchor: item.releaseAnchor,
-            releaseOffsetAmount: item.releaseOffsetAmount,
-            releaseOffsetUnit: item.releaseOffsetUnit,
-            timezone: item.timezone,
-            participationCreatedAt: item.participationCreatedAt,
-            occurrenceStartsAt: item.startsAt,
-            occurrenceEndsAt: item.endsAt,
-            finalSessionEndsAt: finalSession.endsAt,
-          }),
-          now,
-        }))
-      )
-        return { status: "unavailable" } as const;
-
-      let attempt = await transaction
-        .selectFrom("scorm_attempt")
-        .select(["id", "status"])
-        .where("eventParticipationId", "=", eventParticipationId)
-        .where("eventTemplateVersionItemId", "=", eventTemplateVersionItemId)
-        .where("status", "=", "completed")
-        .orderBy("attemptNumber", "desc")
-        .limit(1)
-        .executeTakeFirst();
-      attempt ??= await transaction
-        .selectFrom("scorm_attempt")
-        .select(["id", "status"])
-        .where("eventParticipationId", "=", eventParticipationId)
-        .where("eventTemplateVersionItemId", "=", eventTemplateVersionItemId)
-        .where("status", "in", ["not_started", "in_progress"])
-        .orderBy("attemptNumber", "desc")
-        .limit(1)
-        .executeTakeFirst();
-      if (!attempt) {
-        const numberRow = await transaction
-          .selectFrom("scorm_attempt")
-          .select(
-            sql<number>`coalesce(max("attemptNumber"), 0)::integer`.as(
-              "lastAttemptNumber",
-            ),
-          )
-          .where("eventParticipationId", "=", eventParticipationId)
-          .where("eventTemplateVersionItemId", "=", eventTemplateVersionItemId)
-          .executeTakeFirstOrThrow();
-        attempt = { id: randomUUID(), status: "not_started" };
-        await transaction
-          .insertInto("scorm_attempt")
-          .values({
-            id: attempt.id,
-            enrollmentId: null,
-            modulePosition: null,
-            eventParticipationId,
-            eventTemplateVersionItemId,
-            scormPackageVersionId: item.packageVersionId,
-            attemptNumber: numberRow.lastAttemptNumber + 1,
-            status: "not_started",
-            lessonStatus: "not_attempted",
-            location: "",
-            suspendData: "",
-            scoreRaw: null,
-            scoreMin: null,
-            scoreMax: null,
-            totalTimeSeconds: 0,
-            startedAt: null,
-            lastActivityAt: null,
-            completedAt: null,
-          })
-          .execute();
-      }
-      const token = opaqueToken();
-      await transaction
-        .updateTable("scorm_launch_token")
-        .set({ expiresAt: now })
-        .where("attemptId", "=", attempt.id)
-        .where("consumedAt", "is", null)
-        .where("expiresAt", ">", now)
-        .execute();
-      await transaction
-        .insertInto("scorm_launch_token")
-        .values({
-          digest: digestScormToken(token),
-          attemptId: attempt.id,
-          expiresAt: addElapsedMilliseconds(now, LAUNCH_TOKEN_LIFETIME_MS),
-          consumedAt: null,
-          createdAt: now,
-        })
-        .execute();
-      launchedAttemptId = attempt.id;
-      const launchUrl = new URL(
-        "/api/scorm/launch",
-        getServerEnv().LEARNING_ORIGIN,
-      );
-      launchUrl.searchParams.set("token", token);
-      return { status: "ready", launchUrl: launchUrl.toString() } as const;
-    });
-  if (result.status === "ready" && launchedAttemptId)
-    logServerEvent({
-      level: "info",
-      event: "scorm.attempt_launch_issued",
-      fields: {
-        actorUserId: user.id,
-        entityType: "scorm_attempt",
-        entityId: launchedAttemptId,
-        eventParticipationId,
-      },
-    });
-  return result;
+  return await createOnlineScormLaunch(
+    {
+      kind: "event",
+      eventParticipationId,
+      eventTemplateVersionItemId,
+    },
+    user,
+  );
 }
 
 export interface ScormLaunchExchange {
@@ -446,25 +187,36 @@ export interface ScormLaunchExchange {
 
 export async function exchangeScormLaunchToken(
   token: string,
-): Promise<ScormLaunchExchange | null> {
+): Promise<ScormLaunchExchange | "offline-writer-active" | null> {
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
       const now = new Date();
+      const tokenDigest = digestScormToken(token);
+      const tokenIdentity = await transaction
+        .selectFrom("scorm_launch_token")
+        .select("attemptId")
+        .where("digest", "=", tokenDigest)
+        .executeTakeFirst();
+      if (!tokenIdentity) return null;
+
+      const attempt = await transaction
+        .selectFrom("scorm_attempt")
+        .select(["writerMode", "credentialGeneration"])
+        .where("id", "=", tokenIdentity.attemptId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!attempt) return null;
       const launch = await transaction
         .selectFrom("scorm_launch_token")
         .innerJoin(
-          "scorm_attempt",
-          "scorm_attempt.id",
-          "scorm_launch_token.attemptId",
-        )
-        .innerJoin(
           "scorm_attempt_context as context",
           "context.attemptId",
-          "scorm_attempt.id",
+          "scorm_launch_token.attemptId",
         )
         .select([
           "scorm_launch_token.attemptId",
+          "scorm_launch_token.credentialGeneration",
           "scorm_launch_token.expiresAt as launchExpiresAt",
           "scorm_launch_token.consumedAt",
           "context.enrollmentId",
@@ -476,17 +228,17 @@ export async function exchangeScormLaunchToken(
           "context.participationMode",
           "context.registrationStatus",
         ])
-        .where("scorm_launch_token.digest", "=", digestScormToken(token))
+        .where("scorm_launch_token.digest", "=", tokenDigest)
+        .where("scorm_launch_token.attemptId", "=", tokenIdentity.attemptId)
         .forUpdate("scorm_launch_token")
         .executeTakeFirst();
-      if (
-        !launch ||
-        launch.consumedAt ||
-        launch.launchExpiresAt <= now ||
-        !attemptContextAvailable(launch)
-      ) {
+      if (!launch || launch.consumedAt || launch.launchExpiresAt <= now) {
         return null;
       }
+      if (attempt.writerMode === "offline") return "offline-writer-active";
+      if (launch.credentialGeneration !== attempt.credentialGeneration)
+        return null;
+      if (!attemptContextAvailable(launch)) return null;
 
       const sessionToken = opaqueToken();
       const maximumSessionExpiry = addElapsedMilliseconds(
@@ -501,13 +253,14 @@ export async function exchangeScormLaunchToken(
       await transaction
         .updateTable("scorm_launch_token")
         .set({ consumedAt: now })
-        .where("digest", "=", digestScormToken(token))
+        .where("digest", "=", tokenDigest)
         .executeTakeFirstOrThrow();
       await transaction
         .insertInto("scorm_attempt_session")
         .values({
           digest: digestScormToken(sessionToken),
           attemptId: launch.attemptId,
+          credentialGeneration: attempt.credentialGeneration,
           expiresAt: sessionExpiresAt,
           revokedAt: null,
           createdAt: now,
@@ -520,6 +273,7 @@ export async function exchangeScormLaunchToken(
           lessonStatus: "incomplete",
           startedAt: sql<Date>`coalesce("startedAt", ${now})`,
           lastActivityAt: now,
+          progressRevision: sql<number>`"progressRevision" + 1`,
           updatedAt: now,
         })
         .where("id", "=", launch.attemptId)
@@ -573,7 +327,7 @@ export interface AuthorizedScormPlayer {
 export async function findAuthorizedScormPlayer(
   attemptId: string,
   sessionToken: string,
-): Promise<AuthorizedScormPlayer | null> {
+): Promise<AuthorizedScormPlayer | "offline-writer-active" | null> {
   const row = await getDatabase()
     .selectFrom("scorm_attempt_session")
     .innerJoin(
@@ -595,6 +349,7 @@ export async function findAuthorizedScormPlayer(
     .select([
       "scorm_attempt_session.expiresAt",
       "scorm_attempt_session.revokedAt",
+      "scorm_attempt_session.credentialGeneration as sessionCredentialGeneration",
       "context.enrollmentId",
       "context.enrollmentStatus",
       "context.enrollmentExpiresAt",
@@ -604,6 +359,8 @@ export async function findAuthorizedScormPlayer(
       "context.participationMode",
       "context.registrationStatus",
       "scorm_attempt.id as attemptId",
+      "scorm_attempt.writerMode",
+      "scorm_attempt.credentialGeneration as attemptCredentialGeneration",
       "scorm_attempt.lessonStatus",
       "scorm_attempt.location",
       "scorm_attempt.suspendData",
@@ -620,8 +377,13 @@ export async function findAuthorizedScormPlayer(
     .where("scorm_attempt_session.digest", "=", digestScormToken(sessionToken))
     .where("scorm_attempt_session.attemptId", "=", attemptId)
     .executeTakeFirst();
-  if (!row || !sessionIsAvailable(row) || row.packageStatus !== "ready")
+  if (!row || row.expiresAt <= new Date() || row.packageStatus !== "ready")
     return null;
+  if (row.writerMode === "offline") return "offline-writer-active";
+  if (row.sessionCredentialGeneration !== row.attemptCredentialGeneration)
+    return null;
+  if (!attemptContextAvailable(row)) return null;
+  if (!sessionIsAvailable(row)) return null;
   return {
     contentPrefix: row.contentPrefix,
     launchPath: row.launchPath,
@@ -647,7 +409,7 @@ export async function findAuthorizedScormPlayer(
 export async function authorizeScormAttemptSession(
   attemptId: string,
   sessionToken: string,
-): Promise<boolean> {
+): Promise<"authorized" | "offline-writer-active" | "unauthorized"> {
   const session = await getDatabase()
     .selectFrom("scorm_attempt_session")
     .innerJoin(
@@ -663,6 +425,9 @@ export async function authorizeScormAttemptSession(
     .select([
       "scorm_attempt_session.expiresAt",
       "scorm_attempt_session.revokedAt",
+      "scorm_attempt_session.credentialGeneration as sessionCredentialGeneration",
+      "scorm_attempt.writerMode",
+      "scorm_attempt.credentialGeneration as attemptCredentialGeneration",
       "context.enrollmentId",
       "context.enrollmentStatus",
       "context.enrollmentExpiresAt",
@@ -675,37 +440,129 @@ export async function authorizeScormAttemptSession(
     .where("scorm_attempt_session.digest", "=", digestScormToken(sessionToken))
     .where("scorm_attempt_session.attemptId", "=", attemptId)
     .executeTakeFirst();
-  return Boolean(session && sessionIsAvailable(session));
+  if (!session || session.expiresAt <= new Date()) return "unauthorized";
+  if (session.writerMode === "offline") return "offline-writer-active";
+  if (
+    session.sessionCredentialGeneration !== session.attemptCredentialGeneration
+  )
+    return "unauthorized";
+  if (!attemptContextAvailable(session)) return "unauthorized";
+  return sessionIsAvailable(session) ? "authorized" : "unauthorized";
+}
+
+type LockedScormProgressOwner =
+  | {
+      kind: "course";
+      enrollmentId: string;
+      courseVersionId: string;
+    }
+  | {
+      kind: "event";
+      eventParticipationId: string;
+    };
+
+async function lockScormProgressOwner(
+  transaction: Transaction<Database>,
+  identity: {
+    enrollmentId: string | null;
+    eventParticipationId: string | null;
+  },
+): Promise<LockedScormProgressOwner | undefined> {
+  if (identity.enrollmentId) {
+    const enrollment = await transaction
+      .selectFrom("enrollment")
+      .select("courseVersionId")
+      .where("id", "=", identity.enrollmentId)
+      .forUpdate()
+      .executeTakeFirst();
+    return enrollment
+      ? {
+          kind: "course",
+          enrollmentId: identity.enrollmentId,
+          courseVersionId: enrollment.courseVersionId,
+        }
+      : undefined;
+  }
+  if (identity.eventParticipationId) {
+    const participation = await transaction
+      .selectFrom("event_participation")
+      .select("id")
+      .where("id", "=", identity.eventParticipationId)
+      .forUpdate()
+      .executeTakeFirst();
+    return participation
+      ? {
+          kind: "event",
+          eventParticipationId: participation.id,
+        }
+      : undefined;
+  }
+  return undefined;
 }
 
 export async function recordScormProgress(
   attemptId: string,
   sessionToken: string,
   input: ScormProgressInput,
-): Promise<"updated" | "completed" | "unauthorized"> {
+): Promise<"updated" | "completed" | "offline-writer-active" | "unauthorized"> {
   const progress = scormProgressInputSchema.parse(input);
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
-      const session = await transaction
+      const sessionDigest = digestScormToken(sessionToken);
+      const identity = await transaction
         .selectFrom("scorm_attempt_session")
         .innerJoin(
           "scorm_attempt",
           "scorm_attempt.id",
           "scorm_attempt_session.attemptId",
         )
+        .select([
+          "scorm_attempt.enrollmentId",
+          "scorm_attempt.eventParticipationId",
+        ])
+        .where("scorm_attempt_session.digest", "=", sessionDigest)
+        .where("scorm_attempt_session.attemptId", "=", attemptId)
+        .executeTakeFirst();
+      if (!identity) return "unauthorized";
+
+      // Launch and offline issuance lock the enrollment/participation before
+      // the attempt. Progress must use the same order before completion can
+      // update that owner, otherwise the two paths can deadlock.
+      const owner = await lockScormProgressOwner(transaction, identity);
+      if (!owner) return "unauthorized";
+      const attempt = await transaction
+        .selectFrom("scorm_attempt")
+        .select([
+          "status",
+          "lessonStatus",
+          "location",
+          "suspendData",
+          "scoreRaw",
+          "scoreMin",
+          "scoreMax",
+          "totalTimeSeconds",
+          "writerMode",
+          "credentialGeneration",
+          "eventTemplateVersionItemId",
+        ])
+        .where("id", "=", attemptId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!attempt) return "unauthorized";
+      const session = await transaction
+        .selectFrom("scorm_attempt_session")
         .innerJoin(
           "scorm_attempt_context as context",
           "context.attemptId",
-          "scorm_attempt.id",
+          "scorm_attempt_session.attemptId",
         )
         .select([
           "scorm_attempt_session.expiresAt",
           "scorm_attempt_session.revokedAt",
+          "scorm_attempt_session.credentialGeneration as sessionCredentialGeneration",
           "context.enrollmentId",
           "context.eventParticipationId",
-          "scorm_attempt.eventTemplateVersionItemId",
-          "scorm_attempt.status as attemptStatus",
           "context.enrollmentStatus",
           "context.enrollmentExpiresAt",
           "context.removedAt",
@@ -713,26 +570,36 @@ export async function recordScormProgress(
           "context.participationMode",
           "context.registrationStatus",
         ])
-        .where(
-          "scorm_attempt_session.digest",
-          "=",
-          digestScormToken(sessionToken),
-        )
+        .where("scorm_attempt_session.digest", "=", sessionDigest)
         .where("scorm_attempt_session.attemptId", "=", attemptId)
         .forUpdate("scorm_attempt_session")
         .executeTakeFirst();
-      if (!session || !sessionIsAvailable(session)) return "unauthorized";
+      if (!session || session.expiresAt <= new Date()) return "unauthorized";
+      if (attempt.writerMode === "offline") return "offline-writer-active";
+      if (session.sessionCredentialGeneration !== attempt.credentialGeneration)
+        return "unauthorized";
+      if (!attemptContextAvailable(session)) return "unauthorized";
+      if (!sessionIsAvailable(session)) return "unauthorized";
       const completed =
         progress.lessonStatus === "completed" ||
         progress.lessonStatus === "passed";
-      if (session.attemptStatus === "completed" && !completed)
-        return "completed";
+      if (attempt.status === "completed" && !completed) return "completed";
 
       const now = new Date();
+      const nextStatus = completed ? "completed" : "in_progress";
+      const materiallyChanged =
+        attempt.status !== nextStatus ||
+        attempt.lessonStatus !== progress.lessonStatus ||
+        attempt.location !== progress.location ||
+        attempt.suspendData !== progress.suspendData ||
+        attempt.scoreRaw !== progress.scoreRaw ||
+        attempt.scoreMin !== progress.scoreMin ||
+        attempt.scoreMax !== progress.scoreMax ||
+        attempt.totalTimeSeconds !== progress.totalTimeSeconds;
       await transaction
         .updateTable("scorm_attempt")
         .set({
-          status: completed ? "completed" : "in_progress",
+          status: nextStatus,
           lessonStatus: progress.lessonStatus,
           location: progress.location,
           suspendData: progress.suspendData,
@@ -744,38 +611,33 @@ export async function recordScormProgress(
           completedAt: completed
             ? sql<Date>`coalesce("completedAt", ${now})`
             : null,
+          progressRevision: materiallyChanged
+            ? sql<number>`"progressRevision" + 1`
+            : sql<number>`"progressRevision"`,
           updatedAt: now,
         })
         .where("id", "=", attemptId)
         .executeTakeFirstOrThrow();
       if (completed) {
-        if (session.enrollmentId) {
-          const enrollment = await transaction
-            .selectFrom("enrollment")
-            .select("courseVersionId")
-            .where("id", "=", session.enrollmentId)
-            .executeTakeFirstOrThrow();
+        if (owner.kind === "course") {
           await completeEnrollmentIfReady(
             transaction,
             {
-              enrollmentId: session.enrollmentId,
-              courseVersionId: enrollment.courseVersionId,
+              enrollmentId: owner.enrollmentId,
+              courseVersionId: owner.courseVersionId,
               source: "scorm",
             },
             now,
           );
-        } else if (
-          session.eventParticipationId &&
-          session.eventTemplateVersionItemId
-        ) {
+        } else if (attempt.eventTemplateVersionItemId) {
           await transaction
             .insertInto("learning_item_progress")
             .values({
               id: `learning_progress_${randomUUID()}`,
               enrollmentId: null,
               courseVersionItemId: null,
-              eventParticipationId: session.eventParticipationId,
-              eventTemplateVersionItemId: session.eventTemplateVersionItemId,
+              eventParticipationId: owner.eventParticipationId,
+              eventTemplateVersionItemId: attempt.eventTemplateVersionItemId,
               state: "completed",
               completedAt: now,
               updatedAt: now,
@@ -790,7 +652,7 @@ export async function recordScormProgress(
           await completeEventParticipationIfReady(
             transaction,
             {
-              eventParticipationId: session.eventParticipationId,
+              eventParticipationId: owner.eventParticipationId,
               source: "scorm",
             },
             now,

@@ -110,8 +110,8 @@ public-only:
   says course downloads and offline progress are not enabled yet; and
 - development mode does not register a worker, avoiding stale local routing.
 
-The current dormant-model slice adds the server-owned storage boundaries needed
-by later commands:
+The dormant-model slice adds the server-owned storage boundaries needed by
+later commands:
 
 - SCORM attempts now carry a non-regressing progress revision, writer mode,
   credential generation and exact active-entitlement reference while every
@@ -131,11 +131,27 @@ the authoritative attempt owner and package digest, require credential rotation
 for writer changes and prevent reconciliation cursors from regressing. Runtime
 database roles cannot delete retained offline evidence or mutate receipts.
 
-No route creates an installation or entitlement, no existing launch or progress
-caller enters offline writer mode, and no learner UI exposes download, offline
-launch, reconciliation or cleanup controls. The next slice owns the shared
-Course/Event policy and locked writer transition; it must remain unreachable
-until its full caller and concurrency matrix passes.
+The current central-policy slice now:
+
+- resolves Course and Event SCORM launch qualification through one typed,
+  server-owned policy while holding the authoritative enrolment or
+  participation lock;
+- permits offline delegation only when that policy supplies a finite access
+  expiry, which currently means eligible Course enrolments; Event policy is
+  covered but deliberately returns no invented post-event close instant;
+- locks the exact attempt and rotates its credential generation when the
+  dormant entitlement command establishes the offline writer;
+- revokes live online sessions and rejects launch-token exchange, player and
+  content authorization, and progress mutation with an
+  `offline_writer_active` outcome while that writer owns the attempt; and
+- advances the attempt revision for each material online progress transition
+  so a later entitlement captures a stable history base under the same lock.
+
+The entitlement command remains a server-only dormant boundary. No route
+registers an installation or invokes it, and no learner UI exposes download,
+offline launch, reconciliation or cleanup controls. The next slice owns the
+canonical, signature-verified reconciliation command and must also remain
+unreachable until its retry, ordering and completion-effect matrix passes.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and

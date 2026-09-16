@@ -18,6 +18,13 @@ const ids = {
   enrollment: "verify_scorm_enrollment",
   package: "verify_scorm_package",
   packageVersion: "verify_scorm_package_version",
+  installation: "verify_scorm_installation",
+  eventTemplate: "verify_scorm_event_template",
+  eventTemplateVersion: "verify_scorm_event_template_version",
+  eventSection: "verify_scorm_event_section",
+  eventItem: "verify_scorm_event_item",
+  eventOccurrence: "verify_scorm_event_occurrence",
+  eventParticipation: "verify_scorm_event_participation",
 };
 const user: AuthenticatedUser = {
   id: ids.user,
@@ -38,6 +45,76 @@ const database = new Kysely<Database>({
   }),
 });
 
+async function waitForBlockedScormConnections(minimum: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await sql<{ count: number }>`
+      select count(*)::integer as count
+      from pg_stat_activity
+      where datname = current_database()
+        and pid <> pg_backend_pid()
+        and wait_event_type = 'Lock'
+        and (
+          query ilike '%scorm_attempt%'
+          or query ilike '%enrollment%'
+          or query ilike '%event_participation%'
+        )
+    `.execute(database);
+    if ((result.rows[0]?.count ?? 0) >= minimum) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail(
+    `Expected at least ${String(minimum)} blocked SCORM connection(s)`,
+  );
+}
+
+async function verifyOwnerFirstProgressLockOrder<TProgress, TLaunch>(input: {
+  attemptId: string;
+  beginProgress: () => Promise<TProgress>;
+  beginLaunch: () => Promise<TLaunch>;
+}): Promise<[TProgress, TLaunch]> {
+  let markBlockerReady: () => void = () => undefined;
+  const blockerReady = new Promise<void>((resolve) => {
+    markBlockerReady = resolve;
+  });
+  let releaseBlocker: () => void = () => undefined;
+  const blockerRelease = new Promise<void>((resolve) => {
+    releaseBlocker = resolve;
+  });
+  const blocker = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("scorm_attempt")
+      .select("id")
+      .where("id", "=", input.attemptId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    markBlockerReady();
+    await blockerRelease;
+  });
+  await blockerReady;
+
+  const progress = input.beginProgress();
+  let launch: Promise<TLaunch> | undefined;
+  try {
+    await waitForBlockedScormConnections(1);
+    launch = input.beginLaunch();
+    await waitForBlockedScormConnections(2);
+  } catch (error) {
+    releaseBlocker();
+    await Promise.allSettled([blocker, progress, ...(launch ? [launch] : [])]);
+    throw error;
+  }
+
+  releaseBlocker();
+  assert.ok(launch);
+  const [, progressResult, launchResult] = await Promise.all([
+    blocker,
+    progress,
+    launch,
+  ]);
+  return [progressResult, launchResult];
+}
+
 async function cleanup(): Promise<void> {
   await withAuditMaintenance(database, async (database) => {
     await database
@@ -55,11 +132,61 @@ async function cleanup(): Promise<void> {
       .execute();
     const attempts = await database
       .selectFrom("scorm_attempt")
-      .select("id")
-      .where("enrollmentId", "=", ids.enrollment)
+      .select([
+        "id",
+        "writerMode",
+        "credentialGeneration",
+        "offlineEntitlementId",
+      ])
+      .where((expression) =>
+        expression.or([
+          expression("enrollmentId", "=", ids.enrollment),
+          expression("eventParticipationId", "=", ids.eventParticipation),
+        ]),
+      )
       .execute();
     const attemptIds = attempts.map((attempt) => attempt.id);
     if (attemptIds.length > 0) {
+      for (const attempt of attempts)
+        if (attempt.writerMode === "offline") {
+          await database
+            .updateTable("scorm_attempt")
+            .set({
+              writerMode: "online",
+              offlineEntitlementId: null,
+              credentialGeneration: attempt.credentialGeneration + 1,
+            })
+            .where("id", "=", attempt.id)
+            .executeTakeFirstOrThrow();
+          if (attempt.offlineEntitlementId)
+            await database
+              .updateTable("offline_learning_entitlement")
+              .set({
+                status: "resolved",
+                resolution: "discarded",
+                endedAt: new Date(),
+              })
+              .where("id", "=", attempt.offlineEntitlementId)
+              .where("status", "=", "active")
+              .executeTakeFirstOrThrow();
+        }
+      await database
+        .deleteFrom("offline_scorm_cleanup_inventory")
+        .where("entitlementId", "in", (query) =>
+          query
+            .selectFrom("offline_learning_entitlement")
+            .select("id")
+            .where("attemptId", "in", attemptIds),
+        )
+        .execute();
+      await database
+        .deleteFrom("offline_scorm_reconciliation_receipt")
+        .where("attemptId", "in", attemptIds)
+        .execute();
+      await database
+        .deleteFrom("offline_learning_entitlement")
+        .where("attemptId", "in", attemptIds)
+        .execute();
       await database
         .deleteFrom("scorm_attempt_session")
         .where("attemptId", "in", attemptIds)
@@ -72,10 +199,14 @@ async function cleanup(): Promise<void> {
         .deleteFrom("audit_event")
         .where("subjectId", "in", attemptIds)
         .execute();
+      await database
+        .deleteFrom("scorm_attempt")
+        .where("id", "in", attemptIds)
+        .execute();
     }
     await database
-      .deleteFrom("scorm_attempt")
-      .where("enrollmentId", "=", ids.enrollment)
+      .deleteFrom("offline_learning_installation")
+      .where("id", "=", ids.installation)
       .execute();
     await database
       .deleteFrom("learning_progress_override")
@@ -92,6 +223,38 @@ async function cleanup(): Promise<void> {
     await database
       .deleteFrom("enrollment")
       .where("id", "=", ids.enrollment)
+      .execute();
+    await database
+      .deleteFrom("event_section_release")
+      .where("eventParticipationId", "=", ids.eventParticipation)
+      .execute();
+    await database
+      .deleteFrom("learning_item_progress")
+      .where("eventParticipationId", "=", ids.eventParticipation)
+      .execute();
+    await database
+      .deleteFrom("event_participation")
+      .where("id", "=", ids.eventParticipation)
+      .execute();
+    await database
+      .deleteFrom("event_occurrence")
+      .where("id", "=", ids.eventOccurrence)
+      .execute();
+    await database
+      .deleteFrom("event_template_version_item")
+      .where("id", "=", ids.eventItem)
+      .execute();
+    await database
+      .deleteFrom("event_template_version_section")
+      .where("id", "=", ids.eventSection)
+      .execute();
+    await database
+      .deleteFrom("event_template_version")
+      .where("id", "=", ids.eventTemplateVersion)
+      .execute();
+    await database
+      .deleteFrom("event_template")
+      .where("id", "=", ids.eventTemplate)
       .execute();
     await database
       .deleteFrom("learning_activity_version")
@@ -135,6 +298,19 @@ try {
         stripeCustomerId: null,
       },
     ])
+    .execute();
+  await database
+    .insertInto("offline_learning_installation")
+    .values({
+      id: ids.installation,
+      userId: ids.user,
+      publicKeySpki: Buffer.alloc(91, 7),
+      publicKeySha256: "b".repeat(64),
+      replacementInstallationId: null,
+      registeredAt: new Date(),
+      endedAt: null,
+      updatedAt: new Date(),
+    })
     .execute();
   await database
     .insertInto("course")
@@ -202,6 +378,118 @@ try {
       manifest: { identifier: "verified-sco" },
     })
     .execute();
+  const eventFixtureNow = new Date();
+  await database
+    .insertInto("event_template")
+    .values({
+      id: ids.eventTemplate,
+      title: "Verified SCORM event",
+      status: "published",
+      createdAt: eventFixtureNow,
+      updatedAt: eventFixtureNow,
+    })
+    .execute();
+  await database
+    .insertInto("event_template_version")
+    .values({
+      id: ids.eventTemplateVersion,
+      eventTemplateId: ids.eventTemplate,
+      version: 1,
+      summary: "Event SCORM policy verification",
+      description: "Verifies the shared Course and Event launch policy.",
+      hasCompletionCertificate: false,
+      accreditations: JSON.stringify([]),
+      publishedAt: eventFixtureNow,
+      createdAt: eventFixtureNow,
+    })
+    .execute();
+  await database
+    .insertInto("event_template_version_section")
+    .values({
+      id: ids.eventSection,
+      eventTemplateVersionId: ids.eventTemplateVersion,
+      position: 0,
+      title: "Released event learning",
+      description: "Released SCORM policy fixture",
+      phase: "post_event",
+      releaseAnchor: "participation_created",
+      releaseOffsetAmount: 0,
+      releaseOffsetUnit: "minute",
+      createdAt: eventFixtureNow,
+    })
+    .execute();
+  await database
+    .insertInto("event_template_version_item")
+    .values({
+      id: ids.eventItem,
+      eventTemplateVersionId: ids.eventTemplateVersion,
+      sectionId: ids.eventSection,
+      position: 0,
+      kind: "scorm",
+      title: "Verified event SCO",
+      required: true,
+      durationMinutes: 20,
+      learningActivityVersionId: ids.packageVersion,
+      sessionDefinitionId: null,
+      createdAt: eventFixtureNow,
+    })
+    .execute();
+  await database
+    .insertInto("event_occurrence")
+    .values({
+      id: ids.eventOccurrence,
+      eventTemplateVersionId: ids.eventTemplateVersion,
+      title: "Verified SCORM event occurrence",
+      slug: "verify-scorm-event-occurrence",
+      status: "completed",
+      deliveryMode: "in_person",
+      virtualDeliveryProvider: null,
+      registrationMode: "open_entry",
+      approvalMode: "automatic",
+      timezone: "Australia/Sydney",
+      localStartsAt: "2026-09-15T09:00:00",
+      localEndsAt: "2026-09-15T17:00:00",
+      localRegistrationOpensAt: null,
+      localRegistrationClosesAt: null,
+      localCoordinatorLockAt: null,
+      startsAt: new Date("2026-09-14T23:00:00.000Z"),
+      endsAt: new Date("2026-09-15T07:00:00.000Z"),
+      registrationOpensAt: null,
+      registrationClosesAt: null,
+      coordinatorLockAt: null,
+      capacity: 30,
+      venueName: "Verification venue",
+      venueAddress: "Sydney NSW",
+      virtualJoinUrl: null,
+      priceCents: null,
+      salePriceCents: null,
+      currency: "AUD",
+      bulkPricing: JSON.stringify({ enabled: false, tiers: [] }),
+      listInStore: false,
+      featured: false,
+      publishedAt: eventFixtureNow,
+      createdByUserId: ids.user,
+      createdAt: eventFixtureNow,
+      updatedAt: eventFixtureNow,
+    })
+    .execute();
+  await database
+    .insertInto("event_participation")
+    .values({
+      id: ids.eventParticipation,
+      eventOccurrenceId: ids.eventOccurrence,
+      userId: ids.user,
+      registrationId: null,
+      mode: "open_entry",
+      nameSnapshot: user.name,
+      emailSnapshot: user.email,
+      detailsSubmittedAt: eventFixtureNow,
+      joinDisclosedAt: eventFixtureNow,
+      checkedInAt: null,
+      completedAt: null,
+      createdAt: eventFixtureNow,
+    })
+    .execute();
   await database
     .insertInto("course_version_section")
     .values({
@@ -244,11 +532,137 @@ try {
 
   const {
     authorizeScormAttemptSession,
+    createEventScormLaunch,
     createScormLaunch,
     exchangeScormLaunchToken,
     findAuthorizedScormPlayer,
     recordScormProgress,
   } = await import("#/server/scorm/scorm-attempt.server");
+  const { issueOfflineScormEntitlement } =
+    await import("#/server/scorm/offline-scorm-entitlement.server");
+  const requireAuthorizedPlayer = async (
+    attemptId: string,
+    sessionToken: string,
+  ) => {
+    const player = await findAuthorizedScormPlayer(attemptId, sessionToken);
+    if (!player || player === "offline-writer-active")
+      assert.fail("Expected an authorized online SCORM player");
+    return player;
+  };
+  const eventLaunch = await createEventScormLaunch(
+    ids.eventParticipation,
+    ids.eventItem,
+    user,
+  );
+  assert.equal(eventLaunch.status, "ready");
+  const eventLaunchToken = new URL(eventLaunch.launchUrl).searchParams.get(
+    "token",
+  );
+  assert.ok(eventLaunchToken);
+  const eventExchange = await exchangeScormLaunchToken(eventLaunchToken);
+  if (!eventExchange || eventExchange === "offline-writer-active")
+    assert.fail("Expected the event launch to create an online session");
+  const [eventProgress, concurrentEventLaunch] =
+    await verifyOwnerFirstProgressLockOrder({
+      attemptId: eventExchange.attemptId,
+      beginProgress: () =>
+        recordScormProgress(
+          eventExchange.attemptId,
+          eventExchange.sessionToken,
+          {
+            lessonStatus: "passed",
+            location: "event-owner-lock",
+            suspendData: "event-owner-lock-state",
+            scoreRaw: 100,
+            scoreMin: 0,
+            scoreMax: 100,
+            totalTimeSeconds: 120,
+          },
+        ),
+      beginLaunch: () =>
+        createEventScormLaunch(ids.eventParticipation, ids.eventItem, user),
+    });
+  assert.equal(eventProgress, "completed");
+  assert.equal(concurrentEventLaunch.status, "ready");
+  assert.deepEqual(
+    await issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "event",
+          eventParticipationId: ids.eventParticipation,
+          eventTemplateVersionItemId: ids.eventItem,
+        },
+        installationId: ids.installation,
+      },
+      user,
+    ),
+    { status: "denied", reason: "finite-access-expiry-required" },
+  );
+  assert.deepEqual(
+    await issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      anotherUser,
+    ),
+    { status: "denied", reason: "installation-unavailable" },
+  );
+  assert.deepEqual(
+    await issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: `${ids.enrollment}_forged`,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+    ),
+    { status: "denied", reason: "not-found" },
+  );
+  await database
+    .updateTable("enrollment")
+    .set({ expiresAt: null })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(
+    await issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+    ),
+    { status: "denied", reason: "finite-access-expiry-required" },
+  );
+  await database
+    .updateTable("enrollment")
+    .set({ expiresAt: new Date("2027-08-01T00:00:00.000Z") })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  await database
+    .updateTable("enrollment")
+    .set({ removedAt: new Date() })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await createScormLaunch(ids.enrollment, 0, user), {
+    status: "unavailable",
+  });
+  await database
+    .updateTable("enrollment")
+    .set({ removedAt: null })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
   assert.deepEqual(await createScormLaunch(ids.enrollment, 0, anotherUser), {
     status: "not-found",
   });
@@ -263,21 +677,22 @@ try {
   assert.equal(launchToken.length, 43);
 
   const exchange = await exchangeScormLaunchToken(launchToken);
-  assert.ok(exchange);
+  if (!exchange || exchange === "offline-writer-active")
+    assert.fail("Expected the launch token to create an online session");
   assert.equal(await exchangeScormLaunchToken(launchToken), null);
   assert.equal(
     await authorizeScormAttemptSession(
       exchange.attemptId,
       exchange.sessionToken,
     ),
-    true,
+    "authorized",
   );
   assert.equal(
     await authorizeScormAttemptSession(exchange.attemptId, "x".repeat(43)),
-    false,
+    "unauthorized",
   );
   assert.deepEqual(
-    await findAuthorizedScormPlayer(exchange.attemptId, exchange.sessionToken),
+    await requireAuthorizedPlayer(exchange.attemptId, exchange.sessionToken),
     {
       contentPrefix: "verified/package/v1",
       launchPath: "index.html",
@@ -343,8 +758,8 @@ try {
     totalTimeSeconds: 300,
   });
   assert.equal(
-    (await findAuthorizedScormPlayer(exchange.attemptId, exchange.sessionToken))
-      ?.state.entry,
+    (await requireAuthorizedPlayer(exchange.attemptId, exchange.sessionToken))
+      .state.entry,
     "resume",
   );
   const enrollment = await database
@@ -367,15 +782,16 @@ try {
   const reviewToken = new URL(reviewLaunch.launchUrl).searchParams.get("token");
   assert.ok(reviewToken);
   const reviewExchange = await exchangeScormLaunchToken(reviewToken);
-  assert.ok(reviewExchange);
+  if (!reviewExchange || reviewExchange === "offline-writer-active")
+    assert.fail("Expected the review launch to create an online session");
   assert.equal(reviewExchange.attemptId, exchange.attemptId);
   assert.deepEqual(
     (
-      await findAuthorizedScormPlayer(
+      await requireAuthorizedPlayer(
         reviewExchange.attemptId,
         reviewExchange.sessionToken,
       )
-    )?.state,
+    ).state,
     {
       attemptId: exchange.attemptId,
       entry: "resume",
@@ -422,18 +838,23 @@ try {
   assert.equal(corrected[0]?.state, "incomplete");
   assert.equal(corrected[0].source, "administrator");
   assert.ok(corrected[0].override);
-  assert.equal(
-    await recordScormProgress(
-      reviewExchange.attemptId,
-      reviewExchange.sessionToken,
-      {
-        ...progress,
-        lessonStatus: "passed",
-        totalTimeSeconds: 300,
-      },
-    ),
-    "completed",
-  );
+  const [courseRecompletion, concurrentCourseLaunch] =
+    await verifyOwnerFirstProgressLockOrder({
+      attemptId: reviewExchange.attemptId,
+      beginProgress: () =>
+        recordScormProgress(
+          reviewExchange.attemptId,
+          reviewExchange.sessionToken,
+          {
+            ...progress,
+            lessonStatus: "passed",
+            totalTimeSeconds: 300,
+          },
+        ),
+      beginLaunch: () => createScormLaunch(ids.enrollment, 0, user),
+    });
+  assert.equal(courseRecompletion, "completed");
+  assert.equal(concurrentCourseLaunch.status, "ready");
   const reassessed = await findEffectiveModuleCompletion(
     database,
     ids.enrollment,
@@ -497,17 +918,123 @@ try {
     "completed",
   );
 
+  const pendingLaunch = await createScormLaunch(ids.enrollment, 0, user);
+  assert.equal(pendingLaunch.status, "ready");
+  const pendingLaunchToken = new URL(pendingLaunch.launchUrl).searchParams.get(
+    "token",
+  );
+  assert.ok(pendingLaunchToken);
+  const [issuance, racingProgress] = await Promise.all([
+    issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+    ),
+    recordScormProgress(reviewExchange.attemptId, reviewExchange.sessionToken, {
+      ...progress,
+      lessonStatus: "passed",
+      location: "writer-race",
+      totalTimeSeconds: 301,
+    }),
+  ]);
+  if (issuance.status !== "issued")
+    assert.fail(`Expected offline issuance, received ${issuance.reason}`);
+  assert.ok(
+    racingProgress === "completed" ||
+      racingProgress === "offline-writer-active",
+  );
+  const offlineAttempt = await database
+    .selectFrom("scorm_attempt")
+    .select([
+      "writerMode",
+      "credentialGeneration",
+      "offlineEntitlementId",
+      "progressRevision",
+    ])
+    .where("id", "=", reviewExchange.attemptId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(offlineAttempt, {
+    writerMode: "offline",
+    credentialGeneration: issuance.writerGeneration,
+    offlineEntitlementId: issuance.entitlementId,
+    progressRevision: issuance.historyBaseRevision,
+  });
+  assert.equal(
+    await authorizeScormAttemptSession(
+      reviewExchange.attemptId,
+      reviewExchange.sessionToken,
+    ),
+    "offline-writer-active",
+  );
+  assert.equal(
+    await findAuthorizedScormPlayer(
+      reviewExchange.attemptId,
+      reviewExchange.sessionToken,
+    ),
+    "offline-writer-active",
+  );
+  assert.equal(
+    await recordScormProgress(
+      reviewExchange.attemptId,
+      reviewExchange.sessionToken,
+      {
+        ...progress,
+        lessonStatus: "passed",
+        totalTimeSeconds: 302,
+      },
+    ),
+    "offline-writer-active",
+  );
+  assert.equal(
+    await exchangeScormLaunchToken(pendingLaunchToken),
+    "offline-writer-active",
+  );
+  assert.deepEqual(await createScormLaunch(ids.enrollment, 0, user), {
+    status: "offline-writer-active",
+  });
+  assert.deepEqual(
+    await issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+    ),
+    { status: "denied", reason: "offline-writer-active" },
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("scorm_attempt_session")
+        .select(sql<number>`count(*)::integer`.as("count"))
+        .where("attemptId", "=", reviewExchange.attemptId)
+        .where("revokedAt", "is", null)
+        .executeTakeFirstOrThrow()
+    ).count,
+    0,
+  );
+
   await database
     .updateTable("enrollment")
     .set({ removedAt: new Date() })
     .where("id", "=", ids.enrollment)
     .executeTakeFirstOrThrow();
   assert.deepEqual(await createScormLaunch(ids.enrollment, 0, user), {
-    status: "unavailable",
+    status: "offline-writer-active",
   });
 
   console.log(
-    "Verified SCORM ownership, one-time launch exchange, authorized player state, progress persistence, completed-attempt review, module and course post-correction reassessment, and replay-safe course completion",
+    "Verified shared Course/Event launch policy, owner-first completion locks, finite offline delegation, locked writer races, online credential invalidation, progress revisions, authorized player state, post-correction reassessment, and replay-safe completion",
   );
 } finally {
   await cleanup();
