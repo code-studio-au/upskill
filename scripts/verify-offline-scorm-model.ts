@@ -610,6 +610,9 @@ try {
         commitId: "commit-1",
         clientSequence: 1,
         requestFingerprint: "1".repeat(64),
+        launchSessionId: "model-launch-1",
+        sessionElapsedSeconds: 10,
+        sessionTimeDeltaSeconds: 10,
         outcome: "accepted",
         reasonCode: "accepted",
         resultingAttemptRevision: 1,
@@ -668,12 +671,38 @@ try {
       database
         .insertInto("offline_scorm_reconciliation_receipt")
         .values({
+          id: "verify_offline_scorm_missing_session_receipt",
+          entitlementId: ids.entitlement,
+          attemptId: ids.attempt,
+          commitId: "commit-missing-session",
+          clientSequence: 2,
+          requestFingerprint: "4".repeat(64),
+          launchSessionId: null,
+          sessionElapsedSeconds: null,
+          sessionTimeDeltaSeconds: null,
+          outcome: "accepted",
+          reasonCode: "accepted",
+          resultingAttemptRevision: 2,
+          receivedAt: new Date("2030-02-02T00:00:30.000Z"),
+        })
+        .execute(),
+    "23514",
+    "offline_scorm_receipt_accepted_session_time_ck",
+  );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .insertInto("offline_scorm_reconciliation_receipt")
+        .values({
           id: ids.duplicateReceipt,
           entitlementId: ids.entitlement,
           attemptId: ids.attempt,
           commitId: "commit-1",
           clientSequence: 2,
           requestFingerprint: "2".repeat(64),
+          launchSessionId: "model-launch-1",
+          sessionElapsedSeconds: 20,
+          sessionTimeDeltaSeconds: 10,
           outcome: "accepted",
           reasonCode: "accepted",
           resultingAttemptRevision: 2,
@@ -694,6 +723,9 @@ try {
           commitId: "commit-2",
           clientSequence: 1,
           requestFingerprint: "3".repeat(64),
+          launchSessionId: "model-launch-2",
+          sessionElapsedSeconds: 10,
+          sessionTimeDeltaSeconds: 10,
           outcome: "accepted",
           reasonCode: "accepted",
           resultingAttemptRevision: 2,

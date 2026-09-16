@@ -6,7 +6,7 @@ import {
   randomUUID,
   verify as verifySignature,
 } from "node:crypto";
-import type { Transaction } from "kysely";
+import { sql, type Transaction } from "kysely";
 import {
   canonicalizeOfflineScormCommit,
   offlineScormReconciliationBatchSchema,
@@ -274,6 +274,9 @@ async function insertTerminalReceipt(
     commitId: input.prepared.commit.commitId,
     clientSequence: input.prepared.commit.clientSequence,
     requestFingerprint: input.prepared.fingerprint,
+    launchSessionId: input.prepared.commit.launchSessionId,
+    sessionElapsedSeconds: input.prepared.commit.sessionElapsedSeconds,
+    sessionTimeDeltaSeconds: input.prepared.commit.sessionTimeDeltaSeconds,
     outcome: input.outcome,
     reasonCode: input.reasonCode,
     resultingAttemptRevision: null,
@@ -457,6 +460,38 @@ export async function reconcileOfflineScormProgress(
       .where("userId", "=", user.id)
       .forUpdate()
       .executeTakeFirstOrThrow();
+    const lockedReceipts = await transaction
+      .selectFrom("offline_scorm_reconciliation_receipt")
+      .select([
+        "commitId",
+        "clientSequence",
+        "requestFingerprint",
+        "outcome",
+        "reasonCode",
+        "resultingAttemptRevision",
+        "receivedAt",
+      ])
+      .where("entitlementId", "=", entitlement.id)
+      .where(
+        "commitId",
+        "in",
+        prepared.map(({ commit }) => commit.commitId),
+      )
+      .execute();
+    const lockedReceiptByCommitId = new Map(
+      lockedReceipts.map((receipt) => [receipt.commitId, receipt]),
+    );
+    for (const entry of prepared) {
+      const existing = lockedReceiptByCommitId.get(entry.commit.commitId);
+      if (existing && existing.requestFingerprint !== entry.fingerprint)
+        return {
+          status: "conflict",
+          reason: "commit_id_reused",
+          commitId: entry.commit.commitId,
+          clientSequence: entry.commit.clientSequence,
+          acknowledged: false,
+        } as const;
+    }
     let attempt: LockedAttempt = await transaction
       .selectFrom("scorm_attempt")
       .select([
@@ -496,29 +531,8 @@ export async function reconcileOfflineScormProgress(
 
     for (const entry of prepared) {
       const { commit } = entry;
-      const existing = await transaction
-        .selectFrom("offline_scorm_reconciliation_receipt")
-        .select([
-          "commitId",
-          "clientSequence",
-          "requestFingerprint",
-          "outcome",
-          "reasonCode",
-          "resultingAttemptRevision",
-          "receivedAt",
-        ])
-        .where("entitlementId", "=", entitlement.id)
-        .where("commitId", "=", commit.commitId)
-        .executeTakeFirst();
+      const existing = lockedReceiptByCommitId.get(commit.commitId);
       if (existing) {
-        if (existing.requestFingerprint !== entry.fingerprint)
-          return {
-            status: "conflict",
-            reason: "commit_id_reused",
-            commitId: commit.commitId,
-            clientSequence: commit.clientSequence,
-            acknowledged: false,
-          } as const;
         const recovered = receiptResult(existing, true);
         receipts.push(recovered);
         processedCount += 1;
@@ -657,6 +671,34 @@ export async function reconcileOfflineScormProgress(
         break;
       }
 
+      const sessionHighWater = await transaction
+        .selectFrom("offline_scorm_reconciliation_receipt")
+        .select(
+          sql<number>`coalesce(max("sessionElapsedSeconds"), 0)::integer`.as(
+            "seconds",
+          ),
+        )
+        .where("entitlementId", "=", entitlement.id)
+        .where("launchSessionId", "=", commit.launchSessionId)
+        .where("outcome", "=", "accepted")
+        .executeTakeFirstOrThrow();
+      const expectedSessionDelta =
+        commit.sessionElapsedSeconds - sessionHighWater.seconds;
+      if (commit.sessionTimeDeltaSeconds !== expectedSessionDelta) {
+        const receipt = await insertTerminalReceipt(transaction, {
+          entitlementId: entitlement.id,
+          attemptId: entitlement.attemptId,
+          prepared: entry,
+          outcome: "conflict",
+          reasonCode: "session_time_delta_mismatch",
+          now,
+        });
+        receipts.push(receipt);
+        processedCount += 1;
+        block = terminalBlock(receipt);
+        break;
+      }
+
       const nextTotalTimeSeconds =
         attempt.totalTimeSeconds + commit.sessionTimeDeltaSeconds;
       if (
@@ -746,6 +788,9 @@ export async function reconcileOfflineScormProgress(
         commitId: commit.commitId,
         clientSequence: commit.clientSequence,
         requestFingerprint: entry.fingerprint,
+        launchSessionId: commit.launchSessionId,
+        sessionElapsedSeconds: commit.sessionElapsedSeconds,
+        sessionTimeDeltaSeconds: commit.sessionTimeDeltaSeconds,
         outcome: "accepted" as const,
         reasonCode: "accepted",
         resultingAttemptRevision: resultingRevision,

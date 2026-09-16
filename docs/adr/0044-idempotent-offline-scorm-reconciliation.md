@@ -98,10 +98,14 @@ invalid signature applies no state.
 
 The cumulative session elapsed duration is signed diagnostic and validation
 context; authoritative total time advances only by the signed non-negative
-delta. The delta cannot exceed that cumulative value, and the signed snapshot's
-total must equal the locked server total plus the delta. This makes a malformed
-trusted journal fail closed while receipt identity still prevents an accepted
-delta from being applied twice.
+delta. Each accepted receipt retains the launch-session identifier, cumulative
+elapsed duration and applied delta. Under the entitlement lock, the server
+derives that session's accepted cumulative high-water and requires the next
+delta to equal the new cumulative value minus that high-water. The delta cannot
+exceed the cumulative value, and the signed snapshot's total must equal the
+locked server total plus the delta. This makes overlapping or malformed trusted
+journal time fail closed while receipt identity prevents an accepted delta from
+being applied twice.
 
 When `(entitlementId, commitId)` already exists, an equal fingerprint returns
 the existing receipt without reapplying state, even when the current time is
@@ -112,13 +116,13 @@ conflict, applies no state, and explicitly tells the client that the local entry
 is not acknowledged or eligible for compaction.
 
 Only a new commit proceeds to the state-changing transaction. Reconciliation
-then locks the entitlement and attempt and immediately rechecks
-`(entitlementId, commitId)` and its canonical fingerprint while holding those
-locks, before evaluating any current lifecycle gate. If a concurrent request
-created an equal receipt, this request returns it without another effect even
-if the deadline or revocation state changed while it waited for the locks; a
-different fingerprint returns `commit_id_reused`. Only when no receipt exists
-under lock does reconciliation enforce the current lifecycle,
+then locks the entitlement and immediately rechecks every batch commit identity
+and canonical fingerprint while holding that lock, before locking or changing
+the attempt. If a concurrent request created an equal receipt, this request
+returns it without another effect even if the deadline or revocation state
+changed while it waited for the lock; any different fingerprint returns
+`commit_id_reused` before any earlier batch record can apply. Only when no
+conflicting receipt exists under lock does reconciliation enforce the lifecycle,
 commit-acceptance deadline, hard-revocation state and contiguous sequence and
 process records in client-sequence order.
 

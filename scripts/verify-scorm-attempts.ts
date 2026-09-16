@@ -82,6 +82,7 @@ async function waitForBlockedScormConnections(minimum: number): Promise<void> {
           query ilike '%scorm_attempt%'
           or query ilike '%enrollment%'
           or query ilike '%event_participation%'
+          or query ilike '%offline_learning_entitlement%'
         )
     `.execute(database);
     if ((result.rows[0]?.count ?? 0) >= minimum) return;
@@ -1084,6 +1085,8 @@ try {
     sessionTimeDeltaSeconds: number;
     totalTimeSeconds: number;
     historyBaseRevision?: number;
+    launchSessionId?: string;
+    sessionElapsedSeconds?: number;
   }) =>
     signedOfflineCommit({
       schemaVersion: 1,
@@ -1111,8 +1114,10 @@ try {
         scoreMax: 100,
         totalTimeSeconds: input.totalTimeSeconds,
       },
-      launchSessionId: "course_launch_0001",
-      sessionElapsedSeconds: 60 + input.sessionTimeDeltaSeconds,
+      launchSessionId: input.launchSessionId ?? "course_launch_0001",
+      sessionElapsedSeconds:
+        input.sessionElapsedSeconds ??
+        input.totalTimeSeconds - offlineBase.totalTimeSeconds,
       sessionTimeDeltaSeconds: input.sessionTimeDeltaSeconds,
       clientObservedAt: "2026-09-16T03:00:00.000Z",
     });
@@ -1382,6 +1387,165 @@ try {
         .executeTakeFirstOrThrow()
     ).count,
     1,
+  );
+
+  const atomicFirstCommit = courseCommit({
+    commitId: "course_commit_atomic_0005",
+    clientSequence: 5,
+    lessonStatus: "incomplete",
+    location: "offline-atomic-first",
+    sessionTimeDeltaSeconds: 1,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 32,
+  });
+  const atomicLaterCommit = courseCommit({
+    commitId: "course_commit_atomic_0006",
+    clientSequence: 6,
+    lessonStatus: "incomplete",
+    location: "offline-atomic-later",
+    sessionTimeDeltaSeconds: 1,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 33,
+  });
+  const conflictingAtomicLaterCommit = signedOfflineCommit({
+    schemaVersion: atomicLaterCommit.schemaVersion,
+    entitlementId: atomicLaterCommit.entitlementId,
+    attemptId: atomicLaterCommit.attemptId,
+    commitId: atomicLaterCommit.commitId,
+    clientSequence: atomicLaterCommit.clientSequence,
+    historyBaseRevision: atomicLaterCommit.historyBaseRevision,
+    runtimeVersion: atomicLaterCommit.runtimeVersion,
+    offering: atomicLaterCommit.offering,
+    packageVersionId: atomicLaterCommit.packageVersionId,
+    packageSha256: atomicLaterCommit.packageSha256,
+    reason: atomicLaterCommit.reason,
+    snapshot: {
+      ...atomicLaterCommit.snapshot,
+      location: "offline-concurrent-conflict",
+    },
+    launchSessionId: atomicLaterCommit.launchSessionId,
+    sessionElapsedSeconds: atomicLaterCommit.sessionElapsedSeconds,
+    sessionTimeDeltaSeconds: atomicLaterCommit.sessionTimeDeltaSeconds,
+    clientObservedAt: atomicLaterCommit.clientObservedAt,
+  });
+  let markEntitlementLockReady: () => void = () => undefined;
+  const entitlementLockReady = new Promise<void>((resolve) => {
+    markEntitlementLockReady = resolve;
+  });
+  let persistConcurrentConflict: () => void = () => undefined;
+  const concurrentConflictRequested = new Promise<void>((resolve) => {
+    persistConcurrentConflict = resolve;
+  });
+  const fingerprintConflictBlocker = database
+    .transaction()
+    .execute(async (transaction) => {
+      await transaction
+        .selectFrom("offline_learning_entitlement")
+        .select("id")
+        .where("id", "=", issuance.entitlementId)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      markEntitlementLockReady();
+      await concurrentConflictRequested;
+      const conflictingCanonical = canonicalizeOfflineScormCommit(
+        conflictingAtomicLaterCommit,
+      );
+      await transaction
+        .insertInto("offline_scorm_reconciliation_receipt")
+        .values({
+          id: "offline_scorm_receipt_concurrent_conflict",
+          entitlementId: issuance.entitlementId,
+          attemptId: issuance.attemptId,
+          commitId: conflictingAtomicLaterCommit.commitId,
+          clientSequence: conflictingAtomicLaterCommit.clientSequence,
+          requestFingerprint: createHash("sha256")
+            .update(conflictingCanonical, "utf8")
+            .digest("hex"),
+          launchSessionId: conflictingAtomicLaterCommit.launchSessionId,
+          sessionElapsedSeconds:
+            conflictingAtomicLaterCommit.sessionElapsedSeconds,
+          sessionTimeDeltaSeconds:
+            conflictingAtomicLaterCommit.sessionTimeDeltaSeconds,
+          outcome: "conflict",
+          reasonCode: "binding_mismatch",
+          resultingAttemptRevision: null,
+          receivedAt: new Date(),
+        })
+        .executeTakeFirstOrThrow();
+    });
+  await entitlementLockReady;
+  const atomicBatch = reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [atomicFirstCommit, atomicLaterCommit],
+    },
+    user,
+  );
+  try {
+    await waitForBlockedScormConnections(1);
+  } catch (error) {
+    persistConcurrentConflict();
+    await Promise.allSettled([fingerprintConflictBlocker, atomicBatch]);
+    throw error;
+  }
+  persistConcurrentConflict();
+  await fingerprintConflictBlocker;
+  assert.deepEqual(await atomicBatch, {
+    status: "conflict",
+    reason: "commit_id_reused",
+    commitId: atomicLaterCommit.commitId,
+    clientSequence: atomicLaterCommit.clientSequence,
+    acknowledged: false,
+  });
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_reconciliation_receipt")
+        .select(sql<number>`count(*)::integer`.as("count"))
+        .where("entitlementId", "=", issuance.entitlementId)
+        .where("commitId", "=", atomicFirstCommit.commitId)
+        .executeTakeFirstOrThrow()
+    ).count,
+    0,
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("scorm_attempt")
+        .select("totalTimeSeconds")
+        .where("id", "=", issuance.attemptId)
+        .executeTakeFirstOrThrow()
+    ).totalTimeSeconds,
+    offlineBase.totalTimeSeconds + 31,
+  );
+
+  const overlappingSessionTimeCommit = courseCommit({
+    commitId: "course_commit_overlap_0005",
+    clientSequence: 5,
+    lessonStatus: "incomplete",
+    location: "offline-overlapping-session-time",
+    sessionElapsedSeconds: 31,
+    sessionTimeDeltaSeconds: 1,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 32,
+  });
+  const overlappingSessionTime = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [overlappingSessionTimeCommit],
+    },
+    user,
+  );
+  assert.equal(overlappingSessionTime.status, "processed");
+  assert.equal(
+    overlappingSessionTime.receipts[0]?.reasonCode,
+    "session_time_delta_mismatch",
+  );
+  assert.equal(overlappingSessionTime.receipts[0].outcome, "conflict");
+  assert.equal(
+    overlappingSessionTime.authoritative.totalTimeSeconds,
+    offlineBase.totalTimeSeconds + 31,
   );
 
   const invalidSignatureCommit = courseCommit({
@@ -1730,7 +1894,7 @@ try {
   assert.equal(expiredRetry.receipts[0]?.recovered, true);
 
   console.log(
-    "Verified shared Course/Event launch policy, owner-first completion locks, finite offline delegation, locked writer races, online credential invalidation, progress revisions, signature-bound ordered reconciliation, concurrent retry and gap handling, monotonic completion, deadline and hard-revocation gates, and Course/Event completion effects",
+    "Verified shared Course/Event launch policy, owner-first completion locks, finite offline delegation, locked writer races, online credential invalidation, progress revisions, signature-bound ordered reconciliation, atomic fingerprint conflicts, concurrent retry and gap handling, launch-session time high-water enforcement, monotonic completion, deadline and hard-revocation gates, and Course/Event completion effects",
   );
 } finally {
   await cleanup();

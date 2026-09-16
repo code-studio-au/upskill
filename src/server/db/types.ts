@@ -511,6 +511,9 @@ interface OfflineScormReconciliationReceiptTable {
   commitId: string;
   clientSequence: number;
   requestFingerprint: string;
+  launchSessionId: string | null;
+  sessionElapsedSeconds: number | null;
+  sessionTimeDeltaSeconds: number | null;
   outcome: "accepted" | "rejected" | "conflict";
   reasonCode: string;
   resultingAttemptRevision: number | null;

@@ -121,8 +121,9 @@ later commands:
 - offline entitlements are exact learner, attempt, package digest, installation,
   runtime, history-base and deadline records, with at most one active offline
   writer per attempt;
-- reconciliation receipts enforce one immutable fingerprint per commit and one
-  accepted record per client sequence; and
+- reconciliation receipts enforce one immutable fingerprint per commit, one
+  accepted record per client sequence and retained launch-session elapsed/delta
+  evidence; and
 - cleanup inventory retains the exact package-site origin until an
   authoritative clearing receipt reaches a terminal state.
 
@@ -160,11 +161,13 @@ The dormant reconciliation slice now:
 - resolves and compares exact Course/Event item, attempt, runtime, package
   version and package-digest bindings;
 - serializes owner, entitlement and attempt locks, recovers exact receipts
-  before current lifecycle gates, refuses commit-identifier reuse and leaves
-  sequence gaps retryable without reserving them;
-- applies only contiguous history, advances total time from signed deltas,
-  preserves completion monotonically and advances the entitlement cursor with
-  the attempt revision; and
+  before current lifecycle gates, preflights every batch fingerprint before any
+  state change, refuses commit-identifier reuse and leaves sequence gaps
+  retryable without reserving them;
+- applies only contiguous history, derives each launch session's accepted
+  elapsed high-water before adding its signed delta, preserves completion
+  monotonically and advances the entitlement cursor with the attempt revision;
+  and
 - reuses the existing Course and Event completion transaction helper so
   authoritative audit, outbox and communication effects remain idempotent.
 
