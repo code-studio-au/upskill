@@ -1,4 +1,8 @@
 import {
+  canonicalizeOfflineScormCommit,
+  type OfflineScormUnsignedCommit,
+} from "#/features/scorm/offline-scorm-reconciliation";
+import {
   OFFLINE_SCORM_TRUSTED_DATABASE_NAME,
   OFFLINE_SCORM_TRUSTED_DATABASE_VERSION,
   OfflineScormRuntimeError,
@@ -16,6 +20,7 @@ import {
   type OfflineScormPackageRecord,
   type OfflineScormReceipt,
   type OfflineScormRuntimeErrorCode,
+  type OfflineScormSpoolEntry,
   type OfflineScormSigningReservationScan,
   type OfflineScormTrustedEntitlement,
   type OfflineScormTrustedStore,
@@ -261,6 +266,33 @@ function completed(
   return (
     snapshot.lessonStatus === "completed" || snapshot.lessonStatus === "passed"
   );
+}
+
+function createUnsignedCommit(input: {
+  entitlement: OfflineScormTrustedEntitlement;
+  attemptId: string;
+  commitId: string;
+  clientSequence: number;
+  entry: OfflineScormSpoolEntry;
+}): OfflineScormUnsignedCommit {
+  return parseStoredOfflineScormUnsignedCommit({
+    schemaVersion: 1,
+    entitlementId: input.entitlement.entitlementId,
+    attemptId: input.attemptId,
+    commitId: input.commitId,
+    clientSequence: input.clientSequence,
+    historyBaseRevision: input.entitlement.historyBaseRevision,
+    runtimeVersion: input.entitlement.runtimeVersion,
+    offering: input.entitlement.offering,
+    packageVersionId: input.entitlement.packageVersionId,
+    packageSha256: input.entitlement.packageSha256,
+    reason: input.entry.reason,
+    snapshot: input.entry.snapshot,
+    launchSessionId: input.entry.launchSessionId,
+    sessionElapsedSeconds: input.entry.sessionElapsedSeconds,
+    sessionTimeDeltaSeconds: input.entry.sessionTimeDeltaSeconds,
+    clientObservedAt: input.entry.clientObservedAt,
+  });
 }
 
 function hasContiguousJournalSequence(
@@ -652,6 +684,22 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "The local journal sequence is not contiguous",
           );
         if (parsedExisting) {
+          const expectedCommit = createUnsignedCommit({
+            entitlement,
+            attemptId,
+            commitId: parsedExisting.commitId,
+            clientSequence: parsedExisting.clientSequence,
+            entry,
+          });
+          if (
+            parsedExisting.installationId !== entitlement.installationId ||
+            canonicalizeOfflineScormCommit(parsedExisting.unsignedCommit) !==
+              canonicalizeOfflineScormCommit(expectedCommit)
+          )
+            throw new OfflineScormRuntimeError(
+              "journal_corrupt",
+              "The stored journal retry does not match trusted input",
+            );
           transaction.commit();
           await completedTransaction;
           return parsedExisting;
@@ -704,23 +752,12 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "journal_corrupt",
             "The local launch ordinal is exhausted",
           );
-        const unsignedCommit = parseStoredOfflineScormUnsignedCommit({
-          schemaVersion: 1,
-          entitlementId: entitlement.entitlementId,
+        const unsignedCommit = createUnsignedCommit({
+          entitlement,
           attemptId,
           commitId: candidateCommitId,
           clientSequence: attempt.nextClientSequence,
-          historyBaseRevision: entitlement.historyBaseRevision,
-          runtimeVersion: entitlement.runtimeVersion,
-          offering: entitlement.offering,
-          packageVersionId: entitlement.packageVersionId,
-          packageSha256: entitlement.packageSha256,
-          reason: entry.reason,
-          snapshot: entry.snapshot,
-          launchSessionId: entry.launchSessionId,
-          sessionElapsedSeconds: entry.sessionElapsedSeconds,
-          sessionTimeDeltaSeconds: entry.sessionTimeDeltaSeconds,
-          clientObservedAt: entry.clientObservedAt,
+          entry,
         });
         const record: OfflineScormJournalRecord = {
           schemaVersion: 1,

@@ -281,6 +281,66 @@ describe("offline SCORM trusted IndexedDB", () => {
     ).toBe(true);
   });
 
+  it("rejects a retry when stored canonical commit fields were altered", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const entry = spoolEntry();
+    await runtime.importSpoolEntry({ attemptId: "attempt_1", entry });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const journal = corruptionTransaction.objectStore("journal");
+    const record = (await idbRequest(
+      journal.get(["attempt_1", entry.spoolEntryId]),
+    )) as Record<string, unknown>;
+    const unsignedCommit = record.unsignedCommit as Record<string, unknown>;
+    journal.put({
+      ...record,
+      unsignedCommit: {
+        ...unsignedCommit,
+        snapshot: {
+          ...(unsignedCommit.snapshot as Record<string, unknown>),
+          location: "altered-after-signing",
+        },
+      },
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    await expect(
+      runtime.importSpoolEntry({ attemptId: "attempt_1", entry }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+  });
+
+  it("rejects a retry when the stored signature no longer verifies", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const entry = spoolEntry();
+    await runtime.importSpoolEntry({ attemptId: "attempt_1", entry });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const journal = corruptionTransaction.objectStore("journal");
+    const record = (await idbRequest(
+      journal.get(["attempt_1", entry.spoolEntryId]),
+    )) as Record<string, unknown>;
+    journal.put({ ...record, signature: "A".repeat(86) });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    await expect(
+      runtime.importSpoolEntry({ attemptId: "attempt_1", entry }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+  });
+
   it("recovers a crash after reservation without reallocating sequence", async () => {
     const store = createStore();
     await prepareStore(store);

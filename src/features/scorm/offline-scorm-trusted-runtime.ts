@@ -371,6 +371,36 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return result;
 }
 
+function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  const bytes = new Uint8Array(Math.floor((value.length * 6) / 8));
+  let buffer = 0;
+  let bits = 0;
+  let byteIndex = 0;
+  for (const character of value) {
+    const decoded = alphabet.indexOf(character);
+    if (decoded < 0)
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The stored journal signature is invalid",
+      );
+    buffer = (buffer << 6) | decoded;
+    bits += 6;
+    if (bits < 8) continue;
+    bits -= 8;
+    bytes[byteIndex] = (buffer >>> bits) & 0xff;
+    byteIndex += 1;
+    buffer &= (1 << bits) - 1;
+  }
+  if (buffer !== 0)
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The stored journal signature has non-canonical padding",
+    );
+  return bytes;
+}
+
 export async function fingerprintOfflineScormSpoolEntry(
   input: unknown,
   cryptoProvider: OfflineScormCryptoProvider = globalThis.crypto,
@@ -466,6 +496,86 @@ async function signOfflineScormCommit(
   return encoded;
 }
 
+async function verifyOfflineScormJournalRecord(
+  record: OfflineScormJournalRecord,
+  deviceKey: OfflineScormDeviceKeyRecord,
+  cryptoProvider: OfflineScormCryptoProvider,
+): Promise<void> {
+  if (
+    record.status === "signing" ||
+    record.signature === null ||
+    record.installationId !== deviceKey.installationId
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The finalised journal record is invalid",
+    );
+  let signedCommit: OfflineScormSignedCommit;
+  try {
+    signedCommit = parseStoredOfflineScormSignedCommit({
+      unsignedCommit: record.unsignedCommit,
+      signature: record.signature,
+    });
+  } catch (error) {
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The finalised journal record is not canonical",
+      { cause: error },
+    );
+  }
+  const calculatedPublicKeySha256 = bytesToHex(
+    new Uint8Array(
+      await cryptoProvider.subtle.digest("SHA-256", deviceKey.publicKeySpki),
+    ),
+  );
+  if (calculatedPublicKeySha256 !== deviceKey.publicKeySha256)
+    throw new OfflineScormRuntimeError(
+      "device_key_unavailable",
+      "The stored device public key fingerprint is invalid",
+    );
+  const publicKey = await cryptoProvider.subtle.importKey(
+    "spki",
+    deviceKey.publicKeySpki,
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["verify"],
+  );
+  const valid = await cryptoProvider.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    publicKey,
+    base64UrlToBytes(signedCommit.signature),
+    new TextEncoder().encode(
+      canonicalizeOfflineScormCommit(record.unsignedCommit),
+    ),
+  );
+  if (!valid)
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The stored journal signature does not match its canonical commit",
+    );
+}
+
+function assertSameJournalReservation(
+  reservation: OfflineScormJournalRecord,
+  finalised: OfflineScormJournalRecord,
+): void {
+  if (
+    reservation.attemptId !== finalised.attemptId ||
+    reservation.entitlementId !== finalised.entitlementId ||
+    reservation.installationId !== finalised.installationId ||
+    reservation.spoolEntryId !== finalised.spoolEntryId ||
+    reservation.spoolFingerprint !== finalised.spoolFingerprint ||
+    reservation.commitId !== finalised.commitId ||
+    reservation.clientSequence !== finalised.clientSequence ||
+    canonicalizeOfflineScormCommit(reservation.unsignedCommit) !==
+      canonicalizeOfflineScormCommit(finalised.unsignedCommit)
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The finalised journal record does not match its signing reservation",
+    );
+}
+
 function importAcknowledgement(
   record: OfflineScormJournalRecord,
 ): OfflineScormImportAcknowledgement {
@@ -518,8 +628,22 @@ export class OfflineScormTrustedRuntime {
         candidateCommitId: `commit_${this.#cryptoProvider.randomUUID()}`,
         reservedAt: this.#now().toISOString(),
       });
-      if (reservation.status !== "signing")
+      if (reservation.status !== "signing") {
+        const installation = await this.#store.getInstallation(
+          reservation.installationId,
+        );
+        if (!installation)
+          throw new OfflineScormRuntimeError(
+            "device_key_unavailable",
+            "The device signing key is unavailable",
+          );
+        await verifyOfflineScormJournalRecord(
+          reservation,
+          installation,
+          this.#cryptoProvider,
+        );
         return importAcknowledgement(reservation);
+      }
       return await this.#signAndFinalise(reservation);
     } catch (error) {
       const runtimeError =
@@ -602,6 +726,12 @@ export class OfflineScormTrustedRuntime {
         signature,
         finalisedAt: this.#now().toISOString(),
       });
+      assertSameJournalReservation(reservation, finalised);
+      await verifyOfflineScormJournalRecord(
+        finalised,
+        installation,
+        this.#cryptoProvider,
+      );
       return importAcknowledgement(finalised);
     } catch (error) {
       const runtimeError =
