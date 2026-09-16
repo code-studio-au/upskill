@@ -279,11 +279,13 @@ export interface OfflineScormRecoveryResult {
     attemptId: string;
     code: OfflineScormRuntimeErrorCode;
   }[];
+  unattributedCorruptRecords: number;
 }
 
 export interface OfflineScormSigningReservationScan {
   reservations: OfflineScormJournalRecord[];
   corruptAttemptIds: string[];
+  unattributedCorruptRecords: number;
 }
 
 export interface OfflineScormTrustedStore {
@@ -569,7 +571,11 @@ export class OfflineScormTrustedRuntime {
         });
       }
     }
-    return { acknowledgements, failures };
+    return {
+      acknowledgements,
+      failures,
+      unattributedCorruptRecords: scan.unattributedCorruptRecords,
+    };
   }
 
   async #signAndFinalise(

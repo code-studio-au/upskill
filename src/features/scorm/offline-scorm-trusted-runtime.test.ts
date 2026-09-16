@@ -326,10 +326,12 @@ describe("offline SCORM trusted IndexedDB", () => {
         }),
       ],
       failures: [],
+      unattributedCorruptRecords: 0,
     });
     expect(await restartedStore.listSigningReservations("attempt_1")).toEqual({
       reservations: [],
       corruptAttemptIds: [],
+      unattributedCorruptRecords: 0,
     });
   });
 
@@ -396,14 +398,64 @@ describe("offline SCORM trusted IndexedDB", () => {
         expect.objectContaining({ attemptId: "attempt_1", clientSequence: 1 }),
       ],
       failures: [],
+      unattributedCorruptRecords: 0,
     });
     expect(await store.listSigningReservations("attempt_2")).toEqual({
       reservations: [],
       corruptAttemptIds: ["attempt_2"],
+      unattributedCorruptRecords: 0,
     });
     expect(await runtime.recoverSigningReservations()).toEqual({
       acknowledgements: [],
       failures: [{ attemptId: "attempt_2", code: "journal_corrupt" }],
+      unattributedCorruptRecords: 0,
+    });
+  });
+
+  it("reports unattributed corruption without blocking global recovery", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const entry = spoolEntry();
+    const { fingerprint } = await fingerprintOfflineScormSpoolEntry(entry);
+    const reservation = await store.reserveSpoolEntry({
+      attemptId: "attempt_1",
+      entry,
+      fingerprint,
+      candidateCommitId: "commit_valid_recovery_0001",
+      reservedAt: baseInstant,
+    });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    corruptionTransaction.objectStore("journal").add({
+      ...reservation,
+      attemptId: "invalid attempt id",
+      spoolEntryId: "spool_unattributed_0001",
+      commitId: "commit_unattributed_0001",
+      unsignedCommit: {
+        ...reservation.unsignedCommit,
+        attemptId: "invalid attempt id",
+        commitId: "commit_unattributed_0001",
+      },
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    expect(await runtime.recoverSigningReservations()).toEqual({
+      acknowledgements: [
+        expect.objectContaining({ attemptId: "attempt_1", clientSequence: 1 }),
+      ],
+      failures: [],
+      unattributedCorruptRecords: 1,
+    });
+    expect(await store.listSigningReservations()).toEqual({
+      reservations: [],
+      corruptAttemptIds: [],
+      unattributedCorruptRecords: 1,
     });
   });
 
@@ -441,10 +493,12 @@ describe("offline SCORM trusted IndexedDB", () => {
     expect(await runtime.recoverSigningReservations("attempt_1")).toEqual({
       acknowledgements: [],
       failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+      unattributedCorruptRecords: 0,
     });
     expect(await runtime.recoverSigningReservations()).toEqual({
       acknowledgements: [],
       failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+      unattributedCorruptRecords: 0,
     });
 
     const secondEntry = spoolEntry({
@@ -525,10 +579,12 @@ describe("offline SCORM trusted IndexedDB", () => {
     expect(await runtime.recoverSigningReservations("attempt_1")).toEqual({
       acknowledgements: [],
       failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+      unattributedCorruptRecords: 0,
     });
     expect(await runtime.recoverSigningReservations()).toEqual({
       acknowledgements: [],
       failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+      unattributedCorruptRecords: 0,
     });
 
     const inspectionTransaction = database.transaction("journal", "readonly");
@@ -632,6 +688,7 @@ describe("offline SCORM trusted IndexedDB", () => {
     expect(recovered).toEqual({
       acknowledgements: [],
       failures: [{ attemptId: "attempt_1", code: "device_key_unavailable" }],
+      unattributedCorruptRecords: 0,
     });
     expect(
       (await store.listSigningReservations("attempt_1")).reservations,

@@ -885,15 +885,15 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           : [attemptResult]
         : (attemptResult as unknown[]);
       const corruptAttemptIds = new Set<string>();
+      let unattributedCorruptRecords = 0;
       const attemptsById = new Map<string, OfflineScormAttemptState>();
       for (const value of attemptValues) {
         const envelopeAttemptId =
           parsedAttemptId ?? this.#storedEnvelopeAttemptId(value);
-        if (!envelopeAttemptId)
-          throw new OfflineScormRuntimeError(
-            "journal_corrupt",
-            "A trusted attempt has an invalid identifier",
-          );
+        if (!envelopeAttemptId) {
+          unattributedCorruptRecords += 1;
+          continue;
+        }
         try {
           const attempt = parseAttemptState(value);
           attemptsById.set(attempt.attemptId, attempt);
@@ -908,15 +908,13 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           const records = recordsByAttemptId.get(record.attemptId) ?? [];
           records.push(record);
           recordsByAttemptId.set(record.attemptId, records);
-        } catch (error) {
+        } catch {
           const envelopeAttemptId =
             parsedAttemptId ?? this.#storedEnvelopeAttemptId(value);
-          if (!envelopeAttemptId)
-            throw new OfflineScormRuntimeError(
-              "journal_corrupt",
-              "A journal record has an invalid attempt identifier",
-              { cause: error },
-            );
+          if (!envelopeAttemptId) {
+            unattributedCorruptRecords += 1;
+            continue;
+          }
           corruptAttemptIds.add(envelopeAttemptId);
         }
       }
@@ -946,6 +944,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             first.clientSequence - second.clientSequence,
         ),
         corruptAttemptIds: [...corruptAttemptIds].sort(),
+        unattributedCorruptRecords,
       };
     } catch (error) {
       throw asStorageFailure(error);
