@@ -235,6 +235,15 @@ attempt-scoped sessions, re-authorisation of content/progress access,
 dedicated security headers, and immutable package versions. Never weaken
 the main application's CSP to accommodate SCORM.
 
+The accepted offline design adds separate application, trusted learning-runtime
+and exact-attempt package-site workers; acceptance does not make that target
+current behaviour. The first PWA slice registers only an application-origin
+worker on mobile form factors and caches a static public fallback. It never
+caches authenticated HTML, API responses, learner data or SCORM bytes, and the
+server refuses to serve that worker from the learning origin. Later offline activation must retain the
+per-attempt registrable-site/cookie boundary, keep keys and entitlements out of
+package code, and pass the staged impact and qualification plan before exposure.
+
 ## SCORM Upload Security
 
 Use quarantine, upload/expanded-size limits, entry-count limits, ZIP

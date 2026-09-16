@@ -18,7 +18,8 @@ scoped staff roles and governed communications is now implemented. The next
 high-value work is **product insight and measured operational maturity**:
 visual analytics/export datasets, privacy/retention operations, selected Event
 recovery improvements and richer domain telemetry. Offline SCORM and automatic
-attendance remain explicit decisions, not assumed next steps.
+attendance remain explicit decisions. Offline SCORM is now an accepted,
+bounded delivery program; the application-shell foundation is its first slice.
 
 Overall architectural maturity is high for the current product stage.
 The highest-value work is to preserve existing invariants, keep executable and
@@ -100,6 +101,7 @@ verifiers, and CDK verification.
 | Individual course checkout         | Strong                                                                      | Preserve transaction and idempotency model                               |
 | Learner enrolment/workspace        | Course and staged Event learning implemented                                | Continue incremental UX/support maturity                                 |
 | SCORM delivery                     | Strong                                                                      | Preserve isolation and immutable versions                                |
+| PWA/offline SCORM                  | Mobile installable public shell foundation in progress                      | Deliver staged mobile offline learning                                   |
 | Surveys                            | Reused across Courses, Events, onboarding and registration questionnaires   | Add privacy operations where required                                    |
 | Resources                          | Strong foundation                                                           | Broaden beyond PDF when required                                         |
 | Certificates                       | On-demand rendering implemented                                             | Reuse the common completion-eligibility boundary                         |
@@ -643,6 +645,20 @@ without understanding why.
 Automatic Attendance from provider connection evidence remains a separate
 conditional product decision. Production hardening tasks remain operationally
 triggered and do not reopen the delivered webinar foundation.
+
+### Cross-cutting delivery --- PWA and offline SCORM (in progress)
+
+- mobile-only installable application shell and static public offline fallback
+  (first slice);
+- dormant server entitlement/reconciliation model and central writer policy;
+- trusted local runtime and isolated exact-attempt package prototype;
+- one complete Course path before Event reuse and support operations; and
+- browser qualification, operational controls and deliberate activation.
+
+The [offline SCORM delivery plan](offline-scorm-delivery-plan.md) owns the impact
+matrix and reviewable slice boundaries. No current interface may imply that
+course downloads, offline progress or server-confirmed completion exist before
+their complete slice is activated.
 
 ### Phase F --- Visual analytics (next product slice)
 

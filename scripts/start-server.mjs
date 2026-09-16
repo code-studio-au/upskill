@@ -15,6 +15,7 @@ import {
   isCompressibleContentType,
   selectContentEncoding,
 } from "./http-compression.mjs";
+import { getPwaShellScriptAsset } from "./pwa-shell-assets.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
 const applicationOrigin = new URL(
@@ -46,6 +47,7 @@ const clientDirectory = path.resolve(
 );
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
+  [".html", "text/html; charset=utf-8"],
   [".ico", "image/x-icon"],
   [".jpg", "image/jpeg"],
   [".js", "text/javascript; charset=utf-8"],
@@ -69,8 +71,11 @@ const publicAssetPaths = new Set([
   "/favicon.ico",
   "/icons/close-navy.svg",
   "/icons/menu-navy.svg",
+  "/offline.css",
+  "/offline.html",
   "/site.webmanifest",
 ]);
+const applicationOnlyAssetPaths = new Set(["/offline.css", "/offline.html"]);
 
 const logLevelPriority = { info: 10, warn: 20, error: 30 };
 
@@ -136,14 +141,39 @@ function requestOrigin(incoming) {
   );
 }
 
+function servePwaShellScript(incoming, outgoing) {
+  const method = incoming.method ?? "GET";
+  if (method !== "GET" && method !== "HEAD") return false;
+
+  let asset;
+  try {
+    asset = getPwaShellScriptAsset(
+      new URL(incoming.url ?? "/", requestOrigin(incoming)),
+      applicationOrigin,
+    );
+  } catch {
+    return false;
+  }
+  if (!asset) return false;
+
+  outgoing.statusCode = asset.status;
+  for (const [name, value] of Object.entries(asset.headers))
+    outgoing.setHeader(name, value);
+  outgoing.setHeader("content-length", Buffer.byteLength(asset.body));
+  outgoing.end(method === "HEAD" ? undefined : asset.body);
+  return true;
+}
+
 async function serveClientAsset(incoming, outgoing) {
   const method = incoming.method ?? "GET";
   if (method !== "GET" && method !== "HEAD") return false;
 
   let pathname;
+  let origin;
   try {
+    origin = requestOrigin(incoming);
     pathname = decodeURIComponent(
-      new URL(incoming.url ?? "/", requestOrigin(incoming)).pathname,
+      new URL(incoming.url ?? "/", origin).pathname,
     );
   } catch {
     return false;
@@ -151,6 +181,8 @@ async function serveClientAsset(incoming, outgoing) {
   const isFingerprintedAsset = pathname.startsWith("/assets/");
   const isPublicAsset = publicAssetPaths.has(pathname);
   if (!isFingerprintedAsset && !isPublicAsset) return false;
+  if (applicationOnlyAssetPaths.has(pathname) && origin !== applicationOrigin)
+    return false;
 
   const target = path.resolve(clientDirectory, `.${pathname}`);
   if (!target.startsWith(`${clientDirectory}${path.sep}`)) return false;
@@ -297,6 +329,7 @@ async function handleRequest(incoming, outgoing) {
       );
       return;
     }
+    if (servePwaShellScript(incoming, outgoing)) return;
     if (await serveClientAsset(incoming, outgoing)) return;
 
     const headers = new Headers();

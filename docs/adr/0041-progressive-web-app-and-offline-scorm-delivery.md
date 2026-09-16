@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed.
+Accepted; implementation in progress.
 Date: 2026-09-12
+Accepted: 2026-09-16
 
 ## Context
 
@@ -86,18 +87,20 @@ may ship for a browser engine until tests on that engine prove that one package
 cannot set or read cookies, storage or service-worker state visible to another
 attempt.
 
-The first confirmed offline matrix is installed Chrome or Edge on supported
-desktop and Android platforms. Installed Safari web apps on supported iPhone
-and iPad platforms are a required qualification target, but are not advertised
-as supported until the Storage Access prototype below passes. Compatible
-non-installed Chromium browsers may pass the same runtime capability checks,
-but are not the recommended offline journey. Embedded and in-app browsers are
-unsupported. Online Upskill remains available in supported ordinary browsers,
-including Safari, regardless of offline capability.
+Offline learning is a mobile-only product capability. The initial supported
+matrix is installed Chrome, Edge or Firefox on supported Android phones and
+tablets. Installed Safari web apps on supported iPhone and iPad platforms are a
+required qualification target, but are not advertised as supported until the
+Storage Access prototype below passes. Upskill does not promote, register or
+support the offline application shell on desktop form factors; desktop learners
+continue to use the online website. Embedded and in-app browsers are
+unsupported. Online Upskill remains available in supported ordinary browsers
+on every platform regardless of offline capability.
 
 For the Safari prototype, **Enable offline course** is an explicit learner
-action inside the installed web app. The production direct-child package frame includes
-only the required sandbox capabilities, including
+action rendered by the controlled package host inside the direct-child package
+frame so WebKit grants that cross-origin frame the required transient user
+activation. The frame includes only the required sandbox capabilities, including
 `allow-storage-access-by-user-activation`, and calls
 `document.requestStorageAccess()` from that user activation when the API says
 access is absent. A granted request is not treated as proof that Web Storage is
@@ -198,6 +201,9 @@ must show download health and never promise permanent availability.
   guarantees; a general PWA-installability check is insufficient.
 - Online learning and non-learning Upskill functions do not require PWA
   installation.
+- Offline learning is offered only on supported mobile form factors; desktop
+  use remains the online website even where a browser can install arbitrary
+  sites as applications.
 
 ## Follow-up / Triggers
 

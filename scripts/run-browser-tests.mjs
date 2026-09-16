@@ -1,7 +1,10 @@
 import { spawn } from "node:child_process";
+import { createHash, X509Certificate } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import net from "node:net";
 import path from "node:path";
 import { createDisposablePostgresDatabase } from "./disposable-postgres.mjs";
+import { ensureLocalTls } from "./local-tls.mjs";
 
 const suite = process.argv[2] ?? "all";
 const playwright = path.resolve("node_modules/@playwright/test/cli.js");
@@ -21,7 +24,7 @@ const browserSuites = {
     [
       "test",
       "--project=chromium-mobile",
-      "--grep=secure local origin negotiates compression",
+      "--grep=secure local origin negotiates compression|the application shell provides a public offline fallback",
     ],
   ],
 };
@@ -30,6 +33,19 @@ if (!Object.hasOwn(browserSuites, suite))
   throw new Error(`Unknown browser-test suite: ${suite}`);
 
 const baseDatabaseUrl = process.env.DATABASE_URL;
+const secure = suite === "https" || process.env.PLAYWRIGHT_HTTPS === "true";
+
+async function localTlsSpkiPin() {
+  const { certificate } = await ensureLocalTls();
+  const parsedCertificate = new X509Certificate(await readFile(certificate));
+  const publicKey = parsedCertificate.publicKey.export({
+    format: "der",
+    type: "spki",
+  });
+  return createHash("sha256").update(publicKey).digest("base64");
+}
+
+const tlsSpkiPin = secure ? await localTlsSpkiPin() : undefined;
 
 async function findAvailablePort(excludedPort) {
   return await new Promise((resolve, reject) => {
@@ -121,7 +137,8 @@ try {
     DATABASE_URL: disposableDatabase.databaseUrl,
     PLAYWRIGHT_PORT: browserPort,
     PLAYWRIGHT_LEARNING_PORT: learningPort,
-    PLAYWRIGHT_HTTPS: suite === "https" ? "true" : process.env.PLAYWRIGHT_HTTPS,
+    PLAYWRIGHT_HTTPS: secure ? "true" : process.env.PLAYWRIGHT_HTTPS,
+    ...(tlsSpkiPin ? { PLAYWRIGHT_TLS_SPKI_PIN: tlsSpkiPin } : {}),
   };
 
   for (const script of [

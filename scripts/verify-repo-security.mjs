@@ -135,6 +135,7 @@ for (const invariant of [
   'all: [["test"]]',
   '"--project=chromium-mobile-scorm"',
   '"--project=chromium-mobile-admin"',
+  '"--grep=secure local origin negotiates compression|the application shell provides a public offline fallback"',
   '"--no-deps"',
 ])
   if (!browserTestRunner.includes(invariant))
@@ -180,6 +181,8 @@ const playwrightConfig = fs.readFileSync(
 if (!playwrightConfig.includes("reuseExistingServer: false"))
   failures.push("Playwright must never reuse a developer server");
 for (const invariant of [
+  "--ignore-certificate-errors-spki-list=",
+  "PLAYWRIGHT_TLS_SPKI_PIN",
   'name: "chromium-mobile-scorm"',
   'dependencies: ["chromium-mobile", "firefox", "webkit"]',
   'name: "chromium-mobile-admin"',
