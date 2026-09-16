@@ -69,19 +69,32 @@ async function cleanup(): Promise<void> {
     .execute();
   const attempt = await database
     .selectFrom("scorm_attempt")
-    .select(["writerMode", "credentialGeneration"])
+    .select(["writerMode", "credentialGeneration", "offlineEntitlementId"])
     .where("id", "=", ids.attempt)
     .executeTakeFirst();
   if (attempt?.writerMode === "offline")
-    await database
-      .updateTable("scorm_attempt")
-      .set({
-        writerMode: "online",
-        offlineEntitlementId: null,
-        credentialGeneration: attempt.credentialGeneration + 1,
-      })
-      .where("id", "=", ids.attempt)
-      .execute();
+    await database.transaction().execute(async (transaction) => {
+      await transaction
+        .updateTable("scorm_attempt")
+        .set({
+          writerMode: "online",
+          offlineEntitlementId: null,
+          credentialGeneration: attempt.credentialGeneration + 1,
+        })
+        .where("id", "=", ids.attempt)
+        .execute();
+      if (attempt.offlineEntitlementId)
+        await transaction
+          .updateTable("offline_learning_entitlement")
+          .set({
+            status: "resolved",
+            resolution: "discarded",
+            endedAt: new Date("2030-03-02T00:00:00.000Z"),
+          })
+          .where("id", "=", attempt.offlineEntitlementId)
+          .where("status", "=", "active")
+          .execute();
+    });
   await database
     .deleteFrom("offline_learning_entitlement")
     .where("attemptId", "=", ids.attempt)
@@ -145,8 +158,9 @@ async function insertEntitlement(
     packageSha256: string;
     commitAcceptanceDeadline: Date | string;
   }> = {},
+  executor: Kysely<Database> = database,
 ): Promise<void> {
-  await database
+  await executor
     .insertInto("offline_learning_entitlement")
     .values({
       id,
@@ -436,20 +450,39 @@ try {
       message: /Offline installation key identity is immutable/u,
     },
   );
-  await assertDatabaseConstraint(
-    () =>
-      database
-        .updateTable("offline_learning_installation")
-        .set({
-          status: "replaced",
-          replacementInstallationId: ids.otherInstallation,
-          endedAt: new Date("2030-01-02T00:00:00.000Z"),
-          updatedAt: new Date("2030-01-02T00:00:00.000Z"),
-        })
-        .where("id", "=", ids.installation)
-        .execute(),
-    "23503",
-    "offline_learning_installation_replacement_fk",
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_installation")
+      .set({
+        status: "replaced",
+        replacementInstallationId: ids.otherInstallation,
+        endedAt: new Date("2030-01-02T00:00:00.000Z"),
+        updatedAt: new Date("2030-01-02T00:00:00.000Z"),
+      })
+      .where("id", "=", ids.installation)
+      .execute(),
+    {
+      code: "23514",
+      message:
+        /replacement requires an active installation for the same learner/u,
+    },
+  );
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_installation")
+      .set({
+        status: "replaced",
+        replacementInstallationId: ids.installation,
+        endedAt: new Date("2030-01-02T00:00:00.000Z"),
+        updatedAt: new Date("2030-01-02T00:00:00.000Z"),
+      })
+      .where("id", "=", ids.installation)
+      .execute(),
+    {
+      code: "23514",
+      message:
+        /replacement requires an active installation for the same learner/u,
+    },
   );
 
   await assert.rejects(
@@ -488,36 +521,45 @@ try {
     "offline_learning_entitlement_deadline_ck",
   );
 
-  await insertEntitlement(ids.entitlement);
-  await assertDatabaseConstraint(
-    () => insertEntitlement(ids.duplicateEntitlement),
-    "23505",
-    "offline_learning_entitlement_active_attempt_uq",
-  );
+  await assert.rejects(insertEntitlement(ids.entitlement), {
+    code: "23514",
+    message: /Active offline entitlement must own the attempt writer/u,
+  });
   await assert.rejects(
-    database
-      .updateTable("scorm_attempt")
-      .set({
-        writerMode: "offline",
-        offlineEntitlementId: ids.entitlement,
-        credentialGeneration: 2,
-      })
-      .where("id", "=", ids.attempt)
-      .execute(),
+    database.transaction().execute(async (transaction) => {
+      await insertEntitlement(ids.entitlement, {}, transaction);
+      await transaction
+        .updateTable("scorm_attempt")
+        .set({
+          writerMode: "offline",
+          offlineEntitlementId: ids.entitlement,
+          credentialGeneration: 2,
+        })
+        .where("id", "=", ids.attempt)
+        .execute();
+    }),
     {
       code: "23514",
       message: /writer transitions must rotate credentials/u,
     },
   );
-  await database
-    .updateTable("scorm_attempt")
-    .set({
-      writerMode: "offline",
-      offlineEntitlementId: ids.entitlement,
-      credentialGeneration: 1,
-    })
-    .where("id", "=", ids.attempt)
-    .executeTakeFirstOrThrow();
+  await database.transaction().execute(async (transaction) => {
+    await insertEntitlement(ids.entitlement, {}, transaction);
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "offline",
+        offlineEntitlementId: ids.entitlement,
+        credentialGeneration: 1,
+      })
+      .where("id", "=", ids.attempt)
+      .executeTakeFirstOrThrow();
+  });
+  await assertDatabaseConstraint(
+    () => insertEntitlement(ids.duplicateEntitlement),
+    "23505",
+    "offline_learning_entitlement_active_attempt_uq",
+  );
 
   await assert.rejects(
     database
@@ -746,39 +788,82 @@ try {
     },
   );
 
-  await database
-    .updateTable("scorm_attempt")
-    .set({
-      writerMode: "online",
-      offlineEntitlementId: null,
-      credentialGeneration: 2,
-    })
-    .where("id", "=", ids.attempt)
-    .execute();
+  await assert.rejects(
+    database
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "online",
+        offlineEntitlementId: null,
+        credentialGeneration: 2,
+      })
+      .where("id", "=", ids.attempt)
+      .execute(),
+    {
+      code: "23514",
+      message: /Active offline entitlement must own the attempt writer/u,
+    },
+  );
+  const resolvedAt = new Date("2030-02-03T00:05:00.000Z");
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_entitlement")
+      .set({
+        status: "resolved",
+        resolution: "reconciled",
+        endedAt: resolvedAt,
+      })
+      .where("id", "=", ids.entitlement)
+      .execute(),
+    {
+      code: "23514",
+      message: /Offline attempt writer requires an active entitlement/u,
+    },
+  );
   await assertDatabaseConstraint(
     () =>
-      database
-        .updateTable("offline_learning_entitlement")
-        .set({
-          status: "resolved",
-          resolution: "reconciled",
-          endedAt: "infinity",
-        })
-        .where("id", "=", ids.entitlement)
-        .execute(),
+      database.transaction().execute(async (transaction) => {
+        await transaction
+          .updateTable("scorm_attempt")
+          .set({
+            writerMode: "online",
+            offlineEntitlementId: null,
+            credentialGeneration: 2,
+          })
+          .where("id", "=", ids.attempt)
+          .execute();
+        await transaction
+          .updateTable("offline_learning_entitlement")
+          .set({
+            status: "resolved",
+            resolution: "reconciled",
+            endedAt: "infinity",
+          })
+          .where("id", "=", ids.entitlement)
+          .execute();
+      }),
     "23514",
     "offline_learning_entitlement_timeline_ck",
   );
-  const resolvedAt = new Date("2030-02-03T00:05:00.000Z");
-  await database
-    .updateTable("offline_learning_entitlement")
-    .set({
-      status: "resolved",
-      resolution: "reconciled",
-      endedAt: resolvedAt,
-    })
-    .where("id", "=", ids.entitlement)
-    .execute();
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "online",
+        offlineEntitlementId: null,
+        credentialGeneration: 2,
+      })
+      .where("id", "=", ids.attempt)
+      .execute();
+    await transaction
+      .updateTable("offline_learning_entitlement")
+      .set({
+        status: "resolved",
+        resolution: "reconciled",
+        endedAt: resolvedAt,
+      })
+      .where("id", "=", ids.entitlement)
+      .execute();
+  });
   await assert.rejects(
     database
       .updateTable("offline_learning_entitlement")
@@ -788,6 +873,55 @@ try {
     {
       code: "23514",
       message: /entitlement lifecycle is terminal/u,
+    },
+  );
+
+  const replacedAt = new Date("2030-02-04T00:00:00.000Z");
+  await database
+    .updateTable("offline_learning_installation")
+    .set({
+      status: "replaced",
+      endedAt: replacedAt,
+      updatedAt: replacedAt,
+    })
+    .where("id", "=", ids.installation)
+    .execute();
+  await database
+    .insertInto("offline_learning_installation")
+    .values({
+      id: ids.duplicateInstallation,
+      userId: ids.user,
+      publicKeySpki: Buffer.alloc(91, 3),
+      publicKeySha256: "d".repeat(64),
+      replacementInstallationId: null,
+      registeredAt: replacedAt,
+      endedAt: null,
+      updatedAt: replacedAt,
+    })
+    .execute();
+  await database
+    .updateTable("offline_learning_installation")
+    .set({
+      replacementInstallationId: ids.duplicateInstallation,
+      updatedAt: new Date("2030-02-04T00:01:00.000Z"),
+    })
+    .where("id", "=", ids.installation)
+    .execute();
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_installation")
+      .set({
+        status: "replaced",
+        replacementInstallationId: ids.installation,
+        endedAt: new Date("2030-02-04T00:02:00.000Z"),
+        updatedAt: new Date("2030-02-04T00:02:00.000Z"),
+      })
+      .where("id", "=", ids.duplicateInstallation)
+      .execute(),
+    {
+      code: "23514",
+      message:
+        /replacement requires an active installation for the same learner/u,
     },
   );
 

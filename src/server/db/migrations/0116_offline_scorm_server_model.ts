@@ -97,6 +97,8 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     returns trigger
     language plpgsql
     as $$
+    declare
+      replacement_status text;
     begin
       if tg_op = 'INSERT' then
         if new.status <> 'active' then
@@ -123,6 +125,21 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       ) then
         raise exception 'Offline installation key identity is immutable'
           using errcode = '23514';
+      end if;
+      if new."replacementInstallationId" is distinct from
+          old."replacementInstallationId"
+        and new."replacementInstallationId" is not null then
+        select installation.status
+          into replacement_status
+          from offline_learning_installation installation
+         where installation.id = new."replacementInstallationId"
+           and installation."userId" = new."userId"
+           and installation.id <> new.id
+           for update;
+        if replacement_status is distinct from 'active' then
+          raise exception 'Offline replacement requires an active installation for the same learner'
+            using errcode = '23514';
+        end if;
       end if;
       if old.status <> 'active' and not (
         old.status = 'replaced'
@@ -392,6 +409,70 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     db,
   );
 
+  await sql`create function enforce_offline_scorm_writer_consistency()
+    returns trigger
+    language plpgsql
+    as $$
+    declare
+      affected_attempt_id text;
+      attempt_writer_mode text;
+      attempt_entitlement_id text;
+      attempt_credential_generation integer;
+      attempt_progress_revision integer;
+      active_entitlement_id text;
+      active_writer_generation integer;
+      active_cursor_revision integer;
+    begin
+      if tg_table_name = 'scorm_attempt' then
+        affected_attempt_id := new.id;
+      else
+        affected_attempt_id := new."attemptId";
+      end if;
+
+      select attempt."writerMode", attempt."offlineEntitlementId",
+             attempt."credentialGeneration", attempt."progressRevision",
+             entitlement.id, entitlement."writerGeneration",
+             entitlement."reconciliationCursorRevision"
+        into attempt_writer_mode, attempt_entitlement_id,
+             attempt_credential_generation, attempt_progress_revision,
+             active_entitlement_id, active_writer_generation,
+             active_cursor_revision
+        from scorm_attempt attempt
+        left join offline_learning_entitlement entitlement
+          on entitlement."attemptId" = attempt.id
+         and entitlement.status = 'active'
+       where attempt.id = affected_attempt_id;
+
+      if active_entitlement_id is not null then
+        if attempt_writer_mode is distinct from 'offline'
+          or attempt_entitlement_id is distinct from active_entitlement_id
+          or attempt_credential_generation is distinct from
+            active_writer_generation
+          or attempt_progress_revision is distinct from
+            active_cursor_revision then
+          raise exception 'Active offline entitlement must own the attempt writer'
+            using errcode = '23514';
+        end if;
+      elsif attempt_writer_mode = 'offline' then
+        raise exception 'Offline attempt writer requires an active entitlement'
+          using errcode = '23514';
+      end if;
+      return null;
+    end
+    $$`.execute(db);
+  await sql`create constraint trigger scorm_attempt_offline_writer_consistency_trg
+    after insert or update on scorm_attempt
+    deferrable initially deferred
+    for each row execute function enforce_offline_scorm_writer_consistency()`.execute(
+    db,
+  );
+  await sql`create constraint trigger offline_learning_entitlement_writer_consistency_trg
+    after insert or update on offline_learning_entitlement
+    deferrable initially deferred
+    for each row execute function enforce_offline_scorm_writer_consistency()`.execute(
+    db,
+  );
+
   await sql`create table offline_scorm_reconciliation_receipt (
     id text primary key,
     "entitlementId" text not null,
@@ -648,6 +729,13 @@ export async function down<Database>(db: Kysely<Database>): Promise<void> {
   );
   await sql`drop table offline_scorm_reconciliation_receipt`.execute(db);
 
+  await sql`drop trigger scorm_attempt_offline_writer_consistency_trg
+    on scorm_attempt`.execute(db);
+  await sql`drop trigger offline_learning_entitlement_writer_consistency_trg
+    on offline_learning_entitlement`.execute(db);
+  await sql`drop function enforce_offline_scorm_writer_consistency()`.execute(
+    db,
+  );
   await sql`drop trigger scorm_attempt_offline_writer_guard_trg
     on scorm_attempt`.execute(db);
   await sql`drop function guard_scorm_attempt_offline_writer()`.execute(db);

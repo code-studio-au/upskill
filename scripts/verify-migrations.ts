@@ -343,6 +343,21 @@ try {
     for (const operation of operations)
       assert.match(definition, new RegExp(operation, "u"));
   }
+  for (const triggerName of [
+    "scorm_attempt_offline_writer_consistency_trg",
+    "offline_learning_entitlement_writer_consistency_trg",
+  ]) {
+    const trigger = await sql<{
+      definition: string;
+    }>`select pg_get_triggerdef(oid) as definition
+        from pg_trigger
+        where tgname = ${triggerName}
+          and not tgisinternal`.execute(db);
+    assert.equal(trigger.rows.length, 1);
+    const definition = trigger.rows[0]?.definition.toUpperCase() ?? "";
+    assert.match(definition, /AFTER INSERT OR UPDATE/u);
+    assert.match(definition, /DEFERRABLE INITIALLY DEFERRED/u);
+  }
   const activeCredentialIndex = indexResult.rows.find(
     (index) =>
       index.indexname === "event_virtual_lobby_entry_active_credential_idx",
