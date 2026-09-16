@@ -1006,6 +1006,13 @@ const eventAttendanceReportIndexMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormServerModelMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0116_offline_scorm_server_model.ts",
+  ),
+  "utf8",
+);
 const liveKitProviderPolicyVerification = fs.readFileSync(
   path.join(root, "scripts/verify-livekit-provider-policy.ts"),
   "utf8",
@@ -1140,6 +1147,22 @@ for (const boundary of [
 ])
   if (!liveKitAutomaticAttendanceMigration.includes(boundary))
     failures.push(`LiveKit automatic attendance guard is missing: ${boundary}`);
+for (const boundary of [
+  "offline_learning_installation_active_user_uq",
+  "offline_learning_entitlement_active_attempt_uq",
+  "offline_learning_entitlement_deadline_ck",
+  "offline_learning_entitlement_attempt_package_fk",
+  "guard_offline_learning_entitlement",
+  "scorm_attempt_offline_entitlement_fk",
+  "guard_scorm_attempt_offline_writer",
+  "offline_scorm_reconciliation_receipt_commit_uq",
+  "offline_scorm_receipt_accepted_sequence_uq",
+  "guard_offline_scorm_reconciliation_receipt",
+  "offline_scorm_cleanup_inventory_entitlement_fk",
+  "guard_offline_scorm_cleanup_inventory",
+])
+  if (!offlineScormServerModelMigration.includes(boundary))
+    failures.push(`Offline SCORM server-model guard is missing: ${boundary}`);
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
   'selectFrom("event_virtual_attendance_decision as decision")',
@@ -1810,6 +1833,27 @@ if (
 )
   failures.push(
     "Runtime database roles must not mutate automatic attendance decisions",
+  );
+for (const table of [
+  "offline_learning_installation",
+  "offline_learning_entitlement",
+  "offline_scorm_cleanup_inventory",
+])
+  if (
+    !provisionRuntimeRoles.includes(
+      `revoke delete on table ${table} from \${role}`,
+    )
+  )
+    failures.push(
+      `Runtime database roles must not physically delete ${table} evidence`,
+    );
+if (
+  !provisionRuntimeRoles.includes(
+    "revoke update, delete on table offline_scorm_reconciliation_receipt from ${role}",
+  )
+)
+  failures.push(
+    "Runtime database roles must not mutate offline SCORM reconciliation receipts",
   );
 if (!installRelease.includes('DEPLOYMENT_ID="%s"'))
   failures.push(

@@ -14,6 +14,7 @@ const verificationScripts = [
   "scripts/verify-bulk-order-commerce.ts",
   "scripts/verify-learner-workspace.ts",
   "scripts/verify-scorm-attempts.ts",
+  "scripts/verify-offline-scorm-model.ts",
   "scripts/verify-admin-visibility.ts",
   "scripts/verify-admin-progress-overrides.ts",
   "scripts/verify-admin-enrollment-management.ts",

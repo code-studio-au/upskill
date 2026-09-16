@@ -69,6 +69,7 @@
     "db:verify:sms-delivery": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-sms-delivery.ts",
     "db:verify:learner-workspace": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-learner-workspace.ts",
     "db:verify:scorm-attempts": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-scorm-attempts.ts",
+    "db:verify:offline-scorm-model": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-offline-scorm-model.ts",
     "db:verify:admin-visibility": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-admin-visibility.ts",
     "db:verify:admin-progress": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-admin-progress-overrides.ts",
     "db:verify:admin-enrollments": "node --env-file-if-exists=.env.local scripts/run-database-verification.mjs scripts/verify-admin-enrollment-management.ts",

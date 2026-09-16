@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; implementation pending.
+Accepted; dormant receipt model implemented, reconciliation command pending.
 Date: 2026-09-12
 Accepted: 2026-09-16
 

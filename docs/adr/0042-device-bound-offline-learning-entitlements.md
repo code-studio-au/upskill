@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted; implementation pending.
+Accepted; dormant server model implemented, issuance pending.
 Date: 2026-09-12
 Accepted: 2026-09-16
 
