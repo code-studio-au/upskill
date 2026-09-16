@@ -227,7 +227,11 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       )
     ),
     constraint offline_learning_entitlement_timeline_ck check (
-      "endedAt" is null or "endedAt" >= "issuedAt"
+      "endedAt" is null
+      or (
+        isfinite("endedAt")
+        and "endedAt" >= "issuedAt"
+      )
     )
   )`.execute(db);
   await sql`create unique index offline_learning_entitlement_active_attempt_uq

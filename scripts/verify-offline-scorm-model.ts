@@ -683,6 +683,20 @@ try {
     })
     .where("id", "=", ids.attempt)
     .execute();
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("offline_learning_entitlement")
+        .set({
+          status: "resolved",
+          resolution: "reconciled",
+          endedAt: "infinity",
+        })
+        .where("id", "=", ids.entitlement)
+        .execute(),
+    "23514",
+    "offline_learning_entitlement_timeline_ck",
+  );
   const resolvedAt = new Date("2030-02-03T00:05:00.000Z");
   await database
     .updateTable("offline_learning_entitlement")
