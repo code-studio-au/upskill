@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted; dormant server model implemented, issuance pending.
+Accepted; central policy and dormant writer transition implemented, activation
+pending.
 Date: 2026-09-12
 Accepted: 2026-09-16
 

@@ -242,8 +242,11 @@ factors and caches a static public fallback. It never caches authenticated HTML,
 API responses, learner data or SCORM bytes, and the server refuses to serve that
 worker from the learning origin. A dormant server model now retains immutable
 device-key identity, exact-attempt entitlements, writer generations,
-reconciliation receipt identity and exact-site cleanup inventory. No route can
-issue or reconcile those records yet. Later offline activation must retain the
+reconciliation receipt identity and exact-site cleanup inventory. The shared
+Course/Event launch policy and generation-checked exclusive-writer transition
+are implemented, including refusal of ordinary online credentials while an
+offline writer is active, but no route can register an installation, invoke the
+transition or reconcile those records yet. Later offline activation must retain the
 per-attempt registrable-site/cookie boundary, keep keys and entitlements out of
 package code, and pass the staged impact and qualification plan before exposure.
 

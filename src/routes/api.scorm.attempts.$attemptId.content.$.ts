@@ -47,15 +47,21 @@ export const Route = createFileRoute(
         );
         if (!attempt.success || !path || !session.success)
           return new Response(null, { status: 404, headers: responseHeaders });
-        const player = await findAuthorizedScormPlayer(
+        const playerAuthorization = await findAuthorizedScormPlayer(
           attempt.data.attemptId,
           session.data,
         );
-        if (!player)
+        if (playerAuthorization === "offline-writer-active")
+          return Response.json(
+            { error: "offline_writer_active" },
+            { status: 409, headers: responseHeaders },
+          );
+        if (!playerAuthorization)
           return Response.json(
             { error: "attempt_unauthorized" },
             { status: 401, headers: responseHeaders },
           );
+        const player = playerAuthorization;
         try {
           const object = await getObjectStream(
             getServerEnv().S3_LEARNING_CONTENT_BUCKET,

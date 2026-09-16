@@ -25,6 +25,11 @@ export const Route = createFileRoute("/api/scorm/launch")({
             { status: 400, headers: responseHeaders },
           );
         const exchange = await exchangeScormLaunchToken(token.data);
+        if (exchange === "offline-writer-active")
+          return Response.json(
+            { error: "offline_writer_active" },
+            { status: 409, headers: responseHeaders },
+          );
         if (!exchange)
           return Response.json(
             { error: "launch_expired" },

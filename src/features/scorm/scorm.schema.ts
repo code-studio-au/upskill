@@ -83,5 +83,6 @@ export type ScormProgressInput = z.infer<typeof scormProgressInputSchema>;
 export type ScormLaunchResult =
   | { status: "ready"; launchUrl: string }
   | { status: "unavailable" }
+  | { status: "offline-writer-active" }
   | { status: "not-found" }
   | { status: "unauthenticated" };

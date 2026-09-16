@@ -82,7 +82,8 @@ export const Route = createFileRoute("/api/scorm/launches")({
           status:
             result.status === "not-found"
               ? 404
-              : result.status === "unavailable"
+              : result.status === "unavailable" ||
+                  result.status === "offline-writer-active"
                 ? 409
                 : 200,
           headers: noStoreHeaders,
