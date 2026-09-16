@@ -281,6 +281,11 @@ export interface OfflineScormRecoveryResult {
   }[];
 }
 
+export interface OfflineScormSigningReservationScan {
+  reservations: OfflineScormJournalRecord[];
+  corruptAttemptIds: string[];
+}
+
 export interface OfflineScormTrustedStore {
   putInstallation(record: OfflineScormDeviceKeyRecord): Promise<void>;
   getInstallation(
@@ -303,7 +308,7 @@ export interface OfflineScormTrustedStore {
   }): Promise<OfflineScormJournalRecord>;
   listSigningReservations(
     attemptId?: string,
-  ): Promise<OfflineScormJournalRecord[]>;
+  ): Promise<OfflineScormSigningReservationScan>;
   markAttemptError(
     attemptId: string,
     errorCode: OfflineScormRuntimeErrorCode,
@@ -534,12 +539,22 @@ export class OfflineScormTrustedRuntime {
     const parsedAttemptId = attemptId
       ? internalIdSchema.parse(attemptId)
       : undefined;
-    const reservations =
-      await this.#store.listSigningReservations(parsedAttemptId);
+    const scan = await this.#store.listSigningReservations(parsedAttemptId);
     const acknowledgements: OfflineScormImportAcknowledgement[] = [];
     const failures: OfflineScormRecoveryResult["failures"] = [];
-    const blockedAttempts = new Set<string>();
-    for (const reservation of reservations) {
+    const blockedAttempts = new Set(scan.corruptAttemptIds);
+    for (const corruptAttemptId of scan.corruptAttemptIds) {
+      const error = new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The attempt contains a corrupt signing reservation",
+      );
+      await this.#recordFailure(corruptAttemptId, error);
+      failures.push({
+        attemptId: corruptAttemptId,
+        code: error.code,
+      });
+    }
+    for (const reservation of scan.reservations) {
       if (blockedAttempts.has(reservation.attemptId)) continue;
       try {
         acknowledgements.push(await this.#signAndFinalise(reservation));

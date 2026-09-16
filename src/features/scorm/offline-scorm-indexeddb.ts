@@ -16,6 +16,7 @@ import {
   type OfflineScormPackageRecord,
   type OfflineScormReceipt,
   type OfflineScormRuntimeErrorCode,
+  type OfflineScormSigningReservationScan,
   type OfflineScormTrustedEntitlement,
   type OfflineScormTrustedStore,
 } from "#/features/scorm/offline-scorm-trusted-runtime";
@@ -337,6 +338,11 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           journal.createIndex("byAttemptStatusSequence", [
             "attemptId",
             "status",
+            "clientSequence",
+          ]);
+          journal.createIndex("byStatusAttemptSequence", [
+            "status",
+            "attemptId",
             "clientSequence",
           ]);
           journal.createIndex("byCommitId", "commitId", { unique: true });
@@ -796,34 +802,62 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
 
   async listSigningReservations(
     attemptId?: string,
-  ): Promise<OfflineScormJournalRecord[]> {
+  ): Promise<OfflineScormSigningReservationScan> {
     const parsedAttemptId = attemptId
       ? internalIdSchema.parse(attemptId)
       : undefined;
     try {
       const database = await this.open();
       const transaction = database.transaction("journal", "readonly");
+      const journal = transaction.objectStore("journal");
+      const signingIndex = parsedAttemptId
+        ? journal.index("byAttemptStatusSequence")
+        : journal.index("byStatusAttemptSequence");
+      const signingRange = parsedAttemptId
+        ? this.#keyRange.bound(
+            [parsedAttemptId, "signing", 1],
+            [parsedAttemptId, "signing", MAXIMUM_SEQUENCE],
+          )
+        : this.#keyRange.bound(
+            ["signing", "", 1],
+            ["signing", "\uffff", MAXIMUM_SEQUENCE],
+          );
       const values = await requestResult<unknown[]>(
-        transaction.objectStore("journal").getAll(),
+        signingIndex.getAll(signingRange),
       );
       await transactionComplete(transaction);
       const reservations: OfflineScormJournalRecord[] = [];
+      const corruptAttemptIds = new Set<string>();
       for (const value of values) {
-        const record = parseJournalRecord(value);
-        if (
-          record.status === "signing" &&
-          (!parsedAttemptId || record.attemptId === parsedAttemptId)
-        )
-          reservations.push(record);
+        try {
+          reservations.push(parseJournalRecord(value));
+        } catch (error) {
+          const envelopeAttemptId =
+            parsedAttemptId ?? this.#storedEnvelopeAttemptId(value);
+          if (!envelopeAttemptId) throw error;
+          corruptAttemptIds.add(envelopeAttemptId);
+        }
       }
-      return reservations.sort(
-        (first, second) =>
-          first.attemptId.localeCompare(second.attemptId) ||
-          first.clientSequence - second.clientSequence,
-      );
+      return {
+        reservations: reservations
+          .filter((record) => !corruptAttemptIds.has(record.attemptId))
+          .sort(
+            (first, second) =>
+              first.attemptId.localeCompare(second.attemptId) ||
+              first.clientSequence - second.clientSequence,
+          ),
+        corruptAttemptIds: [...corruptAttemptIds].sort(),
+      };
     } catch (error) {
       throw asStorageFailure(error);
     }
+  }
+
+  #storedEnvelopeAttemptId(value: unknown): string | undefined {
+    if (!value || typeof value !== "object" || !("attemptId" in value))
+      return undefined;
+    const parsed = internalIdSchema.safeParse(value.attemptId);
+    return parsed.success ? parsed.data : undefined;
   }
 
   async markAttemptError(

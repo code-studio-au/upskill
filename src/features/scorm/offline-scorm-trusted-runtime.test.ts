@@ -322,9 +322,84 @@ describe("offline SCORM trusted IndexedDB", () => {
       ],
       failures: [],
     });
-    expect(await restartedStore.listSigningReservations("attempt_1")).toEqual(
-      [],
+    expect(await restartedStore.listSigningReservations("attempt_1")).toEqual({
+      reservations: [],
+      corruptAttemptIds: [],
+    });
+  });
+
+  it("isolates recovery from another attempt's corrupt reservation", async () => {
+    const store = createStore();
+    const key = await prepareStore(store);
+    await store.putEntitlement(
+      entitlement({
+        entitlementId: "entitlement_2",
+        attemptId: "attempt_2",
+        devicePublicKeySha256: key.publicKeySha256,
+        offering: {
+          kind: "course",
+          enrollmentId: "enrollment_2",
+          courseVersionItemId: "course_item_2",
+        },
+      }),
     );
+    const firstEntry = spoolEntry();
+    const secondEntry = spoolEntry({ spoolEntryId: "spool_entry_000002" });
+    const firstFingerprint =
+      await fingerprintOfflineScormSpoolEntry(firstEntry);
+    const secondFingerprint =
+      await fingerprintOfflineScormSpoolEntry(secondEntry);
+    await store.reserveSpoolEntry({
+      attemptId: "attempt_1",
+      entry: firstEntry,
+      fingerprint: firstFingerprint.fingerprint,
+      candidateCommitId: "commit_attempt_one_000001",
+      reservedAt: baseInstant,
+    });
+    await store.reserveSpoolEntry({
+      attemptId: "attempt_2",
+      entry: secondEntry,
+      fingerprint: secondFingerprint.fingerprint,
+      candidateCommitId: "commit_attempt_two_000001",
+      reservedAt: baseInstant,
+    });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const journal = corruptionTransaction.objectStore("journal");
+    const corruptRecord = (await idbRequest(
+      journal.get(["attempt_2", secondEntry.spoolEntryId]),
+    )) as Record<string, unknown>;
+    journal.put({
+      ...corruptRecord,
+      unsignedCommit: {
+        ...(corruptRecord.unsignedCommit as Record<string, unknown>),
+        commitId: "commit_mismatched_000001",
+      },
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const scopedRecovery =
+      await runtime.recoverSigningReservations("attempt_1");
+    expect(scopedRecovery).toEqual({
+      acknowledgements: [
+        expect.objectContaining({ attemptId: "attempt_1", clientSequence: 1 }),
+      ],
+      failures: [],
+    });
+    expect(await store.listSigningReservations("attempt_2")).toEqual({
+      reservations: [],
+      corruptAttemptIds: ["attempt_2"],
+    });
+    expect(await runtime.recoverSigningReservations()).toEqual({
+      acknowledgements: [],
+      failures: [{ attemptId: "attempt_2", code: "journal_corrupt" }],
+    });
   });
 
   it("fails closed for identifier reuse, sequence gaps and completion regression", async () => {
@@ -417,7 +492,9 @@ describe("offline SCORM trusted IndexedDB", () => {
       acknowledgements: [],
       failures: [{ attemptId: "attempt_1", code: "device_key_unavailable" }],
     });
-    expect(await store.listSigningReservations("attempt_1")).toHaveLength(1);
+    expect(
+      (await store.listSigningReservations("attempt_1")).reservations,
+    ).toHaveLength(1);
 
     const readTransaction = database.transaction("attempts", "readonly");
     const attempt = (await idbRequest(
