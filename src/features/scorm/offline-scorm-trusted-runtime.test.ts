@@ -1,4 +1,4 @@
-import { createPublicKey, verify } from "node:crypto";
+import { createHash, createPublicKey, verify } from "node:crypto";
 import { indexedDB } from "fake-indexeddb";
 import { afterEach, describe, expect, it } from "vitest";
 import {
@@ -7,6 +7,7 @@ import {
 } from "#/features/scorm/offline-scorm-indexeddb";
 import {
   createOfflineScormDeviceKeyRecord,
+  fingerprintOfflineScormCommit,
   fingerprintOfflineScormSpoolEntry,
   OFFLINE_SCORM_TRUSTED_DATABASE_VERSION,
   OfflineScormRuntimeError,
@@ -14,6 +15,7 @@ import {
   offlineScormLocalStatusLabels,
   offlineScormTrustedStoreNames,
   resolveOfflineScormLocalStatus,
+  type OfflineScormReceipt,
   type OfflineScormSpoolEntry,
   type OfflineScormTrustedEntitlement,
 } from "#/features/scorm/offline-scorm-trusted-runtime";
@@ -161,6 +163,24 @@ function spoolEntry(
   };
 }
 
+function receipt(
+  overrides: Partial<OfflineScormReceipt> = {},
+): OfflineScormReceipt {
+  return {
+    schemaVersion: 1,
+    entitlementId: "entitlement_1",
+    attemptId: "attempt_1",
+    commitId: "commit_placeholder_0001",
+    clientSequence: 1,
+    requestFingerprint: "d".repeat(64),
+    outcome: "accepted",
+    reasonCode: "accepted",
+    resultingAttemptRevision: 4,
+    receivedAt: baseInstant,
+    ...overrides,
+  };
+}
+
 async function prepareStore(store: OfflineScormIndexedDbStore) {
   const deviceKey = await createOfflineScormDeviceKeyRecord("installation_1", {
     learnerId: "learner_1",
@@ -279,6 +299,99 @@ describe("offline SCORM trusted IndexedDB", () => {
         Buffer.from(String(record.signature), "base64url"),
       ),
     ).toBe(true);
+  });
+
+  it("stores an exact reconciliation receipt idempotently", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry(),
+    });
+    const [record] = (await store.getAttemptJournalSnapshot("attempt_1"))
+      .records;
+    expect(record).toBeDefined();
+    if (!record) throw new Error("Expected a finalised journal record");
+    const requestFingerprint = await fingerprintOfflineScormCommit(
+      record.unsignedCommit,
+    );
+    expect(requestFingerprint).toBe(
+      createHash("sha256")
+        .update(canonicalizeOfflineScormCommit(record.unsignedCommit), "utf8")
+        .digest("hex"),
+    );
+    const validReceipt = receipt({
+      commitId: record.commitId,
+      clientSequence: record.clientSequence,
+      requestFingerprint,
+    });
+
+    await store.putReceipt(validReceipt);
+    await store.putReceipt(validReceipt);
+
+    const database = await store.open();
+    const transaction = database.transaction("receipts", "readonly");
+    const completed = idbTransaction(transaction);
+    expect(
+      await idbRequest(transaction.objectStore("receipts").getAll()),
+    ).toEqual([validReceipt]);
+    await completed;
+  });
+
+  it("rejects receipts that do not match immutable journal evidence", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry(),
+    });
+    const [record] = (await store.getAttemptJournalSnapshot("attempt_1"))
+      .records;
+    expect(record).toBeDefined();
+    if (!record) throw new Error("Expected a finalised journal record");
+    const validReceipt = receipt({
+      commitId: record.commitId,
+      clientSequence: record.clientSequence,
+      requestFingerprint: await fingerprintOfflineScormCommit(
+        record.unsignedCommit,
+      ),
+    });
+    const mismatches: OfflineScormReceipt[] = [
+      { ...validReceipt, entitlementId: "entitlement_other" },
+      { ...validReceipt, attemptId: "attempt_other" },
+      { ...validReceipt, commitId: "commit_unknown_000001" },
+      { ...validReceipt, clientSequence: 2 },
+      { ...validReceipt, requestFingerprint: "e".repeat(64) },
+      { ...validReceipt, resultingAttemptRevision: 5 },
+    ];
+    for (const mismatch of mismatches)
+      await expect(store.putReceipt(mismatch)).rejects.toMatchObject({
+        code: "journal_corrupt",
+      });
+    await expect(
+      store.putReceipt({ ...validReceipt, resultingAttemptRevision: null }),
+    ).rejects.toThrow();
+    await expect(
+      store.putReceipt({
+        ...validReceipt,
+        outcome: "rejected",
+        reasonCode: "acceptance_deadline_elapsed",
+      }),
+    ).rejects.toThrow();
+
+    const database = await store.open();
+    const transaction = database.transaction("receipts", "readonly");
+    const completed = idbTransaction(transaction);
+    expect(await idbRequest(transaction.objectStore("receipts").count())).toBe(
+      0,
+    );
+    await completed;
   });
 
   it("rejects a retry when stored canonical commit fields were altered", async () => {
@@ -719,6 +832,34 @@ describe("offline SCORM trusted IndexedDB", () => {
       reservations: [],
       corruptAttemptIds: [],
       unattributedCorruptRecords: 0,
+    });
+  });
+
+  it("rejects an empty recovery scope without scanning other attempts", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const entry = spoolEntry();
+    const { fingerprint } = await fingerprintOfflineScormSpoolEntry(entry);
+    await store.reserveSpoolEntry({
+      attemptId: "attempt_1",
+      entry,
+      fingerprint,
+      candidateCommitId: "commit_empty_scope_0001",
+      reservedAt: baseInstant,
+    });
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+
+    await expect(runtime.recoverSigningReservations("")).rejects.toThrow();
+    await expect(store.listSigningReservations("")).rejects.toThrow();
+    expect(await store.listSigningReservations("attempt_1")).toMatchObject({
+      reservations: [
+        expect.objectContaining({
+          attemptId: "attempt_1",
+          status: "signing",
+        }),
+      ],
     });
   });
 

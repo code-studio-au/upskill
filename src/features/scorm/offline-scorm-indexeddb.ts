@@ -5,6 +5,7 @@ import {
 import {
   OFFLINE_SCORM_TRUSTED_DATABASE_NAME,
   OFFLINE_SCORM_TRUSTED_DATABASE_VERSION,
+  fingerprintOfflineScormCommit,
   OfflineScormRuntimeError,
   offlineScormPackageRecordSchema,
   offlineScormReceiptSchema,
@@ -320,6 +321,40 @@ function assertJournalRecordEntitlementBinding(
     throw new OfflineScormRuntimeError(
       "journal_corrupt",
       "The journal record does not match its trusted spool and entitlement",
+    );
+}
+
+function assertReceiptJournalBinding(input: {
+  receipt: OfflineScormReceipt;
+  record: OfflineScormJournalRecord;
+  entitlement: OfflineScormTrustedEntitlement;
+  requestFingerprint: string;
+}): void {
+  const { receipt, record, entitlement, requestFingerprint } = input;
+  assertJournalRecordEntitlementBinding(record, entitlement);
+  if (
+    record.status === "signing" ||
+    record.signature === null ||
+    receipt.entitlementId !== entitlement.entitlementId ||
+    receipt.attemptId !== entitlement.attemptId ||
+    receipt.commitId !== record.commitId ||
+    receipt.clientSequence !== record.clientSequence ||
+    receipt.requestFingerprint !== requestFingerprint
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The reconciliation receipt does not match its signed journal record",
+    );
+  if (
+    receipt.outcome === "accepted" &&
+    (receipt.resultingAttemptRevision === null ||
+      receipt.resultingAttemptRevision < entitlement.historyBaseRevision ||
+      receipt.resultingAttemptRevision - entitlement.historyBaseRevision >
+        receipt.clientSequence)
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The accepted receipt revision is outside its journal history",
     );
 }
 
@@ -1032,9 +1067,8 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
   async listSigningReservations(
     attemptId?: string,
   ): Promise<OfflineScormSigningReservationScan> {
-    const parsedAttemptId = attemptId
-      ? internalIdSchema.parse(attemptId)
-      : undefined;
+    const parsedAttemptId =
+      attemptId === undefined ? undefined : internalIdSchema.parse(attemptId);
     try {
       const database = await this.open();
       const transaction = database.transaction(
@@ -1044,14 +1078,15 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
       const completedTransaction = transactionComplete(transaction);
       const journal = transaction.objectStore("journal");
       const journalRequest = requestResult<unknown[]>(
-        parsedAttemptId
+        parsedAttemptId !== undefined
           ? journal.index("byAttemptId").getAll(parsedAttemptId)
           : journal.getAll(),
       );
       const attemptStore = transaction.objectStore("attempts");
-      const attemptRequest = parsedAttemptId
-        ? requestResult<unknown>(attemptStore.get(parsedAttemptId))
-        : requestResult<unknown[]>(attemptStore.getAll());
+      const attemptRequest =
+        parsedAttemptId !== undefined
+          ? requestResult<unknown>(attemptStore.get(parsedAttemptId))
+          : requestResult<unknown[]>(attemptStore.getAll());
       const entitlementRequest = requestResult<unknown[]>(
         transaction.objectStore("entitlements").getAll(),
       );
@@ -1061,11 +1096,12 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
         entitlementRequest,
       ]);
       await completedTransaction;
-      const attemptValues = parsedAttemptId
-        ? attemptResult === undefined
-          ? []
-          : [attemptResult]
-        : (attemptResult as unknown[]);
+      const attemptValues =
+        parsedAttemptId !== undefined
+          ? attemptResult === undefined
+            ? []
+            : [attemptResult]
+          : (attemptResult as unknown[]);
       const corruptAttemptIds = new Set<string>();
       let unattributedCorruptRecords = 0;
       const attemptsById = new Map<string, OfflineScormAttemptState>();
@@ -1076,10 +1112,14 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
       for (const value of entitlementValues) {
         const envelopeAttemptId = this.#storedEnvelopeAttemptId(value);
         if (!envelopeAttemptId) {
-          if (!parsedAttemptId) unattributedCorruptRecords += 1;
+          if (parsedAttemptId === undefined) unattributedCorruptRecords += 1;
           continue;
         }
-        if (parsedAttemptId && envelopeAttemptId !== parsedAttemptId) continue;
+        if (
+          parsedAttemptId !== undefined &&
+          envelopeAttemptId !== parsedAttemptId
+        )
+          continue;
         try {
           const entitlement = offlineScormTrustedEntitlementSchema.parse(value);
           entitlementsByAttemptId.set(entitlement.attemptId, entitlement);
@@ -1349,9 +1389,108 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     const receipt = offlineScormReceiptSchema.parse(input);
     try {
       const database = await this.open();
-      const transaction = database.transaction("receipts", "readwrite");
+      const fingerprintTransaction = database.transaction(
+        ["journal", "receipts"],
+        "readonly",
+      );
+      const [existingCandidate, candidateValue] = await Promise.all([
+        requestResult<unknown>(
+          fingerprintTransaction
+            .objectStore("receipts")
+            .get([receipt.attemptId, receipt.commitId]),
+        ),
+        requestResult<unknown>(
+          fingerprintTransaction
+            .objectStore("journal")
+            .index("byCommitId")
+            .get(receipt.commitId),
+        ),
+      ]);
+      await transactionComplete(fingerprintTransaction);
+      if (existingCandidate !== undefined) {
+        const existing = offlineScormReceiptSchema.parse(existingCandidate);
+        if (JSON.stringify(existing) !== JSON.stringify(receipt))
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The reconciliation receipt cannot be replaced",
+          );
+        return;
+      }
+      if (candidateValue === undefined)
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The reconciliation receipt journal record is unavailable",
+        );
+      const candidateRecord = parseAttemptJournalRecords(
+        [candidateValue],
+        receipt.attemptId,
+      )[0];
+      if (!candidateRecord || candidateRecord.status === "signing")
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The reconciliation receipt journal record is not signed",
+        );
+      const candidateCanonical = canonicalizeOfflineScormCommit(
+        candidateRecord.unsignedCommit,
+      );
+      const candidateSignature = candidateRecord.signature;
+      const requestFingerprint = await fingerprintOfflineScormCommit(
+        candidateRecord.unsignedCommit,
+      );
+      if (requestFingerprint !== receipt.requestFingerprint)
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The reconciliation receipt fingerprint does not match its journal record",
+        );
+
+      const transaction = database.transaction(
+        ["entitlements", "journal", "receipts"],
+        "readwrite",
+      );
       const completedTransaction = transactionComplete(transaction);
       try {
+        const entitlementValue = await requestResult<unknown>(
+          transaction.objectStore("entitlements").get(receipt.entitlementId),
+        );
+        if (entitlementValue === undefined)
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The reconciliation receipt entitlement is unavailable",
+          );
+        const entitlement =
+          offlineScormTrustedEntitlementSchema.parse(entitlementValue);
+        const journalValue = await requestResult<unknown>(
+          transaction
+            .objectStore("journal")
+            .index("byCommitId")
+            .get(receipt.commitId),
+        );
+        if (journalValue === undefined)
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The reconciliation receipt journal record is unavailable",
+          );
+        const record = parseAttemptJournalRecords(
+          [journalValue],
+          receipt.attemptId,
+          entitlement,
+        )[0];
+        if (
+          !record ||
+          record.signature !== candidateSignature ||
+          canonicalizeOfflineScormCommit(record.unsignedCommit) !==
+            candidateCanonical
+        )
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The reconciliation receipt journal record changed during validation",
+          );
+        assertReceiptJournalBinding({
+          receipt,
+          record,
+          entitlement,
+          requestFingerprint,
+        });
         const store = transaction.objectStore("receipts");
         const existingValue = await requestResult<unknown>(
           store.get([receipt.attemptId, receipt.commitId]),

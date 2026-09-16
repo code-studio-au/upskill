@@ -173,18 +173,38 @@ export const offlineScormPackageRecordSchema = z
     }),
   );
 
-export const offlineScormReceiptSchema = z.strictObject({
-  schemaVersion: z.literal(1),
-  entitlementId: internalIdSchema,
-  attemptId: internalIdSchema,
-  commitId: randomIdSchema,
-  clientSequence: sequenceSchema,
-  requestFingerprint: sha256Schema,
-  outcome: z.enum(["accepted", "rejected", "conflict"]),
-  reasonCode: z.string().check(z.minLength(1), z.maxLength(100)),
-  resultingAttemptRevision: z.nullable(revisionSchema),
-  receivedAt: canonicalInstantSchema,
-});
+export const offlineScormReceiptSchema = z
+  .strictObject({
+    schemaVersion: z.literal(1),
+    entitlementId: internalIdSchema,
+    attemptId: internalIdSchema,
+    commitId: randomIdSchema,
+    clientSequence: sequenceSchema,
+    requestFingerprint: sha256Schema,
+    outcome: z.enum(["accepted", "rejected", "conflict"]),
+    reasonCode: z
+      .string()
+      .check(z.minLength(1), z.maxLength(100), z.regex(/^[a-z][a-z0-9_]*$/u)),
+    resultingAttemptRevision: z.nullable(revisionSchema),
+    receivedAt: canonicalInstantSchema,
+  })
+  .check(
+    z.superRefine((receipt, context) => {
+      const accepted = receipt.outcome === "accepted";
+      const validOutcome = accepted
+        ? receipt.reasonCode === "accepted" &&
+          receipt.resultingAttemptRevision !== null
+        : receipt.reasonCode !== "accepted" &&
+          receipt.resultingAttemptRevision === null;
+      if (!validOutcome)
+        context.addIssue({
+          code: "custom",
+          path: ["resultingAttemptRevision"],
+          message:
+            "Accepted receipts require an accepted reason and resulting revision",
+        });
+    }),
+  );
 
 export type OfflineScormTrustedEntitlement = z.infer<
   typeof offlineScormTrustedEntitlementSchema
@@ -435,6 +455,20 @@ export async function fingerprintOfflineScormSpoolEntry(
   return { entry, fingerprint: bytesToHex(new Uint8Array(digest)) };
 }
 
+export async function fingerprintOfflineScormCommit(
+  commit: OfflineScormUnsignedCommit,
+  cryptoProvider: Pick<
+    OfflineScormCryptoProvider,
+    "subtle"
+  > = globalThis.crypto,
+): Promise<string> {
+  const digest = await cryptoProvider.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonicalizeOfflineScormCommit(commit)),
+  );
+  return bytesToHex(new Uint8Array(digest));
+}
+
 export async function createOfflineScormDeviceKeyRecord(
   installationId: string,
   options: {
@@ -683,9 +717,8 @@ export class OfflineScormTrustedRuntime {
   async recoverSigningReservations(
     attemptId?: string,
   ): Promise<OfflineScormRecoveryResult> {
-    const parsedAttemptId = attemptId
-      ? internalIdSchema.parse(attemptId)
-      : undefined;
+    const parsedAttemptId =
+      attemptId === undefined ? undefined : internalIdSchema.parse(attemptId);
     const scan = await this.#store.listSigningReservations(parsedAttemptId);
     const acknowledgements: OfflineScormImportAcknowledgement[] = [];
     const failures: OfflineScormRecoveryResult["failures"] = [];
