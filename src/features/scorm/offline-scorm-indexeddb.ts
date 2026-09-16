@@ -263,6 +263,43 @@ function completed(
   );
 }
 
+function hasContiguousJournalSequence(
+  records: readonly OfflineScormJournalRecord[],
+  nextClientSequence: number,
+): boolean {
+  const sequences = records
+    .map((record) => record.clientSequence)
+    .sort((first, second) => first - second);
+  return (
+    sequences.length === nextClientSequence - 1 &&
+    sequences.every((sequence, index) => sequence === index + 1)
+  );
+}
+
+function parseAttemptJournalRecords(
+  values: readonly unknown[],
+  attemptId: string,
+): OfflineScormJournalRecord[] {
+  return values.map((value) => {
+    let record: OfflineScormJournalRecord;
+    try {
+      record = parseJournalRecord(value);
+    } catch (error) {
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The attempt contains a corrupt journal record",
+        { cause: error },
+      );
+    }
+    if (record.attemptId !== attemptId)
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The journal record does not match its attempt",
+      );
+    return record;
+  });
+}
+
 function asStorageFailure(error: unknown): OfflineScormRuntimeError {
   return error instanceof OfflineScormRuntimeError
     ? error
@@ -564,16 +601,14 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
         const existing = await requestResult<unknown>(
           journalStore.get([attemptId, entry.spoolEntryId]),
         );
+        let parsedExisting: OfflineScormJournalRecord | undefined;
         if (existing !== undefined) {
-          const parsedExisting = parseJournalRecord(existing);
+          parsedExisting = parseJournalRecord(existing);
           if (parsedExisting.spoolFingerprint !== fingerprint)
             throw new OfflineScormRuntimeError(
               "journal_corrupt",
               "The spool identifier was reused with different content",
             );
-          transaction.commit();
-          await completedTransaction;
-          return parsedExisting;
         }
         const attemptValue = await requestResult<unknown>(
           transaction.objectStore("attempts").get(attemptId),
@@ -602,37 +637,26 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
         const attemptJournalValues = await requestResult<unknown[]>(
           journalStore.index("byAttemptId").getAll(attemptId),
         );
-        let hasSigningReservation = false;
-        const journalSequences: number[] = [];
-        for (const value of attemptJournalValues) {
-          let record: OfflineScormJournalRecord;
-          try {
-            record = parseJournalRecord(value);
-          } catch (error) {
-            throw new OfflineScormRuntimeError(
-              "journal_corrupt",
-              "The attempt contains a corrupt journal record",
-              { cause: error },
-            );
-          }
-          if (record.attemptId !== attemptId)
-            throw new OfflineScormRuntimeError(
-              "journal_corrupt",
-              "The journal record does not match its attempt",
-            );
-          journalSequences.push(record.clientSequence);
-          if (record.status === "signing") hasSigningReservation = true;
-        }
-        journalSequences.sort((first, second) => first - second);
+        const attemptJournalRecords = parseAttemptJournalRecords(
+          attemptJournalValues,
+          attemptId,
+        );
         if (
-          journalSequences.length !== attempt.nextClientSequence - 1 ||
-          journalSequences.some((sequence, index) => sequence !== index + 1)
+          !hasContiguousJournalSequence(
+            attemptJournalRecords,
+            attempt.nextClientSequence,
+          )
         )
           throw new OfflineScormRuntimeError(
             "journal_corrupt",
             "The local journal sequence is not contiguous",
           );
-        if (hasSigningReservation)
+        if (parsedExisting) {
+          transaction.commit();
+          await completedTransaction;
+          return parsedExisting;
+        }
+        if (attemptJournalRecords.some((record) => record.status === "signing"))
           throw new OfflineScormRuntimeError(
             "signing_in_progress",
             "An earlier journal reservation must finish signing first",
@@ -770,15 +794,6 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "journal_corrupt",
             "The signing reservation fingerprint changed",
           );
-        if (record.status !== "signing") {
-          transaction.commit();
-          await completedTransaction;
-          return record;
-        }
-        const signedCommit = parseStoredOfflineScormSignedCommit({
-          unsignedCommit: record.unsignedCommit,
-          signature: input.signature,
-        });
         const attemptValue = await requestResult<unknown>(
           transaction.objectStore("attempts").get(attemptId),
         );
@@ -788,6 +803,28 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "The trusted attempt is unavailable",
           );
         const attempt = parseAttemptState(attemptValue);
+        const attemptJournalValues = await requestResult<unknown[]>(
+          journalStore.index("byAttemptId").getAll(attemptId),
+        );
+        if (
+          !hasContiguousJournalSequence(
+            parseAttemptJournalRecords(attemptJournalValues, attemptId),
+            attempt.nextClientSequence,
+          )
+        )
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The local journal sequence is not contiguous",
+          );
+        if (record.status !== "signing") {
+          transaction.commit();
+          await completedTransaction;
+          return record;
+        }
+        const signedCommit = parseStoredOfflineScormSignedCommit({
+          unsignedCommit: record.unsignedCommit,
+          signature: input.signature,
+        });
         const finalised: OfflineScormJournalRecord = {
           ...record,
           status: "pending",
@@ -822,35 +859,92 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
       : undefined;
     try {
       const database = await this.open();
-      const transaction = database.transaction("journal", "readonly");
+      const transaction = database.transaction(
+        ["attempts", "journal"],
+        "readonly",
+      );
+      const completedTransaction = transactionComplete(transaction);
       const journal = transaction.objectStore("journal");
-      const values = await requestResult<unknown[]>(
+      const journalRequest = requestResult<unknown[]>(
         parsedAttemptId
           ? journal.index("byAttemptId").getAll(parsedAttemptId)
           : journal.getAll(),
       );
-      await transactionComplete(transaction);
-      const reservations: OfflineScormJournalRecord[] = [];
+      const attemptStore = transaction.objectStore("attempts");
+      const attemptRequest = parsedAttemptId
+        ? requestResult<unknown>(attemptStore.get(parsedAttemptId))
+        : requestResult<unknown[]>(attemptStore.getAll());
+      const [values, attemptResult] = await Promise.all([
+        journalRequest,
+        attemptRequest,
+      ]);
+      await completedTransaction;
+      const attemptValues = parsedAttemptId
+        ? attemptResult === undefined
+          ? []
+          : [attemptResult]
+        : (attemptResult as unknown[]);
       const corruptAttemptIds = new Set<string>();
-      for (const value of values) {
+      const attemptsById = new Map<string, OfflineScormAttemptState>();
+      for (const value of attemptValues) {
+        const envelopeAttemptId =
+          parsedAttemptId ?? this.#storedEnvelopeAttemptId(value);
+        if (!envelopeAttemptId)
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "A trusted attempt has an invalid identifier",
+          );
         try {
-          const record = parseJournalRecord(value);
-          if (record.status === "signing") reservations.push(record);
-        } catch (error) {
-          const envelopeAttemptId =
-            parsedAttemptId ?? this.#storedEnvelopeAttemptId(value);
-          if (!envelopeAttemptId) throw error;
+          const attempt = parseAttemptState(value);
+          attemptsById.set(attempt.attemptId, attempt);
+        } catch {
           corruptAttemptIds.add(envelopeAttemptId);
         }
       }
+      const recordsByAttemptId = new Map<string, OfflineScormJournalRecord[]>();
+      for (const value of values) {
+        try {
+          const record = parseJournalRecord(value);
+          const records = recordsByAttemptId.get(record.attemptId) ?? [];
+          records.push(record);
+          recordsByAttemptId.set(record.attemptId, records);
+        } catch (error) {
+          const envelopeAttemptId =
+            parsedAttemptId ?? this.#storedEnvelopeAttemptId(value);
+          if (!envelopeAttemptId)
+            throw new OfflineScormRuntimeError(
+              "journal_corrupt",
+              "A journal record has an invalid attempt identifier",
+              { cause: error },
+            );
+          corruptAttemptIds.add(envelopeAttemptId);
+        }
+      }
+      for (const [attemptId, attempt] of attemptsById) {
+        if (
+          !hasContiguousJournalSequence(
+            recordsByAttemptId.get(attemptId) ?? [],
+            attempt.nextClientSequence,
+          )
+        )
+          corruptAttemptIds.add(attemptId);
+      }
+      for (const attemptId of recordsByAttemptId.keys())
+        if (!attemptsById.has(attemptId)) corruptAttemptIds.add(attemptId);
+      const reservations: OfflineScormJournalRecord[] = [];
+      for (const records of recordsByAttemptId.values())
+        for (const record of records)
+          if (
+            record.status === "signing" &&
+            !corruptAttemptIds.has(record.attemptId)
+          )
+            reservations.push(record);
       return {
-        reservations: reservations
-          .filter((record) => !corruptAttemptIds.has(record.attemptId))
-          .sort(
-            (first, second) =>
-              first.attemptId.localeCompare(second.attemptId) ||
-              first.clientSequence - second.clientSequence,
-          ),
+        reservations: reservations.sort(
+          (first, second) =>
+            first.attemptId.localeCompare(second.attemptId) ||
+            first.clientSequence - second.clientSequence,
+        ),
         corruptAttemptIds: [...corruptAttemptIds].sort(),
       };
     } catch (error) {
