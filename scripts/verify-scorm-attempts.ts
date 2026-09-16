@@ -1196,6 +1196,10 @@ try {
   );
   assert.equal(firstRetry.status, "processed");
   assert.equal(firstRetry.receipts[0]?.recovered, true);
+  assert.deepEqual(firstRetry.receipts[0], {
+    ...firstResult.receipts[0],
+    recovered: true,
+  });
   assert.equal(
     firstRetry.authoritative.totalTimeSeconds,
     offlineBase.totalTimeSeconds + 10,

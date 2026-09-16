@@ -159,7 +159,12 @@ function receiptResult(
   recovered: boolean,
 ): OfflineScormReceiptResult {
   return {
-    ...receipt,
+    commitId: receipt.commitId,
+    clientSequence: receipt.clientSequence,
+    requestFingerprint: receipt.requestFingerprint,
+    outcome: receipt.outcome,
+    reasonCode: receipt.reasonCode,
+    resultingAttemptRevision: receipt.resultingAttemptRevision,
     receivedAt: receipt.receivedAt.toISOString(),
     recovered,
   };
