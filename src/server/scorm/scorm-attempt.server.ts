@@ -1,7 +1,7 @@
 import "@tanstack/react-start/server-only";
 
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { sql } from "kysely";
+import { sql, type Transaction } from "kysely";
 import {
   scormProgressInputSchema,
   type ScormLaunchResult,
@@ -9,6 +9,7 @@ import {
 } from "#/features/scorm/scorm.schema";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
+import type { Database } from "#/server/db/types";
 import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import { completeEnrollmentIfReady } from "#/server/learning/learning-completion.server";
@@ -449,6 +450,56 @@ export async function authorizeScormAttemptSession(
   return sessionIsAvailable(session) ? "authorized" : "unauthorized";
 }
 
+type LockedScormProgressOwner =
+  | {
+      kind: "course";
+      enrollmentId: string;
+      courseVersionId: string;
+    }
+  | {
+      kind: "event";
+      eventParticipationId: string;
+    };
+
+async function lockScormProgressOwner(
+  transaction: Transaction<Database>,
+  identity: {
+    enrollmentId: string | null;
+    eventParticipationId: string | null;
+  },
+): Promise<LockedScormProgressOwner | undefined> {
+  if (identity.enrollmentId) {
+    const enrollment = await transaction
+      .selectFrom("enrollment")
+      .select("courseVersionId")
+      .where("id", "=", identity.enrollmentId)
+      .forUpdate()
+      .executeTakeFirst();
+    return enrollment
+      ? {
+          kind: "course",
+          enrollmentId: identity.enrollmentId,
+          courseVersionId: enrollment.courseVersionId,
+        }
+      : undefined;
+  }
+  if (identity.eventParticipationId) {
+    const participation = await transaction
+      .selectFrom("event_participation")
+      .select("id")
+      .where("id", "=", identity.eventParticipationId)
+      .forUpdate()
+      .executeTakeFirst();
+    return participation
+      ? {
+          kind: "event",
+          eventParticipationId: participation.id,
+        }
+      : undefined;
+  }
+  return undefined;
+}
+
 export async function recordScormProgress(
   attemptId: string,
   sessionToken: string,
@@ -458,6 +509,28 @@ export async function recordScormProgress(
   return await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      const sessionDigest = digestScormToken(sessionToken);
+      const identity = await transaction
+        .selectFrom("scorm_attempt_session")
+        .innerJoin(
+          "scorm_attempt",
+          "scorm_attempt.id",
+          "scorm_attempt_session.attemptId",
+        )
+        .select([
+          "scorm_attempt.enrollmentId",
+          "scorm_attempt.eventParticipationId",
+        ])
+        .where("scorm_attempt_session.digest", "=", sessionDigest)
+        .where("scorm_attempt_session.attemptId", "=", attemptId)
+        .executeTakeFirst();
+      if (!identity) return "unauthorized";
+
+      // Launch and offline issuance lock the enrollment/participation before
+      // the attempt. Progress must use the same order before completion can
+      // update that owner, otherwise the two paths can deadlock.
+      const owner = await lockScormProgressOwner(transaction, identity);
+      if (!owner) return "unauthorized";
       const attempt = await transaction
         .selectFrom("scorm_attempt")
         .select([
@@ -497,11 +570,7 @@ export async function recordScormProgress(
           "context.participationMode",
           "context.registrationStatus",
         ])
-        .where(
-          "scorm_attempt_session.digest",
-          "=",
-          digestScormToken(sessionToken),
-        )
+        .where("scorm_attempt_session.digest", "=", sessionDigest)
         .where("scorm_attempt_session.attemptId", "=", attemptId)
         .forUpdate("scorm_attempt_session")
         .executeTakeFirst();
@@ -550,32 +619,24 @@ export async function recordScormProgress(
         .where("id", "=", attemptId)
         .executeTakeFirstOrThrow();
       if (completed) {
-        if (session.enrollmentId) {
-          const enrollment = await transaction
-            .selectFrom("enrollment")
-            .select("courseVersionId")
-            .where("id", "=", session.enrollmentId)
-            .executeTakeFirstOrThrow();
+        if (owner.kind === "course") {
           await completeEnrollmentIfReady(
             transaction,
             {
-              enrollmentId: session.enrollmentId,
-              courseVersionId: enrollment.courseVersionId,
+              enrollmentId: owner.enrollmentId,
+              courseVersionId: owner.courseVersionId,
               source: "scorm",
             },
             now,
           );
-        } else if (
-          session.eventParticipationId &&
-          attempt.eventTemplateVersionItemId
-        ) {
+        } else if (attempt.eventTemplateVersionItemId) {
           await transaction
             .insertInto("learning_item_progress")
             .values({
               id: `learning_progress_${randomUUID()}`,
               enrollmentId: null,
               courseVersionItemId: null,
-              eventParticipationId: session.eventParticipationId,
+              eventParticipationId: owner.eventParticipationId,
               eventTemplateVersionItemId: attempt.eventTemplateVersionItemId,
               state: "completed",
               completedAt: now,
@@ -591,7 +652,7 @@ export async function recordScormProgress(
           await completeEventParticipationIfReady(
             transaction,
             {
-              eventParticipationId: session.eventParticipationId,
+              eventParticipationId: owner.eventParticipationId,
               source: "scorm",
             },
             now,

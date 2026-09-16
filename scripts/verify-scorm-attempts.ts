@@ -45,6 +45,76 @@ const database = new Kysely<Database>({
   }),
 });
 
+async function waitForBlockedScormConnections(minimum: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    const result = await sql<{ count: number }>`
+      select count(*)::integer as count
+      from pg_stat_activity
+      where datname = current_database()
+        and pid <> pg_backend_pid()
+        and wait_event_type = 'Lock'
+        and (
+          query ilike '%scorm_attempt%'
+          or query ilike '%enrollment%'
+          or query ilike '%event_participation%'
+        )
+    `.execute(database);
+    if ((result.rows[0]?.count ?? 0) >= minimum) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  assert.fail(
+    `Expected at least ${String(minimum)} blocked SCORM connection(s)`,
+  );
+}
+
+async function verifyOwnerFirstProgressLockOrder<TProgress, TLaunch>(input: {
+  attemptId: string;
+  beginProgress: () => Promise<TProgress>;
+  beginLaunch: () => Promise<TLaunch>;
+}): Promise<[TProgress, TLaunch]> {
+  let markBlockerReady: () => void = () => undefined;
+  const blockerReady = new Promise<void>((resolve) => {
+    markBlockerReady = resolve;
+  });
+  let releaseBlocker: () => void = () => undefined;
+  const blockerRelease = new Promise<void>((resolve) => {
+    releaseBlocker = resolve;
+  });
+  const blocker = database.transaction().execute(async (transaction) => {
+    await transaction
+      .selectFrom("scorm_attempt")
+      .select("id")
+      .where("id", "=", input.attemptId)
+      .forUpdate()
+      .executeTakeFirstOrThrow();
+    markBlockerReady();
+    await blockerRelease;
+  });
+  await blockerReady;
+
+  const progress = input.beginProgress();
+  let launch: Promise<TLaunch> | undefined;
+  try {
+    await waitForBlockedScormConnections(1);
+    launch = input.beginLaunch();
+    await waitForBlockedScormConnections(2);
+  } catch (error) {
+    releaseBlocker();
+    await Promise.allSettled([blocker, progress, ...(launch ? [launch] : [])]);
+    throw error;
+  }
+
+  releaseBlocker();
+  assert.ok(launch);
+  const [, progressResult, launchResult] = await Promise.all([
+    blocker,
+    progress,
+    launch,
+  ]);
+  return [progressResult, launchResult];
+}
+
 async function cleanup(): Promise<void> {
   await withAuditMaintenance(database, async (database) => {
     await database
@@ -156,6 +226,10 @@ async function cleanup(): Promise<void> {
       .execute();
     await database
       .deleteFrom("event_section_release")
+      .where("eventParticipationId", "=", ids.eventParticipation)
+      .execute();
+    await database
+      .deleteFrom("learning_item_progress")
       .where("eventParticipationId", "=", ids.eventParticipation)
       .execute();
     await database
@@ -481,6 +555,35 @@ try {
     user,
   );
   assert.equal(eventLaunch.status, "ready");
+  const eventLaunchToken = new URL(eventLaunch.launchUrl).searchParams.get(
+    "token",
+  );
+  assert.ok(eventLaunchToken);
+  const eventExchange = await exchangeScormLaunchToken(eventLaunchToken);
+  if (!eventExchange || eventExchange === "offline-writer-active")
+    assert.fail("Expected the event launch to create an online session");
+  const [eventProgress, concurrentEventLaunch] =
+    await verifyOwnerFirstProgressLockOrder({
+      attemptId: eventExchange.attemptId,
+      beginProgress: () =>
+        recordScormProgress(
+          eventExchange.attemptId,
+          eventExchange.sessionToken,
+          {
+            lessonStatus: "passed",
+            location: "event-owner-lock",
+            suspendData: "event-owner-lock-state",
+            scoreRaw: 100,
+            scoreMin: 0,
+            scoreMax: 100,
+            totalTimeSeconds: 120,
+          },
+        ),
+      beginLaunch: () =>
+        createEventScormLaunch(ids.eventParticipation, ids.eventItem, user),
+    });
+  assert.equal(eventProgress, "completed");
+  assert.equal(concurrentEventLaunch.status, "ready");
   assert.deepEqual(
     await issueOfflineScormEntitlement(
       {
@@ -735,18 +838,23 @@ try {
   assert.equal(corrected[0]?.state, "incomplete");
   assert.equal(corrected[0].source, "administrator");
   assert.ok(corrected[0].override);
-  assert.equal(
-    await recordScormProgress(
-      reviewExchange.attemptId,
-      reviewExchange.sessionToken,
-      {
-        ...progress,
-        lessonStatus: "passed",
-        totalTimeSeconds: 300,
-      },
-    ),
-    "completed",
-  );
+  const [courseRecompletion, concurrentCourseLaunch] =
+    await verifyOwnerFirstProgressLockOrder({
+      attemptId: reviewExchange.attemptId,
+      beginProgress: () =>
+        recordScormProgress(
+          reviewExchange.attemptId,
+          reviewExchange.sessionToken,
+          {
+            ...progress,
+            lessonStatus: "passed",
+            totalTimeSeconds: 300,
+          },
+        ),
+      beginLaunch: () => createScormLaunch(ids.enrollment, 0, user),
+    });
+  assert.equal(courseRecompletion, "completed");
+  assert.equal(concurrentCourseLaunch.status, "ready");
   const reassessed = await findEffectiveModuleCompletion(
     database,
     ids.enrollment,
@@ -926,7 +1034,7 @@ try {
   });
 
   console.log(
-    "Verified shared Course/Event launch policy, finite offline delegation, locked writer races, online credential invalidation, progress revisions, authorized player state, post-correction reassessment, and replay-safe completion",
+    "Verified shared Course/Event launch policy, owner-first completion locks, finite offline delegation, locked writer races, online credential invalidation, progress revisions, authorized player state, post-correction reassessment, and replay-safe completion",
   );
 } finally {
   await cleanup();
