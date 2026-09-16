@@ -760,6 +760,17 @@ test("the application shell provides a public offline fallback", async ({
       ),
     )
     .toBe(1);
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async () => {
+          if (!("serviceWorker" in navigator)) return "unsupported";
+          const registration = await navigator.serviceWorker.ready;
+          return registration.active?.state ?? "missing";
+        }),
+      { timeout: 10_000 },
+    )
+    .toBe("activated");
   await page.reload();
   await expect
     .poll(() =>
