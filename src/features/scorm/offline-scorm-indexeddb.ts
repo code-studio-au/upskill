@@ -89,6 +89,7 @@ const journalRecordSchema = z.strictObject({
     .string()
     .check(z.minLength(16), z.maxLength(200), z.regex(/^[A-Za-z0-9_-]+$/u)),
   spoolFingerprint: z.string().check(z.regex(/^[a-f0-9]{64}$/u)),
+  spoolEntry: z.unknown(),
   clientSequence: z
     .number()
     .check(z.int(), z.minimum(1), z.maximum(MAXIMUM_SEQUENCE)),
@@ -117,11 +118,13 @@ function parseJournalRecord(input: unknown): OfflineScormJournalRecord {
   const unsignedCommit = parseStoredOfflineScormUnsignedCommit(
     record.unsignedCommit,
   );
+  const spoolEntry = offlineScormSpoolEntrySchema.parse(record.spoolEntry);
   if (
     record.attemptId !== unsignedCommit.attemptId ||
     record.entitlementId !== unsignedCommit.entitlementId ||
     record.commitId !== unsignedCommit.commitId ||
-    record.clientSequence !== unsignedCommit.clientSequence
+    record.clientSequence !== unsignedCommit.clientSequence ||
+    record.spoolEntryId !== spoolEntry.spoolEntryId
   )
     throw new OfflineScormRuntimeError(
       "journal_corrupt",
@@ -144,7 +147,7 @@ function parseJournalRecord(input: unknown): OfflineScormJournalRecord {
       signature: record.signature,
     });
   }
-  return { ...record, unsignedCommit };
+  return { ...record, spoolEntry, unsignedCommit };
 }
 
 function parseDeviceKeyRecord(input: unknown): OfflineScormDeviceKeyRecord {
@@ -295,6 +298,30 @@ function createUnsignedCommit(input: {
   });
 }
 
+function assertJournalRecordEntitlementBinding(
+  record: OfflineScormJournalRecord,
+  entitlement: OfflineScormTrustedEntitlement,
+): void {
+  const expectedCommit = createUnsignedCommit({
+    entitlement,
+    attemptId: entitlement.attemptId,
+    commitId: record.commitId,
+    clientSequence: record.clientSequence,
+    entry: record.spoolEntry,
+  });
+  if (
+    record.attemptId !== entitlement.attemptId ||
+    record.entitlementId !== entitlement.entitlementId ||
+    record.installationId !== entitlement.installationId ||
+    canonicalizeOfflineScormCommit(record.unsignedCommit) !==
+      canonicalizeOfflineScormCommit(expectedCommit)
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The journal record does not match its trusted spool and entitlement",
+    );
+}
+
 function hasContiguousJournalSequence(
   records: readonly OfflineScormJournalRecord[],
   nextClientSequence: number,
@@ -311,6 +338,7 @@ function hasContiguousJournalSequence(
 function parseAttemptJournalRecords(
   values: readonly unknown[],
   attemptId: string,
+  entitlement?: OfflineScormTrustedEntitlement,
 ): OfflineScormJournalRecord[] {
   return values.map((value) => {
     let record: OfflineScormJournalRecord;
@@ -328,6 +356,7 @@ function parseAttemptJournalRecords(
         "journal_corrupt",
         "The journal record does not match its attempt",
       );
+    if (entitlement) assertJournalRecordEntitlementBinding(record, entitlement);
     return record;
   });
 }
@@ -672,6 +701,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
         const attemptJournalRecords = parseAttemptJournalRecords(
           attemptJournalValues,
           attemptId,
+          entitlement,
         );
         if (
           !hasContiguousJournalSequence(
@@ -766,6 +796,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           installationId: entitlement.installationId,
           spoolEntryId: entry.spoolEntryId,
           spoolFingerprint: fingerprint,
+          spoolEntry: entry,
           clientSequence: attempt.nextClientSequence,
           commitId: candidateCommitId,
           unsignedCommit,
@@ -811,7 +842,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     try {
       const database = await this.open();
       const transaction = database.transaction(
-        ["attempts", "journal"],
+        ["entitlements", "attempts", "journal"],
         "readwrite",
       );
       const completedTransaction = transactionComplete(transaction);
@@ -840,12 +871,31 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "The trusted attempt is unavailable",
           );
         const attempt = parseAttemptState(attemptValue);
+        const entitlementValue = await requestResult<unknown>(
+          transaction.objectStore("entitlements").get(attempt.entitlementId),
+        );
+        if (entitlementValue === undefined)
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The trusted entitlement is unavailable",
+          );
+        const entitlement =
+          offlineScormTrustedEntitlementSchema.parse(entitlementValue);
+        if (entitlement.attemptId !== attemptId)
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The trusted entitlement does not match its attempt",
+          );
         const attemptJournalValues = await requestResult<unknown[]>(
           journalStore.index("byAttemptId").getAll(attemptId),
         );
         if (
           !hasContiguousJournalSequence(
-            parseAttemptJournalRecords(attemptJournalValues, attemptId),
+            parseAttemptJournalRecords(
+              attemptJournalValues,
+              attemptId,
+              entitlement,
+            ),
             attempt.nextClientSequence,
           )
         )
@@ -897,7 +947,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     try {
       const database = await this.open();
       const transaction = database.transaction(
-        ["attempts", "journal"],
+        ["entitlements", "attempts", "journal"],
         "readonly",
       );
       const completedTransaction = transactionComplete(transaction);
@@ -911,9 +961,13 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
       const attemptRequest = parsedAttemptId
         ? requestResult<unknown>(attemptStore.get(parsedAttemptId))
         : requestResult<unknown[]>(attemptStore.getAll());
-      const [values, attemptResult] = await Promise.all([
+      const entitlementRequest = requestResult<unknown[]>(
+        transaction.objectStore("entitlements").getAll(),
+      );
+      const [values, attemptResult, entitlementValues] = await Promise.all([
         journalRequest,
         attemptRequest,
+        entitlementRequest,
       ]);
       await completedTransaction;
       const attemptValues = parsedAttemptId
@@ -924,6 +978,24 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
       const corruptAttemptIds = new Set<string>();
       let unattributedCorruptRecords = 0;
       const attemptsById = new Map<string, OfflineScormAttemptState>();
+      const entitlementsByAttemptId = new Map<
+        string,
+        OfflineScormTrustedEntitlement
+      >();
+      for (const value of entitlementValues) {
+        const envelopeAttemptId = this.#storedEnvelopeAttemptId(value);
+        if (!envelopeAttemptId) {
+          if (!parsedAttemptId) unattributedCorruptRecords += 1;
+          continue;
+        }
+        if (parsedAttemptId && envelopeAttemptId !== parsedAttemptId) continue;
+        try {
+          const entitlement = offlineScormTrustedEntitlementSchema.parse(value);
+          entitlementsByAttemptId.set(entitlement.attemptId, entitlement);
+        } catch {
+          corruptAttemptIds.add(envelopeAttemptId);
+        }
+      }
       for (const value of attemptValues) {
         const envelopeAttemptId =
           parsedAttemptId ?? this.#storedEnvelopeAttemptId(value);
@@ -956,6 +1028,21 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
         }
       }
       for (const [attemptId, attempt] of attemptsById) {
+        const entitlement = entitlementsByAttemptId.get(attemptId);
+        if (
+          !entitlement ||
+          entitlement.entitlementId !== attempt.entitlementId
+        ) {
+          corruptAttemptIds.add(attemptId);
+          continue;
+        }
+        try {
+          for (const record of recordsByAttemptId.get(attemptId) ?? [])
+            assertJournalRecordEntitlementBinding(record, entitlement);
+        } catch {
+          corruptAttemptIds.add(attemptId);
+          continue;
+        }
         if (
           !hasContiguousJournalSequence(
             recordsByAttemptId.get(attemptId) ?? [],
@@ -983,6 +1070,66 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
         corruptAttemptIds: [...corruptAttemptIds].sort(),
         unattributedCorruptRecords,
       };
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async listAttemptJournalRecords(
+    attemptId: string,
+  ): Promise<OfflineScormJournalRecord[]> {
+    const parsedAttemptId = internalIdSchema.parse(attemptId);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction(
+        ["entitlements", "attempts", "journal"],
+        "readonly",
+      );
+      const completedTransaction = transactionComplete(transaction);
+      const attemptValue = await requestResult<unknown>(
+        transaction.objectStore("attempts").get(parsedAttemptId),
+      );
+      if (attemptValue === undefined)
+        throw new OfflineScormRuntimeError(
+          "attempt_unavailable",
+          "The trusted attempt is unavailable",
+        );
+      const attempt = parseAttemptState(attemptValue);
+      const entitlementValue = await requestResult<unknown>(
+        transaction.objectStore("entitlements").get(attempt.entitlementId),
+      );
+      if (entitlementValue === undefined)
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The trusted entitlement is unavailable",
+        );
+      const entitlement =
+        offlineScormTrustedEntitlementSchema.parse(entitlementValue);
+      if (entitlement.attemptId !== parsedAttemptId)
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The trusted entitlement does not match its attempt",
+        );
+      const values = await requestResult<unknown[]>(
+        transaction
+          .objectStore("journal")
+          .index("byAttemptId")
+          .getAll(parsedAttemptId),
+      );
+      await completedTransaction;
+      const records = parseAttemptJournalRecords(
+        values,
+        parsedAttemptId,
+        entitlement,
+      );
+      if (!hasContiguousJournalSequence(records, attempt.nextClientSequence))
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The local journal sequence is not contiguous",
+        );
+      return records.sort(
+        (first, second) => first.clientSequence - second.clientSequence,
+      );
     } catch (error) {
       throw asStorageFailure(error);
     }

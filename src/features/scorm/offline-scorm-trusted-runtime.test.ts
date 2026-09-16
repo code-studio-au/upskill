@@ -341,6 +341,145 @@ describe("offline SCORM trusted IndexedDB", () => {
     ).rejects.toMatchObject({ code: "journal_corrupt" });
   });
 
+  it("blocks a later sequence when finalised history no longer verifies", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const firstEntry = spoolEntry();
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: firstEntry,
+    });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const journal = corruptionTransaction.objectStore("journal");
+    const record = (await idbRequest(
+      journal.get(["attempt_1", firstEntry.spoolEntryId]),
+    )) as Record<string, unknown>;
+    journal.put({ ...record, signature: "A".repeat(86) });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    const secondEntry = spoolEntry({
+      spoolEntryId: "spool_entry_000002",
+      ordinal: 2,
+      sessionElapsedSeconds: 30,
+      sessionTimeDeltaSeconds: 10,
+      snapshot: { ...firstEntry.snapshot, totalTimeSeconds: 30 },
+    });
+    await expect(
+      runtime.importSpoolEntry({ attemptId: "attempt_1", entry: secondEntry }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+    const inspectionTransaction = database.transaction("journal", "readonly");
+    const inspectionComplete = idbTransaction(inspectionTransaction);
+    expect(
+      await idbRequest(inspectionTransaction.objectStore("journal").count()),
+    ).toBe(1);
+    await inspectionComplete;
+  });
+
+  it("rejects recovery when a signing commit no longer matches its spool", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const entry = spoolEntry();
+    const { fingerprint } = await fingerprintOfflineScormSpoolEntry(entry);
+    await store.reserveSpoolEntry({
+      attemptId: "attempt_1",
+      entry,
+      fingerprint,
+      candidateCommitId: "commit_corrupt_recovery_001",
+      reservedAt: baseInstant,
+    });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const journal = corruptionTransaction.objectStore("journal");
+    const record = (await idbRequest(
+      journal.get(["attempt_1", entry.spoolEntryId]),
+    )) as Record<string, unknown>;
+    const unsignedCommit = record.unsignedCommit as Record<string, unknown>;
+    journal.put({
+      ...record,
+      unsignedCommit: {
+        ...unsignedCommit,
+        snapshot: {
+          ...(unsignedCommit.snapshot as Record<string, unknown>),
+          location: "altered-reservation",
+        },
+      },
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    const recovered = await new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    }).recoverSigningReservations("attempt_1");
+    expect(recovered).toEqual({
+      acknowledgements: [],
+      failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+      unattributedCorruptRecords: 0,
+    });
+  });
+
+  it("rejects recovery when a signing spool no longer matches its fingerprint", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const entry = spoolEntry();
+    const { fingerprint } = await fingerprintOfflineScormSpoolEntry(entry);
+    await store.reserveSpoolEntry({
+      attemptId: "attempt_1",
+      entry,
+      fingerprint,
+      candidateCommitId: "commit_fingerprint_recovery_1",
+      reservedAt: baseInstant,
+    });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const journal = corruptionTransaction.objectStore("journal");
+    const record = (await idbRequest(
+      journal.get(["attempt_1", entry.spoolEntryId]),
+    )) as Record<string, unknown>;
+    const alteredSnapshot = { ...entry.snapshot, location: "altered-together" };
+    journal.put({
+      ...record,
+      spoolEntry: { ...entry, snapshot: alteredSnapshot },
+      unsignedCommit: {
+        ...(record.unsignedCommit as Record<string, unknown>),
+        snapshot: alteredSnapshot,
+      },
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    const recovered = await new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    }).recoverSigningReservations("attempt_1");
+    expect(recovered).toEqual({
+      acknowledgements: [],
+      failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+      unattributedCorruptRecords: 0,
+    });
+
+    const inspectionTransaction = database.transaction("journal", "readonly");
+    const inspectionComplete = idbTransaction(inspectionTransaction);
+    expect(
+      await idbRequest(
+        inspectionTransaction
+          .objectStore("journal")
+          .get(["attempt_1", entry.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "signing", signature: null });
+    await inspectionComplete;
+  });
+
   it("recovers a crash after reservation without reallocating sequence", async () => {
     const store = createStore();
     await prepareStore(store);

@@ -235,6 +235,7 @@ export interface OfflineScormJournalRecord {
   installationId: string;
   spoolEntryId: string;
   spoolFingerprint: string;
+  spoolEntry: OfflineScormSpoolEntry;
   clientSequence: number;
   commitId: string;
   unsignedCommit: OfflineScormUnsignedCommit;
@@ -311,6 +312,9 @@ export interface OfflineScormTrustedStore {
   listSigningReservations(
     attemptId?: string,
   ): Promise<OfflineScormSigningReservationScan>;
+  listAttemptJournalRecords(
+    attemptId: string,
+  ): Promise<OfflineScormJournalRecord[]>;
   markAttemptError(
     attemptId: string,
     errorCode: OfflineScormRuntimeErrorCode,
@@ -565,6 +569,8 @@ function assertSameJournalReservation(
     reservation.installationId !== finalised.installationId ||
     reservation.spoolEntryId !== finalised.spoolEntryId ||
     reservation.spoolFingerprint !== finalised.spoolFingerprint ||
+    canonicalizeSpoolEntry(reservation.spoolEntry) !==
+      canonicalizeSpoolEntry(finalised.spoolEntry) ||
     reservation.commitId !== finalised.commitId ||
     reservation.clientSequence !== finalised.clientSequence ||
     canonicalizeOfflineScormCommit(reservation.unsignedCommit) !==
@@ -621,6 +627,7 @@ export class OfflineScormTrustedRuntime {
         input.entry,
         this.#cryptoProvider,
       );
+      await this.#verifyAttemptJournal(attemptId);
       const reservation = await this.#store.reserveSpoolEntry({
         attemptId,
         entry,
@@ -628,22 +635,18 @@ export class OfflineScormTrustedRuntime {
         candidateCommitId: `commit_${this.#cryptoProvider.randomUUID()}`,
         reservedAt: this.#now().toISOString(),
       });
-      if (reservation.status !== "signing") {
-        const installation = await this.#store.getInstallation(
-          reservation.installationId,
+      const verifiedJournal = await this.#verifyAttemptJournal(attemptId);
+      const verifiedReservation = verifiedJournal.find(
+        (record) => record.spoolEntryId === reservation.spoolEntryId,
+      );
+      if (!verifiedReservation)
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The journal reservation is unavailable",
         );
-        if (!installation)
-          throw new OfflineScormRuntimeError(
-            "device_key_unavailable",
-            "The device signing key is unavailable",
-          );
-        await verifyOfflineScormJournalRecord(
-          reservation,
-          installation,
-          this.#cryptoProvider,
-        );
+      assertSameJournalReservation(reservation, verifiedReservation);
+      if (reservation.status !== "signing")
         return importAcknowledgement(reservation);
-      }
       return await this.#signAndFinalise(reservation);
     } catch (error) {
       const runtimeError =
@@ -706,6 +709,18 @@ export class OfflineScormTrustedRuntime {
     reservation: OfflineScormJournalRecord,
   ): Promise<OfflineScormImportAcknowledgement> {
     try {
+      const journalBeforeSigning = await this.#verifyAttemptJournal(
+        reservation.attemptId,
+      );
+      const storedReservation = journalBeforeSigning.find(
+        (record) => record.spoolEntryId === reservation.spoolEntryId,
+      );
+      if (!storedReservation)
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The signing reservation is unavailable",
+        );
+      assertSameJournalReservation(reservation, storedReservation);
       const installation = await this.#store.getInstallation(
         reservation.installationId,
       );
@@ -727,11 +742,18 @@ export class OfflineScormTrustedRuntime {
         finalisedAt: this.#now().toISOString(),
       });
       assertSameJournalReservation(reservation, finalised);
-      await verifyOfflineScormJournalRecord(
-        finalised,
-        installation,
-        this.#cryptoProvider,
+      const verifiedJournal = await this.#verifyAttemptJournal(
+        reservation.attemptId,
       );
+      const verifiedFinalised = verifiedJournal.find(
+        (record) => record.spoolEntryId === reservation.spoolEntryId,
+      );
+      if (!verifiedFinalised)
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The finalised journal record is unavailable",
+        );
+      assertSameJournalReservation(finalised, verifiedFinalised);
       return importAcknowledgement(finalised);
     } catch (error) {
       const runtimeError =
@@ -745,6 +767,54 @@ export class OfflineScormTrustedRuntime {
       await this.#recordFailure(reservation.attemptId, runtimeError);
       throw runtimeError;
     }
+  }
+
+  async #verifyAttemptJournal(
+    attemptId: string,
+  ): Promise<OfflineScormJournalRecord[]> {
+    const records = await this.#store.listAttemptJournalRecords(attemptId);
+    const installationPromises = new Map<
+      string,
+      Promise<OfflineScormDeviceKeyRecord>
+    >();
+    const installationFor = (
+      installationId: string,
+    ): Promise<OfflineScormDeviceKeyRecord> => {
+      const existing = installationPromises.get(installationId);
+      if (existing) return existing;
+      const loading = this.#store
+        .getInstallation(installationId)
+        .then((installation) => {
+          if (!installation)
+            throw new OfflineScormRuntimeError(
+              "device_key_unavailable",
+              "The device signing key is unavailable",
+            );
+          return installation;
+        });
+      installationPromises.set(installationId, loading);
+      return loading;
+    };
+    await Promise.all(
+      records.map(async (record) => {
+        const { fingerprint } = await fingerprintOfflineScormSpoolEntry(
+          record.spoolEntry,
+          this.#cryptoProvider,
+        );
+        if (fingerprint !== record.spoolFingerprint)
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The stored journal spool fingerprint is invalid",
+          );
+        if (record.status === "signing") return;
+        await verifyOfflineScormJournalRecord(
+          record,
+          await installationFor(record.installationId),
+          this.#cryptoProvider,
+        );
+      }),
+    );
+    return records;
   }
 
   async #recordFailure(
