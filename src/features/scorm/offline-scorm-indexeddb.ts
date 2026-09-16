@@ -276,20 +276,17 @@ function asStorageFailure(error: unknown): OfflineScormRuntimeError {
 export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
   readonly #databaseName: string;
   readonly #factory: IDBFactory;
-  readonly #keyRange: typeof IDBKeyRange;
   #databasePromise: Promise<IDBDatabase> | undefined;
 
   constructor(
     options: {
       databaseName?: string;
       factory?: IDBFactory;
-      keyRange?: typeof IDBKeyRange;
     } = {},
   ) {
     this.#databaseName =
       options.databaseName ?? OFFLINE_SCORM_TRUSTED_DATABASE_NAME;
     this.#factory = options.factory ?? globalThis.indexedDB;
-    this.#keyRange = options.keyRange ?? globalThis.IDBKeyRange;
   }
 
   async open(): Promise<IDBDatabase> {
@@ -335,16 +332,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             ["attemptId", "clientSequence"],
             { unique: true },
           );
-          journal.createIndex("byAttemptStatusSequence", [
-            "attemptId",
-            "status",
-            "clientSequence",
-          ]);
-          journal.createIndex("byStatusAttemptSequence", [
-            "status",
-            "attemptId",
-            "clientSequence",
-          ]);
+          journal.createIndex("byAttemptId", "attemptId");
           journal.createIndex("byCommitId", "commitId", { unique: true });
           const packages = database.createObjectStore("packages", {
             keyPath: "attemptId",
@@ -611,14 +599,40 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "journal_corrupt",
             "The trusted entitlement does not match its attempt",
           );
-        const signingRange = this.#keyRange.bound(
-          [attemptId, "signing", 1],
-          [attemptId, "signing", MAXIMUM_SEQUENCE],
+        const attemptJournalValues = await requestResult<unknown[]>(
+          journalStore.index("byAttemptId").getAll(attemptId),
         );
-        const signingCount = await requestResult(
-          journalStore.index("byAttemptStatusSequence").count(signingRange),
-        );
-        if (signingCount > 0)
+        let hasSigningReservation = false;
+        const journalSequences: number[] = [];
+        for (const value of attemptJournalValues) {
+          let record: OfflineScormJournalRecord;
+          try {
+            record = parseJournalRecord(value);
+          } catch (error) {
+            throw new OfflineScormRuntimeError(
+              "journal_corrupt",
+              "The attempt contains a corrupt journal record",
+              { cause: error },
+            );
+          }
+          if (record.attemptId !== attemptId)
+            throw new OfflineScormRuntimeError(
+              "journal_corrupt",
+              "The journal record does not match its attempt",
+            );
+          journalSequences.push(record.clientSequence);
+          if (record.status === "signing") hasSigningReservation = true;
+        }
+        journalSequences.sort((first, second) => first - second);
+        if (
+          journalSequences.length !== attempt.nextClientSequence - 1 ||
+          journalSequences.some((sequence, index) => sequence !== index + 1)
+        )
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The local journal sequence is not contiguous",
+          );
+        if (hasSigningReservation)
           throw new OfflineScormRuntimeError(
             "signing_in_progress",
             "An earlier journal reservation must finish signing first",
@@ -810,27 +824,18 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
       const database = await this.open();
       const transaction = database.transaction("journal", "readonly");
       const journal = transaction.objectStore("journal");
-      const signingIndex = parsedAttemptId
-        ? journal.index("byAttemptStatusSequence")
-        : journal.index("byStatusAttemptSequence");
-      const signingRange = parsedAttemptId
-        ? this.#keyRange.bound(
-            [parsedAttemptId, "signing", 1],
-            [parsedAttemptId, "signing", MAXIMUM_SEQUENCE],
-          )
-        : this.#keyRange.bound(
-            ["signing", "", 1],
-            ["signing", "\uffff", MAXIMUM_SEQUENCE],
-          );
       const values = await requestResult<unknown[]>(
-        signingIndex.getAll(signingRange),
+        parsedAttemptId
+          ? journal.index("byAttemptId").getAll(parsedAttemptId)
+          : journal.getAll(),
       );
       await transactionComplete(transaction);
       const reservations: OfflineScormJournalRecord[] = [];
       const corruptAttemptIds = new Set<string>();
       for (const value of values) {
         try {
-          reservations.push(parseJournalRecord(value));
+          const record = parseJournalRecord(value);
+          if (record.status === "signing") reservations.push(record);
         } catch (error) {
           const envelopeAttemptId =
             parsedAttemptId ?? this.#storedEnvelopeAttemptId(value);

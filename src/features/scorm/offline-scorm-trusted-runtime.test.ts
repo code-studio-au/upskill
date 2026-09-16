@@ -1,5 +1,5 @@
 import { createPublicKey, verify } from "node:crypto";
-import { IDBKeyRange, indexedDB } from "fake-indexeddb";
+import { indexedDB } from "fake-indexeddb";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertOfflineScormIndexedDbSchema,
@@ -29,7 +29,6 @@ function createStore(
   const store = new OfflineScormIndexedDbStore({
     databaseName,
     factory: indexedDB,
-    keyRange: IDBKeyRange,
   });
   stores.push({ databaseName, store });
   return store;
@@ -185,6 +184,12 @@ describe("offline SCORM trusted IndexedDB", () => {
     expect(() => {
       assertOfflineScormIndexedDbSchema(database);
     }).not.toThrow();
+    expect(
+      Array.from(
+        database.transaction("journal", "readonly").objectStore("journal")
+          .indexNames,
+      ),
+    ).toContain("byAttemptId");
 
     const key = await createOfflineScormDeviceKeyRecord("installation_1", {
       learnerId: "learner_1",
@@ -400,6 +405,68 @@ describe("offline SCORM trusted IndexedDB", () => {
       acknowledgements: [],
       failures: [{ attemptId: "attempt_2", code: "journal_corrupt" }],
     });
+  });
+
+  it("blocks recovery and allocation when indexed journal fields are corrupt", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const firstEntry = spoolEntry();
+    const { fingerprint } = await fingerprintOfflineScormSpoolEntry(firstEntry);
+    await store.reserveSpoolEntry({
+      attemptId: "attempt_1",
+      entry: firstEntry,
+      fingerprint,
+      candidateCommitId: "commit_corrupt_index_0001",
+      reservedAt: baseInstant,
+    });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const journal = corruptionTransaction.objectStore("journal");
+    const corruptRecord = (await idbRequest(
+      journal.get(["attempt_1", firstEntry.spoolEntryId]),
+    )) as Record<string, unknown>;
+    journal.put({
+      ...corruptRecord,
+      clientSequence: "not-a-sequence",
+      status: "not-a-status",
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    expect(await runtime.recoverSigningReservations("attempt_1")).toEqual({
+      acknowledgements: [],
+      failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+    });
+    expect(await runtime.recoverSigningReservations()).toEqual({
+      acknowledgements: [],
+      failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+    });
+
+    const secondEntry = spoolEntry({
+      spoolEntryId: "spool_entry_000002",
+      ordinal: 2,
+      sessionElapsedSeconds: 30,
+      sessionTimeDeltaSeconds: 10,
+      snapshot: {
+        ...firstEntry.snapshot,
+        totalTimeSeconds: 30,
+      },
+    });
+    await expect(
+      runtime.importSpoolEntry({ attemptId: "attempt_1", entry: secondEntry }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+    const inspectionTransaction = database.transaction("journal", "readonly");
+    const inspectionComplete = idbTransaction(inspectionTransaction);
+    expect(
+      await idbRequest(inspectionTransaction.objectStore("journal").count()),
+    ).toBe(1);
+    await inspectionComplete;
   });
 
   it("fails closed for identifier reuse, sequence gaps and completion regression", async () => {
