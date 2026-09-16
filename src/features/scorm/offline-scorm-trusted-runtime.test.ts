@@ -404,7 +404,7 @@ describe("offline SCORM trusted IndexedDB", () => {
     await completed;
   });
 
-  it("stores an exact reconciliation receipt idempotently", async () => {
+  it("atomically acknowledges an exact reconciliation receipt and repairs its retry", async () => {
     const store = createStore();
     await prepareStore(store);
     const runtime = new OfflineScormTrustedRuntime(store, {
@@ -433,15 +433,86 @@ describe("offline SCORM trusted IndexedDB", () => {
     });
 
     await store.putReceipt(validReceipt);
-    await store.putReceipt(validReceipt);
 
     const database = await store.open();
-    const transaction = database.transaction("receipts", "readonly");
-    const completed = idbTransaction(transaction);
+    const firstInspection = database.transaction(
+      ["journal", "receipts"],
+      "readonly",
+    );
+    const firstInspectionComplete = idbTransaction(firstInspection);
     expect(
-      await idbRequest(transaction.objectStore("receipts").getAll()),
+      await idbRequest(
+        firstInspection
+          .objectStore("journal")
+          .get(["attempt_1", record.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "acknowledged" });
+    expect(
+      await idbRequest(firstInspection.objectStore("receipts").getAll()),
     ).toEqual([validReceipt]);
-    await completed;
+    await firstInspectionComplete;
+
+    const legacyTransaction = database.transaction("journal", "readwrite");
+    const legacyComplete = idbTransaction(legacyTransaction);
+    legacyTransaction.objectStore("journal").put({
+      ...record,
+      status: "pending",
+    });
+    legacyTransaction.commit();
+    await legacyComplete;
+
+    await store.putReceipt(validReceipt);
+
+    const retryInspection = database.transaction(
+      ["journal", "receipts"],
+      "readonly",
+    );
+    const retryInspectionComplete = idbTransaction(retryInspection);
+    expect(
+      await idbRequest(
+        retryInspection
+          .objectStore("journal")
+          .get(["attempt_1", record.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "acknowledged" });
+    expect(
+      await idbRequest(retryInspection.objectStore("receipts").getAll()),
+    ).toEqual([validReceipt]);
+    await retryInspectionComplete;
+  });
+
+  it.each([
+    {
+      outcome: "rejected" as const,
+      reasonCode: "acceptance_deadline_elapsed",
+    },
+    { outcome: "conflict" as const, reasonCode: "history_conflict" },
+  ])("acknowledges a terminal $outcome receipt", async (terminalOutcome) => {
+    const store = createStore();
+    await prepareStore(store);
+    await new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    }).importSpoolEntry({ attemptId: "attempt_1", entry: spoolEntry() });
+    const [record] = (await store.getAttemptJournalSnapshot("attempt_1"))
+      .records;
+    expect(record).toBeDefined();
+    if (!record) throw new Error("Expected a finalised journal record");
+    await store.putReceipt(
+      receipt({
+        commitId: record.commitId,
+        clientSequence: record.clientSequence,
+        requestFingerprint: await fingerprintOfflineScormCommit(
+          record.unsignedCommit,
+        ),
+        outcome: terminalOutcome.outcome,
+        reasonCode: terminalOutcome.reasonCode,
+        resultingAttemptRevision: null,
+      }),
+    );
+
+    expect(
+      (await store.getAttemptJournalSnapshot("attempt_1")).records[0],
+    ).toMatchObject({ status: "acknowledged" });
   });
 
   it("rejects receipts that do not match immutable journal evidence", async () => {
@@ -489,11 +560,21 @@ describe("offline SCORM trusted IndexedDB", () => {
     ).rejects.toThrow();
 
     const database = await store.open();
-    const transaction = database.transaction("receipts", "readonly");
+    const transaction = database.transaction(
+      ["journal", "receipts"],
+      "readonly",
+    );
     const completed = idbTransaction(transaction);
     expect(await idbRequest(transaction.objectStore("receipts").count())).toBe(
       0,
     );
+    expect(
+      await idbRequest(
+        transaction
+          .objectStore("journal")
+          .get(["attempt_1", record.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "pending" });
     await completed;
   });
 

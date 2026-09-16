@@ -1516,7 +1516,6 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "journal_corrupt",
             "The reconciliation receipt cannot be replaced",
           );
-        return;
       }
       if (candidateValue === undefined)
         throw new OfflineScormRuntimeError(
@@ -1593,9 +1592,9 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           entitlement,
           requestFingerprint,
         });
-        const store = transaction.objectStore("receipts");
+        const receiptStore = transaction.objectStore("receipts");
         const existingValue = await requestResult<unknown>(
-          store.get([receipt.attemptId, receipt.commitId]),
+          receiptStore.get([receipt.attemptId, receipt.commitId]),
         );
         if (existingValue !== undefined) {
           const existing = offlineScormReceiptSchema.parse(existingValue);
@@ -1604,7 +1603,19 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
               "journal_corrupt",
               "The reconciliation receipt cannot be replaced",
             );
-        } else store.add(receipt);
+        } else {
+          if (record.status === "acknowledged")
+            throw new OfflineScormRuntimeError(
+              "journal_corrupt",
+              "An acknowledged journal record is missing its receipt",
+            );
+          receiptStore.add(receipt);
+        }
+        if (record.status !== "acknowledged")
+          transaction.objectStore("journal").put({
+            ...record,
+            status: "acknowledged",
+          } satisfies OfflineScormJournalRecord);
         transaction.commit();
         await completedTransaction;
       } catch (error) {
