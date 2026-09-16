@@ -166,6 +166,64 @@ describe("AdminEventAttendanceReview", () => {
     expect(html.match(/Export all evidence \(26 records\)/gu)).toHaveLength(1);
   });
 
+  it("provides a useful empty state and disables an empty export", () => {
+    const html = renderToStaticMarkup(
+      <AdminEventAttendanceReview
+        report={{
+          ...report,
+          rows: [],
+          pagination: {
+            page: 1,
+            pages: 1,
+            total: 0,
+            allTotal: 0,
+            pageSize: 25,
+          },
+        }}
+        filters={{ q: "", sessionId: "all", state: "all", evidence: "all" }}
+        processingId={null}
+        onFiltersChange={() => undefined}
+        onPageChange={() => undefined}
+        onRecordAttendance={() => undefined}
+      />,
+    );
+    expect(html).toContain("No attendance records yet");
+    expect(html).toContain(
+      "Attendance records will appear after participants are registered or given event access.",
+    );
+    expect(html).toContain("Export all evidence (0 records)");
+    expect(html).toContain("disabled");
+  });
+
+  it("offers filter recovery without hiding the complete export", () => {
+    const html = renderToStaticMarkup(
+      <AdminEventAttendanceReview
+        report={{
+          ...report,
+          rows: [],
+          pagination: {
+            ...report.pagination,
+            total: 0,
+          },
+        }}
+        filters={{
+          q: "missing learner",
+          sessionId: "all",
+          state: "absent",
+          evidence: "none",
+        }}
+        processingId={null}
+        onFiltersChange={() => undefined}
+        onPageChange={() => undefined}
+        onRecordAttendance={() => undefined}
+      />,
+    );
+    expect(html).toContain("No matching attendance records");
+    expect(html).toContain("Clear filters");
+    expect(html).toContain("Export filtered CSV (0 records)");
+    expect(html).toContain("Export all evidence (26 records)");
+  });
+
   it("directs administrators to the export when page evidence is truncated", () => {
     const html = renderToStaticMarkup(
       <AdminEventAttendanceReview

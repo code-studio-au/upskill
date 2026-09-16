@@ -1,0 +1,63 @@
+.root {
+  display: grid;
+  gap: var(--mantine-spacing-md);
+}
+
+.heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--mantine-spacing-md);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.875rem;
+}
+
+.card {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: var(--mantine-spacing-sm);
+}
+
+.peopleList {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.person {
+  min-width: 12rem;
+  padding: 0.45rem 0.65rem;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--mantine-color-gray-2);
+  border-radius: var(--mantine-radius-md);
+  background: var(--mantine-color-gray-0);
+}
+
+.sessionSchedule {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.roleLabel {
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 54rem) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 40rem) {
+  .heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
