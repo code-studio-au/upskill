@@ -14,6 +14,7 @@ import {
   parseStoredOfflineScormSignedCommit,
   parseStoredOfflineScormUnsignedCommit,
   type OfflineScormAttemptState,
+  type OfflineScormAttemptJournalSnapshot,
   type OfflineScormDeviceKeyRecord,
   type OfflineScormJournalRecord,
   type OfflineScormLaunchState,
@@ -1075,9 +1076,9 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     }
   }
 
-  async listAttemptJournalRecords(
+  async getAttemptJournalSnapshot(
     attemptId: string,
-  ): Promise<OfflineScormJournalRecord[]> {
+  ): Promise<OfflineScormAttemptJournalSnapshot> {
     const parsedAttemptId = internalIdSchema.parse(attemptId);
     try {
       const database = await this.open();
@@ -1127,9 +1128,13 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           "journal_corrupt",
           "The local journal sequence is not contiguous",
         );
-      return records.sort(
-        (first, second) => first.clientSequence - second.clientSequence,
-      );
+      return {
+        attempt,
+        entitlement,
+        records: records.sort(
+          (first, second) => first.clientSequence - second.clientSequence,
+        ),
+      };
     } catch (error) {
       throw asStorageFailure(error);
     }

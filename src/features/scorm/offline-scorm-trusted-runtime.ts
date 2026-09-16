@@ -289,6 +289,12 @@ export interface OfflineScormSigningReservationScan {
   unattributedCorruptRecords: number;
 }
 
+export interface OfflineScormAttemptJournalSnapshot {
+  attempt: OfflineScormAttemptState;
+  entitlement: OfflineScormTrustedEntitlement;
+  records: OfflineScormJournalRecord[];
+}
+
 export interface OfflineScormTrustedStore {
   putInstallation(record: OfflineScormDeviceKeyRecord): Promise<void>;
   getInstallation(
@@ -312,9 +318,9 @@ export interface OfflineScormTrustedStore {
   listSigningReservations(
     attemptId?: string,
   ): Promise<OfflineScormSigningReservationScan>;
-  listAttemptJournalRecords(
+  getAttemptJournalSnapshot(
     attemptId: string,
-  ): Promise<OfflineScormJournalRecord[]>;
+  ): Promise<OfflineScormAttemptJournalSnapshot>;
   markAttemptError(
     attemptId: string,
     errorCode: OfflineScormRuntimeErrorCode,
@@ -349,6 +355,18 @@ function canonicalizeSpoolEntry(entry: OfflineScormSpoolEntry): string {
     entry.sessionElapsedSeconds,
     entry.sessionTimeDeltaSeconds,
     entry.clientObservedAt,
+  ]);
+}
+
+function canonicalizeProgressSnapshot(snapshot: ScormProgressInput): string {
+  return JSON.stringify([
+    snapshot.lessonStatus,
+    snapshot.location,
+    snapshot.suspendData,
+    snapshot.scoreRaw,
+    snapshot.scoreMin,
+    snapshot.scoreMax,
+    snapshot.totalTimeSeconds,
   ]);
 }
 
@@ -636,7 +654,7 @@ export class OfflineScormTrustedRuntime {
         reservedAt: this.#now().toISOString(),
       });
       const verifiedJournal = await this.#verifyAttemptJournal(attemptId);
-      const verifiedReservation = verifiedJournal.find(
+      const verifiedReservation = verifiedJournal.records.find(
         (record) => record.spoolEntryId === reservation.spoolEntryId,
       );
       if (!verifiedReservation)
@@ -712,7 +730,7 @@ export class OfflineScormTrustedRuntime {
       const journalBeforeSigning = await this.#verifyAttemptJournal(
         reservation.attemptId,
       );
-      const storedReservation = journalBeforeSigning.find(
+      const storedReservation = journalBeforeSigning.records.find(
         (record) => record.spoolEntryId === reservation.spoolEntryId,
       );
       if (!storedReservation)
@@ -721,17 +739,9 @@ export class OfflineScormTrustedRuntime {
           "The signing reservation is unavailable",
         );
       assertSameJournalReservation(reservation, storedReservation);
-      const installation = await this.#store.getInstallation(
-        reservation.installationId,
-      );
-      if (!installation)
-        throw new OfflineScormRuntimeError(
-          "device_key_unavailable",
-          "The device signing key is unavailable",
-        );
       const signature = await signOfflineScormCommit(
         reservation.unsignedCommit,
-        installation,
+        journalBeforeSigning.installation,
         this.#cryptoProvider,
       );
       const finalised = await this.#store.finaliseJournalEntry({
@@ -745,7 +755,7 @@ export class OfflineScormTrustedRuntime {
       const verifiedJournal = await this.#verifyAttemptJournal(
         reservation.attemptId,
       );
-      const verifiedFinalised = verifiedJournal.find(
+      const verifiedFinalised = verifiedJournal.records.find(
         (record) => record.spoolEntryId === reservation.spoolEntryId,
       );
       if (!verifiedFinalised)
@@ -769,34 +779,44 @@ export class OfflineScormTrustedRuntime {
     }
   }
 
-  async #verifyAttemptJournal(
-    attemptId: string,
-  ): Promise<OfflineScormJournalRecord[]> {
-    const records = await this.#store.listAttemptJournalRecords(attemptId);
-    const installationPromises = new Map<
-      string,
-      Promise<OfflineScormDeviceKeyRecord>
-    >();
-    const installationFor = (
-      installationId: string,
-    ): Promise<OfflineScormDeviceKeyRecord> => {
-      const existing = installationPromises.get(installationId);
-      if (existing) return existing;
-      const loading = this.#store
-        .getInstallation(installationId)
-        .then((installation) => {
-          if (!installation)
-            throw new OfflineScormRuntimeError(
-              "device_key_unavailable",
-              "The device signing key is unavailable",
-            );
-          return installation;
-        });
-      installationPromises.set(installationId, loading);
-      return loading;
-    };
+  async #verifyAttemptJournal(attemptId: string): Promise<{
+    records: OfflineScormJournalRecord[];
+    installation: OfflineScormDeviceKeyRecord;
+  }> {
+    const snapshot = await this.#store.getAttemptJournalSnapshot(attemptId);
+    const installation = await this.#store.getInstallation(
+      snapshot.entitlement.installationId,
+    );
+    if (!installation)
+      throw new OfflineScormRuntimeError(
+        "device_key_unavailable",
+        "The device signing key is unavailable",
+      );
+    if (
+      installation.learnerId !== snapshot.entitlement.learnerId ||
+      installation.publicKeySha256 !==
+        snapshot.entitlement.devicePublicKeySha256
+    )
+      throw new OfflineScormRuntimeError(
+        "device_key_unavailable",
+        "The device signing key no longer matches its entitlement",
+      );
+    let latestFinalised: OfflineScormJournalRecord | undefined;
+    for (const record of snapshot.records)
+      if (record.status !== "signing") latestFinalised = record;
+    const expectedSnapshot =
+      latestFinalised?.unsignedCommit.snapshot ??
+      snapshot.entitlement.initialSnapshot;
+    if (
+      canonicalizeProgressSnapshot(snapshot.attempt.currentSnapshot) !==
+      canonicalizeProgressSnapshot(expectedSnapshot)
+    )
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The materialised attempt snapshot does not match signed history",
+      );
     await Promise.all(
-      records.map(async (record) => {
+      snapshot.records.map(async (record) => {
         const { fingerprint } = await fingerprintOfflineScormSpoolEntry(
           record.spoolEntry,
           this.#cryptoProvider,
@@ -809,12 +829,12 @@ export class OfflineScormTrustedRuntime {
         if (record.status === "signing") return;
         await verifyOfflineScormJournalRecord(
           record,
-          await installationFor(record.installationId),
+          installation,
           this.#cryptoProvider,
         );
       }),
     );
-    return records;
+    return { records: snapshot.records, installation };
   }
 
   async #recordFailure(
