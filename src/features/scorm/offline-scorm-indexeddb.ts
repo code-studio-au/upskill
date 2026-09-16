@@ -336,6 +336,87 @@ function hasContiguousJournalSequence(
   );
 }
 
+function parseAttemptLaunchStates(
+  values: readonly unknown[],
+  attemptId: string,
+): OfflineScormLaunchState[] {
+  return values.map((value) => {
+    let launch: OfflineScormLaunchState;
+    try {
+      launch = parseLaunchState(value);
+    } catch (error) {
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The attempt contains a corrupt launch projection",
+        { cause: error },
+      );
+    }
+    if (launch.attemptId !== attemptId)
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The launch projection does not match its attempt",
+      );
+    return launch;
+  });
+}
+
+function assertLaunchProjectionsMatchJournal(
+  records: readonly OfflineScormJournalRecord[],
+  launches: readonly OfflineScormLaunchState[],
+  attemptId: string,
+): void {
+  const expectedBySessionId = new Map<
+    string,
+    Omit<OfflineScormLaunchState, "schemaVersion" | "attemptId">
+  >();
+  for (const record of records.toSorted(
+    (first, second) => first.clientSequence - second.clientSequence,
+  )) {
+    const entry = record.spoolEntry;
+    const previous = expectedBySessionId.get(entry.launchSessionId) ?? {
+      launchSessionId: entry.launchSessionId,
+      nextExpectedOrdinal: 1,
+      elapsedHighwaterSeconds: 0,
+      updatedAt: record.reservedAt,
+    };
+    if (
+      entry.ordinal !== previous.nextExpectedOrdinal ||
+      entry.sessionElapsedSeconds < previous.elapsedHighwaterSeconds ||
+      entry.sessionTimeDeltaSeconds !==
+        entry.sessionElapsedSeconds - previous.elapsedHighwaterSeconds
+    )
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The journal launch history is not contiguous",
+      );
+    expectedBySessionId.set(entry.launchSessionId, {
+      launchSessionId: entry.launchSessionId,
+      nextExpectedOrdinal: entry.ordinal + 1,
+      elapsedHighwaterSeconds: entry.sessionElapsedSeconds,
+      updatedAt: record.reservedAt,
+    });
+  }
+  if (launches.length !== expectedBySessionId.size)
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The stored launch projections do not match journal history",
+    );
+  for (const launch of launches) {
+    const expected = expectedBySessionId.get(launch.launchSessionId);
+    if (
+      !expected ||
+      launch.attemptId !== attemptId ||
+      launch.nextExpectedOrdinal !== expected.nextExpectedOrdinal ||
+      launch.elapsedHighwaterSeconds !== expected.elapsedHighwaterSeconds ||
+      launch.updatedAt !== expected.updatedAt
+    )
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "A stored launch projection does not match journal history",
+      );
+  }
+}
+
 function parseAttemptJournalRecords(
   values: readonly unknown[],
   attemptId: string,
@@ -704,6 +785,16 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           attemptId,
           entitlement,
         );
+        const launchStore = transaction.objectStore("launches");
+        const launchValues = await requestResult<unknown[]>(
+          launchStore.index("byAttemptId").getAll(attemptId),
+        );
+        const launches = parseAttemptLaunchStates(launchValues, attemptId);
+        assertLaunchProjectionsMatchJournal(
+          attemptJournalRecords,
+          launches,
+          attemptId,
+        );
         if (
           !hasContiguousJournalSequence(
             attemptJournalRecords,
@@ -740,12 +831,11 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "signing_in_progress",
             "An earlier journal reservation must finish signing first",
           );
-        const launchStore = transaction.objectStore("launches");
-        const launchValue = await requestResult<unknown>(
-          launchStore.get([attemptId, entry.launchSessionId]),
+        const existingLaunch = launches.find(
+          (launch) => launch.launchSessionId === entry.launchSessionId,
         );
         const launch =
-          launchValue === undefined
+          existingLaunch === undefined
             ? {
                 schemaVersion: 1 as const,
                 attemptId,
@@ -754,7 +844,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
                 elapsedHighwaterSeconds: 0,
                 updatedAt: reservedAt,
               }
-            : parseLaunchState(launchValue);
+            : existingLaunch;
         const expectedDelta =
           entry.sessionElapsedSeconds - launch.elapsedHighwaterSeconds;
         if (
@@ -1083,7 +1173,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     try {
       const database = await this.open();
       const transaction = database.transaction(
-        ["entitlements", "attempts", "journal"],
+        ["entitlements", "attempts", "launches", "journal"],
         "readonly",
       );
       const completedTransaction = transactionComplete(transaction);
@@ -1117,6 +1207,12 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           .index("byAttemptId")
           .getAll(parsedAttemptId),
       );
+      const launchValues = await requestResult<unknown[]>(
+        transaction
+          .objectStore("launches")
+          .index("byAttemptId")
+          .getAll(parsedAttemptId),
+      );
       await completedTransaction;
       const records = parseAttemptJournalRecords(
         values,
@@ -1128,6 +1224,11 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           "journal_corrupt",
           "The local journal sequence is not contiguous",
         );
+      assertLaunchProjectionsMatchJournal(
+        records,
+        parseAttemptLaunchStates(launchValues, parsedAttemptId),
+        parsedAttemptId,
+      );
       return {
         attempt,
         entitlement,

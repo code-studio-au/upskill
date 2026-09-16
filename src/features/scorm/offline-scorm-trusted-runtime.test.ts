@@ -437,6 +437,100 @@ describe("offline SCORM trusted IndexedDB", () => {
     await inspectionComplete;
   });
 
+  it.each(["missing", "reset"] as const)(
+    "blocks a later sequence when the launch projection is %s",
+    async (corruption) => {
+      const store = createStore();
+      await prepareStore(store);
+      const runtime = new OfflineScormTrustedRuntime(store, {
+        now: () => new Date(baseInstant),
+      });
+      const firstEntry = spoolEntry();
+      await runtime.importSpoolEntry({
+        attemptId: "attempt_1",
+        entry: firstEntry,
+      });
+
+      const database = await store.open();
+      const corruptionTransaction = database.transaction(
+        "launches",
+        "readwrite",
+      );
+      const corruptionComplete = idbTransaction(corruptionTransaction);
+      const launches = corruptionTransaction.objectStore("launches");
+      const launchKey = ["attempt_1", firstEntry.launchSessionId];
+      if (corruption === "missing") launches.delete(launchKey);
+      else {
+        const launch = (await idbRequest(launches.get(launchKey))) as Record<
+          string,
+          unknown
+        >;
+        launches.put({
+          ...launch,
+          nextExpectedOrdinal: 1,
+          elapsedHighwaterSeconds: 0,
+        });
+      }
+      corruptionTransaction.commit();
+      await corruptionComplete;
+
+      const secondEntry = spoolEntry({
+        spoolEntryId: "spool_entry_000002",
+        snapshot: { ...firstEntry.snapshot, totalTimeSeconds: 40 },
+      });
+      const { fingerprint } =
+        await fingerprintOfflineScormSpoolEntry(secondEntry);
+      await expect(
+        store.reserveSpoolEntry({
+          attemptId: "attempt_1",
+          entry: secondEntry,
+          fingerprint,
+          candidateCommitId: "commit_corrupt_launch_projection_1",
+          reservedAt: baseInstant,
+        }),
+      ).rejects.toMatchObject({ code: "journal_corrupt" });
+      await expect(
+        runtime.importSpoolEntry({
+          attemptId: "attempt_1",
+          entry: secondEntry,
+        }),
+      ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+      const inspectionTransaction = database.transaction("journal", "readonly");
+      const inspectionComplete = idbTransaction(inspectionTransaction);
+      expect(
+        await idbRequest(inspectionTransaction.objectStore("journal").count()),
+      ).toBe(1);
+      await inspectionComplete;
+    },
+  );
+
+  it("reconstructs launch history in client sequence order", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const firstEntry = spoolEntry({
+      spoolEntryId: "spool_entry_zzzzzz",
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: firstEntry,
+    });
+
+    const secondEntry = spoolEntry({
+      spoolEntryId: "spool_entry_aaaaaa",
+      ordinal: 2,
+      sessionElapsedSeconds: 30,
+      sessionTimeDeltaSeconds: 10,
+      snapshot: { ...firstEntry.snapshot, totalTimeSeconds: 30 },
+    });
+    await expect(
+      runtime.importSpoolEntry({ attemptId: "attempt_1", entry: secondEntry }),
+    ).resolves.toMatchObject({ clientSequence: 2, status: "protected" });
+  });
+
   it("rejects recovery when a signing commit no longer matches its spool", async () => {
     const store = createStore();
     await prepareStore(store);
