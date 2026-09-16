@@ -5,6 +5,7 @@ import {
 import {
   OFFLINE_SCORM_TRUSTED_DATABASE_NAME,
   OFFLINE_SCORM_TRUSTED_DATABASE_VERSION,
+  assertOfflineScormSigningReservationTail,
   fingerprintOfflineScormCommit,
   OfflineScormRuntimeError,
   offlineScormPackageRecordSchema,
@@ -57,6 +58,26 @@ const runtimeErrorCodeSchema = z.enum([
   "signing_in_progress",
   "storage_failed",
 ]);
+type OfflineScormPackageStatus = OfflineScormPackageRecord["status"];
+const packageStatusTransitions: Record<
+  OfflineScormPackageStatus,
+  ReadonlySet<OfflineScormPackageStatus>
+> = {
+  downloading: new Set([
+    "downloading",
+    "ready",
+    "integrity_failed",
+    "cleanup_pending",
+  ]),
+  ready: new Set(["ready", "integrity_failed", "cleanup_pending"]),
+  integrity_failed: new Set([
+    "integrity_failed",
+    "downloading",
+    "cleanup_pending",
+  ]),
+  cleanup_pending: new Set(["cleanup_pending", "cleared"]),
+  cleared: new Set(["cleared"]),
+};
 const attemptStateSchema = z.strictObject({
   schemaVersion: z.literal(1),
   attemptId: internalIdSchema,
@@ -478,6 +499,32 @@ function parseAttemptJournalRecords(
   });
 }
 
+function assertPackageLifecycleUpdate(
+  existing: OfflineScormPackageRecord,
+  candidate: OfflineScormPackageRecord,
+): void {
+  const existingUpdatedAt = Date.parse(existing.updatedAt);
+  const candidateUpdatedAt = Date.parse(candidate.updatedAt);
+  if (candidateUpdatedAt < existingUpdatedAt)
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "A stale package registry update cannot replace newer state",
+    );
+  if (
+    candidateUpdatedAt === existingUpdatedAt &&
+    candidate.status !== existing.status
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "Package registry transitions require an ordered update instant",
+    );
+  if (!packageStatusTransitions[existing.status].has(candidate.status))
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The package registry lifecycle cannot regress",
+    );
+}
+
 function asStorageFailure(error: unknown): OfflineScormRuntimeError {
   return error instanceof OfflineScormRuntimeError
     ? error
@@ -820,6 +867,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           attemptId,
           entitlement,
         );
+        assertOfflineScormSigningReservationTail(attemptJournalRecords);
         const launchStore = transaction.objectStore("launches");
         const launchValues = await requestResult<unknown[]>(
           launchStore.index("byAttemptId").getAll(attemptId),
@@ -1015,13 +1063,14 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
         const attemptJournalValues = await requestResult<unknown[]>(
           journalStore.index("byAttemptId").getAll(attemptId),
         );
+        const attemptJournalRecords = parseAttemptJournalRecords(
+          attemptJournalValues,
+          attemptId,
+          entitlement,
+        );
         if (
           !hasContiguousJournalSequence(
-            parseAttemptJournalRecords(
-              attemptJournalValues,
-              attemptId,
-              entitlement,
-            ),
+            attemptJournalRecords,
             attempt.nextClientSequence,
           )
         )
@@ -1029,6 +1078,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "journal_corrupt",
             "The local journal sequence is not contiguous",
           );
+        assertOfflineScormSigningReservationTail(attemptJournalRecords);
         if (record.status !== "signing") {
           transaction.commit();
           await completedTransaction;
@@ -1168,8 +1218,10 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           continue;
         }
         try {
-          for (const record of recordsByAttemptId.get(attemptId) ?? [])
+          const records = recordsByAttemptId.get(attemptId) ?? [];
+          for (const record of records)
             assertJournalRecordEntitlementBinding(record, entitlement);
+          assertOfflineScormSigningReservationTail(records);
         } catch {
           corruptAttemptIds.add(attemptId);
           continue;
@@ -1264,6 +1316,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           "journal_corrupt",
           "The local journal sequence is not contiguous",
         );
+      assertOfflineScormSigningReservationTail(records);
       assertLaunchProjectionsMatchJournal(
         records,
         parseAttemptLaunchStates(launchValues, parsedAttemptId),
@@ -1325,6 +1378,54 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     }
   }
 
+  async clearAttemptError(input: {
+    attemptId: string;
+    expectedErrorCode: OfflineScormRuntimeErrorCode;
+    expectedUpdatedAt: string;
+    updatedAt: string;
+  }): Promise<void> {
+    const parsedAttemptId = internalIdSchema.parse(input.attemptId);
+    const expectedErrorCode = runtimeErrorCodeSchema.parse(
+      input.expectedErrorCode,
+    );
+    const expectedUpdatedAt = canonicalInstantSchema.parse(
+      input.expectedUpdatedAt,
+    );
+    const parsedUpdatedAt = canonicalInstantSchema.parse(input.updatedAt);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction("attempts", "readwrite");
+      const completedTransaction = transactionComplete(transaction);
+      try {
+        const store = transaction.objectStore("attempts");
+        const value = await requestResult<unknown>(store.get(parsedAttemptId));
+        if (value === undefined)
+          throw new OfflineScormRuntimeError(
+            "attempt_unavailable",
+            "The trusted attempt is unavailable",
+          );
+        const attempt = parseAttemptState(value);
+        if (
+          attempt.lastErrorCode === expectedErrorCode &&
+          attempt.updatedAt === expectedUpdatedAt
+        )
+          store.put({
+            ...attempt,
+            lastErrorCode: null,
+            updatedAt: parsedUpdatedAt,
+          } satisfies OfflineScormAttemptState);
+        transaction.commit();
+        await completedTransaction;
+      } catch (error) {
+        abortTransaction(transaction);
+        await completedTransaction.catch(() => undefined);
+        throw error;
+      }
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
   async putPackage(input: OfflineScormPackageRecord): Promise<void> {
     const record = offlineScormPackageRecordSchema.parse(input);
     try {
@@ -1371,6 +1472,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
               "journal_corrupt",
               "The package registry identity cannot be replaced",
             );
+          assertPackageLifecycleUpdate(existing, record);
         }
         packageStore.put(record);
         transaction.commit();

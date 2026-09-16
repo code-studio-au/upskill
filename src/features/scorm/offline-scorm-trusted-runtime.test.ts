@@ -15,6 +15,7 @@ import {
   offlineScormLocalStatusLabels,
   offlineScormTrustedStoreNames,
   resolveOfflineScormLocalStatus,
+  type OfflineScormPackageRecord,
   type OfflineScormReceipt,
   type OfflineScormSpoolEntry,
   type OfflineScormTrustedEntitlement,
@@ -181,6 +182,23 @@ function receipt(
   };
 }
 
+function packageRecord(
+  overrides: Partial<OfflineScormPackageRecord> = {},
+): OfflineScormPackageRecord {
+  return {
+    schemaVersion: 1,
+    attemptId: "attempt_1",
+    entitlementId: "entitlement_1",
+    packageVersionId: "package_version_1",
+    packageSha256: "a".repeat(64),
+    packageOrigin: "https://offline-attempt.example",
+    drainUrl: "https://offline-attempt.example/drain",
+    status: "downloading",
+    updatedAt: baseInstant,
+    ...overrides,
+  };
+}
+
 async function prepareStore(store: OfflineScormIndexedDbStore) {
   const deviceKey = await createOfflineScormDeviceKeyRecord("installation_1", {
     learnerId: "learner_1",
@@ -299,6 +317,91 @@ describe("offline SCORM trusted IndexedDB", () => {
         Buffer.from(String(record.signature), "base64url"),
       ),
     ).toBe(true);
+  });
+
+  it("clears a retained attempt error after a fully verified exact retry", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const entry = spoolEntry();
+    const first = await new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    }).importSpoolEntry({ attemptId: "attempt_1", entry });
+    await store.markAttemptError(
+      "attempt_1",
+      "storage_failed",
+      "2026-09-16T01:03:00.000Z",
+    );
+    expect(
+      (await store.getAttemptJournalSnapshot("attempt_1")).attempt
+        .lastErrorCode,
+    ).toBe("storage_failed");
+
+    const retry = await new OfflineScormTrustedRuntime(store, {
+      now: () => new Date("2026-09-16T01:04:00.000Z"),
+    }).importSpoolEntry({ attemptId: "attempt_1", entry });
+
+    expect(retry).toEqual(first);
+    expect(
+      (await store.getAttemptJournalSnapshot("attempt_1")).attempt
+        .lastErrorCode,
+    ).toBeNull();
+  });
+
+  it("rejects stale and regressing package lifecycle updates atomically", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const downloading = packageRecord();
+    const ready = packageRecord({
+      status: "ready",
+      updatedAt: "2026-09-16T01:03:00.000Z",
+    });
+    const cleanupPending = packageRecord({
+      status: "cleanup_pending",
+      updatedAt: "2026-09-16T01:04:00.000Z",
+    });
+    const cleared = packageRecord({
+      status: "cleared",
+      updatedAt: "2026-09-16T01:07:00.000Z",
+    });
+
+    await store.putPackage(downloading);
+    await store.putPackage(downloading);
+    await store.putPackage(ready);
+    await store.putPackage(cleanupPending);
+    await expect(
+      store.putPackage(
+        packageRecord({
+          status: "ready",
+          updatedAt: "2026-09-16T01:03:30.000Z",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+    await expect(
+      store.putPackage(
+        packageRecord({
+          status: "ready",
+          updatedAt: "2026-09-16T01:05:00.000Z",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+    await store.putPackage(cleared);
+    await expect(
+      store.putPackage(
+        packageRecord({
+          status: "cleanup_pending",
+          updatedAt: "2026-09-16T01:08:00.000Z",
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+    await store.putPackage(cleared);
+
+    const database = await store.open();
+    const transaction = database.transaction("packages", "readonly");
+    const completed = idbTransaction(transaction);
+    expect(
+      await idbRequest(transaction.objectStore("packages").get("attempt_1")),
+    ).toEqual(cleared);
+    await completed;
   });
 
   it("stores an exact reconciliation receipt idempotently", async () => {
@@ -1124,6 +1227,92 @@ describe("offline SCORM trusted IndexedDB", () => {
           .get(["attempt_1", secondEntry.spoolEntryId]),
       ),
     ).toMatchObject({ status: "signing", signature: null });
+    await inspectionComplete;
+  });
+
+  it("rejects a signing reservation that precedes finalised journal history", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const firstEntry = spoolEntry();
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: firstEntry,
+    });
+    const secondEntry = spoolEntry({
+      spoolEntryId: "spool_entry_000002",
+      ordinal: 2,
+      sessionElapsedSeconds: 30,
+      sessionTimeDeltaSeconds: 10,
+      snapshot: { ...firstEntry.snapshot, totalTimeSeconds: 30 },
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: secondEntry,
+    });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const journal = corruptionTransaction.objectStore("journal");
+    const firstRecord = (await idbRequest(
+      journal.get(["attempt_1", firstEntry.spoolEntryId]),
+    )) as Record<string, unknown>;
+    journal.put({
+      ...firstRecord,
+      status: "signing",
+      signature: null,
+      finalisedAt: null,
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    expect(await store.listSigningReservations("attempt_1")).toEqual({
+      reservations: [],
+      corruptAttemptIds: ["attempt_1"],
+      unattributedCorruptRecords: 0,
+    });
+    expect(await runtime.recoverSigningReservations("attempt_1")).toEqual({
+      acknowledgements: [],
+      failures: [{ attemptId: "attempt_1", code: "journal_corrupt" }],
+      unattributedCorruptRecords: 0,
+    });
+    await expect(
+      store.finaliseJournalEntry({
+        attemptId: "attempt_1",
+        spoolEntryId: firstEntry.spoolEntryId,
+        fingerprint: String(firstRecord.spoolFingerprint),
+        signature: "a".repeat(86),
+        finalisedAt: "2026-09-16T01:05:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+    const inspectionTransaction = database.transaction(
+      ["attempts", "journal"],
+      "readonly",
+    );
+    const inspectionComplete = idbTransaction(inspectionTransaction);
+    expect(
+      await idbRequest(
+        inspectionTransaction.objectStore("attempts").get("attempt_1"),
+      ),
+    ).toMatchObject({ currentSnapshot: secondEntry.snapshot });
+    expect(
+      await idbRequest(
+        inspectionTransaction
+          .objectStore("journal")
+          .get(["attempt_1", firstEntry.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "signing", signature: null });
+    expect(
+      await idbRequest(
+        inspectionTransaction
+          .objectStore("journal")
+          .get(["attempt_1", secondEntry.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "pending" });
     await inspectionComplete;
   });
 

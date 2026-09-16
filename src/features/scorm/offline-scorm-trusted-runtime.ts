@@ -346,6 +346,12 @@ export interface OfflineScormTrustedStore {
     errorCode: OfflineScormRuntimeErrorCode,
     updatedAt: string,
   ): Promise<void>;
+  clearAttemptError(input: {
+    attemptId: string;
+    expectedErrorCode: OfflineScormRuntimeErrorCode;
+    expectedUpdatedAt: string;
+    updatedAt: string;
+  }): Promise<void>;
   putPackage(record: OfflineScormPackageRecord): Promise<void>;
   putReceipt(receipt: OfflineScormReceipt): Promise<void>;
 }
@@ -634,6 +640,27 @@ function assertSameJournalReservation(
     );
 }
 
+export function assertOfflineScormSigningReservationTail(
+  records: readonly OfflineScormJournalRecord[],
+): void {
+  const signingRecords = records.filter(
+    (record) => record.status === "signing",
+  );
+  const tailSequence = records.reduce(
+    (maximum, record) => Math.max(maximum, record.clientSequence),
+    0,
+  );
+  if (
+    signingRecords.length > 1 ||
+    (signingRecords.length === 1 &&
+      signingRecords[0]?.clientSequence !== tailSequence)
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "A signing reservation must be the unique journal tail",
+    );
+}
+
 function importAcknowledgement(
   record: OfflineScormJournalRecord,
 ): OfflineScormImportAcknowledgement {
@@ -697,8 +724,10 @@ export class OfflineScormTrustedRuntime {
           "The journal reservation is unavailable",
         );
       assertSameJournalReservation(reservation, verifiedReservation);
-      if (reservation.status !== "signing")
-        return importAcknowledgement(reservation);
+      if (verifiedReservation.status !== "signing") {
+        await this.#clearVerifiedAttemptError(verifiedJournal.attempt);
+        return importAcknowledgement(verifiedReservation);
+      }
       return await this.#signAndFinalise(reservation);
     } catch (error) {
       const runtimeError =
@@ -797,7 +826,8 @@ export class OfflineScormTrustedRuntime {
           "The finalised journal record is unavailable",
         );
       assertSameJournalReservation(finalised, verifiedFinalised);
-      return importAcknowledgement(finalised);
+      await this.#clearVerifiedAttemptError(verifiedJournal.attempt);
+      return importAcknowledgement(verifiedFinalised);
     } catch (error) {
       const runtimeError =
         error instanceof OfflineScormRuntimeError
@@ -813,10 +843,12 @@ export class OfflineScormTrustedRuntime {
   }
 
   async #verifyAttemptJournal(attemptId: string): Promise<{
+    attempt: OfflineScormAttemptState;
     records: OfflineScormJournalRecord[];
     installation: OfflineScormDeviceKeyRecord;
   }> {
     const snapshot = await this.#store.getAttemptJournalSnapshot(attemptId);
+    assertOfflineScormSigningReservationTail(snapshot.records);
     const installation = await this.#store.getInstallation(
       snapshot.entitlement.installationId,
     );
@@ -834,8 +866,11 @@ export class OfflineScormTrustedRuntime {
         "device_key_unavailable",
         "The device signing key no longer matches its entitlement",
       );
+    const orderedRecords = snapshot.records.toSorted(
+      (first, second) => first.clientSequence - second.clientSequence,
+    );
     let latestFinalised: OfflineScormJournalRecord | undefined;
-    for (const record of snapshot.records)
+    for (const record of orderedRecords)
       if (record.status !== "signing") latestFinalised = record;
     const expectedSnapshot =
       latestFinalised?.unsignedCommit.snapshot ??
@@ -849,7 +884,7 @@ export class OfflineScormTrustedRuntime {
         "The materialised attempt snapshot does not match signed history",
       );
     await Promise.all(
-      snapshot.records.map(async (record) => {
+      orderedRecords.map(async (record) => {
         const { fingerprint } = await fingerprintOfflineScormSpoolEntry(
           record.spoolEntry,
           this.#cryptoProvider,
@@ -867,7 +902,19 @@ export class OfflineScormTrustedRuntime {
         );
       }),
     );
-    return { records: snapshot.records, installation };
+    return { attempt: snapshot.attempt, records: orderedRecords, installation };
+  }
+
+  async #clearVerifiedAttemptError(
+    attempt: OfflineScormAttemptState,
+  ): Promise<void> {
+    if (attempt.lastErrorCode === null) return;
+    await this.#store.clearAttemptError({
+      attemptId: attempt.attemptId,
+      expectedErrorCode: attempt.lastErrorCode,
+      expectedUpdatedAt: attempt.updatedAt,
+      updatedAt: this.#now().toISOString(),
+    });
   }
 
   async #recordFailure(
