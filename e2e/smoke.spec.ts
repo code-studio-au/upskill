@@ -714,7 +714,86 @@ test("server-rendered navigation and actions stay visible before hydration", asy
   expect(manifest.headers()["content-type"]).toContain(
     "application/manifest+json",
   );
+  await expect(manifest.json()).resolves.toMatchObject({
+    id: "/",
+    scope: "/",
+    start_url: "/?source=pwa",
+    display: "standalone",
+  });
+  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute(
+    "media",
+    "(hover: none) and (pointer: coarse)",
+  );
+  const applicationWorker = await page.request.get(
+    "/pwa/application-service-worker.js",
+  );
+  expect(applicationWorker.status()).toBe(200);
+  expect(applicationWorker.headers()["content-type"]).toContain(
+    "text/javascript",
+  );
+  expect(applicationWorker.headers()["cache-control"]).toBe("no-cache");
   await context.close();
+});
+
+test("the application shell provides a public offline fallback", async ({
+  context,
+  page,
+}, testInfo) => {
+  test.skip(
+    testInfo.project.name !== "chromium-mobile",
+    "ADR 0041 initially qualifies the application shell on Chromium",
+  );
+  const baseURL = testInfo.project.use.baseURL;
+  if (typeof baseURL !== "string")
+    throw new Error("Playwright baseURL is required");
+  const learningPort = process.env.PLAYWRIGHT_LEARNING_PORT;
+  if (!learningPort)
+    throw new Error("PLAYWRIGHT_LEARNING_PORT is required for browser tests");
+
+  await page.goto("/");
+  await expect
+    .poll(() =>
+      page.evaluate(async () =>
+        "serviceWorker" in navigator
+          ? (await navigator.serviceWorker.getRegistrations()).length
+          : 0,
+      ),
+    )
+    .toBe(1);
+  await page.reload();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          "serviceWorker" in navigator &&
+          Boolean(navigator.serviceWorker.controller),
+      ),
+    )
+    .toBe(true);
+
+  const applicationOrigin = new URL(baseURL).origin;
+  const learningOrigin = `${new URL(baseURL).protocol}//127.0.0.1:${learningPort}`;
+  const learningWorker = await page.request.get(
+    `${learningOrigin}/pwa/application-service-worker.js`,
+  );
+  expect(learningWorker.status()).toBe(404);
+  const learningRegistration = await page.request.get(
+    `${learningOrigin}/pwa/register.js`,
+  );
+  expect(learningRegistration.status()).toBe(404);
+
+  await context.setOffline(true);
+  try {
+    await page.goto(`${applicationOrigin}/dashboard`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.getByRole("heading", { name: "You’re offline" }),
+    ).toBeVisible();
+    await expect(page.getByRole("link", { name: "Try again" })).toBeVisible();
+  } finally {
+    await context.setOffline(false);
+  }
 });
 
 test("validated catalogue search remains navigable", async ({ page }) => {
@@ -1156,6 +1235,9 @@ test("learners can end their authenticated session", async ({ page }) => {
     .click();
   await page.getByRole("button", { name: "Sign out" }).click();
   await expect(page).toHaveURL(/\/$/);
+  await expect(
+    page.getByRole("heading", { name: "Skills that make work better." }),
+  ).toBeVisible();
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/login\?redirect=%2Fdashboard$/);
 });

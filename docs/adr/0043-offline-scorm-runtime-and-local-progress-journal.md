@@ -2,8 +2,9 @@
 
 ## Status
 
-Proposed.
+Accepted; implementation pending.
 Date: 2026-09-12
+Accepted: 2026-09-16
 
 ## Context
 

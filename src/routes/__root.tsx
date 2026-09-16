@@ -28,6 +28,10 @@ export const Route = createRootRoute({
         name: "description",
         content: "Discover practical courses, events and learning programs.",
       },
+      { name: "theme-color", content: "#081D40" },
+      { name: "apple-mobile-web-app-capable", content: "yes" },
+      { name: "apple-mobile-web-app-title", content: "Upskill" },
+      { name: "apple-mobile-web-app-status-bar-style", content: "default" },
     ],
     links: [
       { rel: "icon", href: "/favicon.ico", sizes: "any" },
@@ -36,7 +40,11 @@ export const Route = createRootRoute({
         href: "/apple-touch-icon.png",
         sizes: "180x180",
       },
-      { rel: "manifest", href: "/site.webmanifest" },
+      {
+        rel: "manifest",
+        href: "/site.webmanifest",
+        media: "(hover: none) and (pointer: coarse)",
+      },
     ],
   }),
   component: RootOutlet,
@@ -56,6 +64,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
           <meta property="csp-nonce" content={nonce} nonce={nonce} />
         ) : null}
         <HeadContent />
+        {import.meta.env.PROD ? (
+          <script src="/pwa/register.js" nonce={nonce} defer />
+        ) : null}
       </head>
       <body>
         <AppProviders>

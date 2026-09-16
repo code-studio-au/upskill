@@ -77,6 +77,9 @@ than establishing another product foundation.
   retention.
 - Governed Email Designer catalogues, version-pinned Course/Event communication
   plans, occurrence overrides, idempotent delivery and operational health views.
+- A mobile-only installable application-shell foundation with a public offline
+  fallback; authenticated offline course delivery and progress remain disabled
+  while the accepted offline SCORM plan is implemented in bounded slices.
 
 ### Target Product
 
@@ -685,7 +688,7 @@ The strongest remaining product work is expected around:
   recovery and any justified connection-derived attendance policy;
 - richer domain and delivery telemetry;
 - global support/impersonation only if inspection tools prove insufficient;
-- offline SCORM only after the proposed ADR set is accepted;
+- staged offline SCORM delivery under the accepted ADR set and impact plan;
 - broader resource formats; and
 - potentially later learning programs/journeys.
 
