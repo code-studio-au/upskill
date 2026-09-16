@@ -148,10 +148,30 @@ The current central-policy slice now:
   so a later entitlement captures a stable history base under the same lock.
 
 The entitlement command remains a server-only dormant boundary. No route
-registers an installation or invokes it, and no learner UI exposes download,
-offline launch, reconciliation or cleanup controls. The next slice owns the
-canonical, signature-verified reconciliation command and must also remain
-unreachable until its retry, ordering and completion-effect matrix passes.
+registers an installation or invokes it, and no learner UI exposes download or
+offline launch controls.
+
+The dormant reconciliation slice now:
+
+- strictly parses a maximum 16-record exact-entitlement batch and shares one
+  versioned fixed-position canonical encoding with the future trusted runtime;
+- verifies the retained P-256 SPKI identity and each IEEE P1363 device signature
+  before entering the state-changing transaction;
+- resolves and compares exact Course/Event item, attempt, runtime, package
+  version and package-digest bindings;
+- serializes owner, entitlement and attempt locks, recovers exact receipts
+  before current lifecycle gates, refuses commit-identifier reuse and leaves
+  sequence gaps retryable without reserving them;
+- applies only contiguous history, advances total time from signed deltas,
+  preserves completion monotonically and advances the entitlement cursor with
+  the attempt revision; and
+- reuses the existing Course and Event completion transaction helper so
+  authoritative audit, outbox and communication effects remain idempotent.
+
+The command remains a server-only dormant boundary: there is no sync route,
+client journal, installation-registration route or learner control. The next
+slice is the trusted local runtime and must not activate offline package
+execution before its storage, recovery and signing matrix passes.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and

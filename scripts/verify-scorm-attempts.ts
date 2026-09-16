@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import { withAuditMaintenance } from "./audit-maintenance";
+import {
+  canonicalizeOfflineScormCommit,
+  offlineScormUnsignedCommitSchema,
+  type OfflineScormSignedCommit,
+  type OfflineScormUnsignedCommit,
+} from "#/features/scorm/offline-scorm-reconciliation";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -38,6 +45,23 @@ const anotherUser: AuthenticatedUser = {
   email: "another-scorm-verifier@example.com",
   emailVerified: true,
 };
+const offlineKeyPair = generateKeyPairSync("ec", { namedCurve: "prime256v1" });
+const offlinePublicKeySpki = offlineKeyPair.publicKey.export({
+  format: "der",
+  type: "spki",
+});
+
+function signedOfflineCommit(
+  input: OfflineScormUnsignedCommit,
+): OfflineScormSignedCommit {
+  const commit = offlineScormUnsignedCommitSchema.parse(input);
+  const signature = sign(
+    "sha256",
+    Buffer.from(canonicalizeOfflineScormCommit(commit), "utf8"),
+    { key: offlineKeyPair.privateKey, dsaEncoding: "ieee-p1363" },
+  ).toString("base64url");
+  return { ...commit, signature };
+}
 
 const database = new Kysely<Database>({
   dialect: new PostgresDialect({
@@ -304,8 +328,10 @@ try {
     .values({
       id: ids.installation,
       userId: ids.user,
-      publicKeySpki: Buffer.alloc(91, 7),
-      publicKeySha256: "b".repeat(64),
+      publicKeySpki: offlinePublicKeySpki,
+      publicKeySha256: createHash("sha256")
+        .update(offlinePublicKeySpki)
+        .digest("hex"),
       replacementInstallationId: null,
       registeredAt: new Date(),
       endedAt: null,
@@ -540,6 +566,8 @@ try {
   } = await import("#/server/scorm/scorm-attempt.server");
   const { issueOfflineScormEntitlement } =
     await import("#/server/scorm/offline-scorm-entitlement.server");
+  const { reconcileOfflineScormProgress } =
+    await import("#/server/scorm/offline-scorm-reconciliation.server");
   const requireAuthorizedPlayer = async (
     attemptId: string,
     sessionToken: string,
@@ -1033,8 +1061,676 @@ try {
     status: "offline-writer-active",
   });
 
+  const offlineBase = await database
+    .selectFrom("scorm_attempt")
+    .select([
+      "status",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
+      "totalTimeSeconds",
+      "progressRevision",
+    ])
+    .where("id", "=", issuance.attemptId)
+    .executeTakeFirstOrThrow();
+  const courseCommit = (input: {
+    commitId: string;
+    clientSequence: number;
+    lessonStatus: OfflineScormUnsignedCommit["snapshot"]["lessonStatus"];
+    location: string;
+    sessionTimeDeltaSeconds: number;
+    totalTimeSeconds: number;
+    historyBaseRevision?: number;
+  }) =>
+    signedOfflineCommit({
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commitId: input.commitId,
+      clientSequence: input.clientSequence,
+      historyBaseRevision:
+        input.historyBaseRevision ?? issuance.historyBaseRevision,
+      runtimeVersion: issuance.runtimeVersion,
+      offering: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        courseVersionItemId: ids.item,
+      },
+      packageVersionId: issuance.packageVersionId,
+      packageSha256: issuance.packageSha256,
+      reason: input.lessonStatus === "passed" ? "finish" : "commit",
+      snapshot: {
+        lessonStatus: input.lessonStatus,
+        location: input.location,
+        suspendData: `offline-state-${String(input.clientSequence)}`,
+        scoreRaw: input.lessonStatus === "passed" ? 100 : 80,
+        scoreMin: 0,
+        scoreMax: 100,
+        totalTimeSeconds: input.totalTimeSeconds,
+      },
+      launchSessionId: "course_launch_0001",
+      sessionElapsedSeconds: 60 + input.sessionTimeDeltaSeconds,
+      sessionTimeDeltaSeconds: input.sessionTimeDeltaSeconds,
+      clientObservedAt: "2026-09-16T03:00:00.000Z",
+    });
+  const gapCommit = courseCommit({
+    commitId: "course_gap_commit_0002",
+    clientSequence: 2,
+    lessonStatus: "passed",
+    location: "offline-gap",
+    sessionTimeDeltaSeconds: 20,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 20,
+  });
+  const gap = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [gapCommit],
+    },
+    user,
+  );
+  assert.equal(gap.status, "processed");
+  assert.deepEqual(gap.receipts, []);
+  assert.deepEqual(gap.block, {
+    kind: "sequence_gap",
+    commitId: gapCommit.commitId,
+    clientSequence: 2,
+    expectedSequence: 1,
+    acknowledged: false,
+  });
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_reconciliation_receipt")
+        .select(sql<number>`count(*)::integer`.as("count"))
+        .where("entitlementId", "=", issuance.entitlementId)
+        .executeTakeFirstOrThrow()
+    ).count,
+    0,
+  );
+
+  const firstCommit = courseCommit({
+    commitId: "course_commit_0001",
+    clientSequence: 1,
+    lessonStatus: "incomplete",
+    location: "offline-slide-1",
+    sessionTimeDeltaSeconds: 10,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 10,
+  });
+  const firstResult = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [firstCommit],
+    },
+    user,
+  );
+  assert.equal(firstResult.status, "processed");
+  assert.equal(firstResult.receipts[0]?.outcome, "accepted");
+  assert.equal(firstResult.receipts[0].recovered, false);
+  assert.equal(firstResult.authoritative.status, "completed");
+  assert.equal(firstResult.authoritative.lessonStatus, "passed");
+  assert.equal(
+    firstResult.authoritative.totalTimeSeconds,
+    offlineBase.totalTimeSeconds + 10,
+  );
+
+  const firstRetry = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [firstCommit],
+    },
+    user,
+  );
+  assert.equal(firstRetry.status, "processed");
+  assert.equal(firstRetry.receipts[0]?.recovered, true);
+  assert.equal(
+    firstRetry.authoritative.totalTimeSeconds,
+    offlineBase.totalTimeSeconds + 10,
+  );
+
+  const reusedPayload = signedOfflineCommit({
+    schemaVersion: firstCommit.schemaVersion,
+    entitlementId: firstCommit.entitlementId,
+    attemptId: firstCommit.attemptId,
+    commitId: firstCommit.commitId,
+    clientSequence: firstCommit.clientSequence,
+    historyBaseRevision: firstCommit.historyBaseRevision,
+    runtimeVersion: firstCommit.runtimeVersion,
+    offering: firstCommit.offering,
+    packageVersionId: firstCommit.packageVersionId,
+    packageSha256: firstCommit.packageSha256,
+    reason: firstCommit.reason,
+    snapshot: { ...firstCommit.snapshot, location: "reused-identity" },
+    launchSessionId: firstCommit.launchSessionId,
+    sessionElapsedSeconds: firstCommit.sessionElapsedSeconds,
+    sessionTimeDeltaSeconds: firstCommit.sessionTimeDeltaSeconds,
+    clientObservedAt: firstCommit.clientObservedAt,
+  });
+  assert.deepEqual(
+    await reconcileOfflineScormProgress(
+      {
+        schemaVersion: 1,
+        entitlementId: issuance.entitlementId,
+        attemptId: issuance.attemptId,
+        commits: [reusedPayload],
+      },
+      user,
+    ),
+    {
+      status: "conflict",
+      reason: "commit_id_reused",
+      commitId: firstCommit.commitId,
+      clientSequence: 1,
+      acknowledged: false,
+    },
+  );
+
+  assert.equal(
+    await applyAdminProgressOverride(
+      {
+        enrollmentId: ids.enrollment,
+        scope: "enrollment",
+        modulePosition: null,
+        state: "incomplete",
+      },
+      anotherUser,
+    ),
+    "changed",
+  );
+  const outboxBeforeOfflineCompletion = await database
+    .selectFrom("outbox_event")
+    .select(sql<number>`count(*)::integer`.as("count"))
+    .where("aggregateId", "=", ids.enrollment)
+    .where("topic", "=", "enrollment.completed")
+    .executeTakeFirstOrThrow();
+  const secondCommit = courseCommit({
+    commitId: "course_commit_0002",
+    clientSequence: 2,
+    lessonStatus: "passed",
+    location: "offline-finished",
+    sessionTimeDeltaSeconds: 20,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 30,
+  });
+  const thirdCommit = courseCommit({
+    commitId: "course_commit_0003",
+    clientSequence: 3,
+    lessonStatus: "incomplete",
+    location: "offline-after-finish",
+    sessionTimeDeltaSeconds: 0,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 30,
+  });
+  const orderedBatch = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [thirdCommit, secondCommit],
+    },
+    user,
+  );
+  assert.equal(orderedBatch.status, "processed");
+  assert.deepEqual(
+    orderedBatch.receipts.map((receipt) => receipt.clientSequence),
+    [2, 3],
+  );
+  assert.equal(orderedBatch.block, null);
+  assert.equal(orderedBatch.authoritative.status, "completed");
+  assert.equal(orderedBatch.authoritative.lessonStatus, "passed");
+  assert.equal(orderedBatch.authoritative.location, "offline-after-finish");
+  assert.equal(
+    orderedBatch.authoritative.totalTimeSeconds,
+    offlineBase.totalTimeSeconds + 30,
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("enrollment")
+        .select("status")
+        .where("id", "=", ids.enrollment)
+        .executeTakeFirstOrThrow()
+    ).status,
+    "completed",
+  );
+  const outboxAfterOfflineCompletion = await database
+    .selectFrom("outbox_event")
+    .select(sql<number>`count(*)::integer`.as("count"))
+    .where("aggregateId", "=", ids.enrollment)
+    .where("topic", "=", "enrollment.completed")
+    .executeTakeFirstOrThrow();
+  assert.ok(
+    outboxAfterOfflineCompletion.count >= outboxBeforeOfflineCompletion.count,
+  );
+
+  const batchRetry = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [secondCommit, thirdCommit],
+    },
+    user,
+  );
+  assert.equal(batchRetry.status, "processed");
+  assert.ok(batchRetry.receipts.every((receipt) => receipt.recovered));
+  assert.equal(
+    (
+      await database
+        .selectFrom("outbox_event")
+        .select(sql<number>`count(*)::integer`.as("count"))
+        .where("aggregateId", "=", ids.enrollment)
+        .where("topic", "=", "enrollment.completed")
+        .executeTakeFirstOrThrow()
+    ).count,
+    outboxAfterOfflineCompletion.count,
+  );
+
+  const concurrentCommit = courseCommit({
+    commitId: "course_commit_concurrent",
+    clientSequence: 4,
+    lessonStatus: "incomplete",
+    location: "offline-concurrent-retry",
+    sessionTimeDeltaSeconds: 1,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 31,
+  });
+  const concurrentResults = await Promise.all([
+    reconcileOfflineScormProgress(
+      {
+        schemaVersion: 1,
+        entitlementId: issuance.entitlementId,
+        attemptId: issuance.attemptId,
+        commits: [concurrentCommit],
+      },
+      user,
+    ),
+    reconcileOfflineScormProgress(
+      {
+        schemaVersion: 1,
+        entitlementId: issuance.entitlementId,
+        attemptId: issuance.attemptId,
+        commits: [concurrentCommit],
+      },
+      user,
+    ),
+  ]);
+  for (const concurrentResult of concurrentResults)
+    assert.equal(concurrentResult.status, "processed");
+  assert.deepEqual(
+    concurrentResults
+      .flatMap((result) =>
+        result.status === "processed"
+          ? result.receipts.map((receipt) => receipt.recovered)
+          : [],
+      )
+      .toSorted(),
+    [false, true],
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_reconciliation_receipt")
+        .select(sql<number>`count(*)::integer`.as("count"))
+        .where("entitlementId", "=", issuance.entitlementId)
+        .where("commitId", "=", concurrentCommit.commitId)
+        .executeTakeFirstOrThrow()
+    ).count,
+    1,
+  );
+
+  const invalidSignatureCommit = courseCommit({
+    commitId: "course_commit_bad_signature",
+    clientSequence: 5,
+    lessonStatus: "passed",
+    location: "invalid-signature",
+    sessionTimeDeltaSeconds: 1,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 32,
+  });
+  invalidSignatureCommit.signature = `${invalidSignatureCommit.signature[0] === "A" ? "B" : "A"}${invalidSignatureCommit.signature.slice(1)}`;
+  assert.deepEqual(
+    await reconcileOfflineScormProgress(
+      {
+        schemaVersion: 1,
+        entitlementId: issuance.entitlementId,
+        attemptId: issuance.attemptId,
+        commits: [invalidSignatureCommit],
+      },
+      user,
+    ),
+    { status: "denied", reason: "signature_invalid" },
+  );
+
+  const staleBaseCommit = courseCommit({
+    commitId: "course_commit_stale_base",
+    clientSequence: 5,
+    lessonStatus: "passed",
+    location: "stale-base",
+    sessionTimeDeltaSeconds: 1,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 32,
+    historyBaseRevision: issuance.historyBaseRevision + 1,
+  });
+  const staleBase = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [staleBaseCommit],
+    },
+    user,
+  );
+  assert.equal(staleBase.status, "processed");
+  assert.equal(staleBase.receipts[0]?.reasonCode, "history_base_mismatch");
+  assert.equal(staleBase.receipts[0].outcome, "conflict");
+
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "online",
+        offlineEntitlementId: null,
+        credentialGeneration: issuance.writerGeneration + 1,
+      })
+      .where("id", "=", issuance.attemptId)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("offline_learning_entitlement")
+      .set({
+        status: "hard_revoked",
+        resolution: "hard_revoked",
+        resolvedByUserId: anotherUser.id,
+        endedAt: new Date(),
+      })
+      .where("id", "=", issuance.entitlementId)
+      .executeTakeFirstOrThrow();
+  });
+  const retryAfterRevocation = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [firstCommit],
+    },
+    user,
+  );
+  assert.equal(retryAfterRevocation.status, "processed");
+  assert.equal(retryAfterRevocation.receipts[0]?.recovered, true);
+  const revokedCommit = courseCommit({
+    commitId: "course_commit_after_revoke",
+    clientSequence: 5,
+    lessonStatus: "passed",
+    location: "after-revoke",
+    sessionTimeDeltaSeconds: 1,
+    totalTimeSeconds: offlineBase.totalTimeSeconds + 32,
+  });
+  const rejectedAfterRevocation = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: issuance.entitlementId,
+      attemptId: issuance.attemptId,
+      commits: [revokedCommit],
+    },
+    user,
+  );
+  assert.equal(rejectedAfterRevocation.status, "processed");
+  assert.equal(
+    rejectedAfterRevocation.receipts[0]?.reasonCode,
+    "entitlement_hard_revoked",
+  );
+
+  const eventAttempt = await database
+    .selectFrom("scorm_attempt")
+    .select([
+      "id",
+      "progressRevision",
+      "credentialGeneration",
+      "totalTimeSeconds",
+    ])
+    .where("eventParticipationId", "=", ids.eventParticipation)
+    .where("eventTemplateVersionItemId", "=", ids.eventItem)
+    .executeTakeFirstOrThrow();
+  await database
+    .deleteFrom("learning_item_progress")
+    .where("eventParticipationId", "=", ids.eventParticipation)
+    .where("eventTemplateVersionItemId", "=", ids.eventItem)
+    .execute();
+  await database
+    .updateTable("event_participation")
+    .set({ completedAt: null })
+    .where("id", "=", ids.eventParticipation)
+    .executeTakeFirstOrThrow();
+  const eventEntitlementId = "event_entitlement_0001";
+  const eventIssuedAt = new Date();
+  const eventLaunchExpiresAt = new Date(
+    eventIssuedAt.getTime() + 10 * 24 * 60 * 60 * 1_000,
+  );
+  const eventAcceptanceDeadline = new Date(
+    eventLaunchExpiresAt.getTime() + 20 * 24 * 60 * 60 * 1_000,
+  );
+  const eventWriterGeneration = eventAttempt.credentialGeneration + 1;
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .insertInto("offline_learning_entitlement")
+      .values({
+        id: eventEntitlementId,
+        userId: user.id,
+        attemptId: eventAttempt.id,
+        installationId: ids.installation,
+        scormPackageVersionId: ids.packageVersion,
+        packageSha256: "a".repeat(64),
+        runtimeVersion: "offline-scorm-1",
+        historyBaseRevision: eventAttempt.progressRevision,
+        writerGeneration: eventWriterGeneration,
+        reconciliationCursorRevision: eventAttempt.progressRevision,
+        resolution: null,
+        resolvedByUserId: null,
+        issuedAt: eventIssuedAt,
+        intendedLaunchExpiresAt: eventLaunchExpiresAt,
+        commitAcceptanceDeadline: eventAcceptanceDeadline,
+        endedAt: null,
+      })
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "offline",
+        offlineEntitlementId: eventEntitlementId,
+        credentialGeneration: eventWriterGeneration,
+      })
+      .where("id", "=", eventAttempt.id)
+      .executeTakeFirstOrThrow();
+  });
+  const eventCommit = signedOfflineCommit({
+    schemaVersion: 1,
+    entitlementId: eventEntitlementId,
+    attemptId: eventAttempt.id,
+    commitId: "event_commit_0001",
+    clientSequence: 1,
+    historyBaseRevision: eventAttempt.progressRevision,
+    runtimeVersion: "offline-scorm-1",
+    offering: {
+      kind: "event",
+      eventParticipationId: ids.eventParticipation,
+      eventTemplateVersionItemId: ids.eventItem,
+    },
+    packageVersionId: ids.packageVersion,
+    packageSha256: "a".repeat(64),
+    reason: "finish",
+    snapshot: {
+      lessonStatus: "passed",
+      location: "event-offline-finished",
+      suspendData: "event-offline-state",
+      scoreRaw: 100,
+      scoreMin: 0,
+      scoreMax: 100,
+      totalTimeSeconds: eventAttempt.totalTimeSeconds + 15,
+    },
+    launchSessionId: "event_launch_0001",
+    sessionElapsedSeconds: 15,
+    sessionTimeDeltaSeconds: 15,
+    clientObservedAt: "2026-09-16T04:00:00.000Z",
+  });
+  const eventReconciliation = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: eventEntitlementId,
+      attemptId: eventAttempt.id,
+      commits: [eventCommit],
+    },
+    user,
+  );
+  assert.equal(eventReconciliation.status, "processed");
+  assert.equal(eventReconciliation.receipts[0]?.outcome, "accepted");
+  assert.ok(
+    (
+      await database
+        .selectFrom("event_participation")
+        .select("completedAt")
+        .where("id", "=", ids.eventParticipation)
+        .executeTakeFirstOrThrow()
+    ).completedAt,
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("learning_item_progress")
+        .select("state")
+        .where("eventParticipationId", "=", ids.eventParticipation)
+        .where("eventTemplateVersionItemId", "=", ids.eventItem)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "completed",
+  );
+
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "online",
+        offlineEntitlementId: null,
+        credentialGeneration: eventWriterGeneration + 1,
+      })
+      .where("id", "=", eventAttempt.id)
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("offline_learning_entitlement")
+      .set({
+        status: "resolved",
+        resolution: "reconciled",
+        endedAt: new Date(),
+      })
+      .where("id", "=", eventEntitlementId)
+      .executeTakeFirstOrThrow();
+  });
+  const eventAfterReconciliation = await database
+    .selectFrom("scorm_attempt")
+    .select(["progressRevision", "credentialGeneration", "totalTimeSeconds"])
+    .where("id", "=", eventAttempt.id)
+    .executeTakeFirstOrThrow();
+  const expiredEntitlementId = "event_expired_entitlement_0001";
+  const expiryReference = Date.now();
+  const expiredIssuedAt = new Date(expiryReference - 70 * 24 * 60 * 60 * 1_000);
+  const expiredLaunchAt = new Date(expiryReference - 40 * 24 * 60 * 60 * 1_000);
+  const expiredAcceptanceAt = new Date(
+    expiryReference - 10 * 24 * 60 * 60 * 1_000,
+  );
+  const expiredWriterGeneration =
+    eventAfterReconciliation.credentialGeneration + 1;
+  await database.transaction().execute(async (transaction) => {
+    await transaction
+      .insertInto("offline_learning_entitlement")
+      .values({
+        id: expiredEntitlementId,
+        userId: user.id,
+        attemptId: eventAttempt.id,
+        installationId: ids.installation,
+        scormPackageVersionId: ids.packageVersion,
+        packageSha256: "a".repeat(64),
+        runtimeVersion: "offline-scorm-1",
+        historyBaseRevision: eventAfterReconciliation.progressRevision,
+        writerGeneration: expiredWriterGeneration,
+        reconciliationCursorRevision: eventAfterReconciliation.progressRevision,
+        resolution: null,
+        resolvedByUserId: null,
+        issuedAt: expiredIssuedAt,
+        intendedLaunchExpiresAt: expiredLaunchAt,
+        commitAcceptanceDeadline: expiredAcceptanceAt,
+        endedAt: null,
+      })
+      .executeTakeFirstOrThrow();
+    await transaction
+      .updateTable("scorm_attempt")
+      .set({
+        writerMode: "offline",
+        offlineEntitlementId: expiredEntitlementId,
+        credentialGeneration: expiredWriterGeneration,
+      })
+      .where("id", "=", eventAttempt.id)
+      .executeTakeFirstOrThrow();
+  });
+  const expiredCommit = signedOfflineCommit({
+    schemaVersion: 1,
+    entitlementId: expiredEntitlementId,
+    attemptId: eventAttempt.id,
+    commitId: "event_expired_commit_0001",
+    clientSequence: 1,
+    historyBaseRevision: eventAfterReconciliation.progressRevision,
+    runtimeVersion: "offline-scorm-1",
+    offering: {
+      kind: "event",
+      eventParticipationId: ids.eventParticipation,
+      eventTemplateVersionItemId: ids.eventItem,
+    },
+    packageVersionId: ids.packageVersion,
+    packageSha256: "a".repeat(64),
+    reason: "commit",
+    snapshot: {
+      lessonStatus: "passed",
+      location: "event-expired",
+      suspendData: "event-expired-state",
+      scoreRaw: 100,
+      scoreMin: 0,
+      scoreMax: 100,
+      totalTimeSeconds: eventAfterReconciliation.totalTimeSeconds + 1,
+    },
+    launchSessionId: "event_expired_launch_0001",
+    sessionElapsedSeconds: 1,
+    sessionTimeDeltaSeconds: 1,
+    clientObservedAt: "2026-09-16T05:00:00.000Z",
+  });
+  const expiredResult = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: expiredEntitlementId,
+      attemptId: eventAttempt.id,
+      commits: [expiredCommit],
+    },
+    user,
+  );
+  assert.equal(expiredResult.status, "processed");
+  assert.equal(
+    expiredResult.receipts[0]?.reasonCode,
+    "acceptance_deadline_expired",
+  );
+  const expiredRetry = await reconcileOfflineScormProgress(
+    {
+      schemaVersion: 1,
+      entitlementId: expiredEntitlementId,
+      attemptId: eventAttempt.id,
+      commits: [expiredCommit],
+    },
+    user,
+  );
+  assert.equal(expiredRetry.status, "processed");
+  assert.equal(expiredRetry.receipts[0]?.recovered, true);
+
   console.log(
-    "Verified shared Course/Event launch policy, owner-first completion locks, finite offline delegation, locked writer races, online credential invalidation, progress revisions, authorized player state, post-correction reassessment, and replay-safe completion",
+    "Verified shared Course/Event launch policy, owner-first completion locks, finite offline delegation, locked writer races, online credential invalidation, progress revisions, signature-bound ordered reconciliation, concurrent retry and gap handling, monotonic completion, deadline and hard-revocation gates, and Course/Event completion effects",
   );
 } finally {
   await cleanup();
