@@ -380,6 +380,73 @@ function assertReceiptJournalBinding(input: {
     );
 }
 
+function assertReceiptHistory(input: {
+  receipt: OfflineScormReceipt;
+  storedReceipts: readonly OfflineScormReceipt[];
+  entitlement: OfflineScormTrustedEntitlement;
+}): void {
+  const { receipt, storedReceipts, entitlement } = input;
+  const attemptReceipts = storedReceipts
+    .filter((storedReceipt) => storedReceipt.attemptId === receipt.attemptId)
+    .toSorted((first, second) => first.clientSequence - second.clientSequence);
+  const existing = attemptReceipts.find(
+    (storedReceipt) => storedReceipt.commitId === receipt.commitId,
+  );
+  const completeHistory = existing
+    ? attemptReceipts
+    : [...attemptReceipts, receipt].toSorted(
+        (first, second) => first.clientSequence - second.clientSequence,
+      );
+  let previousRevision = entitlement.historyBaseRevision;
+  let terminalReceiptSeen = false;
+  for (const [index, historicalReceipt] of completeHistory.entries()) {
+    if (
+      historicalReceipt.entitlementId !== entitlement.entitlementId ||
+      historicalReceipt.attemptId !== entitlement.attemptId ||
+      historicalReceipt.clientSequence !== index + 1 ||
+      terminalReceiptSeen
+    )
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The reconciliation receipt history is not contiguous",
+      );
+    if (historicalReceipt.outcome !== "accepted") {
+      terminalReceiptSeen = true;
+      continue;
+    }
+    const resultingRevision = historicalReceipt.resultingAttemptRevision;
+    if (
+      resultingRevision === null ||
+      resultingRevision < previousRevision ||
+      resultingRevision > previousRevision + 1
+    )
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The accepted receipt revision regresses or skips journal history",
+      );
+    previousRevision = resultingRevision;
+  }
+}
+
+function assertPackageOriginAvailable(
+  record: OfflineScormPackageRecord,
+  storedPackages: readonly OfflineScormPackageRecord[],
+): void {
+  if (
+    record.status !== "cleared" &&
+    storedPackages.some(
+      (storedPackage) =>
+        storedPackage.attemptId !== record.attemptId &&
+        storedPackage.packageOrigin === record.packageOrigin &&
+        storedPackage.status !== "cleared",
+    )
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The package origin is already assigned to another active attempt",
+    );
+}
+
 function hasContiguousJournalSequence(
   records: readonly OfflineScormJournalRecord[],
   nextClientSequence: number,
@@ -1457,9 +1524,14 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "The package registry record does not match its entitlement",
           );
         const packageStore = transaction.objectStore("packages");
-        const existingValue = await requestResult<unknown>(
-          packageStore.get(record.attemptId),
+        const [existingValue, storedPackageValues] = await Promise.all([
+          requestResult<unknown>(packageStore.get(record.attemptId)),
+          requestResult<unknown[]>(packageStore.getAll()),
+        ]);
+        const storedPackages = storedPackageValues.map((value) =>
+          offlineScormPackageRecordSchema.parse(value),
         );
+        assertPackageOriginAvailable(record, storedPackages);
         if (existingValue !== undefined) {
           const existing = offlineScormPackageRecordSchema.parse(existingValue);
           if (
@@ -1594,8 +1666,14 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           requestFingerprint,
         });
         const receiptStore = transaction.objectStore("receipts");
-        const existingValue = await requestResult<unknown>(
-          receiptStore.get([receipt.attemptId, receipt.commitId]),
+        const [existingValue, storedReceiptValues] = await Promise.all([
+          requestResult<unknown>(
+            receiptStore.get([receipt.attemptId, receipt.commitId]),
+          ),
+          requestResult<unknown[]>(receiptStore.getAll()),
+        ]);
+        const storedReceipts = storedReceiptValues.map((value) =>
+          offlineScormReceiptSchema.parse(value),
         );
         if (existingValue !== undefined) {
           const existing = offlineScormReceiptSchema.parse(existingValue);
@@ -1604,7 +1682,9 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
               "journal_corrupt",
               "The reconciliation receipt cannot be replaced",
             );
-        } else {
+        }
+        assertReceiptHistory({ receipt, storedReceipts, entitlement });
+        if (existingValue === undefined) {
           if (record.status === "acknowledged")
             throw new OfflineScormRuntimeError(
               "journal_corrupt",

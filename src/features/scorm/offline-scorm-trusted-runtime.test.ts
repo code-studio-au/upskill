@@ -405,6 +405,61 @@ describe("offline SCORM trusted IndexedDB", () => {
     await completed;
   });
 
+  it("leases an active package origin to one attempt until cleanup is complete", async () => {
+    const store = createStore();
+    const key = await prepareStore(store);
+    await store.putEntitlement(
+      entitlement({
+        entitlementId: "entitlement_2",
+        attemptId: "attempt_2",
+        devicePublicKeySha256: key.publicKeySha256,
+        packageVersionId: "package_version_2",
+        packageSha256: "c".repeat(64),
+        offering: {
+          kind: "course",
+          enrollmentId: "enrollment_2",
+          courseVersionItemId: "course_item_2",
+        },
+      }),
+    );
+    const firstPackage = packageRecord();
+    const secondPackage = packageRecord({
+      attemptId: "attempt_2",
+      entitlementId: "entitlement_2",
+      packageVersionId: "package_version_2",
+      packageSha256: "c".repeat(64),
+      updatedAt: "2026-09-16T01:05:00.000Z",
+    });
+
+    await store.putPackage(firstPackage);
+    await expect(store.putPackage(secondPackage)).rejects.toMatchObject({
+      code: "journal_corrupt",
+    });
+    await store.putPackage(
+      packageRecord({
+        status: "cleanup_pending",
+        updatedAt: "2026-09-16T01:03:00.000Z",
+      }),
+    );
+    await expect(store.putPackage(secondPackage)).rejects.toMatchObject({
+      code: "journal_corrupt",
+    });
+    const clearedPackage = packageRecord({
+      status: "cleared",
+      updatedAt: "2026-09-16T01:04:00.000Z",
+    });
+    await store.putPackage(clearedPackage);
+    await store.putPackage(secondPackage);
+
+    const database = await store.open();
+    const transaction = database.transaction("packages", "readonly");
+    const completed = idbTransaction(transaction);
+    expect(
+      await idbRequest(transaction.objectStore("packages").getAll()),
+    ).toEqual([clearedPackage, secondPackage]);
+    await completed;
+  });
+
   it("atomically acknowledges an exact reconciliation receipt and repairs its retry", async () => {
     const store = createStore();
     await prepareStore(store);
@@ -480,6 +535,80 @@ describe("offline SCORM trusted IndexedDB", () => {
       await idbRequest(retryInspection.objectStore("receipts").getAll()),
     ).toEqual([validReceipt]);
     await retryInspectionComplete;
+  });
+
+  it("rejects noncontiguous and regressing accepted receipt revisions", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const firstEntry = spoolEntry();
+    const secondEntry = spoolEntry({
+      spoolEntryId: "spool_entry_000002",
+      ordinal: 2,
+      sessionElapsedSeconds: 30,
+      sessionTimeDeltaSeconds: 10,
+      snapshot: { ...firstEntry.snapshot, totalTimeSeconds: 30 },
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: firstEntry,
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: secondEntry,
+    });
+    const [firstRecord, secondRecord] = (
+      await store.getAttemptJournalSnapshot("attempt_1")
+    ).records;
+    expect(firstRecord).toBeDefined();
+    expect(secondRecord).toBeDefined();
+    if (!firstRecord || !secondRecord)
+      throw new Error("Expected two finalised journal records");
+    const firstReceipt = receipt({
+      commitId: firstRecord.commitId,
+      clientSequence: firstRecord.clientSequence,
+      requestFingerprint: await fingerprintOfflineScormCommit(
+        firstRecord.unsignedCommit,
+      ),
+      resultingAttemptRevision: 4,
+    });
+    const regressingSecondReceipt = receipt({
+      commitId: secondRecord.commitId,
+      clientSequence: secondRecord.clientSequence,
+      requestFingerprint: await fingerprintOfflineScormCommit(
+        secondRecord.unsignedCommit,
+      ),
+      resultingAttemptRevision: 3,
+      receivedAt: "2026-09-16T01:03:00.000Z",
+    });
+
+    await expect(
+      store.putReceipt(regressingSecondReceipt),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+    await store.putReceipt(firstReceipt);
+    await expect(
+      store.putReceipt(regressingSecondReceipt),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+    const database = await store.open();
+    const transaction = database.transaction(
+      ["journal", "receipts"],
+      "readonly",
+    );
+    const completed = idbTransaction(transaction);
+    expect(
+      await idbRequest(transaction.objectStore("receipts").getAll()),
+    ).toEqual([firstReceipt]);
+    expect(
+      await idbRequest(
+        transaction
+          .objectStore("journal")
+          .get(["attempt_1", secondEntry.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "pending" });
+    await completed;
   });
 
   it.each([
