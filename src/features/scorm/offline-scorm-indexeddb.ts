@@ -6,6 +6,7 @@ import {
   OFFLINE_SCORM_TRUSTED_DATABASE_NAME,
   OFFLINE_SCORM_TRUSTED_DATABASE_VERSION,
   assertOfflineScormSigningReservationTail,
+  assertSameOfflineScormJournalReservation,
   fingerprintOfflineScormCommit,
   OfflineScormRuntimeError,
   offlineScormPackageRecordSchema,
@@ -1005,13 +1006,17 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
   }
 
   async finaliseJournalEntry(input: {
-    attemptId: string;
-    spoolEntryId: string;
-    fingerprint: string;
+    reservation: OfflineScormJournalRecord;
     signature: string;
     finalisedAt: string;
   }): Promise<OfflineScormJournalRecord> {
-    const attemptId = internalIdSchema.parse(input.attemptId);
+    const expectedReservation = parseJournalRecord(input.reservation);
+    if (expectedReservation.status !== "signing")
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "Only a signing reservation can be finalised",
+      );
+    const attemptId = expectedReservation.attemptId;
     const finalisedAt = canonicalInstantSchema.parse(input.finalisedAt);
     try {
       const database = await this.open();
@@ -1023,7 +1028,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
       try {
         const journalStore = transaction.objectStore("journal");
         const value = await requestResult<unknown>(
-          journalStore.get([attemptId, input.spoolEntryId]),
+          journalStore.get([attemptId, expectedReservation.spoolEntryId]),
         );
         if (value === undefined)
           throw new OfflineScormRuntimeError(
@@ -1031,11 +1036,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "The signing reservation is unavailable",
           );
         const record = parseJournalRecord(value);
-        if (record.spoolFingerprint !== input.fingerprint)
-          throw new OfflineScormRuntimeError(
-            "journal_corrupt",
-            "The signing reservation fingerprint changed",
-          );
+        assertSameOfflineScormJournalReservation(expectedReservation, record);
         const attemptValue = await requestResult<unknown>(
           transaction.objectStore("attempts").get(attemptId),
         );

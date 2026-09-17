@@ -329,9 +329,7 @@ export interface OfflineScormTrustedStore {
     reservedAt: string;
   }): Promise<OfflineScormJournalRecord>;
   finaliseJournalEntry(input: {
-    attemptId: string;
-    spoolEntryId: string;
-    fingerprint: string;
+    reservation: OfflineScormJournalRecord;
     signature: string;
     finalisedAt: string;
   }): Promise<OfflineScormJournalRecord>;
@@ -617,7 +615,7 @@ async function verifyOfflineScormJournalRecord(
     );
 }
 
-function assertSameJournalReservation(
+export function assertSameOfflineScormJournalReservation(
   reservation: OfflineScormJournalRecord,
   finalised: OfflineScormJournalRecord,
 ): void {
@@ -631,12 +629,13 @@ function assertSameJournalReservation(
       canonicalizeSpoolEntry(finalised.spoolEntry) ||
     reservation.commitId !== finalised.commitId ||
     reservation.clientSequence !== finalised.clientSequence ||
+    reservation.reservedAt !== finalised.reservedAt ||
     canonicalizeOfflineScormCommit(reservation.unsignedCommit) !==
       canonicalizeOfflineScormCommit(finalised.unsignedCommit)
   )
     throw new OfflineScormRuntimeError(
       "journal_corrupt",
-      "The finalised journal record does not match its signing reservation",
+      "The journal record does not match its signing reservation",
     );
 }
 
@@ -723,7 +722,10 @@ export class OfflineScormTrustedRuntime {
           "journal_corrupt",
           "The journal reservation is unavailable",
         );
-      assertSameJournalReservation(reservation, verifiedReservation);
+      assertSameOfflineScormJournalReservation(
+        reservation,
+        verifiedReservation,
+      );
       if (verifiedReservation.status !== "signing") {
         await this.#clearVerifiedAttemptError(verifiedJournal.attempt);
         return importAcknowledgement(verifiedReservation);
@@ -800,20 +802,18 @@ export class OfflineScormTrustedRuntime {
           "journal_corrupt",
           "The signing reservation is unavailable",
         );
-      assertSameJournalReservation(reservation, storedReservation);
+      assertSameOfflineScormJournalReservation(reservation, storedReservation);
       const signature = await signOfflineScormCommit(
         reservation.unsignedCommit,
         journalBeforeSigning.installation,
         this.#cryptoProvider,
       );
       const finalised = await this.#store.finaliseJournalEntry({
-        attemptId: reservation.attemptId,
-        spoolEntryId: reservation.spoolEntryId,
-        fingerprint: reservation.spoolFingerprint,
+        reservation,
         signature,
         finalisedAt: this.#now().toISOString(),
       });
-      assertSameJournalReservation(reservation, finalised);
+      assertSameOfflineScormJournalReservation(reservation, finalised);
       const verifiedJournal = await this.#verifyAttemptJournal(
         reservation.attemptId,
       );
@@ -825,7 +825,7 @@ export class OfflineScormTrustedRuntime {
           "journal_corrupt",
           "The finalised journal record is unavailable",
         );
-      assertSameJournalReservation(finalised, verifiedFinalised);
+      assertSameOfflineScormJournalReservation(finalised, verifiedFinalised);
       await this.#clearVerifiedAttemptError(verifiedJournal.attempt);
       return importAcknowledgement(verifiedFinalised);
     } catch (error) {

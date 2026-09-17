@@ -15,6 +15,7 @@ import {
   offlineScormLocalStatusLabels,
   offlineScormTrustedStoreNames,
   resolveOfflineScormLocalStatus,
+  type OfflineScormJournalRecord,
   type OfflineScormPackageRecord,
   type OfflineScormReceipt,
   type OfflineScormSpoolEntry,
@@ -1235,6 +1236,67 @@ describe("offline SCORM trusted IndexedDB", () => {
     await inspectionComplete;
   });
 
+  it("rejects finalisation when the stored reservation changes after signing", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const entry = spoolEntry();
+    const { fingerprint } = await fingerprintOfflineScormSpoolEntry(entry);
+    const reservation = await store.reserveSpoolEntry({
+      attemptId: "attempt_1",
+      entry,
+      fingerprint,
+      candidateCommitId: "commit_before_signing_0001",
+      reservedAt: baseInstant,
+    });
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    const changedCommitId = "commit_changed_after_sign_1";
+    corruptionTransaction.objectStore("journal").put({
+      ...reservation,
+      commitId: changedCommitId,
+      unsignedCommit: {
+        ...reservation.unsignedCommit,
+        commitId: changedCommitId,
+      },
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    await expect(
+      store.finaliseJournalEntry({
+        reservation,
+        signature: "a".repeat(86),
+        finalisedAt: "2026-09-16T01:05:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+    const inspectionTransaction = database.transaction(
+      ["attempts", "journal"],
+      "readonly",
+    );
+    const inspectionComplete = idbTransaction(inspectionTransaction);
+    expect(
+      await idbRequest(
+        inspectionTransaction.objectStore("attempts").get("attempt_1"),
+      ),
+    ).toMatchObject({ currentSnapshot: entitlement().initialSnapshot });
+    expect(
+      await idbRequest(
+        inspectionTransaction
+          .objectStore("journal")
+          .get(["attempt_1", entry.spoolEntryId]),
+      ),
+    ).toMatchObject({
+      commitId: changedCommitId,
+      status: "signing",
+      signature: null,
+      finalisedAt: null,
+    });
+    await inspectionComplete;
+  });
+
   it("does not recover a later reservation when an earlier sequence is missing", async () => {
     const store = createStore();
     await prepareStore(store);
@@ -1277,9 +1339,7 @@ describe("offline SCORM trusted IndexedDB", () => {
 
     await expect(
       store.finaliseJournalEntry({
-        attemptId: "attempt_1",
-        spoolEntryId: secondEntry.spoolEntryId,
-        fingerprint: reservation.spoolFingerprint,
+        reservation,
         signature: "a".repeat(86),
         finalisedAt: baseInstant,
       }),
@@ -1341,12 +1401,13 @@ describe("offline SCORM trusted IndexedDB", () => {
     const firstRecord = (await idbRequest(
       journal.get(["attempt_1", firstEntry.spoolEntryId]),
     )) as Record<string, unknown>;
-    journal.put({
+    const corruptedFirstRecord = {
       ...firstRecord,
       status: "signing",
       signature: null,
       finalisedAt: null,
-    });
+    } as unknown as OfflineScormJournalRecord;
+    journal.put(corruptedFirstRecord);
     corruptionTransaction.commit();
     await corruptionComplete;
 
@@ -1362,9 +1423,7 @@ describe("offline SCORM trusted IndexedDB", () => {
     });
     await expect(
       store.finaliseJournalEntry({
-        attemptId: "attempt_1",
-        spoolEntryId: firstEntry.spoolEntryId,
-        fingerprint: String(firstRecord.spoolFingerprint),
+        reservation: corruptedFirstRecord,
         signature: "a".repeat(86),
         finalisedAt: "2026-09-16T01:05:00.000Z",
       }),

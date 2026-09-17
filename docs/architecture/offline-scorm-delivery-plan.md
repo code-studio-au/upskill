@@ -197,8 +197,10 @@ The dormant trusted-runtime slice now:
   database/runtime restart and blocks later checkpoints for an attempt until
   the earlier reservation is finalised;
 - requires any unfinished signing reservation to be the unique journal tail,
-  clears a retained attempt error only after a fully verified retry, and
-  rejects stale or regressing package-registry lifecycle updates atomically;
+  rebinds finalisation to every immutable field of the exact reservation that
+  was signed, clears a retained attempt error only after a fully verified
+  retry, and rejects stale or regressing package-registry lifecycle updates
+  atomically;
 - stores each immutable reconciliation receipt and advances its exact signed
   journal record to `acknowledged` in one transaction, including exact receipt
   retries that repair state written by an earlier runtime version; and
