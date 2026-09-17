@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted; implementation pending.
+Accepted; dormant trusted-runtime storage and journal foundation implemented,
+package execution and activation pending.
 Date: 2026-09-12
 Accepted: 2026-09-16
 

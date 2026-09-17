@@ -28,7 +28,7 @@ const canonicalInstantSchema = z.pipe(
   z.transform((value) => new Date(value).toISOString()),
 );
 
-const offlineScormOfferingBindingSchema = z.discriminatedUnion("kind", [
+export const offlineScormOfferingBindingSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("course"),
     enrollmentId: internalIdSchema,
