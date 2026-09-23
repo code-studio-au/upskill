@@ -327,11 +327,11 @@ describe("offline SCORM trusted IndexedDB", () => {
     const first = await new OfflineScormTrustedRuntime(store, {
       now: () => new Date(baseInstant),
     }).importSpoolEntry({ attemptId: "attempt_1", entry });
-    await store.markAttemptError(
-      "attempt_1",
-      "storage_failed",
-      "2026-09-16T01:03:00.000Z",
-    );
+    await store.markAttemptError({
+      attemptId: "attempt_1",
+      errorCode: "storage_failed",
+      updatedAt: "2026-09-16T01:03:00.000Z",
+    });
     expect(
       (await store.getAttemptJournalSnapshot("attempt_1")).attempt
         .lastErrorCode,
@@ -430,9 +430,17 @@ describe("offline SCORM trusted IndexedDB", () => {
       packageSha256: "c".repeat(64),
       updatedAt: "2026-09-16T01:05:00.000Z",
     });
+    const siblingOriginPackage = packageRecord({
+      ...secondPackage,
+      packageOrigin: "https://sibling.offline-attempt.example",
+      drainUrl: "https://sibling.offline-attempt.example/drain",
+    });
 
     await store.putPackage(firstPackage);
     await expect(store.putPackage(secondPackage)).rejects.toMatchObject({
+      code: "journal_corrupt",
+    });
+    await expect(store.putPackage(siblingOriginPackage)).rejects.toMatchObject({
       code: "journal_corrupt",
     });
     await store.putPackage(
@@ -706,6 +714,88 @@ describe("offline SCORM trusted IndexedDB", () => {
       ),
     ).toMatchObject({ status: "pending" });
     await completed;
+  });
+
+  it("rejects a receipt when the stored signature no longer verifies", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    await new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    }).importSpoolEntry({ attemptId: "attempt_1", entry: spoolEntry() });
+    const [record] = (await store.getAttemptJournalSnapshot("attempt_1"))
+      .records;
+    expect(record).toBeDefined();
+    if (!record) throw new Error("Expected a finalised journal record");
+
+    const database = await store.open();
+    const corruptionTransaction = database.transaction("journal", "readwrite");
+    const corruptionComplete = idbTransaction(corruptionTransaction);
+    corruptionTransaction.objectStore("journal").put({
+      ...record,
+      signature: "A".repeat(86),
+    });
+    corruptionTransaction.commit();
+    await corruptionComplete;
+
+    await expect(
+      store.putReceipt(
+        receipt({
+          commitId: record.commitId,
+          clientSequence: record.clientSequence,
+          requestFingerprint: await fingerprintOfflineScormCommit(
+            record.unsignedCommit,
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+    const inspection = database.transaction(
+      ["journal", "receipts"],
+      "readonly",
+    );
+    const inspectionComplete = idbTransaction(inspection);
+    expect(await idbRequest(inspection.objectStore("receipts").count())).toBe(
+      0,
+    );
+    expect(
+      await idbRequest(
+        inspection
+          .objectStore("journal")
+          .get(["attempt_1", record.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "pending" });
+    await inspectionComplete;
+  });
+
+  it("does not record a stale signing failure after concurrent finalisation", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const entry = spoolEntry();
+    const { fingerprint } = await fingerprintOfflineScormSpoolEntry(entry);
+    const reservation = await store.reserveSpoolEntry({
+      attemptId: "attempt_1",
+      entry,
+      fingerprint,
+      candidateCommitId: "commit_concurrent_0001",
+      reservedAt: baseInstant,
+    });
+
+    const recovery = await new OfflineScormTrustedRuntime(store, {
+      now: () => new Date("2026-09-16T01:03:00.000Z"),
+    }).recoverSigningReservations("attempt_1");
+    expect(recovery.failures).toEqual([]);
+
+    await store.markAttemptError({
+      attemptId: "attempt_1",
+      errorCode: "signing_failed",
+      updatedAt: "2026-09-16T01:04:00.000Z",
+      expectedSigningReservation: reservation,
+    });
+
+    expect(
+      (await store.getAttemptJournalSnapshot("attempt_1")).attempt
+        .lastErrorCode,
+    ).toBeNull();
   });
 
   it("rejects a retry when stored canonical commit fields were altered", async () => {

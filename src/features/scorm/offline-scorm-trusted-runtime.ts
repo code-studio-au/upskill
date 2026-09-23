@@ -339,11 +339,12 @@ export interface OfflineScormTrustedStore {
   getAttemptJournalSnapshot(
     attemptId: string,
   ): Promise<OfflineScormAttemptJournalSnapshot>;
-  markAttemptError(
-    attemptId: string,
-    errorCode: OfflineScormRuntimeErrorCode,
-    updatedAt: string,
-  ): Promise<void>;
+  markAttemptError(input: {
+    attemptId: string;
+    errorCode: OfflineScormRuntimeErrorCode;
+    updatedAt: string;
+    expectedSigningReservation?: OfflineScormJournalRecord;
+  }): Promise<void>;
   clearAttemptError(input: {
     attemptId: string;
     expectedErrorCode: OfflineScormRuntimeErrorCode;
@@ -556,7 +557,7 @@ async function signOfflineScormCommit(
   return encoded;
 }
 
-async function verifyOfflineScormJournalRecord(
+export async function verifyOfflineScormJournalRecord(
   record: OfflineScormJournalRecord,
   deviceKey: OfflineScormDeviceKeyRecord,
   cryptoProvider: OfflineScormCryptoProvider,
@@ -837,7 +838,11 @@ export class OfflineScormTrustedRuntime {
               "The offline journal reservation could not be signed",
               { cause: error },
             );
-      await this.#recordFailure(reservation.attemptId, runtimeError);
+      await this.#recordFailure(
+        reservation.attemptId,
+        runtimeError,
+        reservation,
+      );
       throw runtimeError;
     }
   }
@@ -920,13 +925,15 @@ export class OfflineScormTrustedRuntime {
   async #recordFailure(
     attemptId: string,
     error: OfflineScormRuntimeError,
+    expectedSigningReservation?: OfflineScormJournalRecord,
   ): Promise<void> {
     try {
-      await this.#store.markAttemptError(
+      await this.#store.markAttemptError({
         attemptId,
-        error.code,
-        this.#now().toISOString(),
-      );
+        errorCode: error.code,
+        updatedAt: this.#now().toISOString(),
+        ...(expectedSigningReservation ? { expectedSigningReservation } : {}),
+      });
     } catch {
       // Preserve the causal import/signing failure. A storage failure while
       // recording its classification cannot make that original failure safe.

@@ -16,6 +16,7 @@ import {
   offlineScormTrustedStoreNames,
   parseStoredOfflineScormSignedCommit,
   parseStoredOfflineScormUnsignedCommit,
+  verifyOfflineScormJournalRecord,
   type OfflineScormAttemptState,
   type OfflineScormAttemptJournalSnapshot,
   type OfflineScormDeviceKeyRecord,
@@ -29,6 +30,7 @@ import {
   type OfflineScormTrustedEntitlement,
   type OfflineScormTrustedStore,
 } from "#/features/scorm/offline-scorm-trusted-runtime";
+import { getDomain } from "tldts";
 import { scormProgressInputSchema } from "#/features/scorm/scorm.schema";
 import { instantIsoSchema } from "#/features/shared/time.schema";
 import { z } from "#/validation/zod";
@@ -432,18 +434,35 @@ function assertPackageOriginAvailable(
   record: OfflineScormPackageRecord,
   storedPackages: readonly OfflineScormPackageRecord[],
 ): void {
+  const packageHostname = new URL(record.packageOrigin).hostname;
+  const packageSite =
+    getDomain(packageHostname, { allowPrivateDomains: true }) ??
+    (packageHostname === "localhost" || packageHostname === "127.0.0.1"
+      ? packageHostname
+      : null);
+  if (!packageSite)
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The package origin has no registrable-site boundary",
+    );
   if (
     record.status !== "cleared" &&
-    storedPackages.some(
-      (storedPackage) =>
-        storedPackage.attemptId !== record.attemptId &&
-        storedPackage.packageOrigin === record.packageOrigin &&
-        storedPackage.status !== "cleared",
-    )
+    storedPackages.some((storedPackage) => {
+      if (
+        storedPackage.attemptId === record.attemptId ||
+        storedPackage.status === "cleared"
+      )
+        return false;
+      const storedHostname = new URL(storedPackage.packageOrigin).hostname;
+      const storedSite =
+        getDomain(storedHostname, { allowPrivateDomains: true }) ??
+        storedHostname;
+      return storedSite === packageSite;
+    })
   )
     throw new OfflineScormRuntimeError(
       "journal_corrupt",
-      "The package origin is already assigned to another active attempt",
+      "The package registrable site is already assigned to another active attempt",
     );
 }
 
@@ -1409,17 +1428,21 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     return parsed.success ? parsed.data : undefined;
   }
 
-  async markAttemptError(
-    attemptId: string,
-    errorCode: OfflineScormRuntimeErrorCode,
-    updatedAt: string,
-  ): Promise<void> {
-    const parsedAttemptId = internalIdSchema.parse(attemptId);
-    const parsedErrorCode = runtimeErrorCodeSchema.parse(errorCode);
-    const parsedUpdatedAt = canonicalInstantSchema.parse(updatedAt);
+  async markAttemptError(input: {
+    attemptId: string;
+    errorCode: OfflineScormRuntimeErrorCode;
+    updatedAt: string;
+    expectedSigningReservation?: OfflineScormJournalRecord;
+  }): Promise<void> {
+    const parsedAttemptId = internalIdSchema.parse(input.attemptId);
+    const parsedErrorCode = runtimeErrorCodeSchema.parse(input.errorCode);
+    const parsedUpdatedAt = canonicalInstantSchema.parse(input.updatedAt);
     try {
       const database = await this.open();
-      const transaction = database.transaction("attempts", "readwrite");
+      const transaction = database.transaction(
+        ["attempts", "journal"],
+        "readwrite",
+      );
       const completedTransaction = transactionComplete(transaction);
       try {
         const store = transaction.objectStore("attempts");
@@ -1429,6 +1452,34 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "attempt_unavailable",
             "The trusted attempt is unavailable",
           );
+        if (input.expectedSigningReservation) {
+          const reservationValue = await requestResult<unknown>(
+            transaction
+              .objectStore("journal")
+              .get([
+                parsedAttemptId,
+                input.expectedSigningReservation.spoolEntryId,
+              ]),
+          );
+          if (reservationValue === undefined) {
+            transaction.commit();
+            await completedTransaction;
+            return;
+          }
+          const currentReservation = parseAttemptJournalRecords(
+            [reservationValue],
+            parsedAttemptId,
+          )[0];
+          if (!currentReservation || currentReservation.status !== "signing") {
+            transaction.commit();
+            await completedTransaction;
+            return;
+          }
+          assertSameOfflineScormJournalReservation(
+            input.expectedSigningReservation,
+            currentReservation,
+          );
+        }
         store.put({
           ...parseAttemptState(value),
           lastErrorCode: parsedErrorCode,
@@ -1616,6 +1667,19 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           "journal_corrupt",
           "The reconciliation receipt fingerprint does not match its journal record",
         );
+      const installation = await this.getInstallation(
+        candidateRecord.installationId,
+      );
+      if (!installation)
+        throw new OfflineScormRuntimeError(
+          "device_key_unavailable",
+          "The reconciliation receipt device key is unavailable",
+        );
+      await verifyOfflineScormJournalRecord(
+        candidateRecord,
+        installation,
+        globalThis.crypto,
+      );
 
       const transaction = database.transaction(
         ["entitlements", "journal", "receipts"],
@@ -1633,6 +1697,15 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           );
         const entitlement =
           offlineScormTrustedEntitlementSchema.parse(entitlementValue);
+        if (
+          entitlement.installationId !== installation.installationId ||
+          entitlement.learnerId !== installation.learnerId ||
+          entitlement.devicePublicKeySha256 !== installation.publicKeySha256
+        )
+          throw new OfflineScormRuntimeError(
+            "device_key_unavailable",
+            "The reconciliation receipt device key no longer matches its entitlement",
+          );
         const journalValue = await requestResult<unknown>(
           transaction
             .objectStore("journal")
