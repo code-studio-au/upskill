@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, verify } from "node:crypto";
-import { indexedDB } from "fake-indexeddb";
+import { IDBKeyRange, indexedDB } from "fake-indexeddb";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertOfflineScormIndexedDbSchema,
@@ -20,6 +20,7 @@ import {
   type OfflineScormReceipt,
   type OfflineScormSpoolEntry,
   type OfflineScormTrustedEntitlement,
+  type OfflineScormTrustedStore,
 } from "#/features/scorm/offline-scorm-trusted-runtime";
 import { canonicalizeOfflineScormCommit } from "#/features/scorm/offline-scorm-reconciliation";
 
@@ -33,6 +34,7 @@ function createStore(
   const store = new OfflineScormIndexedDbStore({
     databaseName,
     factory: indexedDB,
+    keyRange: IDBKeyRange,
   });
   stores.push({ databaseName, store });
   return store;
@@ -767,6 +769,55 @@ describe("offline SCORM trusted IndexedDB", () => {
     await inspectionComplete;
   });
 
+  it("scopes receipt history validation to the current attempt", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    await new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    }).importSpoolEntry({ attemptId: "attempt_1", entry: spoolEntry() });
+    const [record] = (await store.getAttemptJournalSnapshot("attempt_1"))
+      .records;
+    expect(record).toBeDefined();
+    if (!record) throw new Error("Expected a finalised journal record");
+
+    const database = await store.open();
+    const corruption = database.transaction("receipts", "readwrite");
+    const corruptionComplete = idbTransaction(corruption);
+    corruption.objectStore("receipts").add({
+      attemptId: "attempt_2",
+      commitId: "malformed_receipt_0001",
+      clientSequence: 1,
+    });
+    corruption.commit();
+    await corruptionComplete;
+
+    const validReceipt = receipt({
+      commitId: record.commitId,
+      clientSequence: record.clientSequence,
+      requestFingerprint: await fingerprintOfflineScormCommit(
+        record.unsignedCommit,
+      ),
+    });
+    await store.putReceipt(validReceipt);
+
+    const inspection = database.transaction(
+      ["journal", "receipts"],
+      "readonly",
+    );
+    const inspectionComplete = idbTransaction(inspection);
+    expect(await idbRequest(inspection.objectStore("receipts").count())).toBe(
+      2,
+    );
+    expect(
+      await idbRequest(
+        inspection
+          .objectStore("journal")
+          .get(["attempt_1", record.spoolEntryId]),
+      ),
+    ).toMatchObject({ status: "acknowledged" });
+    await inspectionComplete;
+  });
+
   it("does not record a stale signing failure after concurrent finalisation", async () => {
     const store = createStore();
     await prepareStore(store);
@@ -792,6 +843,86 @@ describe("offline SCORM trusted IndexedDB", () => {
       expectedSigningReservation: reservation,
     });
 
+    expect(
+      (await store.getAttemptJournalSnapshot("attempt_1")).attempt
+        .lastErrorCode,
+    ).toBeNull();
+  });
+
+  it("does not record a blocked import after its concurrent reservation finalises", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    let enterFinalisation!: () => void;
+    let allowFinalisation!: () => void;
+    let enterErrorWrite!: () => void;
+    let allowErrorWrite!: () => void;
+    const finalisationEntered = new Promise<void>((resolve) => {
+      enterFinalisation = resolve;
+    });
+    const finalisationAllowed = new Promise<void>((resolve) => {
+      allowFinalisation = resolve;
+    });
+    const errorWriteEntered = new Promise<void>((resolve) => {
+      enterErrorWrite = resolve;
+    });
+    const errorWriteAllowed = new Promise<void>((resolve) => {
+      allowErrorWrite = resolve;
+    });
+    const racingStore = new Proxy(store, {
+      get(target, property, receiver) {
+        if (property === "finaliseJournalEntry")
+          return async (
+            input: Parameters<
+              OfflineScormTrustedStore["finaliseJournalEntry"]
+            >[0],
+          ) => {
+            enterFinalisation();
+            await finalisationAllowed;
+            return target.finaliseJournalEntry(input);
+          };
+        if (property === "markAttemptError")
+          return async (
+            input: Parameters<OfflineScormTrustedStore["markAttemptError"]>[0],
+          ) => {
+            enterErrorWrite();
+            await errorWriteAllowed;
+            return target.markAttemptError(input);
+          };
+        const value = Reflect.get(target, property, receiver) as unknown;
+        return typeof value === "function"
+          ? (value as (...arguments_: unknown[]) => unknown).bind(target)
+          : value;
+      },
+    }) as OfflineScormTrustedStore;
+    const runtime = new OfflineScormTrustedRuntime(racingStore, {
+      now: () => new Date(baseInstant),
+    });
+    const firstImport = runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry(),
+    });
+    await finalisationEntered;
+    const secondImport = runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry({
+        spoolEntryId: "spool_entry_000002",
+        ordinal: 2,
+        sessionElapsedSeconds: 30,
+        sessionTimeDeltaSeconds: 10,
+        snapshot: {
+          ...spoolEntry().snapshot,
+          totalTimeSeconds: 30,
+        },
+      }),
+    });
+    await errorWriteEntered;
+    allowFinalisation();
+    await firstImport;
+    allowErrorWrite();
+
+    await expect(secondImport).rejects.toMatchObject({
+      code: "signing_in_progress",
+    });
     expect(
       (await store.getAttemptJournalSnapshot("attempt_1")).attempt
         .lastErrorCode,

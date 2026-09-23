@@ -479,6 +479,21 @@ function hasContiguousJournalSequence(
   );
 }
 
+function sameAttemptState(
+  first: OfflineScormAttemptState,
+  second: OfflineScormAttemptState,
+): boolean {
+  return (
+    first.attemptId === second.attemptId &&
+    first.entitlementId === second.entitlementId &&
+    first.nextClientSequence === second.nextClientSequence &&
+    JSON.stringify(first.currentSnapshot) ===
+      JSON.stringify(second.currentSnapshot) &&
+    first.lastErrorCode === second.lastErrorCode &&
+    first.updatedAt === second.updatedAt
+  );
+}
+
 function parseAttemptLaunchStates(
   values: readonly unknown[],
   attemptId: string,
@@ -625,17 +640,20 @@ function asStorageFailure(error: unknown): OfflineScormRuntimeError {
 export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
   readonly #databaseName: string;
   readonly #factory: IDBFactory;
+  readonly #keyRange: typeof IDBKeyRange;
   #databasePromise: Promise<IDBDatabase> | undefined;
 
   constructor(
     options: {
       databaseName?: string;
       factory?: IDBFactory;
+      keyRange?: typeof IDBKeyRange;
     } = {},
   ) {
     this.#databaseName =
       options.databaseName ?? OFFLINE_SCORM_TRUSTED_DATABASE_NAME;
     this.#factory = options.factory ?? globalThis.indexedDB;
+    this.#keyRange = options.keyRange ?? globalThis.IDBKeyRange;
   }
 
   async open(): Promise<IDBDatabase> {
@@ -1433,6 +1451,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     errorCode: OfflineScormRuntimeErrorCode;
     updatedAt: string;
     expectedSigningReservation?: OfflineScormJournalRecord;
+    expectedAttemptState?: OfflineScormAttemptState;
   }): Promise<void> {
     const parsedAttemptId = internalIdSchema.parse(input.attemptId);
     const parsedErrorCode = runtimeErrorCodeSchema.parse(input.errorCode);
@@ -1452,6 +1471,15 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
             "attempt_unavailable",
             "The trusted attempt is unavailable",
           );
+        const attempt = parseAttemptState(value);
+        if (
+          input.expectedAttemptState &&
+          !sameAttemptState(input.expectedAttemptState, attempt)
+        ) {
+          transaction.commit();
+          await completedTransaction;
+          return;
+        }
         if (input.expectedSigningReservation) {
           const reservationValue = await requestResult<unknown>(
             transaction
@@ -1481,7 +1509,7 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           );
         }
         store.put({
-          ...parseAttemptState(value),
+          ...attempt,
           lastErrorCode: parsedErrorCode,
           updatedAt: parsedUpdatedAt,
         } satisfies OfflineScormAttemptState);
@@ -1743,7 +1771,16 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           requestResult<unknown>(
             receiptStore.get([receipt.attemptId, receipt.commitId]),
           ),
-          requestResult<unknown[]>(receiptStore.getAll()),
+          requestResult<unknown[]>(
+            receiptStore
+              .index("byAttemptSequence")
+              .getAll(
+                this.#keyRange.bound(
+                  [receipt.attemptId, 1],
+                  [receipt.attemptId, MAXIMUM_SEQUENCE],
+                ),
+              ),
+          ),
         ]);
         const storedReceipts = storedReceiptValues.map((value) =>
           offlineScormReceiptSchema.parse(value),

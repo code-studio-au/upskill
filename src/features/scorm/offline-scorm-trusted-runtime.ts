@@ -344,6 +344,7 @@ export interface OfflineScormTrustedStore {
     errorCode: OfflineScormRuntimeErrorCode;
     updatedAt: string;
     expectedSigningReservation?: OfflineScormJournalRecord;
+    expectedAttemptState?: OfflineScormAttemptState;
   }): Promise<void>;
   clearAttemptError(input: {
     attemptId: string;
@@ -701,12 +702,14 @@ export class OfflineScormTrustedRuntime {
     entry: unknown;
   }): Promise<OfflineScormImportAcknowledgement> {
     const attemptId = internalIdSchema.parse(input.attemptId);
+    let failureAttemptState: OfflineScormAttemptState | undefined;
     try {
       const { entry, fingerprint } = await fingerprintOfflineScormSpoolEntry(
         input.entry,
         this.#cryptoProvider,
       );
-      await this.#verifyAttemptJournal(attemptId);
+      failureAttemptState = (await this.#verifyAttemptJournal(attemptId))
+        .attempt;
       const reservation = await this.#store.reserveSpoolEntry({
         attemptId,
         entry,
@@ -741,7 +744,12 @@ export class OfflineScormTrustedRuntime {
               "The package checkpoint is invalid",
               { cause: error },
             );
-      await this.#recordFailure(attemptId, runtimeError);
+      await this.#recordFailure(
+        attemptId,
+        runtimeError,
+        undefined,
+        failureAttemptState,
+      );
       throw runtimeError;
     }
   }
@@ -926,6 +934,7 @@ export class OfflineScormTrustedRuntime {
     attemptId: string,
     error: OfflineScormRuntimeError,
     expectedSigningReservation?: OfflineScormJournalRecord,
+    expectedAttemptState?: OfflineScormAttemptState,
   ): Promise<void> {
     try {
       await this.#store.markAttemptError({
@@ -933,6 +942,7 @@ export class OfflineScormTrustedRuntime {
         errorCode: error.code,
         updatedAt: this.#now().toISOString(),
         ...(expectedSigningReservation ? { expectedSigningReservation } : {}),
+        ...(expectedAttemptState ? { expectedAttemptState } : {}),
       });
     } catch {
       // Preserve the causal import/signing failure. A storage failure while
