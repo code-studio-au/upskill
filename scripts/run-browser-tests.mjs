@@ -47,7 +47,7 @@ async function localTlsSpkiPin() {
 
 const tlsSpkiPin = secure ? await localTlsSpkiPin() : undefined;
 
-async function findAvailablePort(excludedPort) {
+async function findAvailablePort(excludedPorts = new Set()) {
   return await new Promise((resolve, reject) => {
     const server = net.createServer();
     server.unref();
@@ -62,8 +62,8 @@ async function findAvailablePort(excludedPort) {
       const port = String(address.port);
       server.close((error) => {
         if (error) reject(error);
-        else if (port === excludedPort)
-          void findAvailablePort(excludedPort).then(resolve, reject);
+        else if (excludedPorts.has(port))
+          void findAvailablePort(excludedPorts).then(resolve, reject);
         else resolve(port);
       });
     });
@@ -120,13 +120,23 @@ try {
   );
 
   const browserPort =
-    process.env.PLAYWRIGHT_PORT ?? (await findAvailablePort(undefined));
+    process.env.PLAYWRIGHT_PORT ?? (await findAvailablePort());
   const learningPort =
     process.env.PLAYWRIGHT_LEARNING_PORT ??
-    (await findAvailablePort(browserPort));
+    (await findAvailablePort(new Set([browserPort])));
+  const offlineScormPackagePort =
+    process.env.PLAYWRIGHT_OFFLINE_SCORM_PACKAGE_PORT ??
+    (await findAvailablePort(new Set([browserPort, learningPort])));
   if (browserPort === learningPort)
     throw new Error(
       "Browser and learning test origins must use distinct ports",
+    );
+  if (
+    offlineScormPackagePort === browserPort ||
+    offlineScormPackagePort === learningPort
+  )
+    throw new Error(
+      "Offline SCORM package test origin must use a distinct port",
     );
   const testEnvironment = {
     ...process.env,
@@ -137,6 +147,7 @@ try {
     DATABASE_URL: disposableDatabase.databaseUrl,
     PLAYWRIGHT_PORT: browserPort,
     PLAYWRIGHT_LEARNING_PORT: learningPort,
+    PLAYWRIGHT_OFFLINE_SCORM_PACKAGE_PORT: offlineScormPackagePort,
     PLAYWRIGHT_HTTPS: secure ? "true" : process.env.PLAYWRIGHT_HTTPS,
     ...(tlsSpkiPin ? { PLAYWRIGHT_TLS_SPKI_PIN: tlsSpkiPin } : {}),
   };

@@ -27,6 +27,7 @@
     "test:e2e": "node --env-file-if-exists=.env.local scripts/run-browser-tests.mjs all",
     "test:e2e:core": "node --env-file-if-exists=.env.local scripts/run-browser-tests.mjs core",
     "test:e2e:scorm": "node --env-file-if-exists=.env.local scripts/run-browser-tests.mjs scorm",
+    "test:e2e:offline-scorm-package": "playwright test --config playwright.offline-scorm.config.ts",
     "test:e2e:admin": "node --env-file-if-exists=.env.local scripts/run-browser-tests.mjs admin",
     "test:e2e:https": "node --env-file-if-exists=.env.local scripts/run-browser-tests.mjs https",
     "coverage": "vitest run --coverage",

@@ -655,8 +655,9 @@ triggered and do not reopen the delivered webinar foundation.
   unreachable until activation);
 - trusted local runtime storage and recoverable signed journal (implemented,
   dormant until activation);
-- isolated exact-attempt package prototype across mobile Chromium and Firefox,
-  with Safari explicit-storage-confirmation qualification;
+- isolated exact-attempt package runtime and test-only three-origin prototype
+  implemented; Chromium/Firefox execution and Safari
+  explicit-storage-confirmation/real-device qualification gate activation;
 - one complete Course path before Event reuse and support operations; and
 - browser qualification, operational controls and deliberate activation.
 

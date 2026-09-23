@@ -4,21 +4,30 @@ import path from "node:path";
 const origins = [
   new URL(process.env.APP_ORIGIN ?? "http://127.0.0.1:3000"),
   new URL(process.env.LEARNING_ORIGIN ?? "http://127.0.0.1:3001"),
+  ...(process.env.APP_ENV === "test" &&
+  process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN
+    ? [new URL(process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN)]
+    : []),
 ];
-for (const origin of origins) {
-  if (
-    (origin.hostname !== "127.0.0.1" && origin.hostname !== "localhost") ||
-    !origin.port
-  )
-    throw new Error("start:origins requires explicit localhost origin ports");
+for (const [index, origin] of origins.entries()) {
+  const allowedHosts =
+    index === 2 ? new Set(["127.0.0.2"]) : new Set(["127.0.0.1", "localhost"]);
+  if (!allowedHosts.has(origin.hostname) || !origin.port)
+    throw new Error(
+      "start:origins requires explicit loopback origin hosts and ports",
+    );
 }
-if (origins[0]?.origin === origins[1]?.origin)
-  throw new Error("APP_ORIGIN and LEARNING_ORIGIN must be distinct");
+if (new Set(origins.map((origin) => origin.origin)).size !== origins.length)
+  throw new Error("Configured local origins must be distinct");
 
 const serverScript = path.resolve("scripts/start-server.mjs");
 const services = origins.map((origin) =>
   spawn(process.execPath, [serverScript], {
-    env: { ...process.env, PORT: origin.port },
+    env: {
+      ...process.env,
+      PORT: origin.port,
+      UPSKILL_LISTEN_HOST: origin.hostname,
+    },
     stdio: "inherit",
   }),
 );

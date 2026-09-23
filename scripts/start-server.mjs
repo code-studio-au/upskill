@@ -15,16 +15,26 @@ import {
   isCompressibleContentType,
   selectContentEncoding,
 } from "./http-compression.mjs";
+import { getOfflineScormPrototypeAsset } from "./offline-scorm-package-prototype-assets.mjs";
 import { getPwaShellScriptAsset } from "./pwa-shell-assets.mjs";
 
 const port = Number.parseInt(process.env.PORT ?? "3000", 10);
+const listenHost = process.env.UPSKILL_LISTEN_HOST?.trim() || "127.0.0.1";
 const applicationOrigin = new URL(
   process.env.APP_ORIGIN ?? `http://127.0.0.1:${port}`,
 ).origin;
 const learningOrigin = new URL(
   process.env.LEARNING_ORIGIN ?? "http://127.0.0.1:3001",
 ).origin;
-const allowedOrigins = [applicationOrigin, learningOrigin];
+const offlineScormPrototypeOrigin =
+  process.env.APP_ENV === "test" && process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN
+    ? new URL(process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN).origin
+    : null;
+const allowedOrigins = [
+  applicationOrigin,
+  learningOrigin,
+  ...(offlineScormPrototypeOrigin ? [offlineScormPrototypeOrigin] : []),
+];
 const tlsCertificateFile = process.env.UPSKILL_TLS_CERT_FILE?.trim();
 const tlsKeyFile = process.env.UPSKILL_TLS_KEY_FILE?.trim();
 const trustProxySetting = process.env.UPSKILL_TRUST_PROXY?.trim().toLowerCase();
@@ -126,6 +136,8 @@ function logBootstrapEvent(level, type, fields = {}, error) {
 
 if (!Number.isInteger(port) || port < 1 || port > 65535)
   throw new Error("PORT must be a valid TCP port");
+if (!/^127(?:\.\d{1,3}){3}$/u.test(listenHost) && listenHost !== "localhost")
+  throw new Error("UPSKILL_LISTEN_HOST must be an explicit loopback host");
 
 function requestOrigin(incoming) {
   const host = incoming.headers.host?.trim().toLowerCase();
@@ -150,6 +162,35 @@ function servePwaShellScript(incoming, outgoing) {
     asset = getPwaShellScriptAsset(
       new URL(incoming.url ?? "/", requestOrigin(incoming)),
       applicationOrigin,
+    );
+  } catch {
+    return false;
+  }
+  if (!asset) return false;
+
+  outgoing.statusCode = asset.status;
+  for (const [name, value] of Object.entries(asset.headers))
+    outgoing.setHeader(name, value);
+  outgoing.setHeader("content-length", Buffer.byteLength(asset.body));
+  outgoing.end(method === "HEAD" ? undefined : asset.body);
+  return true;
+}
+
+function serveOfflineScormPrototypeAsset(incoming, outgoing) {
+  if (!offlineScormPrototypeOrigin) return false;
+  const method = incoming.method ?? "GET";
+  if (method !== "GET" && method !== "HEAD") return false;
+
+  let asset;
+  try {
+    asset = getOfflineScormPrototypeAsset(
+      new URL(incoming.url ?? "/", requestOrigin(incoming)),
+      {
+        applicationOrigin,
+        environment: process.env.APP_ENV,
+        learningOrigin,
+        packageOrigin: offlineScormPrototypeOrigin,
+      },
     );
   } catch {
     return false;
@@ -330,6 +371,7 @@ async function handleRequest(incoming, outgoing) {
       return;
     }
     if (servePwaShellScript(incoming, outgoing)) return;
+    if (serveOfflineScormPrototypeAsset(incoming, outgoing)) return;
     if (await serveClientAsset(incoming, outgoing)) return;
 
     const headers = new Headers();
@@ -418,7 +460,7 @@ const server = tlsCertificateFile
     )
   : http.createServer(handleRequest);
 
-server.listen(port, "127.0.0.1", () => {
+server.listen(port, listenHost, () => {
   logBootstrapEvent("info", "server.started", {
     status: "ready",
     port,
