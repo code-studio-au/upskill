@@ -83,7 +83,9 @@ writer-mode rules.
 6. **Isolated package prototype.** Prove distinct registrable-site/cookie
    isolation, exact-attempt Web Locks, bounded synchronous spool, digest-checked
    package caching, direct-sibling channel binding and authoritative whole-site
-   cleanup on the supported Chromium matrix.
+   cleanup on the supported Chromium and Firefox matrices. Exercise Safari's
+   explicit user-confirmed package-site storage-access flow as a qualification
+   target without advertising Safari support before every ADR 0041 gate passes.
 7. **One complete Course path.** Activate explicit installation/download,
    offline launch, foreground/manual sync and cleanup for self-paced Course
    SCORM on the confirmed matrix.
@@ -172,9 +174,46 @@ The dormant reconciliation slice now:
   authoritative audit, outbox and communication effects remain idempotent.
 
 The command remains a server-only dormant boundary: there is no sync route,
-client journal, installation-registration route or learner control. The next
-slice is the trusted local runtime and must not activate offline package
-execution before its storage, recovery and signing matrix passes.
+installation-registration route or learner control.
+
+The dormant trusted-runtime slice now:
+
+- defines a versioned learning-origin IndexedDB database for learner/device
+  identity, entitlement material, attempt state, per-launch high-water state,
+  append-only journal reservations, exact package registry records and
+  immutable reconciliation receipts; the later activation boundary must verify
+  the server signature before inserting that entitlement material;
+- generates a non-exportable P-256 device private key, retains only its
+  exportable SPKI public half and digest, and binds stored entitlements to the
+  exact learner, installation and public-key identity;
+- imports strict, identity-free spool checkpoints through separate atomic
+  reservation and finalisation transactions, with Web Crypto signing outside
+  either transaction and an exact canonical commit shared with the server;
+- returns an existing acknowledgement for an equal spool retry, rejects
+  identifier reuse with changed content, enforces contiguous per-launch
+  ordinals, non-overlapping elapsed-time deltas, the server's total-time
+  equation and monotonic local completion;
+- recovers unfinished signing reservations in client-sequence order after a
+  database/runtime restart and blocks later checkpoints for an attempt until
+  the earlier reservation is finalised;
+- requires any unfinished signing reservation to be the unique journal tail,
+  rebinds finalisation to every immutable field of the exact reservation that
+  was signed, clears a retained attempt error only after a fully verified
+  retry, rejects stale or regressing package-registry lifecycle updates, and
+  leases each non-cleared package origin to exactly one attempt atomically;
+- stores a contiguous immutable reconciliation-receipt history with
+  non-regressing accepted revisions, and advances each exact signed journal
+  record to `acknowledged` in one transaction, including exact receipt retries
+  that repair state written by an earlier runtime version; and
+- exposes the accepted status vocabulary without wiring it to any learner
+  route or implying that local completion is server-confirmed.
+
+The IndexedDB adapter is dormant: no current route imports it, no package code
+runs on the trusted origin and no offline control is exposed. The next slice is
+the isolated package prototype. It must prove Chromium and Firefox isolation
+and spool behaviour, and exercise Safari's explicit user-confirmed local-store
+access as a qualification target; Safari remains unadvertised until its full
+real-device gates pass.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and
