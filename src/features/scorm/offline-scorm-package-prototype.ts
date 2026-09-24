@@ -598,7 +598,7 @@ export async function matchInstalledOfflineScormPackage(input: {
   );
   if (!file) return null;
   const cache = await input.caches.open(packageCacheName(manifest));
-  if (!(await cache.match(packageReadyUrl(manifest)))) return null;
+  if (!(await cache.match(packageReadyUrl(manifest)))) return Response.error();
   const cached = await cache.match(
     packageFileRequest(manifest, requestUrl.pathname),
   );

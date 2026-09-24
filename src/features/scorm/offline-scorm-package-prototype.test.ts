@@ -361,7 +361,8 @@ describe("isolated offline SCORM package prototype", () => {
       randomUUID: () => "staging-id",
     });
     const readyCache = caches.stores.get(installed.cacheName);
-    await readyCache?.put(
+    if (!readyCache) throw new Error("Ready cache was not published");
+    await readyCache.put(
       `${manifest.packageOrigin}/index.html`,
       new Response("ready", {
         headers: {
@@ -394,7 +395,22 @@ describe("isolated offline SCORM package prototype", () => {
       "x-content-type-options": "nosniff",
     });
 
-    await readyCache?.put(
+    const readyKey = [...readyCache.values.keys()].find((key) =>
+      key.includes("/.__upskill_offline__/ready/"),
+    );
+    if (!readyKey) throw new Error("Ready marker was not published");
+    expect(readyCache.values.delete(readyKey)).toBe(true);
+    const missingReadyResponse = await matchInstalledOfflineScormPackage({
+      manifest,
+      applicationOrigin: "https://app.upskill.example",
+      caches: caches as unknown as Pick<CacheStorage, "open">,
+      request: new Request(`${manifest.packageOrigin}/index.html`),
+      subtle: crypto.subtle,
+    });
+    expect(missingReadyResponse?.type).toBe("error");
+    await readyCache.put(readyKey, new Response("ready"));
+
+    await readyCache.put(
       `${manifest.packageOrigin}/index.html`,
       new Response("rogue"),
     );

@@ -211,6 +211,11 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     missing: string;
     replaced: string;
     verifiedHeaders: Record<string, string | null>;
+    verifiedWithoutReadyMarker: {
+      body: string;
+      cacheControl: string | null;
+      contentType: string | null;
+    };
   } = await page
     .frameLocator("#package-frame")
     .locator("#package-status")
@@ -263,6 +268,21 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
           "x-content-type-options",
         ),
       };
+      const readyRequest = (await cache.keys()).find((request) =>
+        new URL(request.url).pathname.includes("/.__upskill_offline__/ready/"),
+      );
+      if (!readyRequest) throw new Error("Ready marker entry is missing");
+      if (!(await cache.delete(readyRequest)))
+        throw new Error("Ready marker could not be deleted");
+      const withoutReadyMarker = await fetch(vendorUrl.href, {
+        cache: "no-store",
+      });
+      const verifiedWithoutReadyMarker = {
+        body: await withoutReadyMarker.text(),
+        cacheControl: withoutReadyMarker.headers.get("cache-control"),
+        contentType: withoutReadyMarker.headers.get("content-type"),
+      };
+      await cache.put(readyRequest, new Response("ready"));
       const tamperedBytes = new Uint8Array(cachedVendorBytes.byteLength);
       tamperedBytes.fill(120);
       await cache.put(vendorUrl.href, new Response(tamperedBytes));
@@ -278,6 +298,7 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
         missing: await fetchResult(vendorScriptUrl.href),
         replaced: await fetchResult(vendorUrl.href),
         verifiedHeaders,
+        verifiedWithoutReadyMarker,
       };
     });
   expect(corruptCacheResults).toMatchObject({
@@ -290,9 +311,16 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
       referrerPolicy: "no-referrer",
       xContentTypeOptions: "nosniff",
     },
+    verifiedWithoutReadyMarker: {
+      cacheControl: "no-store",
+      contentType: "text/html",
+    },
   });
   expect(corruptCacheResults.verifiedHeaders.contentSecurityPolicy).toContain(
     "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  );
+  expect(corruptCacheResults.verifiedWithoutReadyMarker.body).toContain(
+    "Rise package fixture",
   );
 
   await page.evaluate(() =>

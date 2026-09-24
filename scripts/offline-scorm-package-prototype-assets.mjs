@@ -592,6 +592,14 @@ function trustedResponse(bytes, file) {
   });
 }
 
+async function verifyResponse(response, file) {
+  if (!response.ok || response.type === "opaque") return null;
+  const bytes = await response.arrayBuffer();
+  const digest = hex(await crypto.subtle.digest("SHA-256", bytes));
+  if (bytes.byteLength !== file.sizeBytes || digest !== file.sha256) return null;
+  return trustedResponse(bytes, file);
+}
+
 async function installPackage() {
   const existing = await caches.open(CACHE_NAME);
   if (await existing.match(READY_URL)) return;
@@ -604,12 +612,9 @@ async function installPackage() {
         credentials: "omit",
       });
       const response = await fetch(request);
-      if (!response.ok || response.type === "opaque") throw new Error("Unavailable file");
-      const bytes = await response.arrayBuffer();
-      const digest = hex(await crypto.subtle.digest("SHA-256", bytes));
-      if (bytes.byteLength !== file.sizeBytes || digest !== file.sha256)
-        throw new Error("Integrity failure");
-      await staging.put(request, trustedResponse(bytes, file));
+      const verified = await verifyResponse(response, file);
+      if (!verified) throw new Error("Integrity failure");
+      await staging.put(request, verified);
     }
     const published = await caches.open(CACHE_NAME);
     if (await published.match(READY_URL)) return;
@@ -647,16 +652,18 @@ self.addEventListener("fetch", (event) => {
   ) return;
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
-      if (!(await cache.match(READY_URL))) return fetch(event.request);
       const file = INVENTORY.find((candidate) => candidate.pathname === url.pathname);
-      const cached = await cache.match(event.request);
-      if (!file || !cached) return Response.error();
+      if (!file) return Response.error();
       try {
-        const bytes = await cached.arrayBuffer();
-        const digest = hex(await crypto.subtle.digest("SHA-256", bytes));
-        if (bytes.byteLength !== file.sizeBytes || digest !== file.sha256)
-          return Response.error();
-        return trustedResponse(bytes, file);
+        const ready = await cache.match(READY_URL);
+        const response = ready
+          ? await cache.match(event.request)
+          : await fetch(new Request(PACKAGE_ORIGIN + file.pathname, {
+              cache: "no-store",
+              credentials: "omit",
+            }));
+        if (!response) return Response.error();
+        return (await verifyResponse(response, file)) ?? Response.error();
       } catch {
         return Response.error();
       }
