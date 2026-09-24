@@ -383,6 +383,43 @@ describe("isolated offline SCORM package prototype", () => {
     expect([...caches.stores.keys()]).toEqual([installed.cacheName]);
   });
 
+  it("rejects manifest paths that normalize to another cache key", async () => {
+    const files = {
+      "/index.html": { body: "ready", contentType: "text/html" },
+      "/%2e/index.html": { body: "alias", contentType: "text/html" },
+    };
+    const manifest = packageManifest(files);
+    const caches = new MemoryCacheStorage();
+    const packageFetch = vi.fn(() => Promise.resolve(new Response("ready")));
+    const input = {
+      applicationOrigin: "https://app.upskill.example",
+      learningOrigin: "https://learn.upskill.example",
+      caches: caches as unknown as Pick<
+        CacheStorage,
+        "delete" | "match" | "open"
+      >,
+      fetch: packageFetch,
+      subtle: crypto.subtle,
+      randomUUID: () => "staging-id",
+    };
+
+    await expect(
+      installOfflineScormPackage({ manifest, ...input }),
+    ).rejects.toThrow("canonical URL pathname");
+    await expect(
+      installOfflineScormPackage({
+        manifest: {
+          ...manifest,
+          files: manifest.files.slice(0, 1),
+          entrypointPath: "/%2e/index.html",
+        },
+        ...input,
+      }),
+    ).rejects.toThrow("canonical URL pathname");
+    expect(packageFetch).not.toHaveBeenCalled();
+    expect(caches.stores.size).toBe(0);
+  });
+
   it("does not let a failed concurrent publisher delete a ready cache", async () => {
     const files = {
       "/index.html": { body: "ready", contentType: "text/html" },

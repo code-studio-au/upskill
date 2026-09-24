@@ -92,13 +92,21 @@ const offlineScormPackageManifestSchema = z
         });
       const pathnames = new Set<string>();
       for (const [index, file] of manifest.files.entries()) {
-        if (pathnames.has(file.pathname))
+        const canonicalPathname = new URL(file.pathname, packageOrigin)
+          .pathname;
+        if (canonicalPathname !== file.pathname)
           context.addIssue({
             code: "custom",
             path: ["files", index, "pathname"],
-            message: "Package file paths must be unique",
+            message: "Package file paths must use their canonical URL pathname",
           });
-        pathnames.add(file.pathname);
+        if (pathnames.has(canonicalPathname))
+          context.addIssue({
+            code: "custom",
+            path: ["files", index, "pathname"],
+            message: "Package file paths must resolve to unique cache keys",
+          });
+        pathnames.add(canonicalPathname);
       }
       if (
         manifest.files.reduce((total, file) => total + file.sizeBytes, 0) >
@@ -109,7 +117,17 @@ const offlineScormPackageManifestSchema = z
           path: ["files"],
           message: "The expanded package exceeds the supported size limit",
         });
-      if (!pathnames.has(manifest.entrypointPath))
+      const canonicalEntrypointPath = new URL(
+        manifest.entrypointPath,
+        packageOrigin,
+      ).pathname;
+      if (canonicalEntrypointPath !== manifest.entrypointPath)
+        context.addIssue({
+          code: "custom",
+          path: ["entrypointPath"],
+          message: "The entrypoint must use its canonical URL pathname",
+        });
+      if (!pathnames.has(canonicalEntrypointPath))
         context.addIssue({
           code: "custom",
           path: ["entrypointPath"],

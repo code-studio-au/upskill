@@ -287,11 +287,8 @@ test("Safari qualification requires an explicit package-site storage decision", 
   const storageDenied = events.some(
     (event) => event.type === "prototype-storage-access-denied",
   );
-  if (storageDenied)
-    expect(
-      events.some((event) => event.type === "prototype-package-ready"),
-    ).toBe(false);
-  else await waitForPrototypeEvent(page, "prototype-package-ready");
+  expect(storageDenied).toBe(false);
+  await waitForPrototypeEvent(page, "prototype-package-ready");
   expect(
     events.some((event) => event.type === "prototype-completed-and-synced"),
   ).toBe(false);
