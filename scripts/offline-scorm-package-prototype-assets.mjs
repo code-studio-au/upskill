@@ -611,7 +611,8 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
       if (!(await cache.match(READY_URL))) return fetch(event.request);
-      return (await cache.match(event.request)) || fetch(event.request);
+      const cached = await cache.match(event.request);
+      return cached ?? Response.error();
     }),
   );
 });

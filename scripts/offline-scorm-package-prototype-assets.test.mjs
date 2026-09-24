@@ -98,6 +98,10 @@ describe("offline SCORM package prototype assets", () => {
     expect(worker?.body).toContain("await published.put(READY_URL");
     expect(worker?.body).toContain("crypto.randomUUID()");
     expect(worker?.body).not.toContain("await caches.delete(CACHE_NAME)");
+    expect(worker?.body).toContain("return cached ?? Response.error()");
+    expect(worker?.body).not.toContain(
+      "(await cache.match(event.request)) || fetch(event.request)",
+    );
   });
 
   it("qualifies the supported Rise content policy", () => {

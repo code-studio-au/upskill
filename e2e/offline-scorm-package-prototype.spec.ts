@@ -167,6 +167,32 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     })
     .toBe(0);
 
+  const corruptCacheResult: string = await page
+    .frameLocator("#package-frame")
+    .locator("#package-status")
+    .evaluate(async () => {
+      const cacheName = (await caches.keys()).find(
+        (name) =>
+          name.startsWith("upskill-offline-scorm-package-v1-prototype-") &&
+          !name.includes("-staging-"),
+      );
+      if (!cacheName) throw new Error("Ready package cache is missing");
+      const vendorUrl = new URL(
+        "/__offline-scorm-package-prototype/vendor.html",
+        location.origin,
+      );
+      const cache = await caches.open(cacheName);
+      if (!(await cache.delete(vendorUrl.href)))
+        throw new Error("Cached vendor fixture is missing");
+      try {
+        await fetch(vendorUrl.href);
+        return "network-fallback";
+      } catch {
+        return "failed-closed";
+      }
+    });
+  expect(corruptCacheResult).toBe("failed-closed");
+
   await page.evaluate(() =>
     window.offlineScormPrototype?.command("package", "cleanup"),
   );
