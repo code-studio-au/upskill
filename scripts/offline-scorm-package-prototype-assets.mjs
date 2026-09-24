@@ -53,11 +53,20 @@ const vendorScript = `(() => {
 })();
 `;
 
-const vendorHtml = page(
-  "Rise package fixture",
-  paths.vendorScript,
-  '<p id="vendor-ready">Rise fixture ready</p>',
-);
+const vendorHtml = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rise package fixture</title>
+    <style>#vendor-ready { display: block; }</style>
+    <script src="${paths.vendorScript}" defer></script>
+  </head>
+  <body>
+    <p id="vendor-ready">Rise fixture blocked</p>
+    <script>document.getElementById("vendor-ready").textContent = eval("'Rise fixture ready'");</script>
+  </body>
+</html>`;
 
 function applicationScript({
   applicationOrigin,
@@ -513,8 +522,7 @@ function hex(bytes) {
 async function installPackage() {
   const existing = await caches.open(CACHE_NAME);
   if (await existing.match(READY_URL)) return;
-  const stagingName = CACHE_NAME + "-staging";
-  await caches.delete(stagingName);
+  const stagingName = CACHE_NAME + "-staging-" + crypto.randomUUID();
   const staging = await caches.open(stagingName);
   try {
     for (const file of INVENTORY) {
@@ -530,8 +538,8 @@ async function installPackage() {
         throw new Error("Integrity failure");
       await staging.put(request, new Response(bytes, { headers: response.headers }));
     }
-    await caches.delete(CACHE_NAME);
     const published = await caches.open(CACHE_NAME);
+    if (await published.match(READY_URL)) return;
     for (const file of INVENTORY) {
       const request = new Request(PACKAGE_ORIGIN + file.pathname, { credentials: "omit" });
       const response = await staging.match(request);
@@ -539,9 +547,6 @@ async function installPackage() {
       await published.put(request, response);
     }
     await published.put(READY_URL, new Response("ready"));
-  } catch (error) {
-    await caches.delete(CACHE_NAME);
-    throw error;
   } finally {
     await caches.delete(stagingName);
   }
@@ -592,6 +597,10 @@ function response(body, contentType, contentSecurityPolicy) {
   };
 }
 
+function learningContentSecurityPolicy(applicationOrigin) {
+  return `base-uri 'none'; connect-src 'self'; default-src 'self'; font-src 'self' data:; form-action 'none'; frame-ancestors 'self' ${applicationOrigin}; frame-src 'self' https://embed.articulateusercontent.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src-attr 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; worker-src 'self' blob:`;
+}
+
 export function getOfflineScormPrototypeAsset(requestUrl, configuration) {
   if (configuration.environment !== "test") return null;
   const { applicationOrigin, learningOrigin, packageOrigin } = configuration;
@@ -599,8 +608,8 @@ export function getOfflineScormPrototypeAsset(requestUrl, configuration) {
   const pathname = requestUrl.pathname;
   const applicationCsp = `default-src 'none'; script-src 'self'; frame-src ${learningOrigin} ${packageOrigin}; base-uri 'none'; form-action 'none'`;
   const learningCsp = `default-src 'none'; script-src 'self'; frame-ancestors ${applicationOrigin}; base-uri 'none'; form-action 'none'`;
-  const packageCsp = `default-src 'none'; script-src 'self'; frame-src 'self'; worker-src 'self'; connect-src 'self'; frame-ancestors ${applicationOrigin}; base-uri 'none'; form-action 'none'`;
-  const vendorCsp = `default-src 'none'; script-src 'self'; frame-ancestors ${packageOrigin} ${applicationOrigin}; base-uri 'none'; form-action 'none'`;
+  const packageCsp = learningContentSecurityPolicy(applicationOrigin);
+  const vendorCsp = learningContentSecurityPolicy(applicationOrigin);
   const packageWorkerCsp = "default-src 'none'; connect-src 'self'";
 
   if (origin === applicationOrigin && pathname === paths.applicationHtml)

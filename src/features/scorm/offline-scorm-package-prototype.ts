@@ -1,4 +1,5 @@
 import { getDomain } from "tldts";
+import { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
 import {
   offlineScormSpoolEntrySchema,
   type OfflineScormSpoolEntry,
@@ -452,7 +453,7 @@ export async function installOfflineScormPackage(input: {
   manifest: OfflineScormPackageManifest;
   applicationOrigin: string;
   learningOrigin: string;
-  caches: Pick<CacheStorage, "delete" | "open">;
+  caches: Pick<CacheStorage, "delete" | "match" | "open">;
   fetch: typeof fetch;
   subtle: Pick<SubtleCrypto, "digest">;
   randomUUID: () => string;
@@ -464,8 +465,10 @@ export async function installOfflineScormPackage(input: {
     packageOrigin: manifest.packageOrigin,
   });
   const finalCacheName = packageCacheName(manifest);
+  const readyUrl = packageReadyUrl(manifest);
+  if (await input.caches.match(readyUrl, { cacheName: finalCacheName }))
+    return { cacheName: finalCacheName, status: "ready" };
   const temporaryCacheName = `${finalCacheName}-staging-${input.randomUUID()}`;
-  let publishing = false;
   try {
     const temporaryCache = await input.caches.open(temporaryCacheName);
     for (const file of manifest.files) {
@@ -492,7 +495,9 @@ export async function installOfflineScormPackage(input: {
         request,
         new Response(bytes, {
           headers: {
-            "Content-Security-Policy": `default-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self' ${input.applicationOrigin}; base-uri 'none'; form-action 'none'; object-src 'none'`,
+            "Content-Security-Policy": buildLearningContentSecurityPolicy(
+              input.applicationOrigin,
+            ),
             "Content-Type": file.contentType,
             "Cross-Origin-Resource-Policy": "same-origin",
             "Referrer-Policy": "no-referrer",
@@ -503,8 +508,10 @@ export async function installOfflineScormPackage(input: {
       );
     }
 
-    publishing = true;
-    await input.caches.delete(finalCacheName);
+    if (await input.caches.match(readyUrl, { cacheName: finalCacheName })) {
+      await input.caches.delete(temporaryCacheName);
+      return { cacheName: finalCacheName, status: "ready" };
+    }
     const finalCache = await input.caches.open(finalCacheName);
     for (const file of manifest.files) {
       const request = packageFileRequest(manifest, file.pathname);
@@ -517,7 +524,7 @@ export async function installOfflineScormPackage(input: {
       await finalCache.put(request, response);
     }
     await finalCache.put(
-      packageReadyUrl(manifest),
+      readyUrl,
       new Response(JSON.stringify(manifest), {
         headers: { "Content-Type": "application/json" },
       }),
@@ -526,8 +533,6 @@ export async function installOfflineScormPackage(input: {
     return { cacheName: finalCacheName, status: "ready" };
   } catch (error) {
     await input.caches.delete(temporaryCacheName).catch(() => false);
-    if (publishing)
-      await input.caches.delete(finalCacheName).catch(() => false);
     if (error instanceof OfflineScormPackagePrototypeError) throw error;
     throw new OfflineScormPackagePrototypeError(
       "cache_failed",

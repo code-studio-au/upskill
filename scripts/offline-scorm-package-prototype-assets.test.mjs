@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { buildLearningContentSecurityPolicy } from "../src/features/scorm/learning-content-security-policy.ts";
 import {
   getOfflineScormPrototypeAsset,
   OFFLINE_SCORM_PROTOTYPE_PREFIX,
@@ -82,7 +83,26 @@ describe("offline SCORM package prototype assets", () => {
     expect(worker?.body).toContain('crypto.subtle.digest("SHA-256", bytes)');
     expect(worker?.body).toContain('credentials: "omit"');
     expect(worker?.body).toContain("await published.put(READY_URL");
-    expect(worker?.body).toContain("await caches.delete(CACHE_NAME)");
+    expect(worker?.body).toContain("crypto.randomUUID()");
+    expect(worker?.body).not.toContain("await caches.delete(CACHE_NAME)");
+  });
+
+  it("qualifies the supported Rise content policy", () => {
+    const vendor = asset(
+      configuration.packageOrigin,
+      `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/vendor.html`,
+    );
+    expect(vendor?.headers["Content-Security-Policy"]).toBe(
+      buildLearningContentSecurityPolicy(configuration.applicationOrigin),
+    );
+    expect(vendor?.headers["Content-Security-Policy"]).toContain(
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+    );
+    expect(vendor?.headers["Content-Security-Policy"]).toContain(
+      "frame-src 'self' https://embed.articulateusercontent.com",
+    );
+    expect(vendor?.body).toContain("eval(\"'Rise fixture ready'\")");
+    expect(vendor?.body).toContain("<style>");
   });
 
   it("keeps the synchronous spool bounded and provides whole-site cleanup", () => {

@@ -25,6 +25,11 @@ class MemoryStorage implements Pick<Storage, "getItem" | "setItem"> {
 
 class MemoryCache {
   readonly values = new Map<string, Response>();
+  putHook?: (
+    key: string,
+    response: Response,
+    commit: () => void,
+  ) => Promise<void>;
 
   match(request: RequestInfo | URL): Promise<Response | undefined> {
     const key =
@@ -39,7 +44,11 @@ class MemoryCache {
       request instanceof Request
         ? request.url
         : new URL(request.toString()).href;
-    this.values.set(key, response.clone());
+    const commit = () => {
+      this.values.set(key, response.clone());
+    };
+    if (this.putHook) return this.putHook(key, response, commit);
+    commit();
     return Promise.resolve();
   }
 }
@@ -57,6 +66,18 @@ class MemoryCacheStorage {
     const created = new MemoryCache();
     this.stores.set(name, created);
     return Promise.resolve(created);
+  }
+
+  match(
+    request: RequestInfo | URL,
+    options?: MultiCacheQueryOptions,
+  ): Promise<Response | undefined> {
+    const cacheName = options?.cacheName;
+    if (cacheName)
+      return (
+        this.stores.get(cacheName)?.match(request) ?? Promise.resolve(undefined)
+      );
+    return Promise.resolve(undefined);
   }
 }
 
@@ -284,7 +305,10 @@ describe("isolated offline SCORM package prototype", () => {
       manifest,
       applicationOrigin: "https://app.upskill.example",
       learningOrigin: "https://learn.upskill.example",
-      caches: caches as unknown as Pick<CacheStorage, "delete" | "open">,
+      caches: caches as unknown as Pick<
+        CacheStorage,
+        "delete" | "match" | "open"
+      >,
       fetch: packageFetch,
       subtle: crypto.subtle,
       randomUUID: () => "staging-id",
@@ -297,7 +321,7 @@ describe("isolated offline SCORM package prototype", () => {
       request: new Request(`${manifest.packageOrigin}/index.html`),
     });
     expect(installedEntrypoint?.headers.get("content-security-policy")).toBe(
-      "default-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'self' https://app.upskill.example; base-uri 'none'; form-action 'none'; object-src 'none'",
+      "base-uri 'none'; connect-src 'self'; default-src 'self'; font-src 'self' data:; form-action 'none'; frame-ancestors 'self' https://app.upskill.example; frame-src 'self' https://embed.articulateusercontent.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src-attr 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; worker-src 'self' blob:",
     );
     await expect(
       matchInstalledOfflineScormPackage({
@@ -314,6 +338,120 @@ describe("isolated offline SCORM package prototype", () => {
     }
   });
 
+  it("reuses an immutable ready cache without risking its contents", async () => {
+    const files = {
+      "/index.html": { body: "ready", contentType: "text/html" },
+    };
+    const manifest = packageManifest(files);
+    const caches = new MemoryCacheStorage();
+    const firstFetch = vi.fn(() => Promise.resolve(new Response("ready")));
+    const installInput = {
+      manifest,
+      applicationOrigin: "https://app.upskill.example",
+      learningOrigin: "https://learn.upskill.example",
+      caches: caches as unknown as Pick<
+        CacheStorage,
+        "delete" | "match" | "open"
+      >,
+      subtle: crypto.subtle,
+      randomUUID: () => "first-staging-id",
+    };
+    const installed = await installOfflineScormPackage({
+      ...installInput,
+      fetch: firstFetch,
+    });
+    const readyCache = caches.stores.get(installed.cacheName);
+    const beforeReinstall = await readyCache?.match(
+      `${manifest.packageOrigin}/index.html`,
+    );
+    const reinstallFetch = vi.fn(() => Promise.reject(new Error("offline")));
+
+    await expect(
+      installOfflineScormPackage({
+        ...installInput,
+        fetch: reinstallFetch,
+        randomUUID: () => "second-staging-id",
+      }),
+    ).resolves.toEqual(installed);
+    expect(reinstallFetch).not.toHaveBeenCalled();
+    await expect(beforeReinstall?.text()).resolves.toBe("ready");
+    await expect(
+      readyCache
+        ?.match(`${manifest.packageOrigin}/index.html`)
+        .then((response) => response?.text()),
+    ).resolves.toBe("ready");
+    expect([...caches.stores.keys()]).toEqual([installed.cacheName]);
+  });
+
+  it("does not let a failed concurrent publisher delete a ready cache", async () => {
+    const files = {
+      "/index.html": { body: "ready", contentType: "text/html" },
+    };
+    const manifest = packageManifest(files);
+    const caches = new MemoryCacheStorage();
+    const finalCacheName = `upskill-offline-scorm-package-v1-${manifest.packageVersionId}-${manifest.packageSha256}`;
+    const finalCache = await caches.open(finalCacheName);
+    let rejectFirstPut: ((error: Error) => void) | undefined;
+    let signalFirstPut: (() => void) | undefined;
+    const firstPutStarted = new Promise<void>((resolve) => {
+      signalFirstPut = resolve;
+    });
+    const firstPutFailure = new Promise<never>((_resolve, reject) => {
+      rejectFirstPut = reject;
+    });
+    let putCount = 0;
+    finalCache.putHook = async (_key, _response, commit) => {
+      putCount += 1;
+      if (putCount === 1) {
+        signalFirstPut?.();
+        await firstPutFailure;
+      }
+      commit();
+    };
+    const packageFetch = vi.fn(
+      (request: RequestInfo | URL, init?: RequestInit) => {
+        void request;
+        void init;
+        return Promise.resolve(new Response("ready"));
+      },
+    );
+    const installInput = {
+      manifest,
+      applicationOrigin: "https://app.upskill.example",
+      learningOrigin: "https://learn.upskill.example",
+      caches: caches as unknown as Pick<
+        CacheStorage,
+        "delete" | "match" | "open"
+      >,
+      fetch: packageFetch,
+      subtle: crypto.subtle,
+    };
+
+    const failingInstall = installOfflineScormPackage({
+      ...installInput,
+      randomUUID: () => "failing-staging-id",
+    });
+    await firstPutStarted;
+    await expect(
+      installOfflineScormPackage({
+        ...installInput,
+        randomUUID: () => "successful-staging-id",
+      }),
+    ).resolves.toEqual({ cacheName: finalCacheName, status: "ready" });
+    rejectFirstPut?.(new Error("quota"));
+    await expect(failingInstall).rejects.toMatchObject({
+      code: "cache_failed",
+    });
+    await expect(
+      matchInstalledOfflineScormPackage({
+        manifest,
+        caches: caches as unknown as Pick<CacheStorage, "open">,
+        request: new Request(`${manifest.packageOrigin}/index.html`),
+      }).then((response) => response?.text()),
+    ).resolves.toBe("ready");
+    expect([...caches.stores.keys()]).toEqual([finalCacheName]);
+  });
+
   it("deletes partial publication when a package digest is wrong", async () => {
     const manifest = packageManifest({
       "/index.html": { body: "expected", contentType: "text/html" },
@@ -324,7 +462,10 @@ describe("isolated offline SCORM package prototype", () => {
         manifest,
         applicationOrigin: "https://app.upskill.example",
         learningOrigin: "https://learn.upskill.example",
-        caches: caches as unknown as Pick<CacheStorage, "delete" | "open">,
+        caches: caches as unknown as Pick<
+          CacheStorage,
+          "delete" | "match" | "open"
+        >,
         fetch: vi.fn(() => Promise.resolve(new Response("tampered"))),
         subtle: crypto.subtle,
         randomUUID: () => "staging-id",
@@ -348,7 +489,7 @@ describe("isolated offline SCORM package prototype", () => {
         learningOrigin: "https://learn.upskill.example",
         caches: new MemoryCacheStorage() as unknown as Pick<
           CacheStorage,
-          "delete" | "open"
+          "delete" | "match" | "open"
         >,
         fetch: packageFetch,
         subtle: crypto.subtle,
