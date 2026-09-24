@@ -68,6 +68,10 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
   await waitForPrototypeEvent(page, "prototype-learning-ready");
   await waitForPrototypeEvent(page, "prototype-package-ready");
   await waitForPrototypeEvent(page, "prototype-channel-bound");
+  await waitForPrototypeEvent(page, "prototype-player-ready");
+  await expect(
+    page.frameLocator("#package-frame").locator("#vendor-ready"),
+  ).toHaveText("Rise fixture ready");
 
   const firstReady = (await prototypeEvents(page)).find(
     (event) => event.type === "prototype-package-ready",
@@ -86,6 +90,9 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
   await expect(
     page.frameLocator("#package-competitor").locator("#package-status"),
   ).toHaveText("prototype-lock-busy");
+  await expect(
+    page.frameLocator("#package-competitor").locator("#vendor-ready"),
+  ).toHaveCount(0);
   await page.locator("#package-competitor").evaluate((element) => {
     element.remove();
   });
@@ -125,15 +132,19 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     await waitForPrototypeEvent(page, "prototype-channel-bound", 2);
     await expect(
       page.frameLocator("#package-frame").locator("#vendor-ready"),
+    ).toHaveCount(0);
+    await page.evaluate(() =>
+      window.offlineScormPrototype?.command("learning", "acknowledge", true),
+    );
+    await waitForPrototypeEvent(page, "prototype-spool-drained");
+    await waitForPrototypeEvent(page, "prototype-player-ready", 2);
+    await expect(
+      page.frameLocator("#package-frame").locator("#vendor-ready"),
     ).toHaveText("Rise fixture ready");
   } finally {
     await context.setOffline(false);
   }
 
-  await page.evaluate(() =>
-    window.offlineScormPrototype?.command("learning", "acknowledge", true),
-  );
-  await waitForPrototypeEvent(page, "prototype-spool-drained");
   await expect
     .poll(async () => {
       const count: number = await page

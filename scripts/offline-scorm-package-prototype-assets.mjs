@@ -15,6 +15,8 @@ const paths = {
   vendorHtml: `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/vendor.html`,
   vendorScript: `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/vendor.js`,
 };
+const packageFrameSandbox =
+  "allow-downloads allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation";
 
 function page(title, scriptPath, body) {
   return `<!doctype html>
@@ -35,7 +37,7 @@ const vendorScript = `(() => {
     if (event.source !== parent || event.origin !== location.origin) return;
     if (event.data?.type !== "prototype-vendor-commit") return;
     const api = parent.API;
-    const initialized = api?.LMSInitialize("");
+    const initialized = window.prototypeInitialized ?? "false";
     const locationSet = api?.LMSSetValue("cmi.core.lesson_location", "slide-2");
     const timeSet = api?.LMSSetValue("cmi.core.session_time", "00:00:20");
     const committed = api?.LMSCommit("");
@@ -64,7 +66,12 @@ const vendorHtml = `<!doctype html>
   </head>
   <body>
     <p id="vendor-ready">Rise fixture blocked</p>
-    <script>document.getElementById("vendor-ready").textContent = eval("'Rise fixture ready'");</script>
+    <script>
+      window.prototypeInitialized = parent.API?.LMSInitialize("") ?? "false";
+      const readyText = eval("'Rise fixture ready'");
+      if (window.prototypeInitialized === "true")
+        document.getElementById("vendor-ready").textContent = readyText;
+    </script>
   </body>
 </html>`;
 
@@ -161,6 +168,7 @@ function applicationScript({
         const competitor = document.createElement("iframe");
         competitor.id = "package-competitor";
         competitor.title = "Competing package player";
+        competitor.setAttribute("sandbox", ${JSON.stringify(packageFrameSandbox)});
         competitor.src = PACKAGE_ORIGIN + ${JSON.stringify(paths.packageHtml)};
         document.body.append(competitor);
       },
@@ -239,6 +247,7 @@ function packageScript({ applicationOrigin }) {
   return `(() => {
     "use strict";
     const APPLICATION_ORIGIN = ${JSON.stringify(applicationOrigin)};
+    const VENDOR_PATH = ${JSON.stringify(paths.vendorHtml)};
     const SPOOL_KEY = "upskill-offline-scorm-spool-v1";
     const LOCK_NAME = "upskill-offline-scorm-exact-attempt-v1";
     const status = document.getElementById("package-status");
@@ -249,6 +258,8 @@ function packageScript({ applicationOrigin }) {
     let preparingPackage;
     let values = Object.create(null);
     let initialized = false;
+    let launchReady = false;
+    let lockHeld = false;
     const safariQualification =
       /AppleWebKit/u.test(navigator.userAgent) &&
       !/(?:Chrome|Chromium|CriOS|Edg)/u.test(navigator.userAgent);
@@ -272,6 +283,7 @@ function packageScript({ applicationOrigin }) {
     }
 
     function writeCheckpoint(reason) {
+      if (!launchReady || !lockHeld) return "false";
       const spool = readSpool();
       if (spool.entries.length >= 64) return "false";
       const entry = {
@@ -316,8 +328,22 @@ function packageScript({ applicationOrigin }) {
         });
     }
 
+    function completeRecovery() {
+      if (
+        launchReady ||
+        !lockHeld ||
+        !port ||
+        readSpool().entries.length !== 0
+      ) return;
+      launchReady = true;
+      vendorFrame.src = VENDOR_PATH;
+      report({ type: "prototype-player-ready" });
+    }
+
     window.API = {
       LMSInitialize: () => {
+        if (!launchReady || !lockHeld || readSpool().entries.length !== 0)
+          return "false";
         initialized = true;
         return "true";
       },
@@ -375,6 +401,8 @@ function packageScript({ applicationOrigin }) {
             report({ type: "prototype-lock-busy" });
             return;
           }
+          lockHeld = true;
+          launchReady = false;
           report({ type: "prototype-lock-acquired" });
           parent.postMessage(
             {
@@ -387,11 +415,17 @@ function packageScript({ applicationOrigin }) {
             APPLICATION_ORIGIN,
           );
           await new Promise((resolve) => { releaseLock = resolve; });
+          initialized = false;
+          launchReady = false;
+          lockHeld = false;
         },
       );
     }
 
     async function cleanup() {
+      initialized = false;
+      launchReady = false;
+      vendorFrame.removeAttribute("src");
       port?.close();
       port = undefined;
       const clearResponse = await fetch(${JSON.stringify(paths.clearSiteData)}, {
@@ -457,9 +491,11 @@ function packageScript({ applicationOrigin }) {
               type: entries.length === 0 ? "prototype-spool-drained" : "prototype-spool-pending",
               spoolEntryId: portEvent.data.spoolEntryId,
             });
+            if (entries.length === 0) completeRecovery();
           };
           port.start();
-          drain();
+          if (readSpool().entries.length === 0) completeRecovery();
+          else drain();
           return;
         }
         if (event.data?.type !== "prototype-command") return;
@@ -617,7 +653,7 @@ export function getOfflineScormPrototypeAsset(requestUrl, configuration) {
       page(
         "Offline SCORM package prototype",
         paths.applicationScript,
-        '<main><p id="status" role="status">Starting prototype</p><iframe id="learning-frame" title="Trusted learning runtime"></iframe><iframe id="package-frame" title="Exact-attempt package"></iframe></main>',
+        `<main><p id="status" role="status">Starting prototype</p><iframe id="learning-frame" title="Trusted learning runtime"></iframe><iframe id="package-frame" title="Exact-attempt package" sandbox="${packageFrameSandbox}"></iframe></main>`,
       ),
       "text/html",
       applicationCsp,
@@ -661,7 +697,7 @@ export function getOfflineScormPrototypeAsset(requestUrl, configuration) {
         body: page(
           "Exact-attempt package prototype",
           paths.packageScript,
-          `<main><p id="package-status" role="status">Preparing package</p><button id="enable-storage" type="button">Enable offline course</button><iframe id="vendor-frame" src="${paths.vendorHtml}" title="Rise package fixture"></iframe></main>`,
+          '<main><p id="package-status" role="status">Preparing package</p><button id="enable-storage" type="button">Enable offline course</button><iframe id="vendor-frame" title="Rise package fixture"></iframe></main>',
         ),
         contentType: "text/html",
         csp: packageCsp,

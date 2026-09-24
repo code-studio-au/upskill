@@ -65,6 +65,19 @@ describe("offline SCORM package prototype assets", () => {
     expect(coordinator?.body).not.toContain("entitlementId");
     expect(coordinator?.body).not.toContain("attemptId");
     expect(coordinator?.body).not.toContain('postMessage(message, "*"');
+    expect(coordinator?.body).toContain(
+      'competitor.setAttribute("sandbox", "allow-downloads allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation")',
+    );
+  });
+
+  it("sandboxes every direct package frame with the production capabilities", () => {
+    const application = asset(
+      configuration.applicationOrigin,
+      `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/application.html`,
+    );
+    expect(application?.body).toContain(
+      'id="package-frame" title="Exact-attempt package" sandbox="allow-downloads allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation"',
+    );
   });
 
   it("publishes only digest-checked package files behind a ready marker", () => {
@@ -103,6 +116,25 @@ describe("offline SCORM package prototype assets", () => {
     );
     expect(vendor?.body).toContain("eval(\"'Rise fixture ready'\")");
     expect(vendor?.body).toContain("<style>");
+  });
+
+  it("loads vendor content only after lock ownership and spool recovery", () => {
+    const packagePage = asset(
+      configuration.packageOrigin,
+      `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/package.html`,
+    );
+    const packageRuntime = asset(
+      configuration.packageOrigin,
+      `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/package.js`,
+    );
+    expect(packagePage?.body).toContain(
+      '<iframe id="vendor-frame" title="Rise package fixture"></iframe>',
+    );
+    expect(packagePage?.body).not.toContain('id="vendor-frame" src=');
+    expect(packageRuntime?.body).toContain("!lockHeld");
+    expect(packageRuntime?.body).toContain("readSpool().entries.length !== 0");
+    expect(packageRuntime?.body).toContain("vendorFrame.src = VENDOR_PATH");
+    expect(packageRuntime?.body).toContain('type: "prototype-player-ready"');
   });
 
   it("keeps the synchronous spool bounded and provides whole-site cleanup", () => {
