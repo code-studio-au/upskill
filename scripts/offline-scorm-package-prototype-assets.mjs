@@ -423,6 +423,14 @@ function packageScript({ applicationOrigin }) {
     }
 
     async function cleanup() {
+      const spool = readSpool();
+      if (spool.entries.length !== 0) {
+        report({
+          type: "prototype-cleanup-blocked",
+          pendingEntries: spool.entries.length,
+        });
+        return;
+      }
       initialized = false;
       launchReady = false;
       vendorFrame.removeAttribute("src");

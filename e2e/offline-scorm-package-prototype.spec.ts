@@ -125,6 +125,46 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     })
     .toBe(1);
 
+  await page.evaluate(() =>
+    window.offlineScormPrototype?.command("package", "cleanup"),
+  );
+  await waitForPrototypeEvent(page, "prototype-cleanup-blocked");
+  expect(
+    (await prototypeEvents(page)).some(
+      (event) => event.type === "prototype-cleanup-complete",
+    ),
+  ).toBe(false);
+  await expect
+    .poll(
+      async () =>
+        await page
+          .frameLocator("#package-frame")
+          .locator("#package-status")
+          .evaluate(() => {
+            const stored = localStorage.getItem(
+              "upskill-offline-scorm-spool-v1",
+            );
+            if (!stored) return 0;
+            const parsed: unknown = JSON.parse(stored);
+            if (
+              !parsed ||
+              typeof parsed !== "object" ||
+              !("entries" in parsed) ||
+              !Array.isArray(parsed.entries)
+            )
+              throw new Error("Invalid prototype spool");
+            return parsed.entries.length;
+          }),
+    )
+    .toBe(1);
+  await page.evaluate(() => window.offlineScormPrototype?.addCompetitor());
+  await expect(
+    page.frameLocator("#package-competitor").locator("#package-status"),
+  ).toHaveText("prototype-lock-busy");
+  await page.locator("#package-competitor").evaluate((element) => {
+    element.remove();
+  });
+
   await context.setOffline(true);
   try {
     await page.evaluate(() => window.offlineScormPrototype?.reloadPackage());

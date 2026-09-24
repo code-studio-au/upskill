@@ -260,6 +260,32 @@ function emptySpoolState(): z.infer<
   };
 }
 
+function readOfflineScormPackageSpoolState(
+  storage: Pick<Storage, "getItem">,
+  storageKey = OFFLINE_SCORM_PACKAGE_SPOOL_KEY,
+): z.infer<typeof offlineScormPackageSpoolStateSchema> {
+  let serialized: string | null;
+  try {
+    serialized = storage.getItem(storageKey);
+  } catch (error) {
+    throw new OfflineScormPackagePrototypeError(
+      "storage_failed",
+      "The package spool could not be read",
+      { cause: error },
+    );
+  }
+  if (serialized === null) return emptySpoolState();
+  try {
+    return offlineScormPackageSpoolStateSchema.parse(JSON.parse(serialized));
+  } catch (error) {
+    throw new OfflineScormPackagePrototypeError(
+      "spool_corrupt",
+      "The package spool is not valid",
+      { cause: error },
+    );
+  }
+}
+
 export class OfflineScormPackageSpool {
   constructor(
     private readonly storage: Pick<Storage, "getItem" | "setItem">,
@@ -271,28 +297,10 @@ export class OfflineScormPackageSpool {
   ) {}
 
   private readState(): z.infer<typeof offlineScormPackageSpoolStateSchema> {
-    const storageKey =
-      this.options.storageKey ?? OFFLINE_SCORM_PACKAGE_SPOOL_KEY;
-    let serialized: string | null;
-    try {
-      serialized = this.storage.getItem(storageKey);
-    } catch (error) {
-      throw new OfflineScormPackagePrototypeError(
-        "storage_failed",
-        "The package spool could not be read",
-        { cause: error },
-      );
-    }
-    if (serialized === null) return emptySpoolState();
-    try {
-      return offlineScormPackageSpoolStateSchema.parse(JSON.parse(serialized));
-    } catch (error) {
-      throw new OfflineScormPackagePrototypeError(
-        "spool_corrupt",
-        "The package spool is not valid",
-        { cause: error },
-      );
-    }
+    return readOfflineScormPackageSpoolState(
+      this.storage,
+      this.options.storageKey ?? OFFLINE_SCORM_PACKAGE_SPOOL_KEY,
+    );
   }
 
   private writeState(
@@ -716,7 +724,7 @@ export async function cleanupOfflineScormPackageSite(input: {
   clearSiteData: () => Promise<void>;
   caches: Pick<CacheStorage, "delete" | "keys">;
   indexedDB: Pick<IDBFactory, "databases" | "deleteDatabase">;
-  localStorage: Pick<Storage, "clear">;
+  localStorage: Pick<Storage, "clear" | "getItem">;
   sessionStorage: Pick<Storage, "clear">;
   serviceWorker: Pick<ServiceWorkerContainer, "getRegistrations">;
   cookieStore?: OfflineScormCookieStore;
@@ -725,6 +733,12 @@ export async function cleanupOfflineScormPackageSite(input: {
   try {
     if (!input.cookieStore && !input.cookieDocument)
       throw new Error("A package-site cookie cleanup boundary is required");
+    if (
+      readOfflineScormPackageSpoolState(input.localStorage).entries.length > 0
+    )
+      throw new Error(
+        "Pending package checkpoints must be imported before cleanup",
+      );
     await input.clearSiteData();
     const databaseNames = (await input.indexedDB.databases()).flatMap(
       (database) => (database.name ? [database.name] : []),

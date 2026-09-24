@@ -689,7 +689,7 @@ describe("isolated offline SCORM package prototype", () => {
     ] as unknown as ServiceWorkerRegistration[];
     let caches = ["package", "vendor"];
     let cookies = [{ name: "vendor" }];
-    const localStorage = { clear: vi.fn() };
+    const localStorage = { clear: vi.fn(), getItem: vi.fn(() => null) };
     const sessionStorage = { clear: vi.fn() };
     const cookieDelete = vi.fn((name: string) => {
       cookies = cookies.filter((cookie) => cookie.name !== name);
@@ -730,5 +730,44 @@ describe("isolated offline SCORM package prototype", () => {
     expect(sessionStorage.clear).toHaveBeenCalledOnce();
     expect(cookieDelete).toHaveBeenCalledWith("vendor");
     expect(caches).toEqual([]);
+  });
+
+  it("refuses package-site cleanup while checkpoints await import", async () => {
+    const storage = new MemoryStorage();
+    const spool = new OfflineScormPackageSpool(storage);
+    spool.beginLaunch("launch_session_000001");
+    spool.appendCheckpoint(checkpoint());
+    const clearSiteData = vi.fn(() => Promise.resolve());
+    const clearLocalStorage = vi.fn(() => {
+      storage.values.clear();
+    });
+
+    await expect(
+      cleanupOfflineScormPackageSite({
+        clearSiteData,
+        caches: {
+          keys: () => Promise.resolve([]),
+          delete: vi.fn(() => Promise.resolve(true)),
+        },
+        indexedDB: {
+          databases: () => Promise.resolve([]),
+          deleteDatabase: vi.fn(),
+        },
+        localStorage: {
+          clear: clearLocalStorage,
+          getItem: storage.getItem,
+        },
+        sessionStorage: { clear: vi.fn() },
+        serviceWorker: { getRegistrations: () => Promise.resolve([]) },
+        cookieStore: {
+          getAll: () => Promise.resolve([]),
+          delete: vi.fn(() => Promise.resolve()),
+        },
+      }),
+    ).rejects.toMatchObject({ code: "cleanup_failed" });
+
+    expect(clearSiteData).not.toHaveBeenCalled();
+    expect(clearLocalStorage).not.toHaveBeenCalled();
+    expect(spool.listEntries()).toHaveLength(1);
   });
 });

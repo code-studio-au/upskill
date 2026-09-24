@@ -158,6 +158,14 @@ describe("offline SCORM package prototype assets", () => {
     );
     expect(packageRuntime?.body).toContain("document.cookie.split");
     expect(packageRuntime?.body).toContain("document.requestStorageAccess");
+    const cleanupGuard = packageRuntime?.body.indexOf(
+      'type: "prototype-cleanup-blocked"',
+    );
+    const clearSiteDataRequest = packageRuntime?.body.indexOf(
+      `fetch("${OFFLINE_SCORM_PROTOTYPE_PREFIX}/clear-site-data"`,
+    );
+    expect(cleanupGuard).toBeGreaterThan(-1);
+    expect(clearSiteDataRequest).toBeGreaterThan(cleanupGuard ?? -1);
 
     const cleanup = asset(
       configuration.packageOrigin,
