@@ -561,6 +561,8 @@ function sha256(value) {
 
 function packageWorker(files, packageOrigin) {
   const inventory = [...files.entries()].map(([pathname, asset]) => ({
+    contentSecurityPolicy: asset.csp,
+    contentType: asset.contentType,
     pathname,
     sha256: sha256(asset.body),
     sizeBytes: Buffer.byteLength(asset.body),
@@ -574,6 +576,20 @@ const READY_URL = PACKAGE_ORIGIN + "/.__upskill_offline__/ready/${packageDigest}
 
 function hex(bytes) {
   return [...new Uint8Array(bytes)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function trustedResponse(bytes, file) {
+  return new Response(bytes, {
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Security-Policy": file.contentSecurityPolicy,
+      "Content-Type": file.contentType,
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    },
+    status: 200,
+  });
 }
 
 async function installPackage() {
@@ -593,7 +609,7 @@ async function installPackage() {
       const digest = hex(await crypto.subtle.digest("SHA-256", bytes));
       if (bytes.byteLength !== file.sizeBytes || digest !== file.sha256)
         throw new Error("Integrity failure");
-      await staging.put(request, new Response(bytes, { headers: response.headers }));
+      await staging.put(request, trustedResponse(bytes, file));
     }
     const published = await caches.open(CACHE_NAME);
     if (await published.match(READY_URL)) return;
@@ -636,11 +652,11 @@ self.addEventListener("fetch", (event) => {
       const cached = await cache.match(event.request);
       if (!file || !cached) return Response.error();
       try {
-        const bytes = await cached.clone().arrayBuffer();
+        const bytes = await cached.arrayBuffer();
         const digest = hex(await crypto.subtle.digest("SHA-256", bytes));
         if (bytes.byteLength !== file.sizeBytes || digest !== file.sha256)
           return Response.error();
-        return cached;
+        return trustedResponse(bytes, file);
       } catch {
         return Response.error();
       }

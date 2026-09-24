@@ -98,13 +98,25 @@ describe("offline SCORM package prototype assets", () => {
     expect(worker?.body).toContain("await published.put(READY_URL");
     expect(worker?.body).toContain("crypto.randomUUID()");
     expect(worker?.body).not.toContain("await caches.delete(CACHE_NAME)");
-    expect(worker?.body).toContain("await cached.clone().arrayBuffer()");
+    expect(worker?.body).toContain("await cached.arrayBuffer()");
     expect(worker?.body).toContain(
       "bytes.byteLength !== file.sizeBytes || digest !== file.sha256",
     );
     expect(worker?.body).toContain(
       "if (!file || !cached) return Response.error()",
     );
+    expect(worker?.body).toContain("return trustedResponse(bytes, file)");
+    expect(worker?.body).toContain('"Cache-Control": "no-store"');
+    expect(worker?.body).toContain(
+      '"Content-Security-Policy": file.contentSecurityPolicy',
+    );
+    expect(worker?.body).toContain('"Content-Type": file.contentType');
+    expect(worker?.body).toContain(
+      '"Cross-Origin-Resource-Policy": "same-origin"',
+    );
+    expect(worker?.body).toContain('"Referrer-Policy": "no-referrer"');
+    expect(worker?.body).toContain('"X-Content-Type-Options": "nosniff"');
+    expect(worker?.body).not.toContain("return cached;");
     expect(worker?.body).not.toContain(
       "(await cache.match(event.request)) || fetch(event.request)",
     );

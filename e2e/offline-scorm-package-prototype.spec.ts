@@ -207,7 +207,11 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     })
     .toBe(0);
 
-  const corruptCacheResults: { missing: string; replaced: string } = await page
+  const corruptCacheResults: {
+    missing: string;
+    replaced: string;
+    verifiedHeaders: Record<string, string | null>;
+  } = await page
     .frameLocator("#package-frame")
     .locator("#package-status")
     .evaluate(async () => {
@@ -230,9 +234,36 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
         throw new Error("Cached vendor script fixture is missing");
       const cachedVendor = await cache.match(vendorUrl.href);
       if (!cachedVendor) throw new Error("Cached vendor fixture is missing");
-      const tamperedBytes = new Uint8Array(
-        (await cachedVendor.arrayBuffer()).byteLength,
+      const cachedVendorBytes = await cachedVendor.arrayBuffer();
+      await cache.put(
+        vendorUrl.href,
+        new Response(cachedVendorBytes, {
+          headers: {
+            "Cache-Control": "public, max-age=31536000",
+            "Content-Security-Policy": "default-src *",
+            "Content-Type": "text/plain",
+            "Cross-Origin-Resource-Policy": "cross-origin",
+            "Referrer-Policy": "unsafe-url",
+            "X-Content-Type-Options": "attacker-controlled",
+          },
+        }),
       );
+      const verifiedResponse = await fetch(vendorUrl.href);
+      const verifiedHeaders = {
+        cacheControl: verifiedResponse.headers.get("cache-control"),
+        contentSecurityPolicy: verifiedResponse.headers.get(
+          "content-security-policy",
+        ),
+        contentType: verifiedResponse.headers.get("content-type"),
+        crossOriginResourcePolicy: verifiedResponse.headers.get(
+          "cross-origin-resource-policy",
+        ),
+        referrerPolicy: verifiedResponse.headers.get("referrer-policy"),
+        xContentTypeOptions: verifiedResponse.headers.get(
+          "x-content-type-options",
+        ),
+      };
+      const tamperedBytes = new Uint8Array(cachedVendorBytes.byteLength);
       tamperedBytes.fill(120);
       await cache.put(vendorUrl.href, new Response(tamperedBytes));
       const fetchResult = async (url: string): Promise<string> => {
@@ -246,12 +277,23 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
       return {
         missing: await fetchResult(vendorScriptUrl.href),
         replaced: await fetchResult(vendorUrl.href),
+        verifiedHeaders,
       };
     });
-  expect(corruptCacheResults).toEqual({
+  expect(corruptCacheResults).toMatchObject({
     missing: "failed-closed",
     replaced: "failed-closed",
+    verifiedHeaders: {
+      cacheControl: "no-store",
+      contentType: "text/html",
+      crossOriginResourcePolicy: "same-origin",
+      referrerPolicy: "no-referrer",
+      xContentTypeOptions: "nosniff",
+    },
   });
+  expect(corruptCacheResults.verifiedHeaders.contentSecurityPolicy).toContain(
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  );
 
   await page.evaluate(() =>
     window.offlineScormPrototype?.command("package", "cleanup"),

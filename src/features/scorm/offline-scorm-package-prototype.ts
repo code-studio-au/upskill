@@ -475,6 +475,25 @@ function packageFileRequest(
   });
 }
 
+function trustedPackageFileResponse(
+  bytes: ArrayBuffer,
+  file: OfflineScormPackageManifest["files"][number],
+  applicationOrigin: string,
+): Response {
+  return new Response(bytes, {
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Security-Policy":
+        buildLearningContentSecurityPolicy(applicationOrigin),
+      "Content-Type": file.contentType,
+      "Cross-Origin-Resource-Policy": "same-origin",
+      "Referrer-Policy": "no-referrer",
+      "X-Content-Type-Options": "nosniff",
+    },
+    status: 200,
+  });
+}
+
 export async function installOfflineScormPackage(input: {
   manifest: OfflineScormPackageManifest;
   applicationOrigin: string;
@@ -519,18 +538,7 @@ export async function installOfflineScormPackage(input: {
         );
       await temporaryCache.put(
         request,
-        new Response(bytes, {
-          headers: {
-            "Content-Security-Policy": buildLearningContentSecurityPolicy(
-              input.applicationOrigin,
-            ),
-            "Content-Type": file.contentType,
-            "Cross-Origin-Resource-Policy": "same-origin",
-            "Referrer-Policy": "no-referrer",
-            "X-Content-Type-Options": "nosniff",
-          },
-          status: 200,
-        }),
+        trustedPackageFileResponse(bytes, file, input.applicationOrigin),
       );
     }
 
@@ -570,11 +578,13 @@ export async function installOfflineScormPackage(input: {
 
 export async function matchInstalledOfflineScormPackage(input: {
   manifest: OfflineScormPackageManifest;
+  applicationOrigin: string;
   caches: Pick<CacheStorage, "open">;
   request: Request;
   subtle: Pick<SubtleCrypto, "digest">;
 }): Promise<Response | null> {
   const manifest = offlineScormPackageManifestSchema.parse(input.manifest);
+  const applicationOrigin = exactOrigin(input.applicationOrigin).origin;
   const requestUrl = new URL(input.request.url);
   if (
     input.request.method !== "GET" ||
@@ -594,13 +604,13 @@ export async function matchInstalledOfflineScormPackage(input: {
   );
   if (!cached) return Response.error();
   try {
-    const bytes = await cached.clone().arrayBuffer();
+    const bytes = await cached.arrayBuffer();
     if (
       bytes.byteLength !== file.sizeBytes ||
       (await responseSha256(bytes, input.subtle)) !== file.sha256
     )
       return Response.error();
-    return cached;
+    return trustedPackageFileResponse(bytes, file, applicationOrigin);
   } catch {
     return Response.error();
   }

@@ -317,6 +317,7 @@ describe("isolated offline SCORM package prototype", () => {
     expect([...caches.stores.keys()]).toEqual([installed.cacheName]);
     const installedEntrypoint = await matchInstalledOfflineScormPackage({
       manifest,
+      applicationOrigin: "https://app.upskill.example",
       caches: caches as unknown as Pick<CacheStorage, "open">,
       request: new Request(`${manifest.packageOrigin}/index.html`),
       subtle: crypto.subtle,
@@ -327,6 +328,7 @@ describe("isolated offline SCORM package prototype", () => {
     await expect(
       matchInstalledOfflineScormPackage({
         manifest,
+        applicationOrigin: "https://app.upskill.example",
         caches: caches as unknown as Pick<CacheStorage, "open">,
         request: new Request(`${manifest.packageOrigin}/index.html`),
         subtle: crypto.subtle,
@@ -340,7 +342,7 @@ describe("isolated offline SCORM package prototype", () => {
     }
   });
 
-  it("fails closed when package code replaces a published cache entry", async () => {
+  it("rebuilds trusted headers and fails closed on replaced package bytes", async () => {
     const files = {
       "/index.html": { body: "ready", contentType: "text/html" },
     };
@@ -361,11 +363,45 @@ describe("isolated offline SCORM package prototype", () => {
     const readyCache = caches.stores.get(installed.cacheName);
     await readyCache?.put(
       `${manifest.packageOrigin}/index.html`,
+      new Response("ready", {
+        headers: {
+          "Cache-Control": "public, max-age=31536000",
+          "Content-Security-Policy": "default-src *",
+          "Content-Type": "text/plain",
+          "Cross-Origin-Resource-Policy": "cross-origin",
+          "Referrer-Policy": "unsafe-url",
+          "X-Content-Type-Options": "attacker-controlled",
+        },
+      }),
+    );
+
+    const verifiedResponse = await matchInstalledOfflineScormPackage({
+      manifest,
+      applicationOrigin: "https://app.upskill.example",
+      caches: caches as unknown as Pick<CacheStorage, "open">,
+      request: new Request(`${manifest.packageOrigin}/index.html`),
+      subtle: crypto.subtle,
+    });
+
+    await expect(verifiedResponse?.text()).resolves.toBe("ready");
+    expect(Object.fromEntries(verifiedResponse?.headers ?? [])).toEqual({
+      "cache-control": "no-store",
+      "content-security-policy":
+        "base-uri 'none'; connect-src 'self'; default-src 'self'; font-src 'self' data:; form-action 'none'; frame-ancestors 'self' https://app.upskill.example; frame-src 'self' https://embed.articulateusercontent.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src-attr 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; worker-src 'self' blob:",
+      "content-type": "text/html",
+      "cross-origin-resource-policy": "same-origin",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+    });
+
+    await readyCache?.put(
+      `${manifest.packageOrigin}/index.html`,
       new Response("rogue"),
     );
 
     const response = await matchInstalledOfflineScormPackage({
       manifest,
+      applicationOrigin: "https://app.upskill.example",
       caches: caches as unknown as Pick<CacheStorage, "open">,
       request: new Request(`${manifest.packageOrigin}/index.html`),
       subtle: crypto.subtle,
@@ -519,6 +555,7 @@ describe("isolated offline SCORM package prototype", () => {
     await expect(
       matchInstalledOfflineScormPackage({
         manifest,
+        applicationOrigin: "https://app.upskill.example",
         caches: caches as unknown as Pick<CacheStorage, "open">,
         request: new Request(`${manifest.packageOrigin}/index.html`),
         subtle: crypto.subtle,
