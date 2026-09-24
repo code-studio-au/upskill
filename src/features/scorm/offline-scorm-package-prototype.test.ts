@@ -319,6 +319,7 @@ describe("isolated offline SCORM package prototype", () => {
       manifest,
       caches: caches as unknown as Pick<CacheStorage, "open">,
       request: new Request(`${manifest.packageOrigin}/index.html`),
+      subtle: crypto.subtle,
     });
     expect(installedEntrypoint?.headers.get("content-security-policy")).toBe(
       "base-uri 'none'; connect-src 'self'; default-src 'self'; font-src 'self' data:; form-action 'none'; frame-ancestors 'self' https://app.upskill.example; frame-src 'self' https://embed.articulateusercontent.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src-attr 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; worker-src 'self' blob:",
@@ -328,6 +329,7 @@ describe("isolated offline SCORM package prototype", () => {
         manifest,
         caches: caches as unknown as Pick<CacheStorage, "open">,
         request: new Request(`${manifest.packageOrigin}/index.html`),
+        subtle: crypto.subtle,
       }).then((response) => response?.text()),
     ).resolves.toBe("<h1>Rise fixture</h1>");
     expect(packageFetch).toHaveBeenCalledTimes(2);
@@ -336,6 +338,41 @@ describe("isolated offline SCORM package prototype", () => {
       expect((request as Request).credentials).toBe("omit");
       expect(init).toMatchObject({ credentials: "omit", cache: "no-store" });
     }
+  });
+
+  it("fails closed when package code replaces a published cache entry", async () => {
+    const files = {
+      "/index.html": { body: "ready", contentType: "text/html" },
+    };
+    const manifest = packageManifest(files);
+    const caches = new MemoryCacheStorage();
+    const installed = await installOfflineScormPackage({
+      manifest,
+      applicationOrigin: "https://app.upskill.example",
+      learningOrigin: "https://learn.upskill.example",
+      caches: caches as unknown as Pick<
+        CacheStorage,
+        "delete" | "match" | "open"
+      >,
+      fetch: vi.fn(() => Promise.resolve(new Response("ready"))),
+      subtle: crypto.subtle,
+      randomUUID: () => "staging-id",
+    });
+    const readyCache = caches.stores.get(installed.cacheName);
+    await readyCache?.put(
+      `${manifest.packageOrigin}/index.html`,
+      new Response("rogue"),
+    );
+
+    const response = await matchInstalledOfflineScormPackage({
+      manifest,
+      caches: caches as unknown as Pick<CacheStorage, "open">,
+      request: new Request(`${manifest.packageOrigin}/index.html`),
+      subtle: crypto.subtle,
+    });
+
+    expect(response?.type).toBe("error");
+    expect(response?.status).toBe(0);
   });
 
   it("reuses an immutable ready cache without risking its contents", async () => {
@@ -484,6 +521,7 @@ describe("isolated offline SCORM package prototype", () => {
         manifest,
         caches: caches as unknown as Pick<CacheStorage, "open">,
         request: new Request(`${manifest.packageOrigin}/index.html`),
+        subtle: crypto.subtle,
       }).then((response) => response?.text()),
     ).resolves.toBe("ready");
     expect([...caches.stores.keys()]).toEqual([finalCacheName]);
@@ -676,14 +714,15 @@ describe("isolated offline SCORM package prototype", () => {
 
   it("requires Safari-style storage access to pass a real round trip", async () => {
     const values = new Map<string, string>();
+    const setItem = vi.fn((key: string, value: string) => {
+      values.set(key, value);
+    });
     const storage = {
       getItem: (key: string) => values.get(key) ?? null,
       removeItem: (key: string) => {
         values.delete(key);
       },
-      setItem: (key: string, value: string) => {
-        values.set(key, value);
-      },
+      setItem,
     } as Pick<Storage, "getItem" | "removeItem" | "setItem">;
     const requestStorageAccess = vi.fn(() => Promise.resolve());
     await expect(
@@ -706,6 +745,31 @@ describe("isolated offline SCORM package prototype", () => {
     ).resolves.toBe("granted");
     expect(requestStorageAccess).toHaveBeenCalledOnce();
     expect(values.size).toBe(0);
+    expect(setItem.mock.calls.map(([, value]) => value)).toEqual([
+      "upskill-offline-storage-probe-ordinary-probe-initial",
+      "upskill-offline-storage-probe-ordinary-probe-replacement",
+      "upskill-offline-storage-probe-probe-initial",
+      "upskill-offline-storage-probe-probe-replacement",
+    ]);
+
+    const replaceBlockedValues = new Map<string, string>();
+    await expect(
+      requestOfflineScormPackageStorageAccess({
+        document: {},
+        storage: {
+          getItem: (key) => replaceBlockedValues.get(key) ?? null,
+          removeItem: (key) => {
+            replaceBlockedValues.delete(key);
+          },
+          setItem: (key, value) => {
+            if (!replaceBlockedValues.has(key))
+              replaceBlockedValues.set(key, value);
+          },
+        },
+        randomUUID: () => "replace-blocked-probe",
+      }),
+    ).rejects.toMatchObject({ code: "storage_access_denied" });
+    expect(replaceBlockedValues.size).toBe(0);
 
     await expect(
       requestOfflineScormPackageStorageAccess({

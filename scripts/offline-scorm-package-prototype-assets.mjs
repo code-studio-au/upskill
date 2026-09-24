@@ -517,13 +517,21 @@ function packageScript({ applicationOrigin }) {
     });
 
     document.getElementById("enable-storage").addEventListener("click", async () => {
+      const key = "prototype-storage-probe";
       try {
         if (document.requestStorageAccess && !(await document.hasStorageAccess?.()))
           await document.requestStorageAccess();
-        const key = "prototype-storage-probe";
-        localStorage.setItem(key, key);
-        if (localStorage.getItem(key) !== key) throw new Error("Storage probe failed");
+        const initialValue = key + "-initial";
+        const replacementValue = key + "-replacement";
+        localStorage.setItem(key, initialValue);
+        if (localStorage.getItem(key) !== initialValue)
+          throw new Error("Storage write probe failed");
+        localStorage.setItem(key, replacementValue);
+        if (localStorage.getItem(key) !== replacementValue)
+          throw new Error("Storage replace probe failed");
         localStorage.removeItem(key);
+        if (localStorage.getItem(key) !== null)
+          throw new Error("Storage delete probe failed");
         report({
           type: document.requestStorageAccess
             ? "prototype-storage-access-granted"
@@ -531,6 +539,11 @@ function packageScript({ applicationOrigin }) {
         });
         if (safariQualification) await preparePackage();
       } catch {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // The failed capability probe already denies package-site storage.
+        }
         report({ type: "prototype-storage-access-denied" });
       }
     });
@@ -619,8 +632,18 @@ self.addEventListener("fetch", (event) => {
   event.respondWith(
     caches.open(CACHE_NAME).then(async (cache) => {
       if (!(await cache.match(READY_URL))) return fetch(event.request);
+      const file = INVENTORY.find((candidate) => candidate.pathname === url.pathname);
       const cached = await cache.match(event.request);
-      return cached ?? Response.error();
+      if (!file || !cached) return Response.error();
+      try {
+        const bytes = await cached.clone().arrayBuffer();
+        const digest = hex(await crypto.subtle.digest("SHA-256", bytes));
+        if (bytes.byteLength !== file.sizeBytes || digest !== file.sha256)
+          return Response.error();
+        return cached;
+      } catch {
+        return Response.error();
+      }
     }),
   );
 });

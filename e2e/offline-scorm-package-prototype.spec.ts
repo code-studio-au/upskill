@@ -207,7 +207,7 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     })
     .toBe(0);
 
-  const corruptCacheResult: string = await page
+  const corruptCacheResults: { missing: string; replaced: string } = await page
     .frameLocator("#package-frame")
     .locator("#package-status")
     .evaluate(async () => {
@@ -217,21 +217,41 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
           !name.includes("-staging-"),
       );
       if (!cacheName) throw new Error("Ready package cache is missing");
+      const vendorScriptUrl = new URL(
+        "/__offline-scorm-package-prototype/vendor.js",
+        location.origin,
+      );
       const vendorUrl = new URL(
         "/__offline-scorm-package-prototype/vendor.html",
         location.origin,
       );
       const cache = await caches.open(cacheName);
-      if (!(await cache.delete(vendorUrl.href)))
-        throw new Error("Cached vendor fixture is missing");
-      try {
-        await fetch(vendorUrl.href);
-        return "network-fallback";
-      } catch {
-        return "failed-closed";
-      }
+      if (!(await cache.delete(vendorScriptUrl.href)))
+        throw new Error("Cached vendor script fixture is missing");
+      const cachedVendor = await cache.match(vendorUrl.href);
+      if (!cachedVendor) throw new Error("Cached vendor fixture is missing");
+      const tamperedBytes = new Uint8Array(
+        (await cachedVendor.arrayBuffer()).byteLength,
+      );
+      tamperedBytes.fill(120);
+      await cache.put(vendorUrl.href, new Response(tamperedBytes));
+      const fetchResult = async (url: string): Promise<string> => {
+        try {
+          await fetch(url);
+          return "network-fallback";
+        } catch {
+          return "failed-closed";
+        }
+      };
+      return {
+        missing: await fetchResult(vendorScriptUrl.href),
+        replaced: await fetchResult(vendorUrl.href),
+      };
     });
-  expect(corruptCacheResult).toBe("failed-closed");
+  expect(corruptCacheResults).toEqual({
+    missing: "failed-closed",
+    replaced: "failed-closed",
+  });
 
   await page.evaluate(() =>
     window.offlineScormPrototype?.command("package", "cleanup"),
@@ -289,6 +309,11 @@ test("Safari qualification requires an explicit package-site storage decision", 
   );
   expect(storageDenied).toBe(false);
   await waitForPrototypeEvent(page, "prototype-package-ready");
+  const storageProbeValue: string | null = await page
+    .frameLocator("#package-frame")
+    .locator("#package-status")
+    .evaluate(() => localStorage.getItem("prototype-storage-probe"));
+  expect(storageProbeValue).toBeNull();
   expect(
     events.some((event) => event.type === "prototype-completed-and-synced"),
   ).toBe(false);

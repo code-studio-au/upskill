@@ -572,6 +572,7 @@ export async function matchInstalledOfflineScormPackage(input: {
   manifest: OfflineScormPackageManifest;
   caches: Pick<CacheStorage, "open">;
   request: Request;
+  subtle: Pick<SubtleCrypto, "digest">;
 }): Promise<Response | null> {
   const manifest = offlineScormPackageManifestSchema.parse(input.manifest);
   const requestUrl = new URL(input.request.url);
@@ -579,16 +580,30 @@ export async function matchInstalledOfflineScormPackage(input: {
     input.request.method !== "GET" ||
     requestUrl.origin !== manifest.packageOrigin ||
     requestUrl.search !== "" ||
-    requestUrl.hash !== "" ||
-    !manifest.files.some((file) => file.pathname === requestUrl.pathname)
+    requestUrl.hash !== ""
   )
     return null;
+  const file = manifest.files.find(
+    (candidate) => candidate.pathname === requestUrl.pathname,
+  );
+  if (!file) return null;
   const cache = await input.caches.open(packageCacheName(manifest));
   if (!(await cache.match(packageReadyUrl(manifest)))) return null;
-  return (
-    (await cache.match(packageFileRequest(manifest, requestUrl.pathname))) ??
-    null
+  const cached = await cache.match(
+    packageFileRequest(manifest, requestUrl.pathname),
   );
+  if (!cached) return Response.error();
+  try {
+    const bytes = await cached.clone().arrayBuffer();
+    if (
+      bytes.byteLength !== file.sizeBytes ||
+      (await responseSha256(bytes, input.subtle)) !== file.sha256
+    )
+      return Response.error();
+    return cached;
+  } catch {
+    return Response.error();
+  }
 }
 
 export function isExpectedOfflineScormSiblingReady(input: {
@@ -672,18 +687,31 @@ export async function requestOfflineScormPackageStorageAccess(input: {
   randomUUID: () => string;
 }): Promise<"granted" | "not_required"> {
   const requiresStorageAccess = Boolean(input.document.requestStorageAccess);
+  const key = `upskill-offline-storage-probe-${input.randomUUID()}`;
+  const initialValue = `${key}-initial`;
+  const replacementValue = `${key}-replacement`;
   try {
     if (
       input.document.requestStorageAccess &&
       !(await input.document.hasStorageAccess?.())
     )
       await input.document.requestStorageAccess();
-    const key = `upskill-offline-storage-probe-${input.randomUUID()}`;
-    input.storage.setItem(key, key);
-    if (input.storage.getItem(key) !== key) throw new Error("Probe mismatch");
+    input.storage.setItem(key, initialValue);
+    if (input.storage.getItem(key) !== initialValue)
+      throw new Error("Storage write probe mismatch");
+    input.storage.setItem(key, replacementValue);
+    if (input.storage.getItem(key) !== replacementValue)
+      throw new Error("Storage replace probe mismatch");
     input.storage.removeItem(key);
+    if (input.storage.getItem(key) !== null)
+      throw new Error("Storage delete probe mismatch");
     return requiresStorageAccess ? "granted" : "not_required";
   } catch (error) {
+    try {
+      input.storage.removeItem(key);
+    } catch {
+      // The failed capability probe already denies package-site storage.
+    }
     throw new OfflineScormPackagePrototypeError(
       "storage_access_denied",
       "Package-site storage access was not confirmed",

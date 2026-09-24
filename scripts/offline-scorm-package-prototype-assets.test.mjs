@@ -98,7 +98,13 @@ describe("offline SCORM package prototype assets", () => {
     expect(worker?.body).toContain("await published.put(READY_URL");
     expect(worker?.body).toContain("crypto.randomUUID()");
     expect(worker?.body).not.toContain("await caches.delete(CACHE_NAME)");
-    expect(worker?.body).toContain("return cached ?? Response.error()");
+    expect(worker?.body).toContain("await cached.clone().arrayBuffer()");
+    expect(worker?.body).toContain(
+      "bytes.byteLength !== file.sizeBytes || digest !== file.sha256",
+    );
+    expect(worker?.body).toContain(
+      "if (!file || !cached) return Response.error()",
+    );
     expect(worker?.body).not.toContain(
       "(await cache.match(event.request)) || fetch(event.request)",
     );
@@ -158,6 +164,15 @@ describe("offline SCORM package prototype assets", () => {
     );
     expect(packageRuntime?.body).toContain("document.cookie.split");
     expect(packageRuntime?.body).toContain("document.requestStorageAccess");
+    expect(packageRuntime?.body).toContain(
+      'const replacementValue = key + "-replacement"',
+    );
+    expect(packageRuntime?.body).toContain(
+      "localStorage.getItem(key) !== replacementValue",
+    );
+    expect(packageRuntime?.body).toContain(
+      "localStorage.getItem(key) !== null",
+    );
     const cleanupGuard = packageRuntime?.body.indexOf(
       'type: "prototype-cleanup-blocked"',
     );
