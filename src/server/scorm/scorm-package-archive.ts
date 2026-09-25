@@ -1,5 +1,6 @@
 import "@tanstack/react-start/server-only";
 
+import { createHash } from "node:crypto";
 import { posix } from "node:path";
 import {
   Uint8ArrayReader,
@@ -56,6 +57,12 @@ export interface ScormPackageManifest {
   launchPath: string;
   fileCount: number;
   expandedBytes: number;
+  files: ReadonlyArray<{
+    path: string;
+    sha256: string;
+    sizeBytes: number;
+    contentType: string;
+  }>;
 }
 
 interface ScormArchiveFile {
@@ -214,7 +221,7 @@ function parseManifest(
   paths: ReadonlySet<string>,
   fileCount: number,
   expandedBytes: number,
-): ScormPackageManifest {
+): Omit<ScormPackageManifest, "files"> {
   if (/<!DOCTYPE|<!ENTITY/i.test(xml))
     throw new ScormPackageValidationError(
       "invalid_manifest",
@@ -435,9 +442,22 @@ export async function processScormArchive(
       files.length,
       expandedBytes,
     );
-    if (onFile)
-      await extractFilesWithBoundedMemory(files, manifestBytes, onFile);
-    return manifest;
+    const inventory: ScormPackageManifest["files"][number][] = [];
+    await extractFilesWithBoundedMemory(files, manifestBytes, async (file) => {
+      inventory.push({
+        path: file.path,
+        sha256: createHash("sha256").update(file.bytes).digest("hex"),
+        sizeBytes: file.bytes.byteLength,
+        contentType: file.contentType,
+      });
+      await onFile?.(file);
+    });
+    return {
+      ...manifest,
+      files: inventory.toSorted((left, right) =>
+        left.path.localeCompare(right.path, "en"),
+      ),
+    };
   } finally {
     await reader.close();
   }

@@ -148,6 +148,7 @@ for (const [name, runner] of [
   for (const invariant of [
     'LIVEKIT_ENABLED: "false"',
     'LIVEKIT_PROJECT_ENVIRONMENT: "test"',
+    'OFFLINE_SCORM_ENABLED: "false"',
   ])
     if (!runner.includes(invariant))
       failures.push(
@@ -362,6 +363,18 @@ for (const requiredLiveKitBoundary of [
   if (!applicationStack.includes(requiredLiveKitBoundary))
     failures.push(
       `The dormant LiveKit configuration boundary is missing: ${requiredLiveKitBoundary}`,
+    );
+}
+for (const requiredOfflineScormBoundary of [
+  '"OfflineScormConfiguration"',
+  "offlineScormConfigurationSecret.grantRead(role)",
+  "offline_scorm_json",
+  "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID",
+  "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8",
+]) {
+  if (!applicationStack.includes(requiredOfflineScormBoundary))
+    failures.push(
+      `The dormant offline SCORM signing boundary is missing: ${requiredOfflineScormBoundary}`,
     );
 }
 for (const requiredRecordingStorageBoundary of [
@@ -823,6 +836,18 @@ for (const relative of [
   )
     failures.push(`LiveKit enablement must remain explicit: ${relative}`);
 }
+for (const relative of [
+  ".env.example",
+  "deploy/cdk/lib/application-stack.ts",
+  "src/server/runtime-environment.ts",
+]) {
+  if (
+    !fs
+      .readFileSync(path.join(root, relative), "utf8")
+      .includes("OFFLINE_SCORM_ENABLED")
+  )
+    failures.push(`Offline SCORM enablement must remain explicit: ${relative}`);
+}
 const liveKitProvider = fs.readFileSync(
   path.join(root, "src/server/livekit/livekit-provider.server.ts"),
   "utf8",
@@ -1020,6 +1045,17 @@ const offlineScormSignedEntitlementMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormSigningRuntime = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/scorm/offline-scorm-entitlement-signing-runtime.server.ts",
+  ),
+  "utf8",
+);
+const scormPackageArchive = fs.readFileSync(
+  path.join(root, "src/server/scorm/scorm-package-archive.ts"),
+  "utf8",
+);
 const liveKitProviderPolicyVerification = fs.readFileSync(
   path.join(root, "scripts/verify-livekit-provider-policy.ts"),
   "utf8",
@@ -1198,6 +1234,25 @@ for (const boundary of [
     failures.push(
       `Offline SCORM signed-entitlement evidence guard is missing: ${boundary}`,
     );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'type: "pkcs8"',
+  "createOfflineScormEntitlementSigner",
+  'publicKeySpki: publicKeySpki.toString("base64url")',
+  "decodeCanonicalBase64Url",
+])
+  if (!offlineScormSigningRuntime.includes(boundary))
+    failures.push(
+      `Offline SCORM signing-authority boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'createHash("sha256")',
+  "sizeBytes: file.bytes.byteLength",
+  "contentType: file.contentType",
+  "inventory.toSorted",
+])
+  if (!scormPackageArchive.includes(boundary))
+    failures.push(`SCORM package inventory boundary is missing: ${boundary}`);
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
   'selectFrom("event_virtual_attendance_decision as decision")',
@@ -2065,6 +2120,7 @@ if (
   );
 for (const invariant of [
   'secret-id "${secret_prefix}/livekit"',
+  'secret-id "${secret_prefix}/offline-scorm"',
   "aws ssm get-parameter",
   "if ! recording_upload_role_arn=",
   'if [[ -n "$recording_upload_role_arn" ]]',
@@ -2075,6 +2131,8 @@ for (const invariant of [
   "/livekit/recording-access-grants-account-id",
   "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
+  'OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID',
+  '>> "$web_environment_tmp"',
   "upskill-web.env",
   "upskill-worker.env",
   "upskill-deploy.env",

@@ -246,9 +246,13 @@ reconciliation receipt identity and exact-site cleanup inventory. The shared
 Course/Event launch policy and generation-checked exclusive-writer transition
 are implemented, including refusal of ordinary online credentials while an
 offline writer is active, but no route can register an installation, invoke the
-transition or reconcile those records yet. Later offline activation must retain the
-per-attempt registrable-site/cookie boundary, keep keys and entitlements out of
-package code, and pass the staged impact and qualification plan before exposure.
+transition or reconcile those records yet. A dedicated per-environment secret
+now keeps activation disabled by default and accepts only a canonical P-256
+PKCS8 signing key; newly ingested immutable package versions retain exact
+per-file digests, lengths and content types for the future credential-free
+installer. Later offline activation must retain the per-attempt
+registrable-site/cookie boundary, keep keys and entitlements out of package
+code, and pass the staged impact and qualification plan before exposure.
 The dormant package prototype now enforces that site boundary, credential-free
 digest-checked caching, exact-attempt Web Lock exclusion, bounded synchronous
 staging, exact-source sibling-channel binding and fail-closed whole-site

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -224,6 +224,7 @@ try {
         "launchPath",
         "contentPrefix",
         "failureCode",
+        "manifest",
         "processedAt",
       ])
       .where("id", "=", item.packageVersionId)
@@ -242,6 +243,24 @@ try {
       5 * 1024 * 1024,
     );
     assert.ok(launch.byteLength > 0);
+    const storedManifest = version.manifest as {
+      files?: Array<{
+        path?: unknown;
+        sha256?: unknown;
+        sizeBytes?: unknown;
+        contentType?: unknown;
+      }>;
+    };
+    assert.equal((storedManifest.files?.length ?? 0) > 0, true);
+    const launchInventory = storedManifest.files?.find(
+      (file) => file.path === version.launchPath,
+    );
+    assert.deepEqual(launchInventory, {
+      path: version.launchPath,
+      sha256: createHash("sha256").update(launch).digest("hex"),
+      sizeBytes: launch.byteLength,
+      contentType: "text/html; charset=utf-8",
+    });
     assert.deepEqual(
       await ingestScormPackageVersion(
         item.packageVersionId,

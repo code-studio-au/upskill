@@ -165,7 +165,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     LaunchTemplateData: { MetadataOptions: { HttpTokens: "required" } },
   });
   applicationTemplate.resourceCountIs("AWS::CloudWatch::Alarm", 13);
-  applicationTemplate.resourceCountIs("AWS::SecretsManager::Secret", 5);
+  applicationTemplate.resourceCountIs("AWS::SecretsManager::Secret", 6);
   applicationTemplate.hasResourceProperties("AWS::SecretsManager::Secret", {
     Name: "upskill/staging/livekit",
     Description: Match.stringLikeRegexp("Dormant LiveKit Cloud configuration"),
@@ -173,6 +173,13 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
       LIVEKIT_ENABLED: "false",
       LIVEKIT_PROJECT_ENVIRONMENT: "staging",
     }),
+  });
+  applicationTemplate.hasResourceProperties("AWS::SecretsManager::Secret", {
+    Name: "upskill/staging/offline-scorm",
+    Description: Match.stringLikeRegexp(
+      "Dormant offline SCORM signing authority",
+    ),
+    SecretString: JSON.stringify({ OFFLINE_SCORM_ENABLED: "false" }),
   });
   const secrets = applicationTemplate.findResources(
     "AWS::SecretsManager::Secret",
@@ -204,6 +211,8 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(applicationJson).toContain("upskill-deploy.env");
   expect(applicationJson).toContain("livekit_json");
   expect(applicationJson).toContain("upskill/staging/livekit");
+  expect(applicationJson).toContain("offline_scorm_json");
+  expect(applicationJson).toContain("upskill/staging/offline-scorm");
   expect(applicationJson).toContain("S3_RECORDING_BUCKET");
   expect(applicationJson).toContain("LIVEKIT_RECORDING_UPLOAD_ROLE_ARN");
   expect(applicationJson).toContain(

@@ -260,6 +260,22 @@ export class ApplicationStack extends Stack {
             : RemovalPolicy.DESTROY,
       },
     );
+    const offlineScormConfigurationSecret = new Secret(
+      this,
+      "OfflineScormConfiguration",
+      {
+        secretName: `upskill/${props.config.name}/offline-scorm`,
+        description:
+          "Dormant offline SCORM signing authority; add a P-256 key before deliberate activation",
+        secretObjectValue: {
+          OFFLINE_SCORM_ENABLED: SecretValue.unsafePlainText("false"),
+        },
+        removalPolicy:
+          props.config.name === "production"
+            ? RemovalPolicy.RETAIN
+            : RemovalPolicy.DESTROY,
+      },
+    );
     const accessCodeEncryptionSecret = new Secret(
       this,
       "AccessCodeEncryptionKey",
@@ -303,6 +319,7 @@ export class ApplicationStack extends Stack {
     props.deadLetterQueue.grantConsumeMessages(role);
     configurationSecret.grantRead(role);
     liveKitConfigurationSecret.grantRead(role);
+    offlineScormConfigurationSecret.grantRead(role);
     accessCodeEncryptionSecret.grantRead(role);
     webDatabaseCredentials.grantRead(role);
     workerDatabaseCredentials.grantRead(role);
@@ -355,6 +372,7 @@ export class ApplicationStack extends Stack {
 set -euo pipefail
 application_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${configurationSecret.secretArn}' --query SecretString --output text)
 livekit_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${liveKitConfigurationSecret.secretArn}' --query SecretString --output text)
+offline_scorm_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${offlineScormConfigurationSecret.secretArn}' --query SecretString --output text)
 database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${props.databaseSecretArn}' --query SecretString --output text)
 web_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${webDatabaseCredentials.secretArn}' --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region ${this.region} --secret-id '${workerDatabaseCredentials.secretArn}' --query SecretString --output text)
@@ -369,6 +387,7 @@ deploy_environment_tmp=$(mktemp)
 trap 'rm -f -- "$base_environment_tmp" "$web_environment_tmp" "$worker_environment_tmp" "$deploy_environment_tmp"' EXIT
 jq -r 'to_entries[] | "\\(.key)=\\(.value|tostring|@json)"' <<< "$application_json" > "$base_environment_tmp"
 jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS") | "\\(.key)=\\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
+jq -rn '"OFFLINE_SCORM_ENABLED=false"' >> "$base_environment_tmp"
 jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\\($value|@json)"' >> "$base_environment_tmp"
 jq -rn --arg value "$recording_access_grants_account_id" '"LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID=\\($value|@json)"' >> "$base_environment_tmp"
 jq -rn --arg value "$livekit_approved_monthly_spend_aud" '"LIVEKIT_APPROVED_MONTHLY_SPEND_AUD=\\($value|@json)"' >> "$base_environment_tmp"
@@ -382,6 +401,7 @@ worker_database_url=$(jq -rn --argjson credentials "$worker_database_json" --arg
 cp "$base_environment_tmp" "$web_environment_tmp"
 cp "$base_environment_tmp" "$worker_environment_tmp"
 cp "$base_environment_tmp" "$deploy_environment_tmp"
+jq -r 'to_entries[] | select(.key == "OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8") | "\\(.key)=\\(.value|tostring|@json)"' <<< "$offline_scorm_json" >> "$web_environment_tmp"
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$web_environment_tmp"
 jq -rn --arg value "$worker_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$worker_environment_tmp"
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\\($value|@json)"' >> "$deploy_environment_tmp"
@@ -633,6 +653,11 @@ UPSKILL_ENV`,
       value: liveKitConfigurationSecret.secretArn,
       description:
         "Populate environment-specific LiveKit credentials and approved quotas before enablement",
+    });
+    new CfnOutput(this, "OfflineScormConfigurationSecretArn", {
+      value: offlineScormConfigurationSecret.secretArn,
+      description:
+        "Populate the P-256 signing authority only before deliberate offline SCORM activation",
     });
   }
 }
