@@ -249,6 +249,7 @@ function packageScript({ applicationOrigin }) {
     const APPLICATION_ORIGIN = ${JSON.stringify(applicationOrigin)};
     const VENDOR_PATH = ${JSON.stringify(paths.vendorHtml)};
     const SPOOL_KEY = "upskill-offline-scorm-spool-v1";
+    const SPOOL_BYTE_LIMIT = 524288;
     const LOCK_NAME = "upskill-offline-scorm-exact-attempt-v1";
     const status = document.getElementById("package-status");
     const vendorFrame = document.getElementById("vendor-frame");
@@ -272,6 +273,8 @@ function packageScript({ applicationOrigin }) {
     function readSpool() {
       const value = localStorage.getItem(SPOOL_KEY);
       if (!value) return { schemaVersion: 1, nextOrdinal: 1, entries: [] };
+      if (new TextEncoder().encode(value).byteLength > SPOOL_BYTE_LIMIT)
+        throw new Error("Invalid package spool");
       const parsed = JSON.parse(value);
       if (
         parsed?.schemaVersion !== 1 ||
@@ -311,7 +314,7 @@ function packageScript({ applicationOrigin }) {
         entries: [...spool.entries, entry],
       };
       const serialized = JSON.stringify(next);
-      if (new TextEncoder().encode(serialized).byteLength > 524288) return "false";
+      if (new TextEncoder().encode(serialized).byteLength > SPOOL_BYTE_LIMIT) return "false";
       localStorage.setItem(SPOOL_KEY, serialized);
       report({ type: "prototype-spool-staged", spoolEntryId: entry.spoolEntryId });
       drain();
@@ -670,15 +673,19 @@ self.addEventListener("fetch", (event) => {
       const file = INVENTORY.find((candidate) => candidate.pathname === url.pathname);
       if (!file) return Response.error();
       try {
+        const request = new Request(PACKAGE_ORIGIN + file.pathname, {
+          cache: "no-store",
+          credentials: "omit",
+        });
         const ready = await cache.match(READY_URL);
-        const response = ready
-          ? await cache.match(event.request)
-          : await fetch(new Request(PACKAGE_ORIGIN + file.pathname, {
-              cache: "no-store",
-              credentials: "omit",
-            }));
-        if (!response) return Response.error();
-        return (await verifyResponse(response, file)) ?? Response.error();
+        const cached = ready ? await cache.match(request) : null;
+        let verified = cached ? await verifyResponse(cached, file) : null;
+        if (!verified) {
+          verified = await verifyResponse(await fetch(request), file);
+          if (!verified) return Response.error();
+          if (ready) await cache.put(request, verified.clone());
+        }
+        return verified;
       } catch {
         return Response.error();
       }

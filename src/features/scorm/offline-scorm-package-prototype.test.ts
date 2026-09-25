@@ -256,6 +256,26 @@ describe("isolated offline SCORM package prototype", () => {
     expect(storage.values.values().next().value).toBe(committed);
   });
 
+  it("rejects stored spool state above the configured byte ceiling", () => {
+    const storage = new MemoryStorage();
+    storage.values.set(
+      "upskill-offline-scorm-spool-v1",
+      `${JSON.stringify({
+        schemaVersion: 1,
+        nextOrdinal: 1,
+        activeLaunch: null,
+        entries: [],
+      })}${" ".repeat(128)}`,
+    );
+    const spool = new OfflineScormPackageSpool(storage, { byteLimit: 128 });
+
+    expect(() => spool.listEntries()).toThrow(
+      expect.objectContaining<Partial<OfflineScormPackagePrototypeError>>({
+        code: "spool_corrupt",
+      }),
+    );
+  });
+
   it("does not advance spool state when Web Storage rejects the write", () => {
     const storage = new MemoryStorage();
     const spool = new OfflineScormPackageSpool(storage);
@@ -993,5 +1013,43 @@ describe("isolated offline SCORM package prototype", () => {
     expect(clearSiteData).not.toHaveBeenCalled();
     expect(clearLocalStorage).not.toHaveBeenCalled();
     expect(spool.listEntries()).toHaveLength(1);
+  });
+
+  it("refuses cleanup when stored spool data exceeds its byte ceiling", async () => {
+    const serialized = `${JSON.stringify({
+      schemaVersion: 1,
+      nextOrdinal: 1,
+      activeLaunch: null,
+      entries: [],
+    })}${" ".repeat(512 * 1024)}`;
+    const clearSiteData = vi.fn(() => Promise.resolve());
+    const clearLocalStorage = vi.fn();
+
+    await expect(
+      cleanupOfflineScormPackageSite({
+        clearSiteData,
+        caches: {
+          keys: () => Promise.resolve([]),
+          delete: vi.fn(() => Promise.resolve(true)),
+        },
+        indexedDB: {
+          databases: () => Promise.resolve([]),
+          deleteDatabase: vi.fn(),
+        },
+        localStorage: {
+          clear: clearLocalStorage,
+          getItem: vi.fn(() => serialized),
+        },
+        sessionStorage: { clear: vi.fn() },
+        serviceWorker: { getRegistrations: () => Promise.resolve([]) },
+        cookieStore: {
+          getAll: () => Promise.resolve([]),
+          delete: vi.fn(() => Promise.resolve()),
+        },
+      }),
+    ).rejects.toMatchObject({ code: "cleanup_failed" });
+
+    expect(clearSiteData).not.toHaveBeenCalled();
+    expect(clearLocalStorage).not.toHaveBeenCalled();
   });
 });

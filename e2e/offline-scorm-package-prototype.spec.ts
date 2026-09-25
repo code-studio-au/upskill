@@ -286,24 +286,59 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
       const tamperedBytes = new Uint8Array(cachedVendorBytes.byteLength);
       tamperedBytes.fill(120);
       await cache.put(vendorUrl.href, new Response(tamperedBytes));
-      const fetchResult = async (url: string): Promise<string> => {
+      const fetchResult = async (
+        url: string,
+        expectedBody: string,
+      ): Promise<string> => {
         try {
-          await fetch(url);
-          return "network-fallback";
+          const response = await fetch(url);
+          return response.ok && (await response.text()).includes(expectedBody)
+            ? "verified-recovery"
+            : "unexpected-response";
         } catch {
           return "failed-closed";
         }
       };
+      const missing = await fetchResult(
+        vendorScriptUrl.href,
+        "prototype-vendor-commit",
+      );
+      const replaced = await fetchResult(
+        vendorUrl.href,
+        "Rise package fixture",
+      );
+      const packagePageUrl = new URL(
+        "/__offline-scorm-package-prototype/package.html",
+        location.origin,
+      );
+      const packageScriptUrl = new URL(
+        "/__offline-scorm-package-prototype/package.js",
+        location.origin,
+      );
+      if (!(await cache.delete(packagePageUrl.href)))
+        throw new Error("Cached package page fixture is missing");
+      const cachedPackageScript = await cache.match(packageScriptUrl.href);
+      if (!cachedPackageScript)
+        throw new Error("Cached package script fixture is missing");
+      const cachedPackageScriptBytes = await cachedPackageScript.arrayBuffer();
+      const tamperedPackageScriptBytes = new Uint8Array(
+        cachedPackageScriptBytes.byteLength,
+      );
+      tamperedPackageScriptBytes.fill(120);
+      await cache.put(
+        packageScriptUrl.href,
+        new Response(tamperedPackageScriptBytes),
+      );
       return {
-        missing: await fetchResult(vendorScriptUrl.href),
-        replaced: await fetchResult(vendorUrl.href),
+        missing,
+        replaced,
         verifiedHeaders,
         verifiedWithoutReadyMarker,
       };
     });
   expect(corruptCacheResults).toMatchObject({
-    missing: "failed-closed",
-    replaced: "failed-closed",
+    missing: "verified-recovery",
+    replaced: "verified-recovery",
     verifiedHeaders: {
       cacheControl: "no-store",
       contentType: "text/html",

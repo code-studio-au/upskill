@@ -280,11 +280,13 @@ function emptySpoolState(): z.infer<
 
 function readOfflineScormPackageSpoolState(
   storage: Pick<Storage, "getItem">,
-  storageKey = OFFLINE_SCORM_PACKAGE_SPOOL_KEY,
+  options: { byteLimit?: number; storageKey?: string } = {},
 ): z.infer<typeof offlineScormPackageSpoolStateSchema> {
   let serialized: string | null;
   try {
-    serialized = storage.getItem(storageKey);
+    serialized = storage.getItem(
+      options.storageKey ?? OFFLINE_SCORM_PACKAGE_SPOOL_KEY,
+    );
   } catch (error) {
     throw new OfflineScormPackagePrototypeError(
       "storage_failed",
@@ -293,6 +295,14 @@ function readOfflineScormPackageSpoolState(
     );
   }
   if (serialized === null) return emptySpoolState();
+  if (
+    byteLength(serialized) >
+    (options.byteLimit ?? OFFLINE_SCORM_PACKAGE_SPOOL_BYTE_LIMIT)
+  )
+    throw new OfflineScormPackagePrototypeError(
+      "spool_corrupt",
+      "The package spool exceeds its safe size limit",
+    );
   try {
     return offlineScormPackageSpoolStateSchema.parse(JSON.parse(serialized));
   } catch (error) {
@@ -315,10 +325,7 @@ export class OfflineScormPackageSpool {
   ) {}
 
   private readState(): z.infer<typeof offlineScormPackageSpoolStateSchema> {
-    return readOfflineScormPackageSpoolState(
-      this.storage,
-      this.options.storageKey ?? OFFLINE_SCORM_PACKAGE_SPOOL_KEY,
-    );
+    return readOfflineScormPackageSpoolState(this.storage, this.options);
   }
 
   private writeState(

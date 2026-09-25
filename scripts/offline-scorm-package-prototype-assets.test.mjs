@@ -119,10 +119,10 @@ describe("offline SCORM package prototype assets", () => {
       "bytes.byteLength !== file.sizeBytes || digest !== file.sha256",
     );
     expect(worker?.body).toContain(
-      "return (await verifyResponse(response, file)) ?? Response.error()",
+      "verified = await verifyResponse(await fetch(request), file)",
     );
     expect(worker?.body).toContain(
-      "await fetch(new Request(PACKAGE_ORIGIN + file.pathname",
+      "if (ready) await cache.put(request, verified.clone())",
     );
     expect(worker?.body).toContain("return trustedResponse(bytes, file)");
     expect(worker?.body).toContain('"Cache-Control": "no-store"');
@@ -185,6 +185,13 @@ describe("offline SCORM package prototype assets", () => {
       `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/package.js`,
     );
     expect(packageRuntime?.body).toContain("parsed.entries.length > 64");
+    expect(packageRuntime?.body).toContain("const SPOOL_BYTE_LIMIT = 524288");
+    const readByteLimit = packageRuntime?.body.indexOf(
+      "new TextEncoder().encode(value).byteLength > SPOOL_BYTE_LIMIT",
+    );
+    const parseSpool = packageRuntime?.body.indexOf("JSON.parse(value)");
+    expect(readByteLimit).toBeGreaterThan(-1);
+    expect(parseSpool).toBeGreaterThan(readByteLimit ?? -1);
     expect(packageRuntime?.body).toContain("localStorage.setItem(SPOOL_KEY");
     expect(packageRuntime?.body).toContain("await indexedDB.databases()");
     expect(packageRuntime?.body).toContain("await caches.keys()");
