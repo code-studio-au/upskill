@@ -580,6 +580,16 @@ try {
   });
   const invalidEntitlementId = structuredClone(completeEnvelope);
   invalidEntitlementId.entitlement.entitlementId = "invalid entitlement id";
+  const normalizedIssuedAt = structuredClone(completeEnvelope);
+  normalizedIssuedAt.entitlement.issuedAt = "2029-12-31T24:00:00.000Z";
+  const normalizedLaunchExpiry = structuredClone(completeEnvelope);
+  normalizedLaunchExpiry.entitlement.intendedLaunchExpiresAt =
+    "2030-01-31T24:00:00.000Z";
+  const normalizedAcceptanceDeadline = structuredClone(completeEnvelope);
+  normalizedAcceptanceDeadline.entitlement.commitAcceptanceDeadline =
+    "2030-02-28T24:00:00.000Z";
+  const normalizedLeapSecond = structuredClone(completeEnvelope);
+  normalizedLeapSecond.entitlement.issuedAt = "2029-12-31T23:59:60.000Z";
   for (const malformedEnvelope of [
     {},
     missingSignature,
@@ -587,6 +597,10 @@ try {
     incompleteOffering,
     invalidSnapshot,
     invalidEntitlementId,
+    normalizedIssuedAt,
+    normalizedLaunchExpiry,
+    normalizedAcceptanceDeadline,
+    normalizedLeapSecond,
     { ...completeEnvelope, unexpected: true },
   ])
     await assertDatabaseConstraint(

@@ -81,16 +81,16 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
       or entitlement ->> 'packageSha256' <> package_sha256
       or jsonb_typeof(entitlement -> 'issuedAt') <> 'string'
       or entitlement ->> 'issuedAt' !~
-        '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
+        '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$'
       or (entitlement ->> 'issuedAt')::timestamptz <> issued_at
       or jsonb_typeof(entitlement -> 'intendedLaunchExpiresAt') <> 'string'
       or entitlement ->> 'intendedLaunchExpiresAt' !~
-        '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
+        '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$'
       or (entitlement ->> 'intendedLaunchExpiresAt')::timestamptz <>
         intended_launch_expires_at
       or jsonb_typeof(entitlement -> 'commitAcceptanceDeadline') <> 'string'
       or entitlement ->> 'commitAcceptanceDeadline' !~
-        '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$'
+        '^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9][.][0-9]{3}Z$'
       or (entitlement ->> 'commitAcceptanceDeadline')::timestamptz <>
         commit_acceptance_deadline
       or issued_at >= intended_launch_expires_at
