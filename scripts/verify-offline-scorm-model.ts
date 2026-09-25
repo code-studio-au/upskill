@@ -157,6 +157,7 @@ async function insertEntitlement(
     installationId: string;
     packageSha256: string;
     commitAcceptanceDeadline: Date | string;
+    signedEnvelope: string | null;
   }> = {},
   executor: Kysely<Database> = database,
 ): Promise<void> {
@@ -173,6 +174,45 @@ async function insertEntitlement(
       historyBaseRevision: 0,
       writerGeneration: 1,
       reconciliationCursorRevision: 0,
+      signedEnvelope:
+        overrides.signedEnvelope === undefined
+          ? JSON.stringify({
+              schemaVersion: 1,
+              algorithm: "ecdsa-p256-sha256",
+              signingKeyId: "verify-offline-scorm-key",
+              entitlement: {
+                schemaVersion: 1,
+                entitlementId: id,
+                attemptId: ids.attempt,
+                installationId: overrides.installationId ?? ids.installation,
+                learnerId: overrides.userId ?? ids.user,
+                devicePublicKeySha256: publicKeySha256,
+                historyBaseRevision: 0,
+                runtimeVersion: "offline-scorm-1",
+                offering: {
+                  kind: "course",
+                  enrollmentId: ids.enrollment,
+                  courseVersionItemId: ids.item,
+                },
+                packageVersionId: ids.packageVersion,
+                packageSha256: overrides.packageSha256 ?? packageSha256,
+                initialSnapshot: {
+                  lessonStatus: "not attempted",
+                  location: "",
+                  suspendData: "",
+                  scoreRaw: null,
+                  scoreMin: null,
+                  scoreMax: null,
+                  totalTimeSeconds: 0,
+                },
+                issuedAt: issuedAt.toISOString(),
+                intendedLaunchExpiresAt: intendedLaunchExpiresAt.toISOString(),
+                commitAcceptanceDeadline:
+                  commitAcceptanceDeadline.toISOString(),
+              },
+              signature: "A".repeat(86),
+            })
+          : overrides.signedEnvelope,
       resolution: null,
       resolvedByUserId: null,
       issuedAt,
@@ -570,6 +610,17 @@ try {
       .where("id", "=", ids.attempt)
       .executeTakeFirstOrThrow();
   });
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_entitlement")
+      .set({ signedEnvelope: null })
+      .where("id", "=", ids.entitlement)
+      .execute(),
+    {
+      code: "23514",
+      message: /signed entitlement evidence is immutable/u,
+    },
+  );
   await assertDatabaseConstraint(
     () => insertEntitlement(ids.duplicateEntitlement),
     "23505",

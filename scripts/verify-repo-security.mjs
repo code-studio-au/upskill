@@ -1013,6 +1013,13 @@ const offlineScormServerModelMigration = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormSignedEntitlementMigration = fs.readFileSync(
+  path.join(
+    root,
+    "src/server/db/migrations/0118_offline_scorm_signed_entitlement_evidence.ts",
+  ),
+  "utf8",
+);
 const liveKitProviderPolicyVerification = fs.readFileSync(
   path.join(root, "scripts/verify-livekit-provider-policy.ts"),
   "utf8",
@@ -1174,6 +1181,16 @@ for (const boundary of [
 ])
   if (!offlineScormServerModelMigration.includes(boundary))
     failures.push(`Offline SCORM server-model guard is missing: ${boundary}`);
+for (const boundary of [
+  "signedEnvelope",
+  "offline_learning_entitlement_signed_envelope_ck",
+  "guard_offline_learning_entitlement_signed_envelope",
+  "Offline signed entitlement evidence is immutable",
+])
+  if (!offlineScormSignedEntitlementMigration.includes(boundary))
+    failures.push(
+      `Offline SCORM signed-entitlement evidence guard is missing: ${boundary}`,
+    );
 for (const boundary of [
   'import "@tanstack/react-start/server-only"',
   'selectFrom("event_virtual_attendance_decision as decision")',

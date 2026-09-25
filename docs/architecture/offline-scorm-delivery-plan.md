@@ -185,7 +185,10 @@ The dormant activation-contract slice now:
 - constructs the trusted entitlement from the locked offering, exact attempt
   snapshot, installation key digest and finite access deadlines;
 - signs a versioned fixed-position entitlement envelope with a selected P-256
-  server key, binding its algorithm and key identifier into the signature; and
+  server key, binding its algorithm and key identifier into the signature;
+- persists that exact signed envelope with the entitlement and replays it for an
+  exact retry, so a lost response never requires re-signing or reconstructing
+  the delegated authority; and
 - verifies that envelope with Web Crypto before the trusted runtime can store
   it, with issuance and signing in one transaction so signing failure cannot
   strand the attempt in offline-writer mode.

@@ -9,7 +9,10 @@ import {
   type OfflineScormSignedCommit,
   type OfflineScormUnsignedCommit,
 } from "#/features/scorm/offline-scorm-reconciliation";
-import { verifyOfflineScormEntitlementEnvelope } from "#/features/scorm/offline-scorm-entitlement";
+import {
+  offlineScormSignedEntitlementEnvelopeSchema,
+  verifyOfflineScormEntitlementEnvelope,
+} from "#/features/scorm/offline-scorm-entitlement";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -1098,6 +1101,16 @@ try {
     enrollmentId: ids.enrollment,
     courseVersionItemId: ids.item,
   });
+  const storedEnvelope = offlineScormSignedEntitlementEnvelopeSchema.parse(
+    (
+      await database
+        .selectFrom("offline_learning_entitlement")
+        .select("signedEnvelope")
+        .where("id", "=", issuance.entitlementId)
+        .executeTakeFirstOrThrow()
+    ).signedEnvelope,
+  );
+  assert.deepEqual(storedEnvelope, issuance.envelope);
   assert.ok(
     racingProgress === "completed" ||
       racingProgress === "offline-writer-active",
@@ -1165,21 +1178,21 @@ try {
   assert.deepEqual(await createScormLaunch(ids.enrollment, 0, user), {
     status: "offline-writer-active",
   });
-  assert.deepEqual(
-    await issueOfflineScormEntitlement(
-      {
-        target: {
-          kind: "course",
-          enrollmentId: ids.enrollment,
-          modulePosition: 0,
-        },
-        installationId: ids.installation,
+  const recoveredIssuance = await issueOfflineScormEntitlement(
+    {
+      target: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        modulePosition: 0,
       },
-      user,
-      signEntitlement,
-    ),
-    { status: "denied", reason: "offline-writer-active" },
+      installationId: ids.installation,
+    },
+    user,
+    () => {
+      throw new Error("Exact issuance retry must not sign again");
+    },
   );
+  assert.deepEqual(recoveredIssuance, issuance);
   assert.equal(
     (
       await database

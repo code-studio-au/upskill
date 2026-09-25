@@ -2,6 +2,7 @@ import type { ColumnType, Generated } from "kysely";
 import type { CertificateAccreditation } from "#/features/catalog/accreditation";
 import type { OfferingImage } from "#/features/shared/offering-image";
 import type { BulkPricing } from "#/features/catalog/catalog.schema";
+import type { OfflineScormSignedEntitlementEnvelope } from "#/features/scorm/offline-scorm-entitlement";
 
 type Timestamp = ColumnType<Date, Date | string | undefined, Date | string>;
 type OptionalTimestamp = ColumnType<
@@ -489,6 +490,7 @@ interface OfflineLearningEntitlementTable {
   writerGeneration: number;
   highestContiguousSequence: Generated<number>;
   reconciliationCursorRevision: number;
+  signedEnvelope: NullableJsonDocument<OfflineScormSignedEntitlementEnvelope>;
   status: Generated<"active" | "resolved" | "replaced" | "hard_revoked">;
   resolution:
     | "reconciled"

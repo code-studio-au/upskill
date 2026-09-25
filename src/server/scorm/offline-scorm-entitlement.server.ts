@@ -3,9 +3,11 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import {
   canonicalizeOfflineScormEntitlementEnvelope,
+  offlineScormSignedEntitlementEnvelopeSchema,
   type OfflineScormSignedEntitlementEnvelope,
 } from "#/features/scorm/offline-scorm-entitlement";
 import { offlineScormTrustedEntitlementSchema } from "#/features/scorm/offline-scorm-trusted-runtime";
+import type { OfflineScormOfferingBinding } from "#/features/scorm/offline-scorm-reconciliation";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { logServerEvent } from "#/server/logging/server-logger";
@@ -20,6 +22,24 @@ import type { OfflineScormEntitlementSigner } from "#/server/scorm/offline-scorm
 
 const OFFLINE_SCORM_RUNTIME_VERSION = "offline-scorm-1";
 const MAXIMUM_ACCEPTANCE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
+
+function offeringsMatch(
+  left: OfflineScormOfferingBinding,
+  right: OfflineScormOfferingBinding,
+): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "course")
+    return (
+      right.kind === "course" &&
+      left.enrollmentId === right.enrollmentId &&
+      left.courseVersionItemId === right.courseVersionItemId
+    );
+  return (
+    right.kind === "event" &&
+    left.eventParticipationId === right.eventParticipationId &&
+    left.eventTemplateVersionItemId === right.eventTemplateVersionItemId
+  );
+}
 
 export type OfflineScormEntitlementIssueResult =
   | {
@@ -90,11 +110,81 @@ export async function issueOfflineScormEntitlement(
         } as const;
 
       const attempt = await lockOrCreateScormAttempt(transaction, policy);
-      if (attempt.writerMode === "offline")
+      if (attempt.writerMode === "offline") {
+        if (!attempt.offlineEntitlementId)
+          throw new Error("Offline SCORM writer is missing its entitlement");
+        const existing = await transaction
+          .selectFrom("offline_learning_entitlement")
+          .select([
+            "id",
+            "attemptId",
+            "installationId",
+            "userId",
+            "scormPackageVersionId",
+            "packageSha256",
+            "runtimeVersion",
+            "historyBaseRevision",
+            "writerGeneration",
+            "issuedAt",
+            "intendedLaunchExpiresAt",
+            "commitAcceptanceDeadline",
+            "signedEnvelope",
+          ])
+          .where("id", "=", attempt.offlineEntitlementId)
+          .where("attemptId", "=", attempt.id)
+          .where("installationId", "=", installation.id)
+          .where("userId", "=", user.id)
+          .where("scormPackageVersionId", "=", policy.packageVersionId)
+          .where("packageSha256", "=", policy.packageSha256)
+          .where("status", "=", "active")
+          .executeTakeFirst();
+        if (!existing?.signedEnvelope)
+          return {
+            status: "denied",
+            reason: "offline-writer-active",
+          } as const;
+
+        const envelope = offlineScormSignedEntitlementEnvelopeSchema.parse(
+          existing.signedEnvelope,
+        );
+        const signed = envelope.entitlement;
+        if (
+          !offeringsMatch(signed.offering, policy.offering) ||
+          signed.entitlementId !== existing.id ||
+          signed.attemptId !== existing.attemptId ||
+          signed.installationId !== existing.installationId ||
+          signed.learnerId !== existing.userId ||
+          signed.devicePublicKeySha256 !== installation.publicKeySha256 ||
+          signed.packageVersionId !== existing.scormPackageVersionId ||
+          signed.packageSha256 !== existing.packageSha256 ||
+          signed.runtimeVersion !== existing.runtimeVersion ||
+          signed.historyBaseRevision !== existing.historyBaseRevision ||
+          signed.issuedAt !== existing.issuedAt.toISOString() ||
+          signed.intendedLaunchExpiresAt !==
+            existing.intendedLaunchExpiresAt.toISOString() ||
+          signed.commitAcceptanceDeadline !==
+            existing.commitAcceptanceDeadline.toISOString()
+        )
+          throw new Error(
+            "Stored offline SCORM envelope does not match its entitlement",
+          );
+
         return {
-          status: "denied",
-          reason: "offline-writer-active",
+          status: "issued",
+          entitlementId: existing.id,
+          attemptId: existing.attemptId,
+          historyBaseRevision: existing.historyBaseRevision,
+          writerGeneration: existing.writerGeneration,
+          packageVersionId: existing.scormPackageVersionId,
+          packageSha256: existing.packageSha256,
+          runtimeVersion: existing.runtimeVersion,
+          issuedAt: existing.issuedAt,
+          intendedLaunchExpiresAt: existing.intendedLaunchExpiresAt,
+          commitAcceptanceDeadline: existing.commitAcceptanceDeadline,
+          envelope,
+          recovered: true,
         } as const;
+      }
 
       const entitlementId = randomUUID();
       const writerGeneration = attempt.credentialGeneration + 1;
@@ -155,6 +245,7 @@ export async function issueOfflineScormEntitlement(
           historyBaseRevision: attempt.progressRevision,
           writerGeneration,
           reconciliationCursorRevision: attempt.progressRevision,
+          signedEnvelope: JSON.stringify(envelope),
           resolution: null,
           resolvedByUserId: null,
           issuedAt,
@@ -193,13 +284,17 @@ export async function issueOfflineScormEntitlement(
         intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt,
         commitAcceptanceDeadline,
         envelope,
+        recovered: false,
       } as const;
     });
 
-  if (result.status === "issued")
+  if (result.status === "issued") {
+    const { recovered, ...response } = result;
     logServerEvent({
       level: "info",
-      event: "scorm.offline_writer_issued",
+      event: recovered
+        ? "scorm.offline_writer_recovered"
+        : "scorm.offline_writer_issued",
       fields: {
         actorUserId: user.id,
         entityType: "offline_learning_entitlement",
@@ -207,5 +302,7 @@ export async function issueOfflineScormEntitlement(
         attemptId: result.attemptId,
       },
     });
+    return response;
+  }
   return result;
 }
