@@ -150,15 +150,55 @@ async function cleanup(): Promise<void> {
     .execute();
 }
 
+type EntitlementOverrides = Partial<{
+  userId: string;
+  installationId: string;
+  packageSha256: string;
+  commitAcceptanceDeadline: Date | string;
+  signedEnvelope: string | null;
+}>;
+
+function createSignedEnvelope(id: string, overrides: EntitlementOverrides) {
+  return {
+    schemaVersion: 1,
+    algorithm: "ecdsa-p256-sha256",
+    signingKeyId: "verify-offline-scorm-key",
+    entitlement: {
+      schemaVersion: 1,
+      entitlementId: id,
+      attemptId: ids.attempt,
+      installationId: overrides.installationId ?? ids.installation,
+      learnerId: overrides.userId ?? ids.user,
+      devicePublicKeySha256: publicKeySha256,
+      historyBaseRevision: 0,
+      runtimeVersion: "offline-scorm-1",
+      offering: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        courseVersionItemId: ids.item,
+      },
+      packageVersionId: ids.packageVersion,
+      packageSha256: overrides.packageSha256 ?? packageSha256,
+      initialSnapshot: {
+        lessonStatus: "not_attempted",
+        location: "",
+        suspendData: "",
+        scoreRaw: null,
+        scoreMin: null,
+        scoreMax: null,
+        totalTimeSeconds: 0,
+      },
+      issuedAt: issuedAt.toISOString(),
+      intendedLaunchExpiresAt: intendedLaunchExpiresAt.toISOString(),
+      commitAcceptanceDeadline: commitAcceptanceDeadline.toISOString(),
+    },
+    signature: "A".repeat(86),
+  };
+}
+
 async function insertEntitlement(
   id: string,
-  overrides: Partial<{
-    userId: string;
-    installationId: string;
-    packageSha256: string;
-    commitAcceptanceDeadline: Date | string;
-    signedEnvelope: string | null;
-  }> = {},
+  overrides: EntitlementOverrides = {},
   executor: Kysely<Database> = database,
 ): Promise<void> {
   await executor
@@ -176,42 +216,7 @@ async function insertEntitlement(
       reconciliationCursorRevision: 0,
       signedEnvelope:
         overrides.signedEnvelope === undefined
-          ? JSON.stringify({
-              schemaVersion: 1,
-              algorithm: "ecdsa-p256-sha256",
-              signingKeyId: "verify-offline-scorm-key",
-              entitlement: {
-                schemaVersion: 1,
-                entitlementId: id,
-                attemptId: ids.attempt,
-                installationId: overrides.installationId ?? ids.installation,
-                learnerId: overrides.userId ?? ids.user,
-                devicePublicKeySha256: publicKeySha256,
-                historyBaseRevision: 0,
-                runtimeVersion: "offline-scorm-1",
-                offering: {
-                  kind: "course",
-                  enrollmentId: ids.enrollment,
-                  courseVersionItemId: ids.item,
-                },
-                packageVersionId: ids.packageVersion,
-                packageSha256: overrides.packageSha256 ?? packageSha256,
-                initialSnapshot: {
-                  lessonStatus: "not attempted",
-                  location: "",
-                  suspendData: "",
-                  scoreRaw: null,
-                  scoreMin: null,
-                  scoreMax: null,
-                  totalTimeSeconds: 0,
-                },
-                issuedAt: issuedAt.toISOString(),
-                intendedLaunchExpiresAt: intendedLaunchExpiresAt.toISOString(),
-                commitAcceptanceDeadline:
-                  commitAcceptanceDeadline.toISOString(),
-              },
-              signature: "A".repeat(86),
-            })
+          ? JSON.stringify(createSignedEnvelope(id, overrides))
           : overrides.signedEnvelope,
       resolution: null,
       resolvedByUserId: null,
@@ -557,6 +562,46 @@ try {
     {
       code: "23514",
       message: /package digest does not match/u,
+    },
+  );
+  const completeEnvelope = createSignedEnvelope(ids.duplicateEntitlement, {});
+  const missingSignature = structuredClone(completeEnvelope);
+  Reflect.deleteProperty(missingSignature, "signature");
+  const missingSnapshot = structuredClone(completeEnvelope);
+  Reflect.deleteProperty(missingSnapshot.entitlement, "initialSnapshot");
+  const incompleteOffering = structuredClone(completeEnvelope);
+  Reflect.deleteProperty(
+    incompleteOffering.entitlement.offering,
+    "courseVersionItemId",
+  );
+  const invalidSnapshot = structuredClone(completeEnvelope);
+  Object.assign(invalidSnapshot.entitlement.initialSnapshot, {
+    lessonStatus: "not attempted",
+  });
+  const invalidEntitlementId = structuredClone(completeEnvelope);
+  invalidEntitlementId.entitlement.entitlementId = "invalid entitlement id";
+  for (const malformedEnvelope of [
+    {},
+    missingSignature,
+    missingSnapshot,
+    incompleteOffering,
+    invalidSnapshot,
+    invalidEntitlementId,
+    { ...completeEnvelope, unexpected: true },
+  ])
+    await assertDatabaseConstraint(
+      () =>
+        insertEntitlement(ids.duplicateEntitlement, {
+          signedEnvelope: JSON.stringify(malformedEnvelope),
+        }),
+      "23514",
+      "offline_learning_entitlement_signed_envelope_ck",
+    );
+  await assert.rejects(
+    insertEntitlement(ids.duplicateEntitlement, { signedEnvelope: null }),
+    {
+      code: "23514",
+      message: /require signed evidence/u,
     },
   );
   await assertDatabaseConstraint(

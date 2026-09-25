@@ -13,6 +13,7 @@ import {
   offlineScormSignedEntitlementEnvelopeSchema,
   verifyOfflineScormEntitlementEnvelope,
 } from "#/features/scorm/offline-scorm-entitlement";
+import { offlineScormTrustedEntitlementSchema } from "#/features/scorm/offline-scorm-trusted-runtime";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -636,6 +637,48 @@ try {
     signingKeyId: "verify-scorm-entitlement-key",
     privateKey: entitlementSigningKeyPair.privateKey,
   });
+  const signedEventEnvelope = (input: {
+    entitlementId: string;
+    attemptId: string;
+    historyBaseRevision: number;
+    issuedAt: Date;
+    intendedLaunchExpiresAt: Date;
+    commitAcceptanceDeadline: Date;
+  }) =>
+    JSON.stringify(
+      signEntitlement(
+        offlineScormTrustedEntitlementSchema.parse({
+          schemaVersion: 1,
+          entitlementId: input.entitlementId,
+          attemptId: input.attemptId,
+          installationId: ids.installation,
+          learnerId: user.id,
+          devicePublicKeySha256: registeredInstallation.publicKeySha256,
+          historyBaseRevision: input.historyBaseRevision,
+          runtimeVersion: "offline-scorm-1",
+          offering: {
+            kind: "event",
+            eventParticipationId: ids.eventParticipation,
+            eventTemplateVersionItemId: ids.eventItem,
+          },
+          packageVersionId: ids.packageVersion,
+          packageSha256: "a".repeat(64),
+          initialSnapshot: {
+            lessonStatus: "not_attempted",
+            location: "",
+            suspendData: "",
+            scoreRaw: null,
+            scoreMin: null,
+            scoreMax: null,
+            totalTimeSeconds: 0,
+          },
+          issuedAt: input.issuedAt.toISOString(),
+          intendedLaunchExpiresAt: input.intendedLaunchExpiresAt.toISOString(),
+          commitAcceptanceDeadline:
+            input.commitAcceptanceDeadline.toISOString(),
+        }),
+      ),
+    );
   const { reconcileOfflineScormProgress } =
     await import("#/server/scorm/offline-scorm-reconciliation.server");
   const requireAuthorizedPlayer = async (
@@ -1847,6 +1890,14 @@ try {
         historyBaseRevision: eventAttempt.progressRevision,
         writerGeneration: eventWriterGeneration,
         reconciliationCursorRevision: eventAttempt.progressRevision,
+        signedEnvelope: signedEventEnvelope({
+          entitlementId: eventEntitlementId,
+          attemptId: eventAttempt.id,
+          historyBaseRevision: eventAttempt.progressRevision,
+          issuedAt: eventIssuedAt,
+          intendedLaunchExpiresAt: eventLaunchExpiresAt,
+          commitAcceptanceDeadline: eventAcceptanceDeadline,
+        }),
         resolution: null,
         resolvedByUserId: null,
         issuedAt: eventIssuedAt,
@@ -1975,6 +2026,14 @@ try {
         historyBaseRevision: eventAfterReconciliation.progressRevision,
         writerGeneration: expiredWriterGeneration,
         reconciliationCursorRevision: eventAfterReconciliation.progressRevision,
+        signedEnvelope: signedEventEnvelope({
+          entitlementId: expiredEntitlementId,
+          attemptId: eventAttempt.id,
+          historyBaseRevision: eventAfterReconciliation.progressRevision,
+          issuedAt: expiredIssuedAt,
+          intendedLaunchExpiresAt: expiredLaunchAt,
+          commitAcceptanceDeadline: expiredAcceptanceAt,
+        }),
         resolution: null,
         resolvedByUserId: null,
         issuedAt: expiredIssuedAt,

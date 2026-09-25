@@ -1184,7 +1184,10 @@ for (const boundary of [
 for (const boundary of [
   "signedEnvelope",
   "offline_learning_entitlement_signed_envelope_ck",
+  "offline_scorm_signed_entitlement_matches",
+  ") is true",
   "guard_offline_learning_entitlement_signed_envelope",
+  "New offline entitlements require signed evidence",
   "Offline signed entitlement evidence is immutable",
 ])
   if (!offlineScormSignedEntitlementMigration.includes(boundary))

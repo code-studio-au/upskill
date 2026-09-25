@@ -325,7 +325,10 @@ try {
   for (const [triggerName, operations] of [
     ["offline_learning_installation_guard_trg", ["INSERT", "UPDATE", "DELETE"]],
     ["offline_learning_entitlement_guard_trg", ["INSERT", "UPDATE", "DELETE"]],
-    ["offline_learning_entitlement_signed_envelope_guard_trg", ["UPDATE"]],
+    [
+      "offline_learning_entitlement_signed_envelope_guard_trg",
+      ["INSERT", "UPDATE"],
+    ],
     ["scorm_attempt_offline_writer_guard_trg", ["INSERT", "UPDATE"]],
     ["offline_scorm_reconciliation_receipt_guard_trg", ["UPDATE", "DELETE"]],
     [
