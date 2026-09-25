@@ -1,11 +1,6 @@
 import "@tanstack/react-start/server-only";
 
-import {
-  createHash,
-  createPublicKey,
-  randomUUID,
-  verify as verifySignature,
-} from "node:crypto";
+import { createHash, randomUUID, verify as verifySignature } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import {
   canonicalizeOfflineScormCommit,
@@ -23,6 +18,7 @@ import {
   lockScormProgressOwner,
   type LockedScormProgressOwner,
 } from "#/server/scorm/scorm-progress-transaction.server";
+import { parseOfflineScormP256PublicKey } from "#/server/scorm/offline-scorm-crypto.server";
 
 type ReceiptOutcome = "accepted" | "rejected" | "conflict";
 
@@ -120,30 +116,6 @@ interface LockedAttempt {
 
 function requestFingerprint(canonical: string): string {
   return createHash("sha256").update(canonical, "utf8").digest("hex");
-}
-
-function verifyInstallationKey(input: {
-  publicKeySpki: Uint8Array;
-  publicKeySha256: string;
-}): ReturnType<typeof createPublicKey> | undefined {
-  const spki = Buffer.from(input.publicKeySpki);
-  if (createHash("sha256").update(spki).digest("hex") !== input.publicKeySha256)
-    return undefined;
-  try {
-    const publicKey = createPublicKey({
-      key: spki,
-      format: "der",
-      type: "spki",
-    });
-    if (
-      publicKey.asymmetricKeyType !== "ec" ||
-      publicKey.asymmetricKeyDetails?.namedCurve !== "prime256v1"
-    )
-      return undefined;
-    return publicKey;
-  } catch {
-    return undefined;
-  }
 }
 
 function receiptResult(
@@ -343,7 +315,10 @@ export async function reconcileOfflineScormProgress(
     .executeTakeFirst();
   if (!authority)
     return { status: "denied", reason: "entitlement_unavailable" };
-  const publicKey = verifyInstallationKey(authority);
+  const publicKey = parseOfflineScormP256PublicKey({
+    publicKeySpki: authority.publicKeySpki,
+    expectedSha256: authority.publicKeySha256,
+  });
   if (!publicKey)
     return { status: "denied", reason: "installation_key_invalid" };
 

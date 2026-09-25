@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Kysely, PostgresDialect } from "kysely";
+import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import type { Database } from "#/server/db/types";
 
@@ -150,14 +150,56 @@ async function cleanup(): Promise<void> {
     .execute();
 }
 
+type EntitlementOverrides = Partial<{
+  userId: string;
+  installationId: string;
+  packageSha256: string;
+  historyBaseRevision: number;
+  commitAcceptanceDeadline: Date | string;
+  signedEnvelope: string | null;
+}>;
+
+function createSignedEnvelope(id: string, overrides: EntitlementOverrides) {
+  return {
+    schemaVersion: 1,
+    algorithm: "ecdsa-p256-sha256",
+    signingKeyId: "verify-offline-scorm-key",
+    entitlement: {
+      schemaVersion: 1,
+      entitlementId: id,
+      attemptId: ids.attempt,
+      installationId: overrides.installationId ?? ids.installation,
+      learnerId: overrides.userId ?? ids.user,
+      devicePublicKeySha256: publicKeySha256,
+      historyBaseRevision: overrides.historyBaseRevision ?? 0,
+      runtimeVersion: "offline-scorm-1",
+      offering: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        courseVersionItemId: ids.item,
+      },
+      packageVersionId: ids.packageVersion,
+      packageSha256: overrides.packageSha256 ?? packageSha256,
+      initialSnapshot: {
+        lessonStatus: "incomplete",
+        location: "",
+        suspendData: "",
+        scoreRaw: null,
+        scoreMin: null,
+        scoreMax: null,
+        totalTimeSeconds: 0,
+      },
+      issuedAt: issuedAt.toISOString(),
+      intendedLaunchExpiresAt: intendedLaunchExpiresAt.toISOString(),
+      commitAcceptanceDeadline: commitAcceptanceDeadline.toISOString(),
+    },
+    signature: "A".repeat(86),
+  };
+}
+
 async function insertEntitlement(
   id: string,
-  overrides: Partial<{
-    userId: string;
-    installationId: string;
-    packageSha256: string;
-    commitAcceptanceDeadline: Date | string;
-  }> = {},
+  overrides: EntitlementOverrides = {},
   executor: Kysely<Database> = database,
 ): Promise<void> {
   await executor
@@ -170,9 +212,13 @@ async function insertEntitlement(
       scormPackageVersionId: ids.packageVersion,
       packageSha256: overrides.packageSha256 ?? packageSha256,
       runtimeVersion: "offline-scorm-1",
-      historyBaseRevision: 0,
+      historyBaseRevision: overrides.historyBaseRevision ?? 0,
       writerGeneration: 1,
-      reconciliationCursorRevision: 0,
+      reconciliationCursorRevision: overrides.historyBaseRevision ?? 0,
+      signedEnvelope:
+        overrides.signedEnvelope === undefined
+          ? JSON.stringify(createSignedEnvelope(id, overrides))
+          : overrides.signedEnvelope,
       resolution: null,
       resolvedByUserId: null,
       issuedAt,
@@ -519,6 +565,143 @@ try {
       message: /package digest does not match/u,
     },
   );
+  const completeEnvelope = createSignedEnvelope(ids.duplicateEntitlement, {});
+  const missingSignature = structuredClone(completeEnvelope);
+  Reflect.deleteProperty(missingSignature, "signature");
+  const missingSnapshot = structuredClone(completeEnvelope);
+  Reflect.deleteProperty(missingSnapshot.entitlement, "initialSnapshot");
+  const incompleteOffering = structuredClone(completeEnvelope);
+  Reflect.deleteProperty(
+    incompleteOffering.entitlement.offering,
+    "courseVersionItemId",
+  );
+  const invalidSnapshot = structuredClone(completeEnvelope);
+  Object.assign(invalidSnapshot.entitlement.initialSnapshot, {
+    lessonStatus: "not attempted",
+  });
+  const invalidEntitlementId = structuredClone(completeEnvelope);
+  invalidEntitlementId.entitlement.entitlementId = "invalid entitlement id";
+  const normalizedIssuedAt = structuredClone(completeEnvelope);
+  normalizedIssuedAt.entitlement.issuedAt = "2029-12-31T24:00:00.000Z";
+  const normalizedLaunchExpiry = structuredClone(completeEnvelope);
+  normalizedLaunchExpiry.entitlement.intendedLaunchExpiresAt =
+    "2030-01-31T24:00:00.000Z";
+  const normalizedAcceptanceDeadline = structuredClone(completeEnvelope);
+  normalizedAcceptanceDeadline.entitlement.commitAcceptanceDeadline =
+    "2030-02-28T24:00:00.000Z";
+  const normalizedLeapSecond = structuredClone(completeEnvelope);
+  normalizedLeapSecond.entitlement.issuedAt = "2029-12-31T23:59:60.000Z";
+  const overlongUtf16Location = structuredClone(completeEnvelope);
+  overlongUtf16Location.entitlement.initialSnapshot.location = "😀".repeat(501);
+  const overlongUtf16SuspendData = structuredClone(completeEnvelope);
+  overlongUtf16SuspendData.entitlement.initialSnapshot.suspendData =
+    "😀".repeat(32_769);
+
+  const utf16Lengths = await sql<{
+    locationBoundary: number;
+    suspendDataBoundary: number;
+  }>`select
+      offline_scorm_utf16_length(${"😀".repeat(500)}) as "locationBoundary",
+      offline_scorm_utf16_length(${"😀".repeat(32_768)}) as "suspendDataBoundary"`.execute(
+    database,
+  );
+  assert.deepEqual(utf16Lengths.rows[0], {
+    locationBoundary: 1_000,
+    suspendDataBoundary: 65_536,
+  });
+
+  for (const mismatchedDeviceDigest of ["f".repeat(64), "c".repeat(64)]) {
+    const mismatchedDeviceEnvelope = structuredClone(completeEnvelope);
+    mismatchedDeviceEnvelope.entitlement.devicePublicKeySha256 =
+      mismatchedDeviceDigest;
+    await assert.rejects(
+      insertEntitlement(ids.duplicateEntitlement, {
+        signedEnvelope: JSON.stringify(mismatchedDeviceEnvelope),
+      }),
+      {
+        code: "23514",
+        message: /device key digest does not match installation/u,
+      },
+    );
+  }
+  for (const [field, mismatchedValue] of [
+    ["enrollmentId", "another_enrollment"],
+    ["courseVersionItemId", "another_course_version_item"],
+  ] as const) {
+    const mismatchedOfferingEnvelope = structuredClone(completeEnvelope);
+    Object.assign(mismatchedOfferingEnvelope.entitlement.offering, {
+      [field]: mismatchedValue,
+    });
+    await assert.rejects(
+      insertEntitlement(ids.duplicateEntitlement, {
+        signedEnvelope: JSON.stringify(mismatchedOfferingEnvelope),
+      }),
+      {
+        code: "23514",
+        message: /offering does not match attempt/u,
+      },
+    );
+  }
+  for (const [field, mismatchedValue] of [
+    ["lessonStatus", "passed"],
+    ["location", "another-location"],
+    ["suspendData", "another-suspend-state"],
+    ["scoreRaw", 50],
+    ["scoreMin", 0],
+    ["scoreMax", 100],
+    ["totalTimeSeconds", 1],
+  ] as const) {
+    const mismatchedSnapshotEnvelope = structuredClone(completeEnvelope);
+    Object.assign(mismatchedSnapshotEnvelope.entitlement.initialSnapshot, {
+      [field]: mismatchedValue,
+    });
+    await assert.rejects(
+      insertEntitlement(ids.duplicateEntitlement, {
+        signedEnvelope: JSON.stringify(mismatchedSnapshotEnvelope),
+      }),
+      {
+        code: "23514",
+        message: /snapshot does not match attempt history base/u,
+      },
+    );
+  }
+  await assert.rejects(
+    insertEntitlement(ids.duplicateEntitlement, { historyBaseRevision: 1 }),
+    {
+      code: "23514",
+      message: /snapshot does not match attempt history base/u,
+    },
+  );
+  for (const malformedEnvelope of [
+    {},
+    missingSignature,
+    missingSnapshot,
+    incompleteOffering,
+    invalidSnapshot,
+    invalidEntitlementId,
+    normalizedIssuedAt,
+    normalizedLaunchExpiry,
+    normalizedAcceptanceDeadline,
+    normalizedLeapSecond,
+    overlongUtf16Location,
+    overlongUtf16SuspendData,
+    { ...completeEnvelope, unexpected: true },
+  ])
+    await assertDatabaseConstraint(
+      () =>
+        insertEntitlement(ids.duplicateEntitlement, {
+          signedEnvelope: JSON.stringify(malformedEnvelope),
+        }),
+      "23514",
+      "offline_learning_entitlement_signed_envelope_ck",
+    );
+  await assert.rejects(
+    insertEntitlement(ids.duplicateEntitlement, { signedEnvelope: null }),
+    {
+      code: "23514",
+      message: /require signed evidence/u,
+    },
+  );
   await assertDatabaseConstraint(
     () =>
       insertEntitlement(ids.duplicateEntitlement, {
@@ -570,6 +753,17 @@ try {
       .where("id", "=", ids.attempt)
       .executeTakeFirstOrThrow();
   });
+  await assert.rejects(
+    database
+      .updateTable("offline_learning_entitlement")
+      .set({ signedEnvelope: null })
+      .where("id", "=", ids.entitlement)
+      .execute(),
+    {
+      code: "23514",
+      message: /signed entitlement evidence is immutable/u,
+    },
+  );
   await assertDatabaseConstraint(
     () => insertEntitlement(ids.duplicateEntitlement),
     "23505",

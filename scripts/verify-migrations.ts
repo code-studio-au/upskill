@@ -305,6 +305,7 @@ try {
           'offline_learning_entitlement_deadline_ck',
           'offline_learning_entitlement_lifecycle_ck',
           'offline_learning_entitlement_timeline_ck',
+          'offline_learning_entitlement_signed_envelope_ck',
           'offline_scorm_reconciliation_receipt_commit_uq',
           'offline_scorm_reconciliation_receipt_entitlement_fk',
           'offline_scorm_reconciliation_receipt_identity_ck',
@@ -318,12 +319,16 @@ try {
         )`.execute(db);
   assert.equal(
     offlineScormConstraints.rows.length,
-    29,
+    30,
     "Offline SCORM identity, writer, deadline, receipt and cleanup constraints must exist",
   );
   for (const [triggerName, operations] of [
     ["offline_learning_installation_guard_trg", ["INSERT", "UPDATE", "DELETE"]],
     ["offline_learning_entitlement_guard_trg", ["INSERT", "UPDATE", "DELETE"]],
+    [
+      "offline_learning_entitlement_signed_envelope_guard_trg",
+      ["INSERT", "UPDATE"],
+    ],
     ["scorm_attempt_offline_writer_guard_trg", ["INSERT", "UPDATE"]],
     ["offline_scorm_reconciliation_receipt_guard_trg", ["UPDATE", "DELETE"]],
     [

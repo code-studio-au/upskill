@@ -9,6 +9,11 @@ import {
   type OfflineScormSignedCommit,
   type OfflineScormUnsignedCommit,
 } from "#/features/scorm/offline-scorm-reconciliation";
+import {
+  offlineScormSignedEntitlementEnvelopeSchema,
+  verifyOfflineScormEntitlementEnvelope,
+} from "#/features/scorm/offline-scorm-entitlement";
+import { offlineScormTrustedEntitlementSchema } from "#/features/scorm/offline-scorm-trusted-runtime";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -50,6 +55,21 @@ const offlinePublicKeySpki = offlineKeyPair.publicKey.export({
   format: "der",
   type: "spki",
 });
+const anotherOfflineKeyPair = generateKeyPairSync("ec", {
+  namedCurve: "prime256v1",
+});
+const anotherOfflinePublicKeySpki = anotherOfflineKeyPair.publicKey.export({
+  format: "der",
+  type: "spki",
+});
+const entitlementSigningKeyPair = generateKeyPairSync("ec", {
+  namedCurve: "prime256v1",
+});
+const entitlementSigningPublicKeySpki =
+  entitlementSigningKeyPair.publicKey.export({
+    format: "der",
+    type: "spki",
+  });
 
 function signedOfflineCommit(
   input: OfflineScormUnsignedCommit,
@@ -324,21 +344,65 @@ try {
       },
     ])
     .execute();
-  await database
-    .insertInto("offline_learning_installation")
-    .values({
-      id: ids.installation,
-      userId: ids.user,
-      publicKeySpki: offlinePublicKeySpki,
-      publicKeySha256: createHash("sha256")
-        .update(offlinePublicKeySpki)
-        .digest("hex"),
-      replacementInstallationId: null,
-      registeredAt: new Date(),
-      endedAt: null,
-      updatedAt: new Date(),
-    })
-    .execute();
+  const { registerOfflineScormInstallation } =
+    await import("#/server/scorm/offline-scorm-installation.server");
+  const installationRegistration = {
+    schemaVersion: 1 as const,
+    installationId: ids.installation,
+    publicKeySpki: offlinePublicKeySpki.toString("base64url"),
+  };
+  const registeredInstallation = await registerOfflineScormInstallation(
+    installationRegistration,
+    user,
+  );
+  assert.equal(registeredInstallation.status, "registered");
+  assert.equal(registeredInstallation.recovered, false);
+  assert.equal(
+    registeredInstallation.publicKeySha256,
+    createHash("sha256").update(offlinePublicKeySpki).digest("hex"),
+  );
+  const recoveredInstallation = await registerOfflineScormInstallation(
+    installationRegistration,
+    user,
+  );
+  assert.equal(recoveredInstallation.status, "registered");
+  assert.equal(recoveredInstallation.recovered, true);
+  assert.deepEqual(
+    await registerOfflineScormInstallation(
+      {
+        schemaVersion: 1,
+        installationId: `${ids.installation}_other`,
+        publicKeySpki: anotherOfflinePublicKeySpki.toString("base64url"),
+      },
+      user,
+    ),
+    { status: "denied", reason: "active-installation-exists" },
+  );
+  assert.deepEqual(
+    await registerOfflineScormInstallation(
+      {
+        schemaVersion: 1,
+        installationId: `${ids.installation}_invalid`,
+        publicKeySpki: "A".repeat(86),
+      },
+      anotherUser,
+    ),
+    { status: "denied", reason: "public-key-invalid" },
+  );
+  assert.deepEqual(
+    await registerOfflineScormInstallation(
+      {
+        schemaVersion: 1,
+        installationId: `${ids.installation}_decorated`,
+        publicKeySpki: Buffer.concat([
+          offlinePublicKeySpki,
+          Buffer.from([0xde, 0xad]),
+        ]).toString("base64url"),
+      },
+      anotherUser,
+    ),
+    { status: "denied", reason: "public-key-invalid" },
+  );
   await database
     .insertInto("course")
     .values({
@@ -567,6 +631,61 @@ try {
   } = await import("#/server/scorm/scorm-attempt.server");
   const { issueOfflineScormEntitlement } =
     await import("#/server/scorm/offline-scorm-entitlement.server");
+  const { createOfflineScormEntitlementSigner } =
+    await import("#/server/scorm/offline-scorm-entitlement-signing.server");
+  const signEntitlement = createOfflineScormEntitlementSigner({
+    signingKeyId: "verify-scorm-entitlement-key",
+    privateKey: entitlementSigningKeyPair.privateKey,
+  });
+  const signedEventEnvelope = (input: {
+    entitlementId: string;
+    attemptId: string;
+    historyBaseRevision: number;
+    initialSnapshot: {
+      lessonStatus:
+        | "not_attempted"
+        | "incomplete"
+        | "completed"
+        | "passed"
+        | "failed"
+        | "browsed";
+      location: string;
+      suspendData: string;
+      scoreRaw: number | null;
+      scoreMin: number | null;
+      scoreMax: number | null;
+      totalTimeSeconds: number;
+    };
+    issuedAt: Date;
+    intendedLaunchExpiresAt: Date;
+    commitAcceptanceDeadline: Date;
+  }) =>
+    JSON.stringify(
+      signEntitlement(
+        offlineScormTrustedEntitlementSchema.parse({
+          schemaVersion: 1,
+          entitlementId: input.entitlementId,
+          attemptId: input.attemptId,
+          installationId: ids.installation,
+          learnerId: user.id,
+          devicePublicKeySha256: registeredInstallation.publicKeySha256,
+          historyBaseRevision: input.historyBaseRevision,
+          runtimeVersion: "offline-scorm-1",
+          offering: {
+            kind: "event",
+            eventParticipationId: ids.eventParticipation,
+            eventTemplateVersionItemId: ids.eventItem,
+          },
+          packageVersionId: ids.packageVersion,
+          packageSha256: "a".repeat(64),
+          initialSnapshot: input.initialSnapshot,
+          issuedAt: input.issuedAt.toISOString(),
+          intendedLaunchExpiresAt: input.intendedLaunchExpiresAt.toISOString(),
+          commitAcceptanceDeadline:
+            input.commitAcceptanceDeadline.toISOString(),
+        }),
+      ),
+    );
   const { reconcileOfflineScormProgress } =
     await import("#/server/scorm/offline-scorm-reconciliation.server");
   const requireAuthorizedPlayer = async (
@@ -624,6 +743,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     { status: "denied", reason: "finite-access-expiry-required" },
   );
@@ -638,6 +758,7 @@ try {
         installationId: ids.installation,
       },
       anotherUser,
+      signEntitlement,
     ),
     { status: "denied", reason: "installation-unavailable" },
   );
@@ -652,6 +773,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     { status: "denied", reason: "not-found" },
   );
@@ -671,6 +793,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     { status: "denied", reason: "finite-access-expiry-required" },
   );
@@ -953,6 +1076,38 @@ try {
     "token",
   );
   assert.ok(pendingLaunchToken);
+  await assert.rejects(
+    issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+      () => {
+        throw new Error("simulated entitlement signing failure");
+      },
+    ),
+    /simulated entitlement signing failure/,
+  );
+  assert.equal(
+    await authorizeScormAttemptSession(
+      reviewExchange.attemptId,
+      reviewExchange.sessionToken,
+    ),
+    "authorized",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("scorm_attempt")
+      .select(["writerMode", "offlineEntitlementId"])
+      .where("id", "=", reviewExchange.attemptId)
+      .executeTakeFirstOrThrow(),
+    { writerMode: "online", offlineEntitlementId: null },
+  );
   const [issuance, racingProgress] = await Promise.all([
     issueOfflineScormEntitlement(
       {
@@ -964,6 +1119,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     recordScormProgress(reviewExchange.attemptId, reviewExchange.sessionToken, {
       ...progress,
@@ -974,6 +1130,37 @@ try {
   ]);
   if (issuance.status !== "issued")
     assert.fail(`Expected offline issuance, received ${issuance.reason}`);
+  const verifiedEntitlement = await verifyOfflineScormEntitlementEnvelope(
+    issuance.envelope,
+    (signingKeyId) =>
+      signingKeyId === "verify-scorm-entitlement-key"
+        ? Uint8Array.from(entitlementSigningPublicKeySpki)
+        : undefined,
+  );
+  assert.ok(verifiedEntitlement);
+  assert.equal(verifiedEntitlement.entitlementId, issuance.entitlementId);
+  assert.equal(verifiedEntitlement.attemptId, issuance.attemptId);
+  assert.equal(verifiedEntitlement.installationId, ids.installation);
+  assert.equal(verifiedEntitlement.learnerId, ids.user);
+  assert.equal(
+    verifiedEntitlement.devicePublicKeySha256,
+    registeredInstallation.publicKeySha256,
+  );
+  assert.deepEqual(verifiedEntitlement.offering, {
+    kind: "course",
+    enrollmentId: ids.enrollment,
+    courseVersionItemId: ids.item,
+  });
+  const storedEnvelope = offlineScormSignedEntitlementEnvelopeSchema.parse(
+    (
+      await database
+        .selectFrom("offline_learning_entitlement")
+        .select("signedEnvelope")
+        .where("id", "=", issuance.entitlementId)
+        .executeTakeFirstOrThrow()
+    ).signedEnvelope,
+  );
+  assert.deepEqual(storedEnvelope, issuance.envelope);
   assert.ok(
     racingProgress === "completed" ||
       racingProgress === "offline-writer-active",
@@ -985,6 +1172,13 @@ try {
       "credentialGeneration",
       "offlineEntitlementId",
       "progressRevision",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
+      "totalTimeSeconds",
     ])
     .where("id", "=", reviewExchange.attemptId)
     .executeTakeFirstOrThrow();
@@ -993,6 +1187,13 @@ try {
     credentialGeneration: issuance.writerGeneration,
     offlineEntitlementId: issuance.entitlementId,
     progressRevision: issuance.historyBaseRevision,
+    lessonStatus: verifiedEntitlement.initialSnapshot.lessonStatus,
+    location: verifiedEntitlement.initialSnapshot.location,
+    suspendData: verifiedEntitlement.initialSnapshot.suspendData,
+    scoreRaw: verifiedEntitlement.initialSnapshot.scoreRaw,
+    scoreMin: verifiedEntitlement.initialSnapshot.scoreMin,
+    scoreMax: verifiedEntitlement.initialSnapshot.scoreMax,
+    totalTimeSeconds: verifiedEntitlement.initialSnapshot.totalTimeSeconds,
   });
   assert.equal(
     await authorizeScormAttemptSession(
@@ -1027,20 +1228,21 @@ try {
   assert.deepEqual(await createScormLaunch(ids.enrollment, 0, user), {
     status: "offline-writer-active",
   });
-  assert.deepEqual(
-    await issueOfflineScormEntitlement(
-      {
-        target: {
-          kind: "course",
-          enrollmentId: ids.enrollment,
-          modulePosition: 0,
-        },
-        installationId: ids.installation,
+  const recoveredIssuance = await issueOfflineScormEntitlement(
+    {
+      target: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        modulePosition: 0,
       },
-      user,
-    ),
-    { status: "denied", reason: "offline-writer-active" },
+      installationId: ids.installation,
+    },
+    user,
+    () => {
+      throw new Error("Exact issuance retry must not sign again");
+    },
   );
+  assert.deepEqual(recoveredIssuance, issuance);
   assert.equal(
     (
       await database
@@ -1061,6 +1263,51 @@ try {
   assert.deepEqual(await createScormLaunch(ids.enrollment, 0, user), {
     status: "offline-writer-active",
   });
+  const recoverAfterMutableAccessChange = async () =>
+    await issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+      () => {
+        throw new Error("Policy-changing retry must not sign again");
+      },
+    );
+  assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);
+  await database
+    .updateTable("enrollment")
+    .set({ removedAt: null, status: "cancelled" })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);
+  await database
+    .updateTable("enrollment")
+    .set({ status: "expired" })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);
+  await database
+    .updateTable("enrollment")
+    .set({
+      status: "completed",
+      expiresAt: new Date("2026-01-01T00:00:00.000Z"),
+    })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);
+  await database
+    .updateTable("enrollment")
+    .set({
+      expiresAt: new Date("2027-08-01T00:00:00.000Z"),
+      removedAt: new Date(),
+    })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
 
   const offlineBase = await database
     .selectFrom("scorm_attempt")
@@ -1657,6 +1904,12 @@ try {
       "id",
       "progressRevision",
       "credentialGeneration",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
       "totalTimeSeconds",
     ])
     .where("eventParticipationId", "=", ids.eventParticipation)
@@ -1681,6 +1934,60 @@ try {
     eventLaunchExpiresAt.getTime() + 20 * 24 * 60 * 60 * 1_000,
   );
   const eventWriterGeneration = eventAttempt.credentialGeneration + 1;
+  const eventEnvelopeInput = {
+    entitlementId: eventEntitlementId,
+    attemptId: eventAttempt.id,
+    historyBaseRevision: eventAttempt.progressRevision,
+    initialSnapshot: {
+      lessonStatus: eventAttempt.lessonStatus,
+      location: eventAttempt.location,
+      suspendData: eventAttempt.suspendData,
+      scoreRaw: eventAttempt.scoreRaw,
+      scoreMin: eventAttempt.scoreMin,
+      scoreMax: eventAttempt.scoreMax,
+      totalTimeSeconds: eventAttempt.totalTimeSeconds,
+    },
+    issuedAt: eventIssuedAt,
+    intendedLaunchExpiresAt: eventLaunchExpiresAt,
+    commitAcceptanceDeadline: eventAcceptanceDeadline,
+  };
+  const mismatchedEventOfferingEnvelope = JSON.parse(
+    signedEventEnvelope(eventEnvelopeInput),
+  ) as {
+    entitlement: {
+      offering: { eventParticipationId: string };
+    };
+  };
+  mismatchedEventOfferingEnvelope.entitlement.offering.eventParticipationId =
+    "another_event_participation";
+  await assert.rejects(
+    database
+      .insertInto("offline_learning_entitlement")
+      .values({
+        id: eventEntitlementId,
+        userId: user.id,
+        attemptId: eventAttempt.id,
+        installationId: ids.installation,
+        scormPackageVersionId: ids.packageVersion,
+        packageSha256: "a".repeat(64),
+        runtimeVersion: "offline-scorm-1",
+        historyBaseRevision: eventAttempt.progressRevision,
+        writerGeneration: eventWriterGeneration,
+        reconciliationCursorRevision: eventAttempt.progressRevision,
+        signedEnvelope: JSON.stringify(mismatchedEventOfferingEnvelope),
+        resolution: null,
+        resolvedByUserId: null,
+        issuedAt: eventIssuedAt,
+        intendedLaunchExpiresAt: eventLaunchExpiresAt,
+        commitAcceptanceDeadline: eventAcceptanceDeadline,
+        endedAt: null,
+      })
+      .execute(),
+    {
+      code: "23514",
+      message: /offering does not match attempt/u,
+    },
+  );
   await database.transaction().execute(async (transaction) => {
     await transaction
       .insertInto("offline_learning_entitlement")
@@ -1695,6 +2002,7 @@ try {
         historyBaseRevision: eventAttempt.progressRevision,
         writerGeneration: eventWriterGeneration,
         reconciliationCursorRevision: eventAttempt.progressRevision,
+        signedEnvelope: signedEventEnvelope(eventEnvelopeInput),
         resolution: null,
         resolvedByUserId: null,
         issuedAt: eventIssuedAt,
@@ -1797,7 +2105,17 @@ try {
   });
   const eventAfterReconciliation = await database
     .selectFrom("scorm_attempt")
-    .select(["progressRevision", "credentialGeneration", "totalTimeSeconds"])
+    .select([
+      "progressRevision",
+      "credentialGeneration",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
+      "totalTimeSeconds",
+    ])
     .where("id", "=", eventAttempt.id)
     .executeTakeFirstOrThrow();
   const expiredEntitlementId = "event_expired_entitlement_0001";
@@ -1823,6 +2141,23 @@ try {
         historyBaseRevision: eventAfterReconciliation.progressRevision,
         writerGeneration: expiredWriterGeneration,
         reconciliationCursorRevision: eventAfterReconciliation.progressRevision,
+        signedEnvelope: signedEventEnvelope({
+          entitlementId: expiredEntitlementId,
+          attemptId: eventAttempt.id,
+          historyBaseRevision: eventAfterReconciliation.progressRevision,
+          initialSnapshot: {
+            lessonStatus: eventAfterReconciliation.lessonStatus,
+            location: eventAfterReconciliation.location,
+            suspendData: eventAfterReconciliation.suspendData,
+            scoreRaw: eventAfterReconciliation.scoreRaw,
+            scoreMin: eventAfterReconciliation.scoreMin,
+            scoreMax: eventAfterReconciliation.scoreMax,
+            totalTimeSeconds: eventAfterReconciliation.totalTimeSeconds,
+          },
+          issuedAt: expiredIssuedAt,
+          intendedLaunchExpiresAt: expiredLaunchAt,
+          commitAcceptanceDeadline: expiredAcceptanceAt,
+        }),
         resolution: null,
         resolvedByUserId: null,
         issuedAt: expiredIssuedAt,
