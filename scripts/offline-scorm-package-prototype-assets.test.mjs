@@ -101,6 +101,19 @@ describe("offline SCORM package prototype assets", () => {
     expect(worker?.body).toContain(
       "async function verifyResponse(response, file)",
     );
+    expect(worker?.body).toContain("async function isReadyCacheValid(cache)");
+    expect(worker?.body).toContain(
+      "if (await isReadyCacheValid(existing)) return",
+    );
+    expect(worker?.body).toContain(
+      "if (await isReadyCacheValid(published)) return",
+    );
+    expect(worker?.body).toContain(
+      "if (!(await isReadyCacheValid(published))) throw new Error",
+    );
+    expect(worker?.body).not.toContain(
+      "if (await existing.match(READY_URL)) return",
+    );
     expect(worker?.body).toContain("await response.arrayBuffer()");
     expect(worker?.body).toContain(
       "bytes.byteLength !== file.sizeBytes || digest !== file.sha256",

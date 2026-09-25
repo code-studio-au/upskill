@@ -472,6 +472,76 @@ describe("isolated offline SCORM package prototype", () => {
     expect([...caches.stores.keys()]).toEqual([installed.cacheName]);
   });
 
+  it("repairs missing and replaced inventory behind a stale ready marker", async () => {
+    const files: Record<string, { body: string; contentType: string }> = {
+      "/index.html": { body: "ready", contentType: "text/html" },
+      "/runtime.js": {
+        body: "window.ready=true",
+        contentType: "text/javascript",
+      },
+    };
+    const manifest = packageManifest(files);
+    const caches = new MemoryCacheStorage();
+    const packageFetch = vi.fn((request: RequestInfo | URL) => {
+      const url = new URL(
+        request instanceof Request ? request.url : request.toString(),
+      );
+      const file = files[url.pathname];
+      return Promise.resolve(
+        file
+          ? new Response(file.body, {
+              headers: { "Content-Type": file.contentType },
+            })
+          : new Response("missing", { status: 404 }),
+      );
+    });
+    const installInput = {
+      manifest,
+      applicationOrigin: "https://app.upskill.example",
+      learningOrigin: "https://learn.upskill.example",
+      caches: caches as unknown as Pick<
+        CacheStorage,
+        "delete" | "match" | "open"
+      >,
+      fetch: packageFetch,
+      subtle: crypto.subtle,
+    };
+    const installed = await installOfflineScormPackage({
+      ...installInput,
+      randomUUID: () => "first-staging-id",
+    });
+    const readyCache = caches.stores.get(installed.cacheName);
+    if (!readyCache) throw new Error("Ready cache was not published");
+    expect(
+      readyCache.values.delete(`${manifest.packageOrigin}/runtime.js`),
+    ).toBe(true);
+    await readyCache.put(
+      `${manifest.packageOrigin}/index.html`,
+      new Response("rogue"),
+    );
+    packageFetch.mockClear();
+
+    await expect(
+      installOfflineScormPackage({
+        ...installInput,
+        randomUUID: () => "repair-staging-id",
+      }),
+    ).resolves.toEqual(installed);
+
+    expect(packageFetch).toHaveBeenCalledTimes(2);
+    await expect(
+      readyCache
+        .match(`${manifest.packageOrigin}/index.html`)
+        .then((response) => response?.text()),
+    ).resolves.toBe("ready");
+    await expect(
+      readyCache
+        .match(`${manifest.packageOrigin}/runtime.js`)
+        .then((response) => response?.text()),
+    ).resolves.toBe("window.ready=true");
+    expect([...caches.stores.keys()]).toEqual([installed.cacheName]);
+  });
+
   it("rejects manifest paths that normalize to another cache key", async () => {
     const files = {
       "/index.html": { body: "ready", contentType: "text/html" },

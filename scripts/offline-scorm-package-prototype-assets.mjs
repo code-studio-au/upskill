@@ -600,9 +600,23 @@ async function verifyResponse(response, file) {
   return trustedResponse(bytes, file);
 }
 
+async function isReadyCacheValid(cache) {
+  if (!(await cache.match(READY_URL))) return false;
+  try {
+    for (const file of INVENTORY) {
+      const request = new Request(PACKAGE_ORIGIN + file.pathname, { credentials: "omit" });
+      const response = await cache.match(request);
+      if (!response || !(await verifyResponse(response, file))) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function installPackage() {
   const existing = await caches.open(CACHE_NAME);
-  if (await existing.match(READY_URL)) return;
+  if (await isReadyCacheValid(existing)) return;
   const stagingName = CACHE_NAME + "-staging-" + crypto.randomUUID();
   const staging = await caches.open(stagingName);
   try {
@@ -617,7 +631,7 @@ async function installPackage() {
       await staging.put(request, verified);
     }
     const published = await caches.open(CACHE_NAME);
-    if (await published.match(READY_URL)) return;
+    if (await isReadyCacheValid(published)) return;
     for (const file of INVENTORY) {
       const request = new Request(PACKAGE_ORIGIN + file.pathname, { credentials: "omit" });
       const response = await staging.match(request);
@@ -625,6 +639,7 @@ async function installPackage() {
       await published.put(request, response);
     }
     await published.put(READY_URL, new Response("ready"));
+    if (!(await isReadyCacheValid(published))) throw new Error("Published cache failed integrity check");
   } finally {
     await caches.delete(stagingName);
   }

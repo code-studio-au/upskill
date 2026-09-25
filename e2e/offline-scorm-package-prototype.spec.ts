@@ -323,6 +323,32 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     "Rise package fixture",
   );
 
+  const repairEventCounts = await page.evaluate(() => {
+    const events = window.offlineScormPrototype?.events() ?? [];
+    return {
+      packageReady: events.filter(
+        (event) => event.type === "prototype-package-ready",
+      ).length,
+      playerReady: events.filter(
+        (event) => event.type === "prototype-player-ready",
+      ).length,
+    };
+  });
+  await page.evaluate(() => window.offlineScormPrototype?.reloadPackage());
+  await waitForPrototypeEvent(
+    page,
+    "prototype-package-ready",
+    repairEventCounts.packageReady + 1,
+  );
+  await waitForPrototypeEvent(
+    page,
+    "prototype-player-ready",
+    repairEventCounts.playerReady + 1,
+  );
+  await expect(
+    page.frameLocator("#package-frame").locator("#vendor-ready"),
+  ).toHaveText("Rise fixture ready");
+
   await page.evaluate(() =>
     window.offlineScormPrototype?.command("package", "cleanup"),
   );

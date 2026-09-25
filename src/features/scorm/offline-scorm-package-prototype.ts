@@ -494,6 +494,31 @@ function trustedPackageFileResponse(
   });
 }
 
+async function isOfflineScormPackageCacheReady(input: {
+  cache: Pick<Cache, "match">;
+  manifest: OfflineScormPackageManifest;
+  subtle: Pick<SubtleCrypto, "digest">;
+}): Promise<boolean> {
+  if (!(await input.cache.match(packageReadyUrl(input.manifest)))) return false;
+  try {
+    for (const file of input.manifest.files) {
+      const response = await input.cache.match(
+        packageFileRequest(input.manifest, file.pathname),
+      );
+      if (!response) return false;
+      const bytes = await response.arrayBuffer();
+      if (
+        bytes.byteLength !== file.sizeBytes ||
+        (await responseSha256(bytes, input.subtle)) !== file.sha256
+      )
+        return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function installOfflineScormPackage(input: {
   manifest: OfflineScormPackageManifest;
   applicationOrigin: string;
@@ -511,8 +536,17 @@ export async function installOfflineScormPackage(input: {
   });
   const finalCacheName = packageCacheName(manifest);
   const readyUrl = packageReadyUrl(manifest);
-  if (await input.caches.match(readyUrl, { cacheName: finalCacheName }))
-    return { cacheName: finalCacheName, status: "ready" };
+  if (await input.caches.match(readyUrl, { cacheName: finalCacheName })) {
+    const finalCache = await input.caches.open(finalCacheName);
+    if (
+      await isOfflineScormPackageCacheReady({
+        cache: finalCache,
+        manifest,
+        subtle: input.subtle,
+      })
+    )
+      return { cacheName: finalCacheName, status: "ready" };
+  }
   const temporaryCacheName = `${finalCacheName}-staging-${input.randomUUID()}`;
   try {
     const temporaryCache = await input.caches.open(temporaryCacheName);
@@ -542,11 +576,17 @@ export async function installOfflineScormPackage(input: {
       );
     }
 
-    if (await input.caches.match(readyUrl, { cacheName: finalCacheName })) {
+    const finalCache = await input.caches.open(finalCacheName);
+    if (
+      await isOfflineScormPackageCacheReady({
+        cache: finalCache,
+        manifest,
+        subtle: input.subtle,
+      })
+    ) {
       await input.caches.delete(temporaryCacheName);
       return { cacheName: finalCacheName, status: "ready" };
     }
-    const finalCache = await input.caches.open(finalCacheName);
     for (const file of manifest.files) {
       const request = packageFileRequest(manifest, file.pathname);
       const response = await temporaryCache.match(request);
@@ -563,6 +603,17 @@ export async function installOfflineScormPackage(input: {
         headers: { "Content-Type": "application/json" },
       }),
     );
+    if (
+      !(await isOfflineScormPackageCacheReady({
+        cache: finalCache,
+        manifest,
+        subtle: input.subtle,
+      }))
+    )
+      throw new OfflineScormPackagePrototypeError(
+        "cache_failed",
+        "The published package cache failed its integrity check",
+      );
     await input.caches.delete(temporaryCacheName);
     return { cacheName: finalCacheName, status: "ready" };
   } catch (error) {
