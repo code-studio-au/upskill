@@ -590,6 +590,20 @@ try {
     "2030-02-28T24:00:00.000Z";
   const normalizedLeapSecond = structuredClone(completeEnvelope);
   normalizedLeapSecond.entitlement.issuedAt = "2029-12-31T23:59:60.000Z";
+  for (const mismatchedDeviceDigest of ["f".repeat(64), "c".repeat(64)]) {
+    const mismatchedDeviceEnvelope = structuredClone(completeEnvelope);
+    mismatchedDeviceEnvelope.entitlement.devicePublicKeySha256 =
+      mismatchedDeviceDigest;
+    await assert.rejects(
+      insertEntitlement(ids.duplicateEntitlement, {
+        signedEnvelope: JSON.stringify(mismatchedDeviceEnvelope),
+      }),
+      {
+        code: "23514",
+        message: /device key digest does not match installation/u,
+      },
+    );
+  }
   for (const malformedEnvelope of [
     {},
     missingSignature,

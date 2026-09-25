@@ -1188,6 +1188,7 @@ for (const boundary of [
   ") is true",
   "guard_offline_learning_entitlement_signed_envelope",
   "New offline entitlements require signed evidence",
+  "Offline signed entitlement device key digest does not match installation",
   "Offline signed entitlement evidence is immutable",
 ])
   if (!offlineScormSignedEntitlementMigration.includes(boundary))

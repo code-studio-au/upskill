@@ -202,10 +202,30 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
 
   await sql`create function guard_offline_learning_entitlement_signed_envelope()
     returns trigger language plpgsql as $$
+    declare
+      envelope_device_key_sha256 text;
+      installation_device_key_sha256 text;
     begin
       if tg_op = 'INSERT' and new."signedEnvelope" is null then
         raise exception 'New offline entitlements require signed evidence'
           using errcode = '23514';
+      end if;
+      if tg_op = 'INSERT' then
+        envelope_device_key_sha256 := new."signedEnvelope" #>>
+          '{entitlement,devicePublicKeySha256}';
+        if envelope_device_key_sha256 ~ '^[a-f0-9]{64}$' then
+          select installation."publicKeySha256"
+            into installation_device_key_sha256
+            from offline_learning_installation installation
+           where installation.id = new."installationId"
+             and installation."userId" = new."userId";
+          if installation_device_key_sha256 is null
+            or envelope_device_key_sha256 <>
+              installation_device_key_sha256 then
+            raise exception 'Offline signed entitlement device key digest does not match installation'
+              using errcode = '23514';
+          end if;
+        end if;
       end if;
       if tg_op = 'UPDATE'
         and new."signedEnvelope" is distinct from old."signedEnvelope" then
