@@ -209,11 +209,39 @@ The dormant trusted-runtime slice now:
   route or implying that local completion is server-confirmed.
 
 The IndexedDB adapter is dormant: no current route imports it, no package code
-runs on the trusted origin and no offline control is exposed. The next slice is
-the isolated package prototype. It must prove Chromium and Firefox isolation
-and spool behaviour, and exercise Safari's explicit user-confirmed local-store
-access as a qualification target; Safari remains unadvertised until its full
-real-device gates pass.
+runs on the trusted origin and no offline control is exposed.
+
+The isolated-package prototype now:
+
+- rejects any package origin that is not an exact, potentially trustworthy
+  origin on a distinct schemeful registrable site from both application and
+  learning origins;
+- defines a content-addressed, digest-checked package installer that fetches
+  without credentials, stages every exact inventory object, publishes a ready
+  marker last and refuses partial or digest-invalid packages;
+- provides the exact-site synchronous Web Storage spool with fixed record and
+  byte ceilings, monotonic launch elapsed-time high-water calculation and
+  deletion only after a trusted import acknowledgement;
+- holds one exact-attempt Web Lock for the player lifetime and binds the direct
+  learning/package sibling channel only after exact origin and `WindowProxy`
+  checks, without passing an entitlement or attempt selector to package code;
+- exercises the user-activated Safari Storage Access request and a real
+  storage round trip while treating denial as a qualification failure; and
+- requires the dedicated package origin's `Clear-Site-Data` response, then
+  verifies Web Storage, IndexedDB, Cache Storage, service-worker registrations
+  and package-site cookies as one fail-closed, whole-site cleanup operation.
+
+The production runtime remains dormant. A test-only three-origin harness uses
+separate loopback sites to cover lock exclusion, package-cookie isolation,
+digest publication, offline reload, spool recovery/import acknowledgement and
+cleanup in Chromium and Firefox, plus the Safari-compatible explicit storage
+decision in WebKit. The application server serves these assets only when
+`APP_ENV=test`, and the standalone harness is invoked only by its dedicated
+test command; no production route, learner control, entitlement issuance or
+synchronization endpoint is activated by this slice. Safari remains
+unadvertised until Safari WebDriver and real iPhone/iPad lifecycle gates pass.
+The next slice is one complete Course path after the supported browser lanes
+pass this prototype suite.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and
@@ -238,6 +266,10 @@ until a later expand-and-contract migration can prove removal safe.
 - Run `pnpm run verify:app` for every application slice,
   `pnpm run verify:db:gate` for schema/domain slices and the SCORM browser
   partition for every activated learner path.
+- Run `pnpm run test:e2e:offline-scorm-package` for the isolated package
+  prototype before activating any learner download path; retain Safari as a
+  qualification target rather than a supported claim until the real-device
+  gates in ADR 0041 pass.
 
 ## Related decisions
 

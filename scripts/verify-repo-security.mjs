@@ -18,12 +18,12 @@ const csp = fs.readFileSync(
   path.join(root, "src/server/http/security-headers.ts"),
   "utf8",
 );
+const learningCsp = fs.readFileSync(
+  path.join(root, "src/features/scorm/learning-content-security-policy.ts"),
+  "utf8",
+);
 const applicationCsp = csp.slice(
   csp.indexOf("const DIRECTIVES"),
-  csp.indexOf("export function buildLearningContentSecurityPolicy"),
-);
-const learningCsp = csp.slice(
-  csp.indexOf("export function buildLearningContentSecurityPolicy"),
   csp.indexOf("export function applySecurityHeaders"),
 );
 const zodAdapter = fs.readFileSync(

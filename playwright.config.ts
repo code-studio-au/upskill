@@ -2,12 +2,18 @@ import { defineConfig, devices } from "@playwright/test";
 
 const browserPort = process.env.PLAYWRIGHT_PORT ?? "3000";
 const learningPort = process.env.PLAYWRIGHT_LEARNING_PORT ?? "3001";
+const offlineScormPrototypePort =
+  process.env.PLAYWRIGHT_OFFLINE_SCORM_PACKAGE_PORT ?? "3002";
 const secure = process.env.PLAYWRIGHT_HTTPS === "true";
 const localTlsSpkiPin = process.env.PLAYWRIGHT_TLS_SPKI_PIN?.trim();
 if (!/^\d{2,5}$/.test(browserPort))
   throw new Error("PLAYWRIGHT_PORT must be a valid local port");
 if (!/^\d{2,5}$/.test(learningPort))
   throw new Error("PLAYWRIGHT_LEARNING_PORT must be a valid local port");
+if (!/^\d{2,5}$/.test(offlineScormPrototypePort))
+  throw new Error(
+    "PLAYWRIGHT_OFFLINE_SCORM_PACKAGE_PORT must be a valid local port",
+  );
 const trustedLocalTlsSpkiPin = (() => {
   if (!secure) return null;
   if (!localTlsSpkiPin || !/^[A-Za-z0-9+/]{43}=$/u.test(localTlsSpkiPin))
@@ -19,6 +25,7 @@ const trustedLocalTlsSpkiPin = (() => {
 const protocol = secure ? "https" : "http";
 const browserOrigin = `${protocol}://127.0.0.1:${browserPort}`;
 const learningOrigin = `${protocol}://127.0.0.1:${learningPort}`;
+const offlineScormPrototypeOrigin = `${protocol}://127.0.0.2:${offlineScormPrototypePort}`;
 const secureServerPrefix = secure
   ? "pnpm run tls:local && UPSKILL_TLS_CERT_FILE=.local/tls/localhost.crt UPSKILL_TLS_KEY_FILE=.local/tls/localhost.key NODE_EXTRA_CA_CERTS=.local/tls/upskill-local-ca.crt "
   : "";
@@ -98,7 +105,7 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `pnpm run build && ${secureServerPrefix}${testProxyPrefix}APP_ORIGIN=${browserOrigin} LEARNING_ORIGIN=${learningOrigin} pnpm run start:origins`,
+    command: `pnpm run build && ${secureServerPrefix}${testProxyPrefix}APP_ORIGIN=${browserOrigin} LEARNING_ORIGIN=${learningOrigin} OFFLINE_SCORM_PROTOTYPE_ORIGIN=${offlineScormPrototypeOrigin} pnpm run start:origins`,
     ignoreHTTPSErrors: secure,
     url: `${browserOrigin}/api/health`,
     // Reusing a developer server can direct browser mutations at the normal

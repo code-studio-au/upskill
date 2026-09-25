@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import net from "node:net";
 import path from "node:path";
+import { resolveBrowserTestPorts } from "./browser-test-ports.mjs";
 import { createDisposablePostgresDatabase } from "./disposable-postgres.mjs";
 import { ensureLocalTls } from "./local-tls.mjs";
 
@@ -46,29 +46,6 @@ async function localTlsSpkiPin() {
 }
 
 const tlsSpkiPin = secure ? await localTlsSpkiPin() : undefined;
-
-async function findAvailablePort(excludedPort) {
-  return await new Promise((resolve, reject) => {
-    const server = net.createServer();
-    server.unref();
-    server.once("error", reject);
-    server.listen({ host: "127.0.0.1", port: 0 }, () => {
-      const address = server.address();
-      if (!address || typeof address === "string") {
-        server.close();
-        reject(new Error("Unable to allocate a browser-test port"));
-        return;
-      }
-      const port = String(address.port);
-      server.close((error) => {
-        if (error) reject(error);
-        else if (port === excludedPort)
-          void findAvailablePort(excludedPort).then(resolve, reject);
-        else resolve(port);
-      });
-    });
-  });
-}
 
 let activeChild;
 let interruptedSignal;
@@ -119,15 +96,13 @@ try {
     `Created disposable browser-test database ${disposableDatabase.databaseName}`,
   );
 
-  const browserPort =
-    process.env.PLAYWRIGHT_PORT ?? (await findAvailablePort(undefined));
-  const learningPort =
-    process.env.PLAYWRIGHT_LEARNING_PORT ??
-    (await findAvailablePort(browserPort));
-  if (browserPort === learningPort)
-    throw new Error(
-      "Browser and learning test origins must use distinct ports",
-    );
+  const { browserPort, learningPort, offlineScormPackagePort } =
+    await resolveBrowserTestPorts({
+      browserPort: process.env.PLAYWRIGHT_PORT,
+      learningPort: process.env.PLAYWRIGHT_LEARNING_PORT,
+      offlineScormPackagePort:
+        process.env.PLAYWRIGHT_OFFLINE_SCORM_PACKAGE_PORT,
+    });
   const testEnvironment = {
     ...process.env,
     APP_ENV: "test",
@@ -137,6 +112,7 @@ try {
     DATABASE_URL: disposableDatabase.databaseUrl,
     PLAYWRIGHT_PORT: browserPort,
     PLAYWRIGHT_LEARNING_PORT: learningPort,
+    PLAYWRIGHT_OFFLINE_SCORM_PACKAGE_PORT: offlineScormPackagePort,
     PLAYWRIGHT_HTTPS: secure ? "true" : process.env.PLAYWRIGHT_HTTPS,
     ...(tlsSpkiPin ? { PLAYWRIGHT_TLS_SPKI_PIN: tlsSpkiPin } : {}),
   };
