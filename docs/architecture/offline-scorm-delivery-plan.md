@@ -273,11 +273,23 @@ credential-free package installer needs. Existing ready package versions that
 predate that inventory remain immutable and must be replaced by a newly
 ingested version before offline use.
 
-This increment remains dormant and deliberately stops before the combined
-activation boundary. The next slice must provision an exact per-attempt package
-origin on a distinct registrable site, then expose authenticated installation
-registration, entitlement issuance and package download together so no partial
-activation can strand an attempt in offline-writer mode.
+The exact-site allocation increment adds the second dormant authority required
+for activation. An operator must supply a controlled DNS suffix registered in
+the private section of the Public Suffix List and a separate 256-bit origin
+derivation key. For each new entitlement, the server derives an opaque HTTPS
+hostname from both the attempt and entitlement identifiers, verifies that the
+result is on a distinct schemeful registrable site from the application and
+learning origins, and creates its retained cleanup inventory in the same
+transaction that signs the entitlement and transfers writer ownership. A
+lost-response retry returns the retained origin without signing or allocating
+again. Invalid allocation, signing or persistence rolls back the whole writer
+transition.
+
+This increment remains dormant and deliberately does not claim that DNS, TLS or
+package-host routing exists. The next slice must provision wildcard DNS/TLS and
+the constrained credential-free package host, then expose authenticated
+installation registration, entitlement issuance and package download together
+so no partial activation can strand an attempt in offline-writer mode.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and

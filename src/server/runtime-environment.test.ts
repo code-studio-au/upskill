@@ -7,6 +7,7 @@ const baseEnvironment = {
   STRIPE_SECRET_KEY: "sk_test_local",
   STRIPE_WEBHOOK_SECRET: "whsec_local",
 };
+const offlineScormOriginKey = Buffer.alloc(32, 7).toString("base64url");
 
 describe("server runtime environment", () => {
   it("applies local endpoints and provider defaults", () => {
@@ -19,7 +20,7 @@ describe("server runtime environment", () => {
     expect(environment.OFFLINE_SCORM_ENABLED).toBe(false);
   });
 
-  it("requires a complete offline SCORM signing authority before enablement", () => {
+  it("requires complete offline SCORM signing and package-site authorities", () => {
     expect(() =>
       parseServerEnvironment({
         ...baseEnvironment,
@@ -39,6 +40,25 @@ describe("server runtime environment", () => {
         OFFLINE_SCORM_ENABLED: "true",
         OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
         OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+      }),
+    ).toThrow("OFFLINE_SCORM_PACKAGE_SITE_SUFFIX");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+        OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "github.io",
+      }),
+    ).toThrow("OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+        OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "github.io",
+        OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: offlineScormOriginKey,
       }),
     ).not.toThrow();
   });

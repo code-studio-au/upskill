@@ -7,11 +7,13 @@ import {
   offlineScormSignedEntitlementEnvelopeSchema,
   type OfflineScormSignedEntitlementEnvelope,
 } from "#/features/scorm/offline-scorm-entitlement";
+import { assertOfflineScormPackageOriginIsolation } from "#/features/scorm/offline-scorm-package-site";
 import { offlineScormTrustedEntitlementSchema } from "#/features/scorm/offline-scorm-trusted-runtime";
 import type { OfflineScormOfferingBinding } from "#/features/scorm/offline-scorm-reconciliation";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import type { Database } from "#/server/db/types";
+import { getServerEnv } from "#/server/env.server";
 import { logServerEvent } from "#/server/logging/server-logger";
 import {
   lockOrCreateScormAttempt,
@@ -22,6 +24,7 @@ import {
 } from "#/server/scorm/scorm-launch-policy.server";
 import { addElapsedMilliseconds } from "#/server/time/time.server";
 import type { OfflineScormEntitlementSigner } from "#/server/scorm/offline-scorm-entitlement-signing.server";
+import type { OfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
 
 const OFFLINE_SCORM_RUNTIME_VERSION = "offline-scorm-1";
 const MAXIMUM_ACCEPTANCE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -53,6 +56,7 @@ export type OfflineScormEntitlementIssueResult =
       writerGeneration: number;
       packageVersionId: string;
       packageSha256: string;
+      packageSiteOrigin: string;
       runtimeVersion: string;
       issuedAt: Date;
       intendedLaunchExpiresAt: Date;
@@ -132,6 +136,24 @@ async function recoverActiveOfflineScormEntitlement(
     .executeTakeFirst();
   if (!existing?.signedEnvelope) return undefined;
 
+  const cleanupInventory = await transaction
+    .selectFrom("offline_scorm_cleanup_inventory")
+    .select(["packageSiteOrigin", "state"])
+    .where("entitlementId", "=", existing.id)
+    .where("installationId", "=", existing.installationId)
+    .where("userId", "=", existing.userId)
+    .executeTakeFirst();
+  if (!cleanupInventory || cleanupInventory.state !== "pending")
+    throw new Error(
+      "Active offline SCORM entitlement has no pending cleanup inventory",
+    );
+  const environment = getServerEnv();
+  assertOfflineScormPackageOriginIsolation({
+    applicationOrigin: environment.APP_ORIGIN,
+    learningOrigin: environment.LEARNING_ORIGIN,
+    packageOrigin: cleanupInventory.packageSiteOrigin,
+  });
+
   let expectedOffering: OfflineScormOfferingBinding | undefined;
   if (input.target.kind === "course") {
     if (courseVersionId === undefined)
@@ -191,6 +213,7 @@ async function recoverActiveOfflineScormEntitlement(
     writerGeneration: existing.writerGeneration,
     packageVersionId: existing.scormPackageVersionId,
     packageSha256: existing.packageSha256,
+    packageSiteOrigin: cleanupInventory.packageSiteOrigin,
     runtimeVersion: existing.runtimeVersion,
     issuedAt: existing.issuedAt,
     intendedLaunchExpiresAt: existing.intendedLaunchExpiresAt,
@@ -212,6 +235,7 @@ export async function issueOfflineScormEntitlement(
   },
   user: AuthenticatedUser,
   signEntitlement: OfflineScormEntitlementSigner,
+  provisionPackageSite: OfflineScormPackageSiteProvisioner,
 ): Promise<OfflineScormEntitlementIssueResult> {
   const result = await getDatabase()
     .transaction()
@@ -264,6 +288,16 @@ export async function issueOfflineScormEntitlement(
         } as const;
 
       const entitlementId = randomUUID();
+      const packageSiteOrigin = provisionPackageSite({
+        attemptId: attempt.id,
+        entitlementId,
+      });
+      const environment = getServerEnv();
+      assertOfflineScormPackageOriginIsolation({
+        applicationOrigin: environment.APP_ORIGIN,
+        learningOrigin: environment.LEARNING_ORIGIN,
+        packageOrigin: packageSiteOrigin,
+      });
       const writerGeneration = attempt.credentialGeneration + 1;
       const commitAcceptanceDeadline = addElapsedMilliseconds(
         policy.intendedLaunchExpiresAt,
@@ -332,6 +366,22 @@ export async function issueOfflineScormEntitlement(
         })
         .executeTakeFirstOrThrow();
       await transaction
+        .insertInto("offline_scorm_cleanup_inventory")
+        .values({
+          id: randomUUID(),
+          entitlementId,
+          installationId: installation.id,
+          userId: user.id,
+          packageSiteOrigin,
+          clearRequestedAt: null,
+          clearedAt: null,
+          cleanupReceiptSha256: null,
+          lastErrorCode: null,
+          createdAt: issuedAt,
+          updatedAt: issuedAt,
+        })
+        .executeTakeFirstOrThrow();
+      await transaction
         .updateTable("scorm_attempt_session")
         .set({ revokedAt: issuedAt })
         .where("attemptId", "=", attempt.id)
@@ -356,6 +406,7 @@ export async function issueOfflineScormEntitlement(
         writerGeneration,
         packageVersionId: policy.packageVersionId,
         packageSha256: policy.packageSha256,
+        packageSiteOrigin,
         runtimeVersion: OFFLINE_SCORM_RUNTIME_VERSION,
         issuedAt,
         intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt,

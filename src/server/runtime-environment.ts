@@ -1,4 +1,5 @@
 import { z } from "#/validation/zod.server.ts";
+import { createOfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
 
 const LOCAL_ACCESS_CODE_ENCRYPTION_KEY =
   "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE";
@@ -32,6 +33,11 @@ const environmentSchema = z.object({
     .string()
     .min(100)
     .max(2_048)
+    .regex(/^[A-Za-z0-9_-]+$/u)
+    .optional(),
+  OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: z.string().min(3).max(253).optional(),
+  OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: z
+    .string()
     .regex(/^[A-Za-z0-9_-]+$/u)
     .optional(),
   STRIPE_SECRET_KEY: z.string().regex(/^(?:sk|rk)_/u, {
@@ -228,6 +234,15 @@ function requireOfflineScormConfiguration(validated: ServerEnv): void {
     throw new Error(
       "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8 is required when offline SCORM is enabled",
     );
+  if (!validated.OFFLINE_SCORM_PACKAGE_SITE_SUFFIX)
+    throw new Error(
+      "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX is required when offline SCORM is enabled",
+    );
+  if (!validated.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY)
+    throw new Error(
+      "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY is required when offline SCORM is enabled",
+    );
+  createOfflineScormPackageSiteProvisioner(validated);
   if (
     (validated.APP_ENV === "staging" || validated.APP_ENV === "production") &&
     /replace|example|invalid/iu.test(

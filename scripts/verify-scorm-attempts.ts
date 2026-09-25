@@ -16,6 +16,7 @@ import {
 import { offlineScormTrustedEntitlementSchema } from "#/features/scorm/offline-scorm-trusted-runtime";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
+import type { OfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -637,6 +638,9 @@ try {
     signingKeyId: "verify-scorm-entitlement-key",
     privateKey: entitlementSigningKeyPair.privateKey,
   });
+  const provisionPackageSite: OfflineScormPackageSiteProvisioner = ({
+    entitlementId,
+  }) => `https://p-${entitlementId}.github.io`;
   const signedEventEnvelope = (input: {
     entitlementId: string;
     attemptId: string;
@@ -744,6 +748,7 @@ try {
       },
       user,
       signEntitlement,
+      provisionPackageSite,
     ),
     { status: "denied", reason: "finite-access-expiry-required" },
   );
@@ -759,6 +764,7 @@ try {
       },
       anotherUser,
       signEntitlement,
+      provisionPackageSite,
     ),
     { status: "denied", reason: "installation-unavailable" },
   );
@@ -774,6 +780,7 @@ try {
       },
       user,
       signEntitlement,
+      provisionPackageSite,
     ),
     { status: "denied", reason: "not-found" },
   );
@@ -794,6 +801,7 @@ try {
       },
       user,
       signEntitlement,
+      provisionPackageSite,
     ),
     { status: "denied", reason: "finite-access-expiry-required" },
   );
@@ -1088,8 +1096,27 @@ try {
       },
       user,
       () => {
+        throw new Error("Invalid package origin must fail before signing");
+      },
+      () => "https://package.example.net/path",
+    ),
+    /exact origin/,
+  );
+  await assert.rejects(
+    issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+      () => {
         throw new Error("simulated entitlement signing failure");
       },
+      provisionPackageSite,
     ),
     /simulated entitlement signing failure/,
   );
@@ -1108,6 +1135,16 @@ try {
       .executeTakeFirstOrThrow(),
     { writerMode: "online", offlineEntitlementId: null },
   );
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_cleanup_inventory")
+        .select(sql<number>`count(*)::integer`.as("count"))
+        .where("userId", "=", ids.user)
+        .executeTakeFirstOrThrow()
+    ).count,
+    0,
+  );
   const [issuance, racingProgress] = await Promise.all([
     issueOfflineScormEntitlement(
       {
@@ -1120,6 +1157,7 @@ try {
       },
       user,
       signEntitlement,
+      provisionPackageSite,
     ),
     recordScormProgress(reviewExchange.attemptId, reviewExchange.sessionToken, {
       ...progress,
@@ -1161,6 +1199,34 @@ try {
     ).signedEnvelope,
   );
   assert.deepEqual(storedEnvelope, issuance.envelope);
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_scorm_cleanup_inventory")
+      .select([
+        "entitlementId",
+        "installationId",
+        "userId",
+        "packageSiteOrigin",
+        "state",
+        "clearRequestedAt",
+        "clearedAt",
+        "cleanupReceiptSha256",
+        "lastErrorCode",
+      ])
+      .where("entitlementId", "=", issuance.entitlementId)
+      .executeTakeFirstOrThrow(),
+    {
+      entitlementId: issuance.entitlementId,
+      installationId: ids.installation,
+      userId: ids.user,
+      packageSiteOrigin: issuance.packageSiteOrigin,
+      state: "pending",
+      clearRequestedAt: null,
+      clearedAt: null,
+      cleanupReceiptSha256: null,
+      lastErrorCode: null,
+    },
+  );
   assert.ok(
     racingProgress === "completed" ||
       racingProgress === "offline-writer-active",
@@ -1241,6 +1307,9 @@ try {
     () => {
       throw new Error("Exact issuance retry must not sign again");
     },
+    () => {
+      throw new Error("Exact issuance retry must not allocate another site");
+    },
   );
   assert.deepEqual(recoveredIssuance, issuance);
   assert.equal(
@@ -1276,6 +1345,9 @@ try {
       user,
       () => {
         throw new Error("Policy-changing retry must not sign again");
+      },
+      () => {
+        throw new Error("Policy-changing retry must not allocate another site");
       },
     );
   assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);

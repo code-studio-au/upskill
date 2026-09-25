@@ -371,10 +371,12 @@ for (const requiredOfflineScormBoundary of [
   "offline_scorm_json",
   "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID",
   "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8",
+  "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX",
+  "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY",
 ]) {
   if (!applicationStack.includes(requiredOfflineScormBoundary))
     failures.push(
-      `The dormant offline SCORM signing boundary is missing: ${requiredOfflineScormBoundary}`,
+      `The dormant offline SCORM activation boundary is missing: ${requiredOfflineScormBoundary}`,
     );
 }
 for (const requiredRecordingStorageBoundary of [
@@ -1052,6 +1054,14 @@ const offlineScormSigningRuntime = fs.readFileSync(
   ),
   "utf8",
 );
+const offlineScormPackageSiteProvisioning = fs.readFileSync(
+  path.join(root, "src/server/scorm/offline-scorm-package-site.server.ts"),
+  "utf8",
+);
+const offlineScormEntitlementIssuance = fs.readFileSync(
+  path.join(root, "src/server/scorm/offline-scorm-entitlement.server.ts"),
+  "utf8",
+);
 const scormPackageArchive = fs.readFileSync(
   path.join(root, "src/server/scorm/scorm-package-archive.ts"),
   "utf8",
@@ -1244,6 +1254,29 @@ for (const boundary of [
   if (!offlineScormSigningRuntime.includes(boundary))
     failures.push(
       `Offline SCORM signing-authority boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'import "@tanstack/react-start/server-only"',
+  'createHmac("sha256", originKey)',
+  'update(attemptId, "utf8")',
+  'update(entitlementId, "utf8")',
+  "parseOfflineScormPrivateSiteSuffix",
+  "assertOfflineScormPackageOriginIsolation",
+])
+  if (!offlineScormPackageSiteProvisioning.includes(boundary))
+    failures.push(
+      `Offline SCORM exact-site allocation boundary is missing: ${boundary}`,
+    );
+for (const boundary of [
+  'insertInto("offline_scorm_cleanup_inventory")',
+  "packageSiteOrigin",
+  'cleanupInventory.state !== "pending"',
+  "provisionPackageSite",
+  "assertOfflineScormPackageOriginIsolation",
+])
+  if (!offlineScormEntitlementIssuance.includes(boundary))
+    failures.push(
+      `Offline SCORM atomic site-inventory boundary is missing: ${boundary}`,
     );
 for (const boundary of [
   'createHash("sha256")',
@@ -2132,6 +2165,7 @@ for (const invariant of [
   "LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID",
   'LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT',
   'OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID',
+  'OFFLINE_SCORM_PACKAGE_SITE_SUFFIX" or .key == "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY',
   '>> "$web_environment_tmp"',
   "upskill-web.env",
   "upskill-worker.env",
