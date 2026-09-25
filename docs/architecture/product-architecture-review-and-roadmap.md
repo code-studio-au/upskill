@@ -101,7 +101,7 @@ verifiers, and CDK verification.
 | Individual course checkout         | Strong                                                                      | Preserve transaction and idempotency model                               |
 | Learner enrolment/workspace        | Course and staged Event learning implemented                                | Continue incremental UX/support maturity                                 |
 | SCORM delivery                     | Strong                                                                      | Preserve isolation and immutable versions                                |
-| PWA/offline SCORM                  | Mobile shell, dormant model and exclusive-writer boundary implemented       | Deliver staged mobile offline learning                                   |
+| PWA/offline SCORM                  | Dormant signing, package inventory and isolated prototype implemented       | Deliver one complete Course path after exact-site provisioning           |
 | Surveys                            | Reused across Courses, Events, onboarding and registration questionnaires   | Add privacy operations where required                                    |
 | Resources                          | Strong foundation                                                           | Broaden beyond PDF when required                                         |
 | Certificates                       | On-demand rendering implemented                                             | Reuse the common completion-eligibility boundary                         |
@@ -658,6 +658,8 @@ triggered and do not reopen the delivered webinar foundation.
 - isolated exact-attempt package runtime and test-only three-origin prototype
   implemented; Chromium/Firefox execution and Safari
   explicit-storage-confirmation/real-device qualification gate activation;
+- disabled-by-default production signing configuration and immutable per-file
+  package inventory implemented as a dormant activation-readiness increment;
 - one complete Course path before Event reuse and support operations; and
 - browser qualification, operational controls and deliberate activation.
 

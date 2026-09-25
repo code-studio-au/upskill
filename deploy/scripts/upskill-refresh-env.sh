@@ -27,6 +27,7 @@ fi
 secret_prefix="upskill/${refresh_environment}"
 application_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/application" --query SecretString --output text)
 livekit_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/livekit" --query SecretString --output text)
+offline_scorm_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/offline-scorm" --query SecretString --output text)
 database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database" --query SecretString --output text)
 web_database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database/web" --query SecretString --output text)
 worker_database_json=$(aws secretsmanager get-secret-value --region "$refresh_region" --secret-id "${secret_prefix}/database/worker" --query SecretString --output text)
@@ -49,6 +50,7 @@ deploy_environment_tmp=$(mktemp)
 trap 'rm -f -- "$base_environment_tmp" "$web_environment_tmp" "$worker_environment_tmp" "$deploy_environment_tmp"' EXIT
 jq -r 'to_entries[] | "\(.key)=\(.value|tostring|@json)"' <<< "$application_json" > "$base_environment_tmp"
 jq -r 'to_entries[] | select(.key == "LIVEKIT_ENABLED" or .key == "LIVEKIT_PROJECT_ENVIRONMENT" or .key == "LIVEKIT_URL" or .key == "LIVEKIT_API_KEY" or .key == "LIVEKIT_API_SECRET" or .key == "LIVEKIT_APPROVED_MAX_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_ROOMS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_PARTICIPANTS" or .key == "LIVEKIT_APPROVED_MAX_CONCURRENT_EGRESS_JOBS") | "\(.key)=\(.value|tostring|@json)"' <<< "$livekit_json" >> "$base_environment_tmp"
+jq -rn '"OFFLINE_SCORM_ENABLED=false"' >> "$base_environment_tmp"
 if [[ -n "$recording_upload_role_arn" ]]; then
   jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\($value|@json)"' >> "$base_environment_tmp"
 fi
@@ -66,6 +68,7 @@ worker_database_url=$(jq -rn --argjson credentials "$worker_database_json" --arg
 cp "$base_environment_tmp" "$web_environment_tmp"
 cp "$base_environment_tmp" "$worker_environment_tmp"
 cp "$base_environment_tmp" "$deploy_environment_tmp"
+jq -r 'to_entries[] | select(.key == "OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8") | "\(.key)=\(.value|tostring|@json)"' <<< "$offline_scorm_json" >> "$web_environment_tmp"
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\($value|@json)"' >> "$web_environment_tmp"
 jq -rn --arg value "$worker_database_url" '"DATABASE_URL=\($value|@json)"' >> "$worker_environment_tmp"
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\($value|@json)"' >> "$deploy_environment_tmp"

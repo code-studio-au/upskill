@@ -193,9 +193,8 @@ The dormant activation-contract slice now:
   it, with issuance and signing in one transaction so signing failure cannot
   strand the attempt in offline-writer mode.
 
-These commands remain server-only. The signing authority is injected rather
-than configured from deployment secrets, and no production route invokes
-registration or issuance yet.
+These commands remain server-only, and no production route invokes registration
+or issuance yet.
 
 The dormant trusted-runtime slice now:
 
@@ -261,10 +260,24 @@ decision in WebKit. The application server serves these assets only when
 test command; no production route, learner control or synchronization endpoint
 is activated by this slice. Safari remains
 unadvertised until Safari WebDriver and real iPhone/iPad lifecycle gates pass.
-The next slice configures the production signing authority and activates the
-authenticated Course installation, entitlement and package-download boundary
-needed by one complete learner path after the supported browser lanes pass the
-prototype suite.
+
+The activation-readiness increment configures a dedicated, disabled-by-default
+deployment secret for the offline signing authority. Runtime loading accepts
+only canonical base64url PKCS8 P-256 private keys, derives the matching trusted
+SPKI public key and refuses missing, malformed or wrong-curve material. The
+private key is written only to the web process environment that will own
+entitlement issuance; worker and deployment environments remain disabled. Newly
+ingested immutable package versions now retain the exact path, SHA-256 digest,
+byte length and content type for every file, which is the inventory the
+credential-free package installer needs. Existing ready package versions that
+predate that inventory remain immutable and must be replaced by a newly
+ingested version before offline use.
+
+This increment remains dormant and deliberately stops before the combined
+activation boundary. The next slice must provision an exact per-attempt package
+origin on a distinct registrable site, then expose authenticated installation
+registration, entitlement issuance and package download together so no partial
+activation can strand an attempt in offline-writer mode.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and

@@ -18,6 +18,22 @@ const environmentSchema = z.object({
     .string()
     .regex(/^[A-Za-z0-9_-]{43}$/u)
     .default(LOCAL_ACCESS_CODE_ENCRYPTION_KEY),
+  OFFLINE_SCORM_ENABLED: z
+    .enum(["true", "false"])
+    .transform((value) => value === "true")
+    .default(false),
+  OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._-]*$/u)
+    .optional(),
+  OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: z
+    .string()
+    .min(100)
+    .max(2_048)
+    .regex(/^[A-Za-z0-9_-]+$/u)
+    .optional(),
   STRIPE_SECRET_KEY: z.string().regex(/^(?:sk|rk)_/u, {
     message: "Stripe secret key must start with sk_ or rk_",
   }),
@@ -202,6 +218,27 @@ function requireLiveKitConfiguration(validated: ServerEnv): void {
     );
 }
 
+function requireOfflineScormConfiguration(validated: ServerEnv): void {
+  if (!validated.OFFLINE_SCORM_ENABLED) return;
+  if (!validated.OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID)
+    throw new Error(
+      "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID is required when offline SCORM is enabled",
+    );
+  if (!validated.OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8)
+    throw new Error(
+      "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8 is required when offline SCORM is enabled",
+    );
+  if (
+    (validated.APP_ENV === "staging" || validated.APP_ENV === "production") &&
+    /replace|example|invalid/iu.test(
+      validated.OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID,
+    )
+  )
+    throw new Error(
+      "Offline SCORM signing identity must be configured outside local environments",
+    );
+}
+
 function requireCanonicalHttpsOrigin(label: string, value: string): URL {
   const url = new URL(value);
   if (url.protocol !== "https:")
@@ -224,6 +261,7 @@ export function parseServerEnvironment(
 ): ServerEnv {
   const validated = environmentSchema.parse(environment);
   requireLiveKitConfiguration(validated);
+  requireOfflineScormConfiguration(validated);
   if (validated.EMAIL_PROVIDER === "mailgun") {
     if (!validated.MAILGUN_API_KEY)
       throw new Error("MAILGUN_API_KEY is required for Mailgun delivery");
@@ -274,6 +312,10 @@ export function parseServerEnvironment(
     if (!environment.LIVEKIT_ENABLED)
       throw new Error(
         "LIVEKIT_ENABLED must be explicitly configured outside local environments",
+      );
+    if (!environment.OFFLINE_SCORM_ENABLED)
+      throw new Error(
+        "OFFLINE_SCORM_ENABLED must be explicitly configured outside local environments",
       );
     for (const key of [
       "S3_ENDPOINT",

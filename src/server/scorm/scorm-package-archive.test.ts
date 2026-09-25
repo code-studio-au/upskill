@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { describe, expect, it } from "vitest";
 import {
@@ -48,6 +49,33 @@ describe("SCORM package archive validation", () => {
       launchPath: "scormdriver/indexAPI.html",
       fileCount: 3,
     });
+    expect(result.files).toEqual([
+      {
+        path: "imsmanifest.xml",
+        sha256: createHash("sha256").update(manifest()).digest("hex"),
+        sizeBytes: new TextEncoder().encode(manifest()).byteLength,
+        contentType: "application/xml; charset=utf-8",
+      },
+      {
+        path: "scormcontent/app.js",
+        sha256: createHash("sha256")
+          .update("console.log('fixture')")
+          .digest("hex"),
+        sizeBytes: new TextEncoder().encode("console.log('fixture')")
+          .byteLength,
+        contentType: "text/javascript; charset=utf-8",
+      },
+      {
+        path: "scormdriver/indexAPI.html",
+        sha256: createHash("sha256")
+          .update("<!doctype html><title>Fixture</title>")
+          .digest("hex"),
+        sizeBytes: new TextEncoder().encode(
+          "<!doctype html><title>Fixture</title>",
+        ).byteLength,
+        contentType: "text/html; charset=utf-8",
+      },
+    ]);
     expect(extracted).toEqual([
       "imsmanifest.xml:application/xml; charset=utf-8",
       "scormdriver/indexAPI.html:text/html; charset=utf-8",

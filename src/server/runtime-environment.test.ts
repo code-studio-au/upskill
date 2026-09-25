@@ -16,6 +16,31 @@ describe("server runtime environment", () => {
     expect(environment.EMAIL_PROVIDER).toBe("local_capture");
     expect(environment.SMS_PROVIDER).toBe("local_capture");
     expect(environment.LIVEKIT_ENABLED).toBe(false);
+    expect(environment.OFFLINE_SCORM_ENABLED).toBe(false);
+  });
+
+  it("requires a complete offline SCORM signing authority before enablement", () => {
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+      }),
+    ).toThrow("OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+      }),
+    ).toThrow("OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+      }),
+    ).not.toThrow();
   });
 
   it("requires a complete, environment-bound LiveKit configuration before enablement", () => {
