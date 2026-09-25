@@ -20,6 +20,46 @@ describe("server runtime environment", () => {
     expect(environment.OFFLINE_SCORM_ENABLED).toBe(false);
   });
 
+  it("derives a stable local-only encryption key without a committed key", () => {
+    const first = parseServerEnvironment(baseEnvironment);
+    const repeated = parseServerEnvironment(baseEnvironment);
+    const withAnotherAuthenticationSecret = parseServerEnvironment({
+      ...baseEnvironment,
+      BETTER_AUTH_SECRET: "another-local-secret-with-more-than-32-characters",
+    });
+
+    expect(first.ACCESS_CODE_ENCRYPTION_KEY).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(repeated.ACCESS_CODE_ENCRYPTION_KEY).toBe(
+      first.ACCESS_CODE_ENCRYPTION_KEY,
+    );
+    expect(withAnotherAuthenticationSecret.ACCESS_CODE_ENCRYPTION_KEY).not.toBe(
+      first.ACCESS_CODE_ENCRYPTION_KEY,
+    );
+  });
+
+  it("requires an independently configured encryption key outside local environments", () => {
+    const localEncryptionKey =
+      parseServerEnvironment(baseEnvironment).ACCESS_CODE_ENCRYPTION_KEY;
+    const deployedEnvironment = {
+      ...baseEnvironment,
+      APP_ENV: "staging",
+      APP_ORIGIN: "https://staging.codestudio.au",
+      LEARNING_ORIGIN: "https://learn-staging.codestudio.au",
+    };
+
+    expect(() => parseServerEnvironment(deployedEnvironment)).toThrow(
+      "A non-local ACCESS_CODE_ENCRYPTION_KEY is required outside local environments",
+    );
+    expect(() =>
+      parseServerEnvironment({
+        ...deployedEnvironment,
+        ACCESS_CODE_ENCRYPTION_KEY: localEncryptionKey,
+      }),
+    ).toThrow(
+      "A non-local ACCESS_CODE_ENCRYPTION_KEY is required outside local environments",
+    );
+  });
+
   it("requires complete offline SCORM signing and package-site authorities", () => {
     expect(() =>
       parseServerEnvironment({

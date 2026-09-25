@@ -34,6 +34,28 @@ const serverZodAdapter = fs.readFileSync(
   path.join(root, "src/validation/zod.server.ts"),
   "utf8",
 );
+const runtimeEnvironment = fs.readFileSync(
+  path.join(root, "src/server/runtime-environment.ts"),
+  "utf8",
+);
+const environmentExample = fs.readFileSync(
+  path.join(root, ".env.example"),
+  "utf8",
+);
+
+for (const invariant of [
+  'createHmac("sha256", authenticationSecret)',
+  "parsed.ACCESS_CODE_ENCRYPTION_KEY ?? localEncryptionKey",
+  "validated.ACCESS_CODE_ENCRYPTION_KEY === localEncryptionKey",
+])
+  if (!runtimeEnvironment.includes(invariant))
+    failures.push(
+      `Local access-code encryption must derive a non-deployable key: ${invariant}`,
+    );
+if (/^ACCESS_CODE_ENCRYPTION_KEY=/mu.test(environmentExample))
+  failures.push(
+    ".env.example must not commit an access-code encryption key value",
+  );
 
 if (
   fs.readFileSync(path.join(root, ".node-version"), "utf8").trim() !== "26.7.0"

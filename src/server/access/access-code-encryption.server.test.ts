@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-const LOCAL_TEST_KEY = "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE";
+const LOCAL_TEST_KEY = Buffer.alloc(32, 1).toString("base64url");
 
 describe("access-code authenticated encryption", () => {
   beforeEach(() => {

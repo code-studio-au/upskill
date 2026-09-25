@@ -1,8 +1,9 @@
+import { createHmac } from "node:crypto";
 import { z } from "#/validation/zod.server.ts";
 import { createOfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server.ts";
 
-const LOCAL_ACCESS_CODE_ENCRYPTION_KEY =
-  "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE";
+const LOCAL_ACCESS_CODE_ENCRYPTION_KEY_CONTEXT =
+  "upskill/access-code/local-development/v1";
 
 const environmentSchema = z.object({
   APP_ENV: z
@@ -18,7 +19,7 @@ const environmentSchema = z.object({
   ACCESS_CODE_ENCRYPTION_KEY: z
     .string()
     .regex(/^[A-Za-z0-9_-]{43}$/u)
-    .default(LOCAL_ACCESS_CODE_ENCRYPTION_KEY),
+    .optional(),
   OFFLINE_SCORM_ENABLED: z
     .enum(["true", "false"])
     .transform((value) => value === "true")
@@ -137,7 +138,16 @@ const environmentSchema = z.object({
     .default(900),
 });
 
-export type ServerEnv = z.infer<typeof environmentSchema>;
+type ParsedServerEnv = z.infer<typeof environmentSchema>;
+export type ServerEnv = Omit<ParsedServerEnv, "ACCESS_CODE_ENCRYPTION_KEY"> & {
+  ACCESS_CODE_ENCRYPTION_KEY: string;
+};
+
+function localAccessCodeEncryptionKey(authenticationSecret: string): string {
+  return createHmac("sha256", authenticationSecret)
+    .update(LOCAL_ACCESS_CODE_ENCRYPTION_KEY_CONTEXT)
+    .digest("base64url");
+}
 
 function requireLiveKitConfiguration(validated: ServerEnv): void {
   if (!validated.LIVEKIT_ENABLED) return;
@@ -274,7 +284,15 @@ function requireCanonicalHttpsOrigin(label: string, value: string): URL {
 export function parseServerEnvironment(
   environment: NodeJS.ProcessEnv,
 ): ServerEnv {
-  const validated = environmentSchema.parse(environment);
+  const parsed = environmentSchema.parse(environment);
+  const localEncryptionKey = localAccessCodeEncryptionKey(
+    parsed.BETTER_AUTH_SECRET,
+  );
+  const validated: ServerEnv = {
+    ...parsed,
+    ACCESS_CODE_ENCRYPTION_KEY:
+      parsed.ACCESS_CODE_ENCRYPTION_KEY ?? localEncryptionKey,
+  };
   requireLiveKitConfiguration(validated);
   requireOfflineScormConfiguration(validated);
   if (validated.EMAIL_PROVIDER === "mailgun") {
@@ -305,8 +323,8 @@ export function parseServerEnvironment(
     if (applicationOrigin.origin === learningOrigin.origin)
       throw new Error("APP_ORIGIN and LEARNING_ORIGIN must be distinct");
     if (
-      !environment.ACCESS_CODE_ENCRYPTION_KEY ||
-      validated.ACCESS_CODE_ENCRYPTION_KEY === LOCAL_ACCESS_CODE_ENCRYPTION_KEY
+      !parsed.ACCESS_CODE_ENCRYPTION_KEY ||
+      validated.ACCESS_CODE_ENCRYPTION_KEY === localEncryptionKey
     )
       throw new Error(
         "A non-local ACCESS_CODE_ENCRYPTION_KEY is required outside local environments",
