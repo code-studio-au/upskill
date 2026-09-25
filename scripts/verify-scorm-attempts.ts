@@ -9,6 +9,7 @@ import {
   type OfflineScormSignedCommit,
   type OfflineScormUnsignedCommit,
 } from "#/features/scorm/offline-scorm-reconciliation";
+import { verifyOfflineScormEntitlementEnvelope } from "#/features/scorm/offline-scorm-entitlement";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
 
@@ -50,6 +51,21 @@ const offlinePublicKeySpki = offlineKeyPair.publicKey.export({
   format: "der",
   type: "spki",
 });
+const anotherOfflineKeyPair = generateKeyPairSync("ec", {
+  namedCurve: "prime256v1",
+});
+const anotherOfflinePublicKeySpki = anotherOfflineKeyPair.publicKey.export({
+  format: "der",
+  type: "spki",
+});
+const entitlementSigningKeyPair = generateKeyPairSync("ec", {
+  namedCurve: "prime256v1",
+});
+const entitlementSigningPublicKeySpki =
+  entitlementSigningKeyPair.publicKey.export({
+    format: "der",
+    type: "spki",
+  });
 
 function signedOfflineCommit(
   input: OfflineScormUnsignedCommit,
@@ -324,21 +340,51 @@ try {
       },
     ])
     .execute();
-  await database
-    .insertInto("offline_learning_installation")
-    .values({
-      id: ids.installation,
-      userId: ids.user,
-      publicKeySpki: offlinePublicKeySpki,
-      publicKeySha256: createHash("sha256")
-        .update(offlinePublicKeySpki)
-        .digest("hex"),
-      replacementInstallationId: null,
-      registeredAt: new Date(),
-      endedAt: null,
-      updatedAt: new Date(),
-    })
-    .execute();
+  const { registerOfflineScormInstallation } =
+    await import("#/server/scorm/offline-scorm-installation.server");
+  const installationRegistration = {
+    schemaVersion: 1 as const,
+    installationId: ids.installation,
+    publicKeySpki: offlinePublicKeySpki.toString("base64url"),
+  };
+  const registeredInstallation = await registerOfflineScormInstallation(
+    installationRegistration,
+    user,
+  );
+  assert.equal(registeredInstallation.status, "registered");
+  assert.equal(registeredInstallation.recovered, false);
+  assert.equal(
+    registeredInstallation.publicKeySha256,
+    createHash("sha256").update(offlinePublicKeySpki).digest("hex"),
+  );
+  const recoveredInstallation = await registerOfflineScormInstallation(
+    installationRegistration,
+    user,
+  );
+  assert.equal(recoveredInstallation.status, "registered");
+  assert.equal(recoveredInstallation.recovered, true);
+  assert.deepEqual(
+    await registerOfflineScormInstallation(
+      {
+        schemaVersion: 1,
+        installationId: `${ids.installation}_other`,
+        publicKeySpki: anotherOfflinePublicKeySpki.toString("base64url"),
+      },
+      user,
+    ),
+    { status: "denied", reason: "active-installation-exists" },
+  );
+  assert.deepEqual(
+    await registerOfflineScormInstallation(
+      {
+        schemaVersion: 1,
+        installationId: `${ids.installation}_invalid`,
+        publicKeySpki: "A".repeat(86),
+      },
+      anotherUser,
+    ),
+    { status: "denied", reason: "public-key-invalid" },
+  );
   await database
     .insertInto("course")
     .values({
@@ -567,6 +613,12 @@ try {
   } = await import("#/server/scorm/scorm-attempt.server");
   const { issueOfflineScormEntitlement } =
     await import("#/server/scorm/offline-scorm-entitlement.server");
+  const { createOfflineScormEntitlementSigner } =
+    await import("#/server/scorm/offline-scorm-entitlement-signing.server");
+  const signEntitlement = createOfflineScormEntitlementSigner({
+    signingKeyId: "verify-scorm-entitlement-key",
+    privateKey: entitlementSigningKeyPair.privateKey,
+  });
   const { reconcileOfflineScormProgress } =
     await import("#/server/scorm/offline-scorm-reconciliation.server");
   const requireAuthorizedPlayer = async (
@@ -624,6 +676,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     { status: "denied", reason: "finite-access-expiry-required" },
   );
@@ -638,6 +691,7 @@ try {
         installationId: ids.installation,
       },
       anotherUser,
+      signEntitlement,
     ),
     { status: "denied", reason: "installation-unavailable" },
   );
@@ -652,6 +706,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     { status: "denied", reason: "not-found" },
   );
@@ -671,6 +726,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     { status: "denied", reason: "finite-access-expiry-required" },
   );
@@ -953,6 +1009,38 @@ try {
     "token",
   );
   assert.ok(pendingLaunchToken);
+  await assert.rejects(
+    issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+      () => {
+        throw new Error("simulated entitlement signing failure");
+      },
+    ),
+    /simulated entitlement signing failure/,
+  );
+  assert.equal(
+    await authorizeScormAttemptSession(
+      reviewExchange.attemptId,
+      reviewExchange.sessionToken,
+    ),
+    "authorized",
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("scorm_attempt")
+      .select(["writerMode", "offlineEntitlementId"])
+      .where("id", "=", reviewExchange.attemptId)
+      .executeTakeFirstOrThrow(),
+    { writerMode: "online", offlineEntitlementId: null },
+  );
   const [issuance, racingProgress] = await Promise.all([
     issueOfflineScormEntitlement(
       {
@@ -964,6 +1052,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     recordScormProgress(reviewExchange.attemptId, reviewExchange.sessionToken, {
       ...progress,
@@ -974,6 +1063,27 @@ try {
   ]);
   if (issuance.status !== "issued")
     assert.fail(`Expected offline issuance, received ${issuance.reason}`);
+  const verifiedEntitlement = await verifyOfflineScormEntitlementEnvelope(
+    issuance.envelope,
+    (signingKeyId) =>
+      signingKeyId === "verify-scorm-entitlement-key"
+        ? Uint8Array.from(entitlementSigningPublicKeySpki)
+        : undefined,
+  );
+  assert.ok(verifiedEntitlement);
+  assert.equal(verifiedEntitlement.entitlementId, issuance.entitlementId);
+  assert.equal(verifiedEntitlement.attemptId, issuance.attemptId);
+  assert.equal(verifiedEntitlement.installationId, ids.installation);
+  assert.equal(verifiedEntitlement.learnerId, ids.user);
+  assert.equal(
+    verifiedEntitlement.devicePublicKeySha256,
+    registeredInstallation.publicKeySha256,
+  );
+  assert.deepEqual(verifiedEntitlement.offering, {
+    kind: "course",
+    enrollmentId: ids.enrollment,
+    courseVersionItemId: ids.item,
+  });
   assert.ok(
     racingProgress === "completed" ||
       racingProgress === "offline-writer-active",
@@ -985,6 +1095,13 @@ try {
       "credentialGeneration",
       "offlineEntitlementId",
       "progressRevision",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
+      "totalTimeSeconds",
     ])
     .where("id", "=", reviewExchange.attemptId)
     .executeTakeFirstOrThrow();
@@ -993,6 +1110,13 @@ try {
     credentialGeneration: issuance.writerGeneration,
     offlineEntitlementId: issuance.entitlementId,
     progressRevision: issuance.historyBaseRevision,
+    lessonStatus: verifiedEntitlement.initialSnapshot.lessonStatus,
+    location: verifiedEntitlement.initialSnapshot.location,
+    suspendData: verifiedEntitlement.initialSnapshot.suspendData,
+    scoreRaw: verifiedEntitlement.initialSnapshot.scoreRaw,
+    scoreMin: verifiedEntitlement.initialSnapshot.scoreMin,
+    scoreMax: verifiedEntitlement.initialSnapshot.scoreMax,
+    totalTimeSeconds: verifiedEntitlement.initialSnapshot.totalTimeSeconds,
   });
   assert.equal(
     await authorizeScormAttemptSession(
@@ -1038,6 +1162,7 @@ try {
         installationId: ids.installation,
       },
       user,
+      signEntitlement,
     ),
     { status: "denied", reason: "offline-writer-active" },
   );

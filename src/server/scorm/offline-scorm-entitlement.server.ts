@@ -1,6 +1,11 @@
 import "@tanstack/react-start/server-only";
 
 import { randomUUID } from "node:crypto";
+import {
+  canonicalizeOfflineScormEntitlementEnvelope,
+  type OfflineScormSignedEntitlementEnvelope,
+} from "#/features/scorm/offline-scorm-entitlement";
+import { offlineScormTrustedEntitlementSchema } from "#/features/scorm/offline-scorm-trusted-runtime";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { logServerEvent } from "#/server/logging/server-logger";
@@ -11,6 +16,7 @@ import {
   type ScormLaunchTarget,
 } from "#/server/scorm/scorm-launch-policy.server";
 import { addElapsedMilliseconds } from "#/server/time/time.server";
+import type { OfflineScormEntitlementSigner } from "#/server/scorm/offline-scorm-entitlement-signing.server";
 
 const OFFLINE_SCORM_RUNTIME_VERSION = "offline-scorm-1";
 const MAXIMUM_ACCEPTANCE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -28,6 +34,7 @@ export type OfflineScormEntitlementIssueResult =
       issuedAt: Date;
       intendedLaunchExpiresAt: Date;
       commitAcceptanceDeadline: Date;
+      envelope: OfflineScormSignedEntitlementEnvelope;
     }
   | {
       status: "denied";
@@ -39,9 +46,9 @@ export type OfflineScormEntitlementIssueResult =
     };
 
 /**
- * Establishes the exclusive offline writer, but is deliberately not connected
- * to a route. A later activated slice must add signed response material and the
- * complete download/runtime boundary before a learner can invoke it.
+ * Establishes the exclusive offline writer and signs its exact initial state,
+ * but is deliberately not connected to a route. A later activated slice must
+ * add the complete download/runtime boundary before a learner can invoke it.
  */
 export async function issueOfflineScormEntitlement(
   input: {
@@ -49,13 +56,14 @@ export async function issueOfflineScormEntitlement(
     installationId: string;
   },
   user: AuthenticatedUser,
+  signEntitlement: OfflineScormEntitlementSigner,
 ): Promise<OfflineScormEntitlementIssueResult> {
   const result = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
       const installation = await transaction
         .selectFrom("offline_learning_installation")
-        .select("id")
+        .select(["id", "publicKeySha256"])
         .where("id", "=", input.installationId)
         .where("userId", "=", user.id)
         .where("status", "=", "active")
@@ -94,6 +102,46 @@ export async function issueOfflineScormEntitlement(
         policy.intendedLaunchExpiresAt,
         MAXIMUM_ACCEPTANCE_DELAY_MS,
       );
+      const entitlement = offlineScormTrustedEntitlementSchema.parse({
+        schemaVersion: 1,
+        entitlementId,
+        attemptId: attempt.id,
+        installationId: installation.id,
+        learnerId: user.id,
+        devicePublicKeySha256: installation.publicKeySha256,
+        historyBaseRevision: attempt.progressRevision,
+        runtimeVersion: OFFLINE_SCORM_RUNTIME_VERSION,
+        offering: policy.offering,
+        packageVersionId: policy.packageVersionId,
+        packageSha256: policy.packageSha256,
+        initialSnapshot: {
+          lessonStatus: attempt.lessonStatus,
+          location: attempt.location,
+          suspendData: attempt.suspendData,
+          scoreRaw: attempt.scoreRaw,
+          scoreMin: attempt.scoreMin,
+          scoreMax: attempt.scoreMax,
+          totalTimeSeconds: attempt.totalTimeSeconds,
+        },
+        issuedAt: issuedAt.toISOString(),
+        intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt.toISOString(),
+        commitAcceptanceDeadline: commitAcceptanceDeadline.toISOString(),
+      });
+      const envelope = signEntitlement(entitlement);
+      const signedCanonical = canonicalizeOfflineScormEntitlementEnvelope({
+        schemaVersion: envelope.schemaVersion,
+        algorithm: envelope.algorithm,
+        signingKeyId: envelope.signingKeyId,
+        entitlement: envelope.entitlement,
+      });
+      const intendedCanonical = canonicalizeOfflineScormEntitlementEnvelope({
+        schemaVersion: envelope.schemaVersion,
+        algorithm: envelope.algorithm,
+        signingKeyId: envelope.signingKeyId,
+        entitlement,
+      });
+      if (signedCanonical !== intendedCanonical)
+        throw new Error("Offline SCORM signer changed the entitlement payload");
       await transaction
         .insertInto("offline_learning_entitlement")
         .values({
@@ -144,6 +192,7 @@ export async function issueOfflineScormEntitlement(
         issuedAt,
         intendedLaunchExpiresAt: policy.intendedLaunchExpiresAt,
         commitAcceptanceDeadline,
+        envelope,
       } as const;
     });
 

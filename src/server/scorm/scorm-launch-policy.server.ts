@@ -3,6 +3,8 @@ import "@tanstack/react-start/server-only";
 import { randomUUID } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import { courseContentSchema } from "#/features/catalog/catalog.schema";
+import type { OfflineScormOfferingBinding } from "#/features/scorm/offline-scorm-reconciliation";
+import type { ScormProgressInput } from "#/features/scorm/scorm.schema";
 import type { Database } from "#/server/db/types";
 import {
   calculateEventSectionReleaseAt,
@@ -35,6 +37,7 @@ export type ScormLaunchPolicyDenial =
 export interface AllowedScormLaunchPolicy {
   status: "allowed";
   target: ScormLaunchTarget;
+  offering: OfflineScormOfferingBinding;
   packageVersionId: string;
   packageSha256: string;
   intendedLaunchExpiresAt: Date | null;
@@ -51,6 +54,13 @@ export interface LockedScormAttempt {
   writerMode: "online" | "offline";
   credentialGeneration: number;
   offlineEntitlementId: string | null;
+  lessonStatus: ScormProgressInput["lessonStatus"];
+  location: string;
+  suspendData: string;
+  scoreRaw: number | null;
+  scoreMin: number | null;
+  scoreMax: number | null;
+  totalTimeSeconds: number;
 }
 
 function courseAccessAvailable(
@@ -118,6 +128,7 @@ async function resolveCoursePolicy(
       "course_version_item.learningActivityVersionId",
     )
     .select([
+      "course_version_item.id as courseVersionItemId",
       "scorm_package_version.id",
       "scorm_package_version.status",
       "scorm_package_version.sha256",
@@ -136,6 +147,11 @@ async function resolveCoursePolicy(
   return {
     status: "allowed",
     target,
+    offering: {
+      kind: "course",
+      enrollmentId: target.enrollmentId,
+      courseVersionItemId: packageVersion.courseVersionItemId,
+    },
     packageVersionId: packageVersion.id,
     packageSha256: packageVersion.sha256,
     intendedLaunchExpiresAt: enrollment.expiresAt,
@@ -247,6 +263,11 @@ async function resolveEventPolicy(
   return {
     status: "allowed",
     target,
+    offering: {
+      kind: "event",
+      eventParticipationId: target.eventParticipationId,
+      eventTemplateVersionItemId: target.eventTemplateVersionItemId,
+    },
     packageVersionId: item.packageVersionId,
     packageSha256: item.packageSha256,
     // Event learning deliberately supports post-event work. The current domain
@@ -280,6 +301,13 @@ export async function lockExistingScormAttempt(
       "writerMode",
       "credentialGeneration",
       "offlineEntitlementId",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
+      "totalTimeSeconds",
     ]);
   query =
     target.kind === "course"
@@ -372,6 +400,13 @@ export async function lockOrCreateScormAttempt(
       "writerMode",
       "credentialGeneration",
       "offlineEntitlementId",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
+      "totalTimeSeconds",
     ])
     .executeTakeFirstOrThrow();
   return attempt;

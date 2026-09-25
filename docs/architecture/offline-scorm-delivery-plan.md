@@ -176,6 +176,24 @@ The dormant reconciliation slice now:
 The command remains a server-only dormant boundary: there is no sync route,
 installation-registration route or learner control.
 
+The dormant activation-contract slice now:
+
+- accepts the browser-generated P-256 public key through a strict registration
+  contract, validates its SPKI shape and computes the stored digest on the
+  server while preserving the one-active-installation invariant and exact
+  retry recovery;
+- constructs the trusted entitlement from the locked offering, exact attempt
+  snapshot, installation key digest and finite access deadlines;
+- signs a versioned fixed-position entitlement envelope with a selected P-256
+  server key, binding its algorithm and key identifier into the signature; and
+- verifies that envelope with Web Crypto before the trusted runtime can store
+  it, with issuance and signing in one transaction so signing failure cannot
+  strand the attempt in offline-writer mode.
+
+These commands remain server-only. The signing authority is injected rather
+than configured from deployment secrets, and no production route invokes
+registration or issuance yet.
+
 The dormant trusted-runtime slice now:
 
 - defines a versioned learning-origin IndexedDB database for learner/device
@@ -237,11 +255,13 @@ digest publication, offline reload, spool recovery/import acknowledgement and
 cleanup in Chromium and Firefox, plus the Safari-compatible explicit storage
 decision in WebKit. The application server serves these assets only when
 `APP_ENV=test`, and the standalone harness is invoked only by its dedicated
-test command; no production route, learner control, entitlement issuance or
-synchronization endpoint is activated by this slice. Safari remains
+test command; no production route, learner control or synchronization endpoint
+is activated by this slice. Safari remains
 unadvertised until Safari WebDriver and real iPhone/iPad lifecycle gates pass.
-The next slice is one complete Course path after the supported browser lanes
-pass this prototype suite.
+The next slice configures the production signing authority and activates the
+authenticated Course installation, entitlement and package-download boundary
+needed by one complete learner path after the supported browser lanes pass the
+prototype suite.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and
