@@ -1,4 +1,5 @@
 import http from "node:http";
+import { randomBytes } from "node:crypto";
 import { getOfflineScormPrototypeAsset } from "./offline-scorm-package-prototype-assets.mjs";
 
 const applicationOrigin = new URL(
@@ -27,6 +28,7 @@ if (new Set(origins.map((origin) => origin.origin)).size !== origins.length)
 
 const configuration = {
   applicationOrigin: applicationOrigin.origin,
+  cleanupCapability: randomBytes(32).toString("hex"),
   environment: "test",
   learningOrigin: learningOrigin.origin,
   packageOrigin: packageOrigin.origin,
@@ -42,14 +44,19 @@ function createServer(origin) {
       response.end('{"status":"ready"}');
       return;
     }
-    if (request.method !== "GET" && request.method !== "HEAD") {
-      response.writeHead(405, { Allow: "GET, HEAD" });
+    if (
+      request.method !== "GET" &&
+      request.method !== "HEAD" &&
+      request.method !== "POST"
+    ) {
+      response.writeHead(405, { Allow: "GET, HEAD, POST" });
       response.end();
       return;
     }
     const asset = getOfflineScormPrototypeAsset(
       new URL(request.url ?? "/", origin),
       configuration,
+      request.method,
     );
     if (!asset) {
       response.writeHead(404, {

@@ -7,16 +7,21 @@ import {
 
 const configuration = {
   applicationOrigin: "http://127.0.0.1:3000",
+  cleanupCapability: "c".repeat(64),
   learningOrigin: "http://127.0.0.1:3001",
   packageOrigin: "http://127.0.0.2:3002",
   environment: "test",
 };
 
-function asset(origin, pathname, overrides = {}) {
-  return getOfflineScormPrototypeAsset(new URL(pathname, origin), {
-    ...configuration,
-    ...overrides,
-  });
+function asset(origin, pathname, overrides = {}, requestMethod = "GET") {
+  return getOfflineScormPrototypeAsset(
+    new URL(pathname, origin),
+    {
+      ...configuration,
+      ...overrides,
+    },
+    requestMethod,
+  );
 }
 
 describe("offline SCORM package prototype assets", () => {
@@ -184,6 +189,10 @@ describe("offline SCORM package prototype assets", () => {
       configuration.packageOrigin,
       `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/package.js`,
     );
+    const learningRuntime = asset(
+      configuration.learningOrigin,
+      `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/learning.js`,
+    );
     expect(packageRuntime?.body).toContain("parsed.entries.length > 64");
     expect(packageRuntime?.body).toContain("const SPOOL_BYTE_LIMIT = 524288");
     const readByteLimit = packageRuntime?.body.indexOf(
@@ -215,18 +224,44 @@ describe("offline SCORM package prototype assets", () => {
     const cleanupGuard = packageRuntime?.body.indexOf(
       'type: "prototype-cleanup-blocked"',
     );
-    const clearSiteDataRequest = packageRuntime?.body.indexOf(
-      `fetch("${OFFLINE_SCORM_PROTOTYPE_PREFIX}/clear-site-data"`,
+    const authorizedCleanupRequest = packageRuntime?.body.indexOf(
+      "await requestAuthoritativeCleanup()",
     );
     expect(cleanupGuard).toBeGreaterThan(-1);
-    expect(clearSiteDataRequest).toBeGreaterThan(cleanupGuard ?? -1);
+    expect(authorizedCleanupRequest).toBeGreaterThan(cleanupGuard ?? -1);
+    expect(packageRuntime?.body).toContain(
+      'type: "offline-scorm-package-cleanup-request"',
+    );
+    expect(packageRuntime?.body).not.toContain(configuration.cleanupCapability);
+    expect(learningRuntime?.body).toContain(configuration.cleanupCapability);
+    expect(learningRuntime?.body).toContain('method: "POST"');
+    expect(learningRuntime?.headers["Content-Security-Policy"]).toContain(
+      `connect-src ${configuration.packageOrigin}`,
+    );
+
+    expect(
+      asset(
+        configuration.packageOrigin,
+        `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/clear-site-data`,
+        {},
+        "POST",
+      ),
+    ).toBeNull();
 
     const cleanup = asset(
       configuration.packageOrigin,
-      `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/clear-site-data`,
+      `${OFFLINE_SCORM_PROTOTYPE_PREFIX}/clear-site-data?capability=${configuration.cleanupCapability}`,
+      {},
+      "POST",
     );
     expect(cleanup?.headers["Clear-Site-Data"]).toBe(
       '"cache", "cookies", "storage"',
+    );
+    expect(cleanup?.headers["Access-Control-Allow-Origin"]).toBe(
+      configuration.learningOrigin,
+    );
+    expect(cleanup?.headers["Cross-Origin-Resource-Policy"]).toBe(
+      "cross-origin",
     );
   });
 });

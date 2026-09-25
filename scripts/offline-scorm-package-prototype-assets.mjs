@@ -178,10 +178,15 @@ function applicationScript({
   `;
 }
 
-function learningScript({ applicationOrigin }) {
+function learningScript({
+  applicationOrigin,
+  cleanupCapability,
+  packageOrigin,
+}) {
   return `(() => {
     "use strict";
     const APPLICATION_ORIGIN = ${JSON.stringify(applicationOrigin)};
+    const PACKAGE_CLEANUP_URL = ${JSON.stringify(`${packageOrigin}${paths.clearSiteData}?capability=${encodeURIComponent(cleanupCapability)}`)};
     let port;
     let acknowledge = true;
     const pending = [];
@@ -199,15 +204,39 @@ function learningScript({ applicationOrigin }) {
     function acceptPort(nextPort) {
       port?.close();
       port = nextPort;
-      port.onmessage = (event) => {
-        if (event.data?.type !== "offline-scorm-spool-entry") return;
-        const entry = event.data.entry;
-        parent.postMessage(
-          { type: "prototype-learning-received", spoolEntryId: entry.spoolEntryId },
-          APPLICATION_ORIGIN,
-        );
-        if (acknowledge) sendAcknowledgement(entry);
-        else pending.push(entry);
+      port.onmessage = async (event) => {
+        if (event.data?.type === "offline-scorm-package-cleanup-request") {
+          const cleanupPort = port;
+          try {
+            const response = await fetch(PACKAGE_CLEANUP_URL, {
+              cache: "no-store",
+              credentials: "omit",
+              method: "POST",
+              referrerPolicy: "no-referrer",
+            });
+            cleanupPort?.postMessage({
+              type: "offline-scorm-package-cleanup-result",
+              protocolVersion: 1,
+              status: response.ok ? "cleared" : "failed",
+            });
+          } catch {
+            cleanupPort?.postMessage({
+              type: "offline-scorm-package-cleanup-result",
+              protocolVersion: 1,
+              status: "failed",
+            });
+          }
+          return;
+        }
+        if (event.data?.type === "offline-scorm-spool-entry") {
+          const entry = event.data.entry;
+          parent.postMessage(
+            { type: "prototype-learning-received", spoolEntryId: entry.spoolEntryId },
+            APPLICATION_ORIGIN,
+          );
+          if (acknowledge) sendAcknowledgement(entry);
+          else pending.push(entry);
+        }
       };
       port.start();
     }
@@ -255,6 +284,7 @@ function packageScript({ applicationOrigin }) {
     const vendorFrame = document.getElementById("vendor-frame");
     let port;
     let releaseLock;
+    let pendingCleanup;
     let cacheReady = false;
     let preparingPackage;
     let values = Object.create(null);
@@ -425,6 +455,18 @@ function packageScript({ applicationOrigin }) {
       );
     }
 
+    function requestAuthoritativeCleanup() {
+      if (!port || pendingCleanup)
+        return Promise.reject(new Error("Cleanup channel unavailable"));
+      return new Promise((resolve, reject) => {
+        pendingCleanup = { reject, resolve };
+        port.postMessage({
+          type: "offline-scorm-package-cleanup-request",
+          protocolVersion: 1,
+        });
+      });
+    }
+
     async function cleanup() {
       const spool = readSpool();
       if (spool.entries.length !== 0) {
@@ -437,13 +479,9 @@ function packageScript({ applicationOrigin }) {
       initialized = false;
       launchReady = false;
       vendorFrame.removeAttribute("src");
+      await requestAuthoritativeCleanup();
       port?.close();
       port = undefined;
-      const clearResponse = await fetch(${JSON.stringify(paths.clearSiteData)}, {
-        cache: "no-store",
-        credentials: "omit",
-      });
-      if (!clearResponse.ok) throw new Error("Whole-site cleanup was unavailable");
       for (const registration of await navigator.serviceWorker.getRegistrations())
         await registration.unregister();
       const databases = await indexedDB.databases();
@@ -489,6 +527,17 @@ function packageScript({ applicationOrigin }) {
           port?.close();
           port = event.ports[0];
           port.onmessage = (portEvent) => {
+            if (
+              portEvent.data?.type === "offline-scorm-package-cleanup-result" &&
+              portEvent.data.protocolVersion === 1 &&
+              pendingCleanup
+            ) {
+              const cleanup = pendingCleanup;
+              pendingCleanup = undefined;
+              if (portEvent.data.status === "cleared") cleanup.resolve();
+              else cleanup.reject(new Error("Whole-site cleanup was unavailable"));
+              return;
+            }
             if (
               portEvent.data?.type !== "offline-scorm-import-acknowledgement" ||
               portEvent.data.status !== "protected"
@@ -714,17 +763,34 @@ function learningContentSecurityPolicy(applicationOrigin) {
   return `base-uri 'none'; connect-src 'self'; default-src 'self'; font-src 'self' data:; form-action 'none'; frame-ancestors 'self' ${applicationOrigin}; frame-src 'self' https://embed.articulateusercontent.com; img-src 'self' data: blob:; media-src 'self' blob:; object-src 'none'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src-attr 'unsafe-inline'; style-src 'self' 'unsafe-inline'; style-src-attr 'unsafe-inline'; worker-src 'self' blob:`;
 }
 
-export function getOfflineScormPrototypeAsset(requestUrl, configuration) {
+export function getOfflineScormPrototypeAsset(
+  requestUrl,
+  configuration,
+  requestMethod = "GET",
+) {
   if (configuration.environment !== "test") return null;
-  const { applicationOrigin, learningOrigin, packageOrigin } = configuration;
+  const {
+    applicationOrigin,
+    cleanupCapability,
+    learningOrigin,
+    packageOrigin,
+  } = configuration;
+  if (!/^[a-f0-9]{64}$/u.test(cleanupCapability))
+    throw new Error("The cleanup capability must contain 256 bits");
   const origin = requestUrl.origin;
   const pathname = requestUrl.pathname;
   const applicationCsp = `default-src 'none'; script-src 'self'; frame-src ${learningOrigin} ${packageOrigin}; base-uri 'none'; form-action 'none'`;
-  const learningCsp = `default-src 'none'; script-src 'self'; frame-ancestors ${applicationOrigin}; base-uri 'none'; form-action 'none'`;
+  const learningCsp = `default-src 'none'; connect-src ${packageOrigin}; script-src 'self'; frame-ancestors ${applicationOrigin}; base-uri 'none'; form-action 'none'`;
   const packageCsp = learningContentSecurityPolicy(applicationOrigin);
   const vendorCsp = learningContentSecurityPolicy(applicationOrigin);
   const packageWorkerCsp = "default-src 'none'; connect-src 'self'";
 
+  if (
+    requestMethod !== "GET" &&
+    requestMethod !== "HEAD" &&
+    pathname !== paths.clearSiteData
+  )
+    return null;
   if (origin === applicationOrigin && pathname === paths.applicationHtml)
     return response(
       page(
@@ -759,14 +825,23 @@ export function getOfflineScormPrototypeAsset(requestUrl, configuration) {
     );
 
   if (origin !== packageOrigin) return null;
-  if (pathname === paths.clearSiteData)
+  if (pathname === paths.clearSiteData) {
+    if (
+      requestMethod !== "POST" ||
+      requestUrl.searchParams.get("capability") !== cleanupCapability
+    )
+      return null;
     return {
       ...response("cleared", "text/plain", "default-src 'none'"),
       headers: {
         ...response("", "text/plain", "default-src 'none'").headers,
+        "Access-Control-Allow-Origin": learningOrigin,
         "Clear-Site-Data": '"cache", "cookies", "storage"',
+        "Cross-Origin-Resource-Policy": "cross-origin",
+        Vary: "Origin",
       },
     };
+  }
   const packageAssets = new Map([
     [
       paths.packageHtml,

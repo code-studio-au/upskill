@@ -125,6 +125,18 @@ test("isolated offline SCORM package survives reload, drains and cleans up", asy
     })
     .toBe(1);
 
+  const unauthorizedCleanupStatus = await page
+    .frameLocator("#package-frame")
+    .locator("#package-status")
+    .evaluate(async () => {
+      const response = await fetch(
+        "/__offline-scorm-package-prototype/clear-site-data",
+        { cache: "no-store", credentials: "omit", method: "POST" },
+      );
+      return response.status;
+    });
+  expect(unauthorizedCleanupStatus).toBe(404);
+
   await page.evaluate(() =>
     window.offlineScormPrototype?.command("package", "cleanup"),
   );

@@ -30,6 +30,15 @@ const offlineScormPrototypeOrigin =
   process.env.APP_ENV === "test" && process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN
     ? new URL(process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN).origin
     : null;
+const offlineScormPrototypeCleanupCapability =
+  process.env.OFFLINE_SCORM_PROTOTYPE_CLEANUP_CAPABILITY?.trim();
+if (
+  offlineScormPrototypeOrigin &&
+  !/^[a-f0-9]{64}$/u.test(offlineScormPrototypeCleanupCapability ?? "")
+)
+  throw new Error(
+    "OFFLINE_SCORM_PROTOTYPE_CLEANUP_CAPABILITY must contain 256 bits",
+  );
 const allowedOrigins = [
   applicationOrigin,
   learningOrigin,
@@ -179,7 +188,7 @@ function servePwaShellScript(incoming, outgoing) {
 function serveOfflineScormPrototypeAsset(incoming, outgoing) {
   if (!offlineScormPrototypeOrigin) return false;
   const method = incoming.method ?? "GET";
-  if (method !== "GET" && method !== "HEAD") return false;
+  if (method !== "GET" && method !== "HEAD" && method !== "POST") return false;
 
   let asset;
   try {
@@ -187,10 +196,12 @@ function serveOfflineScormPrototypeAsset(incoming, outgoing) {
       new URL(incoming.url ?? "/", requestOrigin(incoming)),
       {
         applicationOrigin,
+        cleanupCapability: offlineScormPrototypeCleanupCapability,
         environment: process.env.APP_ENV,
         learningOrigin,
         packageOrigin: offlineScormPrototypeOrigin,
       },
+      method,
     );
   } catch {
     return false;

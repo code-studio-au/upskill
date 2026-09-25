@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import path from "node:path";
 
 const origins = [
@@ -21,11 +22,15 @@ if (new Set(origins.map((origin) => origin.origin)).size !== origins.length)
   throw new Error("Configured local origins must be distinct");
 
 const serverScript = path.resolve("scripts/start-server.mjs");
+const cleanupCapability =
+  process.env.OFFLINE_SCORM_PROTOTYPE_CLEANUP_CAPABILITY ??
+  randomBytes(32).toString("hex");
 const services = origins.map((origin) =>
   spawn(process.execPath, [serverScript], {
     env: {
       ...process.env,
       PORT: origin.port,
+      OFFLINE_SCORM_PROTOTYPE_CLEANUP_CAPABILITY: cleanupCapability,
       UPSKILL_LISTEN_HOST: origin.hostname,
     },
     stdio: "inherit",
