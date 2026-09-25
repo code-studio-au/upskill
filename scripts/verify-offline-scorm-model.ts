@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { Kysely, PostgresDialect } from "kysely";
+import { Kysely, PostgresDialect, sql } from "kysely";
 import { Pool } from "pg";
 import type { Database } from "#/server/db/types";
 
@@ -154,6 +154,7 @@ type EntitlementOverrides = Partial<{
   userId: string;
   installationId: string;
   packageSha256: string;
+  historyBaseRevision: number;
   commitAcceptanceDeadline: Date | string;
   signedEnvelope: string | null;
 }>;
@@ -170,7 +171,7 @@ function createSignedEnvelope(id: string, overrides: EntitlementOverrides) {
       installationId: overrides.installationId ?? ids.installation,
       learnerId: overrides.userId ?? ids.user,
       devicePublicKeySha256: publicKeySha256,
-      historyBaseRevision: 0,
+      historyBaseRevision: overrides.historyBaseRevision ?? 0,
       runtimeVersion: "offline-scorm-1",
       offering: {
         kind: "course",
@@ -180,7 +181,7 @@ function createSignedEnvelope(id: string, overrides: EntitlementOverrides) {
       packageVersionId: ids.packageVersion,
       packageSha256: overrides.packageSha256 ?? packageSha256,
       initialSnapshot: {
-        lessonStatus: "not_attempted",
+        lessonStatus: "incomplete",
         location: "",
         suspendData: "",
         scoreRaw: null,
@@ -211,9 +212,9 @@ async function insertEntitlement(
       scormPackageVersionId: ids.packageVersion,
       packageSha256: overrides.packageSha256 ?? packageSha256,
       runtimeVersion: "offline-scorm-1",
-      historyBaseRevision: 0,
+      historyBaseRevision: overrides.historyBaseRevision ?? 0,
       writerGeneration: 1,
-      reconciliationCursorRevision: 0,
+      reconciliationCursorRevision: overrides.historyBaseRevision ?? 0,
       signedEnvelope:
         overrides.signedEnvelope === undefined
           ? JSON.stringify(createSignedEnvelope(id, overrides))
@@ -590,6 +591,25 @@ try {
     "2030-02-28T24:00:00.000Z";
   const normalizedLeapSecond = structuredClone(completeEnvelope);
   normalizedLeapSecond.entitlement.issuedAt = "2029-12-31T23:59:60.000Z";
+  const overlongUtf16Location = structuredClone(completeEnvelope);
+  overlongUtf16Location.entitlement.initialSnapshot.location = "😀".repeat(501);
+  const overlongUtf16SuspendData = structuredClone(completeEnvelope);
+  overlongUtf16SuspendData.entitlement.initialSnapshot.suspendData =
+    "😀".repeat(32_769);
+
+  const utf16Lengths = await sql<{
+    locationBoundary: number;
+    suspendDataBoundary: number;
+  }>`select
+      offline_scorm_utf16_length(${"😀".repeat(500)}) as "locationBoundary",
+      offline_scorm_utf16_length(${"😀".repeat(32_768)}) as "suspendDataBoundary"`.execute(
+    database,
+  );
+  assert.deepEqual(utf16Lengths.rows[0], {
+    locationBoundary: 1_000,
+    suspendDataBoundary: 65_536,
+  });
+
   for (const mismatchedDeviceDigest of ["f".repeat(64), "c".repeat(64)]) {
     const mismatchedDeviceEnvelope = structuredClone(completeEnvelope);
     mismatchedDeviceEnvelope.entitlement.devicePublicKeySha256 =
@@ -604,6 +624,54 @@ try {
       },
     );
   }
+  for (const [field, mismatchedValue] of [
+    ["enrollmentId", "another_enrollment"],
+    ["courseVersionItemId", "another_course_version_item"],
+  ] as const) {
+    const mismatchedOfferingEnvelope = structuredClone(completeEnvelope);
+    Object.assign(mismatchedOfferingEnvelope.entitlement.offering, {
+      [field]: mismatchedValue,
+    });
+    await assert.rejects(
+      insertEntitlement(ids.duplicateEntitlement, {
+        signedEnvelope: JSON.stringify(mismatchedOfferingEnvelope),
+      }),
+      {
+        code: "23514",
+        message: /offering does not match attempt/u,
+      },
+    );
+  }
+  for (const [field, mismatchedValue] of [
+    ["lessonStatus", "passed"],
+    ["location", "another-location"],
+    ["suspendData", "another-suspend-state"],
+    ["scoreRaw", 50],
+    ["scoreMin", 0],
+    ["scoreMax", 100],
+    ["totalTimeSeconds", 1],
+  ] as const) {
+    const mismatchedSnapshotEnvelope = structuredClone(completeEnvelope);
+    Object.assign(mismatchedSnapshotEnvelope.entitlement.initialSnapshot, {
+      [field]: mismatchedValue,
+    });
+    await assert.rejects(
+      insertEntitlement(ids.duplicateEntitlement, {
+        signedEnvelope: JSON.stringify(mismatchedSnapshotEnvelope),
+      }),
+      {
+        code: "23514",
+        message: /snapshot does not match attempt history base/u,
+      },
+    );
+  }
+  await assert.rejects(
+    insertEntitlement(ids.duplicateEntitlement, { historyBaseRevision: 1 }),
+    {
+      code: "23514",
+      message: /snapshot does not match attempt history base/u,
+    },
+  );
   for (const malformedEnvelope of [
     {},
     missingSignature,
@@ -615,6 +683,8 @@ try {
     normalizedLaunchExpiry,
     normalizedAcceptanceDeadline,
     normalizedLeapSecond,
+    overlongUtf16Location,
+    overlongUtf16SuspendData,
     { ...completeEnvelope, unexpected: true },
   ])
     await assertDatabaseConstraint(

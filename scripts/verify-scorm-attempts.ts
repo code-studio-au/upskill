@@ -641,6 +641,21 @@ try {
     entitlementId: string;
     attemptId: string;
     historyBaseRevision: number;
+    initialSnapshot: {
+      lessonStatus:
+        | "not_attempted"
+        | "incomplete"
+        | "completed"
+        | "passed"
+        | "failed"
+        | "browsed";
+      location: string;
+      suspendData: string;
+      scoreRaw: number | null;
+      scoreMin: number | null;
+      scoreMax: number | null;
+      totalTimeSeconds: number;
+    };
     issuedAt: Date;
     intendedLaunchExpiresAt: Date;
     commitAcceptanceDeadline: Date;
@@ -663,15 +678,7 @@ try {
           },
           packageVersionId: ids.packageVersion,
           packageSha256: "a".repeat(64),
-          initialSnapshot: {
-            lessonStatus: "not_attempted",
-            location: "",
-            suspendData: "",
-            scoreRaw: null,
-            scoreMin: null,
-            scoreMax: null,
-            totalTimeSeconds: 0,
-          },
+          initialSnapshot: input.initialSnapshot,
           issuedAt: input.issuedAt.toISOString(),
           intendedLaunchExpiresAt: input.intendedLaunchExpiresAt.toISOString(),
           commitAcceptanceDeadline:
@@ -1897,6 +1904,12 @@ try {
       "id",
       "progressRevision",
       "credentialGeneration",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
       "totalTimeSeconds",
     ])
     .where("eventParticipationId", "=", ids.eventParticipation)
@@ -1921,6 +1934,60 @@ try {
     eventLaunchExpiresAt.getTime() + 20 * 24 * 60 * 60 * 1_000,
   );
   const eventWriterGeneration = eventAttempt.credentialGeneration + 1;
+  const eventEnvelopeInput = {
+    entitlementId: eventEntitlementId,
+    attemptId: eventAttempt.id,
+    historyBaseRevision: eventAttempt.progressRevision,
+    initialSnapshot: {
+      lessonStatus: eventAttempt.lessonStatus,
+      location: eventAttempt.location,
+      suspendData: eventAttempt.suspendData,
+      scoreRaw: eventAttempt.scoreRaw,
+      scoreMin: eventAttempt.scoreMin,
+      scoreMax: eventAttempt.scoreMax,
+      totalTimeSeconds: eventAttempt.totalTimeSeconds,
+    },
+    issuedAt: eventIssuedAt,
+    intendedLaunchExpiresAt: eventLaunchExpiresAt,
+    commitAcceptanceDeadline: eventAcceptanceDeadline,
+  };
+  const mismatchedEventOfferingEnvelope = JSON.parse(
+    signedEventEnvelope(eventEnvelopeInput),
+  ) as {
+    entitlement: {
+      offering: { eventParticipationId: string };
+    };
+  };
+  mismatchedEventOfferingEnvelope.entitlement.offering.eventParticipationId =
+    "another_event_participation";
+  await assert.rejects(
+    database
+      .insertInto("offline_learning_entitlement")
+      .values({
+        id: eventEntitlementId,
+        userId: user.id,
+        attemptId: eventAttempt.id,
+        installationId: ids.installation,
+        scormPackageVersionId: ids.packageVersion,
+        packageSha256: "a".repeat(64),
+        runtimeVersion: "offline-scorm-1",
+        historyBaseRevision: eventAttempt.progressRevision,
+        writerGeneration: eventWriterGeneration,
+        reconciliationCursorRevision: eventAttempt.progressRevision,
+        signedEnvelope: JSON.stringify(mismatchedEventOfferingEnvelope),
+        resolution: null,
+        resolvedByUserId: null,
+        issuedAt: eventIssuedAt,
+        intendedLaunchExpiresAt: eventLaunchExpiresAt,
+        commitAcceptanceDeadline: eventAcceptanceDeadline,
+        endedAt: null,
+      })
+      .execute(),
+    {
+      code: "23514",
+      message: /offering does not match attempt/u,
+    },
+  );
   await database.transaction().execute(async (transaction) => {
     await transaction
       .insertInto("offline_learning_entitlement")
@@ -1935,14 +2002,7 @@ try {
         historyBaseRevision: eventAttempt.progressRevision,
         writerGeneration: eventWriterGeneration,
         reconciliationCursorRevision: eventAttempt.progressRevision,
-        signedEnvelope: signedEventEnvelope({
-          entitlementId: eventEntitlementId,
-          attemptId: eventAttempt.id,
-          historyBaseRevision: eventAttempt.progressRevision,
-          issuedAt: eventIssuedAt,
-          intendedLaunchExpiresAt: eventLaunchExpiresAt,
-          commitAcceptanceDeadline: eventAcceptanceDeadline,
-        }),
+        signedEnvelope: signedEventEnvelope(eventEnvelopeInput),
         resolution: null,
         resolvedByUserId: null,
         issuedAt: eventIssuedAt,
@@ -2045,7 +2105,17 @@ try {
   });
   const eventAfterReconciliation = await database
     .selectFrom("scorm_attempt")
-    .select(["progressRevision", "credentialGeneration", "totalTimeSeconds"])
+    .select([
+      "progressRevision",
+      "credentialGeneration",
+      "lessonStatus",
+      "location",
+      "suspendData",
+      "scoreRaw",
+      "scoreMin",
+      "scoreMax",
+      "totalTimeSeconds",
+    ])
     .where("id", "=", eventAttempt.id)
     .executeTakeFirstOrThrow();
   const expiredEntitlementId = "event_expired_entitlement_0001";
@@ -2075,6 +2145,15 @@ try {
           entitlementId: expiredEntitlementId,
           attemptId: eventAttempt.id,
           historyBaseRevision: eventAfterReconciliation.progressRevision,
+          initialSnapshot: {
+            lessonStatus: eventAfterReconciliation.lessonStatus,
+            location: eventAfterReconciliation.location,
+            suspendData: eventAfterReconciliation.suspendData,
+            scoreRaw: eventAfterReconciliation.scoreRaw,
+            scoreMin: eventAfterReconciliation.scoreMin,
+            scoreMax: eventAfterReconciliation.scoreMax,
+            totalTimeSeconds: eventAfterReconciliation.totalTimeSeconds,
+          },
           issuedAt: expiredIssuedAt,
           intendedLaunchExpiresAt: expiredLaunchAt,
           commitAcceptanceDeadline: expiredAcceptanceAt,

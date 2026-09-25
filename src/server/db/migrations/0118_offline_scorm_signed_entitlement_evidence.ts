@@ -1,6 +1,17 @@
 import { sql, type Kysely } from "kysely";
 
 export async function up<Database>(db: Kysely<Database>): Promise<void> {
+  await sql`create function offline_scorm_utf16_length(input_text text)
+    returns integer
+    language sql immutable strict parallel safe
+    as $$
+      select char_length(input_text) + (
+        select count(*)::integer
+          from regexp_split_to_table(input_text, '') as code_point(value)
+         where ascii(value) > 65535
+      )
+    $$`.execute(db);
+
   await sql`create function offline_scorm_signed_entitlement_matches(
     envelope jsonb, entitlement_id text, attempt_id text,
     installation_id text, user_id text, package_version_id text,
@@ -148,9 +159,9 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
         'not_attempted', 'incomplete', 'completed', 'passed', 'failed', 'browsed'
       )
       or jsonb_typeof(snapshot -> 'location') <> 'string'
-      or char_length(snapshot ->> 'location') > 1000
+      or offline_scorm_utf16_length(snapshot ->> 'location') > 1000
       or jsonb_typeof(snapshot -> 'suspendData') <> 'string'
-      or char_length(snapshot ->> 'suspendData') > 65536
+      or offline_scorm_utf16_length(snapshot ->> 'suspendData') > 65536
       or jsonb_typeof(snapshot -> 'totalTimeSeconds') <> 'number' then
       return false;
     end if;
@@ -205,26 +216,114 @@ export async function up<Database>(db: Kysely<Database>): Promise<void> {
     declare
       envelope_device_key_sha256 text;
       installation_device_key_sha256 text;
+      attempt_enrollment_id text;
+      attempt_course_version_item_id text;
+      attempt_event_participation_id text;
+      attempt_event_template_version_item_id text;
+      attempt_progress_revision integer;
+      attempt_lesson_status text;
+      attempt_location text;
+      attempt_suspend_data text;
+      attempt_score_raw numeric;
+      attempt_score_min numeric;
+      attempt_score_max numeric;
+      attempt_total_time_seconds integer;
+      expected_offering jsonb;
+      expected_snapshot jsonb;
     begin
       if tg_op = 'INSERT' and new."signedEnvelope" is null then
         raise exception 'New offline entitlements require signed evidence'
           using errcode = '23514';
       end if;
-      if tg_op = 'INSERT' then
+      if tg_op = 'INSERT' and offline_scorm_signed_entitlement_matches(
+        new."signedEnvelope", new.id, new."attemptId", new."installationId",
+        new."userId", new."scormPackageVersionId", new."packageSha256",
+        new."runtimeVersion", new."historyBaseRevision", new."issuedAt",
+        new."intendedLaunchExpiresAt", new."commitAcceptanceDeadline"
+      ) is true then
         envelope_device_key_sha256 := new."signedEnvelope" #>>
           '{entitlement,devicePublicKeySha256}';
-        if envelope_device_key_sha256 ~ '^[a-f0-9]{64}$' then
-          select installation."publicKeySha256"
-            into installation_device_key_sha256
-            from offline_learning_installation installation
-           where installation.id = new."installationId"
-             and installation."userId" = new."userId";
-          if installation_device_key_sha256 is null
-            or envelope_device_key_sha256 <>
-              installation_device_key_sha256 then
-            raise exception 'Offline signed entitlement device key digest does not match installation'
-              using errcode = '23514';
-          end if;
+        select installation."publicKeySha256"
+          into installation_device_key_sha256
+          from offline_learning_installation installation
+         where installation.id = new."installationId"
+           and installation."userId" = new."userId"
+           for share;
+        if installation_device_key_sha256 is null
+          or envelope_device_key_sha256 <>
+            installation_device_key_sha256 then
+          raise exception 'Offline signed entitlement device key digest does not match installation'
+            using errcode = '23514';
+        end if;
+
+        select attempt."enrollmentId", course_item.id,
+               attempt."eventParticipationId",
+               attempt."eventTemplateVersionItemId",
+               attempt."progressRevision", attempt."lessonStatus",
+               attempt.location, attempt."suspendData", attempt."scoreRaw",
+               attempt."scoreMin", attempt."scoreMax",
+               attempt."totalTimeSeconds"
+          into attempt_enrollment_id, attempt_course_version_item_id,
+               attempt_event_participation_id,
+               attempt_event_template_version_item_id,
+               attempt_progress_revision, attempt_lesson_status,
+               attempt_location, attempt_suspend_data, attempt_score_raw,
+               attempt_score_min, attempt_score_max,
+               attempt_total_time_seconds
+          from scorm_attempt attempt
+          left join enrollment enrollment
+            on enrollment.id = attempt."enrollmentId"
+          left join course_version_item course_item
+            on course_item."courseVersionId" = enrollment."courseVersionId"
+           and course_item."modulePosition" = attempt."modulePosition"
+           and course_item.kind = 'scorm'
+           and course_item."learningActivityVersionId" =
+             attempt."scormPackageVersionId"
+         where attempt.id = new."attemptId"
+           and attempt."scormPackageVersionId" =
+             new."scormPackageVersionId"
+         for update of attempt;
+
+        if attempt_enrollment_id is not null
+          and attempt_course_version_item_id is not null
+          and attempt_event_participation_id is null
+          and attempt_event_template_version_item_id is null then
+          expected_offering := jsonb_build_object(
+            'kind', 'course',
+            'enrollmentId', attempt_enrollment_id,
+            'courseVersionItemId', attempt_course_version_item_id
+          );
+        elsif attempt_enrollment_id is null
+          and attempt_event_participation_id is not null
+          and attempt_event_template_version_item_id is not null then
+          expected_offering := jsonb_build_object(
+            'kind', 'event',
+            'eventParticipationId', attempt_event_participation_id,
+            'eventTemplateVersionItemId',
+              attempt_event_template_version_item_id
+          );
+        end if;
+        if new."signedEnvelope" #> '{entitlement,offering}' is distinct from
+          expected_offering then
+          raise exception 'Offline signed entitlement offering does not match attempt'
+            using errcode = '23514';
+        end if;
+
+        expected_snapshot := jsonb_build_object(
+          'lessonStatus', attempt_lesson_status,
+          'location', attempt_location,
+          'suspendData', attempt_suspend_data,
+          'scoreRaw', attempt_score_raw,
+          'scoreMin', attempt_score_min,
+          'scoreMax', attempt_score_max,
+          'totalTimeSeconds', attempt_total_time_seconds
+        );
+        if attempt_progress_revision is distinct from
+            new."historyBaseRevision"
+          or new."signedEnvelope" #> '{entitlement,initialSnapshot}'
+            is distinct from expected_snapshot then
+          raise exception 'Offline signed entitlement snapshot does not match attempt history base'
+            using errcode = '23514';
         end if;
       end if;
       if tg_op = 'UPDATE'
@@ -253,4 +352,5 @@ export async function down<Database>(db: Kysely<Database>): Promise<void> {
     jsonb, text, text, text, text, text, text, text, integer,
     timestamptz, timestamptz, timestamptz
   )`.execute(db);
+  await sql`drop function offline_scorm_utf16_length(text)`.execute(db);
 }
