@@ -385,6 +385,20 @@ try {
     ),
     { status: "denied", reason: "public-key-invalid" },
   );
+  assert.deepEqual(
+    await registerOfflineScormInstallation(
+      {
+        schemaVersion: 1,
+        installationId: `${ids.installation}_decorated`,
+        publicKeySpki: Buffer.concat([
+          offlinePublicKeySpki,
+          Buffer.from([0xde, 0xad]),
+        ]).toString("base64url"),
+      },
+      anotherUser,
+    ),
+    { status: "denied", reason: "public-key-invalid" },
+  );
   await database
     .insertInto("course")
     .values({

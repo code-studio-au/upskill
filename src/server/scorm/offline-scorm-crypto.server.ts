@@ -27,6 +27,8 @@ export function parseOfflineScormP256PublicKey(input: {
       publicKey.asymmetricKeyDetails?.namedCurve !== "prime256v1"
     )
       return undefined;
+    const canonicalSpki = publicKey.export({ format: "der", type: "spki" });
+    if (!canonicalSpki.equals(spki)) return undefined;
     return publicKey;
   } catch {
     return undefined;
