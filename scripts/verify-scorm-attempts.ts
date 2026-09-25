@@ -1256,6 +1256,51 @@ try {
   assert.deepEqual(await createScormLaunch(ids.enrollment, 0, user), {
     status: "offline-writer-active",
   });
+  const recoverAfterMutableAccessChange = async () =>
+    await issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+      () => {
+        throw new Error("Policy-changing retry must not sign again");
+      },
+    );
+  assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);
+  await database
+    .updateTable("enrollment")
+    .set({ removedAt: null, status: "cancelled" })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);
+  await database
+    .updateTable("enrollment")
+    .set({ status: "expired" })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);
+  await database
+    .updateTable("enrollment")
+    .set({
+      status: "completed",
+      expiresAt: new Date("2026-01-01T00:00:00.000Z"),
+    })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(await recoverAfterMutableAccessChange(), issuance);
+  await database
+    .updateTable("enrollment")
+    .set({
+      expiresAt: new Date("2027-08-01T00:00:00.000Z"),
+      removedAt: new Date(),
+    })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
 
   const offlineBase = await database
     .selectFrom("scorm_attempt")
