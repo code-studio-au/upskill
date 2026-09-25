@@ -468,6 +468,10 @@ function packageScript({ applicationOrigin }) {
     }
 
     async function cleanup() {
+      if (!lockHeld) {
+        report({ type: "prototype-cleanup-blocked", reason: "lock_not_held" });
+        return;
+      }
       const spool = readSpool();
       if (spool.entries.length !== 0) {
         report({

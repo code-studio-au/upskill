@@ -834,73 +834,86 @@ async function deleteIndexedDatabase(
   });
 }
 
-export async function cleanupOfflineScormPackageSite(input: {
+interface OfflineScormPackageCleanupInput {
   clearSiteData: () => Promise<void>;
   caches: Pick<CacheStorage, "delete" | "keys">;
   indexedDB: Pick<IDBFactory, "databases" | "deleteDatabase">;
   localStorage: Pick<Storage, "clear" | "getItem">;
+  locks: Pick<LockManager, "request">;
   sessionStorage: Pick<Storage, "clear">;
   serviceWorker: Pick<ServiceWorkerContainer, "getRegistrations">;
   cookieStore?: OfflineScormCookieStore;
   cookieDocument?: OfflineScormCookieDocument;
-}): Promise<void> {
-  try {
-    if (!input.cookieStore && !input.cookieDocument)
-      throw new Error("A package-site cookie cleanup boundary is required");
-    if (
-      readOfflineScormPackageSpoolState(input.localStorage).entries.length > 0
-    )
-      throw new Error(
-        "Pending package checkpoints must be imported before cleanup",
-      );
-    await input.clearSiteData();
-    const databaseNames = (await input.indexedDB.databases()).flatMap(
-      (database) => (database.name ? [database.name] : []),
+}
+
+async function cleanupOfflineScormPackageSiteWhileLocked(
+  input: OfflineScormPackageCleanupInput,
+): Promise<void> {
+  if (!input.cookieStore && !input.cookieDocument)
+    throw new Error("A package-site cookie cleanup boundary is required");
+  if (readOfflineScormPackageSpoolState(input.localStorage).entries.length > 0)
+    throw new Error(
+      "Pending package checkpoints must be imported before cleanup",
     );
-    const registrations = await input.serviceWorker.getRegistrations();
-    const cacheNames = await input.caches.keys();
-    const cookies = (await input.cookieStore?.getAll()) ?? [];
-    const fallbackCookieNames = input.cookieDocument
-      ? documentCookieNames(input.cookieDocument)
-      : [];
-    await Promise.all(
-      registrations.map(async (registration) => {
-        await registration.unregister();
-      }),
-    );
+  await input.clearSiteData();
+  const databaseNames = (await input.indexedDB.databases()).flatMap(
+    (database) => (database.name ? [database.name] : []),
+  );
+  const registrations = await input.serviceWorker.getRegistrations();
+  const cacheNames = await input.caches.keys();
+  const cookies = (await input.cookieStore?.getAll()) ?? [];
+  const fallbackCookieNames = input.cookieDocument
+    ? documentCookieNames(input.cookieDocument)
+    : [];
+  await Promise.all(
+    registrations.map(async (registration) => {
+      await registration.unregister();
+    }),
+  );
+  await Promise.all([
+    ...databaseNames.map((name) =>
+      deleteIndexedDatabase(input.indexedDB as IDBFactory, name),
+    ),
+    ...cacheNames.map(async (name) => {
+      await input.caches.delete(name);
+    }),
+    ...cookies.map((cookie) => input.cookieStore?.delete(cookie.name)),
+  ]);
+  if (input.cookieDocument)
+    for (const name of fallbackCookieNames)
+      input.cookieDocument.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Strict`;
+  input.localStorage.clear();
+  input.sessionStorage.clear();
+  const [remainingDatabases, remainingRegistrations, remainingCaches] =
     await Promise.all([
-      ...databaseNames.map((name) =>
-        deleteIndexedDatabase(input.indexedDB as IDBFactory, name),
-      ),
-      ...cacheNames.map(async (name) => {
-        await input.caches.delete(name);
-      }),
-      ...cookies.map((cookie) => input.cookieStore?.delete(cookie.name)),
+      input.indexedDB.databases(),
+      input.serviceWorker.getRegistrations(),
+      input.caches.keys(),
     ]);
-    if (input.cookieDocument)
-      for (const name of fallbackCookieNames)
-        input.cookieDocument.cookie = `${name}=; Max-Age=0; Path=/; SameSite=Strict`;
-    input.localStorage.clear();
-    input.sessionStorage.clear();
-    const [remainingDatabases, remainingRegistrations, remainingCaches] =
-      await Promise.all([
-        input.indexedDB.databases(),
-        input.serviceWorker.getRegistrations(),
-        input.caches.keys(),
-      ]);
-    if (
-      remainingDatabases.some((database) => database.name) ||
-      remainingRegistrations.length > 0 ||
-      remainingCaches.length > 0
-    )
-      throw new Error("Package-site state remained after cleanup");
-    if (input.cookieStore && (await input.cookieStore.getAll()).length > 0)
-      throw new Error("Package-site cookies remained after cleanup");
-    if (
-      input.cookieDocument &&
-      documentCookieNames(input.cookieDocument).length > 0
-    )
-      throw new Error("Package-site cookies remained after cleanup");
+  if (
+    remainingDatabases.some((database) => database.name) ||
+    remainingRegistrations.length > 0 ||
+    remainingCaches.length > 0
+  )
+    throw new Error("Package-site state remained after cleanup");
+  if (input.cookieStore && (await input.cookieStore.getAll()).length > 0)
+    throw new Error("Package-site cookies remained after cleanup");
+  if (
+    input.cookieDocument &&
+    documentCookieNames(input.cookieDocument).length > 0
+  )
+    throw new Error("Package-site cookies remained after cleanup");
+}
+
+export async function cleanupOfflineScormPackageSite(
+  input: OfflineScormPackageCleanupInput,
+): Promise<void> {
+  try {
+    const result = await holdOfflineScormPackageLock(input.locks, async () => {
+      await cleanupOfflineScormPackageSiteWhileLocked(input);
+    });
+    if (result.status === "busy")
+      throw new Error("Another package attempt holds the writer lock");
   } catch (error) {
     throw new OfflineScormPackagePrototypeError(
       "cleanup_failed",

@@ -23,6 +23,30 @@ class MemoryStorage implements Pick<Storage, "getItem" | "setItem"> {
   });
 }
 
+function packageLockHarness() {
+  let held = false;
+  const request = vi.fn(
+    async (
+      name: string,
+      _options: LockOptions,
+      callback: (lock: Lock | null) => Promise<unknown>,
+    ) => {
+      if (held) return await callback(null);
+      held = true;
+      try {
+        return await callback({ name, mode: "exclusive" });
+      } finally {
+        held = false;
+      }
+    },
+  );
+  return {
+    isHeld: () => held,
+    locks: { request } as unknown as Pick<LockManager, "request">,
+    request,
+  };
+}
+
 class MemoryCache {
   readonly values = new Map<string, Response>();
   putHook?: (
@@ -933,13 +957,26 @@ describe("isolated offline SCORM package prototype", () => {
     ] as unknown as ServiceWorkerRegistration[];
     let caches = ["package", "vendor"];
     let cookies = [{ name: "vendor" }];
-    const localStorage = { clear: vi.fn(), getItem: vi.fn(() => null) };
+    const lockHarness = packageLockHarness();
+    const localStorage = {
+      clear: vi.fn(() => {
+        expect(lockHarness.isHeld()).toBe(true);
+      }),
+      getItem: vi.fn(() => null),
+    };
     const sessionStorage = { clear: vi.fn() };
     const cookieDelete = vi.fn((name: string) => {
       cookies = cookies.filter((cookie) => cookie.name !== name);
       return Promise.resolve();
     });
-    const clearSiteData = vi.fn(() => Promise.resolve());
+    const clearSiteData = vi.fn(async () => {
+      expect(lockHarness.isHeld()).toBe(true);
+      await expect(
+        holdOfflineScormPackageLock(lockHarness.locks, () =>
+          Promise.resolve("checkpoint-written"),
+        ),
+      ).resolves.toEqual({ status: "busy" });
+    });
 
     await cleanupOfflineScormPackageSite({
       clearSiteData,
@@ -955,6 +992,7 @@ describe("isolated offline SCORM package prototype", () => {
         deleteDatabase: vi.fn(),
       },
       localStorage,
+      locks: lockHarness.locks,
       sessionStorage,
       serviceWorker: {
         getRegistrations: () => {
@@ -974,6 +1012,52 @@ describe("isolated offline SCORM package prototype", () => {
     expect(sessionStorage.clear).toHaveBeenCalledOnce();
     expect(cookieDelete).toHaveBeenCalledWith("vendor");
     expect(caches).toEqual([]);
+    expect(lockHarness.isHeld()).toBe(false);
+    expect(lockHarness.request).toHaveBeenCalledWith(
+      OFFLINE_SCORM_PACKAGE_LOCK_NAME,
+      { ifAvailable: true, mode: "exclusive" },
+      expect.any(Function),
+    );
+  });
+
+  it("refuses cleanup while another package context holds the writer lock", async () => {
+    const clearSiteData = vi.fn(() => Promise.resolve());
+    const clearLocalStorage = vi.fn();
+    const request = vi.fn(
+      async (
+        _name: string,
+        _options: LockOptions,
+        callback: (lock: Lock | null) => Promise<unknown>,
+      ) => await callback(null),
+    );
+
+    await expect(
+      cleanupOfflineScormPackageSite({
+        clearSiteData,
+        caches: {
+          keys: () => Promise.resolve([]),
+          delete: vi.fn(() => Promise.resolve(true)),
+        },
+        indexedDB: {
+          databases: () => Promise.resolve([]),
+          deleteDatabase: vi.fn(),
+        },
+        localStorage: {
+          clear: clearLocalStorage,
+          getItem: vi.fn(() => null),
+        },
+        locks: { request } as unknown as Pick<LockManager, "request">,
+        sessionStorage: { clear: vi.fn() },
+        serviceWorker: { getRegistrations: () => Promise.resolve([]) },
+        cookieStore: {
+          getAll: () => Promise.resolve([]),
+          delete: vi.fn(() => Promise.resolve()),
+        },
+      }),
+    ).rejects.toMatchObject({ code: "cleanup_failed" });
+
+    expect(clearSiteData).not.toHaveBeenCalled();
+    expect(clearLocalStorage).not.toHaveBeenCalled();
   });
 
   it("refuses package-site cleanup while checkpoints await import", async () => {
@@ -1001,6 +1085,7 @@ describe("isolated offline SCORM package prototype", () => {
           clear: clearLocalStorage,
           getItem: storage.getItem,
         },
+        locks: packageLockHarness().locks,
         sessionStorage: { clear: vi.fn() },
         serviceWorker: { getRegistrations: () => Promise.resolve([]) },
         cookieStore: {
@@ -1040,6 +1125,7 @@ describe("isolated offline SCORM package prototype", () => {
           clear: clearLocalStorage,
           getItem: vi.fn(() => serialized),
         },
+        locks: packageLockHarness().locks,
         sessionStorage: { clear: vi.fn() },
         serviceWorker: { getRegistrations: () => Promise.resolve([]) },
         cookieStore: {

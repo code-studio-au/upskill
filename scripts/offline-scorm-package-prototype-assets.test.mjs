@@ -224,6 +224,15 @@ describe("offline SCORM package prototype assets", () => {
     const cleanupGuard = packageRuntime?.body.indexOf(
       'type: "prototype-cleanup-blocked"',
     );
+    const cleanupFunction = packageRuntime?.body.slice(
+      packageRuntime.body.indexOf("async function cleanup()"),
+    );
+    const cleanupLockGuard = cleanupFunction?.indexOf("if (!lockHeld)");
+    const cleanupSpoolRead = cleanupFunction?.indexOf(
+      "const spool = readSpool()",
+    );
+    expect(cleanupLockGuard).toBeGreaterThan(-1);
+    expect(cleanupSpoolRead).toBeGreaterThan(cleanupLockGuard ?? -1);
     const authorizedCleanupRequest = packageRuntime?.body.indexOf(
       "await requestAuthoritativeCleanup()",
     );
