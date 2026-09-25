@@ -4,8 +4,8 @@ import { createHmac } from "node:crypto";
 import {
   assertOfflineScormPackageOriginIsolation,
   parseOfflineScormPrivateSiteSuffix,
-} from "#/features/scorm/offline-scorm-package-site";
-import type { ServerEnv } from "#/server/env.server";
+} from "#/features/scorm/offline-scorm-package-site.ts";
+import type { ServerEnv } from "#/server/env.server.ts";
 
 const PACKAGE_SITE_DERIVATION_FORMAT = "upskill-offline-scorm-package-site-v1";
 

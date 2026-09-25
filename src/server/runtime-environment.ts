@@ -1,5 +1,5 @@
 import { z } from "#/validation/zod.server.ts";
-import { createOfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
+import { createOfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server.ts";
 
 const LOCAL_ACCESS_CODE_ENCRYPTION_KEY =
   "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE";
