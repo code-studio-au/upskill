@@ -306,7 +306,8 @@ The dormant production package-host foundation now:
   loopback listener that does not exist in older releases;
 - reconciles the rendered vhost against the independently provisioned suffix,
   disabling it before suffix removal/rotation or rollback to a release without
-  package-host support;
+  package-host support, and makes the CDK lifecycle wait for that SSM retirement
+  before mutating or deleting its SSM binding and wildcard DNS record;
 - prevents the Node launcher from serving application static assets or
   readiness responses on package hosts, and claims every configured wildcard
   request before the application router; and

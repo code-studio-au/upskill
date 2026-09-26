@@ -45,7 +45,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ["scripts/**/*.mjs", "*.config.js", "*.config.cjs"],
+    files: [
+      "scripts/**/*.mjs",
+      "deploy/cdk/lambda/**/*.mjs",
+      "*.config.js",
+      "*.config.cjs",
+    ],
     extends: [tseslint.configs.disableTypeChecked],
   },
   {

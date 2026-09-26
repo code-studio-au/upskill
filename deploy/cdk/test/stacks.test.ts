@@ -183,6 +183,15 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   applicationTemplate.resourceCountIs("AWS::EC2::Instance", 1);
   applicationTemplate.resourceCountIs("AWS::EC2::EIP", 1);
   applicationTemplate.resourceCountIs("AWS::Route53::RecordSet", 0);
+  applicationTemplate.hasResourceProperties(
+    "Custom::OfflineScormPackageHostLifecycle",
+    {
+      HostedZoneId: "",
+      Suffix: "",
+      PublicIp: "",
+      ParameterName: "/upskill/staging/offline-scorm/package-host-suffix",
+    },
+  );
   applicationTemplate.resourceCountIs(
     "AWS::ElasticLoadBalancingV2::LoadBalancer",
     0,
@@ -618,7 +627,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   });
 });
 
-test("provisioned offline SCORM host has wildcard DNS and scoped DNS-01 authority", () => {
+test("provisioned offline SCORM host retires the vhost before managed DNS and SSM changes", () => {
   const app = new App();
   const config = environmentConfig("staging", undefined, {
     suffix: "packages.example.net",
@@ -646,25 +655,25 @@ test("provisioned offline SCORM host has wildcard DNS and scoped DNS-01 authorit
   });
   const template = Template.fromStack(application);
 
-  template.hasResourceProperties("AWS::Route53::RecordSet", {
+  template.hasResourceProperties("Custom::OfflineScormPackageHostLifecycle", {
     HostedZoneId: "Z123PACKAGE",
-    Name: "*.packages.example.net",
-    ResourceRecords: [Match.anyValue()],
-    TTL: "60",
-    Type: "A",
-  });
-  template.hasResourceProperties("AWS::SSM::Parameter", {
-    Name: "/upskill/staging/offline-scorm/package-host-suffix",
-    Type: "String",
-    Value: "packages.example.net",
+    Suffix: "packages.example.net",
+    PublicIp: Match.anyValue(),
+    InstanceId: Match.anyValue(),
+    ParameterName: "/upskill/staging/offline-scorm/package-host-suffix",
   });
   const serialized = JSON.stringify(template.toJSON());
   expect(serialized).toContain("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX");
+  expect(serialized).toContain("AWS-RunShellScript");
+  expect(serialized).toContain("ssm:resourceTag/Application");
+  expect(serialized).toContain("ssm:resourceTag/Environment");
+  expect(serialized).toContain("ssm:GetCommandInvocation");
+  expect(serialized).toContain("ssm:PutParameter");
+  expect(serialized).toContain("ssm:DeleteParameter");
   expect(serialized).toContain("route53:ChangeResourceRecordSets");
-  expect(serialized).toContain(":route53:::hostedzone/Z123PACKAGE");
-  expect(serialized).toContain("route53:GetChange");
-  expect(serialized).toContain(":route53:::change/*");
-  expect(serialized).toContain("route53:ListHostedZones");
+  expect(serialized).toContain("route53:ListResourceRecordSets");
+  expect(serialized).toContain("route53:ChangeResourceRecordSetsRecordTypes");
+  expect(serialized).toContain("route53:ChangeResourceRecordSetsActions");
   expect(serialized).not.toContain("route53:*");
 });
 

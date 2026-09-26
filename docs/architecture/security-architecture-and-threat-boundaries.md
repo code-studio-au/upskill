@@ -262,8 +262,10 @@ Cookie, Authorization and proxy-authorization request headers and suppresses
 credential-bearing response headers. It proxies to a package-only loopback
 listener that is absent from older releases, and deployment reconciliation
 disables a stale vhost before suffix removal, rotation or an unsupported
-rollback. The Node launcher cannot serve application assets or readiness on the
-wildcard; a pre-router handler claims the host and
+rollback. CDK owns the suffix binding and wildcard record behind a host-side SSM
+retirement barrier; cleanup failure blocks their removal or replacement. The
+Node launcher cannot serve application assets or readiness on the wildcard; a
+pre-router handler claims the host and
 fails closed unless the exact retained origin, active installation and
 entitlement, matching offline-writer generation, intended-launch deadline,
 ready immutable package and exact file inventory all agree. Offline

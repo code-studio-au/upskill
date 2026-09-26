@@ -309,9 +309,12 @@ renders the credential-free package-host nginx configuration. That vhost uses a
 package-only loopback listener rather than the application listener. Environment
 refresh removes a stale vhost before a suffix removal or rotation, and rollback
 removes it before activating a release without package-host support; a retained
-configuration would reach no application listener. Re-running a still-provisioned
-host that already has package-site TLS requires the suffix so wildcard coverage
-cannot be silently dropped. Before later activation,
+configuration would reach no application listener. The CDK lifecycle also waits
+for an SSM retirement command on the host before it updates or deletes the
+managed suffix binding and wildcard record; a missing reconciler or unreachable
+instance blocks that infrastructure change. Re-running a still-provisioned host
+that already has package-site TLS requires the suffix so wildcard coverage cannot
+be silently dropped. Before later activation,
 `OFFLINE_SCORM_PACKAGE_SITE_SUFFIX` in the offline SCORM secret must exactly
 match the provisioned suffix; runtime validation rejects a mismatch. The
 command enables the renewal timer. The

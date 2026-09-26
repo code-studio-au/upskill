@@ -2367,6 +2367,45 @@ for (const invariant of [
     failures.push(
       `Stale offline SCORM package vhosts must fail closed: ${invariant}`,
     );
+const packageHostInfrastructureLifecycle = fs.readFileSync(
+  path.join(
+    root,
+    "deploy/cdk/lambda/offline-scorm-package-host-lifecycle/index.mjs",
+  ),
+  "utf8",
+);
+for (const invariant of [
+  "cleanupInstanceId",
+  "AWS-RunShellScript",
+  "upskill-reconcile-package-site-vhost",
+  "InvocationDoesNotExist",
+  "GetCommandInvocationCommand",
+  "DeleteParameterCommand",
+  'Action: "DELETE"',
+  'Action: "UPSERT"',
+])
+  if (!packageHostInfrastructureLifecycle.includes(invariant))
+    failures.push(
+      `Package-host infrastructure must retire the vhost before mutation: ${invariant}`,
+    );
+const applicationInfrastructure = fs.readFileSync(
+  path.join(root, "deploy/cdk/lib/application-stack.ts"),
+  "utf8",
+);
+for (const invariant of [
+  'resourceType: "Custom::OfflineScormPackageHostLifecycle"',
+  'actions: ["ssm:SendCommand"]',
+  '"ssm:resourceTag/Application": "upskill"',
+  '"ssm:resourceTag/Environment": props.config.name',
+  'actions: ["ssm:GetCommandInvocation"]',
+  'actions: ["ssm:PutParameter", "ssm:DeleteParameter"]',
+  '"route53:ChangeResourceRecordSetsRecordTypes": ["A"]',
+  '"route53:ChangeResourceRecordSetsActions": [',
+])
+  if (!applicationInfrastructure.includes(invariant))
+    failures.push(
+      `CDK package-host retirement lifecycle is missing: ${invariant}`,
+    );
 if (
   !installRelease.includes("upskill.package-site.https.conf.template") ||
   !installRelease.includes("upskill-reconcile-package-site-vhost") ||
