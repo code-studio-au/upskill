@@ -2319,6 +2319,60 @@ if (!resourceUploadLocation?.includes("proxy_request_buffering off;"))
   failures.push(
     "nginx must stream PDF resource uploads instead of buffering them",
   );
+const packageHostNginx = fs.readFileSync(
+  path.join(root, "deploy/nginx/upskill.package-site.https.conf.template"),
+  "utf8",
+);
+for (const invariant of [
+  "server_name *.__PACKAGE_SITE_SUFFIX__;",
+  "proxy_pass http://127.0.0.1:3000;",
+  'proxy_set_header Cookie "";',
+  'proxy_set_header Authorization "";',
+  'proxy_set_header Proxy-Authorization "";',
+  "proxy_hide_header Set-Cookie;",
+  "proxy_hide_header WWW-Authenticate;",
+])
+  if (!packageHostNginx.includes(invariant))
+    failures.push(
+      `The credential-free offline SCORM package host is missing: ${invariant}`,
+    );
+const tlsProvisioner = fs.readFileSync(
+  path.join(root, "deploy/scripts/provision-letsencrypt-cert.sh"),
+  "utf8",
+);
+for (const invariant of [
+  "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX",
+  "Package-site suffix does not match the provisioned host",
+  'package_cert_name="upskill-package-${package_site_suffix}"',
+  '--cert-name "$package_cert_name" --dns-route53 --keep-until-expiring',
+  '-d "*.${package_site_suffix}"',
+])
+  if (!tlsProvisioner.includes(invariant))
+    failures.push(
+      `Offline SCORM wildcard TLS must use its scoped DNS-01 lineage: ${invariant}`,
+    );
+if (
+  !installRelease.includes("upskill.package-site.https.conf.template") ||
+  !environmentRefresh.includes("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX")
+)
+  failures.push(
+    "The deployed host must install package-site routing and refresh its provisioned suffix",
+  );
+const serverLauncher = fs.readFileSync(
+  path.join(root, "scripts/start-server.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX",
+  "if (allowedOrigins.includes(candidate.origin)) return false;",
+  "if (isOfflineScormPackageOrigin(requestOrigin(incoming))) return false;",
+  "isOfflineScormPackageOrigin(origin)",
+  "requestOrigin(incoming) === applicationOrigin",
+])
+  if (!serverLauncher.includes(invariant))
+    failures.push(
+      `The offline SCORM package host must not fall through to application assets: ${invariant}`,
+    );
 
 if (!packageJson.scripts?.build?.includes("precompress-client-assets.mjs"))
   failures.push("Production builds must create verified compression sidecars");

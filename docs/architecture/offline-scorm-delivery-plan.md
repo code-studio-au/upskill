@@ -86,15 +86,20 @@ writer-mode rules.
    cleanup on the supported Chromium and Firefox matrices. Exercise Safari's
    explicit user-confirmed package-site storage-access flow as a qualification
    target without advertising Safari support before every ADR 0041 gate passes.
-7. **One complete Course path.** Activate explicit installation/download,
+7. **Dormant production package host.** Provision an explicitly configured
+   private-PSL wildcard DNS/TLS boundary and a credential-free host that can
+   serve only active exact-origin immutable inventory. Keep it fail-closed
+   while offline SCORM is disabled and expose no learner route or writer
+   transition.
+8. **One complete Course path.** Activate explicit installation/download,
    offline launch, foreground/manual sync and cleanup for self-paced Course
    SCORM on the confirmed matrix.
-8. **Event and support paths.** Reuse the same policy and evidence boundaries
+9. **Event and support paths.** Reuse the same policy and evidence boundaries
    for released Event SCORM; add device replacement, hard revocation, conflict
    inspection and managed sign-out/account switching.
-9. **Qualification and rollout.** Add crash/restart/upgrade/storage-pressure
-   browser coverage, operational metrics and a bounded activation. Safari stays
-   unsupported until the ADR 0041 real-device prototype gates pass.
+10. **Qualification and rollout.** Add crash/restart/upgrade/storage-pressure
+    browser coverage, operational metrics and a bounded activation. Safari stays
+    unsupported until the ADR 0041 real-device prototype gates pass.
 
 Each slice must update this plan and current-state documentation. Dormant slices
 must not expose routes or UI that imply a later invariant already holds.
@@ -285,11 +290,33 @@ lost-response retry returns the retained origin without signing or allocating
 again. Invalid allocation, signing or persistence rolls back the whole writer
 transition.
 
-This increment remains dormant and deliberately does not claim that DNS, TLS or
-package-host routing exists. The next slice must provision wildcard DNS/TLS and
-the constrained credential-free package host, then expose authenticated
-installation registration, entitlement issuance and package download together
-so no partial activation can strand an attempt in offline-writer mode.
+The dormant production package-host foundation now:
+
+- accepts only an explicit CDK suffix, hosted-zone ID and hosted-zone name,
+  validates that they are configured together and creates one wildcard A
+  record to the existing Elastic IP;
+- stores the provisioned suffix separately from signing configuration and
+  refuses runtime activation unless the entitlement suffix matches it;
+- grants the application host DNS-01 authority only for the reviewed package
+  hosted zone, obtains a separate wildcard certificate lineage and leaves the
+  application/learning certificate on its existing HTTP-01 lineage;
+- routes the wildcard through a dedicated nginx server that strips Cookie,
+  Authorization and proxy-authorization request headers and suppresses
+  credential-bearing response headers;
+- prevents the Node launcher from serving application static assets or
+  readiness responses on package hosts, and claims every configured wildcard
+  request before the application router; and
+- while enabled, serves GET/HEAD only for the exact retained opaque origin,
+  active installation and entitlement, matching offline-writer generation
+  before intended-launch expiry, ready immutable package and exact per-file
+  inventory. Unknown paths, origins, methods and disabled deployments fail
+  closed without querying arbitrary S3 objects.
+
+This foundation remains dormant by default. No route registers an installation,
+issues an entitlement, downloads a package or reconciles progress, so it cannot
+transfer an attempt into offline-writer mode. The next slice must expose
+authenticated registration, issuance, download, launch, sync and cleanup as one
+complete Course path so no partial activation can strand writer ownership.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and

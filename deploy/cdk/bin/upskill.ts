@@ -12,6 +12,11 @@ const app = new App();
 const config = environmentConfig(
   app.node.tryGetContext("environment"),
   app.node.tryGetContext("liveKitApprovedMonthlySpendAud"),
+  {
+    suffix: app.node.tryGetContext("offlineScormPackageSiteSuffix"),
+    hostedZoneId: app.node.tryGetContext("offlineScormHostedZoneId"),
+    hostedZoneName: app.node.tryGetContext("offlineScormHostedZoneName"),
+  },
 );
 const stackPrefix = `upskill-${config.name}`;
 const account = process.env.CDK_DEFAULT_ACCOUNT;

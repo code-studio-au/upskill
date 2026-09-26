@@ -101,7 +101,7 @@ verifiers, and CDK verification.
 | Individual course checkout         | Strong                                                                      | Preserve transaction and idempotency model                               |
 | Learner enrolment/workspace        | Course and staged Event learning implemented                                | Continue incremental UX/support maturity                                 |
 | SCORM delivery                     | Strong                                                                      | Preserve isolation and immutable versions                                |
-| PWA/offline SCORM                  | Dormant exact-site allocation and package controls implemented              | Provision the package host, then deliver one complete Course path        |
+| PWA/offline SCORM                  | Dormant production package-host foundation implemented                      | Deliver one complete Course path, then qualify and activate              |
 | Surveys                            | Reused across Courses, Events, onboarding and registration questionnaires   | Add privacy operations where required                                    |
 | Resources                          | Strong foundation                                                           | Broaden beyond PDF when required                                         |
 | Certificates                       | On-demand rendering implemented                                             | Reuse the common completion-eligibility boundary                         |
@@ -661,8 +661,9 @@ triggered and do not reopen the delivered webinar foundation.
 - disabled-by-default production signing configuration and immutable per-file
   package inventory implemented as a dormant activation-readiness increment;
 - deterministic exact-site allocation and retained cleanup inventory created
-  atomically with dormant entitlement issuance; operator DNS/TLS and the
-  credential-free package host remain to be provisioned;
+  atomically with dormant entitlement issuance;
+- explicit wildcard DNS, separately scoped DNS-01 TLS and a credential-free,
+  fail-closed production package host implemented but disabled by default;
 - one complete Course path before Event reuse and support operations; and
 - browser qualification, operational controls and deliberate activation.
 

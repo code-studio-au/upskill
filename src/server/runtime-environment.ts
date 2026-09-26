@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { parseOfflineScormPrivateSiteSuffix } from "#/features/scorm/offline-scorm-package-site.ts";
 import { z } from "#/validation/zod.server.ts";
 import { createOfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server.ts";
 
@@ -36,6 +37,7 @@ const environmentSchema = z.object({
     .max(2_048)
     .regex(/^[A-Za-z0-9_-]+$/u)
     .optional(),
+  OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: z.string().min(3).max(253).optional(),
   OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: z.string().min(3).max(253).optional(),
   OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: z
     .string()
@@ -235,6 +237,12 @@ function requireLiveKitConfiguration(validated: ServerEnv): void {
 }
 
 function requireOfflineScormConfiguration(validated: ServerEnv): void {
+  const provisionedPackageHostSuffix =
+    validated.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX === undefined
+      ? undefined
+      : parseOfflineScormPrivateSiteSuffix(
+          validated.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+        );
   if (!validated.OFFLINE_SCORM_ENABLED) return;
   if (!validated.OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID)
     throw new Error(
@@ -247,6 +255,16 @@ function requireOfflineScormConfiguration(validated: ServerEnv): void {
   if (!validated.OFFLINE_SCORM_PACKAGE_SITE_SUFFIX)
     throw new Error(
       "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX is required when offline SCORM is enabled",
+    );
+  if (!provisionedPackageHostSuffix)
+    throw new Error(
+      "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX is required when offline SCORM is enabled",
+    );
+  if (
+    validated.OFFLINE_SCORM_PACKAGE_SITE_SUFFIX !== provisionedPackageHostSuffix
+  )
+    throw new Error(
+      "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX must match the provisioned package host suffix",
     );
   if (!validated.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY)
     throw new Error(

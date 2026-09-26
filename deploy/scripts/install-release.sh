@@ -204,6 +204,7 @@ install -m 0644 "$release_path/deploy/systemd/upskill-monitor.service" /etc/syst
 install -m 0644 "$release_path/deploy/systemd/upskill-monitor.timer" /etc/systemd/system/upskill-monitor.timer
 install -d -m 0755 /etc/upskill /var/www/certbot/.well-known/acme-challenge
 install -m 0644 "$release_path/deploy/nginx/upskill.https.conf.template" /etc/upskill/upskill.https.conf.template
+install -m 0644 "$release_path/deploy/nginx/upskill.package-site.https.conf.template" /etc/upskill/upskill.package-site.https.conf.template
 install -m 0755 "$release_path/deploy/scripts/provision-letsencrypt-cert.sh" /usr/local/bin/upskill-provision-letsencrypt-cert
 install -o root -g root -m 0750 "$release_path/deploy/scripts/bootstrap-platform-admin.sh" /usr/local/sbin/upskill-bootstrap-platform-admin
 install -o root -g root -m 0750 "$release_path/deploy/scripts/invite-platform-admin.sh" /usr/local/sbin/upskill-invite-platform-admin

@@ -40,6 +40,7 @@ import {
   CfnAccessGrantsLocation,
   type Bucket,
 } from "aws-cdk-lib/aws-s3";
+import { CfnRecordSet } from "aws-cdk-lib/aws-route53";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import type { Queue } from "aws-cdk-lib/aws-sqs";
@@ -193,6 +194,15 @@ export class ApplicationStack extends Stack {
         stringValue: String(props.config.liveKitApprovedMonthlySpendAud),
       },
     );
+    const offlineScormPackageHostSuffixParameter = props.config
+      .offlineScormPackageHost
+      ? new StringParameter(this, "OfflineScormPackageHostSuffixParameter", {
+          parameterName: `/upskill/${props.config.name}/offline-scorm/package-host-suffix`,
+          description:
+            "Provisioned wildcard package-host suffix; runtime activation must use the same private PSL suffix",
+          stringValue: props.config.offlineScormPackageHost.suffix,
+        })
+      : null;
     role.addToPolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
@@ -201,9 +211,51 @@ export class ApplicationStack extends Stack {
           recordingUploadRoleParameter.parameterArn,
           recordingAccessGrantsAccountParameter.parameterArn,
           liveKitApprovedMonthlySpendParameter.parameterArn,
+          ...(offlineScormPackageHostSuffixParameter
+            ? [offlineScormPackageHostSuffixParameter.parameterArn]
+            : []),
         ],
       }),
     );
+    if (props.config.offlineScormPackageHost) {
+      role.addToPolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ["route53:ChangeResourceRecordSets"],
+          resources: [
+            this.formatArn({
+              service: "route53",
+              region: "",
+              account: "",
+              resource: "hostedzone",
+              resourceName: props.config.offlineScormPackageHost.hostedZoneId,
+            }),
+          ],
+        }),
+      );
+      role.addToPolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ["route53:GetChange"],
+          resources: [
+            this.formatArn({
+              service: "route53",
+              region: "",
+              account: "",
+              resource: "change",
+              resourceName: "*",
+            }),
+          ],
+        }),
+      );
+      role.addToPolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ["route53:ListHostedZones"],
+          resources: ["*"],
+        }),
+      );
+    }
     const configurationSecret = new Secret(this, "ApplicationConfiguration", {
       secretName: `upskill/${props.config.name}/application`,
       generateSecretString: {
@@ -380,6 +432,11 @@ access_code_encryption_key=$(aws secretsmanager get-secret-value --region ${this
 recording_upload_role_arn=$(aws ssm get-parameter --region ${this.region} --name '${recordingUploadRoleParameter.parameterName}' --query Parameter.Value --output text)
 recording_access_grants_account_id=$(aws ssm get-parameter --region ${this.region} --name '${recordingAccessGrantsAccountParameter.parameterName}' --query Parameter.Value --output text)
 livekit_approved_monthly_spend_aud=$(aws ssm get-parameter --region ${this.region} --name '${liveKitApprovedMonthlySpendParameter.parameterName}' --query Parameter.Value --output text)
+${
+  offlineScormPackageHostSuffixParameter
+    ? `offline_scorm_package_host_suffix=$(aws ssm get-parameter --region ${this.region} --name '${offlineScormPackageHostSuffixParameter.parameterName}' --query Parameter.Value --output text)`
+    : 'offline_scorm_package_host_suffix=""'
+}
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)
@@ -391,6 +448,9 @@ jq -rn '"OFFLINE_SCORM_ENABLED=false"' >> "$base_environment_tmp"
 jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\\($value|@json)"' >> "$base_environment_tmp"
 jq -rn --arg value "$recording_access_grants_account_id" '"LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID=\\($value|@json)"' >> "$base_environment_tmp"
 jq -rn --arg value "$livekit_approved_monthly_spend_aud" '"LIVEKIT_APPROVED_MONTHLY_SPEND_AUD=\\($value|@json)"' >> "$base_environment_tmp"
+if [[ -n "$offline_scorm_package_host_suffix" ]]; then
+  jq -rn --arg value "$offline_scorm_package_host_suffix" '"OFFLINE_SCORM_PACKAGE_HOST_SUFFIX=\\($value|@json)"' >> "$base_environment_tmp"
+fi
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")
 database_name=$(jq -r '.dbname' <<< "$database_json")
@@ -445,6 +505,8 @@ UPSKILL_ENV`,
     instance.node.addDependency(recordingUploadRoleParameter);
     instance.node.addDependency(recordingAccessGrantsAccountParameter);
     instance.node.addDependency(liveKitApprovedMonthlySpendParameter);
+    if (offlineScormPackageHostSuffixParameter)
+      instance.node.addDependency(offlineScormPackageHostSuffixParameter);
     this.instanceId = instance.instanceId;
     Tags.of(instance).add("Application", "upskill");
     Tags.of(instance).add("Environment", props.config.name);
@@ -455,6 +517,14 @@ UPSKILL_ENV`,
       allocationId: elasticIp.attrAllocationId,
       instanceId: instance.instanceId,
     });
+    if (props.config.offlineScormPackageHost)
+      new CfnRecordSet(this, "OfflineScormPackageWildcardRecord", {
+        hostedZoneId: props.config.offlineScormPackageHost.hostedZoneId,
+        name: `*.${props.config.offlineScormPackageHost.suffix}`,
+        type: "A",
+        ttl: "60",
+        resourceRecords: [elasticIp.attrPublicIp],
+      });
     const statusAlarm = new Alarm(this, "ApplicationStatusAlarm", {
       alarmName: `upskill-${props.config.name}-application-status`,
       metric: new Metric({
@@ -638,7 +708,9 @@ UPSKILL_ENV`,
     new CfnOutput(this, "ApplicationInstanceId", {
       value: instance.instanceId,
     });
-    new CfnOutput(this, "ApplicationPublicIp", { value: elasticIp.ref });
+    new CfnOutput(this, "ApplicationPublicIp", {
+      value: elasticIp.attrPublicIp,
+    });
     new CfnOutput(this, "ApplicationConfigurationSecretArn", {
       value: configurationSecret.secretArn,
       description:
@@ -659,5 +731,11 @@ UPSKILL_ENV`,
       description:
         "Populate the P-256 signing authority only before deliberate offline SCORM activation",
     });
+    if (props.config.offlineScormPackageHost)
+      new CfnOutput(this, "OfflineScormPackageHostSuffix", {
+        value: props.config.offlineScormPackageHost.suffix,
+        description:
+          "Dormant wildcard package host; do not enable offline SCORM until TLS and runtime configuration match",
+      });
   }
 }

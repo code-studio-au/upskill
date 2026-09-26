@@ -255,16 +255,26 @@ isolation, and writes retained cleanup inventory atomically with the signed
 authority and writer transition. Recovery uses that retained origin rather than
 allocating another. Newly ingested immutable package versions retain exact
 per-file digests, lengths and content types for the future credential-free
-installer. Later offline activation must retain the per-attempt
-registrable-site/cookie boundary, keep keys and entitlements out of package
-code, and pass the staged impact and qualification plan before exposure.
+installer. The production package-host foundation now provisions only an
+explicit wildcard suffix and Route 53 zone, grants DNS-01 mutation only in that
+zone and uses a separate wildcard certificate. Its nginx boundary strips
+Cookie, Authorization and proxy-authorization request headers and suppresses
+credential-bearing response headers. The Node launcher cannot serve application
+assets or readiness on the wildcard; a pre-router handler claims the host and
+fails closed unless the exact retained origin, active installation and
+entitlement, matching offline-writer generation, intended-launch deadline,
+ready immutable package and exact file inventory all agree. Offline
+configuration remains disabled and no current
+route can create that authority. Later offline activation must retain the
+per-attempt registrable-site/cookie boundary, keep keys and entitlements out of
+package code, and pass the staged impact and qualification plan before exposure.
 The dormant package prototype now enforces that site boundary, credential-free
 digest-checked caching, exact-attempt Web Lock exclusion, bounded synchronous
 staging, exact-source sibling-channel binding and fail-closed whole-site
-cleanup. Its three-origin browser harness is test-only; no production route,
-DNS/TLS package host or offline authority is exposed, and Safari remains
-unsupported pending the accepted WebDriver and real-device storage lifecycle
-gates.
+cleanup. Its three-origin browser harness is test-only; the dormant production
+DNS/TLS host exposes no learner acquisition route or offline authority, and
+Safari remains unsupported pending the accepted WebDriver and real-device
+storage lifecycle gates.
 
 ## SCORM Upload Security
 

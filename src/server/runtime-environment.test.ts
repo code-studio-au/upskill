@@ -90,6 +90,16 @@ describe("server runtime environment", () => {
         OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
         OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "github.io",
       }),
+    ).toThrow("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+        OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "github.io",
+        OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "github.io",
+      }),
     ).toThrow("OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY");
     expect(() =>
       parseServerEnvironment({
@@ -97,10 +107,28 @@ describe("server runtime environment", () => {
         OFFLINE_SCORM_ENABLED: "true",
         OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
         OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+        OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "github.io",
         OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "github.io",
         OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: offlineScormOriginKey,
       }),
     ).not.toThrow();
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+        OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "github.io",
+        OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "pages.dev",
+        OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: offlineScormOriginKey,
+      }),
+    ).toThrow("must match the provisioned package host suffix");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "example.com",
+      }),
+    ).toThrow("private Public Suffix List");
   });
 
   it("requires a complete, environment-bound LiveKit configuration before enablement", () => {
