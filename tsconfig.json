@@ -8,7 +8,8 @@
     "vitest.config.ts",
     "playwright.config.ts",
     "playwright.offline-scorm.config.ts",
-    "vite.worker.config.ts"
+    "vite.worker.config.ts",
+    "vite.offline-scorm.config.ts"
   ],
   "exclude": ["deploy/cdk", "node_modules", ".output", "dist"],
   "compilerOptions": {

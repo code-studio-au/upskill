@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted; central policy and dormant writer transition implemented, activation
-pending.
+Accepted; self-paced Course registration, issuance, writer resolution and
+cleanup activated. Event and support lifecycles pending.
 Date: 2026-09-12
 Accepted: 2026-09-16
 

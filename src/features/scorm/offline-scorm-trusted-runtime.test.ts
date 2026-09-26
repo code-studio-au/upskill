@@ -258,6 +258,113 @@ describe("offline SCORM trusted IndexedDB", () => {
     });
   });
 
+  it("enumerates the retained installation and package registry", async () => {
+    const store = createStore();
+    const key = await prepareStore(store);
+    await store.putPackage(packageRecord());
+
+    await expect(
+      store.findInstallationForLearner("learner_1"),
+    ).resolves.toEqual(key);
+    await expect(store.findInstallationForLearner("learner_2")).resolves.toBe(
+      undefined,
+    );
+    await expect(store.getPackage("attempt_1")).resolves.toEqual(
+      packageRecord(),
+    );
+    await expect(store.listPackages()).resolves.toEqual([packageRecord()]);
+  });
+
+  it("discards only installation keys that protect no entitlement", async () => {
+    const unusedStore = createStore();
+    const unusedKey = await createOfflineScormDeviceKeyRecord(
+      "installation_unused",
+      {
+        learnerId: "learner_1",
+        now: () => new Date("2026-09-16T00:00:00.000Z"),
+      },
+    );
+    await unusedStore.putInstallation(unusedKey);
+    await unusedStore.deleteUnusedInstallation({
+      installationId: unusedKey.installationId,
+      learnerId: unusedKey.learnerId,
+    });
+    await expect(
+      unusedStore.getInstallation(unusedKey.installationId),
+    ).resolves.toBeUndefined();
+
+    const retainedStore = createStore();
+    await prepareStore(retainedStore);
+    await expect(
+      retainedStore.deleteUnusedInstallation({
+        installationId: "installation_1",
+        learnerId: "learner_1",
+      }),
+    ).rejects.toMatchObject({ code: "device_key_unavailable" });
+    await expect(
+      retainedStore.getInstallation("installation_1"),
+    ).resolves.toBeDefined();
+  });
+
+  it("lists verified pending commits and clears only acknowledged attempts", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const imported = await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry(),
+    });
+    const [commit] = await store.listPendingSignedCommits("attempt_1");
+    expect(commit).toMatchObject({
+      attemptId: "attempt_1",
+      commitId: imported.commitId,
+      clientSequence: 1,
+    });
+    await expect(
+      store.listPendingSignedCommits("attempt_1", 0),
+    ).rejects.toThrow("batch limit");
+    await store.putPackage(packageRecord());
+    await store.putPackage(
+      packageRecord({
+        status: "ready",
+        updatedAt: "2026-09-16T01:03:00.000Z",
+      }),
+    );
+    await expect(
+      store.clearAcknowledgedAttempt("attempt_1"),
+    ).rejects.toMatchObject({ code: "signing_in_progress" });
+    if (!commit) throw new Error("Expected a signed commit");
+    await store.putReceipt(
+      receipt({
+        commitId: commit.commitId,
+        requestFingerprint: await fingerprintOfflineScormCommit(commit),
+      }),
+    );
+    await store.putPackage(
+      packageRecord({
+        status: "cleanup_pending",
+        updatedAt: "2026-09-16T01:04:00.000Z",
+      }),
+    );
+    await store.putPackage(
+      packageRecord({
+        status: "cleared",
+        updatedAt: "2026-09-16T01:05:00.000Z",
+      }),
+    );
+    await store.clearAcknowledgedAttempt("attempt_1");
+
+    await expect(store.listPackages()).resolves.toEqual([]);
+    await expect(
+      store.getAttemptJournalSnapshot("attempt_1"),
+    ).rejects.toMatchObject({ code: "attempt_unavailable" });
+    await expect(
+      store.getInstallation("installation_1"),
+    ).resolves.toBeUndefined();
+  });
+
   it("reserves, signs and finalises exactly one stable journal record", async () => {
     const store = createStore();
     const key = await prepareStore(store);
@@ -364,6 +471,7 @@ describe("offline SCORM trusted IndexedDB", () => {
     });
     const cleared = packageRecord({
       status: "cleared",
+      cleanupReceiptSha256: "e".repeat(64),
       updatedAt: "2026-09-16T01:07:00.000Z",
     });
 
@@ -397,6 +505,20 @@ describe("offline SCORM trusted IndexedDB", () => {
       ),
     ).rejects.toMatchObject({ code: "journal_corrupt" });
     await store.putPackage(cleared);
+    await expect(
+      store.putPackage({
+        ...cleared,
+        cleanupReceiptSha256: "f".repeat(64),
+        updatedAt: "2026-09-16T01:08:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+    await expect(
+      store.putPackage({
+        ...cleared,
+        cleanupReceiptSha256: undefined,
+        updatedAt: "2026-09-16T01:08:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
 
     const database = await store.open();
     const transaction = database.transaction("packages", "readonly");
@@ -653,6 +775,98 @@ describe("offline SCORM trusted IndexedDB", () => {
     expect(
       (await store.getAttemptJournalSnapshot("attempt_1")).records[0],
     ).toMatchObject({ status: "acknowledged" });
+  });
+
+  it("explicitly discards an unreachable journal tail after a terminal receipt", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry(),
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry({
+        spoolEntryId: "spool_entry_000002",
+        ordinal: 2,
+        sessionElapsedSeconds: 40,
+        sessionTimeDeltaSeconds: 20,
+        clientObservedAt: "2026-09-16T01:02:04.000Z",
+        snapshot: {
+          ...spoolEntry().snapshot,
+          location: "slide-3",
+          totalTimeSeconds: 40,
+        },
+      }),
+    });
+    const [first, second] = (await store.getAttemptJournalSnapshot("attempt_1"))
+      .records;
+    if (!first || !second) throw new Error("Expected two journal records");
+    const terminalReceipt = receipt({
+      commitId: first.commitId,
+      clientSequence: first.clientSequence,
+      requestFingerprint: await fingerprintOfflineScormCommit(
+        first.unsignedCommit,
+      ),
+      outcome: "conflict",
+      reasonCode: "history_conflict",
+      resultingAttemptRevision: null,
+    });
+    await store.putReceipt(terminalReceipt);
+
+    await expect(store.getTerminalReceipt("attempt_1")).resolves.toEqual(
+      terminalReceipt,
+    );
+    await expect(store.listPendingSignedCommits("attempt_1")).resolves.toEqual([
+      expect.objectContaining({ commitId: second.commitId }),
+    ]);
+
+    await store.discardJournalAfterTerminalReceipt("attempt_1");
+    await expect(store.listPendingSignedCommits("attempt_1")).resolves.toEqual(
+      [],
+    );
+    expect(
+      (await store.getAttemptJournalSnapshot("attempt_1")).records.map(
+        (record) => record.status,
+      ),
+    ).toEqual(["discarded", "discarded"]);
+    await expect(
+      store.putReceipt(
+        receipt({
+          commitId: second.commitId,
+          clientSequence: second.clientSequence,
+          requestFingerprint: await fingerprintOfflineScormCommit(
+            second.unsignedCommit,
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+    await store.putPackage(packageRecord());
+    await store.putPackage(
+      packageRecord({
+        status: "ready",
+        updatedAt: "2026-09-16T01:03:00.000Z",
+      }),
+    );
+    await store.putPackage(
+      packageRecord({
+        status: "cleanup_pending",
+        updatedAt: "2026-09-16T01:04:00.000Z",
+      }),
+    );
+    await store.putPackage(
+      packageRecord({
+        status: "cleared",
+        updatedAt: "2026-09-16T01:05:00.000Z",
+      }),
+    );
+    await expect(
+      store.clearAcknowledgedAttempt("attempt_1"),
+    ).resolves.toBeUndefined();
   });
 
   it("rejects receipts that do not match immutable journal evidence", async () => {

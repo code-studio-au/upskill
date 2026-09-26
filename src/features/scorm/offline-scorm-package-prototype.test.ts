@@ -11,9 +11,21 @@ import {
   matchInstalledOfflineScormPackage,
   OFFLINE_SCORM_PACKAGE_LOCK_NAME,
   OfflineScormPackageSpool,
+  offlineScormPackagePathname,
   requestOfflineScormPackageStorageAccess,
   type OfflineScormPackageManifest,
 } from "#/features/scorm/offline-scorm-package-prototype";
+
+describe("offline SCORM package pathnames", () => {
+  it("encodes every stored path segment without changing hierarchy", () => {
+    expect(
+      offlineScormPackagePathname("lessons/Café intro/image #1?.png"),
+    ).toBe("/lessons/Caf%C3%A9%20intro/image%20%231%3F.png");
+    expect(offlineScormPackagePathname("index%20literal.html")).toBe(
+      "/index%2520literal.html",
+    );
+  });
+});
 
 class MemoryStorage implements Pick<Storage, "getItem" | "setItem"> {
   readonly values = new Map<string, string>();
@@ -438,6 +450,15 @@ describe("isolated offline SCORM package prototype", () => {
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
     });
+
+    const cacheBustedResponse = await matchInstalledOfflineScormPackage({
+      manifest,
+      applicationOrigin: "https://app.upskill.example",
+      caches: caches as unknown as Pick<CacheStorage, "open">,
+      request: new Request(`${manifest.packageOrigin}/index.html?v=1`),
+      subtle: crypto.subtle,
+    });
+    await expect(cacheBustedResponse?.text()).resolves.toBe("ready");
 
     const readyKey = [...readyCache.values.keys()].find((key) =>
       key.includes("/.__upskill_offline__/ready/"),

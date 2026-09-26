@@ -2,8 +2,8 @@
 
 ## Status
 
-Accepted; dormant trusted-runtime storage and journal foundation implemented,
-package execution and activation pending.
+Accepted; trusted runtime, isolated package execution and self-paced Course
+activation implemented. Event and broader browser qualification pending.
 Date: 2026-09-12
 Accepted: 2026-09-16
 

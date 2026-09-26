@@ -77,11 +77,12 @@ than establishing another product foundation.
   retention.
 - Governed Email Designer catalogues, version-pinned Course/Event communication
   plans, occurrence overrides, idempotent delivery and operational health views.
-- A mobile-only installable application-shell foundation with a public offline
-  fallback, dormant constrained offline entitlement/reconciliation and trusted
-  local runtime boundaries, plus an isolated-package qualification prototype;
-  authenticated offline course delivery and progress remain disabled while the
-  accepted plan is implemented in bounded slices.
+- A mobile-only installable application shell with a public offline fallback
+  and an activated, constrained self-paced Course SCORM path: explicit
+  download, isolated package execution, trusted local journaling,
+  authenticated reconciliation and whole-site cleanup. Event activation,
+  support workflows and broader device qualification remain bounded later
+  slices.
 
 ### Target Product
 

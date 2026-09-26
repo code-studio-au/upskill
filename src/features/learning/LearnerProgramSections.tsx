@@ -19,6 +19,7 @@ type LearnerProgramProps =
   | {
       kind: "course";
       enrollmentId: string;
+      offlineScormEnabled: boolean;
       sections: Array<LearnerWorkspaceSection>;
     }
   | {
@@ -79,6 +80,7 @@ export function LearnerProgramSections(props: LearnerProgramProps) {
                   <CourseItemAction
                     item={item as LearnerWorkspaceItem}
                     enrollmentId={props.enrollmentId}
+                    offlineScormEnabled={props.offlineScormEnabled}
                     refreshSoon={refreshSoon}
                   />
                 ) : (
@@ -163,10 +165,12 @@ function ItemDescription({
 function CourseItemAction({
   item,
   enrollmentId,
+  offlineScormEnabled,
   refreshSoon,
 }: {
   item: LearnerWorkspaceItem;
   enrollmentId: string;
+  offlineScormEnabled: boolean;
   refreshSoon: () => void;
 }): ReactNode {
   if (item.kind === "resource" && item.resourceVersionId)
@@ -198,11 +202,28 @@ function CourseItemAction({
     );
   if (item.kind === "scorm" && item.modulePosition !== null)
     return (
-      <LazyFullscreenScormLauncher
-        title={item.title}
-        payload={{ enrollmentId, modulePosition: item.modulePosition }}
-        onExit={refreshSoon}
-      />
+      <div className={classes.actions}>
+        <LazyFullscreenScormLauncher
+          title={item.title}
+          payload={{ enrollmentId, modulePosition: item.modulePosition }}
+          onExit={refreshSoon}
+        />
+        {offlineScormEnabled ? (
+          <Button
+            component="a"
+            href={`/offline-learning.html?${new URLSearchParams({
+              enrollmentId,
+              courseVersionItemId: item.id,
+              modulePosition: String(item.modulePosition),
+              title: item.title,
+            }).toString()}`}
+            size="xs"
+            variant="light"
+          >
+            Learn offline
+          </Button>
+        ) : null}
+      </div>
     );
   return (
     <Button size="xs" variant="light" disabled>

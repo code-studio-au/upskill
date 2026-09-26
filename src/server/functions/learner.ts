@@ -146,7 +146,13 @@ export const getLearnerWorkspace = createServerFn({ method: "GET" })
 
     const { findLearnerWorkspace } =
       await import("#/server/learning/learner-workspace.server");
-    return await findLearnerWorkspace(data.enrollmentId, user);
+    const result = await findLearnerWorkspace(data.enrollmentId, user);
+    if (result.status !== "available") return result;
+    const { getServerEnv } = await import("#/server/env.server");
+    return {
+      ...result,
+      offlineScormEnabled: getServerEnv().OFFLINE_SCORM_ENABLED,
+    };
   });
 
 export const getLearnerSurvey = createServerFn({ method: "GET" })

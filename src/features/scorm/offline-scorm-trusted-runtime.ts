@@ -134,6 +134,7 @@ export const offlineScormPackageRecordSchema = z
       "cleanup_pending",
       "cleared",
     ]),
+    cleanupReceiptSha256: z.optional(sha256Schema),
     updatedAt: canonicalInstantSchema,
   })
   .check(
@@ -169,6 +170,15 @@ export const offlineScormPackageRecordSchema = z
           code: "custom",
           path: ["drainUrl"],
           message: "The drain URL must belong to the exact package origin",
+        });
+      if (
+        value.cleanupReceiptSha256 !== undefined &&
+        value.status !== "cleared"
+      )
+        context.addIssue({
+          code: "custom",
+          path: ["cleanupReceiptSha256"],
+          message: "A cleanup receipt requires a cleared package",
         });
     }),
   );
@@ -246,7 +256,8 @@ export interface OfflineScormLaunchState {
   updatedAt: string;
 }
 
-type OfflineScormJournalStatus = "signing" | "pending" | "acknowledged";
+type OfflineScormJournalStatus =
+  "signing" | "pending" | "acknowledged" | "discarded";
 
 export interface OfflineScormJournalRecord {
   schemaVersion: 1;
@@ -354,6 +365,10 @@ export interface OfflineScormTrustedStore {
   }): Promise<void>;
   putPackage(record: OfflineScormPackageRecord): Promise<void>;
   putReceipt(receipt: OfflineScormReceipt): Promise<void>;
+  getTerminalReceipt(
+    attemptId: string,
+  ): Promise<OfflineScormReceipt | undefined>;
+  discardJournalAfterTerminalReceipt(attemptId: string): Promise<void>;
 }
 
 export interface OfflineScormCryptoProvider {

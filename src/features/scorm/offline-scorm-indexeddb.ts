@@ -1,5 +1,6 @@
 import {
   canonicalizeOfflineScormCommit,
+  type OfflineScormSignedCommit,
   type OfflineScormUnsignedCommit,
 } from "#/features/scorm/offline-scorm-reconciliation";
 import {
@@ -123,7 +124,7 @@ const journalRecordSchema = z.strictObject({
     .string()
     .check(z.minLength(16), z.maxLength(200), z.regex(/^[A-Za-z0-9_-]+$/u)),
   unsignedCommit: z.unknown(),
-  status: z.enum(["signing", "pending", "acknowledged"]),
+  status: z.enum(["signing", "pending", "acknowledged", "discarded"]),
   signature: z.nullable(
     z.string().check(z.length(86), z.regex(/^[A-Za-z0-9_-]+$/u)),
   ),
@@ -430,6 +431,102 @@ function assertReceiptHistory(input: {
   }
 }
 
+function receiptForRecord(
+  record: OfflineScormJournalRecord,
+  receipts: readonly OfflineScormReceipt[],
+): OfflineScormReceipt | undefined {
+  const receipt = receipts.find(
+    (candidate) => candidate.clientSequence === record.clientSequence,
+  );
+  if (receipt && receipt.commitId !== record.commitId)
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The reconciliation receipt sequence does not match its journal record",
+    );
+  return receipt;
+}
+
+function terminalReceiptForDiscard(
+  records: readonly OfflineScormJournalRecord[],
+  receipts: readonly OfflineScormReceipt[],
+): OfflineScormReceipt {
+  const terminalReceipts = receipts.filter(
+    (receipt) => receipt.outcome !== "accepted",
+  );
+  if (terminalReceipts.length !== 1)
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "A terminal journal discard requires one retained terminal receipt",
+    );
+  const terminalReceipt = terminalReceipts[0];
+  if (!terminalReceipt)
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The terminal reconciliation receipt is unavailable",
+    );
+  for (const record of records) {
+    const receipt = receiptForRecord(record, receipts);
+    if (record.clientSequence < terminalReceipt.clientSequence) {
+      if (record.status !== "acknowledged" || receipt?.outcome !== "accepted")
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "Journal evidence before a terminal receipt is not acknowledged",
+        );
+    } else if (record.clientSequence === terminalReceipt.clientSequence) {
+      if (
+        receipt?.commitId !== terminalReceipt.commitId ||
+        (record.status !== "acknowledged" && record.status !== "discarded")
+      )
+        throw new OfflineScormRuntimeError(
+          "journal_corrupt",
+          "The terminal receipt does not match its acknowledged journal record",
+        );
+    } else if (
+      receipt !== undefined ||
+      (record.status !== "pending" && record.status !== "discarded")
+    )
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The journal tail after a terminal receipt cannot be reconciled",
+      );
+  }
+  return terminalReceipt;
+}
+
+function assertJournalReadyForCleanup(
+  records: readonly OfflineScormJournalRecord[],
+  receipts: readonly OfflineScormReceipt[],
+): void {
+  if (records.some((record) => record.status === "discarded")) {
+    const terminal = terminalReceiptForDiscard(records, receipts);
+    if (
+      records.some(
+        (record) =>
+          record.clientSequence >= terminal.clientSequence &&
+          record.status !== "discarded",
+      )
+    )
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The terminal journal tail was not explicitly discarded",
+      );
+    return;
+  }
+  if (
+    records.some((record) => {
+      const receipt = receiptForRecord(record, receipts);
+      return (
+        record.status !== "acknowledged" || receipt?.outcome !== "accepted"
+      );
+    }) ||
+    receipts.length !== records.length
+  )
+    throw new OfflineScormRuntimeError(
+      "signing_in_progress",
+      "Pending offline progress must be synchronized before local cleanup",
+    );
+}
+
 function assertPackageOriginAvailable(
   record: OfflineScormPackageRecord,
   storedPackages: readonly OfflineScormPackageRecord[],
@@ -624,6 +721,14 @@ function assertPackageLifecycleUpdate(
     throw new OfflineScormRuntimeError(
       "journal_corrupt",
       "The package registry lifecycle cannot regress",
+    );
+  if (
+    existing.cleanupReceiptSha256 !== undefined &&
+    candidate.cleanupReceiptSha256 !== existing.cleanupReceiptSha256
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The retained package cleanup receipt cannot change",
     );
 }
 
@@ -823,6 +928,82 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     }
   }
 
+  async findInstallationForLearner(
+    learnerId: string,
+  ): Promise<OfflineScormDeviceKeyRecord | undefined> {
+    const parsedLearnerId = internalIdSchema.parse(learnerId);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction("installations", "readonly");
+      const value = await requestResult<unknown>(
+        transaction
+          .objectStore("installations")
+          .index("byLearnerId")
+          .get(parsedLearnerId),
+      );
+      await transactionComplete(transaction);
+      return value === undefined ? undefined : parseDeviceKeyRecord(value);
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async deleteUnusedInstallation(input: {
+    installationId: string;
+    learnerId: string;
+  }): Promise<void> {
+    const installationId = internalIdSchema.parse(input.installationId);
+    const learnerId = internalIdSchema.parse(input.learnerId);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction(
+        ["installations", "entitlements"],
+        "readwrite",
+      );
+      const completed = transactionComplete(transaction);
+      try {
+        const installations = transaction.objectStore("installations");
+        const stored = await requestResult<unknown>(
+          installations.get(installationId),
+        );
+        if (stored === undefined) {
+          transaction.commit();
+          await completed;
+          return;
+        }
+        const installation = parseDeviceKeyRecord(stored);
+        if (installation.learnerId !== learnerId)
+          throw new OfflineScormRuntimeError(
+            "device_key_unavailable",
+            "The unused installation belongs to another learner",
+          );
+        const entitlements = await requestResult<unknown[]>(
+          transaction.objectStore("entitlements").getAll(),
+        );
+        if (
+          entitlements.some(
+            (value) =>
+              offlineScormTrustedEntitlementSchema.parse(value)
+                .installationId === installationId,
+          )
+        )
+          throw new OfflineScormRuntimeError(
+            "device_key_unavailable",
+            "An installation protecting offline evidence cannot be discarded",
+          );
+        installations.delete(installationId);
+        transaction.commit();
+        await completed;
+      } catch (error) {
+        abortTransaction(transaction);
+        await completed.catch(() => undefined);
+        throw error;
+      }
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
   async putEntitlement(input: OfflineScormTrustedEntitlement): Promise<void> {
     const entitlement = offlineScormTrustedEntitlementSchema.parse(input);
     try {
@@ -973,6 +1154,13 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           entitlement,
         );
         assertOfflineScormSigningReservationTail(attemptJournalRecords);
+        if (
+          attemptJournalRecords.some((record) => record.status === "discarded")
+        )
+          throw new OfflineScormRuntimeError(
+            "attempt_unavailable",
+            "The terminal offline journal has been discarded",
+          );
         const launchStore = transaction.objectStore("launches");
         const launchValues = await requestResult<unknown[]>(
           launchStore.index("byAttemptId").getAll(attemptId),
@@ -1439,6 +1627,297 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     }
   }
 
+  async listPendingSignedCommits(
+    attemptId: string,
+    limit = 16,
+  ): Promise<OfflineScormSignedCommit[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 16)
+      throw new Error("Offline SCORM reconciliation batch limit is invalid");
+    const snapshot = await this.getAttemptJournalSnapshot(attemptId);
+    const installation = await this.getInstallation(
+      snapshot.entitlement.installationId,
+    );
+    if (!installation)
+      throw new OfflineScormRuntimeError(
+        "device_key_unavailable",
+        "The device signing key is unavailable",
+      );
+    const pending = snapshot.records
+      .filter((record) => record.status === "pending")
+      .slice(0, limit);
+    await Promise.all(
+      pending.map((record) =>
+        verifyOfflineScormJournalRecord(
+          record,
+          installation,
+          globalThis.crypto,
+        ),
+      ),
+    );
+    return pending.map((record) =>
+      parseStoredOfflineScormSignedCommit({
+        unsignedCommit: record.unsignedCommit,
+        signature: record.signature,
+      }),
+    );
+  }
+
+  async getPackage(
+    attemptId: string,
+  ): Promise<OfflineScormPackageRecord | undefined> {
+    const parsedAttemptId = internalIdSchema.parse(attemptId);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction("packages", "readonly");
+      const value = await requestResult<unknown>(
+        transaction.objectStore("packages").get(parsedAttemptId),
+      );
+      await transactionComplete(transaction);
+      return value === undefined
+        ? undefined
+        : offlineScormPackageRecordSchema.parse(value);
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async listPackages(): Promise<OfflineScormPackageRecord[]> {
+    try {
+      const database = await this.open();
+      const transaction = database.transaction("packages", "readonly");
+      const values = await requestResult<unknown[]>(
+        transaction.objectStore("packages").getAll(),
+      );
+      await transactionComplete(transaction);
+      return values.map((value) =>
+        offlineScormPackageRecordSchema.parse(value),
+      );
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async #listAttemptReceipts(
+    attemptId: string,
+  ): Promise<OfflineScormReceipt[]> {
+    const parsedAttemptId = internalIdSchema.parse(attemptId);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction("receipts", "readonly");
+      const values = await requestResult<unknown[]>(
+        transaction
+          .objectStore("receipts")
+          .index("byAttemptSequence")
+          .getAll(
+            this.#keyRange.bound(
+              [parsedAttemptId, 1],
+              [parsedAttemptId, MAXIMUM_SEQUENCE],
+            ),
+          ),
+      );
+      await transactionComplete(transaction);
+      return values.map((value) => offlineScormReceiptSchema.parse(value));
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async getTerminalReceipt(
+    attemptId: string,
+  ): Promise<OfflineScormReceipt | undefined> {
+    const receipts = await this.#listAttemptReceipts(attemptId);
+    const terminal = receipts.filter(
+      (receipt) => receipt.outcome !== "accepted",
+    );
+    if (terminal.length > 1)
+      throw new OfflineScormRuntimeError(
+        "journal_corrupt",
+        "The journal contains more than one terminal receipt",
+      );
+    return terminal[0];
+  }
+
+  async discardJournalAfterTerminalReceipt(attemptId: string): Promise<void> {
+    const [snapshot, receipts] = await Promise.all([
+      this.getAttemptJournalSnapshot(attemptId),
+      this.#listAttemptReceipts(attemptId),
+    ]);
+    const terminal = terminalReceiptForDiscard(snapshot.records, receipts);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction(
+        ["journal", "receipts"],
+        "readwrite",
+      );
+      const completedTransaction = transactionComplete(transaction);
+      try {
+        const journalStore = transaction.objectStore("journal");
+        const [journalValues, receiptValues] = await Promise.all([
+          requestResult<unknown[]>(
+            journalStore.index("byAttemptId").getAll(attemptId),
+          ),
+          requestResult<unknown[]>(
+            transaction
+              .objectStore("receipts")
+              .index("byAttemptSequence")
+              .getAll(
+                this.#keyRange.bound(
+                  [attemptId, 1],
+                  [attemptId, MAXIMUM_SEQUENCE],
+                ),
+              ),
+          ),
+        ]);
+        const records = parseAttemptJournalRecords(
+          journalValues,
+          attemptId,
+          snapshot.entitlement,
+        );
+        const currentReceipts = receiptValues.map((value) =>
+          offlineScormReceiptSchema.parse(value),
+        );
+        const currentTerminal = terminalReceiptForDiscard(
+          records,
+          currentReceipts,
+        );
+        if (
+          currentTerminal.commitId !== terminal.commitId ||
+          currentTerminal.clientSequence !== terminal.clientSequence
+        )
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "The terminal journal receipt changed during discard",
+          );
+        for (const record of records)
+          if (
+            record.clientSequence >= currentTerminal.clientSequence &&
+            record.status !== "discarded"
+          )
+            journalStore.put({
+              ...record,
+              status: "discarded",
+            } satisfies OfflineScormJournalRecord);
+        transaction.commit();
+        await completedTransaction;
+      } catch (error) {
+        abortTransaction(transaction);
+        await completedTransaction.catch(() => undefined);
+        throw error;
+      }
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async clearAcknowledgedAttempt(attemptId: string): Promise<void> {
+    const snapshot = await this.getAttemptJournalSnapshot(attemptId);
+    if (
+      snapshot.records.some(
+        (record) => record.status === "signing" || record.status === "pending",
+      )
+    )
+      throw new OfflineScormRuntimeError(
+        "signing_in_progress",
+        "Pending offline progress must be synchronized before local cleanup",
+      );
+    const packageRecord = await this.getPackage(attemptId);
+    if (!packageRecord || packageRecord.status !== "cleared")
+      throw new OfflineScormRuntimeError(
+        "storage_failed",
+        "The package site must be cleared before trusted attempt cleanup",
+      );
+    try {
+      const database = await this.open();
+      const transaction = database.transaction(
+        [
+          "entitlements",
+          "installations",
+          "attempts",
+          "launches",
+          "journal",
+          "packages",
+          "receipts",
+        ],
+        "readwrite",
+      );
+      const completedTransaction = transactionComplete(transaction);
+      try {
+        const launchValues = (
+          await requestResult<unknown[]>(
+            transaction
+              .objectStore("launches")
+              .index("byAttemptId")
+              .getAll(attemptId),
+          )
+        ).map(parseLaunchState);
+        const journalValues = (
+          await requestResult<unknown[]>(
+            transaction
+              .objectStore("journal")
+              .index("byAttemptId")
+              .getAll(attemptId),
+          )
+        ).map(parseJournalRecord);
+        const receiptValues = (
+          await requestResult<unknown[]>(
+            transaction
+              .objectStore("receipts")
+              .index("byAttemptSequence")
+              .getAll(
+                this.#keyRange.bound(
+                  [attemptId, 1],
+                  [attemptId, MAXIMUM_SEQUENCE],
+                ),
+              ),
+          )
+        ).map((value) => offlineScormReceiptSchema.parse(value));
+        const entitlementValues = (
+          await requestResult<unknown[]>(
+            transaction.objectStore("entitlements").getAll(),
+          )
+        ).map((value) => offlineScormTrustedEntitlementSchema.parse(value));
+        assertJournalReadyForCleanup(journalValues, receiptValues);
+        for (const launch of launchValues)
+          transaction
+            .objectStore("launches")
+            .delete([launch.attemptId, launch.launchSessionId]);
+        for (const record of journalValues)
+          transaction
+            .objectStore("journal")
+            .delete([record.attemptId, record.spoolEntryId]);
+        for (const receipt of receiptValues)
+          transaction
+            .objectStore("receipts")
+            .delete([receipt.attemptId, receipt.commitId]);
+        transaction.objectStore("packages").delete(attemptId);
+        transaction.objectStore("attempts").delete(attemptId);
+        transaction
+          .objectStore("entitlements")
+          .delete(snapshot.entitlement.entitlementId);
+        if (
+          !entitlementValues.some(
+            (entitlement) =>
+              entitlement.entitlementId !==
+                snapshot.entitlement.entitlementId &&
+              entitlement.installationId ===
+                snapshot.entitlement.installationId,
+          )
+        )
+          transaction
+            .objectStore("installations")
+            .delete(snapshot.entitlement.installationId);
+        transaction.commit();
+        await completedTransaction;
+      } catch (error) {
+        abortTransaction(transaction);
+        await completedTransaction.catch(() => undefined);
+        throw error;
+      }
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
   #storedEnvelopeAttemptId(value: unknown): string | undefined {
     if (!value || typeof value !== "object" || !("attemptId" in value))
       return undefined;
@@ -1750,6 +2229,11 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           receipt.attemptId,
           entitlement,
         )[0];
+        if (record?.status === "discarded")
+          throw new OfflineScormRuntimeError(
+            "journal_corrupt",
+            "A discarded journal record cannot accept a later receipt",
+          );
         if (
           !record ||
           record.signature !== candidateSignature ||

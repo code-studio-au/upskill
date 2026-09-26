@@ -25,6 +25,7 @@ import {
 import { addElapsedMilliseconds } from "#/server/time/time.server";
 import type { OfflineScormEntitlementSigner } from "#/server/scorm/offline-scorm-entitlement-signing.server";
 import type { OfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
+import { lockActiveOfflineScormSession } from "#/server/scorm/offline-scorm-auth-lifecycle.server";
 
 const OFFLINE_SCORM_RUNTIME_VERSION = "offline-scorm-1";
 const MAXIMUM_ACCEPTANCE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -69,7 +70,9 @@ export type OfflineScormEntitlementIssueResult =
         | ScormLaunchPolicyDenial
         | "installation-unavailable"
         | "finite-access-expiry-required"
-        | "offline-writer-active";
+        | "offline-writer-active"
+        | "package-inventory-unavailable"
+        | "session-unavailable";
     };
 
 type RecoveredOfflineScormEntitlement = Extract<
@@ -224,22 +227,31 @@ async function recoverActiveOfflineScormEntitlement(
 }
 
 /**
- * Establishes the exclusive offline writer and signs its exact initial state,
- * but is deliberately not connected to a route. A later activated slice must
- * add the complete download/runtime boundary before a learner can invoke it.
+ * Establishes the exclusive offline writer and signs its exact initial state.
+ * The activated Course boundary supplies the immutable package precondition;
+ * Event acquisition remains unreachable.
  */
 export async function issueOfflineScormEntitlement(
   input: {
     target: ScormLaunchTarget;
     installationId: string;
+    sessionId: string;
   },
   user: AuthenticatedUser,
   signEntitlement: OfflineScormEntitlementSigner,
   provisionPackageSite: OfflineScormPackageSiteProvisioner,
+  expectedPackage?: { packageVersionId: string; packageSha256: string },
 ): Promise<OfflineScormEntitlementIssueResult> {
   const result = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      if (
+        !(await lockActiveOfflineScormSession(transaction, {
+          sessionId: input.sessionId,
+          userId: user.id,
+        }))
+      )
+        return { status: "denied", reason: "session-unavailable" } as const;
       const installation = await transaction
         .selectFrom("offline_learning_installation")
         .select(["id", "publicKeySha256"])
@@ -264,7 +276,18 @@ export async function issueOfflineScormEntitlement(
           userId: user.id,
         },
       );
-      if (recovered) return recovered;
+      if (recovered) {
+        if (
+          expectedPackage &&
+          (recovered.packageVersionId !== expectedPackage.packageVersionId ||
+            recovered.packageSha256 !== expectedPackage.packageSha256)
+        )
+          return {
+            status: "denied",
+            reason: "package-inventory-unavailable",
+          } as const;
+        return recovered;
+      }
 
       const issuedAt = new Date();
       const policy = await resolveScormLaunchPolicy(
@@ -278,6 +301,15 @@ export async function issueOfflineScormEntitlement(
         return {
           status: "denied",
           reason: "finite-access-expiry-required",
+        } as const;
+      if (
+        expectedPackage &&
+        (policy.packageVersionId !== expectedPackage.packageVersionId ||
+          policy.packageSha256 !== expectedPackage.packageSha256)
+      )
+        return {
+          status: "denied",
+          reason: "package-inventory-unavailable",
         } as const;
 
       const attempt = await lockOrCreateScormAttempt(transaction, policy);

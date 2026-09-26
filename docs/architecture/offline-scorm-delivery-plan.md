@@ -1,6 +1,7 @@
 # Offline SCORM Delivery Plan
 
-**Status:** Accepted architecture; staged implementation in progress
+**Status:** Accepted architecture; self-paced Course path implemented, Event,
+support and rollout qualification pending
 
 **Scope:** Installable application shell, delegated offline access, trusted
 local SCORM evidence and idempotent server reconciliation
@@ -29,16 +30,16 @@ state.
 
 ## Impact matrix
 
-| Dimension               | Required coverage                                                                                                                                                                                                                                                                                                          |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Actors and scope        | One authenticated mobile learner and one registered phone or tablet installation initially; administrators may inspect or hard-revoke retained entitlement state but cannot remotely erase a disconnected copy; SCORM package code is always untrusted.                                                                    |
-| Entry and acquisition   | Existing Course and Event SCORM launch paths, a future explicit **Learn offline** action, installed-PWA startup/foreground/manual sync, device replacement, download removal and managed sign-out. Catalogue, checkout and ordinary online use remain unchanged.                                                           |
-| Targets                 | One exact SCORM attempt, immutable Learning Activity Version, owning Course Version item or Event Template Version item, exact package digest/runtime and isolated package site. Surveys, resources, payments and administration remain online.                                                                            |
-| Lifecycle               | Installable shell; unsupported/capable; downloading/partial/verified; entitlement active/expired/revoked/replaced/resolved; local staged/imported/pending/acknowledged/conflicted; package site active/cleanup-pending/cleared.                                                                                            |
-| Qualification           | Current authenticated ownership, ordinary launch policy, released exact item, ready package, finite authoritative access expiry, one active writer, registered device key and the tested browser capability/isolation matrix.                                                                                              |
-| Outcomes                | Allow online-only use; require installation; allow/resume/remove download; deny unsupported or concurrent use; issue/replace/resolve entitlement; reconcile/acknowledge/retry/conflict; block sign-out until sync or authoritative cleanup.                                                                                |
-| Downstream effects      | Attempt/item/section/offering completion, certificate eligibility, audit/outbox transitions, learner/support status and package-site cleanup inventory. Local completion never directly triggers server consumers.                                                                                                         |
-| Failure and concurrency | Forged/cross-scope identifiers, stale launch/session credentials, duplicate commit IDs, mismatched fingerprints, sequence gaps, competing attempt mutation, browser termination between spool/import/signing/receipt, quota/eviction, unavailable package site, expired or hard-revoked entitlement and duplicate cleanup. |
+| Dimension               | Required coverage                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Actors and scope        | One authenticated mobile learner and one registered phone or tablet installation initially; administrators may inspect or hard-revoke retained entitlement state but cannot remotely erase a disconnected copy; SCORM package code is always untrusted.                                                                                                                                                                       |
+| Entry and acquisition   | Existing Course and Event SCORM launch paths, an explicit self-paced Course **Learn offline** action, installed-PWA startup/foreground/manual sync, Course download removal and an ordinary sign-out gate while offline state remains. Event activation, device replacement, account switching and an aggregated managed sign-out workflow remain later slices. Catalogue, checkout and ordinary online use remain unchanged. |
+| Targets                 | One exact SCORM attempt, immutable Learning Activity Version, owning Course Version item or Event Template Version item, exact package digest/runtime and isolated package site. Surveys, resources, payments and administration remain online.                                                                                                                                                                               |
+| Lifecycle               | Installable shell; unsupported/capable; downloading/partial/verified; entitlement active/expired/revoked/replaced/resolved; local staged/imported/pending/acknowledged/conflicted; package site active/cleanup-pending/cleared.                                                                                                                                                                                               |
+| Qualification           | Current authenticated ownership, ordinary launch policy, released exact item, ready package, finite authoritative access expiry, one active writer, registered device key and the tested browser capability/isolation matrix.                                                                                                                                                                                                 |
+| Outcomes                | Allow online-only use; require installation; allow/resume/remove download; deny unsupported or concurrent use; issue/replace/resolve entitlement; reconcile/acknowledge/retry/conflict; block sign-out until sync or authoritative cleanup.                                                                                                                                                                                   |
+| Downstream effects      | Attempt/item/section/offering completion, certificate eligibility, audit/outbox transitions, learner/support status and package-site cleanup inventory. Local completion never directly triggers server consumers.                                                                                                                                                                                                            |
+| Failure and concurrency | Forged/cross-scope identifiers, stale launch/session credentials, duplicate commit IDs, mismatched fingerprints, sequence gaps, competing attempt mutation, browser termination between spool/import/signing/receipt, quota/eviction, unavailable package site, expired or hard-revoked entitlement and duplicate cleanup.                                                                                                    |
 
 ## Central server decisions
 
@@ -93,7 +94,9 @@ writer-mode rules.
    transition.
 8. **One complete Course path.** Activate explicit installation/download,
    offline launch, foreground/manual sync and cleanup for self-paced Course
-   SCORM on the confirmed matrix.
+   SCORM on the confirmed matrix. Fail ordinary sign-out closed until every
+   local Course lifecycle has synchronized or explicitly discarded terminal
+   evidence and completed authoritative cleanup.
 9. **Event and support paths.** Reuse the same policy and evidence boundaries
    for released Event SCORM; add device replacement, hard revocation, conflict
    inspection and managed sign-out/account switching.
@@ -113,8 +116,8 @@ public-only:
 - the manifest applies and the worker registers only on mobile form factors;
 - the worker is served only on the application origin;
 - the learning origin cannot serve the application worker;
-- an offline navigation receives a static, strict-CSP fallback that explicitly
-  says course downloads and offline progress are not enabled yet; and
+- an offline navigation receives a static, strict-CSP fallback and a separate
+  application-origin course index that can reopen already downloaded modules;
 - development mode does not register a worker, avoiding stale local routing.
 
 The dormant-model slice adds the server-owned storage boundaries needed by
@@ -155,9 +158,8 @@ The current central-policy slice now:
 - advances the attempt revision for each material online progress transition
   so a later entitlement captures a stable history base under the same lock.
 
-The entitlement command remains a server-only dormant boundary. No route
-registers an installation or invokes it, and no learner UI exposes download or
-offline launch controls.
+The entitlement command is now reached only through the authenticated Course
+activation route described below. Event callers remain dormant.
 
 The dormant reconciliation slice now:
 
@@ -178,8 +180,8 @@ The dormant reconciliation slice now:
 - reuses the existing Course and Event completion transaction helper so
   authoritative audit, outbox and communication effects remain idempotent.
 
-The command remains a server-only dormant boundary: there is no sync route,
-installation-registration route or learner control.
+The command is now reached by the authenticated, bounded Course sync route.
+Event acquisition remains dormant.
 
 The dormant activation-contract slice now:
 
@@ -198,8 +200,9 @@ The dormant activation-contract slice now:
   it, with issuance and signing in one transaction so signing failure cannot
   strand the attempt in offline-writer mode.
 
-These commands remain server-only, and no production route invokes registration
-or issuance yet.
+The Course activation route now invokes registration and issuance only after it
+has preflighted the exact immutable inventory. Event issuance remains
+unreachable.
 
 The dormant trusted-runtime slice now:
 
@@ -233,8 +236,10 @@ The dormant trusted-runtime slice now:
 - exposes the accepted status vocabulary without wiring it to any learner
   route or implying that local completion is server-confirmed.
 
-The IndexedDB adapter is dormant: no current route imports it, no package code
-runs on the trusted origin and no offline control is exposed.
+The learning-origin runtime now uses this adapter for the activated Course
+path. The application origin stores only a minimal offline-course index; device
+keys, entitlements, snapshots, journals and receipts stay on the trusted
+learning origin.
 
 The isolated-package prototype now:
 
@@ -256,15 +261,13 @@ The isolated-package prototype now:
   verifies Web Storage, IndexedDB, Cache Storage, service-worker registrations
   and package-site cookies as one fail-closed, whole-site cleanup operation.
 
-The production runtime remains dormant. A test-only three-origin harness uses
-separate loopback sites to cover lock exclusion, package-cookie isolation,
-digest publication, offline reload, spool recovery/import acknowledgement and
-cleanup in Chromium and Firefox, plus the Safari-compatible explicit storage
-decision in WebKit. The application server serves these assets only when
-`APP_ENV=test`, and the standalone harness is invoked only by its dedicated
-test command; no production route, learner control or synchronization endpoint
-is activated by this slice. Safari remains
-unadvertised until Safari WebDriver and real iPhone/iPad lifecycle gates pass.
+The test-only three-origin harness continues to cover lock exclusion,
+package-cookie isolation, digest publication, offline reload, spool
+recovery/import acknowledgement and cleanup in Chromium and Firefox, plus the
+Safari-compatible explicit storage decision in WebKit. The production Course
+runtime now uses the same reviewed package installer, spool, sibling-channel
+and cleanup contracts. Safari remains unadvertised until Safari WebDriver and
+real iPhone/iPad lifecycle gates pass.
 
 The activation-readiness increment configures a dedicated, disabled-by-default
 deployment secret for the offline signing authority. Runtime loading accepts
@@ -290,7 +293,7 @@ lost-response retry returns the retained origin without signing or allocating
 again. Invalid allocation, signing or persistence rolls back the whole writer
 transition.
 
-The dormant production package-host foundation now:
+The production package-host boundary now:
 
 - accepts only an explicit CDK suffix, hosted-zone ID and hosted-zone name,
   validates that they are configured together and creates one wildcard A
@@ -317,16 +320,46 @@ The dormant production package-host foundation now:
   inventory. Unknown paths, origins, methods and disabled deployments fail
   closed without querying arbitrary S3 objects.
 
-This foundation remains dormant by default. No route registers an installation,
-issues an entitlement, downloads a package or reconciles progress, so it cannot
-transfer an attempt into offline-writer mode. The next slice must expose
-authenticated registration, issuance, download, launch, sync and cleanup as one
-complete Course path so no partial activation can strand writer ownership.
+The complete self-paced Course activation slice now:
+
+- exposes strict authenticated, exact-origin and bounded bootstrap, activation,
+  sync, resolution and cleanup-confirmation routes while the feature is
+  configured;
+- offers **Learn offline** only for Course SCORM when the rollout flag is on,
+  permits acquisition only in the supported installed Android PWA and leaves
+  Event SCORM and ordinary online launch unchanged;
+- preflights the exact package manifest before registration or writer transfer,
+  verifies the signed entitlement on the learning origin, installs every
+  content-addressed package response by digest and publishes readiness last;
+- launches the uncredentialed exact-attempt package site through direct sibling
+  frames, imports its bounded spool into signed trusted evidence and syncs on
+  application startup, foreground, connectivity restoration or explicit
+  learner action;
+- records an account-bound activation marker before requesting server writer
+  authority, upgrades it to downloading before package transfer and exposes a
+  retry path so termination or download failure cannot orphan the entitlement;
+- filters the application index to the authenticated learner when online,
+  permits the retained single-learner projection while disconnected and blocks
+  ordinary sign-out until every indexed lifecycle has completed cleanup;
+- retains terminal rejection/conflict receipts, requires explicit confirmation
+  before marking their unreachable signed tail discarded, and only then permits
+  writer resolution and cleanup;
+- resolves the exclusive offline writer before cleanup, rotates the online
+  credential generation, authorizes exact-origin whole-site clearing with a
+  derived one-entitlement capability and removes trusted attempt data only
+  after acknowledged evidence and a cleanup receipt; the final cleared
+  entitlement ends the server installation and removes its local signing key;
+  and
+- keeps new activation and package-content delivery fail-closed when disabled
+  while retaining the trusted/runtime assets, reconciliation, writer
+  resolution and already-resolved package-site cleanup needed by existing
+  downloads. Operators must retain the package-host routing and package-site
+  origin key until every cleanup inventory row is terminal.
 
 The application-shell rollback still must first deploy a cleanup worker that
 deletes the application-shell cache and unregisters itself; registration and
 static worker assets can be removed after active installations receive that
-cleanup version. The dormant database model is retained as forward-only history
+cleanup version. The retained database model remains forward-only history
 until a later expand-and-contract migration can prove removal safe.
 
 ## Verification strategy
