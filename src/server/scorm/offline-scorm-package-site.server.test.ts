@@ -13,6 +13,7 @@ function configuration(
   > = {},
 ): Parameters<typeof createOfflineScormPackageSiteProvisioner>[0] {
   return {
+    APP_ENV: "production",
     APP_ORIGIN: "https://app.example.com",
     LEARNING_ORIGIN: "https://learning.example.com",
     OFFLINE_SCORM_ENABLED: true,
@@ -87,6 +88,42 @@ describe("offline SCORM package-site provisioner", () => {
         configuration({ APP_ORIGIN: "https://app.github.io" }),
       )({ attemptId: "attempt_1", entitlementId: "app" }),
     ).not.toThrow();
+  });
+
+  it("uses certificate-free sibling localhost sites only in local environments", () => {
+    const localConfiguration = configuration({
+      APP_ENV: "development",
+      APP_ORIGIN: "http://app.localhost:8080",
+      LEARNING_ORIGIN: "http://learn.localhost:8080",
+      OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "localhost",
+    });
+    const provision =
+      createOfflineScormPackageSiteProvisioner(localConfiguration);
+    const packageSiteOrigin = provision({
+      attemptId: "attempt_1",
+      entitlementId: "entitlement_1",
+    });
+
+    expect(packageSiteOrigin).toMatch(
+      /^http:\/\/p-[a-f0-9]{56}\.localhost:8080$/u,
+    );
+    expect(() =>
+      createOfflineScormPackageCleanupCapability(localConfiguration, {
+        entitlementId: "entitlement_1",
+        packageSiteOrigin,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      createOfflineScormPackageSiteProvisioner(
+        configuration({ OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "localhost" }),
+      ),
+    ).toThrow("canonical lowercase DNS");
+    expect(() =>
+      createOfflineScormPackageCleanupCapability(configuration(), {
+        entitlementId: "entitlement_1",
+        packageSiteOrigin,
+      }),
+    ).toThrow("origin is invalid");
   });
 
   it("rejects malformed provisioning identifiers", () => {

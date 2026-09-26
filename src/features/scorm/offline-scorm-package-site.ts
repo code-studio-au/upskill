@@ -17,6 +17,7 @@ export function parseExactOfflineScormOrigin(value: string): URL {
 function isLoopbackHostname(hostname: string): boolean {
   return (
     hostname === "localhost" ||
+    hostname.endsWith(".localhost") ||
     hostname === "[::1]" ||
     hostname === "::1" ||
     /^127(?:\.\d{1,3}){3}$/u.test(hostname)
@@ -62,7 +63,7 @@ export function assertOfflineScormPackageOriginIsolation(input: {
     );
 }
 
-export function parseOfflineScormPrivateSiteSuffix(value: string): string {
+function parseOfflineScormPrivateSiteSuffix(value: string): string {
   if (
     value.length < 3 ||
     value.length > 253 ||
@@ -85,4 +86,16 @@ export function parseOfflineScormPrivateSiteSuffix(value: string): string {
       "The offline SCORM package-site suffix must be registered in the private Public Suffix List",
     );
   return value;
+}
+
+export function parseOfflineScormPackageSiteSuffix(
+  value: string,
+  environment: "development" | "test" | "staging" | "production",
+): string {
+  if (
+    (environment === "development" || environment === "test") &&
+    value === "localhost"
+  )
+    return value;
+  return parseOfflineScormPrivateSiteSuffix(value);
 }

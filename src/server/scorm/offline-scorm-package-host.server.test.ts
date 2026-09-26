@@ -124,6 +124,32 @@ describe("offline SCORM credential-free package host", () => {
     expect(findAuthorizedPackage).not.toHaveBeenCalled();
   });
 
+  it("keeps every package-host lifecycle path disabled in staging", async () => {
+    const stagingHandler = createOfflineScormPackageHostHandler({
+      configuration: {
+        applicationOrigin: "https://staging.upskill.institute",
+        environment: "staging",
+        learningOrigin: "https://learn-staging.upskill.institute",
+        learningBucket: "learning-bucket",
+        packageHostSuffix: "packages.upskill.institute",
+        packageSiteOriginKey,
+        enabled: false,
+      },
+      findAuthorizedPackage,
+      findAuthorizedRuntime,
+      getObject,
+    });
+    const stagingPackageOrigin = `https://${packageLabel}.packages.upskill.institute`;
+
+    await expect(
+      stagingHandler(
+        new Request(`${stagingPackageOrigin}/.__upskill_offline__/host.html`),
+      ),
+    ).resolves.toMatchObject({ status: 404 });
+    expect(findAuthorizedPackage).not.toHaveBeenCalled();
+    expect(findAuthorizedRuntime).not.toHaveBeenCalled();
+  });
+
   it("serves only an active exact-origin file in the immutable inventory", async () => {
     authorize();
     getObject.mockResolvedValue(storedObject());
@@ -229,6 +255,7 @@ describe("offline SCORM credential-free package host", () => {
     });
     const cleanupCapability = createOfflineScormPackageCleanupCapability(
       {
+        APP_ENV: "production",
         OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: packageSiteOriginKey,
       },
       { entitlementId, packageSiteOrigin: packageOrigin },
@@ -260,6 +287,7 @@ describe("offline SCORM credential-free package host", () => {
     await expect(cleared?.json()).resolves.toEqual({
       cleanupReceiptSha256: createOfflineScormPackageCleanupReceipt(
         {
+          APP_ENV: "production",
           OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: packageSiteOriginKey,
         },
         { entitlementId, packageSiteOrigin: packageOrigin },
@@ -314,5 +342,40 @@ describe("offline SCORM credential-free package host", () => {
     );
     expect(invalidRange?.status).toBe(416);
     expect(getObject).not.toHaveBeenCalled();
+  });
+
+  it("accepts the same-port HTTP package host only for local localhost", async () => {
+    const localHandler = createOfflineScormPackageHostHandler({
+      configuration: {
+        applicationOrigin: "http://app.localhost:8080",
+        environment: "test",
+        learningOrigin: "http://learn.localhost:8080",
+        learningBucket: "learning-bucket",
+        packageHostSuffix: "localhost",
+        packageSiteOriginKey,
+        enabled: true,
+      },
+      findAuthorizedPackage,
+      getObject,
+    });
+    findAuthorizedPackage.mockResolvedValue(undefined);
+
+    await expect(
+      localHandler(
+        new Request(`http://${packageLabel}.localhost:8080/index.html`),
+      ),
+    ).resolves.toMatchObject({ status: 404 });
+    expect(findAuthorizedPackage).toHaveBeenCalledWith(
+      `http://${packageLabel}.localhost:8080`,
+      expect.any(Date),
+    );
+
+    findAuthorizedPackage.mockClear();
+    await expect(
+      localHandler(
+        new Request(`https://${packageLabel}.localhost:8080/index.html`),
+      ),
+    ).resolves.toMatchObject({ status: 404 });
+    expect(findAuthorizedPackage).not.toHaveBeenCalled();
   });
 });

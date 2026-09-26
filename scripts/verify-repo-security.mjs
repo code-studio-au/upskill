@@ -47,6 +47,8 @@ for (const invariant of [
   'createHmac("sha256", authenticationSecret)',
   "parsed.ACCESS_CODE_ENCRYPTION_KEY ?? localEncryptionKey",
   "validated.ACCESS_CODE_ENCRYPTION_KEY === localEncryptionKey",
+  'validated.APP_ENV === "staging"',
+  "Offline SCORM activation is prohibited in staging",
 ])
   if (!runtimeEnvironment.includes(invariant))
     failures.push(
@@ -1282,7 +1284,7 @@ for (const boundary of [
   'createHmac("sha256", originKey)',
   'update(attemptId, "utf8")',
   'update(entitlementId, "utf8")',
-  "parseOfflineScormPrivateSiteSuffix",
+  "parseOfflineScormPackageSiteSuffix",
   "assertOfflineScormPackageOriginIsolation",
 ])
   if (!offlineScormPackageSiteProvisioning.includes(boundary))

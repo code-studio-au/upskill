@@ -2241,6 +2241,7 @@ try {
   );
   const cleanupReceiptSha256 = createOfflineScormPackageCleanupReceipt(
     {
+      APP_ENV: "test",
       OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: Buffer.alloc(32, 7).toString(
         "base64url",
       ),

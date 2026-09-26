@@ -283,6 +283,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   expect(JSON.stringify(accessGrantsLocations)).toContain("recordings/");
   applicationTemplate.hasResourceProperties("AWS::S3::AccessGrant", {
     Permission: "WRITE",
+    AccessGrantsLocationConfiguration: { S3SubPrefix: "*" },
     Grantee: {
       GranteeType: "IAM",
       GranteeIdentifier: Match.anyValue(),

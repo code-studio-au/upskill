@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import { parseOfflineScormPrivateSiteSuffix } from "#/features/scorm/offline-scorm-package-site.ts";
+import { parseOfflineScormPackageSiteSuffix } from "#/features/scorm/offline-scorm-package-site.ts";
 import { z } from "#/validation/zod.server.ts";
 import { createOfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server.ts";
 
@@ -237,11 +237,17 @@ function requireLiveKitConfiguration(validated: ServerEnv): void {
 }
 
 function requireOfflineScormConfiguration(validated: ServerEnv): void {
+  if (validated.APP_ENV === "staging") {
+    if (validated.OFFLINE_SCORM_ENABLED)
+      throw new Error("Offline SCORM activation is prohibited in staging");
+    return;
+  }
   const provisionedPackageHostSuffix =
     validated.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX === undefined
       ? undefined
-      : parseOfflineScormPrivateSiteSuffix(
+      : parseOfflineScormPackageSiteSuffix(
           validated.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+          validated.APP_ENV,
         );
   if (!validated.OFFLINE_SCORM_ENABLED) return;
   if (!validated.OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID)
@@ -272,7 +278,7 @@ function requireOfflineScormConfiguration(validated: ServerEnv): void {
     );
   createOfflineScormPackageSiteProvisioner(validated);
   if (
-    (validated.APP_ENV === "staging" || validated.APP_ENV === "production") &&
+    validated.APP_ENV === "production" &&
     /replace|example|invalid/iu.test(
       validated.OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID,
     )
