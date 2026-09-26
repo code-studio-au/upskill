@@ -30,6 +30,20 @@ const offlineScormPrototypeOrigin =
   process.env.APP_ENV === "test" && process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN
     ? new URL(process.env.OFFLINE_SCORM_PROTOTYPE_ORIGIN).origin
     : null;
+const offlineScormPackageHostSuffix =
+  process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX?.trim();
+const offlineScormPackagePort = 3002;
+if (
+  offlineScormPackageHostSuffix &&
+  (offlineScormPackageHostSuffix !==
+    offlineScormPackageHostSuffix.toLowerCase() ||
+    !/^([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u.test(
+      offlineScormPackageHostSuffix,
+    ))
+)
+  throw new Error(
+    "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX must be canonical lowercase DNS",
+  );
 const offlineScormPrototypeCleanupCapability =
   process.env.OFFLINE_SCORM_PROTOTYPE_CLEANUP_CAPABILITY?.trim();
 if (
@@ -151,15 +165,44 @@ if (!/^127(?:\.\d{1,3}){3}$/u.test(listenHost) && listenHost !== "localhost")
 function requestOrigin(incoming) {
   const host = incoming.headers.host?.trim().toLowerCase();
   if (!host) return applicationOrigin;
-  return (
-    allowedOrigins.find((configuredOrigin) => {
-      try {
-        return new URL(configuredOrigin).host.toLowerCase() === host;
-      } catch {
-        return false;
-      }
-    }) ?? applicationOrigin
-  );
+  const configuredOrigin = allowedOrigins.find((allowedOrigin) => {
+    try {
+      return new URL(allowedOrigin).host.toLowerCase() === host;
+    } catch {
+      return false;
+    }
+  });
+  if (configuredOrigin) return configuredOrigin;
+  if (offlineScormPackageHostSuffix) {
+    try {
+      const candidate = new URL(`https://${host}`);
+      const hostname = candidate.hostname.endsWith(".")
+        ? candidate.hostname.slice(0, -1)
+        : candidate.hostname;
+      if (
+        !candidate.port &&
+        hostname.endsWith(`.${offlineScormPackageHostSuffix}`)
+      )
+        return `https://${hostname}`;
+    } catch {
+      // Unknown or malformed Host headers fall back to the application origin.
+    }
+  }
+  return applicationOrigin;
+}
+
+function isOfflineScormPackageOrigin(origin) {
+  if (!offlineScormPackageHostSuffix) return false;
+  try {
+    const candidate = new URL(origin);
+    if (allowedOrigins.includes(candidate.origin)) return false;
+    const hostname = candidate.hostname.endsWith(".")
+      ? candidate.hostname.slice(0, -1)
+      : candidate.hostname;
+    return hostname.endsWith(`.${offlineScormPackageHostSuffix}`);
+  } catch {
+    return false;
+  }
 }
 
 function servePwaShellScript(incoming, outgoing) {
@@ -168,6 +211,7 @@ function servePwaShellScript(incoming, outgoing) {
 
   let asset;
   try {
+    if (isOfflineScormPackageOrigin(requestOrigin(incoming))) return false;
     asset = getPwaShellScriptAsset(
       new URL(incoming.url ?? "/", requestOrigin(incoming)),
       applicationOrigin,
@@ -224,6 +268,7 @@ async function serveClientAsset(incoming, outgoing) {
   let origin;
   try {
     origin = requestOrigin(incoming);
+    if (isOfflineScormPackageOrigin(origin)) return false;
     pathname = decodeURIComponent(
       new URL(incoming.url ?? "/", origin).pathname,
     );
@@ -325,7 +370,7 @@ function shouldGzipDynamicResponse(incoming, response) {
   );
 }
 
-async function handleRequest(incoming, outgoing) {
+async function handleRequest(incoming, outgoing, packageOnly = false) {
   const startedAt = performance.now();
   const requestId = randomUUID();
   const method = incoming.method ?? "GET";
@@ -348,8 +393,19 @@ async function handleRequest(incoming, outgoing) {
       });
   });
   try {
+    const packageOriginRequest = isOfflineScormPackageOrigin(
+      requestOrigin(incoming),
+    );
+    if (packageOnly !== packageOriginRequest) {
+      outgoing.statusCode = 421;
+      outgoing.setHeader("cache-control", "no-store");
+      outgoing.setHeader("content-type", "text/plain; charset=utf-8");
+      outgoing.end(method === "HEAD" ? undefined : "Misdirected Request\n");
+      return;
+    }
     if (
       requestPath === "/api/ready" &&
+      requestOrigin(incoming) === applicationOrigin &&
       (method === "GET" || method === "HEAD")
     ) {
       outgoing.setHeader("cache-control", "no-store");
@@ -471,6 +527,12 @@ const server = tlsCertificateFile
     )
   : http.createServer(handleRequest);
 
+const packageServer = offlineScormPackageHostSuffix
+  ? http.createServer((incoming, outgoing) =>
+      handleRequest(incoming, outgoing, true),
+    )
+  : null;
+
 server.listen(port, listenHost, () => {
   logBootstrapEvent("info", "server.started", {
     status: "ready",
@@ -480,11 +542,32 @@ server.listen(port, listenHost, () => {
   });
 });
 
+packageServer?.listen(offlineScormPackagePort, listenHost, () => {
+  logBootstrapEvent("info", "server.started", {
+    status: "ready",
+    listener: "offline_scorm_package",
+    port: offlineScormPackagePort,
+    protocol: "http",
+    deploymentId: process.env.DEPLOYMENT_ID?.slice(0, 512),
+  });
+});
+
+let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
-    server.close(() => {
-      void readinessPool?.end().finally(() => process.exit(0));
-    });
+    if (stopping) return;
+    stopping = true;
+    const listeners = packageServer ? [server, packageServer] : [server];
+    void Promise.all(
+      listeners.map(
+        (listener) =>
+          new Promise((resolve) => {
+            listener.close(resolve);
+          }),
+      ),
+    )
+      .then(() => readinessPool?.end())
+      .finally(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();
   });
 }

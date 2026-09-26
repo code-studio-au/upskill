@@ -21,6 +21,35 @@ test("LiveKit spend approval is explicit CDK context", () => {
   );
 });
 
+test("offline SCORM package-host context is all-or-nothing and zone-bound", () => {
+  expect(environmentConfig("staging").offlineScormPackageHost).toBeNull();
+  expect(
+    environmentConfig("staging", undefined, {
+      suffix: "packages.example.net",
+      hostedZoneId: "/hostedzone/Z123PACKAGE",
+      hostedZoneName: "example.net",
+    }).offlineScormPackageHost,
+  ).toEqual({
+    suffix: "packages.example.net",
+    hostedZoneId: "Z123PACKAGE",
+    hostedZoneName: "example.net",
+  });
+  expect(() =>
+    environmentConfig("staging", undefined, {
+      suffix: "packages.example.net",
+      hostedZoneId: undefined,
+      hostedZoneName: "example.net",
+    }),
+  ).toThrow("must be configured together");
+  expect(() =>
+    environmentConfig("staging", undefined, {
+      suffix: "packages.example.net",
+      hostedZoneId: "Z123PACKAGE",
+      hostedZoneName: "another.example",
+    }),
+  ).toThrow("must belong");
+});
+
 test("shared S3 Access Grants foundation owns the account-region singleton", () => {
   const stack = new AccessGrantsStack(new App(), "AccessGrants");
   const template = Template.fromStack(stack);
@@ -153,6 +182,35 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   const applicationTemplate = Template.fromStack(application);
   applicationTemplate.resourceCountIs("AWS::EC2::Instance", 1);
   applicationTemplate.resourceCountIs("AWS::EC2::EIP", 1);
+  applicationTemplate.resourceCountIs("AWS::Route53::RecordSet", 1);
+  const applicationResources = applicationTemplate.toJSON().Resources as Record<
+    string,
+    unknown
+  >;
+  expect(
+    applicationResources["OfflineScormPackageHostSuffixParameterD8F46799"],
+  ).toMatchObject({
+    Condition: "RetainLegacyOfflineScormPackageHostResources",
+    DeletionPolicy: "Retain",
+    UpdateReplacePolicy: "Retain",
+  });
+  expect(
+    applicationResources["OfflineScormPackageWildcardRecord"],
+  ).toMatchObject({
+    Condition: "RetainLegacyOfflineScormPackageHostResources",
+    DeletionPolicy: "Retain",
+    UpdateReplacePolicy: "Retain",
+  });
+  applicationTemplate.hasResourceProperties(
+    "Custom::OfflineScormPackageHostLifecycle",
+    {
+      HostedZoneId: "",
+      LifecycleVersion: "2",
+      Suffix: "",
+      PublicIp: "",
+      ParameterName: "/upskill/staging/offline-scorm/package-host-suffix",
+    },
+  );
   applicationTemplate.resourceCountIs(
     "AWS::ElasticLoadBalancingV2::LoadBalancer",
     0,
@@ -586,6 +644,57 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   Template.fromStack(data).hasResourceProperties("AWS::RDS::DBParameterGroup", {
     Parameters: { "rds.force_ssl": "1" },
   });
+});
+
+test("provisioned offline SCORM host retires the vhost before managed DNS and SSM changes", () => {
+  const app = new App();
+  const config = environmentConfig("staging", undefined, {
+    suffix: "packages.example.net",
+    hostedZoneId: "Z123PACKAGE",
+    hostedZoneName: "example.net",
+  });
+  const network = new NetworkStack(app, "PackageHostNetwork", config);
+  const storage = new StorageStack(app, "PackageHostStorage", config);
+  const application = new ApplicationStack(app, "PackageHostApplication", {
+    config,
+    vpc: network.vpc,
+    applicationSecurityGroup: network.applicationSecurityGroup,
+    artifactBucket: storage.artifactBucket,
+    learningBucket: storage.learningBucket,
+    privateBucket: storage.privateBucket,
+    recordingBucket: storage.recordingBucket,
+    quarantineBucket: storage.quarantineBucket,
+    workQueue: storage.workQueue,
+    deadLetterQueue: storage.deadLetterQueue,
+    databaseSecretArn:
+      "arn:aws:secretsmanager:ap-southeast-2:123456789012:secret:database",
+    alarmTopic: storage.alarmTopic,
+    accessGrantsInstanceArn:
+      "arn:aws:s3:ap-southeast-2:123456789012:access-grants/default",
+  });
+  const template = Template.fromStack(application);
+
+  template.hasResourceProperties("Custom::OfflineScormPackageHostLifecycle", {
+    HostedZoneId: "Z123PACKAGE",
+    LifecycleVersion: "2",
+    Suffix: "packages.example.net",
+    PublicIp: Match.anyValue(),
+    InstanceId: Match.anyValue(),
+    ParameterName: "/upskill/staging/offline-scorm/package-host-suffix",
+  });
+  const serialized = JSON.stringify(template.toJSON());
+  expect(serialized).toContain("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX");
+  expect(serialized).toContain("AWS-RunShellScript");
+  expect(serialized).toContain("ssm:resourceTag/Application");
+  expect(serialized).toContain("ssm:resourceTag/Environment");
+  expect(serialized).toContain("ssm:GetCommandInvocation");
+  expect(serialized).toContain("ssm:PutParameter");
+  expect(serialized).toContain("ssm:DeleteParameter");
+  expect(serialized).toContain("route53:ChangeResourceRecordSets");
+  expect(serialized).toContain("route53:ListResourceRecordSets");
+  expect(serialized).toContain("route53:ChangeResourceRecordSetsRecordTypes");
+  expect(serialized).toContain("route53:ChangeResourceRecordSetsActions");
+  expect(serialized).not.toContain("route53:*");
 });
 
 test("production storage alarms on durable work backlog and dead letters", () => {

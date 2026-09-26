@@ -5,8 +5,13 @@ import {
 } from "@tanstack/react-start/server";
 import { getServerEnv } from "#/server/env.server";
 import { applySecurityHeaders } from "#/server/http/security-headers";
+import { handleOfflineScormPackageHostRequest } from "#/server/scorm/offline-scorm-package-host.server";
 
 const fetch = createStartHandler(async (context) => {
+  const packageHostResponse = await handleOfflineScormPackageHostRequest(
+    context.request,
+  );
+  if (packageHostResponse) return packageHostResponse;
   const nonce = randomBytes(24).toString("base64url");
   context.router.update({ ssr: { nonce } });
 

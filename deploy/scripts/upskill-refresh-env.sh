@@ -2,6 +2,7 @@
 set -euo pipefail
 
 environment_file=/opt/upskill/shared/upskill-deploy.env
+reconcile_package_site_vhost=/usr/local/bin/upskill-reconcile-package-site-vhost
 if [[ ! -f "$environment_file" ]]; then
   echo "Existing deployment environment is required to refresh host configuration" >&2
   exit 1
@@ -43,6 +44,16 @@ if ! recording_access_grants_account_id=$(aws ssm get-parameter --region "$refre
   recording_access_grants_account_id=""
 fi
 livekit_approved_monthly_spend_aud=$(aws ssm get-parameter --region "$refresh_region" --name "/${secret_prefix}/livekit/approved-monthly-spend-aud" --query Parameter.Value --output text)
+offline_scorm_package_host_suffix=""
+if ! offline_scorm_package_host_suffix=$(aws ssm get-parameter --region "$refresh_region" --name "/${secret_prefix}/offline-scorm/package-host-suffix" --query Parameter.Value --output text 2>/dev/null); then
+  echo "Offline SCORM package host is not provisioned; continuing with offline SCORM disabled" >&2
+  offline_scorm_package_host_suffix=""
+fi
+[[ -x "$reconcile_package_site_vhost" ]] || {
+  echo "Missing package-site vhost reconciler: $reconcile_package_site_vhost" >&2
+  exit 1
+}
+"$reconcile_package_site_vhost" "$offline_scorm_package_host_suffix" true
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)
@@ -58,6 +69,9 @@ if [[ -n "$recording_access_grants_account_id" ]]; then
   jq -rn --arg value "$recording_access_grants_account_id" '"LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID=\($value|@json)"' >> "$base_environment_tmp"
 fi
 jq -rn --arg value "$livekit_approved_monthly_spend_aud" '"LIVEKIT_APPROVED_MONTHLY_SPEND_AUD=\($value|@json)"' >> "$base_environment_tmp"
+if [[ -n "$offline_scorm_package_host_suffix" ]]; then
+  jq -rn --arg value "$offline_scorm_package_host_suffix" '"OFFLINE_SCORM_PACKAGE_HOST_SUFFIX=\($value|@json)"' >> "$base_environment_tmp"
+fi
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")
 database_name=$(jq -r '.dbname' <<< "$database_json")

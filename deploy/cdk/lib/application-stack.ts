@@ -1,6 +1,9 @@
 import {
+  CfnCondition,
   CfnOutput,
+  CustomResource,
   Duration,
+  Fn,
   RemovalPolicy,
   SecretValue,
   Stack,
@@ -36,12 +39,20 @@ import {
   ServicePrincipal,
 } from "aws-cdk-lib/aws-iam";
 import {
+  Code,
+  Function as LambdaFunction,
+  Runtime,
+} from "aws-cdk-lib/aws-lambda";
+import {
   CfnAccessGrant,
   CfnAccessGrantsLocation,
   type Bucket,
 } from "aws-cdk-lib/aws-s3";
+import { CfnRecordSet } from "aws-cdk-lib/aws-route53";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
-import { StringParameter } from "aws-cdk-lib/aws-ssm";
+import { StringParameter, type CfnParameter } from "aws-cdk-lib/aws-ssm";
+import { Provider } from "aws-cdk-lib/custom-resources";
+import { fileURLToPath } from "node:url";
 import type { Queue } from "aws-cdk-lib/aws-sqs";
 import type { Construct } from "constructs";
 import type { ITopic } from "aws-cdk-lib/aws-sns";
@@ -193,6 +204,57 @@ export class ApplicationStack extends Stack {
         stringValue: String(props.config.liveKitApprovedMonthlySpendAud),
       },
     );
+    const offlineScormPackageHostSuffixParameterName = `/upskill/${props.config.name}/offline-scorm/package-host-suffix`;
+    const offlineScormPackageHostSuffixParameterArn = this.formatArn({
+      service: "ssm",
+      resource: "parameter",
+      resourceName: `upskill/${props.config.name}/offline-scorm/package-host-suffix`,
+    });
+    // PR #104 briefly modeled these fixed-name resources natively. Keep their
+    // exact logical IDs as false-conditioned retention tombstones so an update
+    // cannot delete them after the lifecycle provider has adopted them.
+    const retainLegacyPackageHostResources = new CfnCondition(
+      this,
+      "RetainLegacyOfflineScormPackageHostResources",
+      {
+        expression: Fn.conditionEquals(this.stackId, "legacy-native-resource"),
+      },
+    );
+    const legacyPackageHostSuffixParameter = new StringParameter(
+      this,
+      "OfflineScormPackageHostSuffixParameter",
+      {
+        parameterName: offlineScormPackageHostSuffixParameterName,
+        description:
+          "Retained only while the offline SCORM package-host lifecycle adopts the former native resource",
+        stringValue: "retained-by-custom-lifecycle",
+      },
+    );
+    const legacyPackageHostSuffixParameterResource =
+      legacyPackageHostSuffixParameter.node.defaultChild as CfnParameter;
+    legacyPackageHostSuffixParameterResource.overrideLogicalId(
+      "OfflineScormPackageHostSuffixParameterD8F46799",
+    );
+    legacyPackageHostSuffixParameterResource.cfnOptions.condition =
+      retainLegacyPackageHostResources;
+    legacyPackageHostSuffixParameter.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    const legacyPackageHostWildcardRecord = new CfnRecordSet(
+      this,
+      "OfflineScormPackageWildcardRecord",
+      {
+        hostedZoneId: "Z0000000000000",
+        name: "*.retained.invalid",
+        resourceRecords: ["192.0.2.1"],
+        ttl: "60",
+        type: "A",
+      },
+    );
+    legacyPackageHostWildcardRecord.overrideLogicalId(
+      "OfflineScormPackageWildcardRecord",
+    );
+    legacyPackageHostWildcardRecord.cfnOptions.condition =
+      retainLegacyPackageHostResources;
+    legacyPackageHostWildcardRecord.applyRemovalPolicy(RemovalPolicy.RETAIN);
     role.addToPolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
@@ -201,9 +263,49 @@ export class ApplicationStack extends Stack {
           recordingUploadRoleParameter.parameterArn,
           recordingAccessGrantsAccountParameter.parameterArn,
           liveKitApprovedMonthlySpendParameter.parameterArn,
+          offlineScormPackageHostSuffixParameterArn,
         ],
       }),
     );
+    if (props.config.offlineScormPackageHost) {
+      role.addToPolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ["route53:ChangeResourceRecordSets"],
+          resources: [
+            this.formatArn({
+              service: "route53",
+              region: "",
+              account: "",
+              resource: "hostedzone",
+              resourceName: props.config.offlineScormPackageHost.hostedZoneId,
+            }),
+          ],
+        }),
+      );
+      role.addToPolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ["route53:GetChange"],
+          resources: [
+            this.formatArn({
+              service: "route53",
+              region: "",
+              account: "",
+              resource: "change",
+              resourceName: "*",
+            }),
+          ],
+        }),
+      );
+      role.addToPolicy(
+        new PolicyStatement({
+          effect: Effect.ALLOW,
+          actions: ["route53:ListHostedZones"],
+          resources: ["*"],
+        }),
+      );
+    }
     const configurationSecret = new Secret(this, "ApplicationConfiguration", {
       secretName: `upskill/${props.config.name}/application`,
       generateSecretString: {
@@ -380,6 +482,7 @@ access_code_encryption_key=$(aws secretsmanager get-secret-value --region ${this
 recording_upload_role_arn=$(aws ssm get-parameter --region ${this.region} --name '${recordingUploadRoleParameter.parameterName}' --query Parameter.Value --output text)
 recording_access_grants_account_id=$(aws ssm get-parameter --region ${this.region} --name '${recordingAccessGrantsAccountParameter.parameterName}' --query Parameter.Value --output text)
 livekit_approved_monthly_spend_aud=$(aws ssm get-parameter --region ${this.region} --name '${liveKitApprovedMonthlySpendParameter.parameterName}' --query Parameter.Value --output text)
+offline_scorm_package_host_suffix='${props.config.offlineScormPackageHost?.suffix ?? ""}'
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)
@@ -391,6 +494,9 @@ jq -rn '"OFFLINE_SCORM_ENABLED=false"' >> "$base_environment_tmp"
 jq -rn --arg value "$recording_upload_role_arn" '"LIVEKIT_RECORDING_UPLOAD_ROLE_ARN=\\($value|@json)"' >> "$base_environment_tmp"
 jq -rn --arg value "$recording_access_grants_account_id" '"LIVEKIT_RECORDING_ACCESS_GRANTS_ACCOUNT_ID=\\($value|@json)"' >> "$base_environment_tmp"
 jq -rn --arg value "$livekit_approved_monthly_spend_aud" '"LIVEKIT_APPROVED_MONTHLY_SPEND_AUD=\\($value|@json)"' >> "$base_environment_tmp"
+if [[ -n "$offline_scorm_package_host_suffix" ]]; then
+  jq -rn --arg value "$offline_scorm_package_host_suffix" '"OFFLINE_SCORM_PACKAGE_HOST_SUFFIX=\\($value|@json)"' >> "$base_environment_tmp"
+fi
 database_host=$(jq -r '.host' <<< "$database_json")
 database_port=$(jq -r '.port' <<< "$database_json")
 database_name=$(jq -r '.dbname' <<< "$database_json")
@@ -454,6 +560,169 @@ UPSKILL_ENV`,
     new CfnEIPAssociation(this, "ApplicationElasticIpAssociation", {
       allocationId: elasticIp.attrAllocationId,
       instanceId: instance.instanceId,
+    });
+    const packageHostLifecycleCode = Code.fromAsset(
+      fileURLToPath(
+        new URL(
+          "../lambda/offline-scorm-package-host-lifecycle/",
+          import.meta.url,
+        ),
+      ),
+    );
+    const packageHostLifecycleOnEvent = new LambdaFunction(
+      this,
+      "OfflineScormPackageHostLifecycleOnEvent",
+      {
+        runtime: Runtime.NODEJS_22_X,
+        handler: "index.onEvent",
+        code: packageHostLifecycleCode,
+        timeout: Duration.minutes(1),
+        description:
+          "Starts fail-closed package-host retirement before DNS or SSM changes",
+      },
+    );
+    const packageHostLifecycleIsComplete = new LambdaFunction(
+      this,
+      "OfflineScormPackageHostLifecycleIsComplete",
+      {
+        runtime: Runtime.NODEJS_22_X,
+        handler: "index.isComplete",
+        code: packageHostLifecycleCode,
+        timeout: Duration.minutes(1),
+        description:
+          "Waits for package-host retirement before applying DNS and SSM changes",
+      },
+    );
+    packageHostLifecycleOnEvent.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["ssm:SendCommand"],
+        resources: [
+          this.formatArn({
+            service: "ssm",
+            account: "",
+            resource: "document",
+            resourceName: "AWS-RunShellScript",
+          }),
+        ],
+      }),
+    );
+    packageHostLifecycleOnEvent.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["ssm:GetParameter"],
+        resources: [offlineScormPackageHostSuffixParameterArn],
+      }),
+    );
+    packageHostLifecycleOnEvent.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["route53:ListHostedZones"],
+        resources: ["*"],
+      }),
+    );
+    packageHostLifecycleOnEvent.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["route53:ListResourceRecordSets"],
+        resources: [
+          this.formatArn({
+            service: "route53",
+            region: "",
+            account: "",
+            resource: "hostedzone",
+            resourceName: "*",
+          }),
+        ],
+      }),
+    );
+    packageHostLifecycleOnEvent.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["ssm:SendCommand"],
+        resources: [
+          this.formatArn({
+            service: "ec2",
+            resource: "instance",
+            resourceName: "*",
+          }),
+        ],
+        conditions: {
+          StringEquals: {
+            "ssm:resourceTag/Application": "upskill",
+            "ssm:resourceTag/Environment": props.config.name,
+          },
+        },
+      }),
+    );
+    packageHostLifecycleIsComplete.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["ssm:GetCommandInvocation"],
+        resources: ["*"],
+      }),
+    );
+    packageHostLifecycleIsComplete.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["ssm:PutParameter", "ssm:DeleteParameter"],
+        resources: [offlineScormPackageHostSuffixParameterArn],
+      }),
+    );
+    packageHostLifecycleIsComplete.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["route53:ChangeResourceRecordSets"],
+        // The previous zone is available only in the custom-resource event after
+        // a context removal/rotation, so scope retirement by record type/action.
+        resources: [
+          this.formatArn({
+            service: "route53",
+            region: "",
+            account: "",
+            resource: "hostedzone",
+            resourceName: "*",
+          }),
+        ],
+        conditions: {
+          "ForAllValues:StringEquals": {
+            "route53:ChangeResourceRecordSetsRecordTypes": ["A"],
+            "route53:ChangeResourceRecordSetsActions": ["UPSERT", "DELETE"],
+          },
+        },
+      }),
+    );
+    packageHostLifecycleIsComplete.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["route53:ListResourceRecordSets"],
+        resources: [
+          this.formatArn({
+            service: "route53",
+            region: "",
+            account: "",
+            resource: "hostedzone",
+            resourceName: "*",
+          }),
+        ],
+      }),
+    );
+    const packageHostLifecycleProvider = new Provider(
+      this,
+      "OfflineScormPackageHostLifecycleProvider",
+      {
+        onEventHandler: packageHostLifecycleOnEvent,
+        isCompleteHandler: packageHostLifecycleIsComplete,
+        queryInterval: Duration.seconds(5),
+        totalTimeout: Duration.minutes(10),
+      },
+    );
+    new CustomResource(this, "OfflineScormPackageHostLifecycle", {
+      resourceType: "Custom::OfflineScormPackageHostLifecycle",
+      serviceToken: packageHostLifecycleProvider.serviceToken,
+      properties: {
+        PhysicalResourceId: `upskill-${props.config.name}-offline-scorm-package-host`,
+        LifecycleVersion: "2",
+        Region: this.region,
+        InstanceId: instance.instanceId,
+        ParameterName: offlineScormPackageHostSuffixParameterName,
+        HostedZoneId: props.config.offlineScormPackageHost?.hostedZoneId ?? "",
+        Suffix: props.config.offlineScormPackageHost?.suffix ?? "",
+        PublicIp: props.config.offlineScormPackageHost
+          ? elasticIp.attrPublicIp
+          : "",
+      },
     });
     const statusAlarm = new Alarm(this, "ApplicationStatusAlarm", {
       alarmName: `upskill-${props.config.name}-application-status`,
@@ -638,7 +907,9 @@ UPSKILL_ENV`,
     new CfnOutput(this, "ApplicationInstanceId", {
       value: instance.instanceId,
     });
-    new CfnOutput(this, "ApplicationPublicIp", { value: elasticIp.ref });
+    new CfnOutput(this, "ApplicationPublicIp", {
+      value: elasticIp.attrPublicIp,
+    });
     new CfnOutput(this, "ApplicationConfigurationSecretArn", {
       value: configurationSecret.secretArn,
       description:
@@ -659,5 +930,11 @@ UPSKILL_ENV`,
       description:
         "Populate the P-256 signing authority only before deliberate offline SCORM activation",
     });
+    if (props.config.offlineScormPackageHost)
+      new CfnOutput(this, "OfflineScormPackageHostSuffix", {
+        value: props.config.offlineScormPackageHost.suffix,
+        description:
+          "Dormant wildcard package host; do not enable offline SCORM until TLS and runtime configuration match",
+      });
   }
 }

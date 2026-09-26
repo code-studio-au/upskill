@@ -2319,6 +2319,131 @@ if (!resourceUploadLocation?.includes("proxy_request_buffering off;"))
   failures.push(
     "nginx must stream PDF resource uploads instead of buffering them",
   );
+const packageHostNginx = fs.readFileSync(
+  path.join(root, "deploy/nginx/upskill.package-site.https.conf.template"),
+  "utf8",
+);
+for (const invariant of [
+  "server_name *.__PACKAGE_SITE_SUFFIX__;",
+  "proxy_pass http://127.0.0.1:3002;",
+  'proxy_set_header Cookie "";',
+  'proxy_set_header Authorization "";',
+  'proxy_set_header Proxy-Authorization "";',
+  "proxy_hide_header Set-Cookie;",
+  "proxy_hide_header WWW-Authenticate;",
+])
+  if (!packageHostNginx.includes(invariant))
+    failures.push(
+      `The credential-free offline SCORM package host is missing: ${invariant}`,
+    );
+const tlsProvisioner = fs.readFileSync(
+  path.join(root, "deploy/scripts/provision-letsencrypt-cert.sh"),
+  "utf8",
+);
+for (const invariant of [
+  "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX",
+  "Package-site suffix does not match the provisioned host",
+  'package_cert_name="upskill-package-${package_site_suffix}"',
+  '--cert-name "$package_cert_name" --dns-route53 --keep-until-expiring',
+  '-d "*.${package_site_suffix}"',
+])
+  if (!tlsProvisioner.includes(invariant))
+    failures.push(
+      `Offline SCORM wildcard TLS must use its scoped DNS-01 lineage: ${invariant}`,
+    );
+const packageHostVhostReconciler = fs.readFileSync(
+  path.join(root, "deploy/scripts/reconcile-package-site-vhost.sh"),
+  "utf8",
+);
+for (const invariant of [
+  "offline-scorm-package-site-suffix",
+  '[[ "$release_supports_package_host" == false ]]',
+  '[[ "$configured_suffix" != "$desired_suffix" ]]',
+  'grep -Fq "server_name *.${desired_suffix};"',
+  'mv -- "$package_nginx_path" "$disabled_path"',
+  "systemctl reload nginx",
+])
+  if (!packageHostVhostReconciler.includes(invariant))
+    failures.push(
+      `Stale offline SCORM package vhosts must fail closed: ${invariant}`,
+    );
+const packageHostInfrastructureLifecycle = fs.readFileSync(
+  path.join(
+    root,
+    "deploy/cdk/lambda/offline-scorm-package-host-lifecycle/index.mjs",
+  ),
+  "utf8",
+);
+for (const invariant of [
+  "cleanupInstanceId",
+  "AWS-RunShellScript",
+  "ClientToken",
+  "upskill-reconcile-package-site-vhost",
+  "InvocationDoesNotExist",
+  "GetCommandInvocationCommand",
+  "GetParameterCommand",
+  "ListHostedZonesCommand",
+  "requiresRetainedHostDiscovery",
+  "DeleteParameterCommand",
+  'Action: "DELETE"',
+  'Action: "UPSERT"',
+])
+  if (!packageHostInfrastructureLifecycle.includes(invariant))
+    failures.push(
+      `Package-host infrastructure must retire the vhost before mutation: ${invariant}`,
+    );
+const applicationInfrastructure = fs.readFileSync(
+  path.join(root, "deploy/cdk/lib/application-stack.ts"),
+  "utf8",
+);
+for (const invariant of [
+  'resourceType: "Custom::OfflineScormPackageHostLifecycle"',
+  'LifecycleVersion: "2"',
+  '"OfflineScormPackageHostSuffixParameterD8F46799"',
+  '"OfflineScormPackageWildcardRecord"',
+  "RemovalPolicy.RETAIN",
+  'actions: ["ssm:SendCommand"]',
+  'actions: ["ssm:GetParameter"]',
+  'actions: ["route53:ListHostedZones"]',
+  '"ssm:resourceTag/Application": "upskill"',
+  '"ssm:resourceTag/Environment": props.config.name',
+  'actions: ["ssm:GetCommandInvocation"]',
+  'actions: ["ssm:PutParameter", "ssm:DeleteParameter"]',
+  '"route53:ChangeResourceRecordSetsRecordTypes": ["A"]',
+  '"route53:ChangeResourceRecordSetsActions": [',
+])
+  if (!applicationInfrastructure.includes(invariant))
+    failures.push(
+      `CDK package-host retirement lifecycle is missing: ${invariant}`,
+    );
+if (
+  !installRelease.includes("upskill.package-site.https.conf.template") ||
+  !installRelease.includes("upskill-reconcile-package-site-vhost") ||
+  !installRelease.includes("previous_release_supports_package_host") ||
+  !environmentRefresh.includes("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX") ||
+  !environmentRefresh.includes("upskill-reconcile-package-site-vhost")
+)
+  failures.push(
+    "The deployed host must install package-site routing and refresh its provisioned suffix",
+  );
+const serverLauncher = fs.readFileSync(
+  path.join(root, "scripts/start-server.mjs"),
+  "utf8",
+);
+for (const invariant of [
+  "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX",
+  "const offlineScormPackagePort = 3002;",
+  "packageOnly !== packageOriginRequest",
+  'listener: "offline_scorm_package"',
+  "if (allowedOrigins.includes(candidate.origin)) return false;",
+  "if (isOfflineScormPackageOrigin(requestOrigin(incoming))) return false;",
+  "isOfflineScormPackageOrigin(origin)",
+  "requestOrigin(incoming) === applicationOrigin",
+])
+  if (!serverLauncher.includes(invariant))
+    failures.push(
+      `The offline SCORM package host must not fall through to application assets: ${invariant}`,
+    );
 
 if (!packageJson.scripts?.build?.includes("precompress-client-assets.mjs"))
   failures.push("Production builds must create verified compression sidecars");

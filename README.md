@@ -266,7 +266,22 @@ the lowest-cost supported topology and has no automatic host failover. The host
 uses a small encrypted root volume plus swap so the 1 GiB instance can tolerate
 short memory bursts without adding an always-on compute tier. Create
 public DNS A records for the distinct application and learning origins using
-the application stack's Elastic IP output. Create the matching GitHub
+the application stack's Elastic IP output. The dormant offline SCORM package
+host is optional. To provision it, first register a controlled suffix in the
+private Public Suffix List, then deploy all three reviewed Route 53 values
+together:
+
+```sh
+pnpm --dir deploy/cdk exec cdk deploy --all \
+  --context environment=staging \
+  --context offlineScormPackageSiteSuffix=<private-psl-suffix> \
+  --context offlineScormHostedZoneId=<route53-zone-id> \
+  --context offlineScormHostedZoneName=<route53-zone-name>
+```
+
+The suffix must equal or be below that hosted-zone name. This creates the
+wildcard A record and a non-secret SSM runtime binding, but does not enable
+offline SCORM. Create the matching GitHub
 `staging` environment, restrict its deployment branches to `main`, and populate
 its two deployment secrets. This repository has one maintainer, so the
 environment deliberately has no required-reviewer rule. A successful `main`
@@ -283,11 +298,26 @@ DNS resolves, connect with SSM and run:
 
 ```sh
 sudo /usr/local/bin/upskill-provision-letsencrypt-cert \
-  <application-hostname> <learning-hostname> ops@codestudio.au
+  <application-hostname> <learning-hostname> ops@codestudio.au \
+  [private-psl-package-suffix]
 ```
 
-The command obtains and renews one Let's Encrypt certificate for both names,
-renders the production nginx configuration and enables the renewal timer. The
+Without the optional suffix, the command obtains and renews the existing
+application/learning certificate. With it, the command also uses the EC2 role's
+scoped Route 53 DNS-01 authority to obtain a separate wildcard certificate and
+renders the credential-free package-host nginx configuration. That vhost uses a
+package-only loopback listener rather than the application listener. Environment
+refresh removes a stale vhost before a suffix removal or rotation, and rollback
+removes it before activating a release without package-host support; a retained
+configuration would reach no application listener. The CDK lifecycle also waits
+for an SSM retirement command on the host before it updates or deletes the
+managed suffix binding and wildcard record; a missing reconciler or unreachable
+instance blocks that infrastructure change. Re-running a still-provisioned host
+that already has package-site TLS requires the suffix so wildcard coverage cannot
+be silently dropped. Before later activation,
+`OFFLINE_SCORM_PACKAGE_SITE_SUFFIX` in the offline SCORM secret must exactly
+match the provisioned suffix; runtime validation rejects a mismatch. The
+command enables the renewal timer. The
 deployment workflow uploads one commit-addressed archive, waits for the exact
 SSM command, migrates with the administrative database credential, provisions
 the restricted web/worker roles, activates atomically and verifies `/api/ready`
