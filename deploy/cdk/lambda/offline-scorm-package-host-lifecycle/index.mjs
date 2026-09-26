@@ -1,5 +1,7 @@
 const PACKAGE_VHOST_PATH = "/etc/nginx/conf.d/upskill-package-site.conf";
 const RECONCILER_PATH = "/usr/local/bin/upskill-reconcile-package-site-vhost";
+const DNS_SUFFIX =
+  /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/u;
 
 function property(properties, name) {
   const value = properties?.[name];
@@ -59,12 +61,17 @@ async function awsModules() {
   return { route53, ssm };
 }
 
-async function startCleanup(plan) {
+async function startCleanup(plan, clientToken) {
   if (!plan.cleanupInstanceId) return "";
+  if (!/^[A-Za-z0-9_-]{1,64}$/u.test(clientToken))
+    throw new Error(
+      "CloudFormation request ID is not a valid SSM client token",
+    );
   const { ssm } = await awsModules();
   const client = new ssm.SSMClient({ region: plan.region });
   const command = await client.send(
     new ssm.SendCommandCommand({
+      ClientToken: clientToken,
       DocumentName: "AWS-RunShellScript",
       InstanceIds: [plan.cleanupInstanceId],
       Parameters: {
@@ -118,6 +125,99 @@ function recordName(suffix) {
 
 export function normalizeListedRecordName(name) {
   return name.replace(/^\\052\./u, "*.").toLowerCase();
+}
+
+function normalizedZoneName(name) {
+  return typeof name === "string" ? name.replace(/\.$/u, "").toLowerCase() : "";
+}
+
+function matchingPublicHostedZones(suffix, hostedZones) {
+  return hostedZones
+    .filter((zone) => zone.Config?.PrivateZone !== true)
+    .map((zone) => ({
+      id:
+        typeof zone.Id === "string"
+          ? zone.Id.replace(/^\/hostedzone\//u, "")
+          : "",
+      name: normalizedZoneName(zone.Name),
+    }))
+    .filter(
+      (zone) =>
+        zone.id &&
+        zone.name &&
+        (suffix === zone.name || suffix.endsWith(`.${zone.name}`)),
+    )
+    .sort((left, right) => right.name.length - left.name.length);
+}
+
+export function selectPublicHostedZone(suffix, hostedZones) {
+  return matchingPublicHostedZones(suffix, hostedZones)[0] ?? null;
+}
+
+async function discoverRetainedHost(properties) {
+  const parameterName = property(properties, "ParameterName");
+  if (!parameterName) return null;
+  const { route53, ssm } = await awsModules();
+  const ssmClient = new ssm.SSMClient({
+    region: property(properties, "Region"),
+  });
+  let parameter;
+  try {
+    parameter = await ssmClient.send(
+      new ssm.GetParameterCommand({ Name: parameterName }),
+    );
+  } catch (error) {
+    if (error?.name === "ParameterNotFound") return null;
+    throw error;
+  }
+  const suffix = parameter.Parameter?.Value;
+  if (typeof suffix !== "string" || !DNS_SUFFIX.test(suffix))
+    throw new Error(
+      `Retained package-host parameter ${parameterName} has an invalid suffix`,
+    );
+
+  const route53Client = new route53.Route53Client({
+    region: property(properties, "Region"),
+  });
+  const hostedZones = [];
+  let marker;
+  do {
+    const page = await route53Client.send(
+      new route53.ListHostedZonesCommand(marker ? { Marker: marker } : {}),
+    );
+    hostedZones.push(...(page.HostedZones ?? []));
+    marker = page.IsTruncated ? page.NextMarker : undefined;
+  } while (marker);
+  const matchingRecords = [];
+  for (const zone of matchingPublicHostedZones(suffix, hostedZones)) {
+    const listed = await route53Client.send(
+      new route53.ListResourceRecordSetsCommand({
+        HostedZoneId: zone.id,
+        MaxItems: 1,
+        StartRecordName: recordName(suffix),
+        StartRecordType: "A",
+      }),
+    );
+    const record = listed.ResourceRecordSets?.[0];
+    if (
+      record?.Name &&
+      normalizeListedRecordName(record.Name) === recordName(suffix) &&
+      record.Type === "A"
+    )
+      matchingRecords.push(zone);
+  }
+  if (matchingRecords.length !== 1)
+    throw new Error(
+      `Expected exactly one retained package-host record for ${suffix}; found ${matchingRecords.length}`,
+    );
+  const [zone] = matchingRecords;
+
+  return {
+    ...properties,
+    HostedZoneId: zone.id,
+    PublicIp: property(properties, "PublicIp") || "retained-record",
+    Suffix: suffix,
+  };
 }
 
 async function deleteRecord(route53Client, route53, host) {
@@ -195,10 +295,14 @@ async function applyPlan(plan) {
 }
 
 export async function onEvent(event) {
+  const retainedProperties =
+    event.RequestType === "Create"
+      ? await discoverRetainedHost(event.ResourceProperties)
+      : null;
   const plan = lifecyclePlan(
     event.RequestType,
     event.ResourceProperties,
-    event.OldResourceProperties,
+    retainedProperties ?? event.OldResourceProperties,
   );
   return {
     PhysicalResourceId: property(
@@ -206,7 +310,7 @@ export async function onEvent(event) {
       "PhysicalResourceId",
     ),
     Data: {
-      CommandId: await startCleanup(plan),
+      CommandId: await startCleanup(plan, property(event, "RequestId")),
       Plan: JSON.stringify(plan),
     },
   };

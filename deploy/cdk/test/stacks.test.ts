@@ -182,7 +182,25 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   const applicationTemplate = Template.fromStack(application);
   applicationTemplate.resourceCountIs("AWS::EC2::Instance", 1);
   applicationTemplate.resourceCountIs("AWS::EC2::EIP", 1);
-  applicationTemplate.resourceCountIs("AWS::Route53::RecordSet", 0);
+  applicationTemplate.resourceCountIs("AWS::Route53::RecordSet", 1);
+  const applicationResources = applicationTemplate.toJSON().Resources as Record<
+    string,
+    unknown
+  >;
+  expect(
+    applicationResources["OfflineScormPackageHostSuffixParameterD8F46799"],
+  ).toMatchObject({
+    Condition: "RetainLegacyOfflineScormPackageHostResources",
+    DeletionPolicy: "Retain",
+    UpdateReplacePolicy: "Retain",
+  });
+  expect(
+    applicationResources["OfflineScormPackageWildcardRecord"],
+  ).toMatchObject({
+    Condition: "RetainLegacyOfflineScormPackageHostResources",
+    DeletionPolicy: "Retain",
+    UpdateReplacePolicy: "Retain",
+  });
   applicationTemplate.hasResourceProperties(
     "Custom::OfflineScormPackageHostLifecycle",
     {

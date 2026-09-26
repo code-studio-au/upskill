@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   lifecyclePlan,
   normalizeListedRecordName,
+  selectPublicHostedZone,
 } from "../lambda/offline-scorm-package-host-lifecycle/index.mjs";
 
 const configured = {
@@ -21,10 +22,44 @@ describe("offline SCORM package-host lifecycle", () => {
     );
   });
 
+  it("adopts the most specific public zone for a retained suffix", () => {
+    expect(
+      selectPublicHostedZone("packages.learning.example.net", [
+        { Id: "/hostedzone/ZPUBLIC", Name: "example.net." },
+        {
+          Config: { PrivateZone: true },
+          Id: "/hostedzone/ZPRIVATE",
+          Name: "learning.example.net.",
+        },
+        {
+          Id: "/hostedzone/ZLEARNING",
+          Name: "learning.example.net.",
+        },
+      ]),
+    ).toEqual({ id: "ZLEARNING", name: "learning.example.net" });
+  });
+
   it("retires the old instance before removing package-host infrastructure", () => {
     expect(
       lifecyclePlan(
         "Update",
+        { ...configured, HostedZoneId: "", PublicIp: "", Suffix: "" },
+        configured,
+      ),
+    ).toMatchObject({
+      cleanupInstanceId: "i-old",
+      current: null,
+      previous: {
+        hostedZoneId: "Z123PACKAGE",
+        suffix: "packages.example.net",
+      },
+    });
+  });
+
+  it("retires an adopted native host when the custom provider is created", () => {
+    expect(
+      lifecyclePlan(
+        "Create",
         { ...configured, HostedZoneId: "", PublicIp: "", Suffix: "" },
         configured,
       ),

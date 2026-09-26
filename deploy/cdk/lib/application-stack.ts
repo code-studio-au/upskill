@@ -1,7 +1,9 @@
 import {
+  CfnCondition,
   CfnOutput,
   CustomResource,
   Duration,
+  Fn,
   RemovalPolicy,
   SecretValue,
   Stack,
@@ -46,8 +48,9 @@ import {
   CfnAccessGrantsLocation,
   type Bucket,
 } from "aws-cdk-lib/aws-s3";
+import { CfnRecordSet } from "aws-cdk-lib/aws-route53";
 import { Secret } from "aws-cdk-lib/aws-secretsmanager";
-import { StringParameter } from "aws-cdk-lib/aws-ssm";
+import { StringParameter, type CfnParameter } from "aws-cdk-lib/aws-ssm";
 import { Provider } from "aws-cdk-lib/custom-resources";
 import { fileURLToPath } from "node:url";
 import type { Queue } from "aws-cdk-lib/aws-sqs";
@@ -207,6 +210,51 @@ export class ApplicationStack extends Stack {
       resource: "parameter",
       resourceName: `upskill/${props.config.name}/offline-scorm/package-host-suffix`,
     });
+    // PR #104 briefly modeled these fixed-name resources natively. Keep their
+    // exact logical IDs as false-conditioned retention tombstones so an update
+    // cannot delete them after the lifecycle provider has adopted them.
+    const retainLegacyPackageHostResources = new CfnCondition(
+      this,
+      "RetainLegacyOfflineScormPackageHostResources",
+      {
+        expression: Fn.conditionEquals(this.stackId, "legacy-native-resource"),
+      },
+    );
+    const legacyPackageHostSuffixParameter = new StringParameter(
+      this,
+      "OfflineScormPackageHostSuffixParameter",
+      {
+        parameterName: offlineScormPackageHostSuffixParameterName,
+        description:
+          "Retained only while the offline SCORM package-host lifecycle adopts the former native resource",
+        stringValue: "retained-by-custom-lifecycle",
+      },
+    );
+    const legacyPackageHostSuffixParameterResource =
+      legacyPackageHostSuffixParameter.node.defaultChild as CfnParameter;
+    legacyPackageHostSuffixParameterResource.overrideLogicalId(
+      "OfflineScormPackageHostSuffixParameterD8F46799",
+    );
+    legacyPackageHostSuffixParameterResource.cfnOptions.condition =
+      retainLegacyPackageHostResources;
+    legacyPackageHostSuffixParameter.applyRemovalPolicy(RemovalPolicy.RETAIN);
+    const legacyPackageHostWildcardRecord = new CfnRecordSet(
+      this,
+      "OfflineScormPackageWildcardRecord",
+      {
+        hostedZoneId: "Z0000000000000",
+        name: "*.retained.invalid",
+        resourceRecords: ["192.0.2.1"],
+        ttl: "60",
+        type: "A",
+      },
+    );
+    legacyPackageHostWildcardRecord.overrideLogicalId(
+      "OfflineScormPackageWildcardRecord",
+    );
+    legacyPackageHostWildcardRecord.cfnOptions.condition =
+      retainLegacyPackageHostResources;
+    legacyPackageHostWildcardRecord.applyRemovalPolicy(RemovalPolicy.RETAIN);
     role.addToPolicy(
       new PolicyStatement({
         effect: Effect.ALLOW,
@@ -554,6 +602,32 @@ UPSKILL_ENV`,
             account: "",
             resource: "document",
             resourceName: "AWS-RunShellScript",
+          }),
+        ],
+      }),
+    );
+    packageHostLifecycleOnEvent.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["ssm:GetParameter"],
+        resources: [offlineScormPackageHostSuffixParameterArn],
+      }),
+    );
+    packageHostLifecycleOnEvent.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["route53:ListHostedZones"],
+        resources: ["*"],
+      }),
+    );
+    packageHostLifecycleOnEvent.addToRolePolicy(
+      new PolicyStatement({
+        actions: ["route53:ListResourceRecordSets"],
+        resources: [
+          this.formatArn({
+            service: "route53",
+            region: "",
+            account: "",
+            resource: "hostedzone",
+            resourceName: "*",
           }),
         ],
       }),

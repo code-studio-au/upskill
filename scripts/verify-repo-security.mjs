@@ -2377,9 +2377,12 @@ const packageHostInfrastructureLifecycle = fs.readFileSync(
 for (const invariant of [
   "cleanupInstanceId",
   "AWS-RunShellScript",
+  "ClientToken",
   "upskill-reconcile-package-site-vhost",
   "InvocationDoesNotExist",
   "GetCommandInvocationCommand",
+  "GetParameterCommand",
+  "ListHostedZonesCommand",
   "DeleteParameterCommand",
   'Action: "DELETE"',
   'Action: "UPSERT"',
@@ -2394,7 +2397,12 @@ const applicationInfrastructure = fs.readFileSync(
 );
 for (const invariant of [
   'resourceType: "Custom::OfflineScormPackageHostLifecycle"',
+  '"OfflineScormPackageHostSuffixParameterD8F46799"',
+  '"OfflineScormPackageWildcardRecord"',
+  "RemovalPolicy.RETAIN",
   'actions: ["ssm:SendCommand"]',
+  'actions: ["ssm:GetParameter"]',
+  'actions: ["route53:ListHostedZones"]',
   '"ssm:resourceTag/Application": "upskill"',
   '"ssm:resourceTag/Environment": props.config.name',
   'actions: ["ssm:GetCommandInvocation"]',

@@ -23,3 +23,12 @@ export function lifecyclePlan(
 ): PackageHostLifecyclePlan;
 
 export function normalizeListedRecordName(name: string): string;
+
+export function selectPublicHostedZone(
+  suffix: string,
+  hostedZones: Array<{
+    Config?: { PrivateZone?: boolean };
+    Id?: string;
+    Name?: string;
+  }>,
+): { id: string; name: string } | null;
