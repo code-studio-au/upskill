@@ -713,6 +713,7 @@ UPSKILL_ENV`,
       serviceToken: packageHostLifecycleProvider.serviceToken,
       properties: {
         PhysicalResourceId: `upskill-${props.config.name}-offline-scorm-package-host`,
+        LifecycleVersion: "2",
         Region: this.region,
         InstanceId: instance.instanceId,
         ParameterName: offlineScormPackageHostSuffixParameterName,

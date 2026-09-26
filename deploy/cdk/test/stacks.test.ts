@@ -205,6 +205,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
     "Custom::OfflineScormPackageHostLifecycle",
     {
       HostedZoneId: "",
+      LifecycleVersion: "2",
       Suffix: "",
       PublicIp: "",
       ParameterName: "/upskill/staging/offline-scorm/package-host-suffix",
@@ -675,6 +676,7 @@ test("provisioned offline SCORM host retires the vhost before managed DNS and SS
 
   template.hasResourceProperties("Custom::OfflineScormPackageHostLifecycle", {
     HostedZoneId: "Z123PACKAGE",
+    LifecycleVersion: "2",
     Suffix: "packages.example.net",
     PublicIp: Match.anyValue(),
     InstanceId: Match.anyValue(),

@@ -17,7 +17,12 @@ function configuredHost(properties) {
     : null;
 }
 
-export function lifecyclePlan(requestType, resourceProperties, oldProperties) {
+export function lifecyclePlan(
+  requestType,
+  resourceProperties,
+  oldProperties,
+  forceCleanup = false,
+) {
   const current =
     requestType === "Delete" ? null : configuredHost(resourceProperties);
   const previous = configuredHost(
@@ -37,7 +42,10 @@ export function lifecyclePlan(requestType, resourceProperties, oldProperties) {
   );
 
   return {
-    cleanupInstanceId: cleanupRequired ? previousInstanceId : "",
+    cleanupInstanceId:
+      cleanupRequired || forceCleanup
+        ? previousInstanceId || currentInstanceId
+        : "",
     current,
     parameterName: property(resourceProperties, "ParameterName"),
     previous:
@@ -154,7 +162,20 @@ export function selectPublicHostedZone(suffix, hostedZones) {
   return matchingPublicHostedZones(suffix, hostedZones)[0] ?? null;
 }
 
-async function discoverRetainedHost(properties) {
+export function requiresRetainedHostDiscovery(
+  requestType,
+  resourceProperties,
+  oldProperties,
+) {
+  return (
+    requestType === "Create" ||
+    (requestType === "Update" &&
+      property(resourceProperties, "LifecycleVersion") !==
+        property(oldProperties, "LifecycleVersion"))
+  );
+}
+
+async function discoverRetainedHost(properties, allowMissingRecord) {
   const parameterName = property(properties, "ParameterName");
   if (!parameterName) return null;
   const { route53, ssm } = await awsModules();
@@ -206,6 +227,7 @@ async function discoverRetainedHost(properties) {
     )
       matchingRecords.push(zone);
   }
+  if (matchingRecords.length === 0 && allowMissingRecord) return null;
   if (matchingRecords.length !== 1)
     throw new Error(
       `Expected exactly one retained package-host record for ${suffix}; found ${matchingRecords.length}`,
@@ -295,14 +317,28 @@ async function applyPlan(plan) {
 }
 
 export async function onEvent(event) {
-  const retainedProperties =
-    event.RequestType === "Create"
-      ? await discoverRetainedHost(event.ResourceProperties)
-      : null;
+  const adoptionRequest = requiresRetainedHostDiscovery(
+    event.RequestType,
+    event.ResourceProperties,
+    event.OldResourceProperties,
+  );
+  const retainedProperties = adoptionRequest
+    ? await discoverRetainedHost(
+        event.ResourceProperties,
+        event.RequestType === "Update",
+      )
+    : null;
+  const forceCleanup = Boolean(
+    adoptionRequest &&
+    event.RequestType === "Update" &&
+    !retainedProperties &&
+    !configuredHost(event.ResourceProperties),
+  );
   const plan = lifecyclePlan(
     event.RequestType,
     event.ResourceProperties,
     retainedProperties ?? event.OldResourceProperties,
+    forceCleanup,
   );
   return {
     PhysicalResourceId: property(

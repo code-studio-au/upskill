@@ -2383,6 +2383,7 @@ for (const invariant of [
   "GetCommandInvocationCommand",
   "GetParameterCommand",
   "ListHostedZonesCommand",
+  "requiresRetainedHostDiscovery",
   "DeleteParameterCommand",
   'Action: "DELETE"',
   'Action: "UPSERT"',
@@ -2397,6 +2398,7 @@ const applicationInfrastructure = fs.readFileSync(
 );
 for (const invariant of [
   'resourceType: "Custom::OfflineScormPackageHostLifecycle"',
+  'LifecycleVersion: "2"',
   '"OfflineScormPackageHostSuffixParameterD8F46799"',
   '"OfflineScormPackageWildcardRecord"',
   "RemovalPolicy.RETAIN",

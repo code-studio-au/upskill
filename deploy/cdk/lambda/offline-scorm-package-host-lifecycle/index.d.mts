@@ -1,6 +1,7 @@
 export interface PackageHostProperties {
   HostedZoneId?: string;
   InstanceId?: string;
+  LifecycleVersion?: string;
   ParameterName?: string;
   PhysicalResourceId?: string;
   PublicIp?: string;
@@ -20,6 +21,7 @@ export function lifecyclePlan(
   requestType: "Create" | "Update" | "Delete",
   resourceProperties: PackageHostProperties,
   oldProperties?: PackageHostProperties,
+  forceCleanup?: boolean,
 ): PackageHostLifecyclePlan;
 
 export function normalizeListedRecordName(name: string): string;
@@ -32,3 +34,9 @@ export function selectPublicHostedZone(
     Name?: string;
   }>,
 ): { id: string; name: string } | null;
+
+export function requiresRetainedHostDiscovery(
+  requestType: "Create" | "Update" | "Delete",
+  resourceProperties: PackageHostProperties,
+  oldProperties?: PackageHostProperties,
+): boolean;

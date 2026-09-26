@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   lifecyclePlan,
   normalizeListedRecordName,
+  requiresRetainedHostDiscovery,
   selectPublicHostedZone,
 } from "../lambda/offline-scorm-package-host-lifecycle/index.mjs";
 
 const configured = {
   HostedZoneId: "Z123PACKAGE",
   InstanceId: "i-old",
+  LifecycleVersion: "2",
   ParameterName: "/upskill/staging/offline-scorm/package-host-suffix",
   PhysicalResourceId: "upskill-staging-offline-scorm-package-host",
   PublicIp: "203.0.113.10",
@@ -37,6 +39,18 @@ describe("offline SCORM package-host lifecycle", () => {
         },
       ]),
     ).toEqual({ id: "ZLEARNING", name: "learning.example.net" });
+  });
+
+  it("forces retained-state discovery for the lifecycle version update", () => {
+    expect(
+      requiresRetainedHostDiscovery("Update", configured, {
+        ...configured,
+        LifecycleVersion: undefined,
+      }),
+    ).toBe(true);
+    expect(
+      requiresRetainedHostDiscovery("Update", configured, configured),
+    ).toBe(false);
   });
 
   it("retires the old instance before removing package-host infrastructure", () => {
@@ -70,6 +84,27 @@ describe("offline SCORM package-host lifecycle", () => {
         hostedZoneId: "Z123PACKAGE",
         suffix: "packages.example.net",
       },
+    });
+  });
+
+  it("forces host cleanup when the prior rollout removed adoption evidence", () => {
+    const disabled = {
+      ...configured,
+      HostedZoneId: "",
+      PublicIp: "",
+      Suffix: "",
+    };
+    expect(
+      lifecyclePlan(
+        "Update",
+        disabled,
+        { ...disabled, LifecycleVersion: undefined },
+        true,
+      ),
+    ).toMatchObject({
+      cleanupInstanceId: "i-old",
+      current: null,
+      previous: null,
     });
   });
 
