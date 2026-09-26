@@ -32,14 +32,11 @@ const defaultDependencies: SignOutGateDependencies = {
     return await getDatabase()
       .transaction()
       .execute(async (transaction) => {
-        const now = new Date();
-        if (
-          !(await lockActiveOfflineScormSession(transaction, {
-            ...session,
-            now,
-          }))
-        )
-          return "stale";
+        const lockedAt = await lockActiveOfflineScormSession(
+          transaction,
+          session,
+        );
+        if (!lockedAt) return "stale";
         if (
           await queryRetainedOfflineScormServerState(
             transaction,
@@ -52,10 +49,10 @@ const defaultDependencies: SignOutGateDependencies = {
         // that makes an already-authenticated activation fail after we commit.
         const update = await transaction
           .updateTable("session")
-          .set({ expiresAt: now, updatedAt: now })
+          .set({ expiresAt: lockedAt, updatedAt: lockedAt })
           .where("id", "=", session.sessionId)
           .where("userId", "=", session.userId)
-          .where("expiresAt", ">", now)
+          .where("expiresAt", ">", lockedAt)
           .executeTakeFirst();
         if (update.numUpdatedRows !== 1n)
           throw new Error(

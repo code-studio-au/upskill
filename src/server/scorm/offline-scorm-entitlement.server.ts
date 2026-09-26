@@ -249,7 +249,6 @@ export async function issueOfflineScormEntitlement(
         !(await lockActiveOfflineScormSession(transaction, {
           sessionId: input.sessionId,
           userId: user.id,
-          now: new Date(),
         }))
       )
         return { status: "denied", reason: "session-unavailable" } as const;

@@ -786,22 +786,23 @@ try {
   const signOutPreparation = database
     .transaction()
     .execute(async (transaction) => {
-      const now = new Date();
-      assert.equal(
-        await lockActiveOfflineScormSession(transaction, {
-          sessionId: ids.session,
-          userId: ids.user,
-          now,
-        }),
-        true,
-      );
-      await transaction
-        .updateTable("session")
-        .set({ expiresAt: now, updatedAt: now })
-        .where("id", "=", ids.session)
-        .executeTakeFirstOrThrow();
+      const lockedAt = await lockActiveOfflineScormSession(transaction, {
+        sessionId: ids.session,
+        userId: ids.user,
+      });
+      assert.ok(lockedAt);
       markSignOutPrepared();
       await signOutRelease;
+      const signOutClock = await sql<{ signedOutAt: Date }>`
+        select clock_timestamp() as "signedOutAt"
+      `.execute(transaction);
+      const signedOutAt = signOutClock.rows[0]?.signedOutAt;
+      assert.ok(signedOutAt);
+      await transaction
+        .updateTable("session")
+        .set({ expiresAt: signedOutAt, updatedAt: signedOutAt })
+        .where("id", "=", ids.session)
+        .executeTakeFirstOrThrow();
     });
   await signOutPrepared;
   const issuanceRacingSignOut = issueOfflineScormEntitlement(

@@ -11,18 +11,24 @@ const lockNamespace = "upskill:offline-scorm-auth-lifecycle:v1:";
  */
 export async function lockActiveOfflineScormSession(
   transaction: Transaction<Database>,
-  input: { sessionId: string; userId: string; now: Date },
-): Promise<boolean> {
+  input: { sessionId: string; userId: string },
+): Promise<Date | undefined> {
   await sql`select pg_advisory_xact_lock(hashtextextended(${`${lockNamespace}${input.userId}`}, 0))`.execute(
     transaction,
   );
+  const lockAcquiredAt = await sql<{ checkedAt: Date }>`
+    select clock_timestamp() as "checkedAt"
+  `.execute(transaction);
+  const checkedAt = lockAcquiredAt.rows[0]?.checkedAt;
+  if (!checkedAt)
+    throw new Error("Offline SCORM lifecycle lock time is unavailable");
   const session = await transaction
     .selectFrom("session")
     .select("id")
     .where("id", "=", input.sessionId)
     .where("userId", "=", input.userId)
-    .where("expiresAt", ">", input.now)
+    .where("expiresAt", ">", checkedAt)
     .forUpdate()
     .executeTakeFirst();
-  return session !== undefined;
+  return session ? checkedAt : undefined;
 }
