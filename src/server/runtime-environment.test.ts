@@ -7,6 +7,7 @@ const baseEnvironment = {
   STRIPE_SECRET_KEY: "sk_test_local",
   STRIPE_WEBHOOK_SECRET: "whsec_local",
 };
+const offlineScormOriginKey = Buffer.alloc(32, 7).toString("base64url");
 
 describe("server runtime environment", () => {
   it("applies local endpoints and provider defaults", () => {
@@ -19,7 +20,47 @@ describe("server runtime environment", () => {
     expect(environment.OFFLINE_SCORM_ENABLED).toBe(false);
   });
 
-  it("requires a complete offline SCORM signing authority before enablement", () => {
+  it("derives a stable local-only encryption key without a committed key", () => {
+    const first = parseServerEnvironment(baseEnvironment);
+    const repeated = parseServerEnvironment(baseEnvironment);
+    const withAnotherAuthenticationSecret = parseServerEnvironment({
+      ...baseEnvironment,
+      BETTER_AUTH_SECRET: "another-local-secret-with-more-than-32-characters",
+    });
+
+    expect(first.ACCESS_CODE_ENCRYPTION_KEY).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(repeated.ACCESS_CODE_ENCRYPTION_KEY).toBe(
+      first.ACCESS_CODE_ENCRYPTION_KEY,
+    );
+    expect(withAnotherAuthenticationSecret.ACCESS_CODE_ENCRYPTION_KEY).not.toBe(
+      first.ACCESS_CODE_ENCRYPTION_KEY,
+    );
+  });
+
+  it("requires an independently configured encryption key outside local environments", () => {
+    const localEncryptionKey =
+      parseServerEnvironment(baseEnvironment).ACCESS_CODE_ENCRYPTION_KEY;
+    const deployedEnvironment = {
+      ...baseEnvironment,
+      APP_ENV: "staging",
+      APP_ORIGIN: "https://staging.codestudio.au",
+      LEARNING_ORIGIN: "https://learn-staging.codestudio.au",
+    };
+
+    expect(() => parseServerEnvironment(deployedEnvironment)).toThrow(
+      "A non-local ACCESS_CODE_ENCRYPTION_KEY is required outside local environments",
+    );
+    expect(() =>
+      parseServerEnvironment({
+        ...deployedEnvironment,
+        ACCESS_CODE_ENCRYPTION_KEY: localEncryptionKey,
+      }),
+    ).toThrow(
+      "A non-local ACCESS_CODE_ENCRYPTION_KEY is required outside local environments",
+    );
+  });
+
+  it("requires complete offline SCORM signing and package-site authorities", () => {
     expect(() =>
       parseServerEnvironment({
         ...baseEnvironment,
@@ -39,6 +80,25 @@ describe("server runtime environment", () => {
         OFFLINE_SCORM_ENABLED: "true",
         OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
         OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+      }),
+    ).toThrow("OFFLINE_SCORM_PACKAGE_SITE_SUFFIX");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+        OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "github.io",
+      }),
+    ).toThrow("OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+        OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "github.io",
+        OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: offlineScormOriginKey,
       }),
     ).not.toThrow();
   });

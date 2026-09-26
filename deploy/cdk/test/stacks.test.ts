@@ -177,7 +177,7 @@ test("staging uses one low-cost ARM host and an isolated micro database", () => 
   applicationTemplate.hasResourceProperties("AWS::SecretsManager::Secret", {
     Name: "upskill/staging/offline-scorm",
     Description: Match.stringLikeRegexp(
-      "Dormant offline SCORM signing authority",
+      "Dormant offline SCORM signing and exact-site allocation authority",
     ),
     SecretString: JSON.stringify({ OFFLINE_SCORM_ENABLED: "false" }),
   });

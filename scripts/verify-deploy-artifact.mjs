@@ -71,6 +71,8 @@ try {
     "src/server/access/access-code-encryption.server.ts",
     "src/server/storage/object-storage.server.ts",
     "src/server/runtime-environment.ts",
+    "src/server/scorm/offline-scorm-package-site.server.ts",
+    "src/features/scorm/offline-scorm-package-site.ts",
     "src/validation/zod.server.ts",
   ])
     if (!existsSync(path.join(extractedDirectory, relativePath)))

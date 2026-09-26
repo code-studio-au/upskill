@@ -68,7 +68,7 @@ worker_database_url=$(jq -rn --argjson credentials "$worker_database_json" --arg
 cp "$base_environment_tmp" "$web_environment_tmp"
 cp "$base_environment_tmp" "$worker_environment_tmp"
 cp "$base_environment_tmp" "$deploy_environment_tmp"
-jq -r 'to_entries[] | select(.key == "OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8") | "\(.key)=\(.value|tostring|@json)"' <<< "$offline_scorm_json" >> "$web_environment_tmp"
+jq -r 'to_entries[] | select(.key == "OFFLINE_SCORM_ENABLED" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID" or .key == "OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8" or .key == "OFFLINE_SCORM_PACKAGE_SITE_SUFFIX" or .key == "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY") | "\(.key)=\(.value|tostring|@json)"' <<< "$offline_scorm_json" >> "$web_environment_tmp"
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\($value|@json)"' >> "$web_environment_tmp"
 jq -rn --arg value "$worker_database_url" '"DATABASE_URL=\($value|@json)"' >> "$worker_environment_tmp"
 jq -rn --arg value "$web_database_url" '"DATABASE_URL=\($value|@json)"' >> "$deploy_environment_tmp"

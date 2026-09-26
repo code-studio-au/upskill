@@ -1,5 +1,9 @@
-import { getDomain } from "tldts";
 import { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
+import {
+  assertOfflineScormPackageOriginIsolation,
+  isPotentiallyTrustworthyOfflineScormOrigin,
+  parseExactOfflineScormOrigin,
+} from "#/features/scorm/offline-scorm-package-site";
 import {
   offlineScormSpoolEntrySchema,
   type OfflineScormSpoolEntry,
@@ -75,7 +79,7 @@ const offlineScormPackageManifestSchema = z
     z.superRefine((manifest, context) => {
       let packageOrigin: URL;
       try {
-        packageOrigin = exactOrigin(manifest.packageOrigin);
+        packageOrigin = parseExactOfflineScormOrigin(manifest.packageOrigin);
       } catch {
         context.addIssue({
           code: "custom",
@@ -84,7 +88,7 @@ const offlineScormPackageManifestSchema = z
         });
         return;
       }
-      if (!isPotentiallyTrustworthyPackageOrigin(packageOrigin))
+      if (!isPotentiallyTrustworthyOfflineScormOrigin(packageOrigin))
         context.addIssue({
           code: "custom",
           path: ["packageOrigin"],
@@ -190,77 +194,22 @@ export class OfflineScormPackagePrototypeError extends Error {
   }
 }
 
-function exactOrigin(value: string): URL {
-  const url = new URL(value);
-  if (
-    url.origin !== value ||
-    url.username ||
-    url.password ||
-    url.pathname !== "/" ||
-    url.search ||
-    url.hash
-  )
-    throw new TypeError("Expected an exact origin");
-  return url;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" ||
-    hostname === "[::1]" ||
-    hostname === "::1" ||
-    /^127(?:\.\d{1,3}){3}$/u.test(hostname)
-  );
-}
-
-function isPotentiallyTrustworthyPackageOrigin(origin: URL): boolean {
-  return origin.protocol === "https:" || isLoopbackHostname(origin.hostname);
-}
-
-function schemefulSite(origin: URL): string {
-  const domain = getDomain(origin.hostname, {
-    allowPrivateDomains: true,
-    detectIp: true,
-    validateHostname: true,
-  });
-  return `${origin.protocol}//${domain ?? origin.hostname}`;
-}
-
 export function assertOfflineScormPackageSiteIsolation(input: {
   applicationOrigin: string;
   learningOrigin: string;
   packageOrigin: string;
 }): void {
-  let applicationOrigin: URL;
-  let learningOrigin: URL;
-  let packageOrigin: URL;
   try {
-    applicationOrigin = exactOrigin(input.applicationOrigin);
-    learningOrigin = exactOrigin(input.learningOrigin);
-    packageOrigin = exactOrigin(input.packageOrigin);
+    assertOfflineScormPackageOriginIsolation(input);
   } catch (error) {
     throw new OfflineScormPackagePrototypeError(
       "invalid_origin",
-      "Offline SCORM origins must be exact origins",
+      error instanceof Error
+        ? error.message
+        : "Offline SCORM origins must use isolated exact sites",
       { cause: error },
     );
   }
-  if (!isPotentiallyTrustworthyPackageOrigin(packageOrigin))
-    throw new OfflineScormPackagePrototypeError(
-      "invalid_origin",
-      "The package origin must use HTTPS outside loopback",
-    );
-  const packageSite = schemefulSite(packageOrigin);
-  if (
-    packageOrigin.origin === applicationOrigin.origin ||
-    packageOrigin.origin === learningOrigin.origin ||
-    packageSite === schemefulSite(applicationOrigin) ||
-    packageSite === schemefulSite(learningOrigin)
-  )
-    throw new OfflineScormPackagePrototypeError(
-      "invalid_origin",
-      "The package origin must use a distinct registrable site",
-    );
 }
 
 function byteLength(value: string): number {
@@ -642,7 +591,9 @@ export async function matchInstalledOfflineScormPackage(input: {
   subtle: Pick<SubtleCrypto, "digest">;
 }): Promise<Response | null> {
   const manifest = offlineScormPackageManifestSchema.parse(input.manifest);
-  const applicationOrigin = exactOrigin(input.applicationOrigin).origin;
+  const applicationOrigin = parseExactOfflineScormOrigin(
+    input.applicationOrigin,
+  ).origin;
   const requestUrl = new URL(input.request.url);
   if (
     input.request.method !== "GET" ||
@@ -685,7 +636,8 @@ export function isExpectedOfflineScormSiblingReady(input: {
   );
   return (
     message.success &&
-    input.event.origin === exactOrigin(input.expectedOrigin).origin &&
+    input.event.origin ===
+      parseExactOfflineScormOrigin(input.expectedOrigin).origin &&
     input.event.source === input.expectedSource &&
     message.data.role === input.expectedRole
   );

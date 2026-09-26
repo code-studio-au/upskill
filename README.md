@@ -44,9 +44,11 @@ only pending migrations.
 `.env.example` is the non-secret local configuration contract; copy it to the
 ignored `.env.local` and customize only that local file. Do not copy real local
 credentials back into `.env.example`. `ACCESS_CODE_PEPPER` is obsolete and must
-not be configured; local access-code recovery uses `ACCESS_CODE_ENCRYPTION_KEY`
-or the documented development-only fallback. Deployed environments never read
-either local environment file.
+not be configured. Local access-code recovery uses `ACCESS_CODE_ENCRYPTION_KEY`
+when supplied, or derives a development-only key from `BETTER_AUTH_SECRET` when
+it is omitted. Staging and production require an independently generated
+`ACCESS_CODE_ENCRYPTION_KEY`; deployed environments never read either local
+environment file.
 
 Local email is captured in PostgreSQL by default. To send it through Mailgun,
 set `EMAIL_PROVIDER=mailgun`, `MAILGUN_API_KEY`, `MAILGUN_DOMAIN` and

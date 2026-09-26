@@ -109,7 +109,6 @@ try {
     LIVEKIT_ENABLED: "false",
     LIVEKIT_PROJECT_ENVIRONMENT: "test",
     OFFLINE_SCORM_ENABLED: "false",
-    ACCESS_CODE_ENCRYPTION_KEY: "bG9jYWwtb25seS11cHNraWxsLWFjY2Vzcy1rZXktdjE",
     DATABASE_URL: disposableDatabase.databaseUrl,
     PLAYWRIGHT_PORT: browserPort,
     PLAYWRIGHT_LEARNING_PORT: learningPort,
