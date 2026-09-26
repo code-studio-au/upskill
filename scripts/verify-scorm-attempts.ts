@@ -1997,6 +1997,15 @@ try {
     "entitlement_hard_revoked",
   );
 
+  // Lost-response recovery above deliberately ignores mutable access changes.
+  // A fresh entitlement must evaluate current access, so restore the enrollment
+  // before exercising the independent cleanup lifecycle.
+  await database
+    .updateTable("enrollment")
+    .set({ removedAt: null })
+    .where("id", "=", ids.enrollment)
+    .executeTakeFirstOrThrow();
+
   const cleanupIssuance = await issueOfflineScormEntitlement(
     {
       target: {
