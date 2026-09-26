@@ -7,6 +7,11 @@ import {
   type OfflineScormCourseIndexManagedRecord,
   type OfflineScormCourseIndexRecord,
 } from "#/features/scorm/offline-scorm-course-index";
+import {
+  offlineScormCleanupIsFinalized,
+  offlineScormRecoveredCourseState,
+  type OfflineScormServerCleanupState,
+} from "#/offline-scorm/offline-scorm-application-recovery";
 import "./application-offline.css";
 
 const PROTOCOL_VERSION = 1;
@@ -15,6 +20,21 @@ interface Bootstrap {
   schemaVersion: 1;
   learner: { id: string; name: string };
   learningRuntimeUrl: string;
+  hasRetainedServerState: boolean;
+  retainedCourses: RetainedCourse[];
+}
+
+interface RetainedCourse {
+  attemptId: string;
+  cleanupState: OfflineScormServerCleanupState;
+  courseVersionItemId: string;
+  enrollmentId: string;
+  entitlementId: string;
+  entitlementStatus: "active" | "resolved";
+  intendedLaunchExpiresAt: string;
+  modulePosition: number;
+  packageOrigin: string;
+  title: string;
 }
 
 interface Activation {
@@ -43,6 +63,7 @@ interface Operation {
   activation?: Activation;
   bootstrap?: Bootstrap;
   bound: boolean;
+  cleanupFinalized: boolean;
   contextReady: boolean;
   kind: "install" | "launch" | "remove" | "sync";
   learningReady: boolean;
@@ -80,9 +101,34 @@ const packageFrame = element("offline-package-frame", HTMLIFrameElement);
 let active: Operation | undefined;
 let deferredInstallPrompt: DeferredInstallPrompt | undefined;
 let synchronizingAll = false;
+let serverCleanupStates = new Map<string, OfflineScormServerCleanupState>();
 let visibleLearnerId: string | undefined;
 
 class BootstrapResponseError extends Error {}
+
+function isRetainedCourse(value: unknown): value is RetainedCourse {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.attemptId === "string" &&
+    (record.cleanupState === "cleared" ||
+      record.cleanupState === "clearing" ||
+      record.cleanupState === "needs_attention" ||
+      record.cleanupState === "pending") &&
+    typeof record.courseVersionItemId === "string" &&
+    typeof record.enrollmentId === "string" &&
+    typeof record.entitlementId === "string" &&
+    (record.entitlementStatus === "active" ||
+      record.entitlementStatus === "resolved") &&
+    typeof record.intendedLaunchExpiresAt === "string" &&
+    Number.isFinite(Date.parse(record.intendedLaunchExpiresAt)) &&
+    typeof record.modulePosition === "number" &&
+    Number.isSafeInteger(record.modulePosition) &&
+    record.modulePosition >= 0 &&
+    typeof record.packageOrigin === "string" &&
+    typeof record.title === "string"
+  );
+}
 
 function setStatus(message: string): void {
   status.textContent = message;
@@ -115,8 +161,13 @@ async function jsonResponse<T>(response: Response): Promise<T> {
   return body;
 }
 
-async function bootstrap(): Promise<Bootstrap> {
-  const response = await fetch("/api/scorm/offline/bootstrap", {
+async function bootstrap(
+  requestedEntitlementIds: readonly string[] = [],
+): Promise<Bootstrap> {
+  const bootstrapUrl = new URL("/api/scorm/offline/bootstrap", location.origin);
+  for (const entitlementId of new Set(requestedEntitlementIds))
+    bootstrapUrl.searchParams.append("entitlementId", entitlementId);
+  const response = await fetch(bootstrapUrl, {
     cache: "no-store",
     credentials: "same-origin",
   });
@@ -152,7 +203,13 @@ async function bootstrap(): Promise<Bootstrap> {
     !("name" in body.learner) ||
     typeof body.learner.name !== "string" ||
     !("learningRuntimeUrl" in body) ||
-    typeof body.learningRuntimeUrl !== "string"
+    typeof body.learningRuntimeUrl !== "string" ||
+    !("hasRetainedServerState" in body) ||
+    typeof body.hasRetainedServerState !== "boolean" ||
+    !("retainedCourses" in body) ||
+    !Array.isArray(body.retainedCourses) ||
+    body.retainedCourses.length > 256 ||
+    !body.retainedCourses.every((record: unknown) => isRetainedCourse(record))
   )
     throw new BootstrapResponseError(
       "The signed-in learner response could not be verified",
@@ -211,23 +268,23 @@ function finishOperation(error?: unknown): void {
 function bindIfReady(): void {
   const current = active;
   const learning = learningFrame.contentWindow;
-  const packageWindow = packageFrame.contentWindow;
   if (
     !current ||
     current.bound ||
     !current.learningReady ||
-    !current.packageReady ||
     !current.contextReady ||
-    !learning ||
-    !packageWindow
+    !learning
   )
     return;
+  const learningRuntimeUrl =
+    current.bootstrap?.learningRuntimeUrl ?? current.record?.learningRuntimeUrl;
+  if (!learningRuntimeUrl) return;
+  const packageWindow = packageFrame.contentWindow;
+  if (!current.packageReady || !packageWindow) return;
   const packageOrigin =
     current.activation?.packageManifest.packageOrigin ??
     current.record?.packageOrigin;
-  const learningRuntimeUrl =
-    current.bootstrap?.learningRuntimeUrl ?? current.record?.learningRuntimeUrl;
-  if (!packageOrigin || !learningRuntimeUrl) return;
+  if (!packageOrigin) return;
   const channel = new MessageChannel();
   const message = {
     type: "offline-scorm-sibling-channel",
@@ -259,7 +316,7 @@ function startOperation(
       playerTitle.textContent = operation.record?.title ?? "Offline course";
     }
     learningFrame.src = learningRuntimeUrl;
-    if (operation.record)
+    if (operation.record && !operation.cleanupFinalized)
       packageFrame.src = `${operation.record.packageOrigin}/.__upskill_offline__/host.html`;
   });
 }
@@ -317,6 +374,7 @@ async function beginInstall(target: DownloadTarget): Promise<void> {
     bootstrap: runtimeBootstrap,
     target,
     bound: false,
+    cleanupFinalized: false,
     contextReady: false,
     learningReady: false,
     packageReady: false,
@@ -341,24 +399,78 @@ async function beginExistingOperation(
   )
     throw new Error("This offline access period has ended.");
   setStatus(kind === "launch" ? "Opening offline module…" : "Syncing…");
+  const cleanupFinalized =
+    kind === "remove" &&
+    offlineScormCleanupIsFinalized(
+      serverCleanupStates.get(record.entitlementId),
+    );
   await startOperation({
     kind,
     record,
     bound: false,
+    cleanupFinalized,
     contextReady: false,
     learningReady: false,
     packageReady: false,
   });
 }
 
+async function reconcileServerRecoveryInventory(
+  records: readonly OfflineScormCourseIndexRecord[],
+  runtimeBootstrap: Bootstrap,
+): Promise<void> {
+  serverCleanupStates = new Map(
+    runtimeBootstrap.retainedCourses.map((record) => [
+      record.entitlementId,
+      record.cleanupState,
+    ]),
+  );
+  for (const retained of runtimeBootstrap.retainedCourses) {
+    const existing = records.find(
+      (record) =>
+        "entitlementId" in record &&
+        record.entitlementId === retained.entitlementId,
+    );
+    const state = offlineScormRecoveredCourseState(retained);
+    if (existing && (state === "blocked" || existing.state === "removing"))
+      continue;
+    await putOfflineScormCourseIndexRecord({
+      schemaVersion: 1,
+      state,
+      key: offlineScormCourseIndexKey(
+        retained.enrollmentId,
+        retained.courseVersionItemId,
+      ),
+      enrollmentId: retained.enrollmentId,
+      courseVersionItemId: retained.courseVersionItemId,
+      modulePosition: retained.modulePosition,
+      title: retained.title,
+      attemptId: retained.attemptId,
+      entitlementId: retained.entitlementId,
+      learnerId: runtimeBootstrap.learner.id,
+      learnerName: runtimeBootstrap.learner.name,
+      learningRuntimeUrl: runtimeBootstrap.learningRuntimeUrl,
+      packageOrigin: retained.packageOrigin,
+      intendedLaunchExpiresAt: retained.intendedLaunchExpiresAt,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+}
+
 async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
-  const allRecords = await listOfflineScormCourseIndexRecords();
+  let allRecords = await listOfflineScormCourseIndexRecords();
   const storedLearnerId = offlineScormCourseIndexLearnerId(allRecords);
   let authenticated = false;
   try {
-    const runtimeBootstrap = await bootstrap();
+    const runtimeBootstrap = await bootstrap(
+      allRecords.flatMap((record) =>
+        record.state === "removing" ? [record.entitlementId] : [],
+      ),
+    );
     visibleLearnerId = runtimeBootstrap.learner.id;
     authenticated = true;
+    await reconcileServerRecoveryInventory(allRecords, runtimeBootstrap);
+    allRecords = await listOfflineScormCourseIndexRecords();
   } catch (error) {
     if (error instanceof BootstrapResponseError) visibleLearnerId = undefined;
     else visibleLearnerId = storedLearnerId;
@@ -500,6 +612,16 @@ async function handleLearningMessage(
           type: "offline-scorm-prepare-installation",
           protocolVersion: PROTOCOL_VERSION,
           learnerId: current.bootstrap.learner.id,
+        },
+        learningOrigin,
+      );
+    else if (current.record && current.cleanupFinalized)
+      learningFrame.contentWindow?.postMessage(
+        {
+          type: "offline-scorm-finalize-local-cleanup",
+          protocolVersion: PROTOCOL_VERSION,
+          attemptId: current.record.attemptId,
+          entitlementId: current.record.entitlementId,
         },
         learningOrigin,
       );

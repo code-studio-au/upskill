@@ -6,10 +6,12 @@ import { verifyOfflineScormEntitlementEnvelope } from "#/features/scorm/offline-
 import { createOfflineScormInstallationRegistration } from "#/features/scorm/offline-scorm-installation";
 import { OfflineScormIndexedDbStore } from "#/features/scorm/offline-scorm-indexeddb";
 import {
+  OfflineScormRuntimeError,
   OfflineScormTrustedRuntime,
   createOfflineScormDeviceKeyRecord,
   offlineScormReceiptSchema,
 } from "#/features/scorm/offline-scorm-trusted-runtime";
+import { createOfflineScormMessageQueue } from "#/offline-scorm/offline-scorm-message-queue";
 
 const PROTOCOL_VERSION = 1;
 const parentOrigin = document.referrer
@@ -290,8 +292,8 @@ function acceptPort(nextPort: MessagePort): void {
   const acceptedContext = context;
   port?.close();
   port = nextPort;
-  port.onmessage = (event) => {
-    void (async () => {
+  const queueMessage = createOfflineScormMessageQueue<MessageEvent>({
+    async handle(event) {
       const message = event.data as Record<string, unknown> | undefined;
       if (!message || message.protocolVersion !== PROTOCOL_VERSION) return;
       if (message.type === "offline-scorm-spool-entry")
@@ -312,13 +314,17 @@ function acceptPort(nextPort: MessagePort): void {
           attemptId: acceptedContext.attemptId,
         });
       }
-    })().catch((error: unknown) => {
+    },
+    onError(error) {
       postParent({
         type: "offline-scorm-runtime-error",
         message:
           error instanceof Error ? error.message : "Offline runtime failed",
       });
-    });
+    },
+  });
+  port.onmessage = (event) => {
+    queueMessage(event);
   };
   port.start();
   if (acceptedContext.mode === "install" && acceptedContext.activation)
@@ -401,6 +407,36 @@ async function beginCleanup(input: {
   });
 }
 
+async function finalizeLocalCleanup(input: {
+  attemptId: string;
+  entitlementId: string;
+}): Promise<void> {
+  const record = await store.getPackage(input.attemptId);
+  if (!record)
+    try {
+      await store.getAttemptJournalSnapshot(input.attemptId);
+      throw new Error("The confirmed local cleanup is incomplete");
+    } catch (error) {
+      if (
+        !(error instanceof OfflineScormRuntimeError) ||
+        error.code !== "attempt_unavailable"
+      )
+        throw error;
+    }
+  if (
+    record &&
+    (record.entitlementId !== input.entitlementId ||
+      record.status !== "cleared" ||
+      !record.cleanupReceiptSha256)
+  )
+    throw new Error("The confirmed local cleanup binding is invalid");
+  if (record) await store.clearAcknowledgedAttempt(input.attemptId);
+  postParent({
+    type: "offline-scorm-local-cleanup-complete",
+    attemptId: input.attemptId,
+  });
+}
+
 window.addEventListener("message", (event) => {
   if (!parentOrigin || event.source !== parent || event.origin !== parentOrigin)
     return;
@@ -446,7 +482,11 @@ window.addEventListener("message", (event) => {
         type: "offline-scorm-local-cleanup-complete",
         attemptId: context.attemptId,
       });
-    }
+    } else if (message.type === "offline-scorm-finalize-local-cleanup")
+      await finalizeLocalCleanup({
+        attemptId: String(message.attemptId),
+        entitlementId: String(message.entitlementId),
+      });
   })().catch((error: unknown) => {
     postParent({
       type: "offline-scorm-runtime-error",

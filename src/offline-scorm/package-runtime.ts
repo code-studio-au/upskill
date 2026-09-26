@@ -15,6 +15,7 @@ const spool = new OfflineScormPackageSpool(localStorage);
 const content = document.querySelector<HTMLIFrameElement>("#scorm-content");
 const status = document.querySelector<HTMLElement>("#scorm-status");
 let port: MessagePort | undefined;
+let drainingSpoolEntryId: string | undefined;
 let manifest: OfflineScormPackageManifest | undefined;
 let launchSessionId: string | undefined;
 let initialTotalSeconds = 0;
@@ -106,7 +107,7 @@ function progressSnapshot(sessionElapsedSeconds: number) {
 }
 
 function drain(): void {
-  if (!port) return;
+  if (!port || drainingSpoolEntryId) return;
   const entries = spool.listEntries();
   if (entries.length === 0) {
     port.postMessage({
@@ -115,12 +116,14 @@ function drain(): void {
     });
     return;
   }
-  for (const entry of entries)
-    port.postMessage({
-      type: "offline-scorm-spool-entry",
-      protocolVersion: PROTOCOL_VERSION,
-      entry,
-    });
+  const [entry] = entries;
+  if (!entry) return;
+  drainingSpoolEntryId = entry.spoolEntryId;
+  port.postMessage({
+    type: "offline-scorm-spool-entry",
+    protocolVersion: PROTOCOL_VERSION,
+    entry,
+  });
 }
 
 function checkpoint(reason: "commit" | "finish" | "pagehide"): string {
@@ -240,6 +243,7 @@ async function installedManifest(): Promise<OfflineScormPackageManifest> {
 
 function acceptPort(nextPort: MessagePort): void {
   port?.close();
+  drainingSpoolEntryId = undefined;
   port = nextPort;
   port.onmessage = (event) => {
     void (async () => {
@@ -259,7 +263,11 @@ function acceptPort(nextPort: MessagePort): void {
         manifest = await installedManifest();
         drain();
       } else if (message.type === "offline-scorm-import-acknowledgement") {
-        spool.acknowledge(String(message.spoolEntryId));
+        const spoolEntryId = String(message.spoolEntryId);
+        if (spoolEntryId !== drainingSpoolEntryId)
+          throw new Error("The spool acknowledgement is out of order");
+        spool.acknowledge(spoolEntryId);
+        drainingSpoolEntryId = undefined;
         drain();
       } else if (message.type === "offline-scorm-initialize-result") {
         if (!manifest) manifest = await installedManifest();
