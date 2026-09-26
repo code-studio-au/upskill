@@ -63,7 +63,7 @@ const offlineScormPackageFileSchema = z.strictObject({
     .check(z.minLength(1), z.maxLength(255), z.regex(/^[\u0020-\u007e]+$/u)),
 });
 
-const offlineScormPackageManifestSchema = z
+export const offlineScormPackageManifestSchema = z
   .strictObject({
     schemaVersion: z.literal(1),
     packageVersionId: internalIdSchema,

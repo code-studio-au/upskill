@@ -79,6 +79,11 @@ import { Route as ApiLearningCertificatesEnrollmentIdRouteImport } from './route
 import { Route as ApiLearningEventCertificatesEventParticipationIdRouteImport } from './routes/api.learning.event-certificates.$eventParticipationId'
 import { Route as ApiLearningResourcesResourceVersionIdRouteImport } from './routes/api.learning.resources.$resourceVersionId'
 import { Route as ApiScormAttemptsAttemptIdRouteImport } from './routes/api.scorm.attempts.$attemptId'
+import { Route as ApiScormOfflineActivateRouteImport } from './routes/api.scorm.offline.activate'
+import { Route as ApiScormOfflineBootstrapRouteImport } from './routes/api.scorm.offline.bootstrap'
+import { Route as ApiScormOfflineCleanupRouteImport } from './routes/api.scorm.offline.cleanup'
+import { Route as ApiScormOfflineResolveRouteImport } from './routes/api.scorm.offline.resolve'
+import { Route as ApiScormOfflineSyncRouteImport } from './routes/api.scorm.offline.sync'
 import { Route as ApiScormPreviewsPackageVersionIdRouteImport } from './routes/api.scorm.previews.$packageVersionId'
 import { Route as EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRouteImport } from './routes/event-operations.$eventOccurrenceId_.survey-qr.$eventSurveyAccessId'
 import { Route as LearnEnrollmentIdSurveysCourseVersionItemIdRouteImport } from './routes/learn.$enrollmentId_.surveys.$courseVersionItemId'
@@ -463,6 +468,32 @@ const ApiScormAttemptsAttemptIdRoute =
     path: '/api/scorm/attempts/$attemptId',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiScormOfflineActivateRoute = ApiScormOfflineActivateRouteImport.update({
+  id: '/api/scorm/offline/activate',
+  path: '/api/scorm/offline/activate',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScormOfflineBootstrapRoute =
+  ApiScormOfflineBootstrapRouteImport.update({
+    id: '/api/scorm/offline/bootstrap',
+    path: '/api/scorm/offline/bootstrap',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiScormOfflineCleanupRoute = ApiScormOfflineCleanupRouteImport.update({
+  id: '/api/scorm/offline/cleanup',
+  path: '/api/scorm/offline/cleanup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScormOfflineResolveRoute = ApiScormOfflineResolveRouteImport.update({
+  id: '/api/scorm/offline/resolve',
+  path: '/api/scorm/offline/resolve',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiScormOfflineSyncRoute = ApiScormOfflineSyncRouteImport.update({
+  id: '/api/scorm/offline/sync',
+  path: '/api/scorm/offline/sync',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiScormPreviewsPackageVersionIdRoute =
   ApiScormPreviewsPackageVersionIdRouteImport.update({
     id: '/api/scorm/previews/$packageVersionId',
@@ -635,6 +666,11 @@ export interface FileRoutesByFullPath {
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/api/scorm/offline/activate': typeof ApiScormOfflineActivateRoute
+  '/api/scorm/offline/bootstrap': typeof ApiScormOfflineBootstrapRoute
+  '/api/scorm/offline/cleanup': typeof ApiScormOfflineCleanupRoute
+  '/api/scorm/offline/resolve': typeof ApiScormOfflineResolveRoute
+  '/api/scorm/offline/sync': typeof ApiScormOfflineSyncRoute
   '/api/scorm/previews/$packageVersionId': typeof ApiScormPreviewsPackageVersionIdRouteWithChildren
   '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
@@ -721,6 +757,11 @@ export interface FileRoutesByTo {
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/api/scorm/offline/activate': typeof ApiScormOfflineActivateRoute
+  '/api/scorm/offline/bootstrap': typeof ApiScormOfflineBootstrapRoute
+  '/api/scorm/offline/cleanup': typeof ApiScormOfflineCleanupRoute
+  '/api/scorm/offline/resolve': typeof ApiScormOfflineResolveRoute
+  '/api/scorm/offline/sync': typeof ApiScormOfflineSyncRoute
   '/api/scorm/previews/$packageVersionId': typeof ApiScormPreviewsPackageVersionIdRouteWithChildren
   '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
@@ -810,6 +851,11 @@ export interface FileRoutesById {
   '/api/learning/event-certificates/$eventParticipationId': typeof ApiLearningEventCertificatesEventParticipationIdRoute
   '/api/learning/resources/$resourceVersionId': typeof ApiLearningResourcesResourceVersionIdRoute
   '/api/scorm/attempts/$attemptId': typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  '/api/scorm/offline/activate': typeof ApiScormOfflineActivateRoute
+  '/api/scorm/offline/bootstrap': typeof ApiScormOfflineBootstrapRoute
+  '/api/scorm/offline/cleanup': typeof ApiScormOfflineCleanupRoute
+  '/api/scorm/offline/resolve': typeof ApiScormOfflineResolveRoute
+  '/api/scorm/offline/sync': typeof ApiScormOfflineSyncRoute
   '/api/scorm/previews/$packageVersionId': typeof ApiScormPreviewsPackageVersionIdRouteWithChildren
   '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId': typeof EventOperationsEventOccurrenceIdSurveyQrEventSurveyAccessIdRoute
   '/learn/$enrollmentId_/surveys/$courseVersionItemId': typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
@@ -900,6 +946,11 @@ export interface FileRouteTypes {
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/api/scorm/offline/activate'
+    | '/api/scorm/offline/bootstrap'
+    | '/api/scorm/offline/cleanup'
+    | '/api/scorm/offline/resolve'
+    | '/api/scorm/offline/sync'
     | '/api/scorm/previews/$packageVersionId'
     | '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
@@ -986,6 +1037,11 @@ export interface FileRouteTypes {
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/api/scorm/offline/activate'
+    | '/api/scorm/offline/bootstrap'
+    | '/api/scorm/offline/cleanup'
+    | '/api/scorm/offline/resolve'
+    | '/api/scorm/offline/sync'
     | '/api/scorm/previews/$packageVersionId'
     | '/event-operations/$eventOccurrenceId/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId/surveys/$courseVersionItemId'
@@ -1074,6 +1130,11 @@ export interface FileRouteTypes {
     | '/api/learning/event-certificates/$eventParticipationId'
     | '/api/learning/resources/$resourceVersionId'
     | '/api/scorm/attempts/$attemptId'
+    | '/api/scorm/offline/activate'
+    | '/api/scorm/offline/bootstrap'
+    | '/api/scorm/offline/cleanup'
+    | '/api/scorm/offline/resolve'
+    | '/api/scorm/offline/sync'
     | '/api/scorm/previews/$packageVersionId'
     | '/event-operations/$eventOccurrenceId_/survey-qr/$eventSurveyAccessId'
     | '/learn/$enrollmentId_/surveys/$courseVersionItemId'
@@ -1136,6 +1197,11 @@ export interface RootRouteChildren {
   ApiLearningEventCertificatesEventParticipationIdRoute: typeof ApiLearningEventCertificatesEventParticipationIdRoute
   ApiLearningResourcesResourceVersionIdRoute: typeof ApiLearningResourcesResourceVersionIdRoute
   ApiScormAttemptsAttemptIdRoute: typeof ApiScormAttemptsAttemptIdRouteWithChildren
+  ApiScormOfflineActivateRoute: typeof ApiScormOfflineActivateRoute
+  ApiScormOfflineBootstrapRoute: typeof ApiScormOfflineBootstrapRoute
+  ApiScormOfflineCleanupRoute: typeof ApiScormOfflineCleanupRoute
+  ApiScormOfflineResolveRoute: typeof ApiScormOfflineResolveRoute
+  ApiScormOfflineSyncRoute: typeof ApiScormOfflineSyncRoute
   ApiScormPreviewsPackageVersionIdRoute: typeof ApiScormPreviewsPackageVersionIdRouteWithChildren
   LearnEnrollmentIdSurveysCourseVersionItemIdRoute: typeof LearnEnrollmentIdSurveysCourseVersionItemIdRoute
   MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute: typeof MyEventsEventOccurrenceIdSurveysEventTemplateVersionItemIdRoute
@@ -1640,6 +1706,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiScormAttemptsAttemptIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/scorm/offline/activate': {
+      id: '/api/scorm/offline/activate'
+      path: '/api/scorm/offline/activate'
+      fullPath: '/api/scorm/offline/activate'
+      preLoaderRoute: typeof ApiScormOfflineActivateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scorm/offline/bootstrap': {
+      id: '/api/scorm/offline/bootstrap'
+      path: '/api/scorm/offline/bootstrap'
+      fullPath: '/api/scorm/offline/bootstrap'
+      preLoaderRoute: typeof ApiScormOfflineBootstrapRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scorm/offline/cleanup': {
+      id: '/api/scorm/offline/cleanup'
+      path: '/api/scorm/offline/cleanup'
+      fullPath: '/api/scorm/offline/cleanup'
+      preLoaderRoute: typeof ApiScormOfflineCleanupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scorm/offline/resolve': {
+      id: '/api/scorm/offline/resolve'
+      path: '/api/scorm/offline/resolve'
+      fullPath: '/api/scorm/offline/resolve'
+      preLoaderRoute: typeof ApiScormOfflineResolveRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/scorm/offline/sync': {
+      id: '/api/scorm/offline/sync'
+      path: '/api/scorm/offline/sync'
+      fullPath: '/api/scorm/offline/sync'
+      preLoaderRoute: typeof ApiScormOfflineSyncRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/scorm/previews/$packageVersionId': {
       id: '/api/scorm/previews/$packageVersionId'
       path: '/api/scorm/previews/$packageVersionId'
@@ -1944,6 +2045,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiLearningResourcesResourceVersionIdRoute:
     ApiLearningResourcesResourceVersionIdRoute,
   ApiScormAttemptsAttemptIdRoute: ApiScormAttemptsAttemptIdRouteWithChildren,
+  ApiScormOfflineActivateRoute: ApiScormOfflineActivateRoute,
+  ApiScormOfflineBootstrapRoute: ApiScormOfflineBootstrapRoute,
+  ApiScormOfflineCleanupRoute: ApiScormOfflineCleanupRoute,
+  ApiScormOfflineResolveRoute: ApiScormOfflineResolveRoute,
+  ApiScormOfflineSyncRoute: ApiScormOfflineSyncRoute,
   ApiScormPreviewsPackageVersionIdRoute:
     ApiScormPreviewsPackageVersionIdRouteWithChildren,
   LearnEnrollmentIdSurveysCourseVersionItemIdRoute:

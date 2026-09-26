@@ -1,8 +1,17 @@
 import "@tanstack/react-start/server-only";
 
+import { timingSafeEqual } from "node:crypto";
 import { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv, type ServerEnv } from "#/server/env.server";
+import {
+  createOfflineScormPackageCleanupCapability,
+  createOfflineScormPackageCleanupReceipt,
+} from "#/server/scorm/offline-scorm-package-site.server";
+import {
+  offlineScormPackageHostHtml,
+  readOfflineScormRuntimeAsset,
+} from "#/server/scorm/offline-scorm-runtime-assets.server";
 import {
   parseScormContentPath,
   parseScormRange,
@@ -36,12 +45,20 @@ interface AuthorizedPackage {
   packageSha256: string;
 }
 
+interface AuthorizedPackageRuntime {
+  entitlementId: string;
+  entitlementStatus: "active" | "resolved" | "replaced" | "hard_revoked";
+  cleanupState: "pending" | "clearing" | "needs_attention" | "cleared";
+  intendedLaunchExpiresAt: Date;
+}
+
 interface PackageHostConfiguration {
   applicationOrigin: string;
   environment: ServerEnv["APP_ENV"];
   learningOrigin: string;
   learningBucket: string;
   packageHostSuffix: string | undefined;
+  packageSiteOriginKey?: string | undefined;
   enabled: boolean;
 }
 
@@ -51,13 +68,25 @@ interface OfflineScormPackageHostDependencies {
     packageOrigin: string,
     now: Date,
   ) => Promise<AuthorizedPackage | undefined>;
+  findAuthorizedRuntime?: (
+    packageOrigin: string,
+  ) => Promise<AuthorizedPackageRuntime | undefined>;
   getObject: (
     bucket: string,
     key: string,
     range?: string,
   ) => Promise<StoredObjectStream>;
+  readRuntimeAsset?: (assetName: string) => Promise<string>;
   now?: () => Date;
 }
+
+const PACKAGE_RUNTIME_PATHS = new Set([
+  "/.__upskill_offline__/host.html",
+  "/.__upskill_offline__/package-runtime.js",
+  "/.__upskill_offline__/shared.js",
+  "/.__upskill_offline__/worker.js",
+]);
+const PACKAGE_CLEAR_PATH = "/.__upskill_offline__/clear-site-data";
 
 function objectErrorStatus(error: unknown): number {
   if (typeof error !== "object" || error === null || !("name" in error))
@@ -173,6 +202,35 @@ async function findAuthorizedPackage(
     .executeTakeFirst();
 }
 
+async function findAuthorizedRuntime(
+  packageOrigin: string,
+): Promise<AuthorizedPackageRuntime | undefined> {
+  return await getDatabase()
+    .selectFrom("offline_scorm_cleanup_inventory as cleanup")
+    .innerJoin(
+      "offline_learning_entitlement as entitlement",
+      "entitlement.id",
+      "cleanup.entitlementId",
+    )
+    .select([
+      "entitlement.id as entitlementId",
+      "entitlement.status as entitlementStatus",
+      "entitlement.intendedLaunchExpiresAt",
+      "cleanup.state as cleanupState",
+    ])
+    .where("cleanup.packageSiteOrigin", "=", packageOrigin)
+    .executeTakeFirst();
+}
+
+function equalCapability(actual: string, expected: string): boolean {
+  const actualBytes = Buffer.from(actual, "utf8");
+  const expectedBytes = Buffer.from(expected, "utf8");
+  return (
+    actualBytes.byteLength === expectedBytes.byteLength &&
+    timingSafeEqual(actualBytes, expectedBytes)
+  );
+}
+
 export function createOfflineScormPackageHostHandler(
   dependencies: OfflineScormPackageHostDependencies,
 ): (request: Request) => Promise<Response | null> {
@@ -189,8 +247,114 @@ export function createOfflineScormPackageHostHandler(
       dependencies.configuration,
       "private, no-store",
     );
-    if (!packageOrigin.validLabel || !dependencies.configuration.enabled)
+    const requestUrl = new URL(request.url);
+    const lifecyclePath =
+      PACKAGE_RUNTIME_PATHS.has(requestUrl.pathname) ||
+      requestUrl.pathname === PACKAGE_CLEAR_PATH;
+    if (
+      !packageOrigin.validLabel ||
+      (!dependencies.configuration.enabled && !lifecyclePath)
+    )
       return new Response(null, { status: 404, headers: errorHeaders });
+    if (lifecyclePath) {
+      const runtime = await dependencies.findAuthorizedRuntime?.(
+        packageOrigin.origin,
+      );
+      if (!runtime)
+        return new Response(null, { status: 404, headers: errorHeaders });
+      if (requestUrl.pathname === PACKAGE_CLEAR_PATH) {
+        if (
+          request.method !== "POST" ||
+          request.headers.get("origin") !==
+            new URL(dependencies.configuration.learningOrigin).origin ||
+          runtime.cleanupState !== "clearing" ||
+          runtime.entitlementStatus !== "resolved"
+        )
+          return new Response(null, { status: 404, headers: errorHeaders });
+        const expectedCapability = createOfflineScormPackageCleanupCapability(
+          {
+            OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY:
+              dependencies.configuration.packageSiteOriginKey,
+          },
+          {
+            entitlementId: runtime.entitlementId,
+            packageSiteOrigin: packageOrigin.origin,
+          },
+        );
+        const suppliedCapability =
+          requestUrl.searchParams.get("capability") ?? "";
+        if (!equalCapability(suppliedCapability, expectedCapability))
+          return new Response(null, { status: 404, headers: errorHeaders });
+        const headers = packageHostHeaders(
+          dependencies.configuration,
+          "private, no-store",
+        );
+        headers.set(
+          "Access-Control-Allow-Origin",
+          new URL(dependencies.configuration.learningOrigin).origin,
+        );
+        headers.set("Clear-Site-Data", '"cache", "cookies", "storage"');
+        headers.set("Cross-Origin-Resource-Policy", "cross-origin");
+        headers.set("Content-Type", "application/json; charset=utf-8");
+        headers.set("Vary", "Origin");
+        return Response.json(
+          {
+            cleanupReceiptSha256: createOfflineScormPackageCleanupReceipt(
+              {
+                OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY:
+                  dependencies.configuration.packageSiteOriginKey,
+              },
+              {
+                entitlementId: runtime.entitlementId,
+                packageSiteOrigin: packageOrigin.origin,
+              },
+            ),
+          },
+          { status: 200, headers },
+        );
+      }
+      const runtimeAvailable =
+        (runtime.entitlementStatus === "active" &&
+          runtime.cleanupState === "pending" &&
+          runtime.intendedLaunchExpiresAt >
+            (dependencies.now ?? (() => new Date()))()) ||
+        (runtime.entitlementStatus === "resolved" &&
+          runtime.cleanupState === "clearing");
+      if (
+        !runtimeAvailable ||
+        (request.method !== "GET" && request.method !== "HEAD")
+      )
+        return new Response(null, { status: 404, headers: errorHeaders });
+      const headers = packageHostHeaders(
+        dependencies.configuration,
+        "private, no-cache",
+      );
+      let body: string;
+      if (requestUrl.pathname === "/.__upskill_offline__/host.html") {
+        headers.set("Content-Type", "text/html; charset=utf-8");
+        body = offlineScormPackageHostHtml(
+          dependencies.configuration.learningOrigin,
+        );
+      } else {
+        headers.set("Content-Type", "text/javascript; charset=utf-8");
+        const assetName =
+          requestUrl.pathname === "/.__upskill_offline__/worker.js"
+            ? "package-worker.js"
+            : requestUrl.pathname === "/.__upskill_offline__/shared.js"
+              ? "shared.js"
+              : "package-runtime.js";
+        body = await (
+          dependencies.readRuntimeAsset ?? readOfflineScormRuntimeAsset
+        )(assetName);
+        if (assetName === "package-worker.js")
+          headers.set("Service-Worker-Allowed", "/");
+      }
+      headers.set("Content-Length", String(Buffer.byteLength(body)));
+      return new Response(request.method === "HEAD" ? null : body, {
+        status: 200,
+        headers,
+      });
+    }
     if (request.method !== "GET" && request.method !== "HEAD") {
       errorHeaders.set("Allow", "GET, HEAD");
       return new Response(null, { status: 405, headers: errorHeaders });
@@ -198,7 +362,7 @@ export function createOfflineScormPackageHostHandler(
 
     let decodedPath: string;
     try {
-      decodedPath = decodeURIComponent(new URL(request.url).pathname.slice(1));
+      decodedPath = decodeURIComponent(requestUrl.pathname.slice(1));
     } catch {
       return new Response(null, { status: 404, headers: errorHeaders });
     }
@@ -309,9 +473,11 @@ export async function handleOfflineScormPackageHostRequest(
       learningOrigin: environment.LEARNING_ORIGIN,
       learningBucket: environment.S3_LEARNING_CONTENT_BUCKET,
       packageHostSuffix: environment.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+      packageSiteOriginKey: environment.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY,
       enabled: environment.OFFLINE_SCORM_ENABLED,
     },
     findAuthorizedPackage,
+    findAuthorizedRuntime,
     getObject: getObjectStream,
   })(request);
 }

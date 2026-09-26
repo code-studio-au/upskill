@@ -124,6 +124,7 @@ function LearnerWorkspacePage() {
             <LearnerProgramSections
               kind="course"
               enrollmentId={workspace.enrollmentId}
+              offlineScormEnabled={result.offlineScormEnabled}
               sections={workspace.sections}
             />
           </Stack>

@@ -258,6 +258,82 @@ describe("offline SCORM trusted IndexedDB", () => {
     });
   });
 
+  it("enumerates the retained installation and package registry", async () => {
+    const store = createStore();
+    const key = await prepareStore(store);
+    await store.putPackage(packageRecord());
+
+    await expect(
+      store.findInstallationForLearner("learner_1"),
+    ).resolves.toEqual(key);
+    await expect(store.findInstallationForLearner("learner_2")).resolves.toBe(
+      undefined,
+    );
+    await expect(store.getPackage("attempt_1")).resolves.toEqual(
+      packageRecord(),
+    );
+    await expect(store.listPackages()).resolves.toEqual([packageRecord()]);
+  });
+
+  it("lists verified pending commits and clears only acknowledged attempts", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    const imported = await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry(),
+    });
+    const [commit] = await store.listPendingSignedCommits("attempt_1");
+    expect(commit).toMatchObject({
+      attemptId: "attempt_1",
+      commitId: imported.commitId,
+      clientSequence: 1,
+    });
+    await expect(
+      store.listPendingSignedCommits("attempt_1", 0),
+    ).rejects.toThrow("batch limit");
+    await store.putPackage(packageRecord());
+    await store.putPackage(
+      packageRecord({
+        status: "ready",
+        updatedAt: "2026-09-16T01:03:00.000Z",
+      }),
+    );
+    await expect(
+      store.clearAcknowledgedAttempt("attempt_1"),
+    ).rejects.toMatchObject({ code: "signing_in_progress" });
+    if (!commit) throw new Error("Expected a signed commit");
+    await store.putReceipt(
+      receipt({
+        commitId: commit.commitId,
+        requestFingerprint: await fingerprintOfflineScormCommit(commit),
+      }),
+    );
+    await store.putPackage(
+      packageRecord({
+        status: "cleanup_pending",
+        updatedAt: "2026-09-16T01:04:00.000Z",
+      }),
+    );
+    await store.putPackage(
+      packageRecord({
+        status: "cleared",
+        updatedAt: "2026-09-16T01:05:00.000Z",
+      }),
+    );
+    await store.clearAcknowledgedAttempt("attempt_1");
+
+    await expect(store.listPackages()).resolves.toEqual([]);
+    await expect(
+      store.getAttemptJournalSnapshot("attempt_1"),
+    ).rejects.toMatchObject({ code: "attempt_unavailable" });
+    await expect(
+      store.getInstallation("installation_1"),
+    ).resolves.toBeDefined();
+  });
+
   it("reserves, signs and finalises exactly one stable journal record", async () => {
     const store = createStore();
     const key = await prepareStore(store);

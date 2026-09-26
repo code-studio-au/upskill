@@ -53,6 +53,13 @@ try {
   if (manifest.gitSha !== releaseSha)
     throw new Error("Deploy artifact manifest SHA does not match HEAD");
   for (const relativePath of [
+    "dist/offline-scorm/application-offline.css",
+    "dist/offline-scorm/application-offline.js",
+    "dist/offline-scorm/learning-runtime.js",
+    "dist/offline-scorm/learning-worker.js",
+    "dist/offline-scorm/package-runtime.js",
+    "dist/offline-scorm/package-worker.js",
+    "dist/offline-scorm/shared.js",
     "scripts/offline-scorm-package-prototype-assets.mjs",
     "scripts/pwa-shell-assets.mjs",
     "scripts/bootstrap-platform-admin.mjs",

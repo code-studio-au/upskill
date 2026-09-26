@@ -100,6 +100,23 @@ describe("content security policy", () => {
     vi.unstubAllEnvs();
   });
 
+  it("retains the exact package wildcard for cleanup after activation is disabled", () => {
+    vi.stubEnv("APP_ORIGIN", "https://app.example.test");
+    vi.stubEnv("LEARNING_ORIGIN", "https://learn.example.test");
+    vi.stubEnv("OFFLINE_SCORM_ENABLED", "false");
+    vi.stubEnv("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX", "packages.example.test");
+    const headers = new Headers();
+    applySecurityHeaders(
+      headers,
+      "nonce",
+      new Request("https://app.example.test/dashboard"),
+    );
+    expect(headers.get("content-security-policy")).toContain(
+      "frame-src https://learn.example.test https://*.packages.example.test",
+    );
+    vi.unstubAllEnvs();
+  });
+
   it("adds HSTS only in HTTPS deployment environments", () => {
     vi.stubEnv("APP_ENV", "production");
     const headers = new Headers();

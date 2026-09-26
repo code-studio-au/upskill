@@ -112,6 +112,9 @@ try {
     LIVEKIT_ENABLED: "false",
     LIVEKIT_PROJECT_ENVIRONMENT: "test",
     OFFLINE_SCORM_ENABLED: "false",
+    OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: Buffer.alloc(32, 7).toString(
+      "base64url",
+    ),
     DATABASE_URL: disposableDatabase.databaseUrl,
     MIGRATION_DATABASE_URL: disposableDatabase.databaseUrl,
     EMAIL_PROVIDER: "local_capture",

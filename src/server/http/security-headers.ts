@@ -21,11 +21,12 @@ export function buildContentSecurityPolicy(
   nonce: string,
   learningOrigin: string,
   connectSources: ReadonlyArray<string> = [],
+  frameSources: ReadonlyArray<string> = [],
 ): string {
   const dynamic = {
     ...DIRECTIVES,
     "connect-src": [...DIRECTIVES["connect-src"], ...connectSources],
-    "frame-src": [learningOrigin],
+    "frame-src": [learningOrigin, ...frameSources],
     "script-src": ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'"],
     "style-src": ["'self'", `'nonce-${nonce}'`],
     "style-src-elem": ["'self'", `'nonce-${nonce}'`],
@@ -67,6 +68,10 @@ export function applySecurityHeaders(
         `${liveKitUrl.protocol === "wss:" ? "https:" : "http:"}//${liveKitUrl.host}`,
       ]
     : [];
+  const offlinePackageFrameSource = process.env
+    .OFFLINE_SCORM_PACKAGE_HOST_SUFFIX
+    ? [`https://*.${process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX}`]
+    : [];
   headers.set(
     "Content-Security-Policy",
     isLearningResponse
@@ -75,6 +80,7 @@ export function applySecurityHeaders(
           nonce,
           normalizedLearningOrigin,
           liveKitConnectSources,
+          offlinePackageFrameSource,
         ),
   );
   if (isLearningResponse) headers.delete("Cross-Origin-Opener-Policy");

@@ -69,7 +69,8 @@ export type OfflineScormEntitlementIssueResult =
         | ScormLaunchPolicyDenial
         | "installation-unavailable"
         | "finite-access-expiry-required"
-        | "offline-writer-active";
+        | "offline-writer-active"
+        | "package-inventory-unavailable";
     };
 
 type RecoveredOfflineScormEntitlement = Extract<
@@ -224,9 +225,9 @@ async function recoverActiveOfflineScormEntitlement(
 }
 
 /**
- * Establishes the exclusive offline writer and signs its exact initial state,
- * but is deliberately not connected to a route. A later activated slice must
- * add the complete download/runtime boundary before a learner can invoke it.
+ * Establishes the exclusive offline writer and signs its exact initial state.
+ * The activated Course boundary supplies the immutable package precondition;
+ * Event acquisition remains unreachable.
  */
 export async function issueOfflineScormEntitlement(
   input: {
@@ -236,6 +237,7 @@ export async function issueOfflineScormEntitlement(
   user: AuthenticatedUser,
   signEntitlement: OfflineScormEntitlementSigner,
   provisionPackageSite: OfflineScormPackageSiteProvisioner,
+  expectedPackage?: { packageVersionId: string; packageSha256: string },
 ): Promise<OfflineScormEntitlementIssueResult> {
   const result = await getDatabase()
     .transaction()
@@ -264,7 +266,18 @@ export async function issueOfflineScormEntitlement(
           userId: user.id,
         },
       );
-      if (recovered) return recovered;
+      if (recovered) {
+        if (
+          expectedPackage &&
+          (recovered.packageVersionId !== expectedPackage.packageVersionId ||
+            recovered.packageSha256 !== expectedPackage.packageSha256)
+        )
+          return {
+            status: "denied",
+            reason: "package-inventory-unavailable",
+          } as const;
+        return recovered;
+      }
 
       const issuedAt = new Date();
       const policy = await resolveScormLaunchPolicy(
@@ -278,6 +291,15 @@ export async function issueOfflineScormEntitlement(
         return {
           status: "denied",
           reason: "finite-access-expiry-required",
+        } as const;
+      if (
+        expectedPackage &&
+        (policy.packageVersionId !== expectedPackage.packageVersionId ||
+          policy.packageSha256 !== expectedPackage.packageSha256)
+      )
+        return {
+          status: "denied",
+          reason: "package-inventory-unavailable",
         } as const;
 
       const attempt = await lockOrCreateScormAttempt(transaction, policy);

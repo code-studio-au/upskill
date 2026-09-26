@@ -24,6 +24,13 @@
   background: var(--mantine-color-white);
 }
 
+.actions {
+  align-items: end;
+  display: flex;
+  flex-direction: column;
+  gap: var(--mantine-spacing-xs);
+}
+
 @media (max-width: 47.99em) {
   .sectionHeading {
     flex-direction: column;
@@ -37,5 +44,9 @@
   .item > :last-child {
     grid-column: 1;
     justify-self: start;
+  }
+
+  .actions {
+    align-items: start;
   }
 }

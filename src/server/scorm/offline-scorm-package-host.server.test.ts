@@ -1,9 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createOfflineScormPackageHostHandler } from "./offline-scorm-package-host.server";
+import {
+  createOfflineScormPackageCleanupCapability,
+  createOfflineScormPackageCleanupReceipt,
+} from "./offline-scorm-package-site.server";
 
 const packageLabel = `p-${"a".repeat(56)}`;
 const packageOrigin = `https://${packageLabel}.github.io`;
 const fileSha256 = "b".repeat(64);
+const packageSiteOriginKey = Buffer.alloc(32, 7).toString("base64url");
 
 function storedObject(body = "hello") {
   return {
@@ -18,11 +23,15 @@ function storedObject(body = "hello") {
 
 describe("offline SCORM credential-free package host", () => {
   const findAuthorizedPackage = vi.fn();
+  const findAuthorizedRuntime = vi.fn();
   const getObject = vi.fn();
+  const readRuntimeAsset = vi.fn(() => Promise.resolve("runtime"));
 
   beforeEach(() => {
     findAuthorizedPackage.mockReset();
+    findAuthorizedRuntime.mockReset();
     getObject.mockReset();
+    readRuntimeAsset.mockClear();
   });
 
   function handler(enabled = true) {
@@ -33,10 +42,13 @@ describe("offline SCORM credential-free package host", () => {
         learningOrigin: "https://learn.example.net",
         learningBucket: "learning-bucket",
         packageHostSuffix: "github.io",
+        packageSiteOriginKey,
         enabled,
       },
       findAuthorizedPackage,
+      findAuthorizedRuntime,
       getObject,
+      readRuntimeAsset,
       now: () => new Date("2026-09-26T00:00:00.000Z"),
     });
   }
@@ -168,6 +180,102 @@ describe("offline SCORM credential-free package host", () => {
     );
     expect(appRoute?.status).toBe(405);
     expect(appRoute?.headers.get("allow")).toBe("GET, HEAD");
+  });
+
+  it("serves only reviewed runtime assets for an active exact origin", async () => {
+    findAuthorizedRuntime.mockResolvedValue({
+      cleanupState: "pending",
+      entitlementId: "entitlement_active",
+      entitlementStatus: "active",
+      intendedLaunchExpiresAt: new Date("2026-09-27T00:00:00.000Z"),
+    });
+    const host = await handler()(
+      new Request(`${packageOrigin}/.__upskill_offline__/host.html`),
+    );
+    expect(host?.status).toBe(200);
+    await expect(host?.text()).resolves.toContain(
+      'data-learning-origin="https://learn.example.net"',
+    );
+    const worker = await handler()(
+      new Request(`${packageOrigin}/.__upskill_offline__/worker.js`),
+    );
+    expect(worker?.status).toBe(200);
+    expect(worker?.headers.get("service-worker-allowed")).toBe("/");
+    expect(readRuntimeAsset).toHaveBeenCalledWith("package-worker.js");
+
+    const rollbackHost = await handler(false)(
+      new Request(`${packageOrigin}/.__upskill_offline__/host.html`),
+    );
+    expect(rollbackHost?.status).toBe(200);
+
+    findAuthorizedRuntime.mockResolvedValue({
+      cleanupState: "pending",
+      entitlementId: "entitlement_expired",
+      entitlementStatus: "active",
+      intendedLaunchExpiresAt: new Date("2026-09-25T00:00:00.000Z"),
+    });
+    await expect(
+      handler()(new Request(`${packageOrigin}/.__upskill_offline__/host.html`)),
+    ).resolves.toMatchObject({ status: 404 });
+  });
+
+  it("authorizes whole-site cleanup only for the trusted learning origin", async () => {
+    const entitlementId = "entitlement_cleanup";
+    findAuthorizedRuntime.mockResolvedValue({
+      cleanupState: "clearing",
+      entitlementId,
+      entitlementStatus: "resolved",
+      intendedLaunchExpiresAt: new Date("2026-09-25T00:00:00.000Z"),
+    });
+    const cleanupCapability = createOfflineScormPackageCleanupCapability(
+      {
+        OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: packageSiteOriginKey,
+      },
+      { entitlementId, packageSiteOrigin: packageOrigin },
+    );
+    const denied = await handler()(
+      new Request(
+        `${packageOrigin}/.__upskill_offline__/clear-site-data?capability=${cleanupCapability}`,
+        { method: "POST", headers: { Origin: "https://app.example.com" } },
+      ),
+    );
+    expect(denied?.status).toBe(404);
+
+    const cleared = await handler()(
+      new Request(
+        `${packageOrigin}/.__upskill_offline__/clear-site-data?capability=${cleanupCapability}`,
+        {
+          method: "POST",
+          headers: { Origin: "https://learn.example.net" },
+        },
+      ),
+    );
+    expect(cleared?.status).toBe(200);
+    expect(cleared?.headers.get("clear-site-data")).toBe(
+      '"cache", "cookies", "storage"',
+    );
+    expect(cleared?.headers.get("access-control-allow-origin")).toBe(
+      "https://learn.example.net",
+    );
+    await expect(cleared?.json()).resolves.toEqual({
+      cleanupReceiptSha256: createOfflineScormPackageCleanupReceipt(
+        {
+          OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: packageSiteOriginKey,
+        },
+        { entitlementId, packageSiteOrigin: packageOrigin },
+      ),
+    });
+
+    const clearedAfterRollback = await handler(false)(
+      new Request(
+        `${packageOrigin}/.__upskill_offline__/clear-site-data?capability=${cleanupCapability}`,
+        {
+          method: "POST",
+          headers: { Origin: "https://learn.example.net" },
+        },
+      ),
+    );
+    expect(clearedAfterRollback?.status).toBe(200);
   });
 
   it("honours bounded ranges and immutable conditional requests", async () => {

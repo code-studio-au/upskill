@@ -1,9 +1,10 @@
 export function buildLearningContentSecurityPolicy(
   applicationOrigin: string,
+  options: { connectSources?: ReadonlyArray<string> } = {},
 ): string {
   const directives = {
     "base-uri": ["'none'"],
-    "connect-src": ["'self'"],
+    "connect-src": ["'self'", ...(options.connectSources ?? [])],
     "default-src": ["'self'"],
     "font-src": ["'self'", "data:"],
     "form-action": ["'none'"],

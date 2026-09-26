@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { createOfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
+import {
+  createOfflineScormPackageCleanupCapability,
+  createOfflineScormPackageCleanupReceipt,
+  createOfflineScormPackageSiteProvisioner,
+} from "#/server/scorm/offline-scorm-package-site.server";
 
 const originKey = Buffer.alloc(32, 7).toString("base64url");
 
@@ -90,5 +94,59 @@ describe("offline SCORM package-site provisioner", () => {
     expect(() =>
       provision({ attemptId: "../attempt", entitlementId: "entitlement_1" }),
     ).toThrow("attempt identifier is invalid");
+  });
+
+  it("derives a stable cleanup capability without exposing the origin key", () => {
+    const input = {
+      entitlementId: "entitlement_1",
+      packageSiteOrigin: `https://p-${"a".repeat(56)}.github.io`,
+    };
+    const first = createOfflineScormPackageCleanupCapability(
+      configuration(),
+      input,
+    );
+    expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+    expect(
+      createOfflineScormPackageCleanupCapability(configuration(), input),
+    ).toBe(first);
+    expect(
+      createOfflineScormPackageCleanupCapability(configuration(), {
+        ...input,
+        entitlementId: "entitlement_2",
+      }),
+    ).not.toBe(first);
+    expect(
+      createOfflineScormPackageCleanupCapability(
+        configuration({ OFFLINE_SCORM_ENABLED: false }),
+        input,
+      ),
+    ).toBe(first);
+    expect(() =>
+      createOfflineScormPackageCleanupCapability(configuration(), {
+        ...input,
+        packageSiteOrigin: `${input.packageSiteOrigin}/path`,
+      }),
+    ).toThrow("origin is invalid");
+  });
+
+  it("derives an exact cleanup receipt that is distinct from the capability", () => {
+    const input = {
+      entitlementId: "entitlement_1",
+      packageSiteOrigin: `https://p-${"a".repeat(56)}.github.io`,
+    };
+    const receipt = createOfflineScormPackageCleanupReceipt(
+      configuration(),
+      input,
+    );
+    expect(receipt).toMatch(/^[a-f0-9]{64}$/u);
+    expect(receipt).not.toBe(
+      createOfflineScormPackageCleanupCapability(configuration(), input),
+    );
+    expect(
+      createOfflineScormPackageCleanupReceipt(
+        configuration({ OFFLINE_SCORM_ENABLED: false }),
+        input,
+      ),
+    ).toBe(receipt);
   });
 });

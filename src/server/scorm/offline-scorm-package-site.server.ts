@@ -8,6 +8,10 @@ import {
 import type { ServerEnv } from "#/server/env.server.ts";
 
 const PACKAGE_SITE_DERIVATION_FORMAT = "upskill-offline-scorm-package-site-v1";
+const PACKAGE_CLEANUP_DERIVATION_FORMAT =
+  "upskill-offline-scorm-package-cleanup-v1";
+const PACKAGE_CLEANUP_RECEIPT_FORMAT =
+  "upskill-offline-scorm-package-cleanup-receipt-v1";
 
 type OfflineScormPackageSiteConfiguration = Pick<
   ServerEnv,
@@ -76,4 +80,60 @@ export function createOfflineScormPackageSiteProvisioner(
     });
     return packageOrigin;
   };
+}
+
+export function createOfflineScormPackageCleanupCapability(
+  configuration: Pick<
+    OfflineScormPackageSiteConfiguration,
+    "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY"
+  >,
+  input: { entitlementId: string; packageSiteOrigin: string },
+): string {
+  if (!configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY)
+    throw new Error("Offline SCORM package-site origin key is not configured");
+  assertInternalId("entitlement identifier", input.entitlementId);
+  const packageSiteOrigin = new URL(input.packageSiteOrigin);
+  if (
+    packageSiteOrigin.origin !== input.packageSiteOrigin ||
+    packageSiteOrigin.protocol !== "https:"
+  )
+    throw new Error("Offline SCORM package-site origin is invalid");
+  return createHmac(
+    "sha256",
+    decodeOriginKey(configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY),
+  )
+    .update(PACKAGE_CLEANUP_DERIVATION_FORMAT, "utf8")
+    .update("\0", "utf8")
+    .update(input.entitlementId, "utf8")
+    .update("\0", "utf8")
+    .update(packageSiteOrigin.origin, "utf8")
+    .digest("base64url");
+}
+
+export function createOfflineScormPackageCleanupReceipt(
+  configuration: Pick<
+    OfflineScormPackageSiteConfiguration,
+    "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY"
+  >,
+  input: { entitlementId: string; packageSiteOrigin: string },
+): string {
+  if (!configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY)
+    throw new Error("Offline SCORM package-site origin key is not configured");
+  assertInternalId("entitlement identifier", input.entitlementId);
+  const packageSiteOrigin = new URL(input.packageSiteOrigin);
+  if (
+    packageSiteOrigin.origin !== input.packageSiteOrigin ||
+    packageSiteOrigin.protocol !== "https:"
+  )
+    throw new Error("Offline SCORM package-site origin is invalid");
+  return createHmac(
+    "sha256",
+    decodeOriginKey(configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY),
+  )
+    .update(PACKAGE_CLEANUP_RECEIPT_FORMAT, "utf8")
+    .update("\0", "utf8")
+    .update(input.entitlementId, "utf8")
+    .update("\0", "utf8")
+    .update(packageSiteOrigin.origin, "utf8")
+    .digest("hex");
 }

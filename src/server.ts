@@ -6,12 +6,17 @@ import {
 import { getServerEnv } from "#/server/env.server";
 import { applySecurityHeaders } from "#/server/http/security-headers";
 import { handleOfflineScormPackageHostRequest } from "#/server/scorm/offline-scorm-package-host.server";
+import { handleOfflineScormLearningRuntimeRequest } from "#/server/scorm/offline-scorm-runtime-assets.server";
 
 const fetch = createStartHandler(async (context) => {
   const packageHostResponse = await handleOfflineScormPackageHostRequest(
     context.request,
   );
   if (packageHostResponse) return packageHostResponse;
+  const offlineRuntimeResponse = await handleOfflineScormLearningRuntimeRequest(
+    context.request,
+  );
+  if (offlineRuntimeResponse) return offlineRuntimeResponse;
   const nonce = randomBytes(24).toString("base64url");
   context.router.update({ ssr: { nonce } });
 

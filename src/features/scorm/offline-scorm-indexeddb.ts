@@ -1,5 +1,6 @@
 import {
   canonicalizeOfflineScormCommit,
+  type OfflineScormSignedCommit,
   type OfflineScormUnsignedCommit,
 } from "#/features/scorm/offline-scorm-reconciliation";
 import {
@@ -823,6 +824,26 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     }
   }
 
+  async findInstallationForLearner(
+    learnerId: string,
+  ): Promise<OfflineScormDeviceKeyRecord | undefined> {
+    const parsedLearnerId = internalIdSchema.parse(learnerId);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction("installations", "readonly");
+      const value = await requestResult<unknown>(
+        transaction
+          .objectStore("installations")
+          .index("byLearnerId")
+          .get(parsedLearnerId),
+      );
+      await transactionComplete(transaction);
+      return value === undefined ? undefined : parseDeviceKeyRecord(value);
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
   async putEntitlement(input: OfflineScormTrustedEntitlement): Promise<void> {
     const entitlement = offlineScormTrustedEntitlementSchema.parse(input);
     try {
@@ -1434,6 +1455,162 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
           (first, second) => first.clientSequence - second.clientSequence,
         ),
       };
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async listPendingSignedCommits(
+    attemptId: string,
+    limit = 16,
+  ): Promise<OfflineScormSignedCommit[]> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 16)
+      throw new Error("Offline SCORM reconciliation batch limit is invalid");
+    const snapshot = await this.getAttemptJournalSnapshot(attemptId);
+    const installation = await this.getInstallation(
+      snapshot.entitlement.installationId,
+    );
+    if (!installation)
+      throw new OfflineScormRuntimeError(
+        "device_key_unavailable",
+        "The device signing key is unavailable",
+      );
+    const pending = snapshot.records
+      .filter((record) => record.status === "pending")
+      .slice(0, limit);
+    await Promise.all(
+      pending.map((record) =>
+        verifyOfflineScormJournalRecord(
+          record,
+          installation,
+          globalThis.crypto,
+        ),
+      ),
+    );
+    return pending.map((record) =>
+      parseStoredOfflineScormSignedCommit({
+        unsignedCommit: record.unsignedCommit,
+        signature: record.signature,
+      }),
+    );
+  }
+
+  async getPackage(
+    attemptId: string,
+  ): Promise<OfflineScormPackageRecord | undefined> {
+    const parsedAttemptId = internalIdSchema.parse(attemptId);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction("packages", "readonly");
+      const value = await requestResult<unknown>(
+        transaction.objectStore("packages").get(parsedAttemptId),
+      );
+      await transactionComplete(transaction);
+      return value === undefined
+        ? undefined
+        : offlineScormPackageRecordSchema.parse(value);
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async listPackages(): Promise<OfflineScormPackageRecord[]> {
+    try {
+      const database = await this.open();
+      const transaction = database.transaction("packages", "readonly");
+      const values = await requestResult<unknown[]>(
+        transaction.objectStore("packages").getAll(),
+      );
+      await transactionComplete(transaction);
+      return values.map((value) =>
+        offlineScormPackageRecordSchema.parse(value),
+      );
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
+  async clearAcknowledgedAttempt(attemptId: string): Promise<void> {
+    const snapshot = await this.getAttemptJournalSnapshot(attemptId);
+    if (snapshot.records.some((record) => record.status !== "acknowledged"))
+      throw new OfflineScormRuntimeError(
+        "signing_in_progress",
+        "Pending offline progress must be synchronized before local cleanup",
+      );
+    const packageRecord = await this.getPackage(attemptId);
+    if (!packageRecord || packageRecord.status !== "cleared")
+      throw new OfflineScormRuntimeError(
+        "storage_failed",
+        "The package site must be cleared before trusted attempt cleanup",
+      );
+    try {
+      const database = await this.open();
+      const transaction = database.transaction(
+        [
+          "entitlements",
+          "attempts",
+          "launches",
+          "journal",
+          "packages",
+          "receipts",
+        ],
+        "readwrite",
+      );
+      const completedTransaction = transactionComplete(transaction);
+      try {
+        const launchValues = (
+          await requestResult<unknown[]>(
+            transaction
+              .objectStore("launches")
+              .index("byAttemptId")
+              .getAll(attemptId),
+          )
+        ).map(parseLaunchState);
+        const journalValues = (
+          await requestResult<unknown[]>(
+            transaction
+              .objectStore("journal")
+              .index("byAttemptId")
+              .getAll(attemptId),
+          )
+        ).map(parseJournalRecord);
+        const receiptValues = (
+          await requestResult<unknown[]>(
+            transaction
+              .objectStore("receipts")
+              .index("byAttemptSequence")
+              .getAll(
+                this.#keyRange.bound(
+                  [attemptId, 1],
+                  [attemptId, MAXIMUM_SEQUENCE],
+                ),
+              ),
+          )
+        ).map((value) => offlineScormReceiptSchema.parse(value));
+        for (const launch of launchValues)
+          transaction
+            .objectStore("launches")
+            .delete([launch.attemptId, launch.launchSessionId]);
+        for (const record of journalValues)
+          transaction
+            .objectStore("journal")
+            .delete([record.attemptId, record.spoolEntryId]);
+        for (const receipt of receiptValues)
+          transaction
+            .objectStore("receipts")
+            .delete([receipt.attemptId, receipt.commitId]);
+        transaction.objectStore("packages").delete(attemptId);
+        transaction.objectStore("attempts").delete(attemptId);
+        transaction
+          .objectStore("entitlements")
+          .delete(snapshot.entitlement.entitlementId);
+        transaction.commit();
+        await completedTransaction;
+      } catch (error) {
+        abortTransaction(transaction);
+        await completedTransaction.catch(() => undefined);
+        throw error;
+      }
     } catch (error) {
       throw asStorageFailure(error);
     }

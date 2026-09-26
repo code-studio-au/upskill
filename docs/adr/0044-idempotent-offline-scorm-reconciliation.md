@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted; dormant reconciliation command implemented, activation pending.
+Accepted; self-paced Course reconciliation and cleanup routes activated. Event
+and support tooling pending.
 Date: 2026-09-12
 Accepted: 2026-09-16
 
@@ -274,12 +275,11 @@ sessions see completion after reconciliation without any special refresh path.
 
 ## Follow-up / Triggers
 
-The dormant command covers the following impact matrix before any route is
-activated:
+The command and activated Course route cover the following impact matrix:
 
 | Dimension             | Version 1 behaviour                                                                                                                                                                                          |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Actor and entry point | The authenticated owning learner invokes a future learning-origin sync route; the command itself remains server-only and unreachable.                                                                        |
+| Actor and entry point | The authenticated owning learner invokes the bounded application-origin Course sync route; the server command remains the only state-changing reconciliation boundary.                                       |
 | Exact targets         | Entitlement, attempt, installation key, package version and digest, plus Course enrolment/item or Event Participation/item are independently resolved and compared.                                          |
 | Ordering and retry    | Records sort by client sequence; exact receipts recover before current lifecycle gates; gaps are retryable without receipts; reused commit identities with different fingerprints are not acknowledged.      |
 | Lifecycle             | Active evidence is bounded by the server receipt deadline; resolved, replaced, hard-revoked and past-deadline submissions produce retained terminal receipts, while prior exact receipts remain recoverable. |
@@ -287,10 +287,10 @@ activated:
 | Consumers             | Course enrolment and Event Participation item/completion derivation reuse the online transaction helper, so audit, outbox and communication transitions remain idempotent.                                   |
 | Failure boundary      | Invalid schemas, keys or signatures apply nothing; binding, history, writer and consumed-sequence conflicts are retained without logging SCORM values; transient failures roll back.                         |
 
-The remaining activation work must cover ordinary revocation, replacement and
-administrator resolution commands, the trusted local runtime, the authenticated
-route and the real browser matrix. Revisit exclusive-writer reconciliation only
-if product evidence justifies multi-device offline attempts.
+The remaining work must cover ordinary revocation, replacement and
+administrator resolution commands, Event acquisition/support paths and the
+broader real-device browser matrix. Revisit exclusive-writer reconciliation
+only if product evidence justifies multi-device offline attempts.
 
 ## Related Documents
 

@@ -16,7 +16,10 @@ import {
 import { offlineScormTrustedEntitlementSchema } from "#/features/scorm/offline-scorm-trusted-runtime";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import type { Database } from "#/server/db/types";
-import type { OfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
+import {
+  createOfflineScormPackageCleanupReceipt,
+  type OfflineScormPackageSiteProvisioner,
+} from "#/server/scorm/offline-scorm-package-site.server";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
@@ -692,6 +695,10 @@ try {
     );
   const { reconcileOfflineScormProgress } =
     await import("#/server/scorm/offline-scorm-reconciliation.server");
+  const {
+    confirmOfflineScormPackageCleanup,
+    resolveOfflineScormCourseEntitlement,
+  } = await import("#/server/scorm/offline-scorm-lifecycle.server");
   const requireAuthorizedPlayer = async (
     attemptId: string,
     sessionToken: string,
@@ -1119,6 +1126,26 @@ try {
       provisionPackageSite,
     ),
     /simulated entitlement signing failure/,
+  );
+  assert.deepEqual(
+    await issueOfflineScormEntitlement(
+      {
+        target: {
+          kind: "course",
+          enrollmentId: ids.enrollment,
+          modulePosition: 0,
+        },
+        installationId: ids.installation,
+      },
+      user,
+      signEntitlement,
+      provisionPackageSite,
+      {
+        packageVersionId: ids.packageVersion,
+        packageSha256: "b".repeat(64),
+      },
+    ),
+    { status: "denied", reason: "package-inventory-unavailable" },
   );
   assert.equal(
     await authorizeScormAttemptSession(
@@ -1968,6 +1995,135 @@ try {
   assert.equal(
     rejectedAfterRevocation.receipts[0]?.reasonCode,
     "entitlement_hard_revoked",
+  );
+
+  const cleanupIssuance = await issueOfflineScormEntitlement(
+    {
+      target: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        modulePosition: 0,
+      },
+      installationId: ids.installation,
+    },
+    user,
+    signEntitlement,
+    provisionPackageSite,
+  );
+  if (cleanupIssuance.status !== "issued")
+    assert.fail(
+      `Expected cleanup-verification issuance, received ${cleanupIssuance.reason}`,
+    );
+  const cleanupResolution = await resolveOfflineScormCourseEntitlement(
+    {
+      schemaVersion: 1,
+      entitlementId: cleanupIssuance.entitlementId,
+      resolution: "discarded",
+    },
+    user,
+  );
+  assert.equal(cleanupResolution.status, "cleanup-required");
+  assert.equal(
+    cleanupResolution.packageSiteOrigin,
+    cleanupIssuance.packageSiteOrigin,
+  );
+  assert.match(cleanupResolution.cleanupCapability, /^[A-Za-z0-9_-]{43}$/u);
+  assert.deepEqual(
+    await resolveOfflineScormCourseEntitlement(
+      {
+        schemaVersion: 1,
+        entitlementId: cleanupIssuance.entitlementId,
+        resolution: "discarded",
+      },
+      user,
+    ),
+    cleanupResolution,
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("scorm_attempt")
+      .select(["writerMode", "offlineEntitlementId", "credentialGeneration"])
+      .where("id", "=", cleanupIssuance.attemptId)
+      .executeTakeFirstOrThrow(),
+    {
+      writerMode: "online",
+      offlineEntitlementId: null,
+      credentialGeneration: cleanupIssuance.writerGeneration + 1,
+    },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_learning_entitlement")
+      .select(["status", "resolution", "resolvedByUserId"])
+      .where("id", "=", cleanupIssuance.entitlementId)
+      .executeTakeFirstOrThrow(),
+    {
+      status: "resolved",
+      resolution: "discarded",
+      resolvedByUserId: user.id,
+    },
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_cleanup_inventory")
+        .select("state")
+        .where("entitlementId", "=", cleanupIssuance.entitlementId)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "clearing",
+  );
+  const cleanupReceiptSha256 = createOfflineScormPackageCleanupReceipt(
+    {
+      OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: Buffer.alloc(32, 7).toString(
+        "base64url",
+      ),
+    },
+    {
+      entitlementId: cleanupIssuance.entitlementId,
+      packageSiteOrigin: cleanupIssuance.packageSiteOrigin,
+    },
+  );
+  assert.deepEqual(
+    await confirmOfflineScormPackageCleanup(
+      {
+        schemaVersion: 1,
+        entitlementId: cleanupIssuance.entitlementId,
+        cleanupReceiptSha256,
+      },
+      user,
+    ),
+    { status: "cleared" },
+  );
+  assert.deepEqual(
+    await confirmOfflineScormPackageCleanup(
+      {
+        schemaVersion: 1,
+        entitlementId: cleanupIssuance.entitlementId,
+        cleanupReceiptSha256,
+      },
+      user,
+    ),
+    { status: "cleared" },
+  );
+  assert.deepEqual(
+    await confirmOfflineScormPackageCleanup(
+      {
+        schemaVersion: 1,
+        entitlementId: cleanupIssuance.entitlementId,
+        cleanupReceiptSha256: "e".repeat(64),
+      },
+      user,
+    ),
+    { status: "denied" },
+  );
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_scorm_cleanup_inventory")
+      .select(["state", "cleanupReceiptSha256"])
+      .where("entitlementId", "=", cleanupIssuance.entitlementId)
+      .executeTakeFirstOrThrow(),
+    { state: "cleared", cleanupReceiptSha256 },
   );
 
   const eventAttempt = await database

@@ -78,6 +78,18 @@ if (Boolean(tlsCertificateFile) !== Boolean(tlsKeyFile))
 const clientDirectory = path.resolve(
   fileURLToPath(new URL("../dist/client/", import.meta.url)),
 );
+const offlineCoursesScript = readFileSync(
+  new URL("../dist/offline-scorm/application-offline.js", import.meta.url),
+  "utf8",
+);
+const offlineCoursesShared = readFileSync(
+  new URL("../dist/offline-scorm/shared.js", import.meta.url),
+  "utf8",
+);
+const offlineCoursesStyle = readFileSync(
+  new URL("../dist/offline-scorm/application-offline.css", import.meta.url),
+  "utf8",
+);
 const contentTypes = new Map([
   [".css", "text/css; charset=utf-8"],
   [".html", "text/html; charset=utf-8"],
@@ -215,6 +227,13 @@ function servePwaShellScript(incoming, outgoing) {
     asset = getPwaShellScriptAsset(
       new URL(incoming.url ?? "/", requestOrigin(incoming)),
       applicationOrigin,
+      {
+        learningOrigin,
+        offlineCoursesScript,
+        offlineCoursesShared,
+        offlineCoursesStyle,
+        packageHostSuffix: offlineScormPackageHostSuffix,
+      },
     );
   } catch {
     return false;
