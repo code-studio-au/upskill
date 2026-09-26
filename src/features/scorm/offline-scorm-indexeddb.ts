@@ -722,6 +722,14 @@ function assertPackageLifecycleUpdate(
       "journal_corrupt",
       "The package registry lifecycle cannot regress",
     );
+  if (
+    existing.cleanupReceiptSha256 !== undefined &&
+    candidate.cleanupReceiptSha256 !== existing.cleanupReceiptSha256
+  )
+    throw new OfflineScormRuntimeError(
+      "journal_corrupt",
+      "The retained package cleanup receipt cannot change",
+    );
 }
 
 function asStorageFailure(error: unknown): OfflineScormRuntimeError {

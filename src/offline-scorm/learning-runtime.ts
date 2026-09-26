@@ -31,6 +31,10 @@ let context:
       learnerName: string;
       packageOrigin: string;
       activation?: OfflineScormCourseActivationSuccess;
+      removalRecovery?: {
+        locallyCompleted: boolean;
+        resolution: "discarded" | "reconciled";
+      };
     }
   | undefined;
 
@@ -148,7 +152,22 @@ async function loadContext(input: {
       snapshot.records.some((record) => record.status === "discarded"))
   )
     throw new Error("The trusted offline package binding is unavailable");
-  context = input;
+  context =
+    input.mode === "remove" && packageRecord.status !== "ready"
+      ? {
+          ...input,
+          removalRecovery: {
+            locallyCompleted:
+              snapshot.attempt.currentSnapshot.lessonStatus === "completed" ||
+              snapshot.attempt.currentSnapshot.lessonStatus === "passed",
+            resolution: snapshot.records.some(
+              (record) => record.status === "discarded",
+            )
+              ? "discarded"
+              : "reconciled",
+          },
+        }
+      : input;
   postParent({
     type: "offline-scorm-context-ready",
     attemptId: input.attemptId,
@@ -308,6 +327,12 @@ function acceptPort(nextPort: MessagePort): void {
       protocolVersion: PROTOCOL_VERSION,
       manifest: acceptedContext.activation.packageManifest,
     });
+  else if (acceptedContext.removalRecovery)
+    postParent({
+      type: "offline-scorm-sync-complete",
+      attemptId: acceptedContext.attemptId,
+      ...acceptedContext.removalRecovery,
+    });
   else
     port.postMessage({
       type: "offline-scorm-drain-request",
@@ -325,6 +350,14 @@ async function beginCleanup(input: {
   const record = await store.getPackage(context.attemptId);
   if (!record || record.entitlementId !== input.entitlementId)
     throw new Error("The cleanup entitlement is unavailable");
+  if (record.status === "cleared" && record.cleanupReceiptSha256) {
+    postParent({
+      type: "offline-scorm-cleanup-complete",
+      entitlementId: input.entitlementId,
+      cleanupReceiptSha256: record.cleanupReceiptSha256,
+    });
+    return;
+  }
   const cleanupPendingRecord =
     record.status === "cleared"
       ? record
@@ -358,6 +391,7 @@ async function beginCleanup(input: {
   await store.putPackage({
     ...cleanupPendingRecord,
     status: "cleared",
+    cleanupReceiptSha256: cleanupResponse.cleanupReceiptSha256,
     updatedAt: packageUpdatedAtAfter(cleanupPendingRecord.updatedAt),
   });
   postParent({

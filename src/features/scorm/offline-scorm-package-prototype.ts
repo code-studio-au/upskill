@@ -601,9 +601,7 @@ export async function matchInstalledOfflineScormPackage(input: {
   const requestUrl = new URL(input.request.url);
   if (
     input.request.method !== "GET" ||
-    requestUrl.origin !== manifest.packageOrigin ||
-    requestUrl.search !== "" ||
-    requestUrl.hash !== ""
+    requestUrl.origin !== manifest.packageOrigin
   )
     return null;
   const file = manifest.files.find(

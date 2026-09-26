@@ -1,5 +1,6 @@
 import { z } from "#/validation/zod";
 import {
+  deleteOfflineScormCourseIndexDatabase,
   OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
   offlineScormCourseIndexRequestResult,
   offlineScormCourseIndexTransactionComplete,
@@ -45,6 +46,10 @@ const offlineScormCourseIndexRecordSchema = z.union([
       ...offlineScormCourseIndexProvisionedShape,
       state: z.literal("blocked"),
     }),
+    z.strictObject({
+      ...offlineScormCourseIndexProvisionedShape,
+      state: z.literal("removing"),
+    }),
   ]),
   z.pipe(
     z.strictObject(offlineScormCourseIndexProvisionedShape),
@@ -57,7 +62,7 @@ export type OfflineScormCourseIndexRecord = z.infer<
 >;
 export type OfflineScormCourseIndexManagedRecord = Extract<
   OfflineScormCourseIndexRecord,
-  { state: "blocked" | "ready" }
+  { state: "blocked" | "ready" | "removing" }
 >;
 
 export function offlineScormCourseIndexLearnerId(
@@ -80,21 +85,31 @@ export async function getOfflineScormCourseIndexRecord(
   key: string,
 ): Promise<OfflineScormCourseIndexRecord | undefined> {
   const database = await openOfflineScormCourseIndexDatabase();
+  let value: unknown;
+  let empty: boolean;
   try {
     const transaction = database.transaction(
       OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
       "readonly",
     );
-    const value = await offlineScormCourseIndexRequestResult<unknown>(
-      transaction.objectStore(OFFLINE_SCORM_COURSE_INDEX_STORE_NAME).get(key),
+    const completed = offlineScormCourseIndexTransactionComplete(transaction);
+    const store = transaction.objectStore(
+      OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
     );
-    await offlineScormCourseIndexTransactionComplete(transaction);
-    return value === undefined
-      ? undefined
-      : offlineScormCourseIndexRecordSchema.parse(value);
+    const [storedValue, count] = await Promise.all([
+      offlineScormCourseIndexRequestResult<unknown>(store.get(key)),
+      offlineScormCourseIndexRequestResult(store.count()),
+    ]);
+    value = storedValue;
+    empty = count === 0;
+    await completed;
   } finally {
     database.close();
   }
+  if (empty) await deleteOfflineScormCourseIndexDatabase();
+  return value === undefined
+    ? undefined
+    : offlineScormCourseIndexRecordSchema.parse(value);
 }
 
 export async function putOfflineScormCourseIndexRecord(
@@ -118,22 +133,30 @@ export async function deleteOfflineScormCourseIndexRecord(
   key: string,
 ): Promise<void> {
   const database = await openOfflineScormCourseIndexDatabase();
+  let remaining: number;
   try {
     const transaction = database.transaction(
       OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
       "readwrite",
     );
-    transaction.objectStore(OFFLINE_SCORM_COURSE_INDEX_STORE_NAME).delete(key);
-    await offlineScormCourseIndexTransactionComplete(transaction);
+    const completed = offlineScormCourseIndexTransactionComplete(transaction);
+    const store = transaction.objectStore(
+      OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
+    );
+    store.delete(key);
+    remaining = await offlineScormCourseIndexRequestResult(store.count());
+    await completed;
   } finally {
     database.close();
   }
+  if (remaining === 0) await deleteOfflineScormCourseIndexDatabase();
 }
 
 export async function listOfflineScormCourseIndexRecords(): Promise<
   OfflineScormCourseIndexRecord[]
 > {
   const database = await openOfflineScormCourseIndexDatabase();
+  let records: OfflineScormCourseIndexRecord[];
   try {
     const transaction = database.transaction(
       OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
@@ -143,10 +166,12 @@ export async function listOfflineScormCourseIndexRecords(): Promise<
       transaction.objectStore(OFFLINE_SCORM_COURSE_INDEX_STORE_NAME).getAll(),
     );
     await offlineScormCourseIndexTransactionComplete(transaction);
-    return values.map((value) =>
+    records = values.map((value) =>
       offlineScormCourseIndexRecordSchema.parse(value),
     );
   } finally {
     database.close();
   }
+  if (records.length === 0) await deleteOfflineScormCourseIndexDatabase();
+  return records;
 }

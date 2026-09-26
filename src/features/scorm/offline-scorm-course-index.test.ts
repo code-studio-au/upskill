@@ -64,6 +64,16 @@ describe("offline SCORM application course index", () => {
       replaced,
     );
 
+    const removing = {
+      ...replaced,
+      state: "removing" as const,
+      updatedAt: "2026-09-26T02:00:00.000Z",
+    };
+    await putOfflineScormCourseIndexRecord(removing);
+    await expect(getOfflineScormCourseIndexRecord(key)).resolves.toEqual(
+      removing,
+    );
+
     await deleteOfflineScormCourseIndexRecord(key);
     await expect(hasOfflineScormCourseIndexRecords()).resolves.toBe(false);
     await expect(

@@ -182,7 +182,7 @@ describe("offline SCORM credential-free package host", () => {
     expect(appRoute?.headers.get("allow")).toBe("GET, HEAD");
   });
 
-  it("serves only reviewed runtime assets for an active exact origin", async () => {
+  it("keeps reviewed cleanup runtime assets available after launch expiry", async () => {
     findAuthorizedRuntime.mockResolvedValue({
       cleanupState: "pending",
       entitlementId: "entitlement_active",
@@ -216,7 +216,7 @@ describe("offline SCORM credential-free package host", () => {
     });
     await expect(
       handler()(new Request(`${packageOrigin}/.__upskill_offline__/host.html`)),
-    ).resolves.toMatchObject({ status: 404 });
+    ).resolves.toMatchObject({ status: 200 });
   });
 
   it("authorizes whole-site cleanup only for the trusted learning origin", async () => {

@@ -451,6 +451,15 @@ describe("isolated offline SCORM package prototype", () => {
       "x-content-type-options": "nosniff",
     });
 
+    const cacheBustedResponse = await matchInstalledOfflineScormPackage({
+      manifest,
+      applicationOrigin: "https://app.upskill.example",
+      caches: caches as unknown as Pick<CacheStorage, "open">,
+      request: new Request(`${manifest.packageOrigin}/index.html?v=1`),
+      subtle: crypto.subtle,
+    });
+    await expect(cacheBustedResponse?.text()).resolves.toBe("ready");
+
     const readyKey = [...readyCache.values.keys()].find((key) =>
       key.includes("/.__upskill_offline__/ready/"),
     );

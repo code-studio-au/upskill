@@ -298,7 +298,7 @@ async function beginInstall(target: DownloadTarget): Promise<void> {
       throw new Error("This offline download belongs to another learner.");
     if (existing.state === "ready")
       throw new Error("This module is already downloaded.");
-    if (existing.state === "blocked")
+    if (existing.state === "blocked" || existing.state === "removing")
       throw new Error("Resolve and remove this download before retrying.");
   }
   if (!existing || existing.state === "activating")
@@ -394,11 +394,12 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
       courseList.append(card);
       continue;
     }
-    if (record.state === "blocked") {
+    if (record.state === "blocked" || record.state === "removing") {
       const remove = document.createElement("button");
       remove.type = "button";
       remove.disabled = !navigator.onLine;
-      remove.textContent = "Resolve and remove";
+      remove.textContent =
+        record.state === "blocked" ? "Resolve and remove" : "Resume removal";
       remove.addEventListener("click", () => {
         void beginExistingOperation("remove", record).catch(
           (error: unknown) => {
@@ -450,17 +451,20 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     downloadButton.disabled =
       existing?.state === "ready" ||
       existing?.state === "blocked" ||
+      existing?.state === "removing" ||
       Boolean(active);
     downloadButton.textContent =
       existing?.state === "ready"
         ? "Already downloaded"
         : existing?.state === "blocked"
           ? "Removal required"
-          : existing
-            ? "Resume download"
-            : supportedMobileRuntime()
-              ? "Download for offline"
-              : "Offline on Android";
+          : existing?.state === "removing"
+            ? "Removal in progress"
+            : existing
+              ? "Resume download"
+              : supportedMobileRuntime()
+                ? "Download for offline"
+                : "Offline on Android";
   }
   if (!active)
     setStatus(
@@ -657,6 +661,13 @@ async function handleLearningMessage(
       );
       finishOperation();
     } else if (current.kind === "remove" && current.record) {
+      const removingRecord = {
+        ...current.record,
+        state: "removing" as const,
+        updatedAt: new Date().toISOString(),
+      };
+      await putOfflineScormCourseIndexRecord(removingRecord);
+      current.record = removingRecord;
       const resolution = await jsonResponse<Record<string, unknown>>(
         await fetch("/api/scorm/offline/resolve", {
           method: "POST",

@@ -440,6 +440,7 @@ describe("offline SCORM trusted IndexedDB", () => {
     });
     const cleared = packageRecord({
       status: "cleared",
+      cleanupReceiptSha256: "e".repeat(64),
       updatedAt: "2026-09-16T01:07:00.000Z",
     });
 
@@ -473,6 +474,20 @@ describe("offline SCORM trusted IndexedDB", () => {
       ),
     ).rejects.toMatchObject({ code: "journal_corrupt" });
     await store.putPackage(cleared);
+    await expect(
+      store.putPackage({
+        ...cleared,
+        cleanupReceiptSha256: "f".repeat(64),
+        updatedAt: "2026-09-16T01:08:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+    await expect(
+      store.putPackage({
+        ...cleared,
+        cleanupReceiptSha256: undefined,
+        updatedAt: "2026-09-16T01:08:00.000Z",
+      }),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
 
     const database = await store.open();
     const transaction = database.transaction("packages", "readonly");

@@ -1,4 +1,5 @@
-const DATABASE_NAME = "upskill-offline-scorm-course-index-v1";
+export const OFFLINE_SCORM_COURSE_INDEX_DATABASE_NAME =
+  "upskill-offline-scorm-course-index-v1";
 const DATABASE_VERSION = 1;
 export const OFFLINE_SCORM_COURSE_INDEX_STORE_NAME = "courses";
 
@@ -55,7 +56,10 @@ export function offlineScormCourseIndexTransactionComplete(
 
 export async function openOfflineScormCourseIndexDatabase(): Promise<IDBDatabase> {
   return await new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+    const request = indexedDB.open(
+      OFFLINE_SCORM_COURSE_INDEX_DATABASE_NAME,
+      DATABASE_VERSION,
+    );
     request.addEventListener(
       "upgradeneeded",
       () => {
@@ -91,18 +95,36 @@ export async function openOfflineScormCourseIndexDatabase(): Promise<IDBDatabase
 }
 
 export async function hasOfflineScormCourseIndexRecords(): Promise<boolean> {
-  const database = await openOfflineScormCourseIndexDatabase();
-  try {
-    const transaction = database.transaction(
-      OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
-      "readonly",
+  return (await indexedDB.databases()).some(
+    (database) => database.name === OFFLINE_SCORM_COURSE_INDEX_DATABASE_NAME,
+  );
+}
+
+export async function deleteOfflineScormCourseIndexDatabase(): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const request = indexedDB.deleteDatabase(
+      OFFLINE_SCORM_COURSE_INDEX_DATABASE_NAME,
     );
-    const count = await offlineScormCourseIndexRequestResult(
-      transaction.objectStore(OFFLINE_SCORM_COURSE_INDEX_STORE_NAME).count(),
+    request.addEventListener(
+      "success",
+      () => {
+        resolve();
+      },
+      { once: true },
     );
-    await offlineScormCourseIndexTransactionComplete(transaction);
-    return count > 0;
-  } finally {
-    database.close();
-  }
+    request.addEventListener(
+      "error",
+      () => {
+        reject(request.error ?? new Error("Offline course index failed"));
+      },
+      { once: true },
+    );
+    request.addEventListener(
+      "blocked",
+      () => {
+        reject(new Error("Offline course index is busy"));
+      },
+      { once: true },
+    );
+  });
 }

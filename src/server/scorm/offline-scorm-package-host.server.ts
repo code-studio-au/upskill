@@ -315,9 +315,7 @@ export function createOfflineScormPackageHostHandler(
       }
       const runtimeAvailable =
         (runtime.entitlementStatus === "active" &&
-          runtime.cleanupState === "pending" &&
-          runtime.intendedLaunchExpiresAt >
-            (dependencies.now ?? (() => new Date()))()) ||
+          runtime.cleanupState === "pending") ||
         (runtime.entitlementStatus === "resolved" &&
           runtime.cleanupState === "clearing");
       if (
