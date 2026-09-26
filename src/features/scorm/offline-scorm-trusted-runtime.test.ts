@@ -331,7 +331,7 @@ describe("offline SCORM trusted IndexedDB", () => {
     ).rejects.toMatchObject({ code: "attempt_unavailable" });
     await expect(
       store.getInstallation("installation_1"),
-    ).resolves.toBeDefined();
+    ).resolves.toBeUndefined();
   });
 
   it("reserves, signs and finalises exactly one stable journal record", async () => {
@@ -729,6 +729,98 @@ describe("offline SCORM trusted IndexedDB", () => {
     expect(
       (await store.getAttemptJournalSnapshot("attempt_1")).records[0],
     ).toMatchObject({ status: "acknowledged" });
+  });
+
+  it("explicitly discards an unreachable journal tail after a terminal receipt", async () => {
+    const store = createStore();
+    await prepareStore(store);
+    const runtime = new OfflineScormTrustedRuntime(store, {
+      now: () => new Date(baseInstant),
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry(),
+    });
+    await runtime.importSpoolEntry({
+      attemptId: "attempt_1",
+      entry: spoolEntry({
+        spoolEntryId: "spool_entry_000002",
+        ordinal: 2,
+        sessionElapsedSeconds: 40,
+        sessionTimeDeltaSeconds: 20,
+        clientObservedAt: "2026-09-16T01:02:04.000Z",
+        snapshot: {
+          ...spoolEntry().snapshot,
+          location: "slide-3",
+          totalTimeSeconds: 40,
+        },
+      }),
+    });
+    const [first, second] = (await store.getAttemptJournalSnapshot("attempt_1"))
+      .records;
+    if (!first || !second) throw new Error("Expected two journal records");
+    const terminalReceipt = receipt({
+      commitId: first.commitId,
+      clientSequence: first.clientSequence,
+      requestFingerprint: await fingerprintOfflineScormCommit(
+        first.unsignedCommit,
+      ),
+      outcome: "conflict",
+      reasonCode: "history_conflict",
+      resultingAttemptRevision: null,
+    });
+    await store.putReceipt(terminalReceipt);
+
+    await expect(store.getTerminalReceipt("attempt_1")).resolves.toEqual(
+      terminalReceipt,
+    );
+    await expect(store.listPendingSignedCommits("attempt_1")).resolves.toEqual([
+      expect.objectContaining({ commitId: second.commitId }),
+    ]);
+
+    await store.discardJournalAfterTerminalReceipt("attempt_1");
+    await expect(store.listPendingSignedCommits("attempt_1")).resolves.toEqual(
+      [],
+    );
+    expect(
+      (await store.getAttemptJournalSnapshot("attempt_1")).records.map(
+        (record) => record.status,
+      ),
+    ).toEqual(["discarded", "discarded"]);
+    await expect(
+      store.putReceipt(
+        receipt({
+          commitId: second.commitId,
+          clientSequence: second.clientSequence,
+          requestFingerprint: await fingerprintOfflineScormCommit(
+            second.unsignedCommit,
+          ),
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "journal_corrupt" });
+
+    await store.putPackage(packageRecord());
+    await store.putPackage(
+      packageRecord({
+        status: "ready",
+        updatedAt: "2026-09-16T01:03:00.000Z",
+      }),
+    );
+    await store.putPackage(
+      packageRecord({
+        status: "cleanup_pending",
+        updatedAt: "2026-09-16T01:04:00.000Z",
+      }),
+    );
+    await store.putPackage(
+      packageRecord({
+        status: "cleared",
+        updatedAt: "2026-09-16T01:05:00.000Z",
+      }),
+    );
+    await expect(
+      store.clearAcknowledgedAttempt("attempt_1"),
+    ).resolves.toBeUndefined();
   });
 
   it("rejects receipts that do not match immutable journal evidence", async () => {

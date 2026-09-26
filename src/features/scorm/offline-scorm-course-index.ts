@@ -1,29 +1,73 @@
 import { z } from "#/validation/zod";
+import {
+  OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
+  offlineScormCourseIndexRequestResult,
+  offlineScormCourseIndexTransactionComplete,
+  openOfflineScormCourseIndexDatabase,
+} from "./offline-scorm-course-index-database";
 
-const DATABASE_NAME = "upskill-offline-scorm-course-index-v1";
-const DATABASE_VERSION = 1;
-const STORE_NAME = "courses";
-
-const offlineScormCourseIndexRecordSchema = z.strictObject({
+const offlineScormCourseIndexCommonShape = {
   schemaVersion: z.literal(1),
   key: z.string().check(z.minLength(3), z.maxLength(520)),
   enrollmentId: z.string().check(z.minLength(1), z.maxLength(255)),
   courseVersionItemId: z.string().check(z.minLength(1), z.maxLength(255)),
   modulePosition: z.number().check(z.int(), z.nonnegative()),
   title: z.string().check(z.minLength(1), z.maxLength(200)),
-  attemptId: z.string().check(z.minLength(1), z.maxLength(255)),
-  entitlementId: z.string().check(z.minLength(1), z.maxLength(255)),
   learnerId: z.string().check(z.minLength(1), z.maxLength(255)),
   learnerName: z.string().check(z.minLength(1), z.maxLength(200)),
   learningRuntimeUrl: z.url(),
+  updatedAt: z.iso.datetime(),
+} as const;
+
+const offlineScormCourseIndexProvisionedShape = {
+  ...offlineScormCourseIndexCommonShape,
+  attemptId: z.string().check(z.minLength(1), z.maxLength(255)),
+  entitlementId: z.string().check(z.minLength(1), z.maxLength(255)),
   packageOrigin: z.url(),
   intendedLaunchExpiresAt: z.iso.datetime(),
-  updatedAt: z.iso.datetime(),
-});
+} as const;
+
+const offlineScormCourseIndexRecordSchema = z.union([
+  z.discriminatedUnion("state", [
+    z.strictObject({
+      ...offlineScormCourseIndexCommonShape,
+      state: z.literal("activating"),
+    }),
+    z.strictObject({
+      ...offlineScormCourseIndexProvisionedShape,
+      state: z.literal("downloading"),
+    }),
+    z.strictObject({
+      ...offlineScormCourseIndexProvisionedShape,
+      state: z.literal("ready"),
+    }),
+    z.strictObject({
+      ...offlineScormCourseIndexProvisionedShape,
+      state: z.literal("blocked"),
+    }),
+  ]),
+  z.pipe(
+    z.strictObject(offlineScormCourseIndexProvisionedShape),
+    z.transform((record) => ({ ...record, state: "ready" as const })),
+  ),
+]);
 
 export type OfflineScormCourseIndexRecord = z.infer<
   typeof offlineScormCourseIndexRecordSchema
 >;
+export type OfflineScormCourseIndexManagedRecord = Extract<
+  OfflineScormCourseIndexRecord,
+  { state: "blocked" | "ready" }
+>;
+
+export function offlineScormCourseIndexLearnerId(
+  records: readonly OfflineScormCourseIndexRecord[],
+): string | undefined {
+  const learnerIds = new Set(records.map((record) => record.learnerId));
+  if (learnerIds.size > 1)
+    throw new Error("Offline courses belong to more than one learner");
+  return learnerIds.values().next().value;
+}
 
 export function offlineScormCourseIndexKey(
   enrollmentId: string,
@@ -32,89 +76,19 @@ export function offlineScormCourseIndexKey(
   return `${enrollmentId}:${courseVersionItemId}`;
 }
 
-function requestResult<T>(request: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    request.addEventListener(
-      "success",
-      () => {
-        resolve(request.result);
-      },
-      { once: true },
-    );
-    request.addEventListener(
-      "error",
-      () => {
-        reject(request.error ?? new Error("Offline course index failed"));
-      },
-      { once: true },
-    );
-  });
-}
-
-function transactionComplete(transaction: IDBTransaction): Promise<void> {
-  return new Promise((resolve, reject) => {
-    transaction.addEventListener(
-      "complete",
-      () => {
-        resolve();
-      },
-      { once: true },
-    );
-    transaction.addEventListener(
-      "abort",
-      () => {
-        reject(transaction.error ?? new Error("Offline course index aborted"));
-      },
-      { once: true },
-    );
-    transaction.addEventListener(
-      "error",
-      () => {
-        reject(transaction.error ?? new Error("Offline course index failed"));
-      },
-      { once: true },
-    );
-  });
-}
-
-async function openDatabase(): Promise<IDBDatabase> {
-  return await new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
-    request.addEventListener(
-      "upgradeneeded",
-      () => {
-        if (!request.result.objectStoreNames.contains(STORE_NAME))
-          request.result.createObjectStore(STORE_NAME, { keyPath: "key" });
-      },
-      { once: true },
-    );
-    request.addEventListener(
-      "success",
-      () => {
-        resolve(request.result);
-      },
-      { once: true },
-    );
-    request.addEventListener(
-      "error",
-      () => {
-        reject(request.error ?? new Error("Offline course index failed"));
-      },
-      { once: true },
-    );
-  });
-}
-
 export async function getOfflineScormCourseIndexRecord(
   key: string,
 ): Promise<OfflineScormCourseIndexRecord | undefined> {
-  const database = await openDatabase();
+  const database = await openOfflineScormCourseIndexDatabase();
   try {
-    const transaction = database.transaction(STORE_NAME, "readonly");
-    const value = await requestResult<unknown>(
-      transaction.objectStore(STORE_NAME).get(key),
+    const transaction = database.transaction(
+      OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
+      "readonly",
     );
-    await transactionComplete(transaction);
+    const value = await offlineScormCourseIndexRequestResult<unknown>(
+      transaction.objectStore(OFFLINE_SCORM_COURSE_INDEX_STORE_NAME).get(key),
+    );
+    await offlineScormCourseIndexTransactionComplete(transaction);
     return value === undefined
       ? undefined
       : offlineScormCourseIndexRecordSchema.parse(value);
@@ -127,11 +101,14 @@ export async function putOfflineScormCourseIndexRecord(
   input: OfflineScormCourseIndexRecord,
 ): Promise<void> {
   const record = offlineScormCourseIndexRecordSchema.parse(input);
-  const database = await openDatabase();
+  const database = await openOfflineScormCourseIndexDatabase();
   try {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
-    transaction.objectStore(STORE_NAME).put(record);
-    await transactionComplete(transaction);
+    const transaction = database.transaction(
+      OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
+      "readwrite",
+    );
+    transaction.objectStore(OFFLINE_SCORM_COURSE_INDEX_STORE_NAME).put(record);
+    await offlineScormCourseIndexTransactionComplete(transaction);
   } finally {
     database.close();
   }
@@ -140,11 +117,14 @@ export async function putOfflineScormCourseIndexRecord(
 export async function deleteOfflineScormCourseIndexRecord(
   key: string,
 ): Promise<void> {
-  const database = await openDatabase();
+  const database = await openOfflineScormCourseIndexDatabase();
   try {
-    const transaction = database.transaction(STORE_NAME, "readwrite");
-    transaction.objectStore(STORE_NAME).delete(key);
-    await transactionComplete(transaction);
+    const transaction = database.transaction(
+      OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
+      "readwrite",
+    );
+    transaction.objectStore(OFFLINE_SCORM_COURSE_INDEX_STORE_NAME).delete(key);
+    await offlineScormCourseIndexTransactionComplete(transaction);
   } finally {
     database.close();
   }
@@ -153,13 +133,16 @@ export async function deleteOfflineScormCourseIndexRecord(
 export async function listOfflineScormCourseIndexRecords(): Promise<
   OfflineScormCourseIndexRecord[]
 > {
-  const database = await openDatabase();
+  const database = await openOfflineScormCourseIndexDatabase();
   try {
-    const transaction = database.transaction(STORE_NAME, "readonly");
-    const values = await requestResult<unknown[]>(
-      transaction.objectStore(STORE_NAME).getAll(),
+    const transaction = database.transaction(
+      OFFLINE_SCORM_COURSE_INDEX_STORE_NAME,
+      "readonly",
     );
-    await transactionComplete(transaction);
+    const values = await offlineScormCourseIndexRequestResult<unknown[]>(
+      transaction.objectStore(OFFLINE_SCORM_COURSE_INDEX_STORE_NAME).getAll(),
+    );
+    await offlineScormCourseIndexTransactionComplete(transaction);
     return values.map((value) =>
       offlineScormCourseIndexRecordSchema.parse(value),
     );

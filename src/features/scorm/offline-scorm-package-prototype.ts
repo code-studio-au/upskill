@@ -140,6 +140,10 @@ export const offlineScormPackageManifestSchema = z
     }),
   );
 
+export function offlineScormPackagePathname(path: string): string {
+  return `/${path.split("/").map(encodeURIComponent).join("/")}`;
+}
+
 const offlineScormPackageSpoolStateSchema = z.strictObject({
   schemaVersion: z.literal(1),
   nextOrdinal: z

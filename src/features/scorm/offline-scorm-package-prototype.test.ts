@@ -11,9 +11,21 @@ import {
   matchInstalledOfflineScormPackage,
   OFFLINE_SCORM_PACKAGE_LOCK_NAME,
   OfflineScormPackageSpool,
+  offlineScormPackagePathname,
   requestOfflineScormPackageStorageAccess,
   type OfflineScormPackageManifest,
 } from "#/features/scorm/offline-scorm-package-prototype";
+
+describe("offline SCORM package pathnames", () => {
+  it("encodes every stored path segment without changing hierarchy", () => {
+    expect(
+      offlineScormPackagePathname("lessons/Café intro/image #1?.png"),
+    ).toBe("/lessons/Caf%C3%A9%20intro/image%20%231%3F.png");
+    expect(offlineScormPackagePathname("index%20literal.html")).toBe(
+      "/index%2520literal.html",
+    );
+  });
+});
 
 class MemoryStorage implements Pick<Storage, "getItem" | "setItem"> {
   readonly values = new Map<string, string>();

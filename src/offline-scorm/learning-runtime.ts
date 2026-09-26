@@ -26,7 +26,7 @@ const learningWorkerReady = navigator.serviceWorker
 let port: MessagePort | undefined;
 let context:
   | {
-      mode: "install" | "launch" | "sync";
+      mode: "install" | "launch" | "remove" | "sync";
       attemptId: string;
       learnerName: string;
       packageOrigin: string;
@@ -126,18 +126,26 @@ async function installActivation(input: unknown): Promise<void> {
 async function loadContext(input: {
   attemptId: string;
   learnerName: string;
-  mode: "launch" | "sync";
+  mode: "launch" | "remove" | "sync";
   packageOrigin: string;
 }): Promise<void> {
-  const packageRecord = await store.getPackage(input.attemptId);
-  const snapshot = await store.getAttemptJournalSnapshot(input.attemptId);
+  const [packageRecord, snapshot] = await Promise.all([
+    store.getPackage(input.attemptId),
+    store.getAttemptJournalSnapshot(input.attemptId),
+  ]);
   if (
     !packageRecord ||
-    packageRecord.status !== "ready" ||
+    (input.mode === "remove"
+      ? packageRecord.status !== "ready" &&
+        packageRecord.status !== "cleanup_pending" &&
+        packageRecord.status !== "cleared"
+      : packageRecord.status !== "ready") ||
     packageRecord.packageOrigin !== input.packageOrigin ||
     snapshot.entitlement.attemptId !== input.attemptId ||
     snapshot.entitlement.packageVersionId !== packageRecord.packageVersionId ||
-    snapshot.entitlement.packageSha256 !== packageRecord.packageSha256
+    snapshot.entitlement.packageSha256 !== packageRecord.packageSha256 ||
+    (input.mode !== "remove" &&
+      snapshot.records.some((record) => record.status === "discarded"))
   )
     throw new Error("The trusted offline package binding is unavailable");
   context = input;
@@ -164,6 +172,15 @@ async function sendSyncBatch(): Promise<void> {
   if (!context) return;
   await runtime.recoverSigningReservations(context.attemptId);
   const snapshot = await store.getAttemptJournalSnapshot(context.attemptId);
+  const terminalReceipt = await store.getTerminalReceipt(context.attemptId);
+  if (terminalReceipt) {
+    postParent({
+      type: "offline-scorm-sync-blocked",
+      attemptId: context.attemptId,
+      reasonCode: terminalReceipt.reasonCode,
+    });
+    return;
+  }
   const commits = await store.listPendingSignedCommits(context.attemptId);
   if (commits.length === 0) {
     postParent({
@@ -208,9 +225,29 @@ async function acceptSyncResult(input: unknown): Promise<void> {
       }),
     );
   }
-  if ("block" in input && input.block)
+  if (
+    "block" in input &&
+    input.block &&
+    (typeof input.block !== "object" ||
+      !("kind" in input.block) ||
+      input.block.kind !== "terminal_receipt")
+  )
     throw new Error("Offline progress synchronization is blocked");
   await sendSyncBatch();
+}
+
+async function discardTerminalJournal(): Promise<void> {
+  if (!context) throw new Error("The offline runtime context is unavailable");
+  await store.discardJournalAfterTerminalReceipt(context.attemptId);
+  const snapshot = await store.getAttemptJournalSnapshot(context.attemptId);
+  postParent({
+    type: "offline-scorm-sync-complete",
+    attemptId: context.attemptId,
+    locallyCompleted:
+      snapshot.attempt.currentSnapshot.lessonStatus === "completed" ||
+      snapshot.attempt.currentSnapshot.lessonStatus === "passed",
+    resolution: "discarded",
+  });
 }
 
 async function initializePlayer(): Promise<void> {
@@ -288,11 +325,14 @@ async function beginCleanup(input: {
   const record = await store.getPackage(context.attemptId);
   if (!record || record.entitlementId !== input.entitlementId)
     throw new Error("The cleanup entitlement is unavailable");
-  const cleanupPendingRecord = {
-    ...record,
-    status: "cleanup_pending" as const,
-    updatedAt: packageUpdatedAtAfter(record.updatedAt),
-  };
+  const cleanupPendingRecord =
+    record.status === "cleared"
+      ? record
+      : {
+          ...record,
+          status: "cleanup_pending" as const,
+          updatedAt: packageUpdatedAtAfter(record.updatedAt),
+        };
   await store.putPackage(cleanupPendingRecord);
   const cleanupUrl = new URL(
     "/.__upskill_offline__/clear-site-data",
@@ -341,7 +381,12 @@ window.addEventListener("message", (event) => {
       await loadContext({
         attemptId: String(message.attemptId),
         learnerName: String(message.learnerName),
-        mode: message.mode === "sync" ? "sync" : "launch",
+        mode:
+          message.mode === "sync"
+            ? "sync"
+            : message.mode === "remove"
+              ? "remove"
+              : "launch",
         packageOrigin: new URL(String(message.packageOrigin)).origin,
       });
     else if (
@@ -352,6 +397,8 @@ window.addEventListener("message", (event) => {
       if (nextPort) acceptPort(nextPort);
     } else if (message.type === "offline-scorm-sync-result")
       await acceptSyncResult(message.result);
+    else if (message.type === "offline-scorm-discard-terminal-journal")
+      await discardTerminalJournal();
     else if (message.type === "offline-scorm-cleanup-start")
       await beginCleanup({
         cleanupCapability: String(message.cleanupCapability),

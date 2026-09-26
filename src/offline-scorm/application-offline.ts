@@ -1,9 +1,10 @@
 import {
   deleteOfflineScormCourseIndexRecord,
-  getOfflineScormCourseIndexRecord,
   listOfflineScormCourseIndexRecords,
   offlineScormCourseIndexKey,
+  offlineScormCourseIndexLearnerId,
   putOfflineScormCourseIndexRecord,
+  type OfflineScormCourseIndexManagedRecord,
   type OfflineScormCourseIndexRecord,
 } from "#/features/scorm/offline-scorm-course-index";
 import "./application-offline.css";
@@ -46,7 +47,7 @@ interface Operation {
   kind: "install" | "launch" | "remove" | "sync";
   learningReady: boolean;
   packageReady: boolean;
-  record?: OfflineScormCourseIndexRecord;
+  record?: OfflineScormCourseIndexManagedRecord;
   reject(error: unknown): void;
   resolve(): void;
   target?: DownloadTarget;
@@ -79,6 +80,9 @@ const packageFrame = element("offline-package-frame", HTMLIFrameElement);
 let active: Operation | undefined;
 let deferredInstallPrompt: DeferredInstallPrompt | undefined;
 let synchronizingAll = false;
+let visibleLearnerId: string | undefined;
+
+class BootstrapResponseError extends Error {}
 
 function setStatus(message: string): void {
   status.textContent = message;
@@ -112,12 +116,48 @@ async function jsonResponse<T>(response: Response): Promise<T> {
 }
 
 async function bootstrap(): Promise<Bootstrap> {
-  return await jsonResponse<Bootstrap>(
-    await fetch("/api/scorm/offline/bootstrap", {
-      cache: "no-store",
-      credentials: "same-origin",
-    }),
-  );
+  const response = await fetch("/api/scorm/offline/bootstrap", {
+    cache: "no-store",
+    credentials: "same-origin",
+  });
+  if (!response.ok) {
+    let message = "The signed-in learner could not be verified";
+    try {
+      const body = (await response.json()) as { error?: unknown };
+      if (typeof body.error === "string") message = body.error;
+    } catch {
+      // A reachable but malformed response must not expose another learner's
+      // retained offline projection.
+    }
+    throw new BootstrapResponseError(message);
+  }
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new BootstrapResponseError(
+      "The signed-in learner response could not be verified",
+    );
+  }
+  if (
+    !body ||
+    typeof body !== "object" ||
+    !("schemaVersion" in body) ||
+    body.schemaVersion !== 1 ||
+    !("learner" in body) ||
+    !body.learner ||
+    typeof body.learner !== "object" ||
+    !("id" in body.learner) ||
+    typeof body.learner.id !== "string" ||
+    !("name" in body.learner) ||
+    typeof body.learner.name !== "string" ||
+    !("learningRuntimeUrl" in body) ||
+    typeof body.learningRuntimeUrl !== "string"
+  )
+    throw new BootstrapResponseError(
+      "The signed-in learner response could not be verified",
+    );
+  return body as Bootstrap;
 }
 
 function downloadTarget(): DownloadTarget | undefined {
@@ -141,6 +181,18 @@ function downloadTarget(): DownloadTarget | undefined {
     key: offlineScormCourseIndexKey(enrollmentId, courseVersionItemId),
     modulePosition,
     title,
+  };
+}
+
+function recordDownloadTarget(
+  record: OfflineScormCourseIndexRecord,
+): DownloadTarget {
+  return {
+    courseVersionItemId: record.courseVersionItemId,
+    enrollmentId: record.enrollmentId,
+    key: record.key,
+    modulePosition: record.modulePosition,
+    title: record.title,
   };
 }
 
@@ -229,9 +281,37 @@ async function beginInstall(target: DownloadTarget): Promise<void> {
   }
   downloadButton.disabled = true;
   setStatus("Preparing secure offline storage…");
-  await navigator.storage.persist();
-  await navigator.serviceWorker.ready;
+  await Promise.all([
+    navigator.storage.persist(),
+    navigator.serviceWorker.ready,
+  ]);
   const runtimeBootstrap = await bootstrap();
+  const records = await listOfflineScormCourseIndexRecords();
+  const storedLearnerId = offlineScormCourseIndexLearnerId(records);
+  if (storedLearnerId && storedLearnerId !== runtimeBootstrap.learner.id)
+    throw new Error(
+      "Another learner has offline courses on this device. They must remove them before accounts can be changed.",
+    );
+  const existing = records.find((record) => record.key === target.key);
+  if (existing?.learnerId !== undefined) {
+    if (existing.learnerId !== runtimeBootstrap.learner.id)
+      throw new Error("This offline download belongs to another learner.");
+    if (existing.state === "ready")
+      throw new Error("This module is already downloaded.");
+    if (existing.state === "blocked")
+      throw new Error("Resolve and remove this download before retrying.");
+  }
+  if (!existing || existing.state === "activating")
+    await putOfflineScormCourseIndexRecord({
+      schemaVersion: 1,
+      state: "activating",
+      ...target,
+      learnerId: runtimeBootstrap.learner.id,
+      learnerName: runtimeBootstrap.learner.name,
+      learningRuntimeUrl: runtimeBootstrap.learningRuntimeUrl,
+      updatedAt: new Date().toISOString(),
+    });
+  visibleLearnerId = runtimeBootstrap.learner.id;
   await startOperation({
     kind: "install",
     bootstrap: runtimeBootstrap,
@@ -245,8 +325,14 @@ async function beginInstall(target: DownloadTarget): Promise<void> {
 
 async function beginExistingOperation(
   kind: "launch" | "remove" | "sync",
-  record: OfflineScormCourseIndexRecord,
+  record: OfflineScormCourseIndexManagedRecord,
 ): Promise<void> {
+  if (!visibleLearnerId || record.learnerId !== visibleLearnerId)
+    throw new Error("This offline course is not available to this learner.");
+  if (kind !== "remove" && record.state !== "ready")
+    throw new Error(
+      "This offline course must be removed before it can reopen.",
+    );
   if (kind !== "launch" && !navigator.onLine)
     throw new Error("Reconnect before synchronizing or removing a download.");
   if (
@@ -266,7 +352,20 @@ async function beginExistingOperation(
 }
 
 async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
-  const records = await listOfflineScormCourseIndexRecords();
+  const allRecords = await listOfflineScormCourseIndexRecords();
+  const storedLearnerId = offlineScormCourseIndexLearnerId(allRecords);
+  let authenticated = false;
+  try {
+    const runtimeBootstrap = await bootstrap();
+    visibleLearnerId = runtimeBootstrap.learner.id;
+    authenticated = true;
+  } catch (error) {
+    if (error instanceof BootstrapResponseError) visibleLearnerId = undefined;
+    else visibleLearnerId = storedLearnerId;
+  }
+  const records = visibleLearnerId
+    ? allRecords.filter((record) => record.learnerId === visibleLearnerId)
+    : [];
   courseList.replaceChildren();
   for (const record of records) {
     const card = document.createElement("section");
@@ -275,6 +374,45 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     name.textContent = record.title;
     const actions = document.createElement("div");
     actions.className = "course-actions";
+    if (record.state === "activating" || record.state === "downloading") {
+      const resume = document.createElement("button");
+      resume.type = "button";
+      resume.disabled = !navigator.onLine;
+      resume.textContent =
+        record.state === "activating" ? "Retry download" : "Resume download";
+      resume.addEventListener("click", () => {
+        void beginInstall(recordDownloadTarget(record)).catch(
+          (error: unknown) => {
+            setStatus(
+              error instanceof Error ? error.message : "Download failed.",
+            );
+          },
+        );
+      });
+      actions.append(resume);
+      card.append(name, actions);
+      courseList.append(card);
+      continue;
+    }
+    if (record.state === "blocked") {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.disabled = !navigator.onLine;
+      remove.textContent = "Resolve and remove";
+      remove.addEventListener("click", () => {
+        void beginExistingOperation("remove", record).catch(
+          (error: unknown) => {
+            setStatus(
+              error instanceof Error ? error.message : "Removal failed.",
+            );
+          },
+        );
+      });
+      actions.append(remove);
+      card.append(name, actions);
+      courseList.append(card);
+      continue;
+    }
     const expired = Date.now() >= Date.parse(record.intendedLaunchExpiresAt);
     const open = document.createElement("button");
     open.type = "button";
@@ -307,11 +445,33 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     card.append(name, actions);
     courseList.append(card);
   }
+  if (target) {
+    const existing = records.find((record) => record.key === target.key);
+    downloadButton.disabled =
+      existing?.state === "ready" ||
+      existing?.state === "blocked" ||
+      Boolean(active);
+    downloadButton.textContent =
+      existing?.state === "ready"
+        ? "Already downloaded"
+        : existing?.state === "blocked"
+          ? "Removal required"
+          : existing
+            ? "Resume download"
+            : supportedMobileRuntime()
+              ? "Download for offline"
+              : "Offline on Android";
+  }
   if (!active)
     setStatus(
-      records.length
-        ? "Ready on this device"
-        : "No offline courses are stored on this device.",
+      authenticated &&
+        allRecords.some((record) => record.learnerId !== visibleLearnerId)
+        ? "Offline courses on this device belong to another learner. Sign in as that learner to remove them."
+        : records.length
+          ? "Ready on this device"
+          : authenticated || allRecords.length === 0
+            ? "No offline courses are stored on this device."
+            : "Sign in to manage offline courses on this device.",
     );
   return records;
 }
@@ -346,7 +506,12 @@ async function handleLearningMessage(
           protocolVersion: PROTOCOL_VERSION,
           attemptId: current.record.attemptId,
           learnerName: current.record.learnerName,
-          mode: current.kind === "launch" ? "launch" : "sync",
+          mode:
+            current.kind === "launch"
+              ? "launch"
+              : current.kind === "remove"
+                ? "remove"
+                : "sync",
           packageOrigin: current.record.packageOrigin,
         },
         learningOrigin,
@@ -354,7 +519,8 @@ async function handleLearningMessage(
   } else if (
     message.type === "offline-scorm-installation-ready" &&
     current.kind === "install" &&
-    current.target
+    current.target &&
+    current.bootstrap
   ) {
     const activation = await jsonResponse<Activation>(
       await fetch("/api/scorm/offline/activate", {
@@ -371,6 +537,24 @@ async function handleLearningMessage(
       }),
     );
     current.activation = activation;
+    const entitlement = activation.envelope.entitlement;
+    await putOfflineScormCourseIndexRecord({
+      schemaVersion: 1,
+      state: "downloading",
+      key: current.target.key,
+      enrollmentId: current.target.enrollmentId,
+      courseVersionItemId: current.target.courseVersionItemId,
+      modulePosition: current.target.modulePosition,
+      title: current.target.title,
+      attemptId: entitlement.attemptId,
+      entitlementId: entitlement.entitlementId,
+      learnerId: activation.learner.id,
+      learnerName: activation.learner.name,
+      learningRuntimeUrl: current.bootstrap.learningRuntimeUrl,
+      packageOrigin: activation.packageManifest.packageOrigin,
+      intendedLaunchExpiresAt: entitlement.intendedLaunchExpiresAt,
+      updatedAt: new Date().toISOString(),
+    });
     packageFrame.src = `${activation.packageManifest.packageOrigin}/.__upskill_offline__/host.html`;
     learningFrame.contentWindow?.postMessage(
       {
@@ -399,6 +583,7 @@ async function handleLearningMessage(
     const entitlement = current.activation.envelope.entitlement;
     await putOfflineScormCourseIndexRecord({
       schemaVersion: 1,
+      state: "ready",
       key: current.target.key,
       enrollmentId: current.target.enrollmentId,
       courseVersionItemId: current.target.courseVersionItemId,
@@ -434,6 +619,37 @@ async function handleLearningMessage(
       },
       learningOrigin,
     );
+  } else if (message.type === "offline-scorm-sync-blocked") {
+    if (current.record) {
+      const blockedRecord = {
+        ...current.record,
+        state: "blocked" as const,
+        updatedAt: new Date().toISOString(),
+      };
+      await putOfflineScormCourseIndexRecord(blockedRecord);
+      current.record = blockedRecord;
+    }
+    if (
+      current.kind === "remove" &&
+      confirm(
+        "Some offline progress was rejected or conflicted and cannot be synchronized. Delete that progress and continue removing this download?",
+      )
+    ) {
+      learningFrame.contentWindow?.postMessage(
+        {
+          type: "offline-scorm-discard-terminal-journal",
+          protocolVersion: PROTOCOL_VERSION,
+        },
+        learningOrigin,
+      );
+      return;
+    }
+    setStatus(
+      current.kind === "remove"
+        ? "Offline progress requires attention before it can be removed."
+        : "Offline progress was rejected or conflicted. Remove the download to resolve it.",
+    );
+    finishOperation(new Error("Offline progress synchronization is blocked"));
   } else if (message.type === "offline-scorm-sync-complete") {
     if (current.kind === "sync") {
       setStatus(
@@ -450,7 +666,8 @@ async function handleLearningMessage(
           body: JSON.stringify({
             schemaVersion: 1,
             entitlementId: current.record.entitlementId,
-            resolution: "reconciled",
+            resolution:
+              message.resolution === "discarded" ? "discarded" : "reconciled",
           }),
         }),
       );
@@ -546,8 +763,10 @@ async function syncAll(): Promise<void> {
   if (synchronizingAll || active || !navigator.onLine) return;
   synchronizingAll = true;
   try {
-    const records = await listOfflineScormCourseIndexRecords();
-    for (const record of records) await beginExistingOperation("sync", record);
+    const records = await refreshCourses();
+    for (const record of records)
+      if (record.state === "ready" && record.learnerId === visibleLearnerId)
+        await beginExistingOperation("sync", record);
   } catch (error) {
     setStatus(error instanceof Error ? error.message : "Sync needs attention.");
   } finally {
@@ -586,12 +805,6 @@ if (target) {
         error instanceof Error ? error.message : "Offline setup failed.",
       );
     });
-  });
-  void getOfflineScormCourseIndexRecord(target.key).then((record) => {
-    if (record) {
-      downloadButton.disabled = true;
-      downloadButton.textContent = "Already downloaded";
-    }
   });
 }
 

@@ -30,16 +30,16 @@ state.
 
 ## Impact matrix
 
-| Dimension               | Required coverage                                                                                                                                                                                                                                                                                                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Actors and scope        | One authenticated mobile learner and one registered phone or tablet installation initially; administrators may inspect or hard-revoke retained entitlement state but cannot remotely erase a disconnected copy; SCORM package code is always untrusted.                                                                      |
-| Entry and acquisition   | Existing Course and Event SCORM launch paths, an explicit self-paced Course **Learn offline** action, installed-PWA startup/foreground/manual sync and Course download removal. Event activation, device replacement and managed sign-out remain later slices. Catalogue, checkout and ordinary online use remain unchanged. |
-| Targets                 | One exact SCORM attempt, immutable Learning Activity Version, owning Course Version item or Event Template Version item, exact package digest/runtime and isolated package site. Surveys, resources, payments and administration remain online.                                                                              |
-| Lifecycle               | Installable shell; unsupported/capable; downloading/partial/verified; entitlement active/expired/revoked/replaced/resolved; local staged/imported/pending/acknowledged/conflicted; package site active/cleanup-pending/cleared.                                                                                              |
-| Qualification           | Current authenticated ownership, ordinary launch policy, released exact item, ready package, finite authoritative access expiry, one active writer, registered device key and the tested browser capability/isolation matrix.                                                                                                |
-| Outcomes                | Allow online-only use; require installation; allow/resume/remove download; deny unsupported or concurrent use; issue/replace/resolve entitlement; reconcile/acknowledge/retry/conflict; block sign-out until sync or authoritative cleanup.                                                                                  |
-| Downstream effects      | Attempt/item/section/offering completion, certificate eligibility, audit/outbox transitions, learner/support status and package-site cleanup inventory. Local completion never directly triggers server consumers.                                                                                                           |
-| Failure and concurrency | Forged/cross-scope identifiers, stale launch/session credentials, duplicate commit IDs, mismatched fingerprints, sequence gaps, competing attempt mutation, browser termination between spool/import/signing/receipt, quota/eviction, unavailable package site, expired or hard-revoked entitlement and duplicate cleanup.   |
+| Dimension               | Required coverage                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Actors and scope        | One authenticated mobile learner and one registered phone or tablet installation initially; administrators may inspect or hard-revoke retained entitlement state but cannot remotely erase a disconnected copy; SCORM package code is always untrusted.                                                                                                                                                                       |
+| Entry and acquisition   | Existing Course and Event SCORM launch paths, an explicit self-paced Course **Learn offline** action, installed-PWA startup/foreground/manual sync, Course download removal and an ordinary sign-out gate while offline state remains. Event activation, device replacement, account switching and an aggregated managed sign-out workflow remain later slices. Catalogue, checkout and ordinary online use remain unchanged. |
+| Targets                 | One exact SCORM attempt, immutable Learning Activity Version, owning Course Version item or Event Template Version item, exact package digest/runtime and isolated package site. Surveys, resources, payments and administration remain online.                                                                                                                                                                               |
+| Lifecycle               | Installable shell; unsupported/capable; downloading/partial/verified; entitlement active/expired/revoked/replaced/resolved; local staged/imported/pending/acknowledged/conflicted; package site active/cleanup-pending/cleared.                                                                                                                                                                                               |
+| Qualification           | Current authenticated ownership, ordinary launch policy, released exact item, ready package, finite authoritative access expiry, one active writer, registered device key and the tested browser capability/isolation matrix.                                                                                                                                                                                                 |
+| Outcomes                | Allow online-only use; require installation; allow/resume/remove download; deny unsupported or concurrent use; issue/replace/resolve entitlement; reconcile/acknowledge/retry/conflict; block sign-out until sync or authoritative cleanup.                                                                                                                                                                                   |
+| Downstream effects      | Attempt/item/section/offering completion, certificate eligibility, audit/outbox transitions, learner/support status and package-site cleanup inventory. Local completion never directly triggers server consumers.                                                                                                                                                                                                            |
+| Failure and concurrency | Forged/cross-scope identifiers, stale launch/session credentials, duplicate commit IDs, mismatched fingerprints, sequence gaps, competing attempt mutation, browser termination between spool/import/signing/receipt, quota/eviction, unavailable package site, expired or hard-revoked entitlement and duplicate cleanup.                                                                                                    |
 
 ## Central server decisions
 
@@ -94,7 +94,9 @@ writer-mode rules.
    transition.
 8. **One complete Course path.** Activate explicit installation/download,
    offline launch, foreground/manual sync and cleanup for self-paced Course
-   SCORM on the confirmed matrix.
+   SCORM on the confirmed matrix. Fail ordinary sign-out closed until every
+   local Course lifecycle has synchronized or explicitly discarded terminal
+   evidence and completed authoritative cleanup.
 9. **Event and support paths.** Reuse the same policy and evidence boundaries
    for released Event SCORM; add device replacement, hard revocation, conflict
    inspection and managed sign-out/account switching.
@@ -333,10 +335,21 @@ The complete self-paced Course activation slice now:
   frames, imports its bounded spool into signed trusted evidence and syncs on
   application startup, foreground, connectivity restoration or explicit
   learner action;
+- records an account-bound activation marker before requesting server writer
+  authority, upgrades it to downloading before package transfer and exposes a
+  retry path so termination or download failure cannot orphan the entitlement;
+- filters the application index to the authenticated learner when online,
+  permits the retained single-learner projection while disconnected and blocks
+  ordinary sign-out until every indexed lifecycle has completed cleanup;
+- retains terminal rejection/conflict receipts, requires explicit confirmation
+  before marking their unreachable signed tail discarded, and only then permits
+  writer resolution and cleanup;
 - resolves the exclusive offline writer before cleanup, rotates the online
   credential generation, authorizes exact-origin whole-site clearing with a
   derived one-entitlement capability and removes trusted attempt data only
-  after acknowledged evidence and a cleanup receipt; and
+  after acknowledged evidence and a cleanup receipt; the final cleared
+  entitlement ends the server installation and removes its local signing key;
+  and
 - keeps new activation and package-content delivery fail-closed when disabled
   while retaining the trusted/runtime assets, reconciliation, writer
   resolution and already-resolved package-site cleanup needed by existing

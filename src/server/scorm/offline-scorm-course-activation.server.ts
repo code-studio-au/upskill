@@ -5,7 +5,10 @@ import {
   offlineScormCourseActivationSuccessSchema,
   type OfflineScormCourseActivationSuccess,
 } from "#/features/scorm/offline-scorm-activation";
-import { offlineScormPackageManifestSchema } from "#/features/scorm/offline-scorm-package-prototype";
+import {
+  offlineScormPackageManifestSchema,
+  offlineScormPackagePathname,
+} from "#/features/scorm/offline-scorm-package-prototype";
 import type { AuthenticatedUser } from "#/server/auth/session.server";
 import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
@@ -113,9 +116,11 @@ export async function activateOfflineScormCourse(
     packageSha256: packageInventory.packageSha256,
     runtimeVersion: "offline-scorm-1",
     packageOrigin: `https://p-${"0".repeat(56)}.offline.invalid`,
-    entrypointPath: `/${packageInventory.manifest.launchPath}`,
+    entrypointPath: offlineScormPackagePathname(
+      packageInventory.manifest.launchPath,
+    ),
     files: packageInventory.manifest.files.map((file) => ({
-      pathname: `/${file.path}`,
+      pathname: offlineScormPackagePathname(file.path),
       sha256: file.sha256,
       sizeBytes: file.sizeBytes,
       contentType: file.contentType,

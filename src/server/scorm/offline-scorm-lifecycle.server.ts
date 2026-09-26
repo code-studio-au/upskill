@@ -169,7 +169,13 @@ export async function confirmOfflineScormPackageCleanup(
     .execute(async (transaction) => {
       const cleanup = await transaction
         .selectFrom("offline_scorm_cleanup_inventory")
-        .select(["state", "cleanupReceiptSha256", "packageSiteOrigin"])
+        .select([
+          "state",
+          "cleanupReceiptSha256",
+          "packageSiteOrigin",
+          "installationId",
+          "clearedAt",
+        ])
         .where("entitlementId", "=", request.entitlementId)
         .where("userId", "=", user.id)
         .forUpdate()
@@ -182,28 +188,60 @@ export async function confirmOfflineScormPackageCleanup(
           packageSiteOrigin: cleanup.packageSiteOrigin,
         },
       );
-      if (cleanup.state === "cleared")
-        return (
-          cleanup.cleanupReceiptSha256 === request.cleanupReceiptSha256 &&
-          request.cleanupReceiptSha256 === expectedReceipt
-        );
-      if (
-        cleanup.state !== "clearing" ||
-        request.cleanupReceiptSha256 !== expectedReceipt
-      )
-        return false;
-      const clearedAt = new Date();
-      await transaction
-        .updateTable("offline_scorm_cleanup_inventory")
-        .set({
-          state: "cleared",
-          clearedAt,
-          cleanupReceiptSha256: request.cleanupReceiptSha256,
-          lastErrorCode: null,
-          updatedAt: clearedAt,
-        })
-        .where("entitlementId", "=", request.entitlementId)
-        .executeTakeFirstOrThrow();
+      let clearedAt: Date;
+      if (cleanup.state === "cleared") {
+        if (
+          cleanup.cleanupReceiptSha256 !== request.cleanupReceiptSha256 ||
+          request.cleanupReceiptSha256 !== expectedReceipt
+        )
+          return false;
+        clearedAt = cleanup.clearedAt ?? new Date();
+      } else {
+        if (
+          cleanup.state !== "clearing" ||
+          request.cleanupReceiptSha256 !== expectedReceipt
+        )
+          return false;
+        clearedAt = new Date();
+        await transaction
+          .updateTable("offline_scorm_cleanup_inventory")
+          .set({
+            state: "cleared",
+            clearedAt,
+            cleanupReceiptSha256: request.cleanupReceiptSha256,
+            lastErrorCode: null,
+            updatedAt: clearedAt,
+          })
+          .where("entitlementId", "=", request.entitlementId)
+          .executeTakeFirstOrThrow();
+      }
+      const [remainingCleanup, activeEntitlement] = await Promise.all([
+        transaction
+          .selectFrom("offline_scorm_cleanup_inventory")
+          .select("id")
+          .where("installationId", "=", cleanup.installationId)
+          .where("entitlementId", "!=", request.entitlementId)
+          .where("state", "!=", "cleared")
+          .executeTakeFirst(),
+        transaction
+          .selectFrom("offline_learning_entitlement")
+          .select("id")
+          .where("installationId", "=", cleanup.installationId)
+          .where("status", "=", "active")
+          .executeTakeFirst(),
+      ]);
+      if (!remainingCleanup && !activeEntitlement)
+        await transaction
+          .updateTable("offline_learning_installation")
+          .set({
+            status: "revoked",
+            endedAt: clearedAt,
+            updatedAt: clearedAt,
+          })
+          .where("id", "=", cleanup.installationId)
+          .where("userId", "=", user.id)
+          .where("status", "=", "active")
+          .executeTakeFirst();
       return true;
     });
   if (!updated) return { status: "denied" };

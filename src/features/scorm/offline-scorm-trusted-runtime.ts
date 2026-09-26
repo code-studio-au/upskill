@@ -246,7 +246,8 @@ export interface OfflineScormLaunchState {
   updatedAt: string;
 }
 
-type OfflineScormJournalStatus = "signing" | "pending" | "acknowledged";
+type OfflineScormJournalStatus =
+  "signing" | "pending" | "acknowledged" | "discarded";
 
 export interface OfflineScormJournalRecord {
   schemaVersion: 1;
@@ -354,6 +355,10 @@ export interface OfflineScormTrustedStore {
   }): Promise<void>;
   putPackage(record: OfflineScormPackageRecord): Promise<void>;
   putReceipt(receipt: OfflineScormReceipt): Promise<void>;
+  getTerminalReceipt(
+    attemptId: string,
+  ): Promise<OfflineScormReceipt | undefined>;
+  discardJournalAfterTerminalReceipt(attemptId: string): Promise<void>;
 }
 
 export interface OfflineScormCryptoProvider {
