@@ -10,6 +10,7 @@ staging_path=""
 previous_release=""
 previous_sha=""
 environment_backup=""
+reconcile_package_site_vhost=/usr/local/bin/upskill-reconcile-package-site-vhost
 
 write_deployment_id() {
   local deployment_id=$1
@@ -127,6 +128,9 @@ sudo -u ec2-user env CI=true /usr/local/bin/pnpm --dir "$staging_path" --filter 
 install -o root -g root -m 0755 \
   "$staging_path/deploy/scripts/upskill-refresh-env.sh" \
   /usr/local/bin/upskill-refresh-env
+install -o root -g root -m 0755 \
+  "$staging_path/deploy/scripts/reconcile-package-site-vhost.sh" \
+  "$reconcile_package_site_vhost"
 
 if [[ -e "$release_path" || -L "$release_path" ]]; then
   if [[ -L "$release_path" || ! -d "$release_path" ]]; then
@@ -178,6 +182,17 @@ write_deployment_id "$release_sha"
   sudo -u ec2-user --preserve-env /usr/local/bin/node src/server/db/provision-runtime-roles.ts
 )
 
+release_supports_package_host=false
+if [[ -f "$release_path/deploy/nginx/upskill.package-site.https.conf.template" ]]; then
+  release_supports_package_host=true
+fi
+package_host_suffix=$(
+  set -a
+  source /opt/upskill/shared/upskill-deploy.env
+  printf '%s' "${OFFLINE_SCORM_PACKAGE_HOST_SUFFIX:-}"
+)
+"$reconcile_package_site_vhost" "$package_host_suffix" "$release_supports_package_host"
+
 if [[ -L /opt/upskill/current ]]; then
   previous_release=$(readlink -f /opt/upskill/current || true)
   previous_sha=${previous_release#"$release_root"/}
@@ -225,6 +240,16 @@ systemctl reload nginx
 if ! curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${release_sha}" >/dev/null || ! systemctl is-active --quiet upskill-worker; then
   if [[ -n "$previous_release" && -n "$previous_sha" ]]; then
     if /usr/local/bin/upskill-refresh-env && write_deployment_id "$previous_sha"; then
+      previous_release_supports_package_host=false
+      if [[ -f "$previous_release/deploy/nginx/upskill.package-site.https.conf.template" ]]; then
+        previous_release_supports_package_host=true
+      fi
+      package_host_suffix=$(
+        set -a
+        source /opt/upskill/shared/upskill-deploy.env
+        printf '%s' "${OFFLINE_SCORM_PACKAGE_HOST_SUFFIX:-}"
+      )
+      "$reconcile_package_site_vhost" "$package_host_suffix" "$previous_release_supports_package_host"
       ln -sfn "$previous_release" /opt/upskill/current
       if systemctl restart upskill-web upskill-worker && curl --fail --silent --show-error --retry 20 --retry-delay 2 --retry-connrefused "http://127.0.0.1:3000/api/ready?deploymentId=${previous_sha}" >/dev/null && systemctl is-active --quiet upskill-worker; then
         echo "Restored previous release $previous_sha" >&2

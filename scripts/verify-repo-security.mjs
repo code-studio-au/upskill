@@ -2325,7 +2325,7 @@ const packageHostNginx = fs.readFileSync(
 );
 for (const invariant of [
   "server_name *.__PACKAGE_SITE_SUFFIX__;",
-  "proxy_pass http://127.0.0.1:3000;",
+  "proxy_pass http://127.0.0.1:3002;",
   'proxy_set_header Cookie "";',
   'proxy_set_header Authorization "";',
   'proxy_set_header Proxy-Authorization "";',
@@ -2351,9 +2351,28 @@ for (const invariant of [
     failures.push(
       `Offline SCORM wildcard TLS must use its scoped DNS-01 lineage: ${invariant}`,
     );
+const packageHostVhostReconciler = fs.readFileSync(
+  path.join(root, "deploy/scripts/reconcile-package-site-vhost.sh"),
+  "utf8",
+);
+for (const invariant of [
+  "offline-scorm-package-site-suffix",
+  '[[ "$release_supports_package_host" == false ]]',
+  '[[ "$configured_suffix" != "$desired_suffix" ]]',
+  'grep -Fq "server_name *.${desired_suffix};"',
+  'mv -- "$package_nginx_path" "$disabled_path"',
+  "systemctl reload nginx",
+])
+  if (!packageHostVhostReconciler.includes(invariant))
+    failures.push(
+      `Stale offline SCORM package vhosts must fail closed: ${invariant}`,
+    );
 if (
   !installRelease.includes("upskill.package-site.https.conf.template") ||
-  !environmentRefresh.includes("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX")
+  !installRelease.includes("upskill-reconcile-package-site-vhost") ||
+  !installRelease.includes("previous_release_supports_package_host") ||
+  !environmentRefresh.includes("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX") ||
+  !environmentRefresh.includes("upskill-reconcile-package-site-vhost")
 )
   failures.push(
     "The deployed host must install package-site routing and refresh its provisioned suffix",
@@ -2364,6 +2383,9 @@ const serverLauncher = fs.readFileSync(
 );
 for (const invariant of [
   "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX",
+  "const offlineScormPackagePort = 3002;",
+  "packageOnly !== packageOriginRequest",
+  'listener: "offline_scorm_package"',
   "if (allowedOrigins.includes(candidate.origin)) return false;",
   "if (isOfflineScormPackageOrigin(requestOrigin(incoming))) return false;",
   "isOfflineScormPackageOrigin(origin)",

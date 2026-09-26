@@ -259,8 +259,11 @@ installer. The production package-host foundation now provisions only an
 explicit wildcard suffix and Route 53 zone, grants DNS-01 mutation only in that
 zone and uses a separate wildcard certificate. Its nginx boundary strips
 Cookie, Authorization and proxy-authorization request headers and suppresses
-credential-bearing response headers. The Node launcher cannot serve application
-assets or readiness on the wildcard; a pre-router handler claims the host and
+credential-bearing response headers. It proxies to a package-only loopback
+listener that is absent from older releases, and deployment reconciliation
+disables a stale vhost before suffix removal, rotation or an unsupported
+rollback. The Node launcher cannot serve application assets or readiness on the
+wildcard; a pre-router handler claims the host and
 fails closed unless the exact retained origin, active installation and
 entitlement, matching offline-writer generation, intended-launch deadline,
 ready immutable package and exact file inventory all agree. Offline

@@ -5,7 +5,9 @@ template_path=/etc/upskill/upskill.https.conf.template
 package_template_path=/etc/upskill/upskill.package-site.https.conf.template
 nginx_path=/etc/nginx/conf.d/upskill.conf
 package_nginx_path=/etc/nginx/conf.d/upskill-package-site.conf
+package_site_state_path=/etc/upskill/offline-scorm-package-site-suffix
 deployed_environment_path=/opt/upskill/shared/upskill-deploy.env
+reconcile_package_site_vhost=/usr/local/bin/upskill-reconcile-package-site-vhost
 webroot=/var/www/certbot
 
 fail() { echo "$*" >&2; exit 1; }
@@ -25,15 +27,20 @@ validate_domain "$app_domain"
 validate_domain "$learning_domain"
 [[ "$app_domain" != "$learning_domain" ]] || fail "Application and learning domains must be distinct"
 [[ "$letsencrypt_email" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] || fail "Invalid contact email"
-if [[ -n "$package_site_suffix" ]]; then
-  validate_domain "$package_site_suffix"
-  [[ -f "$package_template_path" ]] || fail "Missing package-site TLS template: $package_template_path"
-  [[ -f "$deployed_environment_path" ]] || fail "Missing deployed environment: $deployed_environment_path"
+provisioned_package_site_suffix=""
+if [[ -f "$deployed_environment_path" ]]; then
   provisioned_package_site_suffix=$(
     set -a
     source "$deployed_environment_path"
     printf '%s' "${OFFLINE_SCORM_PACKAGE_HOST_SUFFIX:-}"
   )
+fi
+[[ -x "$reconcile_package_site_vhost" ]] || fail "Missing package-site vhost reconciler: $reconcile_package_site_vhost"
+"$reconcile_package_site_vhost" "$provisioned_package_site_suffix" true
+if [[ -n "$package_site_suffix" ]]; then
+  validate_domain "$package_site_suffix"
+  [[ -f "$package_template_path" ]] || fail "Missing package-site TLS template: $package_template_path"
+  [[ -f "$deployed_environment_path" ]] || fail "Missing deployed environment: $deployed_environment_path"
   [[ -n "$provisioned_package_site_suffix" ]] || fail "Offline SCORM package host is not provisioned"
   [[ "$package_site_suffix" == "$provisioned_package_site_suffix" ]] || fail "Package-site suffix does not match the provisioned host"
 elif [[ -f "$package_nginx_path" ]]; then
@@ -81,6 +88,8 @@ if [[ -n "$package_site_suffix" ]]; then
     -e "s/__HTTP2_LISTEN_SUFFIX__/${http2_listen_suffix}/g" \
     -e "s/__HTTP2_DIRECTIVE__/${http2_directive}/g" \
     "$package_template_path" > "$package_nginx_path"
+  printf '%s\n' "$package_site_suffix" > "$package_site_state_path"
+  chmod 0644 "$package_site_state_path"
 fi
 install -d -m 0755 /etc/letsencrypt/renewal-hooks/deploy
 printf '%s\n' '#!/usr/bin/env bash' 'set -euo pipefail' 'nginx -t' 'systemctl reload nginx' > /etc/letsencrypt/renewal-hooks/deploy/upskill-nginx-reload.sh

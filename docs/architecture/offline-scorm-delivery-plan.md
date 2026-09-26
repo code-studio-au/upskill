@@ -302,7 +302,11 @@ The dormant production package-host foundation now:
   application/learning certificate on its existing HTTP-01 lineage;
 - routes the wildcard through a dedicated nginx server that strips Cookie,
   Authorization and proxy-authorization request headers and suppresses
-  credential-bearing response headers;
+  credential-bearing response headers, and proxies only to a package-specific
+  loopback listener that does not exist in older releases;
+- reconciles the rendered vhost against the independently provisioned suffix,
+  disabling it before suffix removal/rotation or rollback to a release without
+  package-host support;
 - prevents the Node launcher from serving application static assets or
   readiness responses on package hosts, and claims every configured wildcard
   request before the application router; and

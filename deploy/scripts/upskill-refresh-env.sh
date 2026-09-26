@@ -2,6 +2,7 @@
 set -euo pipefail
 
 environment_file=/opt/upskill/shared/upskill-deploy.env
+reconcile_package_site_vhost=/usr/local/bin/upskill-reconcile-package-site-vhost
 if [[ ! -f "$environment_file" ]]; then
   echo "Existing deployment environment is required to refresh host configuration" >&2
   exit 1
@@ -48,6 +49,11 @@ if ! offline_scorm_package_host_suffix=$(aws ssm get-parameter --region "$refres
   echo "Offline SCORM package host is not provisioned; continuing with offline SCORM disabled" >&2
   offline_scorm_package_host_suffix=""
 fi
+[[ -x "$reconcile_package_site_vhost" ]] || {
+  echo "Missing package-site vhost reconciler: $reconcile_package_site_vhost" >&2
+  exit 1
+}
+"$reconcile_package_site_vhost" "$offline_scorm_package_host_suffix" true
 base_environment_tmp=$(mktemp)
 web_environment_tmp=$(mktemp)
 worker_environment_tmp=$(mktemp)

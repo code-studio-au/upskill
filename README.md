@@ -305,8 +305,12 @@ sudo /usr/local/bin/upskill-provision-letsencrypt-cert \
 Without the optional suffix, the command obtains and renews the existing
 application/learning certificate. With it, the command also uses the EC2 role's
 scoped Route 53 DNS-01 authority to obtain a separate wildcard certificate and
-renders the credential-free package-host nginx configuration. Re-running a host
-that already has package-site TLS requires the suffix so wildcard coverage
+renders the credential-free package-host nginx configuration. That vhost uses a
+package-only loopback listener rather than the application listener. Environment
+refresh removes a stale vhost before a suffix removal or rotation, and rollback
+removes it before activating a release without package-host support; a retained
+configuration would reach no application listener. Re-running a still-provisioned
+host that already has package-site TLS requires the suffix so wildcard coverage
 cannot be silently dropped. Before later activation,
 `OFFLINE_SCORM_PACKAGE_SITE_SUFFIX` in the offline SCORM secret must exactly
 match the provisioned suffix; runtime validation rejects a mismatch. The

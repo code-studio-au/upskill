@@ -32,6 +32,7 @@ const offlineScormPrototypeOrigin =
     : null;
 const offlineScormPackageHostSuffix =
   process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX?.trim();
+const offlineScormPackagePort = 3002;
 if (
   offlineScormPackageHostSuffix &&
   (offlineScormPackageHostSuffix !==
@@ -369,7 +370,7 @@ function shouldGzipDynamicResponse(incoming, response) {
   );
 }
 
-async function handleRequest(incoming, outgoing) {
+async function handleRequest(incoming, outgoing, packageOnly = false) {
   const startedAt = performance.now();
   const requestId = randomUUID();
   const method = incoming.method ?? "GET";
@@ -392,6 +393,16 @@ async function handleRequest(incoming, outgoing) {
       });
   });
   try {
+    const packageOriginRequest = isOfflineScormPackageOrigin(
+      requestOrigin(incoming),
+    );
+    if (packageOnly !== packageOriginRequest) {
+      outgoing.statusCode = 421;
+      outgoing.setHeader("cache-control", "no-store");
+      outgoing.setHeader("content-type", "text/plain; charset=utf-8");
+      outgoing.end(method === "HEAD" ? undefined : "Misdirected Request\n");
+      return;
+    }
     if (
       requestPath === "/api/ready" &&
       requestOrigin(incoming) === applicationOrigin &&
@@ -516,6 +527,12 @@ const server = tlsCertificateFile
     )
   : http.createServer(handleRequest);
 
+const packageServer = offlineScormPackageHostSuffix
+  ? http.createServer((incoming, outgoing) =>
+      handleRequest(incoming, outgoing, true),
+    )
+  : null;
+
 server.listen(port, listenHost, () => {
   logBootstrapEvent("info", "server.started", {
     status: "ready",
@@ -525,11 +542,32 @@ server.listen(port, listenHost, () => {
   });
 });
 
+packageServer?.listen(offlineScormPackagePort, listenHost, () => {
+  logBootstrapEvent("info", "server.started", {
+    status: "ready",
+    listener: "offline_scorm_package",
+    port: offlineScormPackagePort,
+    protocol: "http",
+    deploymentId: process.env.DEPLOYMENT_ID?.slice(0, 512),
+  });
+});
+
+let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
-    server.close(() => {
-      void readinessPool?.end().finally(() => process.exit(0));
-    });
+    if (stopping) return;
+    stopping = true;
+    const listeners = packageServer ? [server, packageServer] : [server];
+    void Promise.all(
+      listeners.map(
+        (listener) =>
+          new Promise((resolve) => {
+            listener.close(resolve);
+          }),
+      ),
+    )
+      .then(() => readinessPool?.end())
+      .finally(() => process.exit(0));
     setTimeout(() => process.exit(1), 10_000).unref();
   });
 }
