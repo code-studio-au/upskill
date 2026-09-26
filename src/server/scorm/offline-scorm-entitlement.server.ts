@@ -25,6 +25,7 @@ import {
 import { addElapsedMilliseconds } from "#/server/time/time.server";
 import type { OfflineScormEntitlementSigner } from "#/server/scorm/offline-scorm-entitlement-signing.server";
 import type { OfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
+import { lockActiveOfflineScormSession } from "#/server/scorm/offline-scorm-auth-lifecycle.server";
 
 const OFFLINE_SCORM_RUNTIME_VERSION = "offline-scorm-1";
 const MAXIMUM_ACCEPTANCE_DELAY_MS = 30 * 24 * 60 * 60 * 1_000;
@@ -70,7 +71,8 @@ export type OfflineScormEntitlementIssueResult =
         | "installation-unavailable"
         | "finite-access-expiry-required"
         | "offline-writer-active"
-        | "package-inventory-unavailable";
+        | "package-inventory-unavailable"
+        | "session-unavailable";
     };
 
 type RecoveredOfflineScormEntitlement = Extract<
@@ -233,6 +235,7 @@ export async function issueOfflineScormEntitlement(
   input: {
     target: ScormLaunchTarget;
     installationId: string;
+    sessionId: string;
   },
   user: AuthenticatedUser,
   signEntitlement: OfflineScormEntitlementSigner,
@@ -242,6 +245,14 @@ export async function issueOfflineScormEntitlement(
   const result = await getDatabase()
     .transaction()
     .execute(async (transaction) => {
+      if (
+        !(await lockActiveOfflineScormSession(transaction, {
+          sessionId: input.sessionId,
+          userId: user.id,
+          now: new Date(),
+        }))
+      )
+        return { status: "denied", reason: "session-unavailable" } as const;
       const installation = await transaction
         .selectFrom("offline_learning_installation")
         .select(["id", "publicKeySha256"])

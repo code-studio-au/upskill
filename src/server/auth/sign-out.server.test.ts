@@ -3,14 +3,18 @@ import { offlineScormSignOutGate } from "#/server/auth/sign-out.server";
 
 describe("offline SCORM sign-out gate", () => {
   it("blocks an authenticated sign-out while server cleanup is retained", async () => {
-    const hasRetainedOfflineState = vi.fn(() => Promise.resolve(true));
+    const prepareSignOut = vi.fn(() => Promise.resolve("blocked" as const));
     const response = await offlineScormSignOutGate(
       new Request("https://app.example.test/api/auth/sign-out", {
         method: "POST",
       }),
       {
-        getUserId: () => Promise.resolve("learner_1"),
-        hasRetainedOfflineState,
+        getSession: () =>
+          Promise.resolve({
+            sessionId: "session_1",
+            userId: "learner_1",
+          }),
+        prepareSignOut,
       },
     );
 
@@ -19,14 +23,18 @@ describe("offline SCORM sign-out gate", () => {
       error: "offline_cleanup_required",
     });
     expect(response?.headers.get("cache-control")).toBe("no-store");
-    expect(hasRetainedOfflineState).toHaveBeenCalledWith("learner_1");
+    expect(prepareSignOut).toHaveBeenCalledWith({
+      sessionId: "session_1",
+      userId: "learner_1",
+    });
   });
 
-  it("allows unrelated, unauthenticated, and fully cleared requests", async () => {
-    const hasRetainedOfflineState = vi.fn(() => Promise.resolve(false));
+  it("allows unrelated, unauthenticated, stale, and prepared requests", async () => {
+    const prepareSignOut = vi.fn(() => Promise.resolve("ready" as const));
     const dependencies = {
-      getUserId: () => Promise.resolve("learner_1"),
-      hasRetainedOfflineState,
+      getSession: () =>
+        Promise.resolve({ sessionId: "session_1", userId: "learner_1" }),
+      prepareSignOut,
     };
     await expect(
       offlineScormSignOutGate(
@@ -44,6 +52,10 @@ describe("offline SCORM sign-out gate", () => {
         dependencies,
       ),
     ).resolves.toBeUndefined();
+    expect(prepareSignOut).toHaveBeenCalledWith({
+      sessionId: "session_1",
+      userId: "learner_1",
+    });
     await expect(
       offlineScormSignOutGate(
         new Request("https://app.example.test/api/auth/sign-out", {
@@ -58,8 +70,19 @@ describe("offline SCORM sign-out gate", () => {
           method: "POST",
         }),
         {
-          getUserId: () => Promise.resolve(undefined),
-          hasRetainedOfflineState: vi.fn(),
+          getSession: () => Promise.resolve(undefined),
+          prepareSignOut: vi.fn(),
+        },
+      ),
+    ).resolves.toBeUndefined();
+    await expect(
+      offlineScormSignOutGate(
+        new Request("https://app.example.test/api/auth/sign-out", {
+          method: "POST",
+        }),
+        {
+          getSession: dependencies.getSession,
+          prepareSignOut: () => Promise.resolve("stale"),
         },
       ),
     ).resolves.toBeUndefined();

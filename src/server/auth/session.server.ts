@@ -10,14 +10,28 @@ export interface AuthenticatedUser {
   emailVerified: boolean;
 }
 
-export async function getRequestUser(): Promise<AuthenticatedUser | null> {
-  const session = await auth.api.getSession({ headers: getRequestHeaders() });
+export interface RequestAuthentication {
+  sessionId: string;
+  user: AuthenticatedUser;
+}
+
+export async function getRequestAuthentication(
+  headers: Headers = getRequestHeaders(),
+): Promise<RequestAuthentication | null> {
+  const session = await auth.api.getSession({ headers });
   if (!session) return null;
 
   return {
-    id: session.user.id,
-    name: session.user.name,
-    email: session.user.email.toLocaleLowerCase("en-AU"),
-    emailVerified: session.user.emailVerified,
+    sessionId: session.session.id,
+    user: {
+      id: session.user.id,
+      name: session.user.name,
+      email: session.user.email.toLocaleLowerCase("en-AU"),
+      emailVerified: session.user.emailVerified,
+    },
   };
+}
+
+export async function getRequestUser(): Promise<AuthenticatedUser | null> {
+  return (await getRequestAuthentication())?.user ?? null;
 }

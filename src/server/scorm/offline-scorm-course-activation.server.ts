@@ -54,7 +54,8 @@ export type OfflineScormCourseActivationResult =
         | "section-unreleased"
         | "unavailable"
         | "offline-writer-active"
-        | "finite-access-expiry-required";
+        | "finite-access-expiry-required"
+        | "session-unavailable";
     };
 
 async function resolveCoursePackageInventory(input: {
@@ -98,6 +99,7 @@ async function resolveCoursePackageInventory(input: {
 export async function activateOfflineScormCourse(
   input: unknown,
   user: AuthenticatedUser,
+  sessionId: string,
 ): Promise<OfflineScormCourseActivationResult> {
   const environment = getServerEnv();
   if (!environment.OFFLINE_SCORM_ENABLED)
@@ -145,6 +147,7 @@ export async function activateOfflineScormCourse(
         modulePosition: activation.modulePosition,
       },
       installationId: registration.installationId,
+      sessionId,
     },
     user,
     signingRuntime.signer,

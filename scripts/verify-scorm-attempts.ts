@@ -27,6 +27,8 @@ if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const ids = {
   user: "verify_scorm_user",
   anotherUser: "verify_scorm_another_user",
+  session: "verify_scorm_session",
+  anotherSession: "verify_scorm_another_session",
   course: "verify_scorm_course",
   courseVersion: "verify_scorm_course_version",
   section: "verify_scorm_section",
@@ -107,6 +109,7 @@ async function waitForBlockedScormConnections(minimum: number): Promise<void> {
           or query ilike '%enrollment%'
           or query ilike '%event_participation%'
           or query ilike '%offline_learning_entitlement%'
+          or query ilike '%pg_advisory_xact_lock%'
         )
     `.execute(database);
     if ((result.rows[0]?.count ?? 0) >= minimum) return;
@@ -345,6 +348,32 @@ try {
         emailVerified: true,
         image: null,
         stripeCustomerId: null,
+      },
+    ])
+    .execute();
+  const sessionNow = new Date();
+  await database
+    .insertInto("session")
+    .values([
+      {
+        id: ids.session,
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        token: "verify-scorm-session-token",
+        createdAt: sessionNow,
+        updatedAt: sessionNow,
+        ipAddress: null,
+        userAgent: null,
+        userId: ids.user,
+      },
+      {
+        id: ids.anotherSession,
+        expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+        token: "verify-scorm-another-session-token",
+        createdAt: sessionNow,
+        updatedAt: sessionNow,
+        ipAddress: null,
+        userAgent: null,
+        userId: ids.anotherUser,
       },
     ])
     .execute();
@@ -699,6 +728,8 @@ try {
     confirmOfflineScormPackageCleanup,
     resolveOfflineScormCourseEntitlement,
   } = await import("#/server/scorm/offline-scorm-lifecycle.server");
+  const { lockActiveOfflineScormSession } =
+    await import("#/server/scorm/offline-scorm-auth-lifecycle.server");
   const requireAuthorizedPlayer = async (
     attemptId: string,
     sessionToken: string,
@@ -743,6 +774,73 @@ try {
     });
   assert.equal(eventProgress, "completed");
   assert.equal(concurrentEventLaunch.status, "ready");
+
+  let markSignOutPrepared: () => void = () => undefined;
+  const signOutPrepared = new Promise<void>((resolve) => {
+    markSignOutPrepared = resolve;
+  });
+  let releaseSignOut: () => void = () => undefined;
+  const signOutRelease = new Promise<void>((resolve) => {
+    releaseSignOut = resolve;
+  });
+  const signOutPreparation = database
+    .transaction()
+    .execute(async (transaction) => {
+      const now = new Date();
+      assert.equal(
+        await lockActiveOfflineScormSession(transaction, {
+          sessionId: ids.session,
+          userId: ids.user,
+          now,
+        }),
+        true,
+      );
+      await transaction
+        .updateTable("session")
+        .set({ expiresAt: now, updatedAt: now })
+        .where("id", "=", ids.session)
+        .executeTakeFirstOrThrow();
+      markSignOutPrepared();
+      await signOutRelease;
+    });
+  await signOutPrepared;
+  const issuanceRacingSignOut = issueOfflineScormEntitlement(
+    {
+      target: {
+        kind: "course",
+        enrollmentId: ids.enrollment,
+        modulePosition: 0,
+      },
+      installationId: ids.installation,
+      sessionId: ids.session,
+    },
+    user,
+    signEntitlement,
+    provisionPackageSite,
+  );
+  try {
+    await waitForBlockedScormConnections(1);
+  } catch (error) {
+    releaseSignOut();
+    await Promise.allSettled([signOutPreparation, issuanceRacingSignOut]);
+    throw error;
+  }
+  releaseSignOut();
+  await signOutPreparation;
+  assert.deepEqual(await issuanceRacingSignOut, {
+    status: "denied",
+    reason: "session-unavailable",
+  });
+  const restoredSessionAt = new Date();
+  await database
+    .updateTable("session")
+    .set({
+      expiresAt: new Date("2030-01-01T00:00:00.000Z"),
+      updatedAt: restoredSessionAt,
+    })
+    .where("id", "=", ids.session)
+    .executeTakeFirstOrThrow();
+
   assert.deepEqual(
     await issueOfflineScormEntitlement(
       {
@@ -752,6 +850,7 @@ try {
           eventTemplateVersionItemId: ids.eventItem,
         },
         installationId: ids.installation,
+        sessionId: ids.session,
       },
       user,
       signEntitlement,
@@ -768,6 +867,7 @@ try {
           modulePosition: 0,
         },
         installationId: ids.installation,
+        sessionId: ids.anotherSession,
       },
       anotherUser,
       signEntitlement,
@@ -784,6 +884,7 @@ try {
           modulePosition: 0,
         },
         installationId: ids.installation,
+        sessionId: ids.session,
       },
       user,
       signEntitlement,
@@ -805,6 +906,7 @@ try {
           modulePosition: 0,
         },
         installationId: ids.installation,
+        sessionId: ids.session,
       },
       user,
       signEntitlement,
@@ -1100,6 +1202,7 @@ try {
           modulePosition: 0,
         },
         installationId: ids.installation,
+        sessionId: ids.session,
       },
       user,
       () => {
@@ -1118,6 +1221,7 @@ try {
           modulePosition: 0,
         },
         installationId: ids.installation,
+        sessionId: ids.session,
       },
       user,
       () => {
@@ -1136,6 +1240,7 @@ try {
           modulePosition: 0,
         },
         installationId: ids.installation,
+        sessionId: ids.session,
       },
       user,
       signEntitlement,
@@ -1181,6 +1286,7 @@ try {
           modulePosition: 0,
         },
         installationId: ids.installation,
+        sessionId: ids.session,
       },
       user,
       signEntitlement,
@@ -1329,6 +1435,7 @@ try {
         modulePosition: 0,
       },
       installationId: ids.installation,
+      sessionId: ids.session,
     },
     user,
     () => {
@@ -1368,6 +1475,7 @@ try {
           modulePosition: 0,
         },
         installationId: ids.installation,
+        sessionId: ids.session,
       },
       user,
       () => {
@@ -2014,6 +2122,7 @@ try {
         modulePosition: 0,
       },
       installationId: ids.installation,
+      sessionId: ids.session,
     },
     user,
     signEntitlement,

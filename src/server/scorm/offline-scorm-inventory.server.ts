@@ -1,6 +1,8 @@
 import "@tanstack/react-start/server-only";
 
+import type { Kysely, Transaction } from "kysely";
 import { getDatabase } from "#/server/db/database.server";
+import type { Database } from "#/server/db/types";
 
 const maximumRecoveryRecords = 256;
 
@@ -95,27 +97,33 @@ const defaultDependencies: OfflineScormInventoryDependencies = {
       .limit(maximumRecoveryRecords + 1)
       .execute();
   },
-  async findRetainedState(userId) {
-    const retained = await getDatabase()
-      .selectFrom("offline_learning_entitlement as entitlement")
-      .leftJoin(
-        "offline_scorm_cleanup_inventory as cleanup",
-        "cleanup.entitlementId",
-        "entitlement.id",
-      )
-      .select("entitlement.id")
-      .where("entitlement.userId", "=", userId)
-      .where((expression) =>
-        expression.or([
-          expression("entitlement.status", "=", "active"),
-          expression("cleanup.state", "is", null),
-          expression("cleanup.state", "!=", "cleared"),
-        ]),
-      )
-      .executeTakeFirst();
-    return retained !== undefined;
-  },
+  findRetainedState: (userId) =>
+    queryRetainedOfflineScormServerState(getDatabase(), userId),
 };
+
+export async function queryRetainedOfflineScormServerState(
+  database: Kysely<Database> | Transaction<Database>,
+  userId: string,
+): Promise<boolean> {
+  const retained = await database
+    .selectFrom("offline_learning_entitlement as entitlement")
+    .leftJoin(
+      "offline_scorm_cleanup_inventory as cleanup",
+      "cleanup.entitlementId",
+      "entitlement.id",
+    )
+    .select("entitlement.id")
+    .where("entitlement.userId", "=", userId)
+    .where((expression) =>
+      expression.or([
+        expression("entitlement.status", "=", "active"),
+        expression("cleanup.state", "is", null),
+        expression("cleanup.state", "!=", "cleared"),
+      ]),
+    )
+    .executeTakeFirst();
+  return retained !== undefined;
+}
 
 export async function hasRetainedOfflineScormServerState(
   userId: string,
