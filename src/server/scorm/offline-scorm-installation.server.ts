@@ -150,3 +150,53 @@ export async function registerOfflineScormInstallation(
     });
   return result;
 }
+
+/**
+ * Revokes a server installation only when no entitlement has ever used it.
+ * The return value authorizes the trusted client to discard the matching key.
+ */
+export async function retireUnusedOfflineScormInstallation(input: {
+  installationId: string;
+  userId: string;
+}): Promise<boolean> {
+  const result = await getDatabase()
+    .transaction()
+    .execute(async (transaction) => {
+      const installation = await transaction
+        .selectFrom("offline_learning_installation")
+        .select(["id", "status"])
+        .where("id", "=", input.installationId)
+        .where("userId", "=", input.userId)
+        .forUpdate()
+        .executeTakeFirst();
+      if (!installation) return { discard: true, revoked: false };
+      const entitlement = await transaction
+        .selectFrom("offline_learning_entitlement")
+        .select("id")
+        .where("installationId", "=", installation.id)
+        .executeTakeFirst();
+      if (entitlement) return { discard: false, revoked: false };
+      if (installation.status !== "active")
+        return { discard: true, revoked: false };
+      const endedAt = new Date();
+      await transaction
+        .updateTable("offline_learning_installation")
+        .set({ status: "revoked", endedAt, updatedAt: endedAt })
+        .where("id", "=", installation.id)
+        .where("userId", "=", input.userId)
+        .where("status", "=", "active")
+        .executeTakeFirstOrThrow();
+      return { discard: true, revoked: true };
+    });
+  if (result.revoked)
+    logServerEvent({
+      level: "info",
+      event: "scorm.offline_unused_installation_revoked",
+      fields: {
+        actorUserId: input.userId,
+        entityType: "offline_learning_installation",
+        entityId: input.installationId,
+      },
+    });
+  return result.discard;
+}

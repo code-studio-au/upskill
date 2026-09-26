@@ -37,6 +37,7 @@ const ids = {
   package: "verify_scorm_package",
   packageVersion: "verify_scorm_package_version",
   installation: "verify_scorm_installation",
+  unusedInstallation: "verify_scorm_installation_unused",
   eventTemplate: "verify_scorm_event_template",
   eventTemplateVersion: "verify_scorm_event_template_version",
   eventSection: "verify_scorm_event_section",
@@ -258,7 +259,7 @@ async function cleanup(): Promise<void> {
     }
     await database
       .deleteFrom("offline_learning_installation")
-      .where("id", "=", ids.installation)
+      .where("id", "in", [ids.installation, ids.unusedInstallation])
       .execute();
     await database
       .deleteFrom("learning_progress_override")
@@ -377,8 +378,10 @@ try {
       },
     ])
     .execute();
-  const { registerOfflineScormInstallation } =
-    await import("#/server/scorm/offline-scorm-installation.server");
+  const {
+    registerOfflineScormInstallation,
+    retireUnusedOfflineScormInstallation,
+  } = await import("#/server/scorm/offline-scorm-installation.server");
   const installationRegistration = {
     schemaVersion: 1 as const,
     installationId: ids.installation,
@@ -422,6 +425,33 @@ try {
     ),
     { status: "denied", reason: "public-key-invalid" },
   );
+  assert.equal(
+    (
+      await registerOfflineScormInstallation(
+        {
+          schemaVersion: 1,
+          installationId: ids.unusedInstallation,
+          publicKeySpki: anotherOfflinePublicKeySpki.toString("base64url"),
+        },
+        anotherUser,
+      )
+    ).status,
+    "registered",
+  );
+  assert.equal(
+    await retireUnusedOfflineScormInstallation({
+      installationId: ids.unusedInstallation,
+      userId: anotherUser.id,
+    }),
+    true,
+  );
+  const retiredUnusedInstallation = await database
+    .selectFrom("offline_learning_installation")
+    .select(["status", "endedAt"])
+    .where("id", "=", ids.unusedInstallation)
+    .executeTakeFirstOrThrow();
+  assert.equal(retiredUnusedInstallation.status, "revoked");
+  assert.ok(retiredUnusedInstallation.endedAt instanceof Date);
   assert.deepEqual(
     await registerOfflineScormInstallation(
       {
@@ -1302,6 +1332,23 @@ try {
   ]);
   if (issuance.status !== "issued")
     assert.fail(`Expected offline issuance, received ${issuance.reason}`);
+  assert.equal(
+    await retireUnusedOfflineScormInstallation({
+      installationId: ids.installation,
+      userId: user.id,
+    }),
+    false,
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_learning_installation")
+        .select("status")
+        .where("id", "=", ids.installation)
+        .executeTakeFirstOrThrow()
+    ).status,
+    "active",
+  );
   const verifiedEntitlement = await verifyOfflineScormEntitlementEnvelope(
     issuance.envelope,
     (signingKeyId) =>

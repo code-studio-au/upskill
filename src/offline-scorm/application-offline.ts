@@ -12,6 +12,10 @@ import {
   offlineScormRecoveredCourseState,
   type OfflineScormServerCleanupState,
 } from "#/offline-scorm/offline-scorm-application-recovery";
+import {
+  offlineScormActivationDenialMessage,
+  parseOfflineScormActivationDenial,
+} from "#/offline-scorm/offline-scorm-activation-denial";
 import "./application-offline.css";
 
 const PROTOCOL_VERSION = 1;
@@ -61,6 +65,7 @@ interface DownloadTarget {
 
 interface Operation {
   activation?: Activation;
+  activationDenial?: { installationId: string; message: string };
   bootstrap?: Bootstrap;
   bound: boolean;
   cleanupFinalized: boolean;
@@ -648,20 +653,50 @@ async function handleLearningMessage(
     current.target &&
     current.bootstrap
   ) {
-    const activation = await jsonResponse<Activation>(
-      await fetch("/api/scorm/offline/activate", {
-        method: "POST",
-        cache: "no-store",
-        credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          schemaVersion: 1,
-          registration: message.registration,
-          enrollmentId: current.target.enrollmentId,
-          modulePosition: current.target.modulePosition,
-        }),
+    const response = await fetch("/api/scorm/offline/activate", {
+      method: "POST",
+      cache: "no-store",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        schemaVersion: 1,
+        registration: message.registration,
+        enrollmentId: current.target.enrollmentId,
+        modulePosition: current.target.modulePosition,
       }),
-    );
+    });
+    const body = (await response.json()) as unknown;
+    if (!response.ok) {
+      const denial = parseOfflineScormActivationDenial(body);
+      const registration = message.registration as
+        Record<string, unknown> | undefined;
+      const installationId = registration?.installationId;
+      if (!denial || typeof installationId !== "string")
+        throw new Error(
+          body &&
+            typeof body === "object" &&
+            "error" in body &&
+            typeof body.error === "string"
+            ? body.error
+            : "The offline learning request failed",
+        );
+      current.activationDenial = {
+        installationId,
+        message: offlineScormActivationDenialMessage(denial.reason),
+      };
+      learningFrame.contentWindow?.postMessage(
+        {
+          type: "offline-scorm-abandon-activation",
+          protocolVersion: PROTOCOL_VERSION,
+          discardInstallation: denial.discardInstallation,
+          installationId,
+          learnerId: current.bootstrap.learner.id,
+        },
+        learningOrigin,
+      );
+      return;
+    }
+    const activation = body as Activation;
     current.activation = activation;
     const entitlement = activation.envelope.entitlement;
     await putOfflineScormCourseIndexRecord({
@@ -690,6 +725,17 @@ async function handleLearningMessage(
       },
       learningOrigin,
     );
+  } else if (
+    message.type === "offline-scorm-activation-abandoned" &&
+    current.kind === "install" &&
+    current.target &&
+    current.activationDenial &&
+    message.installationId === current.activationDenial.installationId
+  ) {
+    const denial = current.activationDenial;
+    await deleteOfflineScormCourseIndexRecord(current.target.key);
+    await refreshCourses();
+    finishOperation(new Error(denial.message));
   } else if (
     message.type === "offline-scorm-entitlement-stored" &&
     current.kind === "install"

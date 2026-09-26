@@ -275,6 +275,37 @@ describe("offline SCORM trusted IndexedDB", () => {
     await expect(store.listPackages()).resolves.toEqual([packageRecord()]);
   });
 
+  it("discards only installation keys that protect no entitlement", async () => {
+    const unusedStore = createStore();
+    const unusedKey = await createOfflineScormDeviceKeyRecord(
+      "installation_unused",
+      {
+        learnerId: "learner_1",
+        now: () => new Date("2026-09-16T00:00:00.000Z"),
+      },
+    );
+    await unusedStore.putInstallation(unusedKey);
+    await unusedStore.deleteUnusedInstallation({
+      installationId: unusedKey.installationId,
+      learnerId: unusedKey.learnerId,
+    });
+    await expect(
+      unusedStore.getInstallation(unusedKey.installationId),
+    ).resolves.toBeUndefined();
+
+    const retainedStore = createStore();
+    await prepareStore(retainedStore);
+    await expect(
+      retainedStore.deleteUnusedInstallation({
+        installationId: "installation_1",
+        learnerId: "learner_1",
+      }),
+    ).rejects.toMatchObject({ code: "device_key_unavailable" });
+    await expect(
+      retainedStore.getInstallation("installation_1"),
+    ).resolves.toBeDefined();
+  });
+
   it("lists verified pending commits and clears only acknowledged attempts", async () => {
     const store = createStore();
     await prepareStore(store);

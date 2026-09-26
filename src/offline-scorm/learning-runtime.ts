@@ -76,6 +76,22 @@ async function prepareInstallation(learnerId: string): Promise<void> {
   });
 }
 
+async function abandonActivation(input: {
+  discardInstallation: boolean;
+  installationId: string;
+  learnerId: string;
+}): Promise<void> {
+  if (input.discardInstallation)
+    await store.deleteUnusedInstallation({
+      installationId: input.installationId,
+      learnerId: input.learnerId,
+    });
+  postParent({
+    type: "offline-scorm-activation-abandoned",
+    installationId: input.installationId,
+  });
+}
+
 async function installActivation(input: unknown): Promise<void> {
   const activation = offlineScormCourseActivationSuccessSchema.parse(input);
   const trustedKey = activation.trustedSigningKey;
@@ -445,6 +461,12 @@ window.addEventListener("message", (event) => {
     if (!message || message.protocolVersion !== PROTOCOL_VERSION) return;
     if (message.type === "offline-scorm-prepare-installation")
       await prepareInstallation(String(message.learnerId));
+    else if (message.type === "offline-scorm-abandon-activation")
+      await abandonActivation({
+        discardInstallation: message.discardInstallation === true,
+        installationId: String(message.installationId),
+        learnerId: String(message.learnerId),
+      });
     else if (message.type === "offline-scorm-store-activation")
       await installActivation(message.activation);
     else if (message.type === "offline-scorm-load-context")

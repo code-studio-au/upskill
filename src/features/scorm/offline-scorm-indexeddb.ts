@@ -948,6 +948,62 @@ export class OfflineScormIndexedDbStore implements OfflineScormTrustedStore {
     }
   }
 
+  async deleteUnusedInstallation(input: {
+    installationId: string;
+    learnerId: string;
+  }): Promise<void> {
+    const installationId = internalIdSchema.parse(input.installationId);
+    const learnerId = internalIdSchema.parse(input.learnerId);
+    try {
+      const database = await this.open();
+      const transaction = database.transaction(
+        ["installations", "entitlements"],
+        "readwrite",
+      );
+      const completed = transactionComplete(transaction);
+      try {
+        const installations = transaction.objectStore("installations");
+        const stored = await requestResult<unknown>(
+          installations.get(installationId),
+        );
+        if (stored === undefined) {
+          transaction.commit();
+          await completed;
+          return;
+        }
+        const installation = parseDeviceKeyRecord(stored);
+        if (installation.learnerId !== learnerId)
+          throw new OfflineScormRuntimeError(
+            "device_key_unavailable",
+            "The unused installation belongs to another learner",
+          );
+        const entitlements = await requestResult<unknown[]>(
+          transaction.objectStore("entitlements").getAll(),
+        );
+        if (
+          entitlements.some(
+            (value) =>
+              offlineScormTrustedEntitlementSchema.parse(value)
+                .installationId === installationId,
+          )
+        )
+          throw new OfflineScormRuntimeError(
+            "device_key_unavailable",
+            "An installation protecting offline evidence cannot be discarded",
+          );
+        installations.delete(installationId);
+        transaction.commit();
+        await completed;
+      } catch (error) {
+        abortTransaction(transaction);
+        await completed.catch(() => undefined);
+        throw error;
+      }
+    } catch (error) {
+      throw asStorageFailure(error);
+    }
+  }
+
   async putEntitlement(input: OfflineScormTrustedEntitlement): Promise<void> {
     const entitlement = offlineScormTrustedEntitlementSchema.parse(input);
     try {

@@ -14,7 +14,10 @@ import { getDatabase } from "#/server/db/database.server";
 import { getServerEnv } from "#/server/env.server";
 import { createOfflineScormEntitlementSigningRuntime } from "#/server/scorm/offline-scorm-entitlement-signing-runtime.server";
 import { issueOfflineScormEntitlement } from "#/server/scorm/offline-scorm-entitlement.server";
-import { registerOfflineScormInstallation } from "#/server/scorm/offline-scorm-installation.server";
+import {
+  registerOfflineScormInstallation,
+  retireUnusedOfflineScormInstallation,
+} from "#/server/scorm/offline-scorm-installation.server";
 import { createOfflineScormPackageSiteProvisioner } from "#/server/scorm/offline-scorm-package-site.server";
 import { z } from "#/validation/zod.server";
 
@@ -56,7 +59,23 @@ export type OfflineScormCourseActivationResult =
         | "offline-writer-active"
         | "finite-access-expiry-required"
         | "session-unavailable";
+      discardInstallation: boolean;
     };
+
+async function denyActivation(
+  reason: Extract<
+    OfflineScormCourseActivationResult,
+    { status: "denied" }
+  >["reason"],
+  installationId: string,
+  userId: string,
+): Promise<OfflineScormCourseActivationResult> {
+  const discardInstallation = await retireUnusedOfflineScormInstallation({
+    installationId,
+    userId,
+  });
+  return { status: "denied", reason, discardInstallation };
+}
 
 async function resolveCoursePackageInventory(input: {
   enrollmentId: string;
@@ -102,16 +121,24 @@ export async function activateOfflineScormCourse(
   sessionId: string,
 ): Promise<OfflineScormCourseActivationResult> {
   const environment = getServerEnv();
-  if (!environment.OFFLINE_SCORM_ENABLED)
-    return { status: "denied", reason: "activation-disabled" };
   const activation = offlineScormCourseActivationSchema.parse(input);
+  if (!environment.OFFLINE_SCORM_ENABLED)
+    return denyActivation(
+      "activation-disabled",
+      activation.registration.installationId,
+      user.id,
+    );
   const packageInventory = await resolveCoursePackageInventory({
     enrollmentId: activation.enrollmentId,
     modulePosition: activation.modulePosition,
     userId: user.id,
   });
   if (!packageInventory)
-    return { status: "denied", reason: "package-inventory-unavailable" };
+    return denyActivation(
+      "package-inventory-unavailable",
+      activation.registration.installationId,
+      user.id,
+    );
   const preflightManifest = offlineScormPackageManifestSchema.safeParse({
     schemaVersion: 1,
     packageVersionId: packageInventory.packageVersionId,
@@ -129,13 +156,22 @@ export async function activateOfflineScormCourse(
     })),
   });
   if (!preflightManifest.success)
-    return { status: "denied", reason: "package-inventory-unavailable" };
+    return denyActivation(
+      "package-inventory-unavailable",
+      activation.registration.installationId,
+      user.id,
+    );
 
   const registration = await registerOfflineScormInstallation(
     activation.registration,
     user,
   );
-  if (registration.status === "denied") return registration;
+  if (registration.status === "denied")
+    return denyActivation(
+      registration.reason,
+      activation.registration.installationId,
+      user.id,
+    );
 
   const signingRuntime =
     createOfflineScormEntitlementSigningRuntime(environment);
@@ -157,7 +193,12 @@ export async function activateOfflineScormCourse(
       packageSha256: packageInventory.packageSha256,
     },
   );
-  if (issuance.status === "denied") return issuance;
+  if (issuance.status === "denied")
+    return denyActivation(
+      issuance.reason,
+      registration.installationId,
+      user.id,
+    );
 
   const packageManifest = offlineScormPackageManifestSchema.parse({
     ...preflightManifest.data,
