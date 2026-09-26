@@ -3,7 +3,7 @@ import "@tanstack/react-start/server-only";
 import { createHmac } from "node:crypto";
 import {
   assertOfflineScormPackageOriginIsolation,
-  parseOfflineScormPrivateSiteSuffix,
+  parseOfflineScormPackageSiteSuffix,
 } from "#/features/scorm/offline-scorm-package-site.ts";
 import type { ServerEnv } from "#/server/env.server.ts";
 
@@ -15,6 +15,7 @@ const PACKAGE_CLEANUP_RECEIPT_FORMAT =
 
 type OfflineScormPackageSiteConfiguration = Pick<
   ServerEnv,
+  | "APP_ENV"
   | "APP_ORIGIN"
   | "LEARNING_ORIGIN"
   | "OFFLINE_SCORM_ENABLED"
@@ -54,8 +55,9 @@ export function createOfflineScormPackageSiteProvisioner(
     throw new Error("Offline SCORM package-site suffix is not configured");
   if (!configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY)
     throw new Error("Offline SCORM package-site origin key is not configured");
-  const suffix = parseOfflineScormPrivateSiteSuffix(
+  const suffix = parseOfflineScormPackageSiteSuffix(
     configuration.OFFLINE_SCORM_PACKAGE_SITE_SUFFIX,
+    configuration.APP_ENV,
   );
   const originKey = decodeOriginKey(
     configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY,
@@ -72,7 +74,22 @@ export function createOfflineScormPackageSiteProvisioner(
       .update(entitlementId, "utf8")
       .digest("hex")
       .slice(0, 56)}`;
-    const packageOrigin = `https://${hostnameLabel}.${suffix}`;
+    const packageOrigin = (() => {
+      if (suffix !== "localhost") return `https://${hostnameLabel}.${suffix}`;
+      const applicationOrigin = new URL(configuration.APP_ORIGIN);
+      const learningOrigin = new URL(configuration.LEARNING_ORIGIN);
+      if (
+        applicationOrigin.protocol !== "http:" ||
+        !applicationOrigin.hostname.endsWith(".localhost") ||
+        learningOrigin.protocol !== "http:" ||
+        !learningOrigin.hostname.endsWith(".localhost") ||
+        applicationOrigin.port !== learningOrigin.port
+      )
+        throw new Error(
+          "Local offline SCORM requires HTTP .localhost application and learning origins on one port",
+        );
+      return `http://${hostnameLabel}.${suffix}${applicationOrigin.port ? `:${applicationOrigin.port}` : ""}`;
+    })();
     assertOfflineScormPackageOriginIsolation({
       applicationOrigin: configuration.APP_ORIGIN,
       learningOrigin: configuration.LEARNING_ORIGIN,
@@ -85,19 +102,17 @@ export function createOfflineScormPackageSiteProvisioner(
 export function createOfflineScormPackageCleanupCapability(
   configuration: Pick<
     OfflineScormPackageSiteConfiguration,
-    "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY"
+    "APP_ENV" | "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY"
   >,
   input: { entitlementId: string; packageSiteOrigin: string },
 ): string {
   if (!configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY)
     throw new Error("Offline SCORM package-site origin key is not configured");
   assertInternalId("entitlement identifier", input.entitlementId);
-  const packageSiteOrigin = new URL(input.packageSiteOrigin);
-  if (
-    packageSiteOrigin.origin !== input.packageSiteOrigin ||
-    packageSiteOrigin.protocol !== "https:"
-  )
-    throw new Error("Offline SCORM package-site origin is invalid");
+  const packageSiteOrigin = parseCleanupPackageSiteOrigin(
+    configuration.APP_ENV,
+    input.packageSiteOrigin,
+  );
   return createHmac(
     "sha256",
     decodeOriginKey(configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY),
@@ -113,19 +128,17 @@ export function createOfflineScormPackageCleanupCapability(
 export function createOfflineScormPackageCleanupReceipt(
   configuration: Pick<
     OfflineScormPackageSiteConfiguration,
-    "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY"
+    "APP_ENV" | "OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY"
   >,
   input: { entitlementId: string; packageSiteOrigin: string },
 ): string {
   if (!configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY)
     throw new Error("Offline SCORM package-site origin key is not configured");
   assertInternalId("entitlement identifier", input.entitlementId);
-  const packageSiteOrigin = new URL(input.packageSiteOrigin);
-  if (
-    packageSiteOrigin.origin !== input.packageSiteOrigin ||
-    packageSiteOrigin.protocol !== "https:"
-  )
-    throw new Error("Offline SCORM package-site origin is invalid");
+  const packageSiteOrigin = parseCleanupPackageSiteOrigin(
+    configuration.APP_ENV,
+    input.packageSiteOrigin,
+  );
   return createHmac(
     "sha256",
     decodeOriginKey(configuration.OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY),
@@ -136,4 +149,21 @@ export function createOfflineScormPackageCleanupReceipt(
     .update("\0", "utf8")
     .update(packageSiteOrigin.origin, "utf8")
     .digest("hex");
+}
+
+function parseCleanupPackageSiteOrigin(
+  environment: OfflineScormPackageSiteConfiguration["APP_ENV"],
+  value: string,
+): URL {
+  const origin = new URL(value);
+  const localHttpOrigin =
+    (environment === "development" || environment === "test") &&
+    origin.protocol === "http:" &&
+    origin.hostname.endsWith(".localhost");
+  if (
+    origin.origin !== value ||
+    (origin.protocol !== "https:" && !localHttpOrigin)
+  )
+    throw new Error("Offline SCORM package-site origin is invalid");
+  return origin;
 }

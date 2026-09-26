@@ -131,6 +131,49 @@ describe("server runtime environment", () => {
     ).toThrow("private Public Suffix List");
   });
 
+  it("allows only the exact local package suffix and prohibits staging activation", () => {
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        APP_ORIGIN: "http://app.localhost:8080",
+        LEARNING_ORIGIN: "http://learn.localhost:8080",
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "development-key-1",
+        OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: "A".repeat(100),
+        OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "localhost",
+        OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "localhost",
+        OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: offlineScormOriginKey,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        APP_ENV: "production",
+        OFFLINE_SCORM_ENABLED: "true",
+        OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "localhost",
+      }),
+    ).toThrow("canonical lowercase DNS");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        APP_ENV: "staging",
+        OFFLINE_SCORM_ENABLED: "true",
+      }),
+    ).toThrow("prohibited in staging");
+    expect(() =>
+      parseServerEnvironment({
+        ...baseEnvironment,
+        APP_ENV: "staging",
+        APP_ORIGIN: "https://staging.upskill.institute",
+        LEARNING_ORIGIN: "https://learn-staging.upskill.institute",
+        OFFLINE_SCORM_ENABLED: "false",
+        OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "packages.upskill.institute",
+      }),
+    ).toThrow(
+      "A non-local ACCESS_CODE_ENCRYPTION_KEY is required outside local environments",
+    );
+  });
+
   it("requires a complete, environment-bound LiveKit configuration before enablement", () => {
     expect(() =>
       parseServerEnvironment({ ...baseEnvironment, LIVEKIT_ENABLED: "true" }),

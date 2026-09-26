@@ -143,11 +143,17 @@ function requestedPackageOrigin(
   const suffix = `.${packageHostSuffix}`;
   if (!hostname.endsWith(suffix)) return undefined;
   const label = hostname.slice(0, -suffix.length);
+  const localHttpOrigin =
+    (configuration.environment === "development" ||
+      configuration.environment === "test") &&
+    packageHostSuffix === "localhost";
+  const applicationUrl = new URL(configuration.applicationOrigin);
   return {
-    origin: `https://${hostname}`,
+    origin: url.origin,
     validLabel:
-      url.protocol === "https:" &&
-      !url.port &&
+      (localHttpOrigin
+        ? url.protocol === "http:" && url.port === applicationUrl.port
+        : url.protocol === "https:" && !url.port) &&
       !label.includes(".") &&
       PACKAGE_HOST_LABEL.test(label),
   };
@@ -253,6 +259,7 @@ export function createOfflineScormPackageHostHandler(
       requestUrl.pathname === PACKAGE_CLEAR_PATH;
     if (
       !packageOrigin.validLabel ||
+      dependencies.configuration.environment === "staging" ||
       (!dependencies.configuration.enabled && !lifecyclePath)
     )
       return new Response(null, { status: 404, headers: errorHeaders });
@@ -273,6 +280,7 @@ export function createOfflineScormPackageHostHandler(
           return new Response(null, { status: 404, headers: errorHeaders });
         const expectedCapability = createOfflineScormPackageCleanupCapability(
           {
+            APP_ENV: dependencies.configuration.environment,
             OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY:
               dependencies.configuration.packageSiteOriginKey,
           },
@@ -301,6 +309,7 @@ export function createOfflineScormPackageHostHandler(
           {
             cleanupReceiptSha256: createOfflineScormPackageCleanupReceipt(
               {
+                APP_ENV: dependencies.configuration.environment,
                 OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY:
                   dependencies.configuration.packageSiteOriginKey,
               },

@@ -99,10 +99,23 @@ export const REGISTRATION_SCRIPT_SOURCE = `if (
   );
 `;
 
-function offlineCoursesPage(learningOrigin, packageHostSuffix) {
+function offlineCoursesPage(
+  applicationOrigin,
+  learningOrigin,
+  packageHostSuffix,
+) {
+  const applicationUrl = new URL(applicationOrigin);
+  const packageFrameSource =
+    packageHostSuffix === "localhost" &&
+    applicationUrl.protocol === "http:" &&
+    applicationUrl.hostname.endsWith(".localhost")
+      ? `http://*.localhost${applicationUrl.port ? `:${applicationUrl.port}` : ""}`
+      : packageHostSuffix
+        ? `https://*.${packageHostSuffix}`
+        : undefined;
   const frameSources = [
     new URL(learningOrigin).origin,
-    ...(packageHostSuffix ? [`https://*.${packageHostSuffix}`] : []),
+    ...(packageFrameSource ? [packageFrameSource] : []),
   ].join(" ");
   return `<!doctype html>
 <html lang="en-AU">
@@ -150,7 +163,11 @@ export function getPwaShellScriptAsset(
 ) {
   const source =
     requestUrl.pathname === OFFLINE_COURSES_PAGE_PATH && options.learningOrigin
-      ? offlineCoursesPage(options.learningOrigin, options.packageHostSuffix)
+      ? offlineCoursesPage(
+          applicationOrigin,
+          options.learningOrigin,
+          options.packageHostSuffix,
+        )
       : requestUrl.pathname === OFFLINE_COURSES_SCRIPT_PATH
         ? options.offlineCoursesScript
         : requestUrl.pathname === OFFLINE_COURSES_SHARED_PATH

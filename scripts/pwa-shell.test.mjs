@@ -177,6 +177,18 @@ describe("application PWA shell", () => {
       headers: { "Content-Type": "text/css; charset=utf-8" },
       status: 200,
     });
+
+    const localPage = getPwaShellScriptAsset(
+      new URL(`http://app.localhost:8080${OFFLINE_COURSES_PAGE_PATH}`),
+      "http://app.localhost:8080",
+      {
+        learningOrigin: "http://learn.localhost:8080",
+        packageHostSuffix: "localhost",
+      },
+    );
+    expect(localPage?.body).toContain(
+      "frame-src http://learn.localhost:8080 http://*.localhost:8080",
+    );
   });
 
   it("registers the application worker only on a mobile form factor", async () => {
