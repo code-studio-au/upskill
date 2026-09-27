@@ -393,7 +393,14 @@ function acceptPort(nextPort: MessagePort): void {
           type: "offline-scorm-download-complete",
           attemptId: acceptedContext.attemptId,
         });
-      }
+      } else if (message.type === "offline-scorm-package-progress")
+        postParent({
+          type: "offline-scorm-package-progress",
+          completedBytes: message.completedBytes,
+          completedFiles: message.completedFiles,
+          totalBytes: message.totalBytes,
+          totalFiles: message.totalFiles,
+        });
     },
     onError(error) {
       postParent({

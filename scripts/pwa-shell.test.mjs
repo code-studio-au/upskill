@@ -191,6 +191,8 @@ describe("application PWA shell", () => {
     expect(page?.body).toContain("connect-src 'self'");
     expect(page?.body).toContain("script-src 'self'");
     expect(page?.body).toContain('id="offline-download-button"');
+    expect(page?.body).toContain('id="offline-download-progress" hidden');
+    expect(page?.body).toContain('id="offline-download-progress-bar"');
     expect(page?.body).toContain('id="offline-reconnect" href="/"');
     expect(page?.body).toContain(`src="${OFFLINE_COURSES_SCRIPT_PATH}"`);
 
@@ -351,7 +353,7 @@ describe("application PWA shell", () => {
 
     await expect(response).resolves.toBe(offlineFallback);
     expect(cacheStorage.match).toHaveBeenCalledWith("/offline.html", {
-      cacheName: "upskill-application-shell-v7",
+      cacheName: "upskill-application-shell-v8",
     });
   });
 
@@ -373,7 +375,7 @@ describe("application PWA shell", () => {
     await expect(response).resolves.toBe(cachedScript);
     expect(cacheStorage.match).toHaveBeenCalledWith(
       "/pwa/offline-learning.js",
-      { cacheName: "upskill-application-shell-v7" },
+      { cacheName: "upskill-application-shell-v8" },
     );
   });
 

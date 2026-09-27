@@ -177,19 +177,21 @@ export type OfflineScormPackageManifest = z.infer<
   typeof offlineScormPackageManifestSchema
 >;
 
+export type OfflineScormPackagePrototypeErrorCode =
+  | "cache_failed"
+  | "channel_rejected"
+  | "cleanup_failed"
+  | "digest_mismatch"
+  | "invalid_origin"
+  | "package_unavailable"
+  | "spool_corrupt"
+  | "spool_full"
+  | "storage_access_denied"
+  | "storage_failed";
+
 export class OfflineScormPackagePrototypeError extends Error {
   constructor(
-    public readonly code:
-      | "cache_failed"
-      | "channel_rejected"
-      | "cleanup_failed"
-      | "digest_mismatch"
-      | "invalid_origin"
-      | "package_unavailable"
-      | "spool_corrupt"
-      | "spool_full"
-      | "storage_access_denied"
-      | "storage_failed",
+    public readonly code: OfflineScormPackagePrototypeErrorCode,
     message: string,
     options?: ErrorOptions,
   ) {
@@ -487,6 +489,12 @@ export async function installOfflineScormPackage(input: {
   fetch: typeof fetch;
   subtle: Pick<SubtleCrypto, "digest">;
   randomUUID: () => string;
+  onProgress?: (progress: {
+    completedBytes: number;
+    completedFiles: number;
+    totalBytes: number;
+    totalFiles: number;
+  }) => void;
 }): Promise<{ cacheName: string; status: "ready" }> {
   const manifest = offlineScormPackageManifestSchema.parse(input.manifest);
   assertOfflineScormPackageSiteIsolation({
@@ -496,6 +504,23 @@ export async function installOfflineScormPackage(input: {
   });
   const finalCacheName = packageCacheName(manifest);
   const readyUrl = packageReadyUrl(manifest);
+  const totalBytes = manifest.files.reduce(
+    (total, file) => total + file.sizeBytes,
+    0,
+  );
+  const reportProgress = (completedFiles: number, completedBytes: number) => {
+    try {
+      input.onProgress?.({
+        completedBytes,
+        completedFiles,
+        totalBytes,
+        totalFiles: manifest.files.length,
+      });
+    } catch {
+      // Progress reporting is advisory and must not invalidate package bytes.
+    }
+  };
+  reportProgress(0, 0);
   if (await input.caches.match(readyUrl, { cacheName: finalCacheName })) {
     const finalCache = await input.caches.open(finalCacheName);
     if (
@@ -504,15 +529,19 @@ export async function installOfflineScormPackage(input: {
         manifest,
         subtle: input.subtle,
       })
-    )
+    ) {
+      reportProgress(manifest.files.length, totalBytes);
       return { cacheName: finalCacheName, status: "ready" };
+    }
   }
   const temporaryCacheName = `${finalCacheName}-staging-${input.randomUUID()}`;
+  const packageFetch = input.fetch;
   try {
     const temporaryCache = await input.caches.open(temporaryCacheName);
-    for (const file of manifest.files) {
+    let completedBytes = 0;
+    for (const [index, file] of manifest.files.entries()) {
       const request = packageFileRequest(manifest, file.pathname);
-      const response = await input.fetch(request, {
+      const response = await packageFetch(request, {
         cache: "no-store",
         credentials: "omit",
       });
@@ -534,6 +563,8 @@ export async function installOfflineScormPackage(input: {
         request,
         trustedPackageFileResponse(bytes, file, input.applicationOrigin),
       );
+      completedBytes += file.sizeBytes;
+      reportProgress(index + 1, completedBytes);
     }
 
     const finalCache = await input.caches.open(finalCacheName);

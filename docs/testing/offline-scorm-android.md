@@ -30,10 +30,10 @@ pnpm run preview:offline-scorm:android
 
 The command builds the application, creates ephemeral local-only signing and
 origin keys, starts one loopback listener on port 8080, installs an ADB reverse
-rule, and opens `http://app.localhost:8080` in Android Chrome. The related
+rule, and opens `http://localhost:8080` in Android Chrome. The related
 origins are:
 
-- `http://app.localhost:8080`
+- `http://localhost:8080`
 - `http://learn.localhost:8080`
 - `http://p-<opaque-id>.localhost:8080`
 

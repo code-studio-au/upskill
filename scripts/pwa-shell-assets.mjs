@@ -4,7 +4,7 @@ export const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
 export const OFFLINE_COURSES_SCRIPT_PATH = "/pwa/offline-learning.js";
 export const OFFLINE_COURSES_SHARED_PATH = "/pwa/shared.js";
 export const OFFLINE_COURSES_STYLE_PATH = "/pwa/offline-learning.css";
-export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v7";
+export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v8";
 const APPLICATION_SHELL_CACHE_PREFIX = "upskill-application-shell-";
 const OFFLINE_FALLBACK_URL = "/offline.html";
 const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
@@ -175,6 +175,10 @@ function offlineCoursesPage(
       <p class="eyebrow">Upskill Institute</p>
       <h1>Offline courses</h1>
       <p id="offline-status" role="status">Checking this device…</p>
+      <div class="download-progress" id="offline-download-progress" hidden>
+        <label id="offline-download-progress-label" for="offline-download-progress-bar">Preparing secure offline storage…</label>
+        <progress id="offline-download-progress-bar" max="1"></progress>
+      </div>
       <section id="offline-download" hidden>
         <strong id="offline-download-title"></strong>
         <button id="offline-download-button" type="button">Prepare offline</button>

@@ -2334,16 +2334,38 @@ try {
       .where("id", "=", administratorCleanupIssuance.entitlementId)
       .executeTakeFirstOrThrow();
   });
-  const administratorCleanupResolution =
-    await resolveOfflineScormCourseEntitlement(
-      {
-        schemaVersion: 1,
-        entitlementId: administratorCleanupIssuance.entitlementId,
-        resolution: "discarded",
-      },
-      user,
-    );
+  const administratorResolutionReasonCodes: unknown[] = [];
+  const administratorCleanupResolution = await (async () => {
+    const originalConsoleInfo = console.info;
+    console.info = (...data: unknown[]) => {
+      originalConsoleInfo(...data);
+      const [message] = data;
+      if (typeof message !== "string") return;
+      try {
+        const entry = JSON.parse(message) as Record<string, unknown>;
+        if (entry.type === "scorm.offline_writer_resolved")
+          administratorResolutionReasonCodes.push(entry.reasonCode);
+      } catch {
+        // Unstructured output is unrelated to this telemetry assertion.
+      }
+    };
+    try {
+      return await resolveOfflineScormCourseEntitlement(
+        {
+          schemaVersion: 1,
+          entitlementId: administratorCleanupIssuance.entitlementId,
+          resolution: "discarded",
+        },
+        user,
+      );
+    } finally {
+      console.info = originalConsoleInfo;
+    }
+  })();
   assert.equal(administratorCleanupResolution.status, "cleanup-required");
+  assert.deepEqual(administratorResolutionReasonCodes, [
+    "administrator_resolved",
+  ]);
   assert.deepEqual(
     await database
       .selectFrom("offline_learning_entitlement")

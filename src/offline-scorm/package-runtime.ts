@@ -3,6 +3,7 @@ import {
   OfflineScormPackageSpool,
   offlineScormPackageManifestSchema,
   type OfflineScormPackageManifest,
+  type OfflineScormPackagePrototypeErrorCode,
 } from "#/features/scorm/offline-scorm-package-prototype";
 import { scormProgressInputSchema } from "#/features/scorm/scorm.schema";
 import { OFFLINE_SCORM_PACKAGE_WORKER_REGISTRATION_OPTIONS } from "#/offline-scorm/service-worker-registration";
@@ -54,6 +55,65 @@ const lessonStatuses = new Set([
   "failed",
   "browsed",
 ]);
+const packageFailureMessages: Record<
+  OfflineScormPackagePrototypeErrorCode,
+  string
+> = {
+  cache_failed: "Secure offline storage could not save the package.",
+  channel_rejected: "The secure package channel was rejected.",
+  cleanup_failed: "The previous offline package could not be cleared.",
+  digest_mismatch: "A downloaded package file failed its integrity check.",
+  invalid_origin: "The isolated package origin could not be verified.",
+  package_unavailable: "A package file could not be downloaded.",
+  spool_corrupt: "Stored offline progress could not be verified.",
+  spool_full: "The offline progress queue is full.",
+  storage_access_denied: "Secure offline storage access was denied.",
+  storage_failed: "Secure offline storage is unavailable.",
+};
+const packageFailureReasons = new Set<OfflineScormPackagePrototypeErrorCode>(
+  Object.keys(
+    packageFailureMessages,
+  ) as OfflineScormPackagePrototypeErrorCode[],
+);
+
+interface PackageInstallProgress {
+  completedBytes: number;
+  completedFiles: number;
+  totalBytes: number;
+  totalFiles: number;
+}
+
+class OfflineScormPackageWorkerError extends Error {
+  constructor(public readonly reason: OfflineScormPackagePrototypeErrorCode) {
+    super(packageFailureMessages[reason]);
+    this.name = "OfflineScormPackageWorkerError";
+  }
+}
+
+function parsePackageInstallProgress(
+  value: unknown,
+): PackageInstallProgress | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const progress = value as Record<string, unknown>;
+  const numbers = [
+    progress.completedBytes,
+    progress.completedFiles,
+    progress.totalBytes,
+    progress.totalFiles,
+  ];
+  if (
+    !numbers.every(
+      (number) =>
+        typeof number === "number" &&
+        Number.isSafeInteger(number) &&
+        number >= 0,
+    ) ||
+    Number(progress.completedBytes) > Number(progress.totalBytes) ||
+    Number(progress.completedFiles) > Number(progress.totalFiles)
+  )
+    return undefined;
+  return progress as unknown as PackageInstallProgress;
+}
 
 function fail(code: string): "false" {
   lastError = code;
@@ -215,7 +275,10 @@ window.API = {
   LMSGetDiagnostic: (code) => errors[code || lastError] ?? "Unknown error",
 };
 
-function workerRequest(message: Record<string, unknown>): Promise<unknown> {
+function workerRequest(
+  message: Record<string, unknown>,
+  onProgress?: (progress: PackageInstallProgress) => void,
+): Promise<unknown> {
   return navigator.serviceWorker.ready.then((registration) => {
     const worker =
       registration.active ?? registration.waiting ?? registration.installing;
@@ -223,10 +286,28 @@ function workerRequest(message: Record<string, unknown>): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const channel = new MessageChannel();
       channel.port1.onmessage = (event) => {
-        const result = event.data as { status?: string };
-        if (result.status === "failed")
-          reject(new Error("The offline package operation failed"));
-        else resolve(event.data);
+        const result = event.data as {
+          progress?: unknown;
+          reason?: unknown;
+          status?: string;
+        };
+        if (result.status === "progress") {
+          const progress = parsePackageInstallProgress(result.progress);
+          if (progress) onProgress?.(progress);
+          return;
+        }
+        if (result.status === "failed") {
+          const reason =
+            typeof result.reason === "string" &&
+            packageFailureReasons.has(
+              result.reason as OfflineScormPackagePrototypeErrorCode,
+            )
+              ? (result.reason as OfflineScormPackagePrototypeErrorCode)
+              : "cache_failed";
+          reject(new OfflineScormPackageWorkerError(reason));
+          return;
+        }
+        resolve(event.data);
       };
       worker.postMessage(message, [channel.port2]);
     });
@@ -252,10 +333,19 @@ function acceptPort(nextPort: MessagePort): void {
       if (!message || message.protocolVersion !== PROTOCOL_VERSION) return;
       if (message.type === "offline-scorm-install-package") {
         manifest = offlineScormPackageManifestSchema.parse(message.manifest);
-        await workerRequest({
-          type: "offline-scorm-install-package",
-          manifest,
-        });
+        await workerRequest(
+          {
+            type: "offline-scorm-install-package",
+            manifest,
+          },
+          (progress) => {
+            port?.postMessage({
+              type: "offline-scorm-package-progress",
+              protocolVersion: PROTOCOL_VERSION,
+              ...progress,
+            });
+          },
+        );
         port?.postMessage({
           type: "offline-scorm-package-installed",
           protocolVersion: PROTOCOL_VERSION,
@@ -307,15 +397,22 @@ function acceptPort(nextPort: MessagePort): void {
         ).href;
         if (status) status.hidden = true;
       }
-    })().catch(() => {
+    })().catch((error: unknown) => {
       if (status) {
         status.hidden = false;
-        status.textContent = "This offline module needs attention.";
+        status.textContent =
+          error instanceof Error
+            ? error.message
+            : "This offline module needs attention.";
       }
       parent.postMessage(
         {
           type: "offline-scorm-package-error",
           protocolVersion: PROTOCOL_VERSION,
+          reason:
+            error instanceof OfflineScormPackageWorkerError
+              ? error.reason
+              : "cache_failed",
         },
         parentOrigin ?? "*",
       );

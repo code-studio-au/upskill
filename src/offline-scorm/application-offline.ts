@@ -106,6 +106,15 @@ const courseList = element("offline-courses", HTMLElement);
 const downloadPanel = element("offline-download", HTMLElement);
 const downloadTitle = element("offline-download-title", HTMLElement);
 const downloadButton = element("offline-download-button", HTMLButtonElement);
+const downloadProgressPanel = element("offline-download-progress", HTMLElement);
+const downloadProgressLabel = element(
+  "offline-download-progress-label",
+  HTMLLabelElement,
+);
+const downloadProgressBar = element(
+  "offline-download-progress-bar",
+  HTMLProgressElement,
+);
 const reconnectLink = element("offline-reconnect", HTMLAnchorElement);
 const player = element("offline-player", HTMLElement);
 const playerTitle = element("offline-player-title", HTMLElement);
@@ -169,6 +178,58 @@ function isRetainedCourse(value: unknown): value is RetainedCourse {
 function setStatus(message: string): void {
   status.textContent = message;
 }
+
+function showIndeterminateDownloadProgress(message: string): void {
+  downloadProgressPanel.hidden = false;
+  downloadProgressLabel.textContent = message;
+  downloadProgressBar.removeAttribute("value");
+}
+
+function hideDownloadProgress(): void {
+  downloadProgressPanel.hidden = true;
+  downloadProgressBar.removeAttribute("value");
+}
+
+function updateDownloadProgress(message: Record<string, unknown>): void {
+  const completedBytes = message.completedBytes;
+  const completedFiles = message.completedFiles;
+  const totalBytes = message.totalBytes;
+  const totalFiles = message.totalFiles;
+  if (
+    typeof completedBytes !== "number" ||
+    !Number.isSafeInteger(completedBytes) ||
+    completedBytes < 0 ||
+    typeof completedFiles !== "number" ||
+    !Number.isSafeInteger(completedFiles) ||
+    completedFiles < 0 ||
+    typeof totalBytes !== "number" ||
+    !Number.isSafeInteger(totalBytes) ||
+    totalBytes < completedBytes ||
+    typeof totalFiles !== "number" ||
+    !Number.isSafeInteger(totalFiles) ||
+    totalFiles < 1 ||
+    totalFiles < completedFiles
+  )
+    return;
+  const maximum = totalBytes > 0 ? totalBytes : totalFiles;
+  const completed = totalBytes > 0 ? completedBytes : completedFiles;
+  const percentage = Math.round((completed / maximum) * 100);
+  const label = `Downloading ${String(completedFiles)} of ${String(totalFiles)} files (${String(percentage)}%)…`;
+  downloadProgressPanel.hidden = false;
+  downloadProgressBar.max = maximum;
+  downloadProgressBar.value = completed;
+  downloadProgressLabel.textContent = label;
+  setStatus(label);
+}
+
+const packageFailureMessages: Record<string, string> = {
+  cache_failed: "Secure offline storage could not save the package.",
+  digest_mismatch: "A downloaded package file failed its integrity check.",
+  invalid_origin: "The isolated package origin could not be verified.",
+  package_unavailable: "A package file could not be downloaded.",
+  storage_access_denied: "Secure offline storage access was denied.",
+  storage_failed: "Secure offline storage is unavailable.",
+};
 
 function supportedMobileRuntime(): boolean {
   return (
@@ -304,6 +365,7 @@ function finishOperation(error?: unknown): void {
   packageFrame.removeAttribute("src");
   player.hidden = true;
   downloadButton.disabled = false;
+  if (current?.kind === "install") hideDownloadProgress();
   if (!current) return;
   if (error === undefined) current.resolve();
   else current.reject(error);
@@ -392,6 +454,7 @@ async function beginInstall(target: DownloadTarget): Promise<void> {
   }
   downloadButton.disabled = true;
   setStatus("Preparing secure offline storage…");
+  showIndeterminateDownloadProgress("Preparing secure offline storage…");
   await Promise.all([
     navigator.storage.persist(),
     navigator.serviceWorker.ready,
@@ -808,6 +871,11 @@ async function handleLearningMessage(
     current.contextReady = true;
     bindIfReady();
   } else if (
+    message.type === "offline-scorm-package-progress" &&
+    current.kind === "install"
+  )
+    updateDownloadProgress(message);
+  else if (
     message.type === "offline-scorm-download-complete" &&
     current.kind === "install" &&
     current.activation &&
@@ -994,8 +1062,14 @@ window.addEventListener("message", (event) => {
       setStatus("This module is already open on this device.");
       finishOperation(new Error("The offline package is already open"));
     } else if (message.type === "offline-scorm-package-error") {
-      setStatus("The offline package needs attention.");
-      finishOperation(new Error("The offline package needs attention"));
+      const failureMessage =
+        typeof message.reason === "string"
+          ? packageFailureMessages[message.reason]
+          : undefined;
+      const errorMessage =
+        failureMessage ?? "The offline package needs attention.";
+      setStatus(errorMessage);
+      finishOperation(new Error(errorMessage));
     }
   }
 });
@@ -1047,6 +1121,7 @@ if (target) {
   downloadButton.addEventListener("click", () => {
     void beginInstall(target).catch((error: unknown) => {
       downloadButton.disabled = false;
+      hideDownloadProgress();
       setStatus(
         error instanceof Error ? error.message : "Offline setup failed.",
       );

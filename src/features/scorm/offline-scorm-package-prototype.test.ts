@@ -340,22 +340,27 @@ describe("isolated offline SCORM package prototype", () => {
     };
     const manifest = packageManifest(files);
     const caches = new MemoryCacheStorage();
-    const packageFetch = vi.fn(
-      (request: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-        void init;
-        const url = new URL(
-          request instanceof Request ? request.url : request.toString(),
-        );
-        const file = files[url.pathname];
-        return Promise.resolve(
-          file
-            ? new Response(file.body, {
-                headers: { "Content-Type": file.contentType },
-              })
-            : new Response("missing", { status: 404 }),
-        );
-      },
-    );
+    const onProgress = vi.fn();
+    const fetchReceivers: unknown[] = [];
+    const packageFetch = vi.fn(function (
+      this: unknown,
+      request: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> {
+      fetchReceivers.push(this);
+      void init;
+      const url = new URL(
+        request instanceof Request ? request.url : request.toString(),
+      );
+      const file = files[url.pathname];
+      return Promise.resolve(
+        file
+          ? new Response(file.body, {
+              headers: { "Content-Type": file.contentType },
+            })
+          : new Response("missing", { status: 404 }),
+      );
+    });
 
     const installed = await installOfflineScormPackage({
       manifest,
@@ -368,6 +373,7 @@ describe("isolated offline SCORM package prototype", () => {
       fetch: packageFetch,
       subtle: crypto.subtle,
       randomUUID: () => "staging-id",
+      onProgress,
     });
     expect(installed.status).toBe("ready");
     expect([...caches.stores.keys()]).toEqual([installed.cacheName]);
@@ -391,6 +397,33 @@ describe("isolated offline SCORM package prototype", () => {
       }).then((response) => response?.text()),
     ).resolves.toBe("<h1>Rise fixture</h1>");
     expect(packageFetch).toHaveBeenCalledTimes(2);
+    expect(onProgress.mock.calls).toEqual([
+      [
+        {
+          completedBytes: 0,
+          completedFiles: 0,
+          totalBytes: 49,
+          totalFiles: 2,
+        },
+      ],
+      [
+        {
+          completedBytes: 21,
+          completedFiles: 1,
+          totalBytes: 49,
+          totalFiles: 2,
+        },
+      ],
+      [
+        {
+          completedBytes: 49,
+          completedFiles: 2,
+          totalBytes: 49,
+          totalFiles: 2,
+        },
+      ],
+    ]);
+    expect(fetchReceivers).toEqual([undefined, undefined]);
     for (const [request, init] of packageFetch.mock.calls) {
       expect(request).toBeInstanceOf(Request);
       expect((request as Request).credentials).toBe("omit");
