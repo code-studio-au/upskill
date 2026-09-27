@@ -4,7 +4,7 @@ export const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
 export const OFFLINE_COURSES_SCRIPT_PATH = "/pwa/offline-learning.js";
 export const OFFLINE_COURSES_SHARED_PATH = "/pwa/shared.js";
 export const OFFLINE_COURSES_STYLE_PATH = "/pwa/offline-learning.css";
-export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v8";
+export const APPLICATION_SERVICE_WORKER_SOURCE = `const APPLICATION_SHELL_CACHE = "upskill-application-shell-v9";
 const APPLICATION_SHELL_CACHE_PREFIX = "upskill-application-shell-";
 const OFFLINE_FALLBACK_URL = "/offline.html";
 const OFFLINE_COURSES_PAGE_PATH = "/offline-learning.html";
@@ -23,6 +23,8 @@ const APPLICATION_SHELL_ASSETS = [
   "/apple-touch-icon.png",
   "/android-chrome-192x192.png",
   "/android-chrome-512x512.png",
+  "/brand/upskill-icon-navy.png",
+  "/brand/upskill-wordmark-navy.png",
 ];
 
 self.addEventListener("install", (event) => {
@@ -170,24 +172,54 @@ function offlineCoursesPage(
     <script type="module" src="${OFFLINE_COURSES_SCRIPT_PATH}"></script>
   </head>
   <body>
-    <main>
-      <img src="/android-chrome-192x192.png" alt="" width="72" height="72">
-      <p class="eyebrow">Upskill Institute</p>
-      <h1>Offline courses</h1>
-      <p id="offline-status" role="status">Checking this device…</p>
-      <div class="download-progress" id="offline-download-progress" hidden>
-        <label id="offline-download-progress-label" for="offline-download-progress-bar">Preparing secure offline storage…</label>
-        <progress id="offline-download-progress-bar" max="1"></progress>
+    <header class="app-header">
+      <div class="app-header__inner">
+        <a class="brand" href="/" aria-label="Upskill home">
+          <img class="brand__icon" src="/brand/upskill-icon-navy.png" alt="" width="128" height="128">
+          <img class="brand__wordmark" src="/brand/upskill-wordmark-navy.png" alt="Upskill Institute" width="480" height="91">
+        </a>
+        <span class="app-context">Offline learning</span>
       </div>
-      <section id="offline-download" hidden>
-        <strong id="offline-download-title"></strong>
+    </header>
+    <main class="page-shell">
+      <header class="page-heading">
+        <p class="eyebrow">Learner area</p>
+        <h1>Offline learning</h1>
+        <p class="page-intro">Open modules saved to this device and sync your progress when you reconnect.</p>
+      </header>
+      <section class="device-status" aria-labelledby="device-status-heading">
+        <div class="device-status__copy">
+          <h2 id="device-status-heading">On this device</h2>
+          <p id="offline-status" role="status" aria-live="polite">Checking this device…</p>
+        </div>
+        <div class="download-progress" id="offline-download-progress" hidden>
+          <label id="offline-download-progress-label" for="offline-download-progress-bar">Preparing secure offline storage…</label>
+          <progress id="offline-download-progress-bar" max="1"></progress>
+        </div>
+      </section>
+      <section id="offline-download" hidden aria-labelledby="offline-download-title">
+        <div>
+          <span class="course-badge">Available for offline</span>
+          <h2 id="offline-download-title"></h2>
+          <p>Save this module securely so you can keep learning without an internet connection.</p>
+        </div>
         <button id="offline-download-button" type="button">Prepare offline</button>
       </section>
-      <div id="offline-courses"></div>
-      <a class="action" id="offline-reconnect" href="/">Reconnect to Upskill</a>
+      <section class="courses-section" aria-labelledby="offline-courses-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="offline-courses-heading">Your downloads</h2>
+            <p>Progress stays on this device until you reconnect and sync.</p>
+          </div>
+        </div>
+        <div class="course-grid" id="offline-courses"></div>
+      </section>
+      <div class="page-actions">
+        <a class="action action--secondary" id="offline-reconnect" href="/">Reconnect to Upskill</a>
+      </div>
     </main>
     <div id="offline-player" hidden>
-      <div class="toolbar"><strong id="offline-player-title"></strong><button id="offline-player-close" type="button">Close</button></div>
+      <div class="toolbar"><strong id="offline-player-title"></strong><button class="toolbar__close" id="offline-player-close" type="button">Close</button></div>
       <iframe id="offline-learning-frame" title="Trusted offline learning runtime"></iframe>
       <iframe id="offline-package-frame" title="Offline course module" sandbox="allow-downloads allow-forms allow-modals allow-popups allow-presentation allow-same-origin allow-scripts"></iframe>
     </div>

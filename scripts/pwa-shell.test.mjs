@@ -194,6 +194,9 @@ describe("application PWA shell", () => {
     expect(page?.body).toContain('id="offline-download-progress" hidden');
     expect(page?.body).toContain('id="offline-download-progress-bar"');
     expect(page?.body).toContain('id="offline-reconnect" href="/"');
+    expect(page?.body).toContain('class="app-header"');
+    expect(page?.body).toContain('src="/brand/upskill-wordmark-navy.png"');
+    expect(page?.body).toContain('aria-labelledby="offline-courses-heading"');
     expect(page?.body).toContain(`src="${OFFLINE_COURSES_SCRIPT_PATH}"`);
 
     expect(
@@ -251,6 +254,44 @@ describe("application PWA shell", () => {
 
     expect(offlineStyle).toMatch(
       /\[hidden\]\s*\{\s*display:\s*none\s*!important;/u,
+    );
+  });
+
+  it("keeps player and terminal course actions accessible", () => {
+    const offlineStyle = fs.readFileSync(
+      path.join(root, "src/offline-scorm/application-offline.css"),
+      "utf8",
+    );
+    const offlineApplication = fs.readFileSync(
+      path.join(root, "src/offline-scorm/application-offline.ts"),
+      "utf8",
+    );
+    const closeRule = offlineStyle.match(/\.toolbar__close\s*\{([^}]*)\}/u);
+
+    expect(closeRule?.[1]).toMatch(/min-height:\s*2\.75rem;/u);
+    expect(offlineApplication).toContain("? `Access ended: ${record.title}`");
+    expect(offlineApplication).toContain(": `Open ${record.title} offline`");
+  });
+
+  it("stacks offline course actions before narrow layouts overflow", () => {
+    const offlineStyle = fs.readFileSync(
+      path.join(root, "src/offline-scorm/application-offline.css"),
+      "utf8",
+    );
+    const stackedStart = offlineStyle.indexOf("@media (max-width: 48rem)");
+    const mobileStart = offlineStyle.indexOf("@media (max-width: 32rem)");
+
+    expect(stackedStart).toBeGreaterThan(-1);
+    expect(mobileStart).toBeGreaterThan(stackedStart);
+    const stackedStyles = offlineStyle.slice(stackedStart, mobileStart);
+    expect(stackedStyles).toMatch(
+      /\.course,\s*#offline-download\s*\{[^}]*grid-template-columns:\s*1fr;/u,
+    );
+    expect(stackedStyles).toMatch(
+      /\.course-actions\s*\{[^}]*grid-template-columns:\s*1fr;/u,
+    );
+    expect(stackedStyles).toMatch(
+      /\.course-actions button,\s*#offline-download-button\s*\{[^}]*width:\s*100%;/u,
     );
   });
 
@@ -327,6 +368,8 @@ describe("application PWA shell", () => {
       "/apple-touch-icon.png",
       "/android-chrome-192x192.png",
       "/android-chrome-512x512.png",
+      "/brand/upskill-icon-navy.png",
+      "/brand/upskill-wordmark-navy.png",
     ]);
     expect(serviceWorker.skipWaiting).toHaveBeenCalledOnce();
   });
@@ -353,7 +396,7 @@ describe("application PWA shell", () => {
 
     await expect(response).resolves.toBe(offlineFallback);
     expect(cacheStorage.match).toHaveBeenCalledWith("/offline.html", {
-      cacheName: "upskill-application-shell-v8",
+      cacheName: "upskill-application-shell-v9",
     });
   });
 
@@ -375,7 +418,7 @@ describe("application PWA shell", () => {
     await expect(response).resolves.toBe(cachedScript);
     expect(cacheStorage.match).toHaveBeenCalledWith(
       "/pwa/offline-learning.js",
-      { cacheName: "upskill-application-shell-v8" },
+      { cacheName: "upskill-application-shell-v9" },
     );
   });
 

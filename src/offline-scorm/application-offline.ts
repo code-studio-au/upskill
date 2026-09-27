@@ -608,16 +608,30 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
   for (const record of records) {
     const card = document.createElement("section");
     card.className = "course";
-    const name = document.createElement("strong");
+    const summary = document.createElement("div");
+    summary.className = "course-summary";
+    const badge = document.createElement("span");
+    badge.className = "course-badge";
+    const name = document.createElement("h3");
     name.textContent = record.title;
+    const description = document.createElement("p");
+    description.className = "course-description";
     const actions = document.createElement("div");
     actions.className = "course-actions";
     if (record.state === "activating" || record.state === "downloading") {
+      badge.classList.add("course-badge--warning");
+      badge.textContent = "Download paused";
+      description.textContent =
+        "Reconnect to finish saving this module to your device.";
       const resume = document.createElement("button");
       resume.type = "button";
       resume.disabled = !navigator.onLine || Boolean(active);
       resume.textContent =
         record.state === "activating" ? "Retry download" : "Resume download";
+      resume.setAttribute(
+        "aria-label",
+        `${resume.textContent}: ${record.title}`,
+      );
       resume.addEventListener("click", () => {
         void beginInstall(recordDownloadTarget(record)).catch(
           (error: unknown) => {
@@ -628,16 +642,29 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
         );
       });
       actions.append(resume);
-      card.append(name, actions);
+      summary.append(badge, name, description);
+      card.append(summary, actions);
       courseList.append(card);
       continue;
     }
     if (record.state === "blocked" || record.state === "removing") {
+      badge.classList.add("course-badge--warning");
+      badge.textContent =
+        record.state === "blocked" ? "Needs attention" : "Removing";
+      description.textContent =
+        record.state === "blocked"
+          ? "Reconnect to resolve this download and safely remove its stored data."
+          : "Reconnect to finish removing this module from your device.";
       const remove = document.createElement("button");
       remove.type = "button";
+      remove.className = "course-action--danger";
       remove.disabled = !navigator.onLine || Boolean(active);
       remove.textContent =
         record.state === "blocked" ? "Resolve and remove" : "Resume removal";
+      remove.setAttribute(
+        "aria-label",
+        `${remove.textContent}: ${record.title}`,
+      );
       remove.addEventListener("click", () => {
         void beginExistingOperation("remove", record).catch(
           (error: unknown) => {
@@ -648,15 +675,27 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
         );
       });
       actions.append(remove);
-      card.append(name, actions);
+      summary.append(badge, name, description);
+      card.append(summary, actions);
       courseList.append(card);
       continue;
     }
     const expired = Date.now() >= Date.parse(record.intendedLaunchExpiresAt);
+    badge.textContent = expired ? "Access ended" : "Ready offline";
+    description.textContent = expired
+      ? "Reconnect to Upskill to renew access before opening this module."
+      : "Saved securely on this device and ready without an internet connection.";
+    if (expired) badge.classList.add("course-badge--muted");
     const open = document.createElement("button");
     open.type = "button";
     open.disabled = expired || Boolean(active);
     open.textContent = expired ? "Access ended" : "Open offline";
+    open.setAttribute(
+      "aria-label",
+      expired
+        ? `Access ended: ${record.title}`
+        : `Open ${record.title} offline`,
+    );
     open.addEventListener("click", () => {
       void beginExistingOperation("launch", record).catch((error: unknown) => {
         setStatus(error instanceof Error ? error.message : "Launch failed.");
@@ -664,8 +703,10 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     });
     const sync = document.createElement("button");
     sync.type = "button";
+    sync.className = "course-action--secondary";
     sync.disabled = !navigator.onLine || Boolean(active);
     sync.textContent = "Sync now";
+    sync.setAttribute("aria-label", `Sync progress for ${record.title}`);
     sync.addEventListener("click", () => {
       void beginExistingOperation("sync", record).catch((error: unknown) => {
         setStatus(error instanceof Error ? error.message : "Sync failed.");
@@ -673,15 +714,21 @@ async function refreshCourses(): Promise<OfflineScormCourseIndexRecord[]> {
     });
     const remove = document.createElement("button");
     remove.type = "button";
+    remove.className = "course-action--danger";
     remove.disabled = !navigator.onLine || Boolean(active);
     remove.textContent = "Remove download";
+    remove.setAttribute(
+      "aria-label",
+      `Remove ${record.title} from this device`,
+    );
     remove.addEventListener("click", () => {
       void beginExistingOperation("remove", record).catch((error: unknown) => {
         setStatus(error instanceof Error ? error.message : "Removal failed.");
       });
     });
     actions.append(open, sync, remove);
-    card.append(name, actions);
+    summary.append(badge, name, description);
+    card.append(summary, actions);
     courseList.append(card);
   }
   if (target) {
