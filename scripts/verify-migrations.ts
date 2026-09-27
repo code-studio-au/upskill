@@ -113,6 +113,7 @@ try {
     "notification_delivery_attempt",
     "offline_learning_entitlement",
     "offline_learning_installation",
+    "offline_scorm_cloudfront_allocation",
     "offline_scorm_cleanup_inventory",
     "offline_scorm_reconciliation_receipt",
     "contact_verification_challenge",
@@ -206,6 +207,7 @@ try {
     "offline_learning_entitlement_user_status_idx",
     "offline_scorm_receipt_accepted_sequence_uq",
     "offline_scorm_receipt_attempt_received_idx",
+    "offline_scorm_cloudfront_allocation_work_idx",
     "offline_scorm_cleanup_user_state_idx",
     "survey_response_enrollment_idx",
     "survey_progress_enrollment_idx",
@@ -310,6 +312,12 @@ try {
           'offline_scorm_reconciliation_receipt_entitlement_fk',
           'offline_scorm_reconciliation_receipt_identity_ck',
           'offline_scorm_reconciliation_receipt_outcome_ck',
+          'offline_scorm_cloudfront_distribution_id_uq',
+          'offline_scorm_cloudfront_distribution_domain_uq',
+          'offline_scorm_cloudfront_allocation_identity_ck',
+          'offline_scorm_cloudfront_allocation_error_ck',
+          'offline_scorm_cloudfront_allocation_state_ck',
+          'offline_scorm_cloudfront_allocation_timeline_ck',
           'offline_scorm_cleanup_inventory_entitlement_uq',
           'offline_scorm_cleanup_inventory_origin_uq',
           'offline_scorm_cleanup_inventory_entitlement_fk',
@@ -319,8 +327,8 @@ try {
         )`.execute(db);
   assert.equal(
     offlineScormConstraints.rows.length,
-    30,
-    "Offline SCORM identity, writer, deadline, receipt and cleanup constraints must exist",
+    36,
+    "Offline SCORM identity, writer, deadline, receipt, allocation and cleanup constraints must exist",
   );
   for (const [triggerName, operations] of [
     ["offline_learning_installation_guard_trg", ["INSERT", "UPDATE", "DELETE"]],
@@ -331,6 +339,10 @@ try {
     ],
     ["scorm_attempt_offline_writer_guard_trg", ["INSERT", "UPDATE"]],
     ["offline_scorm_reconciliation_receipt_guard_trg", ["UPDATE", "DELETE"]],
+    [
+      "offline_scorm_cloudfront_allocation_guard_trg",
+      ["INSERT", "UPDATE", "DELETE"],
+    ],
     [
       "offline_scorm_cleanup_inventory_guard_trg",
       ["INSERT", "UPDATE", "DELETE"],

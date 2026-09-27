@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed; CloudFront qualification infrastructure in progress and disabled by
-default.
+Proposed; CloudFront qualification infrastructure and durable allocation model
+in progress and disabled by default.
 Date: 2026-09-27
 
 ## Context
@@ -99,6 +99,24 @@ whole configuration rather than merging fields:
 The future application boundary must own these transitions in one locked
 transactional workflow. A distribution being `Deployed` is infrastructure
 evidence, not authority to issue or activate an entitlement.
+
+Migration 0120 adds the dormant
+`offline_scorm_cloudfront_allocation` reservation and evidence model. Absence
+of a row is the unallocated state; a row begins in `allocating` before the AWS
+request, so a lost response can resume from the same exact entitlement ID.
+Binding records the unique distribution ID and AWS-owned domain once and makes
+both immutable. Guarded transitions cover binding pending, enabling, active,
+disabling, deletion pending, deleted and operation-specific needs-attention
+recovery. Lifecycle timestamps are write-once and runtime database roles cannot
+delete the evidence.
+
+The reservation intentionally precedes `offline_learning_entitlement`, so it
+does not have a foreign key to an entitlement that does not yet exist. The
+future issuance workflow must lock the reservation and atomically create the
+entitlement plus cleanup inventory for
+`https://<distributionDomain>` before moving the reservation from
+`binding_pending` to `enabling`. This migration grants no allocator invocation
+permission and does not change current entitlement issuance.
 
 ## Threat model and controls
 
@@ -225,7 +243,8 @@ deleted stack still requires the normal retained-resource recovery process.
 1. Record this ADR and add the dormant, operator-only allocator with encrypted
    access logging and no application invoke permission.
 2. Add a forward-only database model for distribution ID/domain and the explicit
-   allocation lifecycle, including lost-response recovery.
+   allocation lifecycle, including lost-response recovery. **Implemented,
+   dormant, by migration 0120.**
 3. Add constant-time CloudFront-origin capability validation to the package
    host, still disabled and covered across every route and lifecycle state.
 4. Add an asynchronous server-owned issuance/recovery workflow and grant only

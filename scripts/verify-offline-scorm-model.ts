@@ -27,6 +27,9 @@ const ids = {
   receipt: "verify_offline_scorm_receipt",
   duplicateReceipt: "verify_offline_scorm_duplicate_receipt",
   duplicateSequenceReceipt: "verify_offline_scorm_duplicate_sequence_receipt",
+  cloudfrontAllocation: "verify_offline_scorm_cloudfront_allocation",
+  duplicateCloudfrontAllocation:
+    "verify_offline_scorm_duplicate_cloudfront_allocation",
   cleanup: "verify_offline_scorm_cleanup",
   invalidCleanup: "verify_offline_scorm_invalid_cleanup",
 } as const;
@@ -59,6 +62,13 @@ async function assertDatabaseConstraint(
 }
 
 async function cleanup(): Promise<void> {
+  await database
+    .deleteFrom("offline_scorm_cloudfront_allocation")
+    .where("entitlementId", "in", [
+      ids.cloudfrontAllocation,
+      ids.duplicateCloudfrontAllocation,
+    ])
+    .execute();
   await database
     .deleteFrom("offline_scorm_cleanup_inventory")
     .where("userId", "in", [ids.user, ids.anotherUser])
@@ -938,6 +948,293 @@ try {
     {
       code: "23514",
       message: /receipts are immutable/u,
+    },
+  );
+
+  const allocationStartedAt = new Date("2030-01-02T00:00:00.000Z");
+  await database
+    .insertInto("offline_scorm_cloudfront_allocation")
+    .values({
+      entitlementId: ids.cloudfrontAllocation,
+      distributionId: null,
+      distributionDomain: null,
+      recoveryState: null,
+      lastErrorCode: null,
+      boundAt: null,
+      enableRequestedAt: null,
+      activatedAt: null,
+      disableRequestedAt: null,
+      disabledAt: null,
+      deletionRequestedAt: null,
+      deletedAt: null,
+      allocationStartedAt,
+      createdAt: allocationStartedAt,
+      updatedAt: allocationStartedAt,
+    })
+    .execute();
+  await assert.rejects(
+    database
+      .updateTable("offline_scorm_cloudfront_allocation")
+      .set({
+        state: "needs_attention",
+        recoveryState: "enabling",
+        lastErrorCode: "wrong_recovery_phase",
+        updatedAt: new Date("2030-01-02T00:00:30.000Z"),
+      })
+      .where("entitlementId", "=", ids.cloudfrontAllocation)
+      .execute(),
+    {
+      code: "23514",
+      message: /recovery state must match failed work/u,
+    },
+  );
+  const allocationAttentionAt = new Date("2030-01-02T00:01:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "needs_attention",
+      recoveryState: "allocating",
+      lastErrorCode: "create_response_lost",
+      updatedAt: allocationAttentionAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const allocationRetryAt = new Date("2030-01-02T00:02:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "allocating",
+      recoveryState: null,
+      lastErrorCode: null,
+      updatedAt: allocationRetryAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("offline_scorm_cloudfront_allocation")
+        .set({
+          state: "binding_pending",
+          distributionId: "E123456789ABC",
+          distributionDomain: "not-cloudfront.example.test",
+          boundAt: new Date("2030-01-02T00:03:00.000Z"),
+          updatedAt: new Date("2030-01-02T00:03:00.000Z"),
+        })
+        .where("entitlementId", "=", ids.cloudfrontAllocation)
+        .execute(),
+    "23514",
+    "offline_scorm_cloudfront_allocation_identity_ck",
+  );
+  const boundAt = new Date("2030-01-02T00:03:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "binding_pending",
+      distributionId: "E123456789ABC",
+      distributionDomain: "d111111abcdef8.cloudfront.net",
+      boundAt,
+      updatedAt: boundAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  await assert.rejects(
+    database
+      .updateTable("offline_scorm_cloudfront_allocation")
+      .set({ distributionId: "E999999999ABC" })
+      .where("entitlementId", "=", ids.cloudfrontAllocation)
+      .execute(),
+    {
+      code: "23514",
+      message: /distribution binding is immutable/u,
+    },
+  );
+  await assert.rejects(
+    database
+      .updateTable("offline_scorm_cloudfront_allocation")
+      .set({
+        state: "active",
+        enableRequestedAt: new Date("2030-01-02T00:03:30.000Z"),
+        activatedAt: new Date("2030-01-02T00:03:40.000Z"),
+        updatedAt: new Date("2030-01-02T00:03:40.000Z"),
+      })
+      .where("entitlementId", "=", ids.cloudfrontAllocation)
+      .execute(),
+    {
+      code: "23514",
+      message: /lifecycle milestone is out of order/u,
+    },
+  );
+  await database
+    .insertInto("offline_scorm_cloudfront_allocation")
+    .values({
+      entitlementId: ids.duplicateCloudfrontAllocation,
+      distributionId: null,
+      distributionDomain: null,
+      recoveryState: null,
+      lastErrorCode: null,
+      boundAt: null,
+      enableRequestedAt: null,
+      activatedAt: null,
+      disableRequestedAt: null,
+      disabledAt: null,
+      deletionRequestedAt: null,
+      deletedAt: null,
+      allocationStartedAt,
+      createdAt: allocationStartedAt,
+      updatedAt: allocationStartedAt,
+    })
+    .execute();
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("offline_scorm_cloudfront_allocation")
+        .set({
+          state: "binding_pending",
+          distributionId: "E123456789ABC",
+          distributionDomain: "d222222abcdef8.cloudfront.net",
+          boundAt,
+          updatedAt: boundAt,
+        })
+        .where("entitlementId", "=", ids.duplicateCloudfrontAllocation)
+        .execute(),
+    "23505",
+    "offline_scorm_cloudfront_distribution_id_uq",
+  );
+  await assertDatabaseConstraint(
+    () =>
+      database
+        .updateTable("offline_scorm_cloudfront_allocation")
+        .set({
+          state: "binding_pending",
+          distributionId: "E222222222ABC",
+          distributionDomain: "d111111abcdef8.cloudfront.net",
+          boundAt,
+          updatedAt: boundAt,
+        })
+        .where("entitlementId", "=", ids.duplicateCloudfrontAllocation)
+        .execute(),
+    "23505",
+    "offline_scorm_cloudfront_distribution_domain_uq",
+  );
+  const enableRequestedAt = new Date("2030-01-02T00:04:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "enabling",
+      enableRequestedAt,
+      updatedAt: enableRequestedAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const enableAttentionAt = new Date("2030-01-02T00:05:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "needs_attention",
+      recoveryState: "enabling",
+      lastErrorCode: "enable_status_unknown",
+      updatedAt: enableAttentionAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const enableRetryAt = new Date("2030-01-02T00:06:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "enabling",
+      recoveryState: null,
+      lastErrorCode: null,
+      updatedAt: enableRetryAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const activatedAt = new Date("2030-01-02T00:07:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({ state: "active", activatedAt, updatedAt: activatedAt })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const disableRequestedAt = new Date("2030-01-02T00:08:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "disabling",
+      disableRequestedAt,
+      updatedAt: disableRequestedAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const disableAttentionAt = new Date("2030-01-02T00:09:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "needs_attention",
+      recoveryState: "disabling",
+      lastErrorCode: "disable_status_unknown",
+      updatedAt: disableAttentionAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const disableRetryAt = new Date("2030-01-02T00:10:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "disabling",
+      recoveryState: null,
+      lastErrorCode: null,
+      updatedAt: disableRetryAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const deletionRequestedAt = new Date("2030-01-02T00:11:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "deletion_pending",
+      disabledAt: deletionRequestedAt,
+      deletionRequestedAt,
+      updatedAt: deletionRequestedAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const deleteAttentionAt = new Date("2030-01-02T00:12:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "needs_attention",
+      recoveryState: "deletion_pending",
+      lastErrorCode: "delete_status_unknown",
+      updatedAt: deleteAttentionAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const deleteRetryAt = new Date("2030-01-02T00:13:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "deletion_pending",
+      recoveryState: null,
+      lastErrorCode: null,
+      updatedAt: deleteRetryAt,
+    })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  const deletedAt = new Date("2030-01-02T00:14:00.000Z");
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({ state: "deleted", deletedAt, updatedAt: deletedAt })
+    .where("entitlementId", "=", ids.cloudfrontAllocation)
+    .execute();
+  await assert.rejects(
+    database
+      .updateTable("offline_scorm_cloudfront_allocation")
+      .set({ updatedAt: new Date("2030-01-02T00:15:00.000Z") })
+      .where("entitlementId", "=", ids.cloudfrontAllocation)
+      .execute(),
+    {
+      code: "23514",
+      message: /Deleted CloudFront allocation evidence is immutable/u,
     },
   );
 

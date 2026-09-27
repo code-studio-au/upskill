@@ -60,6 +60,7 @@ try {
        revoke delete on table offline_learning_installation from ${role};
        revoke delete on table offline_learning_entitlement from ${role};
        revoke update, delete on table offline_scorm_reconciliation_receipt from ${role};
+       revoke delete on table offline_scorm_cloudfront_allocation from ${role};
        revoke delete on table offline_scorm_cleanup_inventory from ${role};
        revoke all on table kysely_migration, kysely_migration_lock from ${role};`,
     );
