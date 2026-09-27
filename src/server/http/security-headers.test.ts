@@ -117,6 +117,25 @@ describe("content security policy", () => {
     vi.unstubAllEnvs();
   });
 
+  it("omits the unprovisioned package wildcard from staging policies", () => {
+    vi.stubEnv("APP_ENV", "staging");
+    vi.stubEnv("APP_ORIGIN", "https://staging.upskill.institute");
+    vi.stubEnv("LEARNING_ORIGIN", "https://learn-staging.upskill.institute");
+    vi.stubEnv("OFFLINE_SCORM_ENABLED", "false");
+    vi.stubEnv("OFFLINE_SCORM_PACKAGE_HOST_SUFFIX", "com.au");
+    const headers = new Headers();
+    applySecurityHeaders(
+      headers,
+      "nonce",
+      new Request("https://staging.upskill.institute/dashboard"),
+    );
+    expect(headers.get("content-security-policy")).toContain(
+      "frame-src https://learn-staging.upskill.institute",
+    );
+    expect(headers.get("content-security-policy")).not.toContain("*.com.au");
+    vi.unstubAllEnvs();
+  });
+
   it("permits only the same-port HTTP package wildcard for local localhost", () => {
     vi.stubEnv("APP_ENV", "development");
     vi.stubEnv("APP_ORIGIN", "http://app.localhost:8080");

@@ -962,6 +962,27 @@ try {
     "23514",
     "offline_scorm_cleanup_inventory_origin_ck",
   );
+  const localPackageSiteOrigin = `http://p-${"a".repeat(56)}.localhost:8080`;
+  await database
+    .insertInto("offline_scorm_cleanup_inventory")
+    .values({
+      id: ids.cleanup,
+      entitlementId: ids.entitlement,
+      installationId: ids.installation,
+      userId: ids.user,
+      packageSiteOrigin: localPackageSiteOrigin,
+      clearRequestedAt: null,
+      clearedAt: null,
+      cleanupReceiptSha256: null,
+      lastErrorCode: null,
+      createdAt: issuedAt,
+      updatedAt: issuedAt,
+    })
+    .execute();
+  await database
+    .deleteFrom("offline_scorm_cleanup_inventory")
+    .where("id", "=", ids.cleanup)
+    .execute();
   await database
     .insertInto("offline_scorm_cleanup_inventory")
     .values({

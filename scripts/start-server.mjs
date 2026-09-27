@@ -32,6 +32,8 @@ const offlineScormPrototypeOrigin =
     : null;
 const offlineScormPackageHostSuffix =
   process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX?.trim();
+const offlineScormPolicyPackageHostSuffix =
+  process.env.APP_ENV === "staging" ? undefined : offlineScormPackageHostSuffix;
 const offlineScormPackagePort = 3002;
 const localEnvironment =
   process.env.APP_ENV === "development" || process.env.APP_ENV === "test";
@@ -241,7 +243,7 @@ function servePwaShellScript(incoming, outgoing) {
         offlineCoursesScript,
         offlineCoursesShared,
         offlineCoursesStyle,
-        packageHostSuffix: offlineScormPackageHostSuffix,
+        packageHostSuffix: offlineScormPolicyPackageHostSuffix,
       },
     );
   } catch {
@@ -424,7 +426,7 @@ async function handleRequest(incoming, outgoing, packageOnly = false) {
     const packageOriginRequest = isOfflineScormPackageOrigin(
       requestOrigin(incoming),
     );
-    if (packageOnly !== packageOriginRequest) {
+    if (!localOfflineScormPackageHost && packageOnly !== packageOriginRequest) {
       outgoing.statusCode = 421;
       outgoing.setHeader("cache-control", "no-store");
       outgoing.setHeader("content-type", "text/plain; charset=utf-8");

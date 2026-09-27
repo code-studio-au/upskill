@@ -2435,6 +2435,7 @@ const serverLauncher = fs.readFileSync(
 for (const invariant of [
   "OFFLINE_SCORM_PACKAGE_HOST_SUFFIX",
   "const offlineScormPackagePort = 3002;",
+  "!localOfflineScormPackageHost &&",
   "packageOnly !== packageOriginRequest",
   'listener: "offline_scorm_package"',
   "if (allowedOrigins.includes(candidate.origin)) return false;",

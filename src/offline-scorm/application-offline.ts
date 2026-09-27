@@ -16,6 +16,10 @@ import {
   offlineScormActivationDenialMessage,
   parseOfflineScormActivationDenial,
 } from "#/offline-scorm/offline-scorm-activation-denial";
+import {
+  isRelatedWebApplicationInstalled,
+  isStandaloneApplication,
+} from "#/offline-scorm/pwa-installation";
 import "./application-offline.css";
 
 const PROTOCOL_VERSION = 1;
@@ -105,6 +109,7 @@ const learningFrame = element("offline-learning-frame", HTMLIFrameElement);
 const packageFrame = element("offline-package-frame", HTMLIFrameElement);
 let active: Operation | undefined;
 let deferredInstallPrompt: DeferredInstallPrompt | undefined;
+let installedApplicationHandoff = false;
 let synchronizingAll = false;
 let serverCleanupStates = new Map<string, OfflineScormServerCleanupState>();
 let visibleLearnerId: string | undefined;
@@ -139,13 +144,6 @@ function setStatus(message: string): void {
   status.textContent = message;
 }
 
-function installedApplication(): boolean {
-  return (
-    window.matchMedia("(display-mode: standalone)").matches ||
-    Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
-  );
-}
-
 function supportedMobileRuntime(): boolean {
   return (
     window.matchMedia("(hover: none) and (pointer: coarse)").matches &&
@@ -156,6 +154,21 @@ function supportedMobileRuntime(): boolean {
     "indexedDB" in window &&
     "locks" in navigator &&
     Boolean(globalThis.crypto.subtle)
+  );
+}
+
+function offerInstalledApplicationHandoff(message: string): void {
+  installedApplicationHandoff = true;
+  deferredInstallPrompt = undefined;
+  downloadButton.disabled = false;
+  downloadButton.textContent = "Open installed Upskill";
+  setStatus(message);
+}
+
+function openInstalledApplication(): void {
+  window.open(location.href, "_blank", "noopener,noreferrer");
+  setStatus(
+    "Continue in the installed Upskill app. If Chrome stays open, choose Open in Upskill from its menu or open Upskill from your home screen.",
   );
 }
 
@@ -329,15 +342,25 @@ function startOperation(
 async function beginInstall(target: DownloadTarget): Promise<void> {
   if (!supportedMobileRuntime())
     throw new Error("Offline learning is supported in the Android app.");
-  if (!installedApplication()) {
-    if (deferredInstallPrompt) {
-      await deferredInstallPrompt.prompt();
-      const choice = await deferredInstallPrompt.userChoice;
-      throw new Error(
-        choice.outcome === "accepted"
-          ? "Open the installed Upskill app to download this module."
-          : "Install Upskill to learn offline.",
+  if (!isStandaloneApplication()) {
+    if (await isRelatedWebApplicationInstalled()) {
+      offerInstalledApplicationHandoff(
+        "Upskill is already installed. Open the installed app to download this module.",
       );
+      return;
+    }
+    if (deferredInstallPrompt) {
+      const installPrompt = deferredInstallPrompt;
+      deferredInstallPrompt = undefined;
+      await installPrompt.prompt();
+      const choice = await installPrompt.userChoice;
+      if (choice.outcome === "accepted") {
+        offerInstalledApplicationHandoff(
+          "Upskill is installing. When Android finishes, open the installed app to download this module.",
+        );
+        return;
+      }
+      throw new Error("Install Upskill to learn offline.");
     }
     throw new Error("Install Upskill, then reopen this course in the app.");
   }
@@ -957,6 +980,11 @@ window.addEventListener("beforeinstallprompt", (event) => {
   event.preventDefault();
   deferredInstallPrompt = event as DeferredInstallPrompt;
 });
+window.addEventListener("appinstalled", () => {
+  offerInstalledApplicationHandoff(
+    "Upskill is installed. Open the installed app to download this module.",
+  );
+});
 window.addEventListener("online", () => {
   void syncAll();
 });
@@ -978,6 +1006,10 @@ if (target) {
     ? "Download for offline"
     : "Offline on Android";
   downloadButton.addEventListener("click", () => {
+    if (installedApplicationHandoff) {
+      openInstalledApplication();
+      return;
+    }
     void beginInstall(target).catch((error: unknown) => {
       downloadButton.disabled = false;
       setStatus(
@@ -985,6 +1017,13 @@ if (target) {
       );
     });
   });
+  if (!isStandaloneApplication())
+    void isRelatedWebApplicationInstalled().then((installed) => {
+      if (installed)
+        offerInstalledApplicationHandoff(
+          "Upskill is already installed. Open the installed app to download this module.",
+        );
+    });
 }
 
 void refreshCourses()

@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
-import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { promisify } from "node:util";
+import { loadOrCreateOfflineScormAndroidRuntime } from "./offline-scorm-android-runtime.mjs";
 
 const execFileAsync = promisify(execFile);
 const port = process.env.UPSKILL_ANDROID_PORT?.trim() || "8080";
@@ -10,12 +10,7 @@ if (!/^\d{2,5}$/u.test(port) || Number(port) > 65_535)
 const adb = process.env.UPSKILL_ADB_PATH?.trim() || "adb";
 const applicationOrigin = `http://app.localhost:${port}`;
 const learningOrigin = `http://learn.localhost:${port}`;
-const { privateKey } = generateKeyPairSync("ec", {
-  namedCurve: "prime256v1",
-});
-const privateKeyPkcs8 = privateKey
-  .export({ format: "der", type: "pkcs8" })
-  .toString("base64url");
+const runtime = await loadOrCreateOfflineScormAndroidRuntime();
 
 async function adbCommand(arguments_) {
   try {
@@ -43,11 +38,11 @@ const server = spawn(process.execPath, ["scripts/start-local-origins.mjs"], {
     LIVEKIT_PROJECT_ENVIRONMENT: "development",
     OFFLINE_SCORM_ENABLED: "true",
     OFFLINE_SCORM_ENTITLEMENT_SIGNING_KEY_ID: "offline-scorm-android-local-v1",
-    OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8: privateKeyPkcs8,
+    OFFLINE_SCORM_ENTITLEMENT_SIGNING_PRIVATE_KEY_PKCS8:
+      runtime.signingPrivateKeyPkcs8,
     OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "localhost",
     OFFLINE_SCORM_PACKAGE_SITE_SUFFIX: "localhost",
-    OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY:
-      randomBytes(32).toString("base64url"),
+    OFFLINE_SCORM_PACKAGE_SITE_ORIGIN_KEY: runtime.packageSiteOriginKey,
     OFFLINE_SCORM_PROTOTYPE_ORIGIN: undefined,
     PORT: port,
   },

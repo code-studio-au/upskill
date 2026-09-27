@@ -78,6 +78,8 @@ describe("application PWA shell", () => {
       start_url: "/?source=pwa",
       display: "standalone",
       theme_color: "#081D40",
+      launch_handler: { client_mode: "navigate-existing" },
+      related_applications: [{ platform: "webapp", url: "/site.webmanifest" }],
     });
     expect(manifest.icons).toEqual(
       expect.arrayContaining([
@@ -256,7 +258,7 @@ describe("application PWA shell", () => {
 
     await expect(response).resolves.toBe(offlineFallback);
     expect(cacheStorage.match).toHaveBeenCalledWith("/offline.html", {
-      cacheName: "upskill-application-shell-v2",
+      cacheName: "upskill-application-shell-v3",
     });
   });
 
@@ -278,7 +280,7 @@ describe("application PWA shell", () => {
     await expect(response).resolves.toBe(cachedScript);
     expect(cacheStorage.match).toHaveBeenCalledWith(
       "/pwa/offline-learning.js",
-      { cacheName: "upskill-application-shell-v2" },
+      { cacheName: "upskill-application-shell-v3" },
     );
   });
 

@@ -118,3 +118,12 @@ export function buildOfflineScormPackageWildcardSource(input: {
   }
   return `https://*.${input.suffix}`;
 }
+
+export function offlineScormPackageHostSuffixForPolicy(input: {
+  environment: "development" | "test" | "staging" | "production";
+  suffix: string | undefined;
+}): string | undefined {
+  // Staging activation is prohibited. Its unprovisioned, production-intended
+  // suffix must therefore never broaden a staging document policy.
+  return input.environment === "staging" ? undefined : input.suffix;
+}

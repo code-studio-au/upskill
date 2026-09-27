@@ -3,7 +3,10 @@ import "@tanstack/react-start/server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
-import { buildOfflineScormPackageWildcardSource } from "#/features/scorm/offline-scorm-package-site";
+import {
+  buildOfflineScormPackageWildcardSource,
+  offlineScormPackageHostSuffixForPolicy,
+} from "#/features/scorm/offline-scorm-package-site";
 import { getServerEnv, type ServerEnv } from "#/server/env.server";
 
 const LEARNING_RUNTIME_PREFIX = "/api/scorm/offline-runtime/";
@@ -29,17 +32,21 @@ export async function readOfflineScormRuntimeAsset(
 }
 
 function runtimeHeaders(environment: ServerEnv, contentType: string): Headers {
+  const packageHostSuffix = offlineScormPackageHostSuffixForPolicy({
+    environment: environment.APP_ENV,
+    suffix: environment.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+  });
   return new Headers({
     "Cache-Control": "no-cache",
     "Content-Security-Policy": buildLearningContentSecurityPolicy(
       new URL(environment.APP_ORIGIN).origin,
       {
-        connectSources: environment.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX
+        connectSources: packageHostSuffix
           ? [
               buildOfflineScormPackageWildcardSource({
                 environment: environment.APP_ENV,
                 origin: environment.LEARNING_ORIGIN,
-                suffix: environment.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+                suffix: packageHostSuffix,
               }),
             ]
           : [],

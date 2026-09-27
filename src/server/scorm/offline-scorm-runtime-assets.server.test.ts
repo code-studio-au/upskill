@@ -60,4 +60,27 @@ describe("offline SCORM learning runtime assets", () => {
       "connect-src 'self' https://*.packages.example.test",
     );
   });
+
+  it("omits the unprovisioned package wildcard from the staging runtime", async () => {
+    Object.assign(environment, {
+      APP_ENV: "staging",
+      APP_ORIGIN: "https://staging.upskill.institute",
+      LEARNING_ORIGIN: "https://learn-staging.upskill.institute",
+      OFFLINE_SCORM_PACKAGE_HOST_SUFFIX: "com.au",
+    });
+
+    const response = await handleOfflineScormLearningRuntimeRequest(
+      new Request(
+        "https://learn-staging.upskill.institute/api/scorm/offline-runtime/frame.html",
+      ),
+    );
+
+    expect(response?.status).toBe(200);
+    expect(response?.headers.get("content-security-policy")).toContain(
+      "connect-src 'self'",
+    );
+    expect(response?.headers.get("content-security-policy")).not.toContain(
+      "*.com.au",
+    );
+  });
 });

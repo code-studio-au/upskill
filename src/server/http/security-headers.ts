@@ -1,5 +1,8 @@
 import { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
-import { buildOfflineScormPackageWildcardSource } from "#/features/scorm/offline-scorm-package-site";
+import {
+  buildOfflineScormPackageWildcardSource,
+  offlineScormPackageHostSuffixForPolicy,
+} from "#/features/scorm/offline-scorm-package-site";
 
 export { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
 
@@ -69,18 +72,22 @@ export function applySecurityHeaders(
         `${liveKitUrl.protocol === "wss:" ? "https:" : "http:"}//${liveKitUrl.host}`,
       ]
     : [];
-  const offlinePackageFrameSource = process.env
-    .OFFLINE_SCORM_PACKAGE_HOST_SUFFIX
+  const applicationEnvironment =
+    process.env.APP_ENV === "test" ||
+    process.env.APP_ENV === "staging" ||
+    process.env.APP_ENV === "production"
+      ? process.env.APP_ENV
+      : "development";
+  const offlinePackageHostSuffix = offlineScormPackageHostSuffixForPolicy({
+    environment: applicationEnvironment,
+    suffix: process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+  });
+  const offlinePackageFrameSource = offlinePackageHostSuffix
     ? [
         buildOfflineScormPackageWildcardSource({
-          environment:
-            process.env.APP_ENV === "test" ||
-            process.env.APP_ENV === "staging" ||
-            process.env.APP_ENV === "production"
-              ? process.env.APP_ENV
-              : "development",
+          environment: applicationEnvironment,
           origin: normalizedApplicationOrigin,
-          suffix: process.env.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+          suffix: offlinePackageHostSuffix,
         }),
       ]
     : [];
