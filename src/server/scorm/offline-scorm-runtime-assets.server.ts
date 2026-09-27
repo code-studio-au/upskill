@@ -3,6 +3,7 @@ import "@tanstack/react-start/server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { buildLearningContentSecurityPolicy } from "#/features/scorm/learning-content-security-policy";
+import { buildOfflineScormPackageWildcardSource } from "#/features/scorm/offline-scorm-package-site";
 import { getServerEnv, type ServerEnv } from "#/server/env.server";
 
 const LEARNING_RUNTIME_PREFIX = "/api/scorm/offline-runtime/";
@@ -34,7 +35,13 @@ function runtimeHeaders(environment: ServerEnv, contentType: string): Headers {
       new URL(environment.APP_ORIGIN).origin,
       {
         connectSources: environment.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX
-          ? [`https://*.${environment.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX}`]
+          ? [
+              buildOfflineScormPackageWildcardSource({
+                environment: environment.APP_ENV,
+                origin: environment.LEARNING_ORIGIN,
+                suffix: environment.OFFLINE_SCORM_PACKAGE_HOST_SUFFIX,
+              }),
+            ]
           : [],
       },
     ),

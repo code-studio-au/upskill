@@ -99,3 +99,22 @@ export function parseOfflineScormPackageSiteSuffix(
     return value;
   return parseOfflineScormPrivateSiteSuffix(value);
 }
+
+export function buildOfflineScormPackageWildcardSource(input: {
+  environment: "development" | "test" | "staging" | "production";
+  origin: string;
+  suffix: string;
+}): string {
+  if (
+    (input.environment === "development" || input.environment === "test") &&
+    input.suffix === "localhost"
+  ) {
+    const origin = parseExactOfflineScormOrigin(input.origin);
+    if (origin.protocol !== "http:" || !origin.hostname.endsWith(".localhost"))
+      throw new Error(
+        "Local offline SCORM CSP requires an HTTP .localhost origin",
+      );
+    return `http://*.localhost${origin.port ? `:${origin.port}` : ""}`;
+  }
+  return `https://*.${input.suffix}`;
+}
