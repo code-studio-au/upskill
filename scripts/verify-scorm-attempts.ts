@@ -224,6 +224,10 @@ async function cleanup(): Promise<void> {
               .executeTakeFirstOrThrow();
         }
       await database
+        .deleteFrom("offline_scorm_cloudfront_allocation")
+        .where("attemptId", "in", attemptIds)
+        .execute();
+      await database
         .deleteFrom("offline_scorm_cleanup_inventory")
         .where("entitlementId", "in", (query) =>
           query
@@ -694,6 +698,11 @@ try {
   } = await import("#/server/scorm/scorm-attempt.server");
   const { issueOfflineScormEntitlement } =
     await import("#/server/scorm/offline-scorm-entitlement.server");
+  const {
+    finalizeOfflineScormCloudFrontEntitlement,
+    reserveOfflineScormCloudFrontEntitlement,
+  } =
+    await import("#/server/scorm/offline-scorm-cloudfront-entitlement.server");
   const { createOfflineScormEntitlementSigner } =
     await import("#/server/scorm/offline-scorm-entitlement-signing.server");
   const signEntitlement = createOfflineScormEntitlementSigner({
@@ -2389,6 +2398,191 @@ try {
     "clearing",
   );
 
+  const cloudFrontReservationInput = {
+    target: {
+      kind: "course" as const,
+      enrollmentId: ids.enrollment,
+      modulePosition: 0,
+    },
+    installationId: ids.installation,
+    sessionId: ids.session,
+    expectedPackage: {
+      packageVersionId: ids.packageVersion,
+      packageSha256: "a".repeat(64),
+    },
+  };
+  const concurrentReservations = await Promise.all([
+    reserveOfflineScormCloudFrontEntitlement(cloudFrontReservationInput, user),
+    reserveOfflineScormCloudFrontEntitlement(cloudFrontReservationInput, user),
+  ]);
+  const preparedReservations = concurrentReservations.map((reservation) => {
+    if (reservation.status !== "preparing")
+      assert.fail(
+        `Expected CloudFront reservation, received ${reservation.reason}`,
+      );
+    return reservation;
+  });
+  const firstReservation = preparedReservations[0];
+  const secondReservation = preparedReservations[1];
+  assert.ok(firstReservation && secondReservation);
+  const cloudFrontEntitlementId = firstReservation.entitlementId;
+  assert.equal(secondReservation.entitlementId, cloudFrontEntitlementId);
+  assert.deepEqual(
+    preparedReservations.map((reservation) => reservation.recovered).sort(),
+    [false, true],
+  );
+  const cloudFrontReservation = await database
+    .selectFrom("offline_scorm_cloudfront_allocation")
+    .select([
+      "userId",
+      "installationId",
+      "attemptId",
+      "courseEnrollmentId",
+      "courseModulePosition",
+      "courseVersionItemId",
+      "scormPackageVersionId",
+      "packageSha256",
+      "state",
+    ])
+    .where("entitlementId", "=", cloudFrontEntitlementId)
+    .executeTakeFirstOrThrow();
+  assert.deepEqual(cloudFrontReservation, {
+    userId: ids.user,
+    installationId: ids.installation,
+    attemptId: administratorCleanupIssuance.attemptId,
+    courseEnrollmentId: ids.enrollment,
+    courseModulePosition: 0,
+    courseVersionItemId: ids.item,
+    scormPackageVersionId: ids.packageVersion,
+    packageSha256: "a".repeat(64),
+    state: "allocating",
+  });
+  await assert.rejects(
+    database
+      .updateTable("offline_scorm_cloudfront_allocation")
+      .set({ courseModulePosition: 1 })
+      .where("entitlementId", "=", cloudFrontEntitlementId)
+      .executeTakeFirstOrThrow(),
+    /CloudFront reservation authority is immutable/u,
+  );
+  const cloudFrontBoundAt = new Date();
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      distributionId: "E1234567890123",
+      distributionDomain: "d1234567890123.cloudfront.net",
+      state: "binding_pending",
+      boundAt: cloudFrontBoundAt,
+      updatedAt: cloudFrontBoundAt,
+    })
+    .where("entitlementId", "=", cloudFrontEntitlementId)
+    .executeTakeFirstOrThrow();
+
+  assert.deepEqual(
+    await finalizeOfflineScormCloudFrontEntitlement(
+      {
+        ...cloudFrontReservationInput,
+        entitlementId: cloudFrontEntitlementId,
+        target: { ...cloudFrontReservationInput.target, modulePosition: 1 },
+      },
+      user,
+      signEntitlement,
+    ),
+    { status: "denied", reason: "reservation-unavailable" },
+  );
+
+  await assert.rejects(
+    finalizeOfflineScormCloudFrontEntitlement(
+      { entitlementId: cloudFrontEntitlementId, ...cloudFrontReservationInput },
+      user,
+      () => {
+        throw new Error("verification signer failure");
+      },
+    ),
+    /verification signer failure/u,
+  );
+  assert.equal(
+    (
+      await database
+        .selectFrom("offline_scorm_cloudfront_allocation")
+        .select("state")
+        .where("entitlementId", "=", cloudFrontEntitlementId)
+        .executeTakeFirstOrThrow()
+    ).state,
+    "binding_pending",
+  );
+  assert.equal(
+    await database
+      .selectFrom("offline_learning_entitlement")
+      .select("id")
+      .where("id", "=", cloudFrontEntitlementId)
+      .executeTakeFirst(),
+    undefined,
+  );
+
+  const cloudFrontFinalization =
+    await finalizeOfflineScormCloudFrontEntitlement(
+      { entitlementId: cloudFrontEntitlementId, ...cloudFrontReservationInput },
+      user,
+      signEntitlement,
+    );
+  assert.deepEqual(cloudFrontFinalization, {
+    status: "preparing",
+    entitlementId: cloudFrontEntitlementId,
+    state: "enabling",
+  });
+  assert.deepEqual(
+    await database
+      .selectFrom("offline_scorm_cloudfront_allocation as allocation")
+      .innerJoin(
+        "offline_learning_entitlement as entitlement",
+        "entitlement.id",
+        "allocation.entitlementId",
+      )
+      .innerJoin(
+        "offline_scorm_cleanup_inventory as cleanup",
+        "cleanup.entitlementId",
+        "allocation.entitlementId",
+      )
+      .select([
+        "allocation.state",
+        "entitlement.status as entitlementStatus",
+        "cleanup.state as cleanupState",
+        "cleanup.packageSiteOrigin",
+      ])
+      .where("allocation.entitlementId", "=", cloudFrontEntitlementId)
+      .executeTakeFirstOrThrow(),
+    {
+      state: "enabling",
+      entitlementStatus: "active",
+      cleanupState: "pending",
+      packageSiteOrigin: "https://d1234567890123.cloudfront.net",
+    },
+  );
+  const cloudFrontActivatedAt = new Date();
+  await database
+    .updateTable("offline_scorm_cloudfront_allocation")
+    .set({
+      state: "active",
+      activatedAt: cloudFrontActivatedAt,
+      updatedAt: cloudFrontActivatedAt,
+    })
+    .where("entitlementId", "=", cloudFrontEntitlementId)
+    .executeTakeFirstOrThrow();
+  const recoveredCloudFrontFinalization =
+    await finalizeOfflineScormCloudFrontEntitlement(
+      { entitlementId: cloudFrontEntitlementId, ...cloudFrontReservationInput },
+      user,
+      () => {
+        throw new Error("CloudFront recovery must not sign again");
+      },
+    );
+  assert.equal(recoveredCloudFrontFinalization.status, "ready");
+  assert.equal(
+    recoveredCloudFrontFinalization.issuance.entitlementId,
+    cloudFrontEntitlementId,
+  );
+
   const eventAttempt = await database
     .selectFrom("scorm_attempt")
     .select([
@@ -2724,7 +2918,7 @@ try {
   assert.equal(expiredRetry.receipts[0]?.recovered, true);
 
   console.log(
-    "Verified shared Course/Event launch policy, owner-first completion locks, finite offline delegation, locked writer races, online credential invalidation, progress revisions, signature-bound ordered reconciliation, atomic fingerprint conflicts, concurrent retry and gap handling, launch-session time high-water enforcement, monotonic completion, deadline and hard-revocation gates, and Course/Event completion effects",
+    "Verified shared Course/Event launch policy, owner-first completion locks, finite offline delegation, locked writer races, CloudFront reservation recovery and atomic issuance, online credential invalidation, progress revisions, signature-bound ordered reconciliation, atomic fingerprint conflicts, concurrent retry and gap handling, launch-session time high-water enforcement, monotonic completion, deadline and hard-revocation gates, and Course/Event completion effects",
   );
 } finally {
   await cleanup();

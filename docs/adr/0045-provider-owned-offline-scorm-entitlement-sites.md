@@ -2,9 +2,9 @@
 
 ## Status
 
-Proposed; CloudFront qualification infrastructure, durable allocation model,
-origin validation and dormant worker allocation/recovery are implemented but
-disabled by default.
+Proposed; CloudFront qualification infrastructure, durable allocation and
+issuance models, origin validation and dormant worker recovery are implemented
+but disabled by default.
 Date: 2026-09-27
 
 ## Context
@@ -145,8 +145,8 @@ boundary.
 
 The reservation intentionally precedes `offline_learning_entitlement`, so it
 does not have a foreign key to an entitlement that does not yet exist. The
-future issuance workflow must lock the reservation and atomically create the
-entitlement plus cleanup inventory for
+issuance workflow locks the reservation and atomically creates the entitlement
+plus cleanup inventory for
 `https://<distributionDomain>` before moving the reservation from
 `binding_pending` to `enabling`.
 
@@ -163,6 +163,17 @@ claiming and finalising every activation call; if it disappears, the retained
 allocation moves to `disabling` for the pending retirement workflow rather than
 becoming active. This increment does not create reservations, issue
 entitlements, process distribution retirement or expose learner UI.
+
+Migration 0122 binds application-created reservations immutably to the exact
+learner, installation, attempt, Course item and package evidence that authorized
+the request. The dormant Course workflow serializes concurrent reservations on
+the attempt, recovers a lost reservation response, revalidates the session,
+installation, launch policy and immutable package before issuance, and creates
+the signed entitlement plus cleanup inventory in the same transaction that
+moves a bound allocation to `enabling`. The signed envelope remains server-side
+until the allocation is `active`. Legacy operator qualification reservations
+remain unowned and cannot be claimed by this workflow. No route, deployment
+mode or learner activation path is added by this increment.
 
 ## Threat model and controls
 
@@ -297,8 +308,9 @@ deleted stack still requires the normal retained-resource recovery process.
 4. Add the asynchronous server-owned workflow in bounded increments:
    - allocation and activation recovery for pre-existing reservations is
      **implemented and dormant** with migration 0121;
-   - reservation creation, atomic entitlement/cleanup issuance and retirement
-     remain pending; and
+   - authenticated Course reservation creation and atomic entitlement/cleanup
+     issuance are **implemented and dormant** with migration 0122;
+   - distribution retirement remains pending; and
    - a distinct AWS worker principal or explicit shared-host risk acceptance
      remains required before learner activation.
 5. Run the browser, cleanup, latency, quota, WAF and cost qualification matrix.
